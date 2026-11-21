@@ -1660,6 +1660,18 @@ pub struct Config {
     /// (`cmux_tui_service.rs`). Set with `acpmux config --set remote_daemon=127.0.0.1:PORT`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_daemon: Option<String>,
+    /// `exposedServices`: the services this machine's owner lets their other machines reach
+    /// through the hub carrier, by name (`named_service.rs`): `{"NAME": {"unix": PATH} | {"tcp":
+    /// "127.0.0.1:PORT"}}`. Empty (the default): no name reaches anything. A unix path must be
+    /// under the owner's home; a tcp address on loopback unless the entry says
+    /// `allowNonLoopback`. Read at each circuit, so an edit and `_acpmux/reload_config` apply it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub exposed_services: BTreeMap<String, ExposedService>,
+    /// `machineForwards`: local listeners that each reach one named service on another of the
+    /// owner's machines (`machine_forward.rs`), keyed by the service's name. Written by
+    /// `acpmux machine forward add|rm`; the daemon binds them at start and on reload.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub machine_forwards: BTreeMap<String, MachineForward>,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
     /// Claude Code through a CodeRouter route. When it is set (env
     /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
@@ -1930,6 +1942,8 @@ mod pool;
 pub use pool::PoolConfig;
 mod btw;
 pub use btw::BtwConfig;
+pub mod named_services;
+pub use named_services::{ExposedService, MachineForward};
 mod usage_warnings;
 pub use usage_warnings::{ContextLimit, FALLBACK_CONTEXT_TOKENS, UsageLimits, UsageWarningsConfig};
 pub mod folder_profiles;

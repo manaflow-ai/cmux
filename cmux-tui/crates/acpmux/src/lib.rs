@@ -160,6 +160,10 @@ pub mod lossy_lines;
 mod lost_home_race_tests;
 #[path = "cli/machine_consent.rs"]
 pub(crate) mod machine_consent;
+/// Local listeners that reach a service another of the owner's machines exposes by name
+/// (`machine_forward.rs`, `acpmux machine forward`).
+#[cfg(all(feature = "hub-carrier", unix))]
+pub mod machine_forward;
 pub(crate) mod machine_info;
 pub(crate) mod machine_record;
 /// A local route to each of the person's other machines' cmux-tui session (`machine_routes.rs`).
@@ -180,6 +184,9 @@ pub mod model_copies;
 pub mod name_match;
 #[cfg(target_os = "macos")]
 mod named_files_watch;
+/// A service this machine's owner exposed by name, over the hub carrier (`named_service.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod named_service;
 pub mod native;
 pub mod no_panic;
 pub mod offer_mcp;

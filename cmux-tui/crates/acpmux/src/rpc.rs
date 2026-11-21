@@ -903,7 +903,8 @@ pub mod method {
     /// `acpmux share-host status` prints. Local socket only.
     pub const MUX_SHARE_HOST_STATUS: &str = "_acpmux/share_host_status";
     /// The person's other machines' workspace routes (`machine_routes.rs`): `{}` ->
-    /// `{machines: [{host, daemonId, via, route, socket, state, refusal}]}`. Local socket only.
+    /// `{machines: [{host, daemonId, via, route, socket, state, refusal}], forwards: [...]}`;
+    /// `{forwardsOnly: true}` -> `{forwards}` alone (`machine_forward.rs`). Local socket only.
     pub const MUX_MACHINE_ROUTES: &str = "_acpmux/machine_routes";
     /// One session circuit to a listed machine, opened and closed: `{daemonId}` -> `{ok}` or the
     /// refusal (`reason`). What New Workspace asks first: the far machine asks its person once.

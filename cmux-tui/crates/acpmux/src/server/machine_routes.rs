@@ -25,16 +25,26 @@ pub(super) async fn dispatch(
         return Some(Err(RpcError::method_not_found(&format!("{m} (local socket only)"))));
     }
     Some(match m {
-        method::MUX_MACHINE_ROUTES => Ok(routes(hub).await),
+        method::MUX_MACHINE_ROUTES => Ok(routes(hub, params).await),
         _ => probe(hub, params).await,
     })
 }
 
-async fn routes(hub: &Arc<Hub>) -> Value {
+async fn routes(hub: &Arc<Hub>, params: &Value) -> Value {
+    let carrier = hub.hub_carrier.get().is_some();
+    // The named-service forwards (`machine_forward.rs`), what `acpmux machine forward ls` reads.
+    #[cfg(unix)]
+    let forwards = Value::Array(hub.forwards.list());
+    #[cfg(not(unix))]
+    let forwards = Value::Array(Vec::new());
+    // `forwardsOnly`: the forwards alone, with no workspace route bound by the read.
+    if params.get("forwardsOnly").and_then(Value::as_bool) == Some(true) {
+        return json!({"forwards": forwards, "carrier": carrier});
+    }
     let machines = hub.mesh_book_machines();
     let daemon_socket = crate::config::socket_path();
     let listed = hub.machine_routes.reconcile(hub, &daemon_socket, &machines).await;
-    json!({"machines": listed, "carrier": hub.hub_carrier.get().is_some()})
+    json!({"machines": listed, "forwards": forwards, "carrier": carrier})
 }
 
 async fn probe(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {

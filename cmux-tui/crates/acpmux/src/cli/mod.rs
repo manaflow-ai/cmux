@@ -54,6 +54,7 @@ pub mod machine_auth;
 pub(crate) mod owned_child;
 pub(crate) use crate::machine_consent;
 pub mod machine_deps;
+pub(crate) mod machine_forward_cmd;
 pub mod mesh_control;
 pub use crate::mesh_node_key;
 pub mod notices;

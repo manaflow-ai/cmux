@@ -149,6 +149,13 @@ pub enum PeerCmd {
         #[command(subcommand)]
         cmd: ConsentCmd,
     },
+    /// Forwards to a service another of your machines exposes by name, through the hub carrier
+    /// (no ssh, no tailnet): add, ls, rm. The far machine's owner lists the service in its
+    /// `exposedServices`; this machine's daemon keeps the local listener across restarts.
+    Forward {
+        #[command(subcommand)]
+        cmd: ForwardCmd,
+    },
     /// This Mac's Cloud tunnel on the team mesh, through the daemon: attach, detach, rekey.
     /// The daemon takes them only from the cmux app (its person proof), with the person's
     /// cmux access token on stdin; a shell or agent is refused.
@@ -544,5 +551,40 @@ pub enum TicketCmd {
         /// on or off.
         #[arg(value_parser = ["on", "off"])]
         state: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ForwardCmd {
+    /// Listen here and reach the service NAME on machine FROM: each local connection is one
+    /// carrier circuit to it. Written to config.json (`machineForwards`); the daemon binds it now
+    /// and at every start.
+    Add {
+        /// The service's name, as the far machine's `exposedServices` lists it.
+        #[arg(long)]
+        name: String,
+        /// The machine that exposes it: its host as the hub lists it, a peer, or its node key.
+        #[arg(long, value_name = "MACHINE")]
+        from: String,
+        /// A unix socket path to listen on (made 0600; `~/` is your home).
+        #[arg(
+            long,
+            value_name = "PATH",
+            conflicts_with = "listen_tcp",
+            required_unless_present = "listen_tcp"
+        )]
+        listen_unix: Option<String>,
+        /// A loopback `ip:port` to listen on (127.0.0.1:PORT or [::1]:PORT).
+        #[arg(long, value_name = "ADDR")]
+        listen_tcp: Option<String>,
+    },
+    /// Each forward, where it listens and its state (listening, refused with the far machine's
+    /// reason, or unavailable with why).
+    Ls,
+    /// Stop a forward and remove it from config.json.
+    Rm {
+        /// The forward's service name.
+        #[arg(long)]
+        name: String,
     },
 }
