@@ -19,7 +19,10 @@ writes the manifest from it (adopt-commit-manifest). A run still in progress is
 left for the next push's sweep, so nothing here waits (cx-urd.26: no runner
 minutes spent waiting on owners). Only commits whose workflow has the
 adopt-commit-manifest job are re-run: an older commit's re-run runs that
-commit's workflow, which would rebuild on macOS or write nothing.
+commit's workflow, which would rebuild on macOS or write nothing. The re-run is
+that job's alone when it ran (cmux_tui_tree_handoff.rerun_manifest), not the
+whole run's: a whole-run re-run of a feat-cmux-next push also re-ran this sweep,
+its channel pointers and its nightly-next request.
 
 usage: cmux_tui_manifest_sweep.py --repo OWNER/NAME [--window N] [--tip-branch B]
 Needs GH_TOKEN with actions: write; GH_TOKEN_SPARE as cmux_tui_tree_handoff.py.
@@ -137,7 +140,8 @@ def main(argv: list[str]) -> int:
         return max(runs, key=lambda run: int(run["id"])) if runs else None
 
     def rerun(run_id: int) -> bool:
-        result = handoff._gh("run", "rerun", str(run_id), "--repo", args.repo)
+        result, what = handoff.rerun_manifest(args.repo, run_id)
+        print(f"run {run_id}: re-ran {what}")
         if result.returncode != 0:
             print(f"::warning::could not re-run run {run_id}: {result.stderr.strip()}")
         return result.returncode == 0
