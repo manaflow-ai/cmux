@@ -17,9 +17,9 @@ import { gzipSync } from "node:zlib";
 // was added.
 // The upstream server-timing tally with its body-read timing (src/upstream/timing.ts) measured 454.1 KiB; no
 // dependency was added.
-// An image's large snapshot and a create with no provider read first measured 454.4 KiB on top of that; no dependency
-// was added.
-const BUDGET_GZIP_BYTES = 456 * 1024; // 298 KiB at S1
+// An image's large snapshot and a create with no provider read first measured 456.0 KiB on top of that in CI (454.4 on
+// macOS, whose zlib packs it smaller); no dependency was added.
+const BUDGET_GZIP_BYTES = 457 * 1024; // 298 KiB at S1
 const dir = process.argv[2] ?? "dist";
 
 const files = readdirSync(dir, { recursive: true })
