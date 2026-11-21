@@ -41,6 +41,12 @@ extension AccentSetting {
     public nonisolated static let fallback: ThemeAccent = .neutral
 }
 
+extension SelectionSetting {
+    /// `appearance.selection`: Off by default: accent is today's rule (the accent's tint when appearance.accent or the theme names one). neutral keeps the gray card whatever the accent (ThemeInput.selection).
+    public nonisolated static let configPath = ["appearance", "selection"]
+    public nonisolated static let fallback: ThemeSelection = .accent
+}
+
 extension ThemeFileSetting {
     /// `appearance.themeFile`.
     public nonisolated static let configPath = ["appearance", "themeFile"]
