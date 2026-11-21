@@ -945,10 +945,29 @@ impl Hub {
 
     /// `_acpmux/subsession/list`: the caller's children, or all its descendants.
     pub fn subsession_list(&self, caller: &Session, descendants: bool) -> Value {
+        // Read each parent link once. Every session has one parent, so leaving the caller
+        // out of the snapshot also breaks a link back to it in a moved family.
+        let mut children: HashMap<String, Vec<Arc<Session>>> = HashMap::new();
+        for session in self.session_handles() {
+            if session.id == caller.id {
+                continue;
+            }
+            let parent = session.read_meta(|m| {
+                m.subsession
+                    .as_ref()
+                    .filter(|link| descendants || link.started_by == caller.id)
+                    .map(|link| link.started_by.clone())
+            });
+            if let Some(parent) = parent {
+                children.entry(parent).or_default().push(session);
+            }
+        }
+
         let mut rows = Vec::new();
         let mut frontier = vec![caller.id.clone()];
         while let Some(id) = frontier.pop() {
-            for child in self.subsession_children(&id) {
+            let Some(siblings) = children.remove(&id) else { continue };
+            for child in newest_first(siblings) {
                 if descendants {
                     frontier.push(child.id.clone());
                 }
@@ -1280,9 +1299,42 @@ fn text_block(text: &str) -> Vec<Value> {
 }
 
 #[cfg(test)]
-mod reply_tests {
+mod tests {
     use super::*;
     use crate::store::{MemoryStore, SessionMeta};
+
+    #[test]
+    fn subsession_list_visits_each_descendant_once_after_a_move() {
+        let hub = Hub::new(crate::config::Config::default(), Box::new(MemoryStore::default()));
+        let insert = |id: &str, parent: &str, updated: u64, status: &str| {
+            hub.insert_test_session(
+                serde_json::from_value(json!({
+                    "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+                    "harness": "codex", "cwd": "/tmp", "status": status,
+                    "createdAt": 1, "updatedAt": updated,
+                    "subsession": {"startedBy": parent, "shortName": id, "depth": 1}
+                }))
+                .unwrap(),
+            )
+        };
+        let caller = insert("caller", "grandchild", 1, "idle");
+        insert("older", "caller", 2, "closed");
+        insert("newer", "caller", 3, "idle");
+        insert("grandchild", "older", 4, "idle");
+        insert("unrelated", "elsewhere", 5, "idle");
+
+        let ids = |descendants| {
+            let list = hub.subsession_list(&caller, descendants);
+            list["sessions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| s["sessionId"].clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(false), [json!("newer"), json!("older")]);
+        assert_eq!(ids(true), [json!("newer"), json!("older"), json!("grandchild")]);
+    }
 
     #[test]
     fn unbounded_reply_keeps_long_reviewer_text() {
