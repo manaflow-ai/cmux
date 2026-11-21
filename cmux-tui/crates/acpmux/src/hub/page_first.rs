@@ -250,7 +250,11 @@ impl Hub {
     /// or a hub machine's by its `PEER/ID` row key (the mirrored row, never asked of the peer).
     /// `None` for a key that names no row. Only the rows asked for are built, whatever the
     /// list's size (`_acpmux/info` with `sessionIds`, agent service v2 row 7b).
-    pub(crate) fn rows_by_key(&self, keys: &[String], with_tools: bool) -> Vec<Option<Arc<str>>> {
+    pub(crate) fn rows_by_key(
+        &self,
+        keys: &[String],
+        with_tools: bool,
+    ) -> Result<Vec<Option<Arc<str>>>, RpcError> {
         /// A key's row, found before any is built.
         enum Found {
             Own(Arc<Session>),
@@ -268,8 +272,19 @@ impl Hub {
                 }
             }
         }
+        for (key, found) in keys.iter().zip(found.iter_mut()) {
+            if found.is_some() {
+                continue;
+            }
+            let Some(route) = self.key_route(key)? else { continue };
+            *found = self.session_by_id(&route).map(Found::Own);
+            if found.is_none() && route.contains('/') {
+                *found = self.remote_sessions.read().get(&route).cloned().map(Found::Mirrored);
+            }
+        }
         let mut states = None;
-        keys.iter()
+        Ok(keys
+            .iter()
             .zip(found)
             .map(|(key, found)| match found {
                 Some(Found::Own(session)) => Some(self.own_row_text(&session, with_tools)),
@@ -283,7 +298,7 @@ impl Hub {
                     Some(super::peers::listed_remote_text(&row, states, with_tools).into())
                 }
             })
-            .collect()
+            .collect())
     }
 
     /// How many closed rows `_acpmux/sessions` with no filter lists: this daemon's `own` closed

@@ -1484,13 +1484,7 @@ impl Hub {
     /// them: 0 none, 1 the one it resolves, more when it is ambiguous.
     pub fn remote_matches(&self, key: &str) -> usize {
         let map = self.remote_sessions.read();
-        if map.get(key).is_some() {
-            return 1;
-        }
-        // Whole names and prefixes, else short names (closed ones only when no live one has
-        // it, as `resolve_remote` matches them). Only the rows the indexes say `key` can name
-        // are read (`remote_rows.rs`), never every peer's.
-        let strict = map.named(key).into_iter().filter(|(id, r)| names_remote(id, r, key)).count();
+        let strict = map.strict_matches(key).len();
         if strict > 0 {
             return strict;
         }
@@ -1507,11 +1501,7 @@ impl Hub {
     /// id prefix, whole name or `PEER/NAME`. A local short name gives way to any of them
     /// (`Hub::resolve_here`).
     pub(super) fn remote_strict_matches(&self, key: &str) -> usize {
-        let map = self.remote_sessions.read();
-        if map.get(key).is_some() {
-            return 1;
-        }
-        map.named(key).into_iter().filter(|(id, r)| names_remote(id, r, key)).count()
+        self.remote_sessions.read().strict_matches(key).len()
     }
 
     /// The names (with their ids) of the peer sessions whose short name is `key`
@@ -1539,40 +1529,22 @@ impl Hub {
         let row = |r: &RemoteSession| {
             (r.peer.clone(), r.receipt.mux_session_id.clone(), r.summary.value())
         };
-        let (hit, by_short_name) = if let Some(r) = map.get(key) {
-            (Some(row(r)), false)
-        } else {
-            // Whole names and prefixes first; the short-name candidates count only when none
-            // matched. Only the rows the indexes say `key` can name are read (`remote_rows.rs`),
-            // never every peer's, and the predicates still decide which of them it names. Only
-            // the one row picked is cloned.
-            let strict: Vec<&RemoteSession> = map
-                .named(key)
+        let mut matches = map.strict_matches(key);
+        let by_short_name = matches.is_empty();
+        if by_short_name {
+            matches = map
+                .short_named(key)
                 .into_iter()
-                .filter(|(id, r)| names_remote(id, r, key))
-                .map(|(_, r)| &**r)
+                .filter(|(_, r)| remote_segment(r, key))
+                .map(|(_, r)| r.as_ref())
                 .collect();
-            let shorts: Vec<&RemoteSession> = if strict.is_empty() {
-                map.short_named(key)
-                    .into_iter()
-                    .filter(|(_, r)| remote_segment(r, key))
-                    .map(|(_, r)| &**r)
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            let short = strict.is_empty();
-            let mut matches: Vec<&RemoteSession> = if short {
-                // Closed ones count only when no live one has the short name (`hub/key_route.rs`).
-                let live = shorts.iter().any(|r| !remote_closed(r));
-                shorts.into_iter().filter(|r| !live || !remote_closed(r)).collect()
-            } else {
-                strict
-            };
-            (if matches.len() == 1 { matches.pop().map(row) } else { None }, short)
-        };
+            if matches.iter().any(|r| !remote_closed(r)) {
+                matches.retain(|r| !remote_closed(r));
+            }
+        }
+        let [one] = matches.as_slice() else { return None };
+        let (peer_name, id, summary) = row(one);
         drop(map);
-        let (peer_name, id, summary) = hit?;
         // A bare short name gives way to any session here `key` names by id, name or prefix, to
         // a live one here with the short name, and, when this one is closed, to a closed one
         // here too (`Hub::resolve_here` refuses those ties). Read only now, with the peers' rows
@@ -1593,11 +1565,28 @@ impl Hub {
     /// list (`Hub::unknown_session`).
     pub(super) fn remote_names_containing(&self, lower: &str) -> Vec<String> {
         let map = self.remote_sessions.read();
-        map.values()
+        let mut names: Vec<String> = map
+            .values()
             .filter_map(|r| r.summary.name())
             .filter(|n| crate::session_name::contains_ignore_case(n, lower))
             .map(str::to_owned)
-            .collect()
+            .collect();
+        let requested_peer = lower.split_once('/').map(|(peer, _)| peer);
+        let id_key = lower.rsplit('/').next().unwrap_or(lower);
+        if crate::session_identity::agent_id_query(id_key)
+            || id_key.bytes().any(|b| b.is_ascii_digit())
+        {
+            names.extend(map.values().filter_map(|r| {
+                let peer_matches =
+                    requested_peer.is_none_or(|peer| r.peer.eq_ignore_ascii_case(peer));
+                r.summary.agent_session_id().filter(|_| peer_matches && !remote_closed(r)).map(
+                    |id| {
+                        requested_peer.map_or_else(|| id.to_owned(), |peer| format!("{peer}/{id}"))
+                    },
+                )
+            }));
+        }
+        names
     }
 
     /// Peer `peer`'s session `mux` was deleted through us: drop it now rather than at the next

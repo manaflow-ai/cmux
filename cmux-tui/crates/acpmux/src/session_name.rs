@@ -80,25 +80,54 @@ pub fn candidates<'a>(names: impl IntoIterator<Item = &'a str>, key: &str) -> Ve
     if lower.is_empty() {
         return Vec::new();
     }
-    let mut ranked: Vec<(u8, &str)> = names
+    let mut ranked: Vec<(u8, usize, &str)> = names
         .into_iter()
         .filter_map(|name| {
             let n = name.to_ascii_lowercase();
             let rank = if ends_with_segments(&n, &lower) {
-                0
+                Some((0, 0))
             } else if n.starts_with(&lower) {
-                1
+                Some((1, 0))
             } else if n.contains(&lower) {
-                2
+                Some((2, 0))
             } else {
-                return None;
+                id_prefix_distance(&n, &lower).map(|distance| (3, distance))
             };
-            Some((rank, name))
+            rank.map(|(rank, distance)| (rank, distance, name))
         })
         .collect();
     ranked.sort();
-    ranked.dedup_by(|a, b| a.1 == b.1);
-    ranked.into_iter().map(|(_, name)| name.to_owned()).collect()
+    ranked.dedup_by(|a, b| a.2 == b.2);
+    ranked.into_iter().map(|(_, _, name)| name.to_owned()).collect()
+}
+
+/// The distance between an ID-shaped query and the same-length head of an ID candidate.
+/// Host-qualified queries compare only candidates on that host.
+fn id_prefix_distance(name: &str, key: &str) -> Option<usize> {
+    let (key_host, key_id) =
+        key.rsplit_once('/').map_or((None, key), |(host, id)| (Some(host), id));
+    if !crate::session_identity::agent_id_query(key_id) {
+        return None;
+    }
+    if let Some(host) = key_host {
+        let (name_host, _) = name.rsplit_once('/')?;
+        if !name_host.eq_ignore_ascii_case(host) {
+            return None;
+        }
+    }
+    let key_hex: Vec<u8> = key_id.bytes().filter(|b| b.is_ascii_hexdigit()).collect();
+    let name_id = name.rsplit('/').next().unwrap_or(name);
+    let name_hex: Vec<u8> = name_id.bytes().filter(|b| b.is_ascii_hexdigit()).collect();
+    if name_hex.len() < key_hex.len() {
+        return None;
+    }
+    let distance = name_hex
+        .iter()
+        .zip(key_hex.iter())
+        .take(key_hex.len())
+        .filter(|(candidate, wanted)| !candidate.eq_ignore_ascii_case(wanted))
+        .count();
+    (distance <= 2).then_some(distance)
 }
 
 /// `candidates` as a refusal's tail: `a, b, c` or `a, b, … and 4 more`.
@@ -161,6 +190,22 @@ mod tests {
             ["claude-sr2/mac-ci-3", "mac-ci-30", "x/mac-ci-3-old"],
         );
         assert!(candidates(names, "").is_empty());
+    }
+
+    #[test]
+    fn candidates_include_nearby_agent_id_prefixes() {
+        let id = "6e0bad7d-1100-4000-8000-000000000001";
+        assert_eq!(candidates([id, "lane"], "6e0bad7e"), [id]);
+        assert_eq!(
+            candidates(["cosmic-gray/6e0bad7d-1100"], "cosmic-gray/6e0bad7e"),
+            ["cosmic-gray/6e0bad7d-1100"]
+        );
+    }
+
+    #[test]
+    fn candidates_include_nearby_full_uuid_ids() {
+        let id = "6e0bad7d-1100-4000-8000-000000000001";
+        assert_eq!(candidates([id], "6e0bad7e-1100-4000-8000-000000000001"), [id]);
     }
 
     #[test]

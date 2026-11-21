@@ -246,12 +246,22 @@ fn concerns(hub: &Hub, e: &HubEvent) -> bool {
 }
 /// Bind a name once. A rename or a new session reusing it cannot retarget a watch.
 pub fn resolve(hub: &Hub, key: &str) -> Result<String, RpcError> {
-    if let Ok(s) = hub.resolve(key) {
-        return Ok(s.id.clone());
+    if let Some(route) = hub.key_route(key)? {
+        let valid = if route.contains('/') {
+            hub.resolve_remote(&route).is_some()
+        } else {
+            hub.resolve(&route).is_ok()
+        };
+        if valid {
+            return Ok(route);
+        }
+    }
+    if let Ok(session) = hub.resolve(key) {
+        return Ok(session.id.clone());
     }
     hub.resolve_remote(key)
-        .map(|(p, id, _)| format!("{}/{id}", p.name))
-        .ok_or_else(|| RpcError::not_found(format!("no session matches {key:?}; run acpmux ls")))
+        .map(|(peer, id, _)| format!("{}/{id}", peer.name))
+        .ok_or_else(|| hub.no_session_refusal(key))
 }
 pub(super) fn summary(hub: &Hub, key: &str) -> Value {
     if let Ok(s) = hub.resolve(key) {

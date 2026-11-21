@@ -118,7 +118,7 @@ impl Hub {
             && self.peer(host).is_some()
         {
             let map = self.remote_sessions.read();
-            let names = map
+            let mut names: Vec<String> = map
                 .values()
                 .filter(|r| r.peer == host && !super::peers::remote_closed(r))
                 .filter_map(|r| r.summary.name())
@@ -126,17 +126,31 @@ impl Hub {
                     n.strip_prefix(host).and_then(|n| n.strip_prefix('/')).unwrap_or(n).to_owned()
                 })
                 .collect();
+            let id_query = crate::session_identity::agent_id_query(rest)
+                || rest.bytes().any(|b| b.is_ascii_digit());
+            if id_query {
+                names.extend(map.values().filter_map(|r| {
+                    (r.peer == host && !super::peers::remote_closed(r))
+                        .then(|| r.summary.agent_session_id())
+                        .flatten()
+                        .map(str::to_owned)
+                }));
+            }
             return (host.to_owned(), rest, names);
         }
         let (host, name) = match key.split_once('/') {
             Some((host, rest))
-                if !rest.is_empty() && super::own_host::is_own_machine_name(host) =>
+                if !rest.is_empty()
+                    && (host.eq_ignore_ascii_case(crate::session_identity::LOCAL_HOST_ID)
+                        || super::own_host::is_own_machine_name(host)) =>
             {
                 (host.to_owned(), rest)
             }
             _ => (crate::pairing::machine_name(), key),
         };
-        let names = self
+        let id_query = crate::session_identity::agent_id_query(name)
+            || name.bytes().any(|b| b.is_ascii_digit());
+        let mut names: Vec<String> = self
             .sessions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -147,6 +161,21 @@ impl Hub {
                     .then(|| meta.name.clone())
             })
             .collect();
+        if id_query {
+            names.extend(
+                self.sessions
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .values()
+                    .filter_map(|s| {
+                        let meta = s.meta.lock().unwrap_or_else(|e| e.into_inner());
+                        (meta.status != SessionStatus::Closed)
+                            .then(|| meta.agent_session_id.as_deref())
+                            .flatten()
+                            .map(str::to_owned)
+                    }),
+            );
+        }
         (host, name, names)
     }
 }
@@ -156,6 +185,10 @@ impl Hub {
 pub fn closest(names: &[String], key: &str) -> Vec<String> {
     let mut out = crate::session_name::candidates(names.iter().map(String::as_str), key);
     out.truncate(CLOSEST_SHOWN);
+    let id_key = key.rsplit('/').next().unwrap_or(key);
+    if crate::session_identity::agent_id_query(id_key) && !out.is_empty() {
+        return out;
+    }
     if out.len() < CLOSEST_SHOWN {
         let lower = key.to_ascii_lowercase();
         let mut rest: Vec<(usize, &String)> = names
@@ -253,5 +286,81 @@ mod tests {
         assert_eq!(distance("kitten", "sitting"), 3);
         assert_eq!(distance("", "abc"), 3);
         assert_eq!(distance("same", "same"), 0);
+    }
+
+    #[test]
+    fn all_letter_hex_prefixes_include_agent_ids_in_diagnostics() {
+        let hub = Hub::new(
+            crate::config::Config::default(),
+            Box::new(crate::store::MemoryStore::default()),
+        );
+        let meta: crate::store::SessionMeta = serde_json::from_value(serde_json::json!({
+            "schema": crate::store::META_SCHEMA,
+            "id": "mux-session",
+            "name": "lane",
+            "harness": "claude",
+            "cwd": "/tmp",
+            "status": "idle",
+            "agentSessionId": "abcdef0123456789",
+            "createdAt": 1,
+            "updatedAt": 1,
+        }))
+        .unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session);
+
+        let (_, data) = hub.no_session_text("abcdef0");
+        assert!(data["candidates"].as_array().is_some_and(|candidates| {
+            candidates.iter().any(|candidate| candidate == "abcdef0123456789")
+        }));
+    }
+
+    #[test]
+    fn full_uuid_typos_include_agent_ids_in_diagnostics() {
+        let hub = Hub::new(
+            crate::config::Config::default(),
+            Box::new(crate::store::MemoryStore::default()),
+        );
+        let meta: crate::store::SessionMeta = serde_json::from_value(serde_json::json!({
+            "schema": crate::store::META_SCHEMA,
+            "id": "mux-session",
+            "name": "lane",
+            "harness": "claude",
+            "cwd": "/tmp",
+            "status": "idle",
+            "agentSessionId": "6e0bad7d-1100-4000-8000-000000000001",
+            "createdAt": 1,
+            "updatedAt": 1,
+        }))
+        .unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session);
+
+        let (_, data) = hub.no_session_text("6e0bad7e-1100-4000-8000-000000000001");
+        assert_eq!(data["candidates"], serde_json::json!(["6e0bad7d-1100-4000-8000-000000000001"]));
+    }
+
+    #[test]
+    fn local_qualified_diagnostics_use_local_sessions() {
+        let hub = Hub::new(
+            crate::config::Config::default(),
+            Box::new(crate::store::MemoryStore::default()),
+        );
+        let meta: crate::store::SessionMeta = serde_json::from_value(serde_json::json!({
+            "schema": crate::store::META_SCHEMA,
+            "id": "mux-session",
+            "name": "review-lane",
+            "harness": "claude",
+            "cwd": "/tmp",
+            "status": "idle",
+            "createdAt": 1,
+            "updatedAt": 1,
+        }))
+        .unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session);
+
+        let (_, data) = hub.no_session_text("local/review-lan");
+        assert_eq!(data["candidates"], serde_json::json!(["review-lane"]));
     }
 }

@@ -51,6 +51,21 @@ impl Hub {
     /// share the name.
     fn resolve_exact(&self, key: &str) -> Option<Result<Arc<Session>, RpcError>> {
         let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let tied = |matched: &[Arc<Session>]| {
+            let mut names: Vec<String> = matched
+                .iter()
+                .map(|s| {
+                    let meta = s.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    format!("{} ({})", meta.name, s.id)
+                })
+                .collect();
+            names.sort();
+            RpcError::invalid_params(format!(
+                "{key:?} names {} sessions: {}; use the id",
+                names.len(),
+                names.join(", ")
+            ))
+        };
         if let Some(s) = sessions.get(key) {
             return Some(Ok(s.clone()));
         }
@@ -62,11 +77,30 @@ impl Hub {
             .cloned()
             .collect();
         match named.len() {
-            0 => None,
+            0 => {
+                let mut matched: Vec<_> = sessions
+                    .values()
+                    .filter(|s| {
+                        crate::session_identity::match_agent_session_id(
+                            s.meta
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .agent_session_id
+                                .as_deref(),
+                            key,
+                        )
+                        .is_some()
+                    })
+                    .cloned()
+                    .collect();
+                match matched.len() {
+                    0 => None,
+                    1 => Some(Ok(matched.remove(0))),
+                    _ => Some(Err(tied(&matched))),
+                }
+            }
             1 => Some(Ok(named.remove(0))),
-            n => Some(Err(RpcError::invalid_params(format!(
-                "{key:?} names {n} sessions; use the id"
-            )))),
+            _ => Some(Err(tied(&named))),
         }
     }
 }
@@ -261,6 +295,38 @@ mod segment_tests {
         assert_eq!(close, json!(["claude-sr2/mac-ci-3", "hb/mac-ci-30"]));
         let untold = err(hub.resolve_told("mac-ci", false));
         assert!(untold.data.is_none(), "{untold:?}");
+    }
+
+    #[test]
+    fn local_and_peer_agent_ids_resolve_through_direct_helpers() {
+        let agent = "6e0bad7d-1100-4000-8000-000000000001";
+        let hub = hub_with(&[("m1", "local-lane")]);
+        let local = hub.sessions.lock().unwrap().get("m1").cloned().unwrap();
+        local.meta.lock().unwrap().agent_session_id = Some(agent.to_owned());
+        assert_eq!(id(hub.resolve(agent)), "m1");
+        assert_eq!(id(hub.resolve("6E0BAD")), "m1");
+        assert!(hub.resolve("6e0ba").is_err(), "short agent-id prefixes stay invalid");
+
+        let hub = hub_with(&[]);
+        add_peer(&hub, "hb");
+        let row = RemoteSession {
+            peer: "hb".into(),
+            summary: json!({
+                "sessionId": "r1", "name": "hb/remote-lane", "peer": "hb",
+                "agentSessionId": agent
+            })
+            .into(),
+            receipt: SessionReceipt {
+                host_id: "hb".into(),
+                mux_session_id: "r1".into(),
+                agent_session_id: Some(agent.to_owned()),
+                generation: 1,
+            },
+        };
+        hub.remote_sessions.write().insert("hb/r1".into(), row);
+        assert_eq!(remote_id(&hub, agent).as_deref(), Some("hb/r1"));
+        assert_eq!(remote_id(&hub, "6E0BAD").as_deref(), Some("hb/r1"));
+        assert_eq!(remote_id(&hub, "hb/6e0bad").as_deref(), Some("hb/r1"));
     }
 
     /// Review of #27791: a short name skips closed sessions while a live one has it, here and

@@ -12,6 +12,30 @@ use serde_json::Value;
 /// The host name used for sessions owned by this daemon from its own view.
 pub const LOCAL_HOST_ID: &str = "local";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum AgentIdMatch {
+    Full,
+    Prefix,
+}
+
+/// A harness's full id, or a prefix of at least six ASCII hex digits.
+pub(crate) fn match_agent_session_id(agent_id: Option<&str>, key: &str) -> Option<AgentIdMatch> {
+    let id = agent_id.filter(|id| !id.is_empty())?;
+    if id.eq_ignore_ascii_case(key) {
+        return Some(AgentIdMatch::Full);
+    }
+    (key.len() >= 6
+        && key.bytes().all(|b| b.is_ascii_hexdigit())
+        && id.get(..key.len()).is_some_and(|head| head.eq_ignore_ascii_case(key)))
+    .then_some(AgentIdMatch::Prefix)
+}
+
+pub(crate) fn agent_id_query(key: &str) -> bool {
+    key.len() >= 6
+        && key.bytes().filter(|b| b.is_ascii_hexdigit()).count() >= 6
+        && key.bytes().all(|b| b.is_ascii_hexdigit() || matches!(b, b'-' | b'_' | b'.'))
+}
+
 /// The identity receipt for one observed mux session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -86,6 +110,20 @@ pub(crate) fn routed_id(session: &Value) -> anyhow::Result<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn agent_session_id_matches_full_opaque_ids_and_hex_prefixes() {
+        let id = Some("6e0bad7d-1100-4000-8000-000000000001");
+        assert_eq!(match_agent_session_id(id, id.unwrap()), Some(AgentIdMatch::Full));
+        assert_eq!(match_agent_session_id(id, "6E0BaD"), Some(AgentIdMatch::Prefix));
+        assert_eq!(match_agent_session_id(id, "6e0ba"), None);
+        assert_eq!(match_agent_session_id(id, "6e0bag"), None);
+        assert_eq!(match_agent_session_id(None, "6e0bad"), None);
+        assert_eq!(match_agent_session_id(Some(""), ""), None);
+        let opaque = Some("harness-key");
+        assert_eq!(match_agent_session_id(opaque, "harness-key"), Some(AgentIdMatch::Full));
+        assert_eq!(match_agent_session_id(opaque, "harness"), None);
+    }
 
     #[test]
     fn receipt_round_trips_with_a_qualified_id() {

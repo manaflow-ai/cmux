@@ -2301,11 +2301,20 @@ impl Hub {
         // (`acpmux session cancel NAME`) and every other call by name. One
         // pass sorts them into the tiers below.
         let bare = !key.contains('/');
-        let (mut by_name, mut by_segment, mut by_prefix) = (Vec::new(), Vec::new(), Vec::new());
+        let (mut by_name, mut by_segment, mut by_agent, mut by_prefix) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         for s in sessions.values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if meta.name == key {
                 by_name.push(s.clone());
+            }
+            if crate::session_identity::match_agent_session_id(
+                meta.agent_session_id.as_deref(),
+                key,
+            )
+            .is_some()
+            {
+                by_agent.push(s.clone());
             }
             if bare && crate::session_name::ends_with_segments(&meta.name, key) {
                 by_segment.push((s.clone(), meta.status == SessionStatus::Closed));
@@ -2337,6 +2346,7 @@ impl Hub {
         // request a peer's session serves, reads none), with this daemon's sessions unlocked.
         // A short name only a peer's session has is `resolve_remote`'s.
         if by_name.is_empty()
+            && by_agent.is_empty()
             && by_prefix.is_empty()
             && !by_segment.is_empty()
             && self.remote_strict_matches(key) == 0
@@ -2365,6 +2375,12 @@ impl Hub {
                 }
             }
         }
+        if !by_agent.is_empty() {
+            return match by_agent.len() {
+                1 => Ok(by_agent.remove(0)),
+                _ => Err(tied(named(&by_agent))),
+            };
+        }
         match by_prefix.len() {
             1 => Ok(by_prefix.remove(0)),
             0 => Err(crate::session_name::not_found(key, &[])),
@@ -2381,7 +2397,14 @@ impl Hub {
         let mut counts = [0_usize; 3];
         for s in sessions.values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if s.id.starts_with(key) || meta.name.starts_with(key) {
+            if s.id.starts_with(key)
+                || meta.name.starts_with(key)
+                || crate::session_identity::match_agent_session_id(
+                    meta.agent_session_id.as_deref(),
+                    key,
+                )
+                .is_some()
+            {
                 counts[0] = counts[0].saturating_add(1);
             } else if bare && crate::session_name::ends_with_segments(&meta.name, key) {
                 let slot = if meta.status == SessionStatus::Closed { 2 } else { 1 };
@@ -2426,6 +2449,13 @@ impl Hub {
     /// `acpmux ls`. Reads every name: only where the refusal goes back to a caller.
     pub fn unknown_session(&self, key: &str) -> RpcError {
         let lower = key.to_ascii_lowercase();
+        // Agent ids are commonly UUIDs, but the native id may be an opaque hex token too.
+        // Include those ids in nearest-match diagnostics whenever the query can be an agent-id
+        // prefix, while retaining full UUID diagnostics that contain separators.
+        let id_key = lower.rsplit('/').next().unwrap_or(&lower);
+        let requested_host = lower.split_once('/').map(|(host, _)| host);
+        let id_query = crate::session_identity::agent_id_query(id_key)
+            || id_key.bytes().any(|b| b.is_ascii_digit());
         let mut names: Vec<String> = self
             .sessions
             .lock()
@@ -2436,6 +2466,16 @@ impl Hub {
                 name.to_ascii_lowercase().contains(&lower).then_some(name)
             })
             .collect();
+        let local_host = requested_host
+            .is_none_or(|host| host == LOCAL_HOST_ID || own_host::is_own_machine_name(host));
+        if id_query && local_host {
+            names.extend(self.sessions().iter().filter_map(|s| {
+                let meta = s.meta();
+                meta.agent_session_id.filter(|_| meta.status != SessionStatus::Closed).map(|id| {
+                    requested_host.map_or_else(|| id.clone(), |host| format!("{host}/{id}"))
+                })
+            }));
+        }
         names.extend(self.remote_names_containing(&lower));
         let close = crate::session_name::candidates(names.iter().map(String::as_str), key);
         crate::session_name::not_found(key, &close)

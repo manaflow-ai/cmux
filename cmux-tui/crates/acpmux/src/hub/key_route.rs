@@ -1,11 +1,11 @@
 //! Part of `Hub`; see `hub/mod.rs`. One rule for the session a bare key names, on this machine
 //! and its peers alike (Leo, 2026-10-30: "various not as ergonomic/one-command-y as i'd liike set
 //! of commands for interacting with stuff"): a whole name or an id prefix names the one live
-//! session that has it across this daemon and every peer it lists (a name prefix still names a
-//! session here when nothing else matches, as it always did; a sub-session's short name, on any
-//! host, comes next; last, the whole name without case or separators). A name in another case
-//! comes right after an exact one (`crate::name_match`: Leo, 2026-11-05, "stuff like that should
-//! work better yes"), and `HOST/NAME` reads its host the same way. Several live matches are
+//! session that has it across this daemon and every peer it lists. A full agent session id or a
+//! prefix of at least six hex digits works across the same hosts. A name in another case
+//! follows (`crate::name_match`: Leo, 2026-11-05, "stuff like that should work better yes"),
+//! then a local name prefix, a sub-session's short name, and a name without case or
+//! separators. `HOST/NAME` reads its host the same way. Several live matches are
 //! refused with each one's `HOST/NAME`; nothing is picked silently, and a session here does not
 //! hide a peer's of the same name (as `locate.rs` already holds for control callers). Closed sessions
 //! count only when no live one matches. A sub-session's whole name (`parent/child`) is routed
@@ -17,6 +17,7 @@
 //! method, `send` (through the outbox) included, finds the same session.
 
 use super::*;
+use crate::session_identity::{AgentIdMatch, match_agent_session_id};
 
 /// The `reason` of the refusal for a key several live sessions match.
 pub(crate) const AMBIGUOUS: &str = "session_ambiguous";
@@ -67,7 +68,8 @@ impl Hub {
                 return self.name_on(&Machine::Here(own), key, rest, true);
             }
         }
-        let [named, cased, prefixed, short, short_cased, spaced] = self.key_candidates(key, &own);
+        let [named, agent_id, agent_prefix, cased, prefixed, short, short_cased, spaced] =
+            self.key_candidates(key, &own);
         let found = if let Some((host, rest)) = key.split_once('/') {
             // Any other `/` is a sub-session's whole name (`parent/child`) or a machine named
             // in another case or by a prefix (`LANE-VM/td2-a`): the whole name first, never a
@@ -79,12 +81,16 @@ impl Hub {
             {
                 return self.name_on(&machine, key, rest, false);
             }
-            [whole, cased, short_cased, spaced]
+            let agent_id =
+                agent_id.into_iter().filter(|candidate| candidate.host == host).collect();
+            let agent_prefix =
+                agent_prefix.into_iter().filter(|candidate| candidate.host == host).collect();
+            [whole, agent_id, agent_prefix, cased, short_cased, spaced]
                 .into_iter()
                 .find(|tier| !tier.is_empty())
                 .unwrap_or_default()
         } else {
-            [named, cased, prefixed, short, short_cased, spaced]
+            [named, agent_id, agent_prefix, cased, prefixed, short, short_cased, spaced]
                 .into_iter()
                 .find(|tier| !tier.is_empty())
                 .unwrap_or_default()
@@ -159,7 +165,8 @@ impl Hub {
     }
 
     /// The route of the session `rest` names on `machine` (`key` is `HOST/rest`): its whole name
-    /// or an id prefix first, then [`name_match`](crate::name_match)'s other steps. `exact`
+    /// or a mux id prefix first, then its agent session id or prefix, then
+    /// [`name_match`](crate::name_match)'s other steps. `exact`
     /// (the key named the machine exactly) leaves a whole name, an id and no match at all to
     /// the usual lookup, as before; otherwise a key that names no session there reads
     /// `MACHINE/rest`, so the not-found answer names the machine meant.
@@ -170,34 +177,40 @@ impl Hub {
         rest: &str,
         exact: bool,
     ) -> Result<Option<String>, RpcError> {
-        use crate::name_match::Step;
         // The whole name's steps first, then a sub-session's short name by the same steps
         // (`short_step`): an exact short name beats a sibling's in another case, and the loose
         // short steps apply only when no short name matches exactly (review of #36919, F1).
         let mut found = Vec::new();
-        let mut take =
-            |host: &str, name: &str, id: &str, handle: Option<&str>, route: &str, closed: bool| {
-                let legacy_exact = name == rest || id.starts_with(rest);
-                let at = if legacy_exact || crate::session_handle::matches(handle, id, rest) {
-                    Some((false, Step::Exact))
-                } else {
-                    crate::name_match::step(name, rest)
-                        .map(|at| (false, at))
-                        .or_else(|| crate::name_match::short_step(name, rest).map(|at| (true, at)))
-                };
-                if let Some(at) = at {
-                    found.push((
-                        at,
-                        legacy_exact,
-                        Candidate {
-                            host: host.to_owned(),
-                            name: name.to_owned(),
-                            route: route.to_owned(),
-                            closed,
-                        },
-                    ));
-                }
+        let mut take = |host: &str,
+                        name: &str,
+                        id: &str,
+                        handle: Option<&str>,
+                        agent_id: Option<&str>,
+                        route: &str,
+                        closed: bool| {
+            let legacy_exact = name == rest || id.starts_with(rest);
+            let at = if legacy_exact || crate::session_handle::matches(handle, id, rest) {
+                Some(QualifiedMatch::Existing)
+            } else if let Some(matched) = match_agent_session_id(agent_id, rest) {
+                Some(QualifiedMatch::AgentId(matched))
+            } else {
+                crate::name_match::step(name, rest).map(QualifiedMatch::Name).or_else(|| {
+                    crate::name_match::short_step(name, rest).map(QualifiedMatch::Short)
+                })
             };
+            if let Some(at) = at {
+                found.push((
+                    at,
+                    legacy_exact,
+                    Candidate {
+                        host: host.to_owned(),
+                        name: name.to_owned(),
+                        route: route.to_owned(),
+                        closed,
+                    },
+                ));
+            }
+        };
         match machine {
             Machine::Here(own) => {
                 for s in
@@ -209,6 +222,7 @@ impl Hub {
                         &meta.name,
                         &s.id,
                         meta.handle.as_deref(),
+                        meta.agent_session_id.as_deref(),
                         &s.id,
                         meta.status == SessionStatus::Closed,
                     );
@@ -221,7 +235,15 @@ impl Hub {
                     let name = r.summary.name().unwrap_or_default();
                     let bare = name.strip_prefix(&format!("{peer}/")).unwrap_or(name);
                     let closed = r.summary.closed();
-                    take(peer, bare, &r.receipt.mux_session_id, r.summary.handle(), route, closed);
+                    take(
+                        peer,
+                        bare,
+                        &r.receipt.mux_session_id,
+                        r.summary.handle(),
+                        r.summary.agent_session_id(),
+                        route,
+                        closed,
+                    );
                 }
             }
         }
@@ -241,7 +263,8 @@ impl Hub {
 
     /// The sessions here and on peers that `key` names, in the tiers `key_route` tries in turn:
     /// a whole name or an id (a prefix of it), all in one tier, so a name never hides an id
-    /// another session has; the whole name in another case; only for sessions here, a name that
+    /// another session has; a whole agent session id, then its prefix; the whole name in
+    /// another case; only for sessions here, a name that
     /// starts with `key` in any case (the rule this daemon always had); on any host, the
     /// sub-sessions whose short name `key` is (`mac-ci-3` for `claude-sr2/mac-ci-3`,
     /// `session_name::ends_with_segments`), then that short name in another case; last, the
@@ -249,34 +272,47 @@ impl Hub {
     /// `TD2-A` reaches `coord/td2-A` ahead of `coord/td2_a`. A prefix of a peer's name names nothing, as `resolve_remote` never
     /// matched one: a short key never reaches another machine's chat nobody named. Names are
     /// read under each session's meta lock, never cloned (`resolve_here`).
-    fn key_candidates(&self, key: &str, own: &str) -> [Vec<Candidate>; 6] {
+    fn key_candidates(&self, key: &str, own: &str) -> [Vec<Candidate>; 8] {
         use crate::name_match::Step;
-        let mut tiers: [Vec<Candidate>; 6] = Default::default();
-        let tier_of = |name: &str, id: &str, handle: Option<&str>, here: bool| {
-            if name == key || id.starts_with(key) || crate::session_handle::matches(handle, id, key)
-            {
-                return Some(0);
-            }
-            let at = crate::name_match::step(name, key);
-            if at == Some(Step::Case) {
-                Some(1)
-            } else if here && at == Some(Step::Prefix) {
-                Some(2)
-            } else if crate::session_name::ends_with_segments(name, key) {
-                Some(3)
-            } else {
-                match (at, crate::name_match::short_step(name, key)) {
-                    (_, Some(Step::Exact | Step::Case)) => Some(4),
-                    (Some(Step::Separators), _) | (_, Some(_)) => Some(5),
-                    _ => None,
+        let mut tiers: [Vec<Candidate>; 8] = Default::default();
+        let tier_of =
+            |name: &str, id: &str, handle: Option<&str>, agent_id: Option<&str>, here: bool| {
+                if name == key
+                    || id.starts_with(key)
+                    || crate::session_handle::matches(handle, id, key)
+                {
+                    return Some(0);
                 }
-            }
-        };
+                match match_agent_session_id(agent_id, key) {
+                    Some(AgentIdMatch::Full) => return Some(1),
+                    Some(AgentIdMatch::Prefix) => return Some(2),
+                    None => {}
+                }
+                let at = crate::name_match::step(name, key);
+                if at == Some(Step::Case) {
+                    Some(3)
+                } else if here && at == Some(Step::Prefix) {
+                    Some(4)
+                } else if crate::session_name::ends_with_segments(name, key) {
+                    Some(5)
+                } else {
+                    match (at, crate::name_match::short_step(name, key)) {
+                        (_, Some(Step::Exact | Step::Case)) => Some(6),
+                        (Some(Step::Separators), _) | (_, Some(_)) => Some(7),
+                        _ => None,
+                    }
+                }
+            };
         for s in self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let Some(tier) = tier_of(&meta.name, &s.id, meta.handle.as_deref(), true)
-                .and_then(|t| tiers.get_mut(t))
-            else {
+            let Some(tier) = tier_of(
+                &meta.name,
+                &s.id,
+                meta.handle.as_deref(),
+                meta.agent_session_id.as_deref(),
+                true,
+            )
+            .and_then(|t| tiers.get_mut(t)) else {
                 continue;
             };
             tier.push(Candidate {
@@ -289,9 +325,14 @@ impl Hub {
         for (route, r) in self.remote_sessions.read().iter() {
             let name = r.summary.name().unwrap_or_default();
             let bare = name.strip_prefix(&format!("{}/", r.peer)).unwrap_or(name);
-            let Some(tier) = tier_of(bare, &r.receipt.mux_session_id, r.summary.handle(), false)
-                .and_then(|t| tiers.get_mut(t))
-            else {
+            let Some(tier) = tier_of(
+                bare,
+                &r.receipt.mux_session_id,
+                r.summary.handle(),
+                r.summary.agent_session_id(),
+                false,
+            )
+            .and_then(|t| tiers.get_mut(t)) else {
                 continue;
             };
             tier.push(Candidate {
@@ -309,6 +350,14 @@ impl Hub {
 enum Machine {
     Here(String),
     Peer(String),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum QualifiedMatch {
+    Existing,
+    AgentId(AgentIdMatch),
+    Name(crate::name_match::Step),
+    Short(crate::name_match::Step),
 }
 
 /// The one session of `found` a key names: the one live session, else (none live) the one
@@ -382,14 +431,30 @@ mod tests {
 
     /// Peer `peer`'s session `id`, listed as peers list them: under `peer/id`, named `peer/name`.
     pub(super) fn list(hub: &Hub, peer: &str, id: &str, name: &str, status: &str) {
+        list_with_agent_id(hub, peer, id, name, status, None);
+    }
+
+    pub(super) fn list_with_agent_id(
+        hub: &Hub,
+        peer: &str,
+        id: &str,
+        name: &str,
+        status: &str,
+        agent_id: Option<&str>,
+    ) {
         let row = RemoteSession {
             peer: peer.into(),
-            summary: json!({"sessionId": id, "name": format!("{peer}/{name}"), "status": status})
-                .into(),
+            summary: json!({
+                "sessionId": id,
+                "name": format!("{peer}/{name}"),
+                "status": status,
+                "agentSessionId": agent_id,
+            })
+            .into(),
             receipt: SessionReceipt {
                 host_id: peer.into(),
                 mux_session_id: id.into(),
-                agent_session_id: None,
+                agent_session_id: agent_id.map(str::to_owned),
                 generation: 1,
             },
         };
@@ -456,6 +521,58 @@ mod tests {
         named(&hub, "0199aaaa").await;
         let e = hub.key_route("0199aaaa").unwrap_err();
         assert_eq!(e.data.unwrap()["choices"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn agent_session_id_routes_here_and_on_a_peer() {
+        let hub = test_hub();
+        let local_id = "6e0bad7d-1100-4000-8000-000000000001";
+        let peer_id = "a1b2c3d4-2200-4000-8000-000000000002";
+        let here = named(&hub, "local-review").await;
+        here.meta.lock().unwrap().set_agent_session_id(Some(local_id.to_owned()), "claude");
+        list_with_agent_id(&hub, "hb", "peer-review", "interim-coord", "idle", Some(peer_id));
+
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new("hb", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("hb".to_owned(), peer);
+
+        for key in [local_id, "6e0bad", "6E0BAD", "local/6e0bad7d"] {
+            assert_eq!(hub.key_route(key).unwrap().as_deref(), Some(here.id.as_str()), "{key}");
+        }
+        for key in [peer_id, "a1b2c3d4", "hb/a1b2c3d4", "hb/a1b2c3d4-2200-4000-8000-000000000002"] {
+            assert_eq!(hub.key_route(key).unwrap().as_deref(), Some("hb/peer-review"), "{key}");
+        }
+        assert_eq!(hub.key_route("other/a1b2c3d4").unwrap(), None);
+        assert_eq!(hub.key_route("6e0ba").unwrap(), None);
+        assert_eq!(hub.key_route("hb/6e0bad").unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn agent_session_id_prefix_refuses_a_tie_and_keeps_exact_routes() {
+        let hub = test_hub();
+        let here = named(&hub, "local-review").await;
+        here.meta.lock().unwrap().set_agent_session_id(
+            Some("6e0bad7d-1100-4000-8000-000000000001".to_owned()),
+            "claude",
+        );
+        list_with_agent_id(
+            &hub,
+            "hb",
+            "peer-review",
+            "interim-coord",
+            "idle",
+            Some("6e0bad7e-2200-4000-8000-000000000002"),
+        );
+
+        let e = hub.key_route("6e0bad").unwrap_err();
+        assert_eq!(e.data.as_ref().unwrap()["reason"], AMBIGUOUS);
+        assert_eq!(e.data.unwrap()["choices"].as_array().unwrap().len(), 2);
+        assert!(e.message.contains("hb/interim-coord"), "{}", e.message);
+        assert!(e.message.contains("/local-review"), "{}", e.message);
+        assert_eq!(hub.key_route("hb/6e0bad").unwrap().as_deref(), Some("hb/peer-review"));
+
+        let named = named(&hub, "6e0bad").await;
+        assert_eq!(hub.key_route("6e0bad").unwrap().as_deref(), Some(named.id.as_str()));
     }
 
     /// A sub-session's short name is the last tier, on every host: one is routed, two tie with
