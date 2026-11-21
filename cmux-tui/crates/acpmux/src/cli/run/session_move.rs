@@ -4,8 +4,10 @@
 //!
 //! For each chat, in order, stopping at the first step that fails (nothing after it is done):
 //!
-//! 1. Refused while its turn runs (unless `--interrupt`), while it is being moved, once it moved
-//!    away, or when its folder is gone here (`session_move_plan.rs` `refusal`).
+//! 1. Refused while it is being moved, once it moved away, or when its folder is gone here
+//!    (`session_move_plan.rs` `refusal`). A running turn moves with it: step 3 waits for its
+//!    tool calls in flight to end and stops it there, and it goes on on the target
+//!    (`transfer.rs` `begin_move_live`); `--interrupt` stops it at once.
 //! 2. The target: the peer named, or with `auto` the daemon's placement (`_acpmux/place`) among
 //!    the peers, never this machine and never one the registry marks interactive (a machine a
 //!    person works at, `placement::interactive`). A host the fleet registry holds (its `hold`, or
@@ -315,7 +317,7 @@ async fn move_steps(
             info.get("peer").unwrap_or(&Value::Null)
         );
     }
-    if let Some(why) = plan::refusal(&info, args.interrupt) {
+    if let Some(why) = plan::refusal(&info) {
         bail!("{why}");
     }
     let cwd = PathBuf::from(info.get("cwd").and_then(Value::as_str).unwrap_or_default());
@@ -389,7 +391,11 @@ async fn move_steps(
         }
         Source::Peer { .. } => None,
     };
-    let begun = super::transfer::begin_move(src, &id, watch, args.interrupt).await?;
+    let begun = if args.interrupt {
+        super::transfer::begin_move(src, &id, watch, true).await?
+    } else {
+        super::transfer::begin_move_live(src, &id, watch, super::transfer::TOOL_WAIT).await?
+    };
     let prepared = prepare(&cwd, &home, &target, &remote, args, source, o).await;
     let (record, forward, dst, dst_init) = match prepared {
         Ok(p) => p,
