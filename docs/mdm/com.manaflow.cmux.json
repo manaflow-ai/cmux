@@ -3593,12 +3593,6 @@
       "title" : "Engine",
       "type" : "string"
     },
-    "home.chiefPanel.seesScreen" : {
-      "default" : true,
-      "description" : "The floating Chief takes one look at your screen when it opens. The eye turns it off.",
-      "title" : "Chief Sees Your Screen When It Opens",
-      "type" : "boolean"
-    },
     "home.chiefPanel.style" : {
       "default" : "composeBar",
       "description" : "How the Chief looks floating over a workspace. Drag any style by its grip.",
