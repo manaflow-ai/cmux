@@ -1,3 +1,4 @@
+import CmuxNextCloudUI
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
