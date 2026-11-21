@@ -354,6 +354,12 @@ env:
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
   CMUX_GHOSTTY_SRC: ""
+  # CMUX_GHOSTTY_VT_ZIG_CPU=baseline: libghostty-vt for any x86-64 CPU. The headless
+  # binary is cached and restored on other pool VMs, whose CPU models differ; a
+  # native-CPU build died with SIGILL there (every live-creation-exit-restart case
+  # "live server exited -4", cmux run 44864831392 on cmux-runner-pool-e1d-0007).
+  # v3 in the key drops the v2 binaries built for a native CPU.
+  CMUX_GHOSTTY_VT_ZIG_CPU: baseline
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
@@ -1051,7 +1057,7 @@ jobs:
         id: headless-key
         run: |
           set -euo pipefail
-          echo "key=cmux-tui-headless-v2-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
+          echo "key=cmux-tui-headless-v3-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
 
       - name: Restore the headless cmux-tui build
         if: ${{ steps.tree.outputs.hit != 'true' }}
