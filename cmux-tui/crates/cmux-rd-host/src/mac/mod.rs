@@ -11,6 +11,7 @@ mod input;
 mod keys;
 #[cfg(feature = "bench")]
 pub(crate) mod observe;
+pub(crate) mod pasteboard;
 #[cfg(feature = "bench")]
 pub(crate) mod synthetic;
 mod sys;
@@ -117,6 +118,7 @@ impl Desktop for MacDesktop {
     }
 
     fn drain(&mut self, out: &mut Vec<Rect>) -> Res<()> {
+        self.capture.recover()?;
         self.capture.drain(out);
         Ok(())
     }
@@ -194,5 +196,9 @@ impl FrameSource for MacFrames {
         self.scaled = size.is_some_and(|s| s != self.size);
         self.encoder.set_picture_size(size);
         self.encoder.set_max_qp(picture.and_then(|p| p.max_qp));
+    }
+
+    fn idr_cause(&self) -> Option<&'static str> {
+        cmux_encode::H264Encoder::idr_cause(&self.encoder)
     }
 }

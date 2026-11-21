@@ -33,6 +33,11 @@ pub trait FrameSource: Send {
     /// ignores it and encodes the full stream (the Linux and Windows sources today; the macOS
     /// source scales on the GPU).
     fn set_picture(&mut self, _picture: Option<cmux_rd_core::resolution::Picture>) {}
+    /// Why the last [`FrameSource::encode`] made an IDR it was not asked for (the encoder's
+    /// [`cmux_encode::VideoEncoder::idr_cause`]).
+    fn idr_cause(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 /// Both halves of one opened desktop.

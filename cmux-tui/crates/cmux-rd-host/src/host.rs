@@ -526,6 +526,8 @@ fn serve_viewer<S: ViewerStream>(
     if crate::desktop::scales_pictures() {
         host_caps.push(caps::VIDEO_SCALED);
     }
+    // No clipboard.text here: clipboard sync is opt-in per session, and only `serve` (the
+    // app's share, whose setup carries the person's choice) offers it (clipboard.rs).
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {

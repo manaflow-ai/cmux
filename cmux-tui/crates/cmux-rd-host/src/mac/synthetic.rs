@@ -413,6 +413,10 @@ impl FrameSource for SyntheticFrames {
         self.encoder.set_picture_size(picture.map(|p| (p.width, p.height)));
         self.encoder.set_max_qp(picture.and_then(|p| p.max_qp));
     }
+
+    fn idr_cause(&self) -> Option<&'static str> {
+        cmux_encode::H264Encoder::idr_cause(&self.encoder)
+    }
 }
 
 #[cfg(test)]

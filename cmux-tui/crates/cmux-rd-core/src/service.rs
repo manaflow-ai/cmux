@@ -40,9 +40,22 @@ pub mod caps {
     /// the bits-per-pixel floor (the resolution ladder, design D5). A viewer that does not
     /// offer it gets the full stream on every frame.
     pub const VIDEO_SCALED: &str = "video.scaled";
+    /// Clipboard text both ways (`clipboard` control messages, cmux-rd-proto `clipboard`):
+    /// the host applies the viewer's text and sends its own only in a control session.
+    pub const CLIPBOARD_TEXT: &str = "clipboard.text";
     /// Every named cap.
-    pub const ALL: [&str; 9] =
-        [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK, LINK_UDP, CURSOR, VIDEO_SCALED];
+    pub const ALL: [&str; 10] = [
+        INPUT_SERVICE,
+        TILE,
+        UP_MEDIA,
+        BULK,
+        STREAM_OPEN,
+        CLOCK,
+        LINK_UDP,
+        CURSOR,
+        VIDEO_SCALED,
+        CLIPBOARD_TEXT,
+    ];
 }
 
 /// Why a hello is refused.

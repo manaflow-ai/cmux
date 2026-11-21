@@ -96,6 +96,7 @@ impl SurfaceEncoder for VideoToolbox {
         out: &mut Vec<u8>,
     ) -> Res<bool> {
         out.clear();
+        self.idr_cause = None;
         if frame.io_surface.is_null() {
             return Err("encode_surface: NULL IOSurface".into());
         }
@@ -145,6 +146,7 @@ impl SurfaceEncoder for VideoToolbox {
         if status != 0 || pixel_buffer.is_null() {
             return Err(format!("CVPixelBufferCreateWithIOSurface failed: {status}").into());
         }
+        self.idr_cause = (resized && !force_idr).then_some("resize");
         let source = match scaled_to {
             None => Ok(pixel_buffer),
             Some((w, h)) => self.scale(pixel_buffer, w, h),
