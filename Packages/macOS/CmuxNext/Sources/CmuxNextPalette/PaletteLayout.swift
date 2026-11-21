@@ -112,6 +112,18 @@ enum PaletteText {
         return ceil(natural * scale) / scale
     }
 
+    /// The y of a `height`-tall frame for `field` (in its superview's unflipped coordinates) that puts
+    /// the middle of its capitals on `midY`. Centering the frame (the line box) instead puts text of
+    /// different sizes on different lines: the box's room above the capitals and below the baseline
+    /// differ, and by a different amount at each size, so the footer's 13 pt "Run Command" sat lower
+    /// than its 11 pt "Search" and "Actions" (#48512). The baseline comes from the field itself
+    /// (`firstBaselineOffsetFromTop`, at `height`), so it holds for any font the label draws in.
+    static func capCenteredY(_ field: NSTextField, height: CGFloat, midY: CGFloat) -> CGFloat {
+        guard let font = field.font else { return midY - height / 2 }
+        if field.frame.height != height { field.setFrameSize(NSSize(width: field.frame.width, height: height)) }
+        return midY - font.capHeight / 2 - (height - field.firstBaselineOffsetFromTop)
+    }
+
     /// Width that shows the whole string. `intrinsicContentSize` of a
     /// truncating label is unreliable after its value changes. At least the cell's own width
     /// without bounds, which adds its text padding: `space2` alone is less than that padding at
