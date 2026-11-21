@@ -6,23 +6,24 @@ import CmuxNextDesign
 /// morph into each other and have that cool little animation where it's like that water surface tension thing"), and how
 /// it moves to the next tab (Leo 2026-11-18: "the hover preview bounces for some reason"). Every row is the real strip
 /// with agent and terminal tabs; hover a tab to see its card enter, then move to the next tab. The card is as wide as a
-/// tab at its widest, on the tab's leading edge, with plain rows under the title.
+/// tab at its widest, on the tab's leading edge, with plain rows under the title. The fade ships, switching in place:
+/// grown out of the tab or gliding to the next one, it read as a bounce. The move rows enter with the shipped fade.
 struct HoverCardEntrancePlaygroundVariants {
     private let fixture = TabBarPlaygroundFixture()
 
     var all: [TabBarPlaygroundVariant] {
         [
             variant(String(localized: "tabs.playground.hoverCard.morph", defaultValue: "Grows out of the tab, settling like a drop",
-                           bundle: .module), .morph, shipped: true),
+                           bundle: .module), .morph),
             variant(String(localized: "tabs.playground.hoverCard.slide", defaultValue: "Fades in while it slides down from the tab",
                            bundle: .module), .slide),
-            variant(String(localized: "tabs.playground.hoverCard.fade", defaultValue: "Fades in where it rests", bundle: .module), .fade),
+            variant(String(localized: "tabs.playground.hoverCard.fade", defaultValue: "Fades in where it rests", bundle: .module), .fade, shipped: true),
             variant(String(localized: "tabs.playground.hoverCard.retarget.jump", defaultValue: "Switches to the next tab in place",
-                           bundle: .module), .morph, retarget: .jump, shipped: true),
+                           bundle: .module), .fade, retarget: .jump, shipped: true),
             variant(String(localized: "tabs.playground.hoverCard.retarget.crossfade",
-                           defaultValue: "Switches in place, its content cross-fading", bundle: .module), .morph, retarget: .crossfade),
+                           defaultValue: "Switches in place, its content cross-fading", bundle: .module), .fade, retarget: .crossfade),
             variant(String(localized: "tabs.playground.hoverCard.retarget.glide", defaultValue: "Glides to the next tab", bundle: .module),
-                    .morph, retarget: .glide),
+                    .fade, retarget: .glide),
         ]
     }
 

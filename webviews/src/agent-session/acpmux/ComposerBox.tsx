@@ -1,4 +1,4 @@
-import React, { useCallback, useImperativeHandle, useInsertionEffect, useRef, useState, type RefObject } from "react";
+import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject, useInsertionEffect } from "react";
 import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { useInlineAttachments } from "./composer/inlineAttachments";
@@ -15,6 +15,8 @@ import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
 import { remember } from "./composer/pasteMarks";
 import { acpmuxPerf } from "./perf";
+import { experimentArm } from "../../experiments/experiment";
+import { composerControlsAnchor } from "./composerControlsAnchor.experiment";
 import { holdFlag, setRef } from "./heldFlag";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
@@ -298,6 +300,8 @@ export function ComposerBox({
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}
+        // Where +, the mic and Send stand as the prompt grows (composerControlsAnchor.experiment.ts).
+        data-controls-anchor={experimentArm(composerControlsAnchor)}
         onMouseDown={focusFromCard}
       >
         <ComposerListAnchor box={boxElement}>{top}</ComposerListAnchor>
