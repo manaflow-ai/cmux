@@ -16254,7 +16254,11 @@ class SameNamedChecksTellApartByWorkflow(unittest.TestCase):
             with self.subTest(workflow=workflow):
                 jobs, audit, _ = self.found(f"{workflow} / tests")
                 self.assertEqual(jobs, [self.JOBS[run]])
-                self.assertTrue(any(f"'{workflow} / tests'" in line for line in audit), audit)
+                # The audit says *why* this check run, not only which name was asked for: an echo of the request
+                # would read the same under the old code, which had no workflow to name.
+                said = [line for line in audit if f"in workflow '{workflow}'" in line]
+                self.assertEqual(len(said), 1, audit)
+                self.assertIn(f"(job {self.JOBS[run]})", said[0])
 
     def test_the_workflow_comes_from_the_read_the_head_already_makes(self):
         _, _, gh = self.found("Skills tests / tests")
@@ -16276,6 +16280,26 @@ class SameNamedChecksTellApartByWorkflow(unittest.TestCase):
         runs = {self.BROKER: "lane-gh-broker tests", self.RECONCILERS: "lane-gh-broker tests"}
         jobs, _, _ = self.found("lane-gh-broker tests / tests", runs=runs)
         self.assertEqual(jobs, [max(self.JOBS[run] for run in runs)])
+
+    def test_the_bare_name_of_two_runs_of_one_workflow_is_still_the_newest_of_them(self):
+        """The one-group fallback, which the test above reaches through the named branch instead. A bare 'tests' with
+        every candidate in one workflow must keep answering, as it did before this change: refusing here would be the
+        regression, since the only thing the name leaves open is which run, and the newest run is the verdict."""
+        runs = {self.BROKER: "lane-gh-broker tests", self.RECONCILERS: "lane-gh-broker tests"}
+        jobs, audit, _ = self.found("tests", runs=runs)
+        self.assertEqual(jobs, [max(self.JOBS[run] for run in runs)])
+        self.assertTrue(any("newest check run at the head" in line for line in audit), audit)
+
+    def test_a_workflow_no_run_list_names_degrades_to_the_newest_rather_than_refusing(self):
+        """When the run list cannot name the workflows, every candidate of one check name groups as one: the answer is
+        the newest, exactly what this file did before. Refusing instead would break judging a plain rerun, which is
+        indistinguishable from this without the workflow name."""
+        gh = self.Fake(dict(self.WORKFLOWS))
+        gh.json = lambda route, *, paginate=False: ([{"workflow_runs": []}]
+                                                    if "/actions/runs?head_sha=" in route
+                                                    else type(gh).json(gh, route, paginate=paginate))
+        jobs = [job["id"] for job in excuse.head_jobs(REPO, self.SHA, [], ["tests"], gh)]
+        self.assertEqual(jobs, [max(self.JOBS.values())])
 
 
 OTHER_PR_SETUP_FIXTURES = ROOT / "tests/fixtures/base_red_excuse_other_pr_setup"
