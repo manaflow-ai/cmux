@@ -328,7 +328,7 @@ extension NewTabPage {
             },
             jump: { [weak pane] target, id in if let services = pane?.services { jump(target, id: id, services: services) } },
             // A row the palette refuses now (it cannot run, or its title is not the shown one any more): the page's list reads the actions again (a pane that is gone refuses nothing).
-            action: list.action { [weak pane] id, shown in pane?.services.palette.runCommand(ActionID(rawValue: id), shown: shown, relativeTo: pane?.view.window) ?? true },
+            action: list.action { [weak pane] id, shown in id == "palette.newCloudChat" ? pane.map { $0.services.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: $0.pane.id), origin: .user).onMachine($0.daemon.machineID)) } ?? false : pane?.services.palette.runCommand(ActionID(rawValue: id), shown: shown, relativeTo: pane?.view.window) ?? true },
             openChat: { [weak pane] chat in pane?.services.agentTabs.pageChats.open?(chat) }, start: { [weak pane] harness, folder in
                 if let pane, pane.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: folder, harness: harness))) { closingPage(key, in: pane)() } })
     }

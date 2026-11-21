@@ -50,6 +50,11 @@ public nonisolated struct NativeNewTabRanker: Sendable {
         for workspace in omnibar.workspaces { add(.workspace(workspace), weight: 0.5, [workspace.name, workspace.detail]) }
         for page in omnibar.history { add(.page(page), weight: kind == .browser ? 0.4 : 0.1, [page.title, page.url]) }
         for action in omnibar.actions { add(.action(action), weight: 0.3, [action.title] + action.keywords) }
+        // The palette action is normally listed above. Keep a direct row while its list is unavailable,
+        // so the native page can still open Cloud without waiting for palette discovery.
+        if !omnibar.actions.contains(where: { $0.id == "palette.newCloudChat" }) {
+            add(.cloud, weight: 0.3, ["New Cloud Chat", "cloud", "palette.newCloudChat"])
+        }
         let ranked = scored.sorted { $0.score != $1.score ? $0.score > $1.score : $0.order < $1.order }.map(\.row)
         let chats = sources.chatRows(query).map(NativeNewTabRow.chat)
         var starts = sources.startRows(query)

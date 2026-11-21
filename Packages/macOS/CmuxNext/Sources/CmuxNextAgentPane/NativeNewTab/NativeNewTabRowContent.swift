@@ -20,6 +20,8 @@ nonisolated struct NativeNewTabRowContent: Equatable {
             hint = action.keycaps.map { $0.joined() } ?? strings.command
         case .chat(let chat):
             (symbol, title, detail, hint) = ("bubble.left.and.bubble.right", chat.title ?? chat.key, NativeNewTabSources.agentName(chat.harness), strings.openChat)
+        case .cloud:
+            (symbol, title, detail, hint) = ("cloud.fill", strings.newCloudChat, nil, strings.startHint)
         case .start(let start):
             (symbol, title, detail, hint) = ("folder", strings.start(start.agent, NativeNewTabSources.shown(start.folder, home: home)), nil, strings.startHint)
         }

@@ -19,6 +19,8 @@ public nonisolated enum NativeNewTabRow: Sendable, Equatable, Identifiable {
     case action(AgentPaneOmnibar.Action)
     /// Open a chat the device's chat index lists.
     case chat(AgentPaneDeviceChat)
+    /// Start a new chat with Cloud selected.
+    case cloud
     /// Start an agent's chat in a folder, with no prompt ("Codex in ~/fun/cmux").
     case start(NativeNewTabStart)
 
@@ -33,6 +35,7 @@ public nonisolated enum NativeNewTabRow: Sendable, Equatable, Identifiable {
         case .page(let page): "page:\(page.url)"
         case .action(let action): "action:\(action.id)"
         case .chat(let chat): "chat:\(chat.key)"
+        case .cloud: "cloud"
         case .start(let start): "start:\(start.harness):\(start.folder)"
         }
     }

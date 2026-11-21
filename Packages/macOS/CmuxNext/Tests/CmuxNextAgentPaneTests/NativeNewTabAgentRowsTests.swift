@@ -76,6 +76,16 @@ struct NativeNewTabAgentRowsTests {
         #expect(log == ["start codex /Users/me/fun/cmux", "open codex:a"])
     }
 
+    @Test func cloudRowRunsWhenThePaletteListHasNoCloudAction() {
+        var opened: (String, String)?
+        let model = NativeNewTabModel(page: Self.page(), actions: NativeNewTabActions(action: { opened = ($0, $1) }))
+        model.text = "cloud"
+        #expect(model.rows.contains(.cloud))
+        model.activate(.cloud)
+        #expect(opened?.0 == "palette.newCloudChat")
+        #expect(opened?.1 == "New Cloud Chat")
+    }
+
     @Test func aStartRowShowsTheAgentAndTheFolderUnderHome() {
         let row = NativeNewTabRow.start(NativeNewTabStart(harness: "codex", agent: "Codex", folder: "/Users/me/fun/cmux"))
         #expect(NativeNewTabRowContent(row, strings: NativeNewTabStrings(), home: Self.home).title == "Codex in ~/fun/cmux")
