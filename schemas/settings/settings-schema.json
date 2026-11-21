@@ -277,6 +277,7 @@
               "appearance.backgroundSchedule",
               "appearance.backgroundDynamic",
               "appearance.backgroundLocation",
+              "appearance.backgroundMemory",
               "appearance.displayBackgrounds",
               "appearance.displayBackgroundRotations",
               "appearance.paneBackgrounds",
@@ -458,6 +459,7 @@
               "sidebar.groupBy",
               "sidebar.detailedStatusIcons",
               "sidebar.showTimestamps",
+              "sidebar.settleFinished",
               "sidebar.showColors",
               "sidebar.showLocalMachine",
               "sidebar.groupHeader.memberCount",
@@ -2199,6 +2201,7 @@
             "key" : "settings.group.labs",
             "rows" : [
               "labs.previewFeatures",
+              "labs.liveTree",
               "labs.voiceRoom",
               "labs.voiceRoomURL",
               "labs.machineJoin",
@@ -2210,6 +2213,17 @@
             "title" : {
               "key" : "settings.group.labs",
               "text" : "Labs"
+            }
+          },
+          {
+            "key" : "settings.group.experiments",
+            "rows" : [
+              "experiments.glassToolbarGroups",
+              "experiments.composerV2"
+            ],
+            "title" : {
+              "key" : "settings.group.experiments",
+              "text" : "Experiments"
             }
           },
           {
@@ -4111,10 +4125,6 @@
     {
       "accepts" : [
         "minimal",
-        "cards",
-        "default",
-        "threads",
-        "console",
         "classic",
         "terminal"
       ],
@@ -4127,34 +4137,6 @@
             "text" : "Minimal"
           },
           "value" : "minimal"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabTemplateCards",
-            "text" : "Cards"
-          },
-          "value" : "cards"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabTemplateDefault",
-            "text" : "Default"
-          },
-          "value" : "default"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabTemplateThreads",
-            "text" : "Threads"
-          },
-          "value" : "threads"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabTemplateConsole",
-            "text" : "Console"
-          },
-          "value" : "console"
         },
         {
           "title" : {
@@ -4195,9 +4177,6 @@
         "greeting",
         "terminal",
         "classic",
-        "threads",
-        "console",
-        "cards",
         "search",
         "ask"
       ],
@@ -10872,7 +10851,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -33122,6 +33101,189 @@
         "text" : "Sun Location"
       },
       "validation" : "domain:backdrop_location"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "folder" : "folder:/Users/Shared/Wallpapers",
+          "off" : "file:/Users/Shared/Harbor.png",
+          "rotate" : "folder:/Users/Shared/Wallpapers"
+        },
+        {
+          "folder" : "folder:/Users/Shared/Wallpapers",
+          "off" : "none",
+          "rotate" : "daily"
+        },
+        {
+          "off" : "munch-scream"
+        },
+        {
+          "off" : "system:/System/Library/Desktop Pictures/Sonoma.heic"
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundMemory.help",
+        "text" : "The folder and picture each background mode last showed, so switching back restores them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundMemory",
+      "keywords" : [
+        "wallpaper",
+        "background",
+        "folder",
+        "rotate",
+        "restore"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundMemory"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "folder:/Users/Shared/Wallpapers",
+        [
+
+        ],
+        {
+          "rotate" : "munch-scream"
+        },
+        {
+          "rotate" : "appearance"
+        },
+        {
+          "folder" : "daily"
+        },
+        {
+          "folder" : "folder:/"
+        },
+        {
+          "folder" : "folder:relative"
+        },
+        {
+          "off" : "daily"
+        },
+        {
+          "off" : "schedule"
+        },
+        {
+          "off" : "folder:/Users/Shared/Wallpapers"
+        },
+        {
+          "off" : "__not_a_backdrop__"
+        },
+        {
+          "light" : "munch-scream"
+        },
+        {
+          "rotate" : 1
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.backgroundMemory"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.backgroundMemory",
+        "text" : "Background Mode Memory"
+      },
+      "validation" : "domain:backdrop_memory"
     },
     {
       "accepts" : [
@@ -64717,7 +64879,10 @@
         "key" : "settings.group.sidebar",
         "text" : "Sidebar"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.sidebar.showSpaces.help",
+        "text" : "Spaces show once you have more than one. New Space is in the command palette."
+      },
       "kept_on_reset_all" : false,
       "key" : "sidebar.showSpaces",
       "keywords" : [
@@ -64977,7 +65142,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -66979,6 +67144,144 @@
         false
       ],
       "agent_refusal" : null,
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.settleFinished.help",
+        "text" : "A chat whose answer you have read folds into Settled at the end of its list until its next turn."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.settleFinished",
+      "keywords" : [
+        "sidebar",
+        "settle",
+        "settled",
+        "finished",
+        "done",
+        "read",
+        "seen",
+        "fold",
+        "chats",
+        "threads",
+        "tidy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "settleFinished"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.settleFinished"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.settleFinished",
+        "text" : "Settle Finished Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
         "cmux-next"
@@ -68417,7 +68720,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -70359,7 +70662,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "timeline",
+      "default" : "compact",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -103385,6 +103688,140 @@
         true,
         false
       ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.liveTree.help",
+        "text" : "Show the shared live-tree path and compile lanes in the agent pane."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.liveTree",
+      "keywords" : [
+        "labs",
+        "live",
+        "tree",
+        "shared",
+        "compile",
+        "lanes",
+        "experiment"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "liveTree"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:labs.liveTree"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.labs.liveTree",
+        "text" : "Live Tree"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
@@ -104189,6 +104626,281 @@
       "title" : {
         "key" : "settings.labs.agentCustomization",
         "text" : "Claude Code and Codex Customization"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.glassToolbarGroups.help",
+        "text" : "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.glassToolbarGroups",
+      "keywords" : [
+        "experiments",
+        "experimental",
+        "prototype",
+        "glass",
+        "toolbar",
+        "header",
+        "buttons",
+        "capsule",
+        "keycaps"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "glassToolbarGroups"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.glassToolbarGroups"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.glassToolbarGroups",
+        "text" : "Glass Toolbar Groups"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.composerV2.help",
+        "text" : "A glass composer with mode chips, mention chips and a round send button. Still being shaped."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.composerV2",
+      "keywords" : [
+        "experiments",
+        "experimental",
+        "prototype",
+        "composer",
+        "glass",
+        "chips",
+        "mention",
+        "send"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "composerV2"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.composerV2"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.composerV2",
+        "text" : "Composer Refresh"
       },
       "validation" : "portable"
     },
@@ -109059,7 +109771,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.category.menus",
