@@ -25,6 +25,21 @@ struct CloudMachineSecretsTests {
         #expect(twice.missing.isEmpty)
     }
 
+    @Test func theClaudeSetupTokenGoesToEveryMachineWhenTheMacHoldsOneGlobally() {
+        let held: [String: Int64] = ["*/API_KEY": 1, "*/CLAUDE_CODE_OAUTH_TOKEN": 5]
+        let wanted = CloudMachineSecrets.withAlwaysDelivered(["API_KEY"], index: held)
+        #expect(wanted == ["API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"])
+        let (items, missing) = CloudMachineSecrets.plan(declared: wanted, repo: nil, index: held)
+        #expect(items.map(\.account) == ["*/API_KEY", "*/CLAUDE_CODE_OAUTH_TOKEN"])
+        #expect(missing.isEmpty)
+        #expect(CloudMachineSecrets.withAlwaysDelivered(["API_KEY"], index: ["*/API_KEY": 1]) == ["API_KEY"],
+                "no token on this Mac: nothing added, and never reported missing")
+        #expect(CloudMachineSecrets.withAlwaysDelivered(["CLAUDE_CODE_OAUTH_TOKEN"], index: held) == ["CLAUDE_CODE_OAUTH_TOKEN"],
+                "declared already: not added twice")
+        #expect(CloudMachineSecrets.withAlwaysDelivered([], index: ["acme/app/CLAUDE_CODE_OAUTH_TOKEN": 1]).isEmpty,
+                "only a global token goes to every machine; a repo-scoped one waits for its machine config and --repo")
+    }
+
     @Test func onlyAOneLineValueOfEightCharactersTo16KiBIsDelivered() {
         #expect(CloudMachineSecrets.isValue("sk-live-123"))
         #expect(CloudMachineSecrets.isValue(String(repeating: "x", count: 16 * 1024)))
