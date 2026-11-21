@@ -29,6 +29,9 @@ on:
   pull_request:
     branches: [feat-cmux-next]
     paths:
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "schemas/settings/source/general.json"
+      - "web/public/tui/install-static.sh"
       - "cmux-tui/**"
       - "ghostty-next"
       - ".github/workflows/cmux-tui-windows-check.yml"
