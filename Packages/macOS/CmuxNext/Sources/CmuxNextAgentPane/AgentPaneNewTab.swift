@@ -54,9 +54,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var projects: [String]
     /// The design to show; nil is the page's default (B).
     public var layout: AgentPaneNewTabLayout?
-    /// The template (`tabs.newTabTemplate`: "minimal", "cards", "default", "threads", "console",
-    /// "classic" or "terminal"); the legacy "composer" value is still forwarded so the web page
-    /// can migrate saved settings to Minimal. nil follows `layout`. The page validates it.
+    /// The template (`tabs.newTabTemplate`: "minimal", "classic" or "terminal"); the settings
+    /// snapshot already reads a retired value (composer, cards, default, threads, console) as
+    /// "minimal", and the web page maps one to Minimal too. nil follows `layout`. The page validates it.
     public var template: String?
     /// The extension that draws over the composer (`tabs.newTabApp`, an app id with `cmux.newtab/1`);
     /// nil draws no extension. It never replaces the page; one that is missing, hidden or fails draws nothing.
@@ -298,6 +298,8 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
     public var actions: [Action]
     public var commands: [String]
     public var history: [Page]
+    /// Saved browser bookmarks, newest or tree order as supplied by the host.
+    public var bookmarks: [Page]
     /// The Commands palette's pick history (its `FrecencyStore`) for the rows the bar lists, by the palette's usage
     /// key (`tab:ID`, `workspace:ID`, `action:ID`): each key's decayed use count. The bar orders matches of one kind
     /// by it, so what the person picks often and lately comes first here as in the palette (cmuxterm-hq lenses
@@ -312,7 +314,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
     public var profiles: [Profile]?
 
     public init(tabs: [Tab] = [], workspaces: [Workspace] = [], folders: [String] = [], projects: [String] = [],
-                actions: [Action] = [], commands: [String] = [], history: [Page] = [], uses: [String: Double] = [:],
+                actions: [Action] = [], commands: [String] = [], history: [Page] = [], bookmarks: [Page] = [], uses: [String: Double] = [:],
                 profiles: [Profile]? = nil) {
         let cap = Self.maximumEntries
         self.tabs = tabs
@@ -322,13 +324,14 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         self.actions = Array(actions.prefix(Self.maximumActions))
         self.commands = commands
         self.history = history
+        self.bookmarks = bookmarks
         self.uses = uses.count > Self.maximumUses
             ? Dictionary(uniqueKeysWithValues: uses.sorted { $0.value > $1.value }.prefix(Self.maximumUses).map { ($0.key, $0.value) })
             : uses
         self.profiles = profiles.map { Array($0.prefix(Self.maximumProfiles)) }
     }
 
-    private enum CodingKeys: String, CodingKey { case tabs, workspaces, folders, projects, actions, commands, history, uses, profiles }
+    private enum CodingKeys: String, CodingKey { case tabs, workspaces, folders, projects, actions, commands, history, bookmarks, uses, profiles }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -340,6 +343,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             actions: try values.decodeIfPresent([Action].self, forKey: .actions) ?? [],
             commands: try values.decodeIfPresent([String].self, forKey: .commands) ?? [],
             history: try values.decodeIfPresent([Page].self, forKey: .history) ?? [],
+            bookmarks: try values.decodeIfPresent([Page].self, forKey: .bookmarks) ?? [],
             uses: try values.decodeIfPresent([String: Double].self, forKey: .uses) ?? [:],
             profiles: try values.decodeIfPresent([Profile].self, forKey: .profiles)
         )
@@ -364,6 +368,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             },
             "commands": commands,
             "history": history.map { optional([("url", $0.url), ("title", $0.title), ("icon", $0.icon)]) },
+            "bookmarks": bookmarks.map { optional([("url", $0.url), ("title", $0.title), ("icon", $0.icon)]) },
             "uses": uses,
         ].merging(profiles.map { ["profiles": $0.map { optional([("id", $0.id), ("name", $0.name), ("color", $0.color)]) }] } ?? [:]) { left, _ in left }
     }
