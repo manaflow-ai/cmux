@@ -18,18 +18,24 @@ on:
 
 permissions: {}
 
+# A comment that is not a SHIP receipt starts no runner and takes a group of its own, so it never
+# cancels a receipt's run (tests/test_ci_edit_events_start_no_runner.py).
 concurrency:
-  group: cmux-next-defaults-guard-review-${{ github.event.issue.number || github.event.pull_request.number }}
+  group: "cmux-next-defaults-guard-review-${{ github.event.issue.number || github.event.pull_request.number }}${{ github.event_name == 'issue_comment' && !(startsWith(github.event.comment.body, 'Review (') && contains(github.event.comment.body, '): SHIP at ')) && format('-comment-{0}', github.run_id) || '' }}"
   cancel-in-progress: true
 
 jobs:
   rerun:
+    # Every comment on every pull request (status comments and their edits included) used to start this job
+    # only for its first step to drop all but a SHIP receipt. The job now starts only for a comment that
+    # opens like one; the step below still checks the exact first line, the author and the head.
     if: >-
       ${{
         (github.event_name == 'pull_request_review' &&
           github.event.pull_request.base.ref == 'feat-cmux-next' &&
           github.event.pull_request.head.repo.full_name == github.repository) ||
-        (github.event_name == 'issue_comment' && github.event.issue.pull_request != null)
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request != null &&
+          startsWith(github.event.comment.body, 'Review (') && contains(github.event.comment.body, '): SHIP at '))
       }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted actions-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 5
