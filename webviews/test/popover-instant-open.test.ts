@@ -257,6 +257,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     count: 2,
     what: "the composer field grows and shrinks on one spring as a draft gains or loses lines; the field, never a menu",
   },
+  "src/agent-session/acpmux/composer/composerHandover.ts": {
+    count: 3,
+    what: "a chat started from New Tab: the composer's form, card and field glide from New Tab's box to the dock (#45392, #45453); the composer, never a menu",
+  },
   "src/agent-session/acpmux/chatSwitch.ts": {
     count: 1,
     what: "a chat switch: the transcript's rows, the title and Session Info move in (an opt-in experiment)",

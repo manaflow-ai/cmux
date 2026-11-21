@@ -245,7 +245,8 @@ describe("one subtle elevation scale", () => {
       ".acpmux-permission-panel .acpmux-permission-card.acpmux-permission-surface",
       "--elevation-2",
     ],
-    ["agent-session/acpmux/newtab/screen.css", ".nt-box", "--elevation-1"],
+    // New Tab's box casts its drop on the surface it shares with its suggestions popover (f5bcc98bf999).
+    ["agent-session/acpmux/newtab/screen.css", ".nt-composer-surface", "--elevation-1"],
     ["agent-session/acpmux/styles.css", ".acpmux-newtab-box", "--elevation-2"],
     ["agent-session/acpmux/styles.css", ".acpmux-newtab-kind.is-selected", "--elevation-1"],
     ["agent-session/acpmux/styles.css", ".acpmux-file-search", "--elevation-2"],
