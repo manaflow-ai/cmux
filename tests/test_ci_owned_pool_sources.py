@@ -225,7 +225,9 @@ class OwnedPoolSources(unittest.TestCase):
         if source is None:
             self.skipTest("main's rescue is not readable")
         paths = sources._constants(source).get("PORTABLE_LIGHT_WORKFLOW_PATHS", ())
-        self.assertEqual(len(paths), 3)
+        # The list follows what is deployed (pr-checks.yml and web-validation.yml left it when neither branch kept
+        # their placement graph), so no count is pinned; every listed workflow must still carry a graph below.
+        self.assertTrue(paths, "PORTABLE_LIGHT_WORKFLOW_PATHS is not readable from main's rescue")
         seen = set()
         for tree in self.trees:
             for path in paths:
@@ -242,7 +244,8 @@ class OwnedPoolSources(unittest.TestCase):
                                         for step in placement.get("steps", [])))
                     seen.add(path)
         if self.other is not None:
-            self.assertEqual(seen, set(paths), "all three deployed portable graphs must be checked")
+            self.assertEqual(seen, set(paths), "every PORTABLE_LIGHT_WORKFLOW_PATHS entry must carry a deployed "
+                             "portable-placement graph on main or feat-cmux-next; remove an entry whose graph is gone")
 
     def test_every_watched_workflow_is_owned_on_some_branch(self) -> None:
         if self.watched is None or self.other is None:
