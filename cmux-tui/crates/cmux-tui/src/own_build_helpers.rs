@@ -53,12 +53,15 @@ fn shared_shim_dir() -> Option<PathBuf> {
 }
 
 /// A shim for the shared folder `dir` that names no build: it starts the
-/// agent through the terminal's own cmux, `CMUX_TUI_CLI` (set by the
-/// terminal's daemon), else the app's bundled `CMUX_BUNDLED_CLI_PATH` when
-/// that is a cmux-next bundle (a `cmux-tui` beside it). Every build writes
-/// the same bytes, so the last writer no longer decides which build's
-/// wrapper a terminal runs. Without either it runs the agent itself, as the
-/// per-build shims do when their build is gone.
+/// agent through the terminal's own cmux. Terminals of the builds that used
+/// this folder predate `CMUX_TUI_CLI`, so their route is the app's bundled
+/// `CMUX_BUNDLED_CLI_PATH`, taken only when it is a cmux-next bundle, whose
+/// `cmux-tui` is the same file as its `cmux` (a classic app ships a separate
+/// Swift `cmux` that has no `agent` wrappers). `CMUX_TUI_CLI` comes first for
+/// any newer terminal that reaches the folder. Every build writes the same
+/// bytes, so the last writer no longer decides which build's wrapper a
+/// terminal runs. Without either it runs the agent itself, as the per-build
+/// shims do when their build is gone.
 fn shared_shim_script(
     name: &str,
     marker: &str,
@@ -75,7 +78,7 @@ fn shared_shim_script(
          for cli in \"${{CMUX_TUI_CLI-}}\" \"${{CMUX_BUNDLED_CLI_PATH-}}\"; do\n  \
            case $cli in\n    \
              /*)\n      \
-               if [ -x \"$cli\" ] && {{ [ \"$cli\" = \"${{CMUX_TUI_CLI-}}\" ] || [ -x \"${{cli%/*}}/cmux-tui\" ]; }}; then\n        \
+               if [ -x \"$cli\" ] && {{ [ \"$cli\" = \"${{CMUX_TUI_CLI-}}\" ] || [ \"$cli\" -ef \"${{cli%/*}}/cmux-tui\" ]; }}; then\n        \
                  exec \"$cli\" agent {verb} \"$@\"\n      \
                fi\n      \
                ;;\n  \
@@ -108,8 +111,11 @@ fn refresh_shared_shims_in(dir: &Path) {
         let Ok(existing) = fs::read(&path) else { continue };
         let is_ours = fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file())
             && existing.windows(marker.len()).any(|window| window == marker.as_bytes());
+        if !is_ours {
+            continue;
+        }
         let Some(script) = shared_shim_script(name, marker, verb, agent, dir) else { continue };
-        if is_ours && existing != script.as_bytes() {
+        if existing != script.as_bytes() {
             let _ =
                 agent_hook_install::replace_rewritable_file(&path, script.as_bytes(), Some(0o700));
         }
