@@ -55,21 +55,12 @@ fn refuse(reason: &str) -> anyhow::Error {
     Refusal(reason.to_owned()).into()
 }
 
-// Recursively sort keys, even in serde_json builds with preserve_order enabled.
-#[cfg(any(unix, test))]
-fn canonical(value: &Value) -> Value {
-    match value {
-        Value::Object(map) => {
-            let sorted: std::collections::BTreeMap<_, _> = map.iter().collect();
-            Value::Object(sorted.into_iter().map(|(k, v)| (k.clone(), canonical(v))).collect())
-        }
-        Value::Array(items) => Value::Array(items.iter().map(canonical).collect()),
-        _ => value.clone(),
-    }
-}
+// The request's canonical JSON (keys in UTF-8 byte order, as acpmux and the app write it), even in
+// serde_json builds with preserve_order enabled.
 #[cfg(any(unix, test))]
 fn digest(value: &Value) -> String {
-    format!("{:x}", Sha256::digest(canonical(value).to_string().as_bytes()))
+    let canonical = cmux_conversation::question_wire::canonical_json(value);
+    format!("{:x}", Sha256::digest(canonical.as_bytes()))
 }
 #[cfg(any(unix, test))]
 fn hex64(value: &str) -> bool {
