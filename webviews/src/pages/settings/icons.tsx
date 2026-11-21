@@ -111,7 +111,7 @@ const paths: Record<string, ReactNode> = {
       <path d="M6.6 1.6v2M2.6 6.6h2M3.8 3.8l1.4 1.4M9.4 3.8 8 5.2" />
     </>
   ),
-  // Personalization: a wand with two stars (SF Symbol wand.and.stars).
+  // Ask cmux: a wand with two stars (SF Symbol wand.and.stars).
   "wand.and.stars": (
     <path d="M2.4 13.6 10 6M8.8 4.8l2.4 2.4M5.4 2.2l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4L3.5 4.1l1.4-.5.5-1.4ZM12.4 9.4l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5.5-1.3ZM12 1.8l.35 1 1 .35-1 .35-.35 1-.35-1-1-.35 1-.35.35-1Z" />
   ),

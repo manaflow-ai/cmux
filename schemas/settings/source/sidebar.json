@@ -395,8 +395,12 @@
             "key": "settings.sidebar.showSpaces",
             "text": "Show Spaces"
           },
+          "help": {
+            "key": "settings.sidebar.showSpaces.help",
+            "text": "Spaces show once you have more than one. New Space is in the command palette."
+          },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "sidebar",
             "spaces",
@@ -444,7 +448,7 @@
             "text": "A search button after the profile button. Off: search from the palette."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "sidebar",
             "search",
@@ -908,6 +912,37 @@
             "last activity",
             "clock",
             "rows"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.settleFinished",
+          "note": "Seen, finished agent chats fold behind a Settled (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer settle). Off by default; the Studio look turns it on.",
+          "title": {
+            "key": "settings.sidebar.settleFinished",
+            "text": "Settle Finished Chats"
+          },
+          "help": {
+            "key": "settings.sidebar.settleFinished.help",
+            "text": "A chat whose answer you have read folds into Settled at the end of its list until its next turn."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "settle",
+            "settled",
+            "finished",
+            "done",
+            "read",
+            "seen",
+            "fold",
+            "chats",
+            "threads",
+            "tidy"
           ],
           "swift_owner": {
             "type": "SidebarSectionsSetting",
@@ -1387,7 +1422,7 @@
             "text": "A daily tip about a feature you haven't used"
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "sidebar",
             "tips",

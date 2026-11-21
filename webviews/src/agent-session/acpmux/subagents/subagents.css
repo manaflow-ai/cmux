@@ -613,6 +613,54 @@ button.cv-subagent > :last-child {
   padding-inline: var(--acpmux-tray-inset);
   height: var(--ui-row-height, 28px);
 }
+/* The header's height (trayHeadHeight.experiment.ts; Leo, 2026-11-21: "maybe it's too short rn?"): the
+   folded tray is this one row, so it alone grows; the lines keep their row height. */
+.acpmux-running-tray[data-head-height="roomy"] > .acpmux-running-tray__head {
+  height: calc(34px * var(--cmux-interface-scale, 1));
+}
+.acpmux-running-tray[data-head-height="tall"] > .acpmux-running-tray__head {
+  height: calc(40px * var(--cmux-interface-scale, 1));
+}
+/* The `kinds` arm (trayFoldHead.experiment.ts): each kind's mark then its count, the first mark in the
+   lines' icon column, the kinds apart by the counts' separator. They give way before the time and the
+   chevron. */
+.acpmux-running-tray__kinds {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.acpmux-running-tray__kind {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  color: var(--agent-text);
+}
+.acpmux-running-tray__kind > svg,
+.acpmux-running-tray__kind > .acpmux-running-tray__stack-mark {
+  flex: none;
+  color: var(--agent-muted);
+}
+.acpmux-running-tray__kind-text {
+  font-variant-numeric: tabular-nums;
+}
+/* The separator between kinds (trayKindLine.experiment.ts), quiet, as the counts' was. */
+.acpmux-running-tray__kind-sep {
+  flex: none;
+  white-space: pre;
+  color: var(--agent-muted);
+}
+.acpmux-running-tray__kind[data-tone="waiting"] > svg {
+  color: var(--acpmux-needs-you-mark);
+}
+.acpmux-running-tray__kind[data-tone="failed"] {
+  color: var(--agent-status-failure);
+}
+.acpmux-running-tray__kind[data-tone="failed"] > svg {
+  color: var(--agent-status-failure);
+}
 /* A line's end inset: the tray's, less the width a classic scrollbar takes from the list
    (SubagentTray.tsx `--acpmux-tray-gutter`). The pane's thin "Always" scroller (scrollers.ts, 8px) is
    the composer inset's width, so the scrollbar sits in the inset and every column keeps its x. */
