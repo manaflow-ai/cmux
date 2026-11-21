@@ -753,11 +753,23 @@ fn sends_between(
 /// One idle minute on a direct link with both ends on `config`: datagrams
 /// and wakeups (phone, Mac).
 async fn idle_minute(config: LinkConfig) -> ((usize, usize), (usize, usize)) {
+    idle_minute_with(config.clone(), false, config).await
+}
+
+/// One idle minute on a direct link, the phone on `phone_config` (and, with
+/// `phone_aligned_keepalives`, its tunnel sending no WireGuard keepalive of
+/// its own, as the app dials with Align Keepalives on), the Mac on
+/// `mac_config`: datagrams and wakeups (phone, Mac).
+async fn idle_minute_with(
+    phone_config: LinkConfig,
+    phone_aligned_keepalives: bool,
+    mac_config: LinkConfig,
+) -> ((usize, usize), (usize, usize)) {
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
     {
-        let config = config.clone();
+        let config = mac_config.clone();
         tokio::spawn(async move {
             while let Some(session) = mac.next_session().await {
                 let events = SessionEvents {
@@ -777,9 +789,14 @@ async fn idle_minute(config: LinkConfig) -> ((usize, usize), (usize, usize)) {
     }
     let phone_id = uuid::Uuid::new_v4().to_string();
     let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
-    let phone_options = DialOptions { drop_udp_to: Some(count_phone), ..options() };
-    let connected =
-        dial::connect(&phone, &mac_id, TransportKind::WireGuard, &phone_options, config).await.expect("dial");
+    let phone_options = DialOptions {
+        drop_udp_to: Some(count_phone),
+        aligned_keepalives: phone_aligned_keepalives,
+        ..options()
+    };
+    let connected = dial::connect(&phone, &mac_id, TransportKind::WireGuard, &phone_options, phone_config)
+        .await
+        .expect("dial");
     tokio::time::sleep(Duration::from_secs(5)).await;
     let from = std::time::Instant::now();
     tokio::time::sleep(Duration::from_secs(60)).await;
@@ -804,6 +821,24 @@ async fn blackout_cost_of_an_idle_minute() {
     );
     // One keepalive exchange of slack for where the minute's edges fall.
     assert!(after.0.0 <= before.0.0 + 2 && after.1.0 <= before.1.0 + 2, "before {before:?} after {after:?}");
+}
+
+/// What Align Keepalives (Settings, off by default) would cost if the
+/// phone's link took its 10 s beat: one idle minute with the phone dialed as
+/// the app dials today (`LinkConfig::default`, the tunnel's own WireGuard
+/// keepalive) and as it dials with the setting on (`LinkConfig::aligned`,
+/// no tunnel keepalive), the Mac on its default both times. A measurement
+/// for the PR body, not a gate: run it alone with
+/// `cargo test -p cmux-mobile-link --test roaming aligned_beat -- --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "measurement: two idle minutes; run on its own"]
+async fn aligned_beat_cost_of_an_idle_minute() {
+    let today = idle_minute_with(LinkConfig::default(), false, LinkConfig::default()).await;
+    let aligned = idle_minute_with(LinkConfig::aligned(), true, LinkConfig::default()).await;
+    eprintln!(
+        "ALIGNED idle minute: today phone={:?} mac={:?} | aligned phone={:?} mac={:?} (datagrams, wakeups)",
+        today.0, today.1, aligned.0, aligned.1
+    );
 }
 
 /// The link as it was on base: the 15 s ping, a 20 s keepalive timeout and
