@@ -4,6 +4,7 @@ import CmuxNextAppCore
 import CmuxNextCompat
 import CmuxNextErrorJournal
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextTerminal
 import os
 
@@ -17,13 +18,12 @@ enum SettingsHandlers {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        SettingsCustomizationActions().bind(into: registry, effect: { route, focus in
+            try context.services.settingsWindow.show(section: nil, focus: focus, route: route)
+            return .done
+        }, refuse: { [weak registry] in registry?.refuse(thrown: $0) })
         registry.bind("palette.openCmuxSettingsFile", run: { _ in try openCmuxConfig(context) })
         registry.bind("palette.openGhosttySettings", run: { _ in try openGhosttyConfig(context) })
-        // Showing the Settings tab is local and immediate: the effect is done on this turn.
-        registry.bindEffect("settings.customizeMenus", requires: nil, effect: { invocation in
-            try context.services.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: "#/settings/menus")
-            return .done
-        })
         // R92: Settings > Terminal shows the Ghostty config diagnostics.
         registry.bind("ghostty.showDiagnostics", run: { invocation in
             try context.services.settingsWindow.show(section: .terminal, focus: invocation.allowsViewChange)
