@@ -34,6 +34,32 @@ export function showsChatSnapshot(): boolean {
   return !!shown() && typeof document !== "undefined" && !!document.querySelector(SNAPSHOT_HOST_TAG);
 }
 
+/// Who hears the copy come and go (``subscribeChatSnapshot``).
+const copyListeners = new Set<() => void>();
+
+function copyChanged(): void {
+  for (const listener of copyListeners) listener();
+}
+
+/// Calls `listener` when the copy shows or goes (a press on it, its hold running out, the live page
+/// taking over), so a page that renders by ``showsChatSnapshot`` hears it (App.tsx
+/// `useSyncExternalStore`). Returns the stop.
+export function subscribeChatSnapshot(listener: () => void): () => void {
+  copyListeners.add(listener);
+  return () => {
+    copyListeners.delete(listener);
+  };
+}
+
+/// Marks what the live page draws over the copy, outside the live root (a host failure said while
+/// the copy shows, App.tsx `HostLineOverCopy`): a press on it reaches it and leaves the copy up.
+export const OVER_COPY_ATTRIBUTE = "data-cmux-over-chat-snapshot";
+
+function overCopy(event: Event): boolean {
+  const target = event.target;
+  return typeof Element !== "undefined" && target instanceof Element && !!target.closest(`[${OVER_COPY_ATTRIBUTE}]`);
+}
+
 /// When the snapshot drew and when the live page took over, in `performance.now()` time (layoutWatch.ts).
 export function chatSnapshotTimes(): { painted_ms: number; swapped_ms: number | null } | undefined {
   const value = shown();
@@ -74,6 +100,7 @@ export function removeChatSnapshot(doc: Document = document): boolean {
   const value = shown();
   if (value) value.swappedAt = performance.now();
   performance.mark?.("cmux-chat:snapshot-swap");
+  copyChanged();
   return true;
 }
 
@@ -159,6 +186,8 @@ export function reportChatSnapshot(
     // card's Allow, a shortcut). The press is consumed, with the rest of its gesture (its pointerup
     // and click). A wheel ends the copy and scrolls. Stops with the copy.
     const end = (event?: Event) => {
+      // What the page draws over the copy (a said failure's line and its Retry) takes its own input.
+      if (event && overCopy(event)) return;
       // Only a press on the copy is consumed: once it is gone, input reaches the page as usual.
       if (event && event.type !== "wheel" && showsChatSnapshot()) {
         event.preventDefault();
@@ -177,6 +206,7 @@ export function reportChatSnapshot(
     };
     for (const name of events) window.addEventListener(name, end, { capture: true, passive: name === "wheel" });
     stopCopyInput = stop;
+    copyChanged();
   };
   if (showsChatSnapshot()) shows();
   else liveSide().painted = shows;

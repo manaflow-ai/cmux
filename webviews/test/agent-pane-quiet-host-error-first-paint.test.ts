@@ -34,7 +34,7 @@ test("a read chat and a New Tab page are first paints; a chat not read yet is no
   expect(pageShowsWhatItIs(waiting)).toBe(false);
 });
 
-test("over the last launch's copy only the chat itself, a said failure or a refused open is a first paint", () => {
+test("over the last launch's copy only the chat itself, a refused open or an unavailable chat is a first paint", () => {
   // The client's connect failing quietly after the host's handshake counted as a drawn chat
   // (`connecting:`), as did the draw hold running out: both drew placeholders over the copy.
   const copy = { ...waiting, handshaken: true, chatDrawn: true, keepsLastFrame: true };
@@ -43,6 +43,18 @@ test("over the last launch's copy only the chat itself, a said failure or a refu
   expect(pageShowsWhatItIs({ ...copy, openRefused: true })).toBe(true);
   // acpmux lists no such chat (deleted, offline, paused): its unavailable state is the chat now.
   expect(pageShowsWhatItIs({ ...copy, chatUnavailable: true })).toBe(true);
-  expect(pageShowsWhatItIs({ ...copy, hostError: true, hostErrorSaid: true })).toBe(true);
   expect(pageShowsWhatItIs({ ...copy, handshaken: false, chatRead: true })).toBe(false);
+});
+
+// Leo, 2026-11-16: "it said something went wrong with a retry button ... and then it layout
+// shifted". A said failure took the copy off for an empty transcript under the failure's line, and
+// the rows came back when the retry connected. The copy stays (the line stands over it, App.tsx
+// HostLineOverCopy) and goes only when the chat's rows draw.
+test("a failure said while the last launch's copy shows keeps the copy until the rows draw", () => {
+  const said = { ...waiting, hostError: true, hostErrorSaid: true, keepsLastFrame: true };
+  expect(pageShowsWhatItIs(said)).toBe(false);
+  expect(pageShowsWhatItIs({ ...said, handshaken: true, chatDrawn: true })).toBe(false);
+  expect(pageShowsWhatItIs({ ...said, handshaken: true, chatDrawn: true, chatRead: true })).toBe(true);
+  // Once the copy is gone (a press, its hold), the said failure is what the page is again.
+  expect(pageShowsWhatItIs({ ...said, keepsLastFrame: false })).toBe(true);
 });

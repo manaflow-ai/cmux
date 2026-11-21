@@ -6,6 +6,7 @@ import {
   AcpmuxRestartGate,
   HOST_ERROR_DEADLINE_MS,
   hostErrorShows,
+  hostFailureUnclassified,
   hostIsReconnecting,
   hostRefusedTooLarge,
   hostSelfRetrying,
@@ -160,6 +161,37 @@ test("a hard refusal is said at once", () => {
   expect(hostErrorShows({ code: "host_unavailable" }, 0)).toBe(true);
   expect(hostErrorShows({ code: "host_unavailable", details: { restartAcpmux: true } }, 0)).toBe(true);
   expect(hostErrorShows({ code: "agent_session.untrusted" }, 0)).toBe(true);
+});
+
+// Leo, 2026-11-16: "i restarted and the chat appeared in 3 seconds and then it said something went
+// wrong with a retry button". The host's catch-alls (the page router's `cmux.page.failed` for any
+// Swift error, a reply without a code `native.failed`) say `retryable: false` only because nothing
+// classified them: during the relaunch's handshake such a failure is quiet, retried, and said only
+// past the deadline, while every refusal that needs the person is still said at once.
+test("a failure the host did not classify recovers quietly until the deadline", () => {
+  const pageFailed = { code: "cmux.page.failed", retryable: false, message: "Something went wrong. Try again." };
+  const replyFailed = { code: "native.failed", retryable: false };
+  for (const failure of [pageFailed, replyFailed]) {
+    expect(hostFailureUnclassified(failure)).toBe(true);
+    expect(hostIsReconnecting(failure)).toBe(true);
+    expect(hostErrorShows(failure, 0)).toBe(false);
+    expect(hostErrorShows(failure, HOST_ERROR_DEADLINE_MS - 1)).toBe(false);
+    expect(hostErrorShows(failure, HOST_ERROR_DEADLINE_MS)).toBe(true);
+    // The pane asks again by itself, at the recovery's pace.
+    expect(hostSelfRetrying(failure, false)).toBe(true);
+    expect(nextRetryDelay(2_000, hostIsReconnecting(failure))).toBe(2_000);
+  }
+  // The definite refusals keep their at-once line: acpmux missing, another build's daemon with
+  // Restart offered, an untrusted folder, a chat too large to open, a host refusal by code.
+  expect(hostFailureUnclassified({ code: "host_unavailable", retryable: false })).toBe(false);
+  expect(hostErrorShows({ code: "host_unavailable", retryable: false }, 0)).toBe(true);
+  expect(hostErrorShows({ code: "host_unavailable", retryable: false, details: { restartAcpmux: true } }, 0)).toBe(
+    true,
+  );
+  expect(hostErrorShows({ code: "agent_session.untrusted", retryable: false }, 0)).toBe(true);
+  expect(hostErrorShows({ code: -32000, reason: "message.too_large" }, 0)).toBe(true);
+  expect(hostErrorShows({ code: "transport.intent_invalid", retryable: false }, 0)).toBe(true);
+  expect(hostErrorShows({ code: "native.invalid_request" }, 0)).toBe(true);
 });
 
 test("a recovering pane asks again within 2 s; a refusal keeps retrying, at least every 30 s", () => {

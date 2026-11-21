@@ -7,10 +7,27 @@ export function offersAcpmuxRestart(error: unknown): boolean {
   return !!details && typeof details === "object" && (details as { restartAcpmux?: unknown }).restartAcpmux === true;
 }
 
+/// The host's codes for a failure it did not classify: the page router's catch-all for any Swift
+/// error that is not a `PageError` (PageError.swift `failed`, `cmux.page.failed`) and a pane reply
+/// without a code (AgentPageProvider.swift `value(of:)`, `native.failed`). Both say
+/// `retryable: false` only because nothing classified them, so the flag says nothing of whether
+/// asking again clears them. During a relaunch's handshake such a hiccup said "Can't reach the
+/// agent service." with Retry at once, over an empty transcript (Leo, 2026-11-16: "i restarted and
+/// the chat appeared in 3 seconds and then it said something went wrong with a retry button ... and
+/// then it layout shifted"). They recover quietly, and are said only past the deadline.
+const UNCLASSIFIED_HOST_CODES = new Set(["cmux.page.failed", "native.failed"]);
+
+/// Whether the host failed without saying why (``UNCLASSIFIED_HOST_CODES``).
+export function hostFailureUnclassified(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && UNCLASSIFIED_HOST_CODES.has(code);
+}
+
 /// A host-owned update handoff or a lost transport is still recovering. A definite host refusal
 /// (missing binary, stopped daemon, unsupported machine, untrusted folder) keeps its instructions.
 /// Older bridges may omit retryability on socket failures; only errors without an owned code fall
-/// back to recovery. Never infer it from the translated message or from the restart gate.
+/// back to recovery, and so does a failure the host did not classify (``hostFailureUnclassified``),
+/// whatever its `retryable` says. Never infer it from the translated message or from the restart gate.
 export function hostIsReconnecting(error: unknown): boolean {
   const fields = error as {
     code?: unknown;
@@ -25,6 +42,7 @@ export function hostIsReconnecting(error: unknown): boolean {
   // acpmux marks a refusal a retry clears (`data.retryable`; direct.ts keeps `data` on the error).
   if (fields?.data?.retryable === true) return true;
   if (fields?.code === "native.not_connected" || fields?.code === "native.timed_out") return true;
+  if (hostFailureUnclassified(error)) return true;
   if (typeof fields?.retryable === "boolean") return fields.retryable;
   if (typeof fields?.code === "string") return false;
   return fields?.code === undefined;

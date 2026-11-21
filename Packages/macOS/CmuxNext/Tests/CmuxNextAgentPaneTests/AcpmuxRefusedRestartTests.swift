@@ -70,6 +70,24 @@ struct AcpmuxRefusedRestartTests {
         }
     }
 
+    /// A host whose every handshake fails with an error nothing classified (not an ``AgentPaneHostError``).
+    private actor UnclassifiedHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw CocoaError(.fileReadUnknown) }
+    }
+
+    /// A handshake that failed for a reason nothing classified is no refusal: the page retries it
+    /// quietly and says it only past its deadline (Leo, 2026-11-16: "i restarted and the chat
+    /// appeared in 3 seconds and then it said something went wrong with a retry button").
+    @Test func anUnclassifiedHandshakeFailureIsReconnecting() async throws {
+        let model = AgentPaneModel(host: UnclassifiedHost())
+        let reply = await model.respond(to: .reconnect)
+        let error = try #require(reply["error"] as? [String: Any])
+        #expect(error["code"] as? String == "host_unavailable")
+        let details = error["details"] as? [String: Any]
+        #expect(details?["reconnecting"] as? Bool == true, "\(error)")
+        #expect(details?["restartAcpmux"] == nil)
+    }
+
     /// Without a refusal that offered it, or without the person's click, the page cannot stop a daemon.
     @Test func restartAcpmuxNeedsAnOfferAndAGesture() async {
         let model = AgentPaneModel(host: NoHost())
