@@ -621,7 +621,7 @@ export class SessionPager<S extends Summary> {
       return undefined;
     });
     const digest = typeof reply?.digest === "string" ? reply.digest : undefined;
-    if (digest && reply.unchanged === true && held?.digest === digest) return held.usage;
+    if (digest && held && reply.unchanged === true && held.digest === digest) return held.usage;
     if (digest && reply.usage && typeof reply.usage === "object") {
       const usage = new Map<string, unknown>(Object.entries(reply.usage));
       this.usageHeld = { digest, usage };
