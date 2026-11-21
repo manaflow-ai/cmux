@@ -50,7 +50,7 @@ fn each_chat_has_its_own_projection_and_its_name_is_one_the_machine_takes() {
 #[test]
 fn each_move_has_its_own_projection_and_its_name_is_one_the_machine_takes() {
     let one = chat_name(&move_key("/home/cmux/work/api"));
-    std::thread::sleep(std::time::Duration::from_millis(1));
+    std::thread::sleep(Duration::from_millis(1));
     // A later move of the same folder never mounts an earlier move's edits.
     assert_ne!(one, chat_name(&move_key("/home/cmux/work/api")));
     assert!(one.starts_with(&chat_name(&format!("move-{}", name_of("/home/cmux/work/api")))));
