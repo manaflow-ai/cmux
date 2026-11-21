@@ -426,7 +426,8 @@ class PipelineTest(unittest.TestCase):
                  "app-platform.yml": "app-platform", "ci-artifact-transport.yml": "ci-artifact-transport",
                  "cloud-vm-image-lock.yml": "cloud-vm-image-lock", "mux.yml": "mux",
                  "automation-bench.yml": "automation-bench",
-                 "repair-nightly-appcast-content-types.yml": "repair-nightly-appcast"}
+                 "repair-nightly-appcast-content-types.yml": "repair-nightly-appcast",
+                 "cmux-next-remote-daemon.yml": "remote-daemon-packaging", "coderouter-ci.yml": "coderouter"}
         steps = ci_steps.load().steps
         for name, step in moved.items():
             with self.subTest(workflow=name):
@@ -450,9 +451,11 @@ class PipelineTest(unittest.TestCase):
         # The tools come from [tools], only for a routed step that lists them; nothing else puts bun or node
         # on the linux job's PATH, and the runner image is not assumed to hold either.
         table = ci_steps.load()
-        self.assertEqual(sorted(table.tools), ["bun", "node"])
+        self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust"])
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock"}
-        wants_node = {"ci-artifact-worker"}
+        wants_node = {"ci-artifact-worker", "coderouter"}
+        self.assertEqual(table.steps["coderouter"].needs, ("rust", "node"))
+        self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
         for name, step in table.steps.items():
             if step.job != "linux":
                 continue
