@@ -181,6 +181,15 @@ pub enum Control {
         queue_dropped_rejected_protected_frames: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         queue_dropped_rejected_protected_datagrams: Option<u64>,
+        /// Media datagrams the socket accepted (departure receipts) since the session began.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        departed_datagrams: Option<u64>,
+        /// Their accepted socket payload bytes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        departed_bytes: Option<u64>,
+        /// Departure receipts lost to the bounded buffer: lost observations, not lost media.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        departure_overflows: Option<u64>,
     },
 }
 
