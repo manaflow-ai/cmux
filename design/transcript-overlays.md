@@ -38,25 +38,46 @@ apps]." It has two parts. Prior art: the common chat-app unread rule with a fill
 design notes of ours: "let arrival yell; let unread state persist quietly" and "preserve geography; adapt
 salience".
 
-### The static view: the New line
+### The static view: the "N new messages" line
 
-- Where the person left a chat that kept working (acpmux `seenSeq`), one row placed when the chat opens and
-  kept until another chat is selected (`direct.ts placeSince`), so it never appears or goes under the reader.
-- A hairline in the theme's accent (`--cmux-app-accent`) across the text column, with a small filled "New"
-  tag pinned to its end (`--cmux-app-on-accent` on the accent, `--ds-radius-sm`, caption type). Not a fixed
-  blue: the line belongs to every theme, light, dark and over a background image.
+Leo, 2026-11-15, with a capture of the terminal chat (his message, a thin rule with a centered "157 new
+messages", the first new reply under it): "we needto properly do somthing like this in the gui somehow".
+
+- Where the person left a chat that kept working: one row, placed when the chat opens and when they come
+  back to it (`direct.ts placeSince`), kept until another chat is selected, so it never appears or goes under
+  the reader. Coming back is any of: the chat picked, its tab or window shown again, the reader's hand back
+  after stepping away (attention.ts). acpmux keeps the place (`seenSeq`, `unreadTurns`, `lastReturn` in
+  `session.json`, `hub/seen.rs`), so it survives a restart.
+- Scrolled up while the chat keeps going: the line goes after the last record the view followed, once a
+  message arrives after it (`direct.ts placeScrolledSince`), unless an unread line is already drawn. It
+  never moves the view; it is in the page only (acpmux counted those rows as seen while the person attended).
+- The look (`count`, chosen): a muted hairline (`--agent-border-strong`) on both sides of a centered, muted
+  "157 new messages" (caption type, `--agent-muted`, tabular figures), the terminal chat's rule in GUI terms.
+- The count is the messages after the line: replies, tool runs and messages (`assistant`, `activity`,
+  `user`, `btw` rows); turn ends, notices, recaps and status never count. It follows new rows live (App.tsx
+  `countNewMessages`, read from the end back to the line, O(the new rows)), reads "999+" past its cap, and
+  freezes once the line is read. Only the label's words change; the row's height never does.
+- A return with new rows lands at the line, not the latest message: the line about a third down the view,
+  what the person had seen above it, the new part below (`sinceLands`, App.tsx). It moves only a view at the
+  latest message (the reveal's `land`); a reader scrolled up keeps their place. With the unread banner on
+  (the setting), the view stays at the latest and the banner jumps to the line, as before. A return with
+  nothing new places no line and moves nothing.
 - One control row tall (`--ds-control-row`, the 28px `model.ts` estimates), the recap's card under it. It
   sits in the message rhythm and never overlaps or moves a row.
-- Read (Mark read, or the line seen and then the latest message reached by the reader): the rule and the tag
-  fade in place over `--agent-motion-calm`. The row keeps its height, so nothing jumps; the recap stays.
+- Read: seen and then scrolled past, on screen for `SINCE_FADE_MS` (6 s), Mark read, or seen and then the
+  latest message reached by the reader. The rules and the words fade in place over `--agent-motion-calm`.
+  The row keeps its height, so nothing jumps; the recap stays.
 - Right-click: Mark read, and Hide unread banner or Show unread banner (the setting).
-- Looks compared: `tag` (chosen), `text` (accent words, no fill), `labelled` (the first look on
-  tokens: "New since you looked · 3 turns" leading the rule).
+- Looks compared (`agent-pane.since-divider`): `count` (chosen), `count-accent` (the same in the theme's
+  accent), `tag` (the look before: an accent rule with a filled "New" tag at its end), `text` (accent words,
+  no fill), `labelled` (the first look on tokens: "New since you looked · 3 turns" leading the rule). The
+  whole pane (`agent-pane.unread-marker`): `new-few`, `new-many` (157), `after-user-message`,
+  `after-tool-run`.
 
 ### The moving view: the unread banner
 
 - A compact glass bar in the top-start zone while the line is off screen and not yet reached:
-  "↑ 3 new turns since 3:42 PM | Mark read | ‹". The arrow points to where the line is.
+  "↑ 157 new messages since 3:42 PM | Mark read | ‹", the line's count. The arrow points to where the line is.
 - The body jumps to the line. Pressed, or once the reader reaches the latest message by their own move, it
   has done its job for that mark (`sinceDone`, as #40072 has it for #40065).
 - Collapsed: a small pill, "↑ 3 ›". The chevron collapses and expands it and keeps the choice. Collapsing
@@ -116,8 +137,9 @@ thread."
   seen, and the disc turns back to Jump to latest: no way back to hold.
 - The New line sits above the first unseen row when the chat opens and when the person comes back to it; it
   stays while they read. The unread banner keeps its setting and its default; its Jump goes to the same row.
-- An open is a breakpoint: nothing scrolls, animates or pops on open, and a restart, update or reconnect
-  with nothing new shows no arrow.
+- An open is a breakpoint: nothing animates or pops on open, and a restart, update or reconnect with
+  nothing new shows no arrow and moves nothing. An open or return with new rows opens at the New line
+  (above), in one step, with no glide.
 - Where you left off is the seen cursor, not a place the client marks (model of record: cmuxterm-hq
   `docs/design/agent-transcript-clean-slate.md`, "Where you left off: one model"). It replaces #41831's idle
   mark (a view place kept per chat in localStorage) and keeps both of its asks. Leo, 2026-11-12: "it's more

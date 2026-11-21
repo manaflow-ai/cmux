@@ -91,6 +91,7 @@ import type { PeerLinkDetail } from "./linkState";
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { resolvedTarget } from "./conversation/sessionRefs";
+import { MESSAGE_KINDS } from "./conversation/unreadState";
 import { noteReplaced } from "./sessionIndex";
 import { hostKind, sessionEntry, sessionTitle, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { sameUsageStats, type SessionUsageStats } from "./usageStats";
@@ -2172,10 +2173,13 @@ function afterPaint(run: () => void): () => void {
 }
 
 /// "New since you looked" from acpmux's `lastReturn` (`{since, turns}`, `hub/seen.rs`), when it has one.
-function returnOf(sessionId: string, value: unknown): (Omit<AcpmuxSince, "key"> & { sessionId: string }) | undefined {
+function returnOf(
+  sessionId: string,
+  value: unknown,
+): (Omit<AcpmuxSince, "key"> & { sessionId: string; lands: true }) | undefined {
   const back = value as { since?: unknown; turns?: unknown } | null | undefined;
   return typeof back?.since === "number" && typeof back.turns === "number" && back.turns > 0
-    ? { sessionId, seq: back.since, turns: back.turns }
+    ? { sessionId, seq: back.since, turns: back.turns, lands: true }
     : undefined;
 }
 
@@ -6504,7 +6508,7 @@ export class AcpmuxDirectClient {
     const turns = listed?.unreadTurns;
     const seq = listed?.seenSeq;
     if (typeof turns === "number" && turns > 0 && typeof seq === "number") {
-      this.since = { sessionId, seq, turns };
+      this.since = { sessionId, seq, turns, lands: true };
       this.placeSince();
     } else if (this.since?.sessionId !== sessionId) this.since = returnOf(sessionId, listed?.lastReturn);
     this.sessions = this.sessions.map((session) =>
@@ -6516,7 +6520,8 @@ export class AcpmuxDirectClient {
 
   /// "New since you looked" for the chat on screen (`markSeen`): its row, after the record at
   /// `since.seq`. Placed again after a reset clears the rows; O(1) when it is there already.
-  private since?: Omit<AcpmuxSince, "key"> & { sessionId: string };
+  /// `lands`: a return placed it, so the view opens at it (App.tsx); a scroll up's line does not move the view.
+  private since?: Omit<AcpmuxSince, "key"> & { sessionId: string; lands?: true };
   /// Only the latest recap survives replay, paging and live updates, including its dismissal.
   private latestRecap?: { sessionId: string; seq: number; since?: number; recap?: AcpmuxRecap };
   /// An older page folded in (`foldOlder`): a reply it brought may span `since.seq`, so the drawn
@@ -8362,6 +8367,44 @@ export class AcpmuxDirectClient {
   /// The pane's transcript follows its latest row, or the reader scrolled away (VirtualTranscript `following`).
   setFollowing(following: boolean): void {
     this.following = following;
+    // Scrolled up from the latest row of a chat that has drawn its rows: what comes after the last
+    // record they followed is new to them (`placeScrolledSince`). A chat still opening has no place.
+    const sessionId = this.selectedSessionId;
+    if (
+      following ||
+      !sessionId ||
+      this.replayThrough !== undefined ||
+      this.attachedGeneration !== this.selectionGeneration
+    )
+      this.scrolledFrom = undefined;
+    else this.scrolledFrom ??= { sessionId, seq: this.lastSeq };
+  }
+
+  /// Where the reader scrolled up from while the chat kept going: the log seq the view last followed.
+  private scrolledFrom?: { sessionId: string; seq: number };
+  /// The reader scrolled up and a message came after what they had followed (Leo, 2026-11-15, of the
+  /// terminal's "157 new messages" rule): "New" goes after that record, unless the chat already draws
+  /// a line. That line stays where it is until another chat is selected, read or not, with its recap
+  /// (design/transcript-overlays.md): moving it would take a row out above the reader. Placed once per
+  /// scroll away and never moves the view (`lands` unset). O(1) while nothing new came; else O(the rows
+  /// after it) until one message has.
+  private placeScrolledSince(): void {
+    const from = this.scrolledFrom;
+    if (!from || from.sessionId !== this.selectedSessionId || this.lastSeq <= from.seq) return;
+    if (this.since?.sessionId === from.sessionId && this.rows.has(SINCE_DIVIDER)) {
+      this.scrolledFrom = undefined;
+      return;
+    }
+    const rows = this.rows.sorted();
+    let message = false;
+    for (let index = rows.length - 1; index >= 0 && !message; index -= 1) {
+      const row = rows[index]!;
+      if (this.rows.orderOf(row.id) <= from.seq) break;
+      message = MESSAGE_KINDS.has(row.kind);
+    }
+    if (!message) return;
+    this.scrolledFrom = undefined;
+    this.since = { sessionId: from.sessionId, seq: from.seq, turns: 0 };
   }
 
   /// A chat left open lets go of its oldest records once it holds more than `HELD_RECORDS`, as a chat opened on
@@ -11594,6 +11637,7 @@ export class AcpmuxDirectClient {
     const effort = (summary?.configOptions ?? []).find(
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
+    this.placeScrolledSince();
     this.placeSince();
     // A chat on the store draws its rows, queue and paging from it (rows/chatSource.ts).
     const fromStore = this.chatRows.view(this.selectedSessionId);
@@ -11700,6 +11744,7 @@ export class AcpmuxDirectClient {
       ...(this.waitingSteers.length > 1 ? { waitingSteers: this.steerRowIds() } : {}),
       ...(this.waitingSteers.length > 1 && this.newestOwnSteer() ? { newestOwnSteer: this.newestOwnSteer() } : {}),
       ...(this.rows.get(SINCE_DIVIDER)?.since && { sinceKey: this.rows.get(SINCE_DIVIDER)!.since!.key }),
+      ...(this.rows.get(SINCE_DIVIDER)?.since && this.since?.lands && { sinceLands: true as const }),
       permission: this.pendingPermission,
       ...(this.pendingPermission && this.waitingPermissions.size > 0
         ? { permissionsWaiting: this.waitingPermissions.size, permissionsQueued: this.queuedPermissions() }
@@ -14854,7 +14899,8 @@ export class AcpmuxDirectClient {
     rememberRecapDismissed(key);
     if (this.latestRecap?.recap?.key === key) this.latestRecap = { ...this.latestRecap, recap: undefined };
     if (rowId === SINCE_DIVIDER && this.since?.recap?.key === key) {
-      this.since = { sessionId: this.since.sessionId, seq: this.since.seq, turns: this.since.turns };
+      const { sessionId, seq, turns, lands } = this.since;
+      this.since = { sessionId, seq, turns, ...(lands && { lands }) };
       this.placeSince();
       this.emit();
       return;
