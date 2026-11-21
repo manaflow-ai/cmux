@@ -6,7 +6,10 @@
 // failed row says so in its name's place, so no row carries more than its name and one action.
 // Lawrence (Nov 21): Update all is what most people do, so it is the footer's default button, in the
 // accent; a row's Update is a quiet secondary unless it is the only row. The reason ("New models
-// often need the latest version.") is the heading's tooltip, not a line of its own.
+// often need the latest version.") is the section's tooltip, not a line of its own.
+// a1315 (Lawrence: "drastically simplify all parts of the UI"): one outdated agent is one row, no
+// heading; with more, each row's Update shows on the row's hover or focus (data-reveal) beside Update
+// all; a failed row is one red line, its mark's space left empty, its Try Again on hover.
 import type { KeyboardEvent, Ref } from "react";
 import { AgentMark } from "../shared/AgentMark";
 import { Spinner } from "./conversation/icons";
@@ -38,12 +41,15 @@ export function HarnessUpdatesSection({
     if (row.skip) onOwnUpdate?.();
   };
   return (
-    <section className="acpmux-harness-updates" aria-label={title} data-harness-updates={updates.rows.length}>
-      <div className="acpmux-harness-updates-head">
-        <span className="acpmux-harness-updates-title" title={t("harness.updatesHint")}>
-          {title}
-        </span>
-        {all && (
+    <section
+      className="acpmux-harness-updates"
+      aria-label={title}
+      title={t("harness.updatesHint")}
+      data-harness-updates={updates.rows.length}
+    >
+      {all && (
+        <div className="acpmux-harness-updates-head">
+          <span className="acpmux-harness-updates-title">{title}</span>
           <button
             ref={firstAction}
             onKeyDown={onFirstKeyDown}
@@ -58,8 +64,8 @@ export function HarnessUpdatesSection({
           >
             {t("harness.updateAll")}
           </button>
-        )}
-      </div>
+        </div>
+      )}
       <ul className="acpmux-harness-updates-list">
         {updates.rows.map((row, index) => (
           <li
@@ -68,7 +74,8 @@ export function HarnessUpdatesSection({
             data-harness-update={row.harness}
             data-phase={row.phase}
           >
-            <AgentMark agent={row.harness} size={16} reserve />
+            {/* A failed row is its red line alone: the mark's space stays, empty, so names stay aligned. */}
+            <AgentMark agent={row.phase === "failed" ? "" : row.harness} size={16} reserve />
             {/* The versions go under the name, so holding Option never cuts the name short. */}
             <span className="acpmux-harness-update-label">
               <span className="acpmux-harness-update-name">
@@ -89,7 +96,7 @@ export function HarnessUpdatesSection({
               {...(!all && index === 0 ? { ref: firstAction, onKeyDown: onFirstKeyDown } : {})}
               type="button"
               className="acpmux-harness-update-run"
-              {...(!all ? { "data-default": "" } : {})}
+              {...(!all ? { "data-default": "" } : row.phase === "updating" ? {} : { "data-reveal": "" })}
               disabled={row.phase === "updating"}
               aria-busy={row.phase === "updating" || undefined}
               onClick={() => run(row)}
