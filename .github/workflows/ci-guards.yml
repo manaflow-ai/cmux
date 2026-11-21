@@ -991,6 +991,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
 
+      - name: Validate live runner reads leave the census publisher a reserve
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_route_quota_reserve.py
+
       - name: Validate simple live macOS pool choice
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_simple_pool_picker.py
