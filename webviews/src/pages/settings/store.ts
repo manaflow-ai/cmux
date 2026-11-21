@@ -39,6 +39,7 @@ import { rowsByKey } from "./schema";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { isBackdropRefusal, linkRefusal } from "./backdropRefusal";
 import { t } from "./strings";
+import { readLooksAnswer, type LooksOutcome } from "./looksGallery";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
 import {
@@ -65,17 +66,12 @@ import {
   type HarnessesState,
   type HostLists,
   type IntegrationsRun,
-  type AgentToolsCardRun,
-  type AgentToolsCardState,
   type IntegrationsState,
   type McpServersRun,
-  type AgentConfigAnswer,
-  type AgentConfigRun,
   type McpServersState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
-  type RowNoteData,
   type SettingsClient,
   type SettingsOpName,
   type SettingsOps,
@@ -90,12 +86,18 @@ import {
   type LibraryRun,
   type ModelsRun,
   type ModelsState,
-  type AgentSkillsRun,
-  type AgentSkillsState,
+  type LooksRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
+  type RowNoteData,
   type AgentMcpRun,
   type AgentMcpState,
   type AgentHooksRun,
   type AgentHooksState,
+  type AgentSkillsRun,
+  type AgentSkillsState,
+  type AgentConfigAnswer,
+  type AgentConfigRun,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -953,6 +955,18 @@ export class SettingsStore {
       ? null
       : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
     return { library: answer.library ?? null, refusal };
+  }
+
+  /** Settings > Appearance > Looks: one `cmux setup` verb. Answers its JSON, the consent card an
+   * install without `yes` answers, or the CLI's refusal in its own words; null when the host has no
+   * Looks part or no CLI (a call it could not run), so the card draws nothing. */
+  async looks(run: LooksRun): Promise<LooksOutcome | null> {
+    const reply = await this.request("cmux.settings.looks", run);
+    if (!reply.ok) {
+      if (run.verb === "gallery" || run.verb === "preview") return null;
+      return { kind: "refusal", code: reply.error.code, message: userMessage(reply.error, SETTINGS_SENTENCES) };
+    }
+    return readLooksAnswer(reply.value);
   }
 
   /** Settings > Keys: this Mac's keys and the requests waiting for the person; null when the host

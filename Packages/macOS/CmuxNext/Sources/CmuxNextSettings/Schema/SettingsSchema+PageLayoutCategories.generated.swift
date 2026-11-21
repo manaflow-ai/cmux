@@ -61,7 +61,7 @@ extension SettingsPageLayout {
             // The theme studio draws every row of it (it is the theme's one home); last, so the cards above keep their keys (appearance.1, .7, .8).
             GroupSpec(group: "settings.group.appTheme"),
         ],
-        lead: [.themeStudio, .backdrops, .density], trail: [.customizeLibrary], actions: [.appearance], aliases: [.appearance], legacyIDs: ["theme", "personalization"]
+        lead: [.looksGallery, .themeStudio, .backdrops, .density], trail: [.customizeLibrary], actions: [.appearance], aliases: [.appearance], legacyIDs: ["theme", "personalization"]
     )
 
     private static let sidebarCategory = CategorySpec(

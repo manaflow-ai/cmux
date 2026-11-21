@@ -38,6 +38,7 @@ import { ContextMenusCard } from "./ContextMenusCard";
 import { ServerCard } from "./ServerCard";
 import { SharedLinksCard } from "./SharedLinksCard";
 import { CustomizeLibraryCard } from "./CustomizeLibraryCard";
+import { LooksGalleryCard } from "./LooksGalleryCard";
 import { KeysCard } from "./KeysCard";
 import { McpServersCard } from "./McpServersCard";
 import { AgentSkillsCard } from "./AgentSkillsCard";
@@ -96,6 +97,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   cloudModels: (focus) => <CloudModelsCard focus={focus} />,
   sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
   customizeLibrary: (_focus, _workspace, reveal) => <CustomizeLibraryCard reveal={reveal} />,
+  looksGallery: (_focus, _workspace, reveal) => <LooksGalleryCard reveal={reveal} />,
   keys: (_focus, _workspace, reveal) => <KeysCard reveal={reveal} />,
   mcpServers: () => <McpServersCard />,
   tailnet: () => <TailnetCard />,
