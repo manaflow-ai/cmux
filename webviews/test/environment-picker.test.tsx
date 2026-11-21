@@ -479,7 +479,10 @@ test("This Mac's name is the host's own name, never the machine a seeded chat ru
   expect(thisMacName(undefined, undefined)).toBeUndefined();
 });
 
-test("Cloud opens the host's New Cloud Machine flow", async () => {
+// cmux#47677 (#47734): picking Cloud only names where a chat runs, never New Cloud Machine (a machine and
+// a workspace on a click). With no new chat to point at Cloud (no Run as), the list has no Cloud row;
+// New Cloud Machine… stays on the control's right-click menu.
+test("with no Run as, the list has no Cloud row and nothing makes a Cloud machine", async () => {
   const calls = await mount(true, {
     sessions: [{ sessionId: "a", cwd: "/home/dev/model", host: "gpu-box", peer: "gpu-box", updatedAt: 0 }],
     peers: ["gpu-box"],
@@ -487,11 +490,11 @@ test("Cloud opens the host's New Cloud Machine flow", async () => {
   });
   await openPicker();
   expect(machineRows().some((row) => row.querySelector('.acpmux-env-row[data-kind="cloud"]'))).toBe(false);
-  const cloud = newRows()[0]!;
-  expect(cloud.querySelector(".acpmux-menu-label")?.textContent).toBe(t("composer.cloud"));
-  await act(async () => cloud.click());
-  expect(calls).toEqual([["connect", "cloud"]]);
-  expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+  expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).not.toContain(
+    t("composer.cloud"),
+  );
+  for (const row of newRows()) await act(async () => row.click());
+  expect(calls.filter((call) => call[0] === "connect" && call[1] === "cloud")).toEqual([]);
 });
 
 /// Six SSH machines besides the ones `mount` lists: a list long enough for its search field.
@@ -1443,7 +1446,8 @@ test("Labs: with Sandboxed picked the control names it, no machine is checked, a
 const labels = () => rows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent ?? "");
 const alone = { sessions: [], peers: [], peerKinds: {}, peerConnected: {} };
 
-const shipped = { stripLayout: "where-machine" };
+// The shipped composer gets Run as (`runMode`) once Cloud is offerable (#47734), so its Where list has Cloud.
+const shipped = { stripLayout: "where-machine", runMode: { mode: "persistent", onMode: () => undefined } };
 const chipButton = (name: string) =>
   [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find((button) =>
     (button.getAttribute("aria-label") ?? "").startsWith(name + ":"),
@@ -1504,12 +1508,6 @@ test("Leo's menu: Cloud picks a new machine for the new chat, never one of the l
   await act(async () => cloud.click());
   expect(modes).toEqual([["mode", "cloud"]]);
   expect(calls).toEqual([]);
-  act(() => root?.unmount());
-  // Without Run as: Cloud opens the host's New Cloud Machine flow, which makes a new machine.
-  const connects = await mount(true, shipped);
-  await openPicker();
-  await act(async () => newRows()[0]!.click());
-  expect(connects).toEqual([["connect", "cloud"]]);
 });
 
 test("Leo's menu: Other devices counts and opens the person's machines in place; a pick there is the machine chip's", async () => {
