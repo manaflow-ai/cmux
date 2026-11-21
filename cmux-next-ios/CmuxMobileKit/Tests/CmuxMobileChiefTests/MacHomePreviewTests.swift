@@ -25,6 +25,44 @@ struct MacHomePreviewTests {
         #expect(plainPreview(text) == expected)
     }
 
+    /// Text with `- + = ! < ~ \ [` and their neighbours: ordinary punctuation stays as written, Markdown goes,
+    /// whichever path a line takes (the per-character rules or the plain-run copy). Pinned against
+    /// `MessagePreview` as 9d18df05e5c shipped it.
+    @Test("punctuation that is not Markdown stays, Markdown around it goes", arguments: [
+        ("a - b + c = d!", "a - b + c = d!"),
+        ("Wow! It works!!", "Wow! It works!!"),
+        ("x <= y && y >= z, a->b, 1 + 1 = 2", "x <= y && y >= z, a->b, 1 + 1 = 2"),
+        ("see <https://cmux.com/a> now", "see https://cmux.com/a now"),
+        ("Wow! ![shot](a.png) done", "Wow! done"),
+        ("~~old~~ new ~ approx ~/src", "old new ~ approx ~/src"),
+        ("C\\+\\+ and 1\\*2 and \\[x]", "C++ and 1*2 and [x]"),
+        ("[label](https://x.y/(a)) and [not a link] and [x]: y", "label and [not a link] and [x]: y"),
+        ("snake_case and __bold__ and *it* and **b**", "snake_case and bold and it and b"),
+        ("#hashtag and # not a heading", "#hashtag and # not a heading"),
+        ("## Heading ##\ntext", "Heading text"),
+        ("- item one\n+ item two\n* item three", "item one item two item three"),
+        ("- [x] done task\n- [ ] open task", "done task open task"),
+        ("1. first\n2. second", "1. first 2. second"),
+        ("Title\n===\nbody\n\n---\n\nafter", "Title body after"),
+        ("| a | b |\n|---|---|\n| 1 | 2 |", "Table: a / b"),
+        ("run `a | b` then -v --flag=1 +x", "run a | b then -v --flag=1 +x"),
+        ("caf\u{00E9} -> na\u{00EF}ve! \u{2014} 3 * 4 = 12", "caf\u{00E9} -> na\u{00EF}ve! \u{2014} 3 * 4 = 12"),
+        ("e\u{0301}*x* and *\u{0301}y and \\\u{0301}z", "e\u{0301}*x* and *\u{0301}y and \\\u{0301}z"),
+        ("line one!\r\nline - two\rline = three", "line one! line - two line = three"),
+        ("**Done (#7).** - fixed `code_3`\n[Details](https://cmux.com/d/9) ok. ", "Done (#7). - fixed code_3 Details ok."),
+    ])
+    func punctuationStays(_ text: String, _ expected: String) {
+        #expect(plainPreview(text) == expected)
+    }
+
+    @Test("the preview words are the same on every call")
+    func chiefWordsStable() {
+        #expect(plainPreview("![a](a.png)") == "Image")
+        #expect(plainPreview("![a](a.png) ![b](b.png)") == "2 images")
+        #expect(plainPreview("|  | |\n|---|---|\n| 1 | 2 |") == "Table")
+        #expect(plainPreview("![a](a.png)") == "Image")
+    }
+
     @Test("a row's time parses with and without a fraction, every time it is asked")
     func timeParsesBothShapes() throws {
         let whole = try #require(MacHomeRow.time("2026-11-10T08:48:10Z"))
