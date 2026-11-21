@@ -191,7 +191,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 3c41717f227faf8c22f88a83dd35d9464fa1a4b8e1fa959cbc06bd44ed9356d9
+// app-ffi-pin-checksum: 9ba3a0b2de0906d998f7b7a8d3a9d623bcb0331e48de9c0de2a5a702e4cf1564
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -257,7 +257,9 @@ let uiLayerPreviewTargets: [Target] = [
 // before the next launch can start: about 500 ms for a 100 MB executable, 20 ms
 // for a stub (a pool M4 Pro, Dock launches). A framework nobody links stays scanned.
 // The live code build (docs/cmux-next/live-code.md) interposes symbols of the one
-// image it links, so it keeps the static link.
+// image it links, so it keeps the static link; its xcodebuild settings skip the app's
+// Embed Frameworks copy of CmuxNextApp, which a static link does not make
+// (scripts/live-code/lib/xcodebuild-args.sh).
 let appLinksStatically = Context.environment["CMUX_LIVE_CODE_BUILD"] == "1"
 
 /// The framework's link, outside live code builds: it exports only the C
