@@ -4,7 +4,7 @@ import CmuxNextBridge
 import CmuxNextLayout
 import CmuxNextTabs
 
-/// Drag a pane by its tab bar onto another pane to swap them (cx-8bv1j, iTerm's pane drag). The
+/// Drag a pane by its tab bar: onto another pane's center to swap them, onto an edge, a column gap or a dock band to move it there (cx-8bv1j, iTerm's pane drag). The
 /// press starts on empty strip space; tabs, chips and + keep their own presses. In the window's top
 /// row, where a plain press moves the window, Option-drag drags the pane. The pane under the pointer
 /// previews with the join fill a tab drop shows (drop-zones DESIGN.md), the drop swaps, and Escape cancels.
@@ -14,12 +14,21 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     private let pane: LayoutPaneID
     private let layout: () -> LayoutRootView?
     private let swap: (LayoutPaneID, LayoutPaneID) -> Void
+    /// A drop on a pane's edge, a column gap or a dock band: the whole pane moves there (RFD 0022 item 2).
+    private let move: (DropTarget) -> Void
+    /// A tab of the pane keys the tab drag's hit test, which empties the pane (`removing:`).
+    private let dragKey: () -> String?
+    /// Where the press began (window coordinates), for the lift's offset.
+    private var start: NSPoint = .zero
     /// The last mouse-down starts a pane drag (decided at the press, not where the pan begins).
     private var armed = false
     private var escapeMonitor: Any?
 
     init(strip: TabStripView, pane: LayoutPaneID, layout: @escaping () -> LayoutRootView?,
+         dragKey: @escaping () -> String? = { nil }, move: @escaping (DropTarget) -> Void = { _ in },
          swap: @escaping (LayoutPaneID, LayoutPaneID) -> Void) {
+        self.dragKey = dragKey
+        self.move = move
         self.strip = strip
         self.pane = pane
         self.layout = layout
@@ -37,6 +46,8 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     /// A pane's drag: a drop runs Swap with Session with the pane under the pointer, the swap's one path (shown in the drop's turn).
     convenience init(pane: PaneController) {
         self.init(strip: pane.view.stripView, pane: pane.layoutPaneID, layout: { [weak pane] in pane?.workspace?.layoutView },
+                  dragKey: { [weak pane] in pane?.pane.tabs.first?.id },
+                  move: { [weak pane] target in if let pane { PaneMoves.move(pane, to: target) } },
                   swap: { [weak pane] _, to in
                       guard let pane, let other = pane.workspace?.panes[to] else { return }
                       let swap = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), arguments: ["pane": .target(ActionTargetRef(kind: .pane, id: other.paneKey))])
@@ -72,23 +83,42 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
 
     func gestureRecognizerShouldBegin(_ recognizer: NSGestureRecognizer) -> Bool { armed }
 
+    /// The target under the pointer, by a tab drag's own hit test with this pane as the one the drag empties: the same
+    /// zones, previews and room rule as a tab (nil over the pane itself, where a drop leaves it in place).
+    private func hit(_ layout: LayoutRootView, at windowPoint: NSPoint, dwell: CFTimeInterval = DragTunables.splitDwell.value) -> DropTarget? {
+        guard let key = dragKey() else { return nil }
+        let local = layout.convert(windowPoint, from: nil)
+        let inside = layout.bounds.insetBy(dx: 0.5, dy: 0.5)
+        let clamped = CGPoint(x: min(max(local.x, inside.minX), inside.maxX), y: min(max(local.y, inside.minY), inside.maxY))
+        guard let target = layout.updateTabDrag(LayoutTabID(key), locationInWindow: layout.convert(clamped, to: nil), removing: pane,
+                                                edgeDwell: dwell) else { return nil }
+        if case .pane(pane, _) = target { layout.hideTabDragHighlight(); return nil }
+        return target
+    }
+
     @objc private func pan(_ recognizer: NSPanGestureRecognizer) {
         guard let layout = layout() else { return }
-        let target = layout.visiblePane(at: recognizer.location(in: layout)).flatMap { $0.pane == pane ? nil : $0 }
+        let point = layout.convert(recognizer.location(in: layout), to: nil)
         switch recognizer.state {
         case .began, .changed:
             guard armed else { return }
-            if recognizer.state == .began { watchEscape(recognizer) }
-            if let target {
-                layout.showPaneDragTarget(target.pane, locationInWindow: layout.convert(recognizer.location(in: layout), to: nil))
-            } else {
-                layout.hideTabDragHighlight()
+            if recognizer.state == .began {
+                start = point
+                watchEscape(recognizer)
             }
+            // The pane follows the pointer at full size, live; the target's preview is a tab drag's.
+            layout.liftPane(pane, from: start, to: point)
+            if hit(layout, at: point) == nil { layout.hideTabDragHighlight() }
         case .ended:
-            // Escape disarmed it: the release swaps nothing.
-            let swaps = armed
+            // Escape disarmed it: the release moves nothing.
+            let moves = armed
+            let target = moves ? hit(layout, at: point, dwell: 0) : nil
             end(layout)
-            if swaps, let target { swap(pane, target.pane) }
+            switch target {
+            case .pane(let other, .center): swap(pane, other)
+            case let target?: move(target)
+            case nil: break
+            }
         default:
             end(layout)
         }
@@ -110,6 +140,7 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
         if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
         escapeMonitor = nil
         armed = false
+        layout.dropPaneLift()
         layout.cancelTabDrag()
     }
 }
