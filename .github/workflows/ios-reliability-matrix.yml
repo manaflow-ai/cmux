@@ -27,7 +27,7 @@ jobs:
     permissions:
       actions: write # dispatch ios-reliability-matrix.yml
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     env:
       # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
