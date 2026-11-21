@@ -45,7 +45,7 @@ struct EnvSentencesDirection: View {
                             .background(Capsule().fill(model.scope == scope ? Color.accentColor.opacity(0.16) : EnvInk.fill))
                             .foregroundStyle(model.scope == scope ? Color.accentColor : EnvInk.secondary)
                     }
-                    .buttonStyle(.cmuxPressFill)
+                    .buttonStyle(.cmuxPressFillCapsule)
                 }
                 Spacer()
                 Button("Add") {}.buttonStyle(.borderedProminent)

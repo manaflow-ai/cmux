@@ -53,7 +53,7 @@ struct EnvSecretsPlaygroundView: View {
                             .foregroundStyle(model.scene == scene ? Color.white : EnvInk.secondary)
                             .contentShape(Capsule())
                     }
-                    .buttonStyle(.cmuxPressFill)
+                    .buttonStyle(.cmuxPressFillCapsule)
                 }
                 Spacer()
                 Text("Sample data only").font(.system(size: TypeScale.caption)).foregroundStyle(EnvInk.tertiary)

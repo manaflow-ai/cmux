@@ -29,7 +29,7 @@ public struct NewTaskFloatingButton: View {
                 .frame(width: Self.size, height: Self.size)
                 .contentShape(.circle)
         }
-        .buttonStyle(CmuxMobilePressFillStyle(cornerRadius: Self.size / 2))
+        .buttonStyle(.cmuxPressGlass)
         .glassEffect(.regular.interactive(), in: .circle)
         .accessibilityLabel("New Task")
         .accessibilityHint("Write a prompt and choose the agents that run it")
