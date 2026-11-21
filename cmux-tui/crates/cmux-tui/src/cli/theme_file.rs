@@ -323,11 +323,16 @@ pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i
                     let text = values
                         .iter()
                         .map(|(key, value)| format!("{key} = {value}"))
+                        .chain(
+                            file.sounds
+                                .iter()
+                                .map(|(event, sound)| format!("sounds.{event} = {}", json!(sound))),
+                        )
                         .collect::<Vec<_>>()
                         .join("\n");
                     ok(
                         global,
-                        &json!({ "theme": name, "values": values, "diagnostics": diagnostics_json(&file) }),
+                        &json!({ "theme": name, "values": values, "sounds": file.sounds, "diagnostics": diagnostics_json(&file) }),
                         &text,
                     )
                 }

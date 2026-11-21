@@ -28,5 +28,8 @@
   // Fonts: the terminal's family and size, and the chrome's text size.
   "terminal.fontFamily": "Menlo",
   "terminal.fontSize": 14,
-  "appearance.metrics.chromeFontSize": 13
+  "appearance.metrics.chromeFontSize": 13,
+
+  // Its sounds (with notifications.sounds.lookPack on): sonar for done, a ping for you, a fanfare for green CI.
+  "sounds": { "finished": "Submarine", "needsInput": "Ping", "ciGreen": "Hero" }
 }

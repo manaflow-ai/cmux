@@ -33,5 +33,8 @@
 
   "appearance.density": "compact",
   "terminal.fontFamily": "Courier New",
-  "terminal.fontSize": 13
+  "terminal.fontSize": 13,
+
+  // Its sounds (with notifications.sounds.lookPack on): the chimes of the era.
+  "sounds": { "finished": "Glass", "needsInput": "Sosumi", "ciGreen": "Hero" }
 }

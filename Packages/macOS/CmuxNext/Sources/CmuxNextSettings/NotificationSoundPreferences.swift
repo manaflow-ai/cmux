@@ -30,6 +30,11 @@ public nonisolated struct NotificationSoundPreferences: Hashable, Sendable {
     public var workspaces: [String: NotificationSoundRule] = [:]
     /// Agent-kind rules (`claude`, `codex`), lowercased.
     public var agents: [String: NotificationSoundRule] = [:]
+    /// `notifications.sounds.lookPack`: whether the active look's sound pack plays (off by default).
+    public var lookPack: Bool = Self.lookPackDefault
+    /// The active look's sound pack (its theme file's `"sounds"`, ``ThemeFileOverlay/sounds``), read
+    /// whether or not ``lookPack`` is on; empty when no look is active or it has no pack.
+    public var lookSounds: [LookEvent: String] = [:]
 
     public init() {}
 
@@ -46,13 +51,16 @@ public nonisolated struct NotificationSoundPreferences: Hashable, Sendable {
     }
 
     /// The sound `event` plays in `scope`: the most specific level that names one wins, then the
-    /// event's global sound, then `fallback` (`notifications.sound`, or its source's). `"none"`
+    /// event's global sound, then the look's sound pack when it is on (unless `fallback` is `"none"`:
+    /// a muted cmux stays muted), then `fallback` (`notifications.sound`, or its source's). `"none"`
     /// anywhere on that path mutes it (nil). The volume is the most specific level's that sets one,
     /// times the master volume.
     public func choice(for event: NotificationSoundEvent, in scope: NotificationSoundScope, fallback: String) -> NotificationSoundChoice? {
         let levels = levels(for: scope)
+        let look = fallback == "none" ? nil : LookEvent(event).flatMap { event in lookSound(for: event).map { (name: $0, level: "look:\(event.rawValue)") } }
         let picked = levels.lazy.compactMap { level in level.rule.sound(for: event).map { (name: $0, level: level.name) } }.first
             ?? events[event].map { (name: $0, level: "event:\(event.rawValue)") }
+            ?? look
             ?? (name: fallback, level: "global")
         guard picked.name != "none", !picked.name.isEmpty else { return nil }
         let share = levels.lazy.compactMap { $0.rule.volume }.first ?? 1

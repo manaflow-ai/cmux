@@ -183,8 +183,9 @@ extension SettingsSchema {
         // Notification sounds per event and level (sound only).
         "notifications.sounds.events.finished", "notifications.sounds.events.needsInput",
         "notifications.sounds.events.error", "notifications.sounds.events.bell", "notifications.sounds.events.message",
-        "notifications.sounds.volume", "notifications.sounds.when", "notifications.sounds.cooldownSeconds",
-        "notifications.sounds.workspaces", "notifications.sounds.groups", "notifications.sounds.agents",
+        "notifications.sounds.lookPack", "notifications.sounds.volume", "notifications.sounds.when",
+        "notifications.sounds.cooldownSeconds", "notifications.sounds.workspaces", "notifications.sounds.groups",
+        "notifications.sounds.agents",
         // A Chief configures its own reaction classifier (Lawrence 2026-10-21).
         "chief.reactionsCanWake", "chief.reactionClassifier.harness", "chief.reactionClassifier.model",
         "chief.reactionClassifier.prompt",

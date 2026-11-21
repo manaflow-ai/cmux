@@ -25,5 +25,8 @@
 
   "appearance.density": "compact",
   "terminal.fontFamily": "Menlo",
-  "terminal.fontSize": 13
+  "terminal.fontSize": 13,
+
+  // Its sounds (with notifications.sounds.lookPack on): terminal clicks and Morse.
+  "sounds": { "finished": "Tink", "needsInput": "Morse", "ciGreen": "Pop" }
 }

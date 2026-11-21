@@ -1,0 +1,12 @@
+{
+  "caption": "Pick a look and turn on its sound pack: its sounds play when an agent finishes, needs you, or its checks pass.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Pick the Harbor look", "cmux": ["settings", "set", "appearance.themeFile", "harbor"], "wait": 2, "clip": true},
+    {"title": "Turn on its sound pack", "cmux": ["settings", "set", "notifications.sounds.lookPack", "true"], "wait": 1.5, "clip": true},
+    {"title": "Back to the usual look", "cmux": ["settings", "reset", "appearance.themeFile"], "wait": 0.5},
+    {"title": "Back to no sound pack", "cmux": ["settings", "reset", "notifications.sounds.lookPack"], "wait": 0.3}
+  ],
+  "crop": [0, 0, 0.7, 0.7]
+}

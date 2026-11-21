@@ -77,6 +77,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .harnessSymbol: "harnessSymbol"
         case .nowPlaying: "nowPlaying"
         case .finishSound: "finishSound"
+        case .lookSound: "lookSound"
         case .readAloud(.speak): "readAloudSpeak"
         case .readAloud(.stop): "readAloudStop"
         case .openChat: "openChat"
