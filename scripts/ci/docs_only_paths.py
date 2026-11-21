@@ -95,10 +95,7 @@ DOCS_ONLY_PATHS: tuple[str, ...] = (
 WORKFLOWS: tuple[str, ...] = (
     ".github/workflows/ci.yml",
     ".github/workflows/cmux-next-guards.yml",
-    ".github/workflows/cmux-next-hot-verify.yml",
     ".github/workflows/cmux-next-pr-autofix.yml",
-    ".github/workflows/cmux-next-size-budget.yml",
-    ".github/workflows/cmux-next-tab-switch.yml",
     ".github/workflows/pr-checks.yml",
     ".github/workflows/rust-workspaces.yml",
     ".github/workflows/web-validation.yml",
@@ -106,6 +103,20 @@ WORKFLOWS: tuple[str, ...] = (
 
 BEGIN = "# docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes this block; edit DOCS_ONLY_PATHS there)"
 END = "# docs-only paths: END"
+
+
+TRIGGER_PATHS = "scripts/ci/pr-trigger-paths.json"
+
+
+def block_workflows(root: Path) -> list[str]:
+    """WORKFLOWS that carry the block. A workflow whose trigger `paths:` scripts/ci/pr_trigger_paths.py derives from
+    its own decider (TRIGGER_PATHS `derived`) starts on its inputs alone, already fewer paths than the block; it
+    keeps those, and FALLBACK still calls it."""
+    try:
+        derived = set(json.loads((root / TRIGGER_PATHS).read_text(encoding="utf-8")).get("derived", {}))
+    except FileNotFoundError:
+        derived = set()
+    return [name for name in WORKFLOWS if name not in derived]
 
 
 def is_docs(path: str) -> bool:
@@ -395,7 +406,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"rewrote {FALLBACK}")
         else:
             drifted.append(FALLBACK)
-    for name in WORKFLOWS:
+    for name in block_workflows(args.root):
         path = args.root / name
         text = path.read_text()
         try:
