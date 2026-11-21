@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import { useUnsettledHeight } from "./conversation/unsettledHeights";
 import { PASTE_FILE_CHARS } from "./pastedText";
 import { escapeDefinitions, insertReplyQuote } from "./quoteReply";
 import { pasteIsOnlyFileNames } from "./attachments";
@@ -859,6 +860,14 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const surfacePlugins = useRef(plugins);
   const lines = useRef(multiline);
   const empty = useRef<HTMLSpanElement>(null);
+  // The field's text as plain lines until the editor is made (markdownField.css `.acpmux-md-standin`):
+  // the field has the editor's height from its first frame, so the composer around it does not grow
+  // when the editor comes (https://github.com/manaflow-ai/cmux/issues/48498). An empty field's
+  // stand-in is the editor's one line exactly; a draft's is its text unformatted, near enough that
+  // an opening chat waits for the editor (unsettledHeights.ts) only while the field holds one.
+  const standIn = useRef<HTMLDivElement>(null);
+  const [made, setMade] = useState(false);
+  useUnsettledHeight(!made && value !== "");
   const attrs = useRef(attributes);
   attrs.current = attributes;
   const applyAttributes = () => {
@@ -931,6 +940,11 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     (root: HTMLDivElement | null) => {
       if (!root) return;
       let disposed = false;
+      if (standIn.current) {
+        standIn.current.textContent = known.current;
+        standIn.current.hidden = false;
+      }
+      showPlaceholder(known.current);
       // Placed attachments only in a field made with a place to draw them (`onInlineViews`): the
       // composer's, in either attachment view, so the view's switch never remakes the editor.
       const placesInline = latest.current.onInlineViews !== undefined;
@@ -1455,6 +1469,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           remark.current = made.ctx.get(remarkCtx);
           if (known.current || known.current !== madeFrom) setDocument(known.current, false);
           showPlaceholder(known.current);
+          // In the task the editor's lines went in, so no frame draws both or neither.
+          if (standIn.current) standIn.current.hidden = true;
+          setMade(true);
           applyAttributes();
           for (const quote of pendingQuotes.current.splice(0)) insertReplyQuote(made, view.current, quote);
           tellSlash(view.current.state);
@@ -1750,6 +1767,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           known.current = markdown;
           showPlaceholder(markdown);
           if (editor.current) setDocument(markdown);
+          else if (standIn.current) standIn.current.textContent = markdown;
         },
         // Before the editor exists nothing was typed: the value is what came in.
         agentText: (markdown) => (remark.current ? typedText(remark.current, markdown) : markdown),
@@ -1783,6 +1801,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         {placeholderKey ? <span className="acpmux-md-placeholder-text">{placeholder}</span> : placeholder}
         {placeholderKey && <kbd className="acpmux-md-placeholder-key">{placeholderKey}</kbd>}
       </span>
+      <div ref={standIn} className="acpmux-md-standin" aria-hidden="true" />
       <div ref={mount} className="acpmux-md-root" />
     </div>
   );

@@ -86,7 +86,8 @@ await requireBrowserLane("chat-open-smooth.test.ts", async () => {
       { length: 6 + (turn % 5) },
       (_, line) => `export const value${line} = clamp(total${line}, ceiling);`,
     ).join("\n") +
-    "\n```\n";
+    "\n```\n\n" +
+    `That covers step ${turn}.\n`;
 
   const richTurn = (turn: number): LoadStep[] => {
     const steps = loadTurn(turn, { diffLines: 40, logLines: 60 });
@@ -129,7 +130,8 @@ await requireBrowserLane("chat-open-smooth.test.ts", async () => {
             : { sessionId: id, seq, at: START + turn * 60_000, dir: "mux", kind: step.mux, msg: step.msg ?? {} },
         );
       }
-    return { id, title, turns, events, latest: `Turn ${turns - 1}: why does step ${turns - 1}` };
+    // The chat's last line: in view only when the chat is at its latest message.
+    return { id, title, turns, events, latest: `That covers step ${turns - 1}.` };
   };
   const chats = [
     chat("0190a000-0000-7000-8000-000000048498", "Rich long chat", 60),
@@ -288,6 +290,9 @@ await requireBrowserLane("chat-open-smooth.test.ts", async () => {
     blank: number;
     reversals: number;
     atLatest: boolean;
+    /// Every height the composer's box drew at, from its first frame (covered or not): the prompt
+    /// field's editor is made a task or more after the field mounts, and the box grew when it came.
+    composerHeights: number[];
     trace: string[];
   };
   /// The frames the reader sees, judged: from the first one that showed the chat's newest prompt and,
@@ -326,6 +331,9 @@ await requireBrowserLane("chat-open-smooth.test.ts", async () => {
       blank: metrics.blankAfterContent,
       reversals,
       atLatest: frames.length > 0 && frames[0]!.marker,
+      composerHeights: [
+        ...new Set(recorded.frames.flatMap((frame) => (frame.composer ? [Math.round(frame.composer.height)] : []))),
+      ],
       trace,
     };
   };
@@ -344,7 +352,7 @@ await requireBrowserLane("chat-open-smooth.test.ts", async () => {
   const holds = (name: string, judged: Judged) => {
     console.log(
       `::notice title=chat-open-smooth ${name}::first ${judged.firstContent?.toFixed(0)} ms, settled ${judged.settled?.toFixed(0)} ms, ` +
-        `shifts ${judged.shifts}, blank ${judged.blank}, reversals ${judged.reversals}\n  ${judged.trace.join("\n  ")}`,
+        `shifts ${judged.shifts}, blank ${judged.blank}, reversals ${judged.reversals}, composer ${judged.composerHeights.join("/")}\n  ${judged.trace.join("\n  ")}`,
     );
     expect(judged.firstContent).not.toBeNull();
     expect(judged.atLatest).toBe(true);
@@ -355,6 +363,8 @@ await requireBrowserLane("chat-open-smooth.test.ts", async () => {
     });
     // The first content frame was the final state: nothing came after it.
     expect(judged.settled).toBe(judged.firstContent);
+    // The composer drew at one height from the first frame it showed in, before the reveal too.
+    expect(judged.composerHeights.length).toBe(1);
   };
 
   for (const [engineName, engine] of engines)

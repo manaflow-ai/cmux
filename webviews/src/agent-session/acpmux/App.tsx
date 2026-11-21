@@ -3,6 +3,7 @@ import { forkMenuRows } from "./header/forkMenu";
 import { openFork, openInOwnTab } from "./conversation/openFork";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
 import { useHeightsSettledFor } from "./conversation/unsettledHeights";
+import { PANE_PAINTED_MARK } from "./firstLoadWatch";
 import { useStopThroughReconnect } from "./stopThroughReconnect";
 import React, {
   Activity,
@@ -7521,7 +7522,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (settledNow) settledReported.current = settledSession;
     // The page drew what it is under the chat's snapshot (chatSnapshot/boot.ts): it takes over at
     // the next frame, in one step.
-    if (first) swapChatSnapshot();
+    if (first) {
+      swapChatSnapshot();
+      // When the host was told the page shows the chat: the flicker log's first-load record counts
+      // what moved after it apart, what the reader saw (firstLoadWatch.ts `seen`).
+      performance.mark?.(PANE_PAINTED_MARK);
+    }
     requestAnimationFrame(() =>
       setTimeout(() => {
         if (settledNow) document.documentElement.dataset.acpmuxSettledDrawn = "true";
