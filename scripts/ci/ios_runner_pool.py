@@ -249,9 +249,10 @@ assert SIM_LABEL in pr_runner_pool.CAPABILITY_LABELS
 OWNED_CHOICE = "owned"
 IOS_OWNED_VARIABLE = "CI_IOS_OWNED"
 # The workflows whose in-flight runs since the snapshot hold simulators.
-IOS_WORKFLOWS = ("test-ios.yml", "ios-screenshots.yml", "cmux-next-ios-kit.yml", "ios-reliability-matrix.yml")
+IOS_WORKFLOWS = ("test-ios.yml", "ios-screenshots.yml", "cmux-next-ios-kit.yml", "ios-reliability-matrix.yml",
+                 "ios-review-gate.yml")
 # The workflows that pick with the kit lane: one simulator job on one Mac.
-KIT_WORKFLOWS = ("/cmux-next-ios-kit.yml", "/ios-reliability-matrix.yml")
+KIT_WORKFLOWS = ("/cmux-next-ios-kit.yml", "/ios-reliability-matrix.yml", "/ios-review-gate.yml")
 # How far back an in-flight iOS run is charged its simulator jobs on the live
 # path: longer than any iOS run lives (ios-screenshots.yml's 300 minute
 # capture; see Live capacity).
