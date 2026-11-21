@@ -52,7 +52,7 @@ pub const PLACES: [&str; 7] = [
 ];
 
 /// The `control` tool's actions.
-pub const CONTROL_ACTIONS: [&str; 12] = [
+pub const CONTROL_ACTIONS: [&str; 13] = [
     "status",
     "interrupt",
     "answer",
@@ -61,6 +61,7 @@ pub const CONTROL_ACTIONS: [&str; 12] = [
     "cancel",
     "restart",
     "priority",
+    "tasks",
     "show",
     "hide",
     "cap",
@@ -166,6 +167,10 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
             "message": {"type": "string", "minLength": 1, "description": "interrupt/restart/resume: the prompt sent once it has stopped."},
             "option": {"type": "string", "minLength": 1, "description": "answer: deny (only the user can allow, in the app)."},
             "n": {"type": "integer", "minimum": 0, "description": "cap: subagents at work at once; 0 is no cap."},
+            "items": {"type": "array", "description": "tasks: the subagent chat's whole task list, in order; [] clears it.", "items": {"type": "object", "properties": {
+                "content": {"type": "string", "minLength": 1},
+                "status": {"type": "string", "enum": ["pending", "in_progress", "completed"]}},
+              "required": ["content", "status"], "additionalProperties": false}},
             "peer": {"type": "string", "minLength": 1, "description": "cloud: the acpmux peers (acpmux host ls, comma-separated) new subagents run on by default, each on the least busy, or off; without it, shows the setting."}},
           "required": ["action"], "additionalProperties": false}}));
     }
