@@ -324,8 +324,27 @@ struct UpdatedCardHoverPreviewTests {
         // The page closes and hands the room back while the pointer stays put, over the rows now.
         island.report(height: 48, overlay: 0, preview: 0)
         sidebar.layoutSubtreeIfNeeded()
+        // While the close moves, the card owns the closing frame, so the pointer over the preview that
+        // is still drawn stays on the card (60582d817e9, #38222). A window with a screen runs that
+        // motion; one without a screen lands it at once and holds nothing.
+        if host.closingFrame != nil {
+            #expect(host.isHovered, "the closing preview keeps the pointer until its motion ends")
+            try Self.untilTheCloseEnds(host)
+        }
         #expect(!host.isHovered, "the room gone from under a still pointer ends the hover")
         #expect(island.pointer.last == false, "the page hears it, so it does not open the list again")
         host.configure(nil)
+    }
+
+    /// Runs the main run loop until the close motion's completion ends `host`'s closing hold: the
+    /// completion and the hover refresh it calls are delivered on the main run loop. Each pass returns
+    /// once the run loop handled an event, or after 50 ms; the 5 s deadline is reached only by a close
+    /// that never ends.
+    static func untilTheCloseEnds(_ host: SidebarUpdatedCardHost, sourceLocation: SourceLocation = #_sourceLocation) throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while host.closingFrame != nil, ContinuousClock.now < deadline {
+            _ = CFRunLoopRunInMode(.defaultMode, 0.05, true)
+        }
+        try #require(host.closingFrame == nil, "the close motion ended", sourceLocation: sourceLocation)
     }
 }
