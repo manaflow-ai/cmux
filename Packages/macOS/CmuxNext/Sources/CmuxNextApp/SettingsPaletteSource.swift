@@ -95,11 +95,11 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     }
 
     private func row(_ descriptor: SettingDescriptor, current: JSONValue?, colors: [ThemeRGB]) -> PaletteSettingRow {
-        let isFont = descriptor.kind == .fontFamily
+        let isAppFont = descriptor.path == AppFontSetting.configPath, isFont = descriptor.kind == .fontFamily || isAppFont // app fonts draw in their own face
         let options = if descriptor.kind == .theme, let themes {
             Self.themeOptions(current: current?.stringValue, names: themes.names, defaultLabel: descriptor.defaultLabel ?? "",
                               strip: themes.swatches(for:))
-        } else if isFont {
+        } else if descriptor.kind == .fontFamily {
             settings.recentFonts.options(current: current?.stringValue, families: SettingsPageDomains.fontFamilies, defaultLabel: descriptor.defaultLabel ?? descriptor.title)
         } else {
             settings.paletteOptions(descriptor, current: current, themeColors: colors)
@@ -117,7 +117,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         return PaletteSettingRow(
             id: descriptor.id, title: descriptor.title, group: descriptor.group, value: label, kind: kind,
             keywords: descriptor.keywords + [descriptor.id, descriptor.section.title, descriptor.group],
-            swatches: currentOption?.swatches ?? [], isEnabled: settings.managedKeys[descriptor.id] == nil, isFontFamily: isFont
+            swatches: currentOption?.swatches ?? [], isEnabled: settings.managedKeys[descriptor.id] == nil, isFontFamily: isFont, isAppFont: isAppFont
         )
     }
 

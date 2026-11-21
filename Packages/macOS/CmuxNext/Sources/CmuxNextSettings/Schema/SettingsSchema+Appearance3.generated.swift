@@ -90,6 +90,32 @@ extension AppearanceSettingsSchema {
                 keywords: ["scale", "zoom", "size", "chrome", "web", "bigger", "smaller", "interface scale"]
             ),
             SettingDescriptor(
+                AppFontSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.font", "App Font"),
+                help: SettingsText.keyed("settings.appearance.font.help", "The font of the whole app: tabs, the sidebar, menus, chats and pages. Terminal and code text keep their own fonts."),
+                kind: .choice([
+                    SettingChoice("system", SettingsText.keyed("settings.choice.agentChatUiFontSystemUi", "System (default)")),
+                    SettingChoice("Helvetica Neue", "Helvetica Neue"),
+                    SettingChoice("Avenir Next", "Avenir Next"),
+                    SettingChoice("Futura", "Futura"),
+                    SettingChoice("Gill Sans", "Gill Sans"),
+                    SettingChoice("Optima", "Optima"),
+                    SettingChoice("Verdana", "Verdana"),
+                    SettingChoice("Trebuchet MS", "Trebuchet MS"),
+                    SettingChoice("Georgia", "Georgia"),
+                    SettingChoice("Palatino", "Palatino"),
+                    SettingChoice("Charter", "Charter"),
+                    SettingChoice("Iowan Old Style", "Iowan Old Style"),
+                    SettingChoice("Baskerville", "Baskerville"),
+                    SettingChoice("American Typewriter", "American Typewriter"),
+                    SettingChoice("Menlo", "Menlo"),
+                ]),
+                default: .string(AppFontSetting.fallback),
+                keywords: ["font", "fonts", "typeface", "family", "app", "interface", "ui", "whole", "everything", "preview"]
+            ),
+            SettingDescriptor(
                 InterfaceSizeSetting.configPath,
                 section: .appearance,
                 group: group,
@@ -286,22 +312,6 @@ extension AppearanceSettingsSchema {
                 kind: .number(SettingNumber(TitleAreaContrastSetting.range, step: 0.05, unit: .fraction, placeholder: TitleAreaContrastSetting.placeholder)),
                 default: .number(TitleAreaContrastSetting.fallback),
                 keywords: ["contrast", "title", "titlebar", "tab bar", "tabs", "chrome", "shade", "intensity", "darker", "softer", "frame"]
-            ),
-            SettingDescriptor(
-                CornerFlushSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.cornerFlush", "Selected Tab Shape"),
-                help: SettingsText.keyed("settings.appearance.cornerFlush.help", "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."),
-                summary: SettingsText.keyed("settings.appearance.cornerFlush.summary", "Pill, flush or goo for the selected tab"),
-                kind: .choice([
-                    SettingChoice(CornerFlush.off.rawValue, SettingsText.keyed("settings.choice.cornerFlush.off", "Pill")),
-                    SettingChoice(CornerFlush.flush.rawValue, SettingsText.keyed("settings.choice.cornerFlush.flush", "Flush")),
-                    SettingChoice(CornerFlush.tight.rawValue, SettingsText.keyed("settings.choice.cornerFlush.tight", "Flush, Tight to the Sidebar")),
-                    SettingChoice(CornerFlush.goo.rawValue, SettingsText.keyed("settings.choice.cornerFlush.goo", "Goo")),
-                ]),
-                default: .string(CornerFlushSetting.fallback.rawValue),
-                keywords: ["corner", "flush", "goo", "gooey", "folder tab", "fillet", "pill", "selected tab", "tab shape", "card", "material"]
             ),
         ]
     }

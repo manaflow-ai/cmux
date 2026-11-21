@@ -22,7 +22,7 @@ final class TerminalSizedForChip: NSView {
         wantsLayer = true
         layer?.cornerCurve = .continuous
         layer?.borderWidth = Metrics.lineWidth(1)
-        label.font = .systemFont(ofSize: TypeScale.detail, weight: TypeScale.emphasis)
+        label.font = Typography.system(size: TypeScale.detail, weight: TypeScale.emphasis)
         label.ink = .secondary
         label.lineBreakMode = .byTruncatingTail
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -75,7 +75,7 @@ final class TerminalSizedForChip: NSView {
             layer?.backgroundColor = Palette.elevatedBackground.cgColor
             layer?.borderColor = Palette.separator.cgColor
             button.applyColors(fill: Palette.selectionFill, title: Palette.textPrimary,
-                               font: .systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis))
+                               font: Typography.system(size: TypeScale.caption, weight: TypeScale.emphasis))
         }
     }
 

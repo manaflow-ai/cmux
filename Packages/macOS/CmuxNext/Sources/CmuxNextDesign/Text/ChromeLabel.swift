@@ -48,6 +48,10 @@ open class ChromeLabel: NSView {
 
     private var hasRunAttributes = false
 
+    /// The text's own runs, without the label's font and color; nil for plain text
+    /// (``AppFontRetarget`` moves their fonts).
+    var ownRuns: NSAttributedString? { hasRunAttributes ? content : nil }
+
     open var font: NSFont? { didSet { if font != oldValue { textDidChange() } } }
     open var textColor: NSColor? { didSet { if textColor != oldValue { needsDisplay = true } } }
     open var alignment: NSTextAlignment = .natural { didSet { if alignment != oldValue { textDidChange() } } }

@@ -206,9 +206,9 @@ final class ChiefPetCapsule: NSView {
     private func recolor() {
         performWithTheme {
             title.textColor = Palette.textPrimary
-            title.font = .systemFont(ofSize: TypeScale.title, weight: TypeScale.emphasis)
+            title.font = Typography.system(size: TypeScale.title, weight: TypeScale.emphasis)
             detail.textColor = Palette.textSecondary
-            detail.font = .systemFont(ofSize: TypeScale.title)
+            detail.font = Typography.system(size: TypeScale.title)
         }
     }
 

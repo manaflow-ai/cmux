@@ -24,7 +24,7 @@ final class SidePanelHeaderView: NSView {
         wantsLayer = true
         setAccessibilityIdentifier("browser.sidePanel.header")
         icon.imageScaling = .scaleProportionallyDown
-        title.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+        title.font = Typography.system(size: NSFont.systemFontSize, weight: .medium)
         title.lineBreakMode = .byTruncatingTail
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         for view in [icon, title, stack] as [NSView] {

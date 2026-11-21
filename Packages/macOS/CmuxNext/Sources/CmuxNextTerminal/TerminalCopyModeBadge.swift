@@ -26,7 +26,7 @@ final class TerminalCopyModeBadge: NSView {
         let icon = ThemedImageView(image: NSImage.icon(.terminalCopymode, size: 14))
         icon.ink = .secondary
         let label = ThemedLabel(labelWithString: Self.text)
-        label.font = .systemFont(ofSize: 12, weight: .semibold)
+        label.font = Typography.system(size: TypeScale.Base.detail, weight: .semibold)
         for view in [icon, label] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)

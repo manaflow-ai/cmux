@@ -130,8 +130,8 @@ final class MachineBrowserStateView: NSView {
             label.isSelectable = true
             label.focusRingType = .none
         }
-        message.font = .systemFont(ofSize: NSFont.systemFontSize + 1, weight: .medium)
-        queued.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        message.font = Typography.system(size: NSFont.systemFontSize + 1, weight: .medium)
+        queued.font = Typography.system(size: NSFont.smallSystemFontSize)
         queued.ink = .secondary
         openLocallyButton.target = self
         openLocallyButton.action = #selector(openLocallyPressed)

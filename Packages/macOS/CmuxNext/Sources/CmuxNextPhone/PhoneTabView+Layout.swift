@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 extension PhoneTabView {
     func build() {
@@ -18,7 +19,7 @@ extension PhoneTabView {
         screen.setAccessibilityLabel(PhoneStrings.screenLabel)
         connectScreen()
         status.textColor = .secondaryLabelColor
-        status.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        status.font = Typography.system(size: NSFont.smallSystemFontSize)
         status.lineBreakMode = .byTruncatingTail
         for view in [bar, screen, status] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false

@@ -35,7 +35,7 @@ final class RemoteTerminalPlaceholderView: NSView, PaneCommitMotionPicture {
         super.init(frame: frame)
         wantsLayer = true
         icon.image = NSImage.icon(.machineRemote, size: .iconRowSize(forLabelPointSize: NSFont.systemFontSize))
-        status.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+        status.font = Typography.system(size: NSFont.systemFontSize, weight: .medium)
         status.lineBreakMode = .byTruncatingMiddle
         connect.title = RemoteStrings.placeholderConnect
         (connect.bezelStyle, connect.controlSize, connect.target, connect.action) = (.rounded, .small, self, #selector(connectPressed))

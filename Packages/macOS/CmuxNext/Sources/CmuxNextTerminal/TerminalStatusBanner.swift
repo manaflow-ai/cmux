@@ -48,7 +48,7 @@ final class TerminalStatusBanner: NSView {
         wantsLayer = true
         layer?.cornerRadius = Metrics.surfaceCornerRadius
         layer?.borderWidth = Metrics.lineWidth(1)
-        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.font = Typography.system(size: TypeScale.Base.detail, weight: .medium)
         label.ink = .secondary
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false

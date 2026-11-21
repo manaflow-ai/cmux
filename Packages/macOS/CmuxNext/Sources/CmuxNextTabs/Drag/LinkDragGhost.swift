@@ -11,7 +11,7 @@ package final class LinkDragGhost {
 
     package init(title: String) {
         let label = NSTextField(labelWithString: title)
-        label.font = .systemFont(ofSize: TypeScale.body, weight: TypeScale.emphasis)
+        label.font = Typography.system(size: TypeScale.body, weight: TypeScale.emphasis)
         label.textColor = .labelColor
         label.lineBreakMode = .byTruncatingMiddle
         label.maximumNumberOfLines = 1

@@ -1260,6 +1260,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextPhone",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
+                "CmuxNextDesign",
                 "CmuxNextWakeups",
             ],
             resources: [.process("Localizable.xcstrings")],
@@ -1529,6 +1530,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // command menu. It reads and changes no files (CmuxNextFiles does). System frameworks only.
         .target(
             name: "CmuxNextFileGrid",
+            dependencies: ["CmuxNextDesign"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -1540,6 +1542,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Wakeups: ScreenshotMask waits out a window's frames on a DemandTimer.
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
+                "CmuxNextDesign",
                 "CmuxNextFileGrid",
                 "CmuxNextFiles",
                 "CmuxNextWakeups",

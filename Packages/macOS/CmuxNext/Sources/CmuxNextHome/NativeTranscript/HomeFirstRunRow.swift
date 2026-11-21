@@ -50,9 +50,9 @@ final class HomeFirstRunRow: NSView {
         addSubview(surface)
         glyph.image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: 13))
         glyph.imageScaling = .scaleProportionallyDown
-        label.font = .systemFont(ofSize: TypeScale.Base.body)
+        label.font = Typography.system(size: TypeScale.Base.body)
         label.lineBreakMode = .byTruncatingTail
-        shortcutLabel.font = .systemFont(ofSize: TypeScale.Base.detail)
+        shortcutLabel.font = Typography.system(size: TypeScale.Base.detail)
         shortcutLabel.alignment = .right
         shortcutLabel.isHidden = true
         for view in [glyph, label, activity, shortcutLabel] { addSubview(view) }
@@ -72,8 +72,8 @@ final class HomeFirstRunRow: NSView {
         self.scale = scale
         surface.layer?.cornerRadius = Self.cornerRadius * scale
         glyph.image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: 13 * scale))
-        label.font = .systemFont(ofSize: TypeScale.Base.body * scale)
-        shortcutLabel.font = .systemFont(ofSize: TypeScale.Base.detail * scale)
+        label.font = Typography.system(size: TypeScale.Base.body * scale)
+        shortcutLabel.font = Typography.system(size: TypeScale.Base.detail * scale)
         invalidateIntrinsicContentSize()
         needsLayout = true
     }

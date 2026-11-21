@@ -87,7 +87,7 @@ final class CookieImportConsentPanel {
 
     private func makeContent() -> NSView {
         let title = NSTextField(labelWithString: CookieImportStrings.title)
-        title.font = .systemFont(ofSize: TypeScale.title, weight: TypeScale.emphasis)
+        title.font = Typography.system(size: TypeScale.title, weight: TypeScale.emphasis)
         primaryLines = [title]
         secondaryLines = [limitNote]
         let lead = wrapping(CookieImportStrings.lead(browser: request.source), size: TypeScale.detail)
@@ -95,7 +95,7 @@ final class CookieImportConsentPanel {
         // The reference to the agent: a borderless text button (not a link) that reveals its tab.
         let reference = NSButton(title: request.requester.reference, target: self, action: #selector(showRequester))
         reference.isBordered = false
-        reference.font = .systemFont(ofSize: TypeScale.detail, weight: TypeScale.emphasis)
+        reference.font = Typography.system(size: TypeScale.detail, weight: TypeScale.emphasis)
         reference.isEnabled = onShowRequester != nil
         reference.setAccessibilityIdentifier(Self.accessibilityID + ".requester")
         var requesterViews: [NSView] = [caption(CookieImportStrings.requestedBy), reference]
@@ -137,7 +137,7 @@ final class CookieImportConsentPanel {
                                          target: self, action: #selector(allowPressed))
         allow.setAccessibilityIdentifier(Self.accessibilityID + ".allow")
         allowButton = allow
-        limitNote.font = .systemFont(ofSize: TypeScale.caption)
+        limitNote.font = Typography.system(size: TypeScale.caption)
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let buttons = NSStackView(views: [showChat, limitNote, spacer, deny, allow])
@@ -186,14 +186,14 @@ final class CookieImportConsentPanel {
 
     private func caption(_ text: String) -> NSTextField {
         let label = NSTextField(labelWithString: text)
-        label.font = .systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis)
+        label.font = Typography.system(size: TypeScale.caption, weight: TypeScale.emphasis)
         secondaryLines.append(label)
         return label
     }
 
     private func wrapping(_ text: String, size: CGFloat, weight: NSFont.Weight = TypeScale.regular, secondary: Bool = false) -> NSTextField {
         let label = NSTextField(wrappingLabelWithString: text)
-        label.font = .systemFont(ofSize: size, weight: weight)
+        label.font = Typography.system(size: size, weight: weight)
         if secondary { secondaryLines.append(label) } else { primaryLines.append(label) }
         label.isSelectable = true
         label.focusRingType = .none
