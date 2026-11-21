@@ -246,10 +246,20 @@ test("a spare parked drawn but invisible has run its chat view's effects before 
     const editor = host.querySelector(".acpmux-composer-prompt [contenteditable]");
     expect(stage()?.style.visibility, "parked invisible").toBe("hidden");
     expect(stage()?.hasAttribute("inert"), "parked inert").toBe(true);
-    // Its window-wide keys stay off while parked: Cmd-Ctrl-M (the model picker) is not taken under New Tab.
+    // Its window-wide keys stay off while parked: Cmd-Ctrl-M opens no picker in the parked view. The New
+    // Tab page's own composer chips (DefaultComposerChips) carry a model picker that may take the key.
+    expect(dock()?.hasAttribute("inert"), "parked dock inert").toBe(true);
     const press = new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, cancelable: true });
     await act(async () => void dom.window.dispatchEvent(press));
-    expect(press.defaultPrevented, "the parked model picker took Cmd-Ctrl-M").toBe(false);
+    expect(
+      host.querySelector('.acpmux-stage [aria-expanded="true"], .acpmux-dock [aria-expanded="true"]'),
+      "the parked model picker opened on Cmd-Ctrl-M",
+    ).toBeNull();
+    if (press.defaultPrevented)
+      expect(
+        Array.from(host.querySelectorAll(".acpmux-model")).some((picker) => !picker.closest("[inert]")),
+        "Cmd-Ctrl-M was taken with no live picker outside the parked view",
+      ).toBe(true);
     const { SESSION_ADOPT_EVENT } = await import("../src/agent-session/acpmux/newtab/adoption");
     await act(async () =>
       dom.window.dispatchEvent(
