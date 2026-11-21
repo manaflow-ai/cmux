@@ -57,6 +57,10 @@ command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
 API="https://api.stripe.com/v1"
 get() { local p="$1"; shift; printf 'Authorization: Bearer %s\n' "$KEY" | curl -fsS --max-time 30 --header @- --get "$@" "${API}${p}"; }
 post() { local p="$1"; shift; printf 'Authorization: Bearer %s\n' "$KEY" | curl -fsS --max-time 30 --header @- -X POST "$@" "${API}${p}"; }
+# Creates carry a stable Idempotency-Key per plan and catalog version, so two overlapping --apply runs make one
+# Product and one Price, not two (Stripe answers the second request with the first one's object for 24 hours).
+CATALOG_VERSION="v1"
+create() { local p="$1" key="$2"; shift 2; post "$p" --header "Idempotency-Key: cmux-next-${MODE}-${CATALOG_VERSION}-${key}" "$@"; }
 say() { echo "[$MODE$([[ $APPLY == 1 ]] || echo ' dry run')] $*" >&2; }
 
 ENV_LINES=()
@@ -70,7 +74,7 @@ for row in "${PLANS[@]}"; do
   if [[ -z "$product" ]]; then
     say "create product ${name} (metadata plan=${plan}) with description: ${description}"
     if [[ $APPLY == 1 ]]; then
-      product="$(post /products --data-urlencode "name=${name}" --data-urlencode "description=${description}" \
+      product="$(create /products "product-${plan}" --data-urlencode "name=${name}" --data-urlencode "description=${description}" \
         --data-urlencode "metadata[app]=cmux" --data-urlencode "metadata[plan]=${plan}" | jq -er .id)"
     fi
   else
@@ -86,16 +90,20 @@ for row in "${PLANS[@]}"; do
   prices="$(get /prices --data-urlencode "lookup_keys[]=${lookup}" --data-urlencode "limit=1")"
   price="$(jq -r '.data[0].id // empty' <<<"$prices")"
   if [[ -n "$price" ]]; then
-    amount="$(jq -r '.data[0].unit_amount' <<<"$prices")"; on="$(jq -r '.data[0].product' <<<"$prices")"
-    if [[ "$amount" != "$cents" || ( -n "$product" && "$on" != "$product" ) ]]; then
-      echo "Price ${price} (${lookup}) is ${amount} cents on ${on}, expected ${cents} on ${product:-a new product}; left alone." >&2
+    # Checkout (resolveNextPlanPrice / assertPriceMatchesPlan) takes only an active USD Price billed every month at
+    # this amount on this plan's Product: anything else is reported, never printed as the id to deploy.
+    shape="$(jq -r '.data[0] | [.unit_amount, .product, .active, .currency, .recurring.interval // "none", .recurring.interval_count // 0] | map(tostring) | join(" ")' <<<"$prices")"
+    want="${cents} ${product:-?} true usd month 1"
+    if [[ -z "$product" ]]; then want="${cents} $(cut -d' ' -f2 <<<"$shape") true usd month 1"; fi
+    if [[ "$shape" != "$want" ]]; then
+      echo "Price ${price} (${lookup}) is [amount product active currency interval count] ${shape}, expected ${want}; left alone." >&2
       exit 1
     fi
     say "price ${price} (${lookup}, ${cents} cents a month) is current"
   else
     say "create price ${lookup}: ${cents} cents USD a month on ${product:-the new product}"
     if [[ $APPLY == 1 ]]; then
-      price="$(post /prices --data-urlencode "product=${product}" --data-urlencode "currency=usd" \
+      price="$(create /prices "price-${lookup}" --data-urlencode "product=${product}" --data-urlencode "currency=usd" \
         --data-urlencode "unit_amount=${cents}" --data-urlencode "recurring[interval]=month" \
         --data-urlencode "lookup_key=${lookup}" --data-urlencode "nickname=${name} Monthly" \
         --data-urlencode "metadata[app]=cmux" --data-urlencode "metadata[plan]=${plan}" | jq -er .id)"
