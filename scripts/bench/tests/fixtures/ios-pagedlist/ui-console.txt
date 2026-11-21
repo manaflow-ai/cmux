@@ -1,0 +1,5 @@
+Test Case '-[CmuxMobileAppUITests.PagedListStressUITests testDownFastFlood]' started.
+PAGEDLIST STRESS-down-fast-flood {"direction":"down","speed":"fast","load":"flood","window":null,"hud":{"edge":"more","newer":"end","rows":420,"landings":13,"maxShift":0.0,"frameShift":0.0,"samples":2210,"shiftedFrames":0,"frames":1504,"hitches":3,"dropped":4,"worstMs":33.4,"hitchMsPerS":2.1,"changes":980,"flushes":161,"inMemory":420,"total":420,"onDisk":0,"diskBytes":0,"slides":0,"slideFrames":0}}
+Test Case '-[CmuxMobileAppUITests.PagedListStressUITests testUpFastHugeWindowed]' started.
+PAGEDLIST STRESS-up-fast-huge {"direction":"up","speed":"fast","load":"huge","window":300,"hud":{"edge":"more","newer":"more","rows":300,"landings":40,"maxShift":0.0,"frameShift":1.5,"samples":3100,"shiftedFrames":2,"frames":2010,"hitches":1,"dropped":1,"worstMs":18.2,"hitchMsPerS":0.6,"changes":1500,"flushes":180,"inMemory":312,"total":8200,"onDisk":7888,"diskBytes":2400000,"slides":0,"slideFrames":0}}
+PAGEDLIST landing-down-page2 {"case":"down"}

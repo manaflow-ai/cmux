@@ -1,0 +1,156 @@
+name: PagedList stress (iOS)
+run-name: >-
+  PagedList stress (iOS) · ${{ inputs.ref || github.head_ref || github.ref_name }}
+
+# The shared iPhone infinite-scroll list (PagedList) under load while it is scrolled:
+# PagedListStressUITests' 22 cases (direction down/up x speed slow/medium/fast x load
+# flood/edits/inserts, a busy main thread, 100,000 rows in a 300-row window) on an iOS
+# simulator, through the same step the fleet runs (scripts/ci/cmux-next-ios-sim.sh
+# `test ui=PagedListStressUITests`, the `ios-pagedlist` bench's harness).
+#
+# The job fails only when a row being read moved (a frame shift or a landing over
+# 0.5 pt) or a case measured nothing (cmux-next-ios/scripts/pagedlist_stress_gate.py).
+# Hitches, frame times and memory go to the job summary and warnings and never fail
+# it: they depend on the runner (cmux-next-ios/verify/paged-list.md, "Stress bench").
+# The suite's own XCTest hitch assertions are why xcodebuild's exit does not decide it.
+#
+# When: a pull request or push that changes the list, its lab or this check, and each
+# INTERNAL TestFlight build (ios-internal-nightly-trigger.yml dispatches it with the
+# build's commit). Added at Aziz's request (cmux#45778, 2026-11-18).
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign/PagedList/**
+      - cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/PagedListLabRoot.swift
+      - cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/PagedListStress.swift
+      - cmux-next-ios/UITests/PagedLabDriver.swift
+      - cmux-next-ios/UITests/PagedListStressUITests.swift
+      - cmux-next-ios/scripts/pagedlist_stress_gate.py
+      - scripts/bench/benches/ios_pagedlist.py
+      - .github/workflows/cmux-next-ios-pagedlist-stress.yml
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign/PagedList/**
+      - cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/PagedListLabRoot.swift
+      - cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/PagedListStress.swift
+      - cmux-next-ios/UITests/PagedLabDriver.swift
+      - cmux-next-ios/UITests/PagedListStressUITests.swift
+      - cmux-next-ios/scripts/pagedlist_stress_gate.py
+      - scripts/bench/benches/ios_pagedlist.py
+      - .github/workflows/cmux-next-ios-pagedlist-stress.yml
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: App source to stress (branch, tag or SHA); empty is this ref
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-ios-pagedlist-stress-${{ inputs.ref || github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  route:
+    # A fork's pull request gets no owned Mac; it runs on a dispatch from a maintainer.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    outputs:
+      runs_on: ${{ steps.pool.outputs.runs_on }}
+      retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
+    steps:
+      - name: Checkout pool helper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci/ios_runner_pool.py
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
+            scripts/ci/simple_pool_picker.py
+            scripts/ci/warm_distance.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      # The one-simulator lane first-user-journey-ios.yml and ios-screenshots.yml use:
+      # an owned Mac with an iOS simulator when CI_IOS_OWNED allows, else
+      # MACOS_RUNNER_IOS; a re-run takes retry_runs_on.
+      - name: Pick the macOS pool
+        id: pool
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_IOS }}
+          IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+        run: |
+          set -euo pipefail
+          route="$(python3 scripts/ci/ios_runner_pool.py \
+            --lane screenshots \
+            --variable "$RUNNER_VARIABLE" \
+            --ios-owned "$IOS_OWNED" \
+            --owned "$POOL_OWNED" \
+            --owned-slots "$OWNED_SLOTS" \
+            --pr-xcode-app "$PR_XCODE_APP")"
+          echo "$route" >> "$GITHUB_OUTPUT"
+          echo "$route"
+
+  stress:
+    needs: route
+    name: PagedList under load (iPhone simulator)
+    # No secret in this job: the lab's mock data drives the list.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.route.outputs.retry_runs_on || needs.route.outputs.runs_on) }}
+    timeout-minutes: 150
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      # The step builds CmuxMobileLinkFFI.xcframework itself when no cache has it.
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Install xcodegen
+        run: |
+          set -euo pipefail
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
+      # The fleet's own step: its simulator set, Debug app, UI tests and evidence folder
+      # (artifacts/ios-sim). Its exit is the XCTest result, hitches included, so it only
+      # records it; the gate below decides.
+      - name: Run PagedListStressUITests
+        # 22 cases took about 45 min on an M4 Pro mini; the perl alarm leaves the steps after time to report.
+        timeout-minutes: 130
+        run: |
+          set +e
+          set -uo pipefail
+          perl -e 'alarm shift; exec @ARGV or die "exec: $!"' 7500 \
+            bash scripts/ci/cmux-next-ios-sim.sh test ui=PagedListStressUITests
+          code=$?
+          echo "xcodebuild and the step exited $code (hitch assertions included; the gate decides)" | tee -a "$GITHUB_STEP_SUMMARY"
+          grep -E '^- (UI tests|exit status)' artifacts/ios-sim/SUMMARY.md 2>/dev/null | tee -a "$GITHUB_STEP_SUMMARY" || true
+          exit 0
+      - name: Judge layout shift (hitches reported only)
+        if: always()
+        run: python3 -I cmux-next-ios/scripts/pagedlist_stress_gate.py artifacts/ios-sim
+      - name: Upload the stress evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pagedlist-stress-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/ios-sim/SUMMARY.md
+            artifacts/ios-sim/ui-*.txt
+            artifacts/ios-sim/ui-*.json
+            artifacts/ios-sim/ui-*.log
+            artifacts/ios-sim/ui-attachments/**
+          if-no-files-found: warn
+          retention-days: 7
