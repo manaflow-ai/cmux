@@ -199,7 +199,7 @@
   border-radius: calc(var(--ui-switch-h) / 2);
   background: var(--ds-color-pressed);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-separator);
-  transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+  transition: background-color var(--cmux-motion-micro) var(--cmux-ease-out);
 }
 .ui-switch[data-size="sm"] {
   --ui-switch-h: var(--ds-icon-16);
@@ -218,7 +218,12 @@
   border-radius: 50%;
   background: var(--ds-color-surface);
   box-shadow: var(--elevation-1);
-  transition: translate var(--cmux-motion-quick) var(--cmux-ease-out);
+  /* The thumb is a selection that travels: it settles on the one spring over the large step (Leo
+     2026-11: "a toggle is nicer than a checkbox, just make it look better"), and its fill crosses
+     over as the track's does. */
+  transition:
+    translate var(--cmux-motion-large) var(--cmux-ease-spring),
+    background-color var(--cmux-motion-micro) var(--cmux-ease-out);
 }
 .ui-switch[data-checked] {
   background: var(--ds-color-accent);
