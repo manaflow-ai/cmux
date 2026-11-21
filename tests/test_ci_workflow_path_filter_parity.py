@@ -80,7 +80,7 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
 # these broad patterns may appear on pull requests without push.
 PULL_REQUEST_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
     # Empty since cmux-next.yml's push list took the rest of its pull_request list (#21504's product and CI
-    # inputs): a pull request skips its checks and fast tier (cargo) jobs (scripts/ci/affected-jobs.json
+    # inputs): a pull request skips its checks job (scripts/ci/affected-jobs.json
     # pull_request_skip), so the push that lands it must start on every path the pull request does.
     # Left: the docs-only plan excludes (#47195). They narrow the pull request; the push keeps plans/cmux-next/**
     # whole, so it still starts on every plan file a pull request starts on.

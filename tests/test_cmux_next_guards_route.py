@@ -108,9 +108,9 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         self.assertEqual(jobs["nightly-guards"]["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}")
         self.assertEqual(jobs["nightly-guards"]["with"]["linux_guard_tests"], "${{ 'false' }}")
         group = jobs["ci-guard-group"]
-        # The replay's Tier B (scripts/ci/affected-jobs.json pull_request_skip) on top of the window gate: a pull
-        # request skips it unless labeled full-ci; the feat-cmux-next push runs it.
-        self.assertEqual(group["if"], "${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}")
+        self.assertEqual(group["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' && "
+                         "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
+                         "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}")
         steps = {step.get("name"): step for step in group["steps"]}
         script = steps["Run the ci guard group and the routed groups"]["run"]
         calls = [line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line and "--list" not in line]

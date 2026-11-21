@@ -471,13 +471,11 @@ export function playTurnEnd(
     // the next turn's first tool row, 158 px).
     let lowest = -Infinity;
     let lowestWas = -Infinity;
-    let carried = 0;
     nodes.forEach((node, index) => {
       const before = was.get(node.dataset.rowId!);
       if (before && tops[index]! > lowest) {
         lowest = tops[index]!;
         lowestWas = before.top;
-        carried = (starts.get(node)?.top ?? before.top) - tops[index]!;
       }
     });
     const arrives = (node: HTMLElement, index: number) => !was.has(node.dataset.rowId!) && tops[index]! > lowest;
@@ -558,6 +556,7 @@ export function playTurnEnd(
       store: Map<HTMLElement, Moving>,
       next: Moving,
       keyframes: () => Keyframe[][],
+      timing: KeyframeAnimationOptions = {},
     ) => {
       const last = store.get(node);
       if (
@@ -572,27 +571,56 @@ export function playTurnEnd(
         animation.cancel();
         fold.animations.delete(animation);
       }
-      next.animations = keyframes().map((frames) => play(node, frames));
+      next.animations = keyframes().map((frames) => play(node, frames, timing));
       store.set(node, next);
     };
     /// The rows that start clipped this pass: where each starts, the bottom it draws, its bottom at rest.
     const covers: { top: number; bottom: number }[] = [];
     /// Where each copy starts drawn (a top in the view, as `tops`).
     const copyStarts = copies.map((copy) => startTop(copy, goneByCopy.get(copy)!.top));
+    // How far each kept row starts from its place (its move's distance), and the settle curve's
+    // progress at a time fraction. A row that arrives holds at its place until no kept row's drawn box
+    // overlaps it (sampled along the move), then fades in: the reply's ink starts there, not at the
+    // move's end.
+    const drift = nodes.map((node, index) => {
+      const before = was.get(node.dataset.rowId!);
+      return before && !arrives(node, index) ? startTop(node, before.top) - tops[index]! : 0;
+    });
+    const curve = parseBezier(easing);
+    const clearFraction = (index: number) => {
+      if (!curve) return 1;
+      const top = tops[index]!;
+      const bottom = top + nodes[index]!.offsetHeight;
+      let last = -1;
+      for (let step = 0; step <= 200; step++) {
+        const progress = bezierAt(curve, step / 200);
+        const overlaps = nodes.some((other, k) => {
+          if (k === index || drift[k] === 0 || arrives(other, k)) return false;
+          const drawn = tops[k]! + drift[k]! * (1 - progress);
+          return Math.min(bottom, drawn + other.offsetHeight) - Math.max(top, drawn) > 0.5;
+        });
+        if (overlaps) last = step;
+      }
+      return Math.min(1, (last + 1) / 200);
+    };
     nodes.forEach((node, index) => {
       const before = was.get(node.dataset.rowId!);
       // Its path, for the copies under or over it (`coverClip`), with the clip it starts under (below).
       const path = boxes.length ? { from: tops[index]!, to: tops[index]!, ...boxes[index]! } : undefined;
       if (path) paths.push(path);
-      if (arrives(node, index) && (Math.abs(carried) >= 0.5 || moving.has(node))) {
-        // Under every row the swap kept: it slides with the lowest of them, on the same clock, and
-        // fades in as a row the swap added does unless it plays its own entrance.
-        const enters = node.matches(".acpmux-row--enter, .acpmux-row--message-enter");
+      if (arrives(node, index)) {
+        // A row first mounted in the settle snapshot has its final layout top, so it is placed there
+        // at once. The kept rows above it still slide into their places, and drawn over them it
+        // doubled its text (Leo, 2026-11-18: "doubled up looking ass text"; agent-pane-stream-row-
+        // overlap). Carrying it with them flew it in from hundreds of pixels away. So it holds at no
+        // ink until the move has landed (the move's delay, then its length), and fades in there. This
+        // covers a renamed streaming reply, a reply outside the warm window, and rows that arrive with
+        // the next turn.
         const from = starts.get(node)?.opacity ?? 0;
-        restart(node, moving, { delta: carried, fades: !enters, animations: [] }, () => [
-          [{ translate: `0 ${carried}px` }, { translate: "0 0" }],
-          ...(enters ? [] : [[{ opacity: from }, { opacity: 1 }]]),
-        ]);
+        restart(node, moving, { delta: 0, fades: true, animations: [] }, () => [[{ opacity: from }, { opacity: 1 }]], {
+          delay: ms * clearFraction(index),
+          fill: "backwards",
+        });
         return;
       }
       if (!before) {
