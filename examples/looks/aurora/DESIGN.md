@@ -61,22 +61,22 @@ clearest glass over a black desktop. The 16-color terminal palette is tuned per 
 color but the black and white slots keeps 4.5:1 on its terminal background.
 
 Accent budget, every place it shows: the selection and focus ring and Send (the theme accent), the
-hover card's mark for running work, the prompt bubble's teal tint and violet hairline, the address
+hover card's mark for running work, the prompt bubble's teal tint and teal hairline, the address
 bar's 12% tint, the cursor, and the sidebar's group colors (the built-in aurora gradient, which only
 draws when you make groups). Nothing else is colored.
 
 ### Chat paint (`agent-pane/theme.css`)
 
-Each token is one value for both appearances: the look-add-on test reads every token back exactly as
-written, so a token cannot use `var()` or differ by media query. Tints with alpha do the work
-instead: `rgb(45 212 191 / 0.14)` reads as pale teal on snow and deep teal on polar night.
+Every color is made from the theme's own (`--agent-text`, `--agent-accent`), as `bun run
+check:look-addons` requires: the theme file sets the accent per appearance, so the 8% tint reads as
+pale teal on snow and deep teal on polar night, and the stylesheet follows the person's theme edits.
 
 | Token | Value | Why |
 | --- | --- | --- |
-| `--cv-user-bubble-tint` | `rgb(45 212 191 / 0.14)` | The prompt is the person's voice: the one teal surface in the transcript. |
-| `--cv-user-bubble-edge` | `rgb(139 92 246 / 0.38)` | A violet hairline: the aurora's upper edge, and the bubble's one edge treatment. |
+| `--cv-user-bubble-tint` | `color-mix(in srgb, var(--agent-accent) 8%, transparent)` | The prompt is the person's voice: the one teal surface in the transcript. |
+| `--cv-user-bubble-edge` | `color-mix(in srgb, var(--agent-accent) 38%, transparent)` | A teal hairline, the bubble's one edge treatment. It was the aurora's violet upper edge, which the chat's theme variables cannot make (no violet among `--agent-text`, `--agent-accent`), so the violet now shows in the cursor and the terminal's magenta only. |
 | `--cv-user-bubble-radius` | `16px` | Rounder than a card (12 to 14) to follow the glass geometry, short of a capsule. |
-| `--cv-card-fill`, `--cv-card-ring` | `rgb(127 132 150 / 0.08)`, `/ 0.24` | A neutral wash and hairline that read in both appearances. |
+| `--cv-card-fill`, `--cv-card-ring` | the text at 4%, the text (with a tenth of the accent) at 13% | A neutral wash and hairline that read in both appearances. |
 
 Body, muted and dim text and links keep the host's colors, which it derives from the theme file per
 appearance and holds to 4.5:1. A single link color cannot reach 4.5:1 on both snow and polar night,
@@ -178,7 +178,7 @@ Verdict: **FIX**, held by two app-side blockers. The look's own files have no op
 | 1 | pass | sidebar, tab strip, light and dark | The chrome is clear glass that takes the wallpaper's warmth. Row names, Home and App Store read at a glance on both appearances. The selected row and selected tab carry the only teal. | none |
 | 2 | pass | chat, light and dark | The chat reads as the solid content layer. In light, a trace of the wallpaper shows at 90%, but body text, inline code and the code block stay crisp. The teal "New" divider is the one accent in the transcript. | none |
 | 3 | pass | Reduce Transparency, both | It becomes opaque polar night or snow with the same teal (selection, divider, update button) and nothing missing. It is calmer, but still Aurora. | none |
-| 4 | fix (app) | prompt bubble, nightly | The bubble draws the host's neutral gray, not the teal tint and violet hairline. The nightly's chat has no `--cv-user-bubble-*` tokens yet; they arrive with the look-add-on change this folder ships with. With that change's chat bundle loaded (`cmux customize use pr:46049`), the bubble is pale teal with its violet rim, as designed (`aurora-L-chat-pr`, `aurora-D-chat-pr`). | none in the look; lands with the token change |
+| 4 | fix (app) | prompt bubble, nightly | The bubble draws the host's neutral gray, not the teal tint and hairline. The nightly's chat has no `--cv-user-bubble-*` tokens yet; they arrive with the look-add-on change this folder ships with. With that change's chat bundle loaded (`cmux customize use pr:46049`), the bubble is pale teal with its violet rim, as designed (`aurora-L-chat-pr`, `aurora-D-chat-pr`). | none in the look; lands with the token change |
 | 5 | fix (app) | hover card, nightly | The built-in card shows, not Aurora's chip card. The app lists `local/customize` as installed, enabled and not hidden, and shows no "Custom card error". The documentation's own template card does not draw on this nightly either, so this is not Aurora's script. `.glass(level)` is also newer than this nightly, so the chip falls back to its padded shape (the guard). | report to the app; recapture on a nightly with the custom card and `.glass` |
 | 6 | taste | built-in hover card | The built-in card on popover glass sits well with the look: bold title, dim model line, no extra color. | none |
 

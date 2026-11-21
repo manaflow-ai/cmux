@@ -55,8 +55,9 @@ and cmux follows the system appearance between them; `appearance.appTheme: follo
 cmux's own surfaces follow too. A theme file's `colors` block would paint both sides the same, so
 Grove sets each side by name in `appearance.themeEdits` (`Builtin Light/background`, ...). Surface
 overrides carry only an opacity, never a color, so each surface takes its appearance's ground. The
-chat's stylesheet uses CSS `light-dark(day, night)` in one `:root` rule; the chat's root takes the
-theme's `color-scheme`, so the right side applies with no second selector.
+chat's stylesheet names no color: each token in its one `:root` rule mixes the theme's `--agent-text`
+and `--agent-accent` (as `bun run check:look-addons` requires), so each appearance takes its own
+side and the table's text, link, card and bubble rows are the tones those mixes were fitted to.
 
 ### Type
 

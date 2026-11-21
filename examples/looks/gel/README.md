@@ -11,7 +11,7 @@ It is built only from public surfaces, so you can copy any part of it:
 | --- | --- |
 | `cmux-setup.json` | Picks the theme file; sets Roboto in the chat, its size and width, comfortable rows, and tonal unfocused tabs |
 | `themes/gel.json` | The tonal palette for light and dark (a light/dark theme pair with its own tones), glass behind the chrome, no borders, the flush corner, the arc |
-| `agent-pane/theme.css` | The prompt bubble, cards, text and links as `cmux.agentPane.style/1` tokens, each a `light-dark()` pair |
+| `agent-pane/theme.css` | The prompt bubble, cards, text and links as `cmux.agentPane.style/1` tokens, each mixed from the theme's text and accent colors |
 | `customize/` | A hover card with a headline, a state chip on glass and place chips, and sidebar rows with the arc while work runs |
 | `DESIGN.md` | The references, the palette, the decisions and the contrast numbers |
 
