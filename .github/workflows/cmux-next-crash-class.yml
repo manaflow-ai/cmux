@@ -63,6 +63,9 @@ env:
 jobs:
   crash-class:
     name: cmux-next crash-class rules
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:

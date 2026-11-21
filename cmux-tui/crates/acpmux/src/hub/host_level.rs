@@ -21,14 +21,70 @@
 //! host below the level again (a launcher of an older binary) never makes it move at every idle
 //! point. Nothing moves while idle hibernation is off (`ACPMUX_IDLE_CHILD_SECS=0`): an agent the
 //! daemon is told to keep, it keeps.
+//!
+//! Who a start is for (`Hub::start_params`): Claude Code reads whether to suggest next prompts
+//! once, at `initialize`, and honours the per-turn pause only under a server-side flag of its own
+//! that is off by default, so the start is where suggestions are decided. A start for no person
+//! asks for none.
 
 use crate::hub::*;
+
+/// `Session::start_for`: a person's start.
+pub(super) const FOR_A_PERSON: u8 = 1;
+/// `Session::start_for`: a start for no person.
+pub(super) const FOR_NO_PERSON: u8 = 2;
+
+/// `Session::start_for` of a start for queued prompt `run` (`provenance`: its turn's effective
+/// one, `prompt_sender::person_turn`).
+pub(super) fn start_for(run: &super::queue::PromptRun, provenance: Option<&Value>) -> u8 {
+    if super::prompt_sender::person_turn(run, provenance) { FOR_A_PERSON } else { FOR_NO_PERSON }
+}
 
 /// How long a chat whose host must move waits idle first: long enough that what follows its turn
 /// (a queued notice, a script's next prompt) comes first, short against the idle period.
 pub(super) const MOVE_AFTER: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl Hub {
+    /// Whether the agent start of `session` beginning now is a person's: the chat on a person's
+    /// screen (`seen.rs` `shown`), else what asked for it (`Session::start_for`): their own
+    /// prompt, their typing or open (`wake_for`), else, for a start nothing marked (the one
+    /// `session/new` makes), whoever created the chat (`created_by.rs`): the person, or one
+    /// from before creators were kept; never an agent or a script.
+    pub(super) fn for_a_person(&self, session: &Session) -> bool {
+        if self.shown(session) {
+            return true;
+        }
+        match session.start_for.load(Ordering::SeqCst) {
+            FOR_A_PERSON => true,
+            FOR_NO_PERSON => false,
+            _ => session
+                .meta()
+                .created_by
+                .as_ref()
+                .is_none_or(|c| c.kind == crate::store::CreatorKind::Person),
+        }
+    }
+
+    /// The `initialize` params of a start of `session`'s agent. One that is no person's asks
+    /// Claude Code for no next-prompt suggestions (`prompt_suggestions::NO_SUGGESTIONS`): Claude Code honours the
+    /// per-turn pause (`claude_stdio/prompt_suggestions.rs`) only under a server-side flag of its
+    /// own, `tengu_chomp_sable`, off by default ("a CLI build where this is not yet enabled
+    /// acknowledges and keeps generating"), and reads `promptSuggestions` once, at `initialize`:
+    /// a later one only turns it on. So a process started for another agent's message, which no
+    /// person reads, suggested a next prompt after every turn, about $0.10 each (sr2 audit,
+    /// 2026-11-21: 1,022 an hour, 15:30-16:30Z, after both host fixes had reached the lanes). A
+    /// process a person started keeps them for its whole life, agent turns included; one an
+    /// agent started has none until it hibernates and a person's prompt, typing or open starts
+    /// it again.
+    pub(super) fn start_params(&self, session: &Session) -> Value {
+        let mut params = super::pool::initialize_params();
+        if !self.for_a_person(session) {
+            params["_meta"] =
+                json!({"acpmux": {crate::claude_stdio::prompt_suggestions::NO_SUGGESTIONS: true}});
+        }
+        params
+    }
+
     /// Whether `session`'s live host moves at its next idle point (module docs). False while a
     /// start or stop holds the child's slot.
     pub(super) fn host_moves(&self, session: &Session) -> bool {
