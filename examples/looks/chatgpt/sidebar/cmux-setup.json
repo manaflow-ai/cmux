@@ -1,0 +1,33 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/chatgpt-sidebar",
+  "name": "Codex sidebar",
+  "version": "1.0.0",
+  "description": "Active chats above Projects and Recents in a left sidebar with compact rows.",
+  "screenshots": [
+    "screenshots/source-sidebar.webp"
+  ],
+  "cmuxProfile": 1,
+  "settings": {
+    "sidebar.side": "left",
+    "sidebar.style": "standard",
+    "sidebar.density": "comfortable",
+    "sidebar.textSize": "default",
+    "appearance.metrics.sidebarWidth": 330,
+    "appearance.metrics.sidebarRowHeight": 24,
+    "sidebar.priorityView.enabled": true,
+    "sidebar.priorityView.shown": true,
+    "sidebar.showProjects": true,
+    "sidebar.groupBy": "recents",
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.showTimestamps": true,
+    "sidebar.controlsOnHover": true,
+    "sidebar.hoverCards.layout": "compact",
+    "sidebar.showSearchButton": true,
+    "sidebar.workspaceRow.icon": false,
+    "sidebar.workspaceRow.directory": false,
+    "sidebar.workspaceRow.branch": false,
+    "sidebar.workspaceRow.lastActivity": false,
+    "sidebar.workspaceRow.pullRequest": false
+  }
+}

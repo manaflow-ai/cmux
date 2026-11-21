@@ -1,0 +1,16 @@
+{
+  "cmuxSetup": 1,
+  "cmuxProfile": 1,
+  "id": "manaflow-ai/chatgpt-composer",
+  "name": "Codex composer",
+  "description": "A rounded prompt card with dictation and a context usage ring.",
+  "version": "1.0.0",
+  "screenshots": [
+    "screenshots/source-desktop.webp"
+  ],
+  "settings": {
+    "agentPane.showDictation": true,
+    "agentPane.showContextUsage": true,
+    "agentPane.composerRing": "context"
+  }
+}

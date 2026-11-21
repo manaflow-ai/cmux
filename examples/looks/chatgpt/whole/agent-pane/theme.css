@@ -1,0 +1,54 @@
+/* The Codex app's chat: your prompt in a gray pill on the right, the reply as plain text with no
+   bubble, inline code in light gray chips, blue links, borderless cards on a faint fill, and a
+   white composer with a soft shadow. From the codex-app recipe (manaflow-ai/cmux#45804).
+   Colors and radii only: sizes stay with the settings, so rows keep their measured heights. */
+:root {
+  --cv-bubble: #f0f0f0;
+  --cv-code-bg: #ececec;
+  --cv-link: #0a74e8;
+  --agent-link: #0a74e8;
+  --cv-text-muted: #5d5d5d;
+  --cv-text-dim: #6e6e6e;
+  --cv-card-fill: rgb(0 0 0 / 0.03);
+  --cv-card-ring: transparent;
+}
+.cv-user__bubble {
+  border-radius: 20px;
+}
+.acpmux-shell {
+  --acpmux-composer-bg: #ffffff;
+  --acpmux-composer-edge: #dedede;
+}
+.acpmux-composer-box {
+  --acpmux-composer-radius: 24px;
+  box-shadow: var(--acpmux-card-ring), 0 2px 10px rgb(0 0 0 / 6%);
+}
+
+/* Adapt the Codex demo's prompt to the active color scheme. */
+.acpmux-shell {
+  --acpmux-composer-bg: color-mix(in srgb, var(--agent-text) 8%, var(--agent-page-bg));
+  --acpmux-composer-edge: color-mix(in srgb, var(--agent-text) 14%, var(--agent-page-bg));
+}
+
+.acpmux-shell .acpmux-composer-box {
+  --acpmux-composer-radius: 22px;
+  box-shadow: var(--acpmux-card-ring), 0 2px 8px rgb(0 0 0 / 6%);
+}
+
+/* Both the anchored and portaled versions use the same menu dimensions. */
+.acpmux-composer-plus .acpmux-menu,
+.acpmux-menu.acpmux-composer-plus {
+  width: min(736px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
+  --ui-popup-radius: 18px;
+  --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));
+  --ui-row-radius: 999px;
+}
+
+/* Preserve native search, scrolling and viewport bounds. */
+.acpmux-menu.acpmux-location-menu.acpmux-folder-popover {
+  --ui-popup-radius: 14px;
+  --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));
+  --ui-row-radius: 8px;
+  --cmux-menu-highlight-radius: 8px;
+}

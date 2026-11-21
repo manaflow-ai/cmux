@@ -1,0 +1,29 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "Open in editor",
+  "version": "1.0.0",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "main.js"
+  },
+  "implements": {
+    "cmux.session.info.section/1": {
+      "export": "renderOpenIn",
+      "title": "Open in",
+      "symbol": "arrow.up.forward.app",
+      "options": {
+        "maxRows": 2
+      }
+    }
+  },
+  "scopes": {
+    "chat:read": "Find the selected thread’s local checkout and workspace.",
+    "workspace:write": "Open a launcher tab in that workspace.",
+    "workspace:execute": "Launch the selected desktop app with the checkout as one path argument."
+  },
+  "description": "Open the local thread’s exact working folder in its editor or file manager."
+}

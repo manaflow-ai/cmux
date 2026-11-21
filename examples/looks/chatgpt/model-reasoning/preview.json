@@ -1,0 +1,11 @@
+{
+  "cmuxProfile": 1,
+  "name": "Codex model and reasoning picker",
+  "description": "A compact provider rail and a shortcut to the focused chat’s native model picker.",
+  "settings": {
+    "agentPane.display.harnessPlacement": "compact"
+  },
+  "files": {
+    "keybindings.json": "[\n  { \"key\": \"ctrl+shift+m\", \"command\": \"agentPane.switchModel\" }\n]\n"
+  }
+}

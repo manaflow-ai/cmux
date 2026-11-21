@@ -1,0 +1,10 @@
+/* Adapt the Codex demo's prompt to the active color scheme. */
+.acpmux-shell {
+  --acpmux-composer-bg: color-mix(in srgb, var(--agent-text) 8%, var(--agent-page-bg));
+  --acpmux-composer-edge: color-mix(in srgb, var(--agent-text) 14%, var(--agent-page-bg));
+}
+
+.acpmux-shell .acpmux-composer-box {
+  --acpmux-composer-radius: 22px;
+  box-shadow: var(--acpmux-card-ring), 0 2px 8px rgb(0 0 0 / 6%);
+}

@@ -112,11 +112,13 @@ function show(chat) {
   else run("agent.openSessionTab", { session: chat.id })
 }
 
+const picked = () => project() || projects()[0] || null
+
 function start() {
   const text = draft().trim()
   const args = { harness: "codex" }
   if (text) args.draft = text
-  if (project() && project().cwd) args.cwd = project().cwd
+  if (picked()?.cwd) args.cwd = picked().cwd
   run("palette.newAgentChat", args)
   setDraft("")
 }
@@ -127,7 +129,6 @@ const pct = (n) => (n === null || n === undefined ? "–" : `${Math.round(n)}%`)
 
 function renderHome() {
   follow()
-  const picked = () => project() || projects()[0] || null
   return VStack({ spacing: 16 }, [
     Spacer(),
     Text("What should we build?").font("largeTitle").weight("semibold"),
@@ -244,7 +245,8 @@ function renderLimits(context) {
         bar("Weekly limit", () => limits().weekly),
         Text(() => `${limits().usable} of ${limits().accounts} Codex account${limits().accounts === 1 ? "" : "s"} can take work`).font("caption").color(cmux.theme.text.tertiary)
       ])
-    }
+    },
+    Button("Settings…", () => run("openSettings"))
   ]).contextMenu([Button("Read limits now", () => loadLimits(true))])
 }
 
