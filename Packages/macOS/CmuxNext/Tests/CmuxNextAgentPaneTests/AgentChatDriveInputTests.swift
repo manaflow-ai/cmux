@@ -1,0 +1,132 @@
+import AppKit
+import CmuxNextAgentPane
+import CmuxNextTestSupport
+import Testing
+import WebKit
+
+/// `agent.chat.drive`'s input (``AgentChatDriveInput``) is the engine's own: a move hands WebKit an
+/// AppKit event, so the page gets trusted pointer and mouse events and real CSS `:hover` (a style only a
+/// `:hover` rule sets applies), and a wheel tick is a trusted `wheel` that scrolls the box under the
+/// held point. Nothing reaches the window server: the person's pointer stays where it is, and the
+/// window never becomes key, is never ordered front and never comes to the front.
+@MainActor
+@Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2)))
+struct AgentChatDriveInputTests {
+    static let html = """
+    <!doctype html><html><head><style>
+      body { margin: 0; font: 14px sans-serif; }
+      #list { position: absolute; left: 20px; top: 20px; width: 300px; height: 200px; overflow: auto; }
+      #box { height: 60px; margin: 10px; outline: 2px solid rgb(9, 9, 9); }
+      #box:hover { outline-color: rgb(1, 2, 3); }
+      #filler { height: 3000px; }
+    </style></head><body><div id="list"><div id="box">hover me</div><div id="filler"></div></div><script>
+      window.log = [];
+      for (const type of ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'mousemove', 'wheel']) {
+        document.addEventListener(type, (e) => window.log.push({ type, trusted: e.isTrusted,
+          id: e.target.id || '', deltaY: e.deltaY ?? null }), true);
+      }
+    </script></body></html>
+    """
+
+    final class Page {
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: WKWebViewConfiguration())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+
+        init() async throws {
+            _ = NSApplication.shared
+            window.isReleasedWhenClosed = false
+            window.contentView = webView
+            webView.loadHTMLString(AgentChatDriveInputTests.html, baseURL: nil)
+            try await until("the page loaded") { try await self.read("document.readyState === 'complete' && !!document.getElementById('box')") as? Bool == true }
+        }
+
+        func read(_ expression: String) async throws -> Any? {
+            try await webView.callAsyncJavaScript("return \(expression);", arguments: [:], in: nil, contentWorld: .page)
+        }
+
+        func until(_ what: String, _ condition: () async throws -> Bool) async throws {
+            let deadline = ContinuousClock.now + .seconds(10)
+            while !((try? await condition()) ?? false), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(25)) }
+            let log = (try? await read("JSON.stringify(window.log)")) as? String ?? ""
+            try #require(try await condition(), "\(what) never happened; the page saw \(log)")
+        }
+
+        /// The box's middle, in viewport CSS px.
+        func boxCenter() async throws -> CGPoint {
+            let text = try #require(try await read("JSON.stringify((() => { const r = document.getElementById('box').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })())") as? String)
+            let point = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [Double])
+            return CGPoint(x: point[0], y: point[1])
+        }
+
+        func events(_ type: String) async throws -> [[String: Any]] {
+            let text = try #require(try await read("JSON.stringify(window.log.filter((e) => e.type === '\(type)'))") as? String)
+            return try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [[String: Any]])
+        }
+
+        var hoverStyle: String {
+            get async throws { try await read("getComputedStyle(document.getElementById('box')).outlineColor") as? String ?? "" }
+        }
+    }
+
+    /// The capture-slot case: a window that was never ordered in, never key. The move gives the box
+    /// trusted pointer and mouse events and its `:hover` style; the release takes the hover away.
+    @Test func aMoveHoversTheBoxWithTrustedEventsAndTheReleaseDropsIt() async throws {
+        let page = try await Page()
+        defer { page.window.closeAfterTest() }
+        let pointer = NSEvent.mouseLocation
+        let input = AgentChatDriveInput(webView: page.webView)
+        let center = try await page.boxCenter()
+
+        #expect(await input.move(to: center))
+        await input.settle()
+        try await page.until("the box is hovered") { try await page.read("document.getElementById('box').matches(':hover')") as? Bool == true }
+        #expect(try await page.hoverStyle == "rgb(1, 2, 3)", "only the :hover rule sets this outline color")
+        for type in ["pointerover", "pointerenter", "mouseover", "mouseenter", "mousemove"] {
+            let seen = try await page.events(type)
+            #expect(!seen.isEmpty, "no \(type)")
+            #expect(seen.allSatisfy { $0["trusted"] as? Bool == true }, "\(type) was not trusted: \(seen)")
+        }
+
+        #expect(await input.release())
+        await input.settle()
+        try await page.until("the hover dropped") { try await page.read("document.getElementById('box').matches(':hover')") as? Bool == false }
+        #expect(try await page.hoverStyle == "rgb(9, 9, 9)")
+
+        #expect(NSEvent.mouseLocation == pointer, "the person's pointer moved")
+        #expect(!page.window.isKeyWindow)
+        #expect(!page.window.isVisible, "the window was ordered in")
+    }
+
+    /// A wheel tick under the held point is one trusted `wheel` with the tick's sign, and the box
+    /// under it scrolls. WebKit holds a native wheel for a window that cannot present, so the window
+    /// is on a screen: ordered in behind every other window (never front, never key).
+    @Test(.enabled(if: !NSScreen.screens.isEmpty, "needs a display"))
+    func aWheelTickUnderTheHeldPointScrollsTheBoxWithATrustedWheel() async throws {
+        let page = try await Page()
+        defer { page.window.closeAfterTest() }
+        page.window.orderBack(nil)
+        try #require(page.window.screen != nil)
+        let pointer = NSEvent.mouseLocation
+        let input = AgentChatDriveInput(webView: page.webView)
+        let center = try await page.boxCenter()
+
+        #expect(await input.move(to: center))
+        await input.settle()
+        try await page.until("the box is hovered") { try await page.read("document.getElementById('box').matches(':hover')") as? Bool == true }
+        #expect(await input.wheel(at: center, deltaY: 120))
+        await input.settle()
+        try await page.until("the list scrolled") {
+            (try await page.read("document.getElementById('list').scrollTop") as? Double ?? 0) > 0
+        }
+        let wheels = try await page.events("wheel")
+        #expect(!wheels.isEmpty)
+        #expect(wheels.allSatisfy { $0["trusted"] as? Bool == true }, "\(wheels)")
+        #expect(wheels.allSatisfy { ($0["deltaY"] as? Double ?? 0) > 0 }, "a positive tick scrolls down: \(wheels)")
+        _ = await input.release()
+
+        #expect(NSEvent.mouseLocation == pointer, "the person's pointer moved")
+        #expect(!page.window.isKeyWindow)
+        #expect(NSApp.orderedWindows.first !== page.window || NSApp.orderedWindows.count == 1, "the window came to the front")
+    }
+}
