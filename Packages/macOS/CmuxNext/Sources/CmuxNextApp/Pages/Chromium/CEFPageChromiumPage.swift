@@ -115,7 +115,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     }
     #endif
 
-    func load(_ url: URL) { tab.load(url) }
+    func load(_ url: URL) { if pageID == "cmux.agent" { DebugTimings.markLaunch("chat_page.setup_done") }; tab.load(url) }
 
     func reload() { tab.reload() }
     var isUnresponsive: Bool { tab.state.isUnresponsive }
