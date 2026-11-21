@@ -655,7 +655,7 @@ actor AlwaysTransientCodeRedeemer: AuthCallbackCodeRedeeming {
         #expect(await insecure.codeExchangeCapability() == .unknown)
     }
 
-    @Test func rememberedOriginsPersistInTheAuthStore() {
+    @MainActor @Test func rememberedOriginsPersistInTheAuthStore() {
         let store = FakeKeyValueStore()
         let memory = HostBrowserCodeExchangeMemory(keyValueStore: store, key: "code-exchange")
         #expect(memory.supportsCodeExchange(origin: "https://cmux.com") == false)
