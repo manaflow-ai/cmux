@@ -58,6 +58,7 @@ ALLOWED: dict[str, str] = {
     "risk-tier.yml": "next-autoland's MUST_PASS `risk evidence`; one job",
     "merge-freeze.yml": "a merge freeze holds every pull request, prose included; one job",
     "pr-body-checks.yml": "lints the description, which a docs pull request has too; one job",
+    "pr-router.yml": "the router: it reads the changed paths and starts only the workflows they reach (scripts/ci/pr_router.json); one small job",
     "classic-frozen-guard.yml": "policy over every changed path, Markdown in frozen classic paths included; one job",
     "classic-api-guard.yml": "policy over every changed path; one job",
     "language-boundaries.yml": "policy over every changed path; one job",
