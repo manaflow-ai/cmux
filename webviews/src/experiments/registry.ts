@@ -61,6 +61,7 @@ import { composerHatLook } from "../agent-session/acpmux/subagents/composerHat.e
 import { hatQuestionsLook } from "../agent-session/acpmux/question/hatQuestions.experiment";
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
 import { hatTuckLook } from "../agent-session/acpmux/subagents/hatTuck.experiment";
+import { hatOpenLook } from "../agent-session/acpmux/subagents/hatOpen.experiment";
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
@@ -160,6 +161,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hatQuestionsLook,
   hatChevronLook,
   hatTuckLook,
+  hatOpenLook,
   goalHatPlace,
   hatDoneLook,
   hatDoneCheckPlace,

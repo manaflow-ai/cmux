@@ -150,8 +150,10 @@ jobs:
           BASE: ${{ steps.base.outputs.base }}
         run: python3 scripts/ci/receipt_input_key.py record react-doctor --input-key "$INPUT_KEY" --base "$BASE" --out "$RUNNER_TEMP/ci-receipt/receipt.json"
 
+      # Saved from feat-cmux-next pushes only: GitHub scopes a pull request's cache entries to that pull request,
+      # so a PR's save is read by nothing else (tests/test_ci_no_run_scoped_cache_keys.py). PRs restore it.
       - name: Save the receipt (shadow)
-        if: success() && steps.key.outputs.input_key != '' && steps.receipt.outputs.cache-hit != 'true'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.key.outputs.input_key != '' && steps.receipt.outputs.cache-hit != 'true'
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
