@@ -332,12 +332,21 @@ impl ChiefPolicy {
                 }
             }
             if window.is_some() {
-                // The owner reads its whole list; the window is cut from the narrowed reply.
-                let mut stripped = object.clone();
-                for key in ["offset", "limit", "ids"] {
-                    stripped.remove(key);
+                // Once a conversation-list taught the scope, the owner builds only the
+                // window, over the phone's scope (`home-inbox-window-v1`, `scope: "agents"`:
+                // exactly `in_scope`); its reply says `window: true`. Before that, or from an
+                // owner without it (no `window`), the window is cut here from the narrowed
+                // whole list.
+                let listed = self.with_scope(|scope| scope.generation > 0);
+                let mut sent = object.clone();
+                if listed {
+                    sent.insert("scope".into(), Value::from("agents"));
+                } else {
+                    for key in ["offset", "limit", "ids"] {
+                        sent.remove(key);
+                    }
                 }
-                rewrite = serde_json::to_vec(&Value::Object(stripped)).ok();
+                rewrite = serde_json::to_vec(&Value::Object(sent)).ok();
             }
         }
         if command == "conversation-inbox-op" {
@@ -437,8 +446,12 @@ impl ChiefPolicy {
                     _ => Vec::new(),
                 };
                 let total = kept.len();
+                // The owner built the window over the phone's scope: its positions,
+                // `total` and `order` are the phone's list already.
+                let owner_cut = data.remove("window").and_then(|cut| cut.as_bool()) == Some(true);
                 let rows = match window {
                     None => kept,
+                    Some(_) if owner_cut => kept,
                     Some(InboxWindow::Range { offset, limit }) => {
                         data.insert("offset".into(), Value::from(offset));
                         data.insert("total".into(), Value::from(total));
@@ -1074,11 +1087,15 @@ mod tests {
             data["rows"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap().to_owned()).collect()
         };
 
-        // The first window: the owner reads its whole list, the phone gets one row of two.
+        // The first window, from an owner without home-inbox-window-v1 (it ignores the
+        // window and replies with the whole list): the phone gets one row of two.
         let sent = forwarded(policy.evaluate(&line(
             serde_json::json!({"cmd": "home-inbox", "id": "w1", "owners": ["local"], "limit": 1}),
         )));
-        assert_eq!(sent, serde_json::json!({"cmd": "home-inbox", "id": "w1", "owners": ["local"]}));
+        assert_eq!(
+            sent,
+            serde_json::json!({"cmd": "home-inbox", "id": "w1", "owners": ["local"], "limit": 1, "scope": "agents"})
+        );
         let first = reply("w1");
         assert_eq!(ids(&first["data"]), [OTHER]);
         assert_eq!(first["data"]["total"], 2);
@@ -1376,5 +1393,54 @@ mod tests {
         let narrowed: Value =
             serde_json::from_slice(&policy.filter_reply(reply.to_string().as_bytes()).unwrap()).unwrap();
         assert_eq!(narrowed["data"]["rows"][0]["id"], new);
+    }
+
+    /// An owner with home-inbox-window-v1 builds the window over the phone's
+    /// scope itself (`window: true`): its positions, `total` and `order` pass
+    /// as they are, a row out of the scope still never shows, and `window`
+    /// does not reach the phone. Before a conversation-list taught the scope,
+    /// the owner gets the plain request.
+    #[test]
+    fn an_owner_window_passes_as_the_owner_cut_it() {
+        let fresh = ChiefPolicy::new();
+        let Verdict::Rewrite(bytes) = fresh.evaluate(&line(
+            serde_json::json!({"cmd": "home-inbox", "id": "f1", "owners": ["local"], "limit": 2}),
+        )) else {
+            panic!("not rewritten")
+        };
+        let sent: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(sent, serde_json::json!({"cmd": "home-inbox", "id": "f1", "owners": ["local"]}));
+
+        let policy = listed();
+        let _ = policy.evaluate(&line(
+            serde_json::json!({"cmd": "home-inbox", "id": "o1", "owners": ["local"], "offset": 1, "limit": 2}),
+        ));
+        let reply = serde_json::json!({"id": "o1", "ok": true, "data": {
+        "me": "user_local", "cloud": "not_asked", "window": true, "total": 7, "offset": 1,
+        "rows": [
+            {"id": CHIEF, "owner": "local", "kind": "chief", "name": "Chief"},
+            {"id": REMOTE, "owner": "local", "kind": "direct", "name": "Phone"},
+            {"id": OTHER, "owner": "local", "kind": "channel", "name": "Build"},
+        ]}});
+        let out: Value =
+            serde_json::from_slice(&policy.filter_reply(reply.to_string().as_bytes()).unwrap()).unwrap();
+        let ids: Vec<&str> =
+            out["data"]["rows"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, [CHIEF, OTHER]);
+        assert_eq!(out["data"]["total"], 7);
+        assert_eq!(out["data"]["offset"], 1);
+        assert_eq!(out["data"].get("window"), None);
+
+        let _ = policy.evaluate(&line(
+            serde_json::json!({"cmd": "home-inbox", "id": "o2", "owners": ["local"], "ids": [OTHER]}),
+        ));
+        let reply = serde_json::json!({"id": "o2", "ok": true, "data": {
+            "me": "user_local", "cloud": "not_asked", "window": true, "total": 7, "order": "abc",
+            "rows": [{"id": OTHER, "owner": "local", "kind": "channel", "name": "Build", "index": 5}]}});
+        let out: Value =
+            serde_json::from_slice(&policy.filter_reply(reply.to_string().as_bytes()).unwrap()).unwrap();
+        assert_eq!(out["data"]["rows"][0]["index"], 5);
+        assert_eq!(out["data"]["order"], "abc");
+        assert_eq!(out["data"]["total"], 7);
     }
 }

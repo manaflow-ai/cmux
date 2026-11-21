@@ -40,7 +40,9 @@ pub use home::{
     OWNER_CLOUD, PREVIEW_CHARS, cloud_row, home_inbox, is_markdown, merge_rows, preview_of,
 };
 pub use home_delta::{HOME_CHANGE_LOG_CAPACITY, HomeChangeLog, HomeDelta};
-pub use home_window::{HomeHead, HomeOrder, HomeWindow, home_inbox_window, order_digest};
+pub use home_window::{
+    HomeHead, HomeOrder, HomeScope, HomeWindow, home_inbox_window, order_digest, owner_and_agents,
+};
 pub use id::{encode_id, format_rfc3339_millis};
 pub use link::{ConversationLink, MAX_LINK_BYTES, format_link, parse_link};
 pub use link_preview::{

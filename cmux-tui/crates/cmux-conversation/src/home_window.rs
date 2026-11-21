@@ -43,6 +43,54 @@ pub enum HomeWindow {
     Ids(Vec<String>),
 }
 
+/// Which conversations a window's list holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum HomeScope {
+    /// Every listed conversation (the Mac's own Home).
+    #[default]
+    All,
+    /// Only conversations between `user_local` (human) and plain `agent_`
+    /// ids (kind agent): the rule a paired phone's link policy narrows to
+    /// (`cmux-mobile-host` `chief_policy::in_scope`), so positions, `total`
+    /// and `order` are the phone's own list.
+    OwnerAndAgents,
+}
+
+impl HomeScope {
+    /// Whether `summary` is in this scope.
+    pub fn holds(self, summary: &Summary) -> bool {
+        match self {
+            Self::All => true,
+            Self::OwnerAndAgents => owner_and_agents(summary),
+        }
+    }
+}
+
+/// True for a conversation between `user_local` (human) and plain `agent_`
+/// ids only: exactly `chief_policy::in_scope`.
+pub fn owner_and_agents(summary: &Summary) -> bool {
+    let mut has_owner = false;
+    for participant in &summary.participants {
+        if participant.id == "user_local" && participant.kind == crate::ParticipantKind::Human {
+            has_owner = true;
+        } else if !(participant.kind == crate::ParticipantKind::Agent
+            && plain_agent_id(&participant.id))
+        {
+            return false;
+        }
+    }
+    has_owner
+}
+
+/// `agent_` then 1-64 ASCII letters, digits, `_` or `-`.
+fn plain_agent_id(id: &str) -> bool {
+    id.strip_prefix("agent_").is_some_and(|rest| {
+        !rest.is_empty()
+            && rest.len() <= 64
+            && rest.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+    })
+}
+
 /// The list order of one caller's Home rows, without the rows.
 #[derive(Debug, Clone, Default)]
 pub struct HomeOrder {
@@ -56,10 +104,17 @@ impl HomeOrder {
     /// [`home_inbox`](crate::home_inbox) gives. Reads only ids, participants,
     /// titles, times and the caller's pins.
     pub fn new(heads: &[HomeHead<'_>], input: &HomeInboxInput<'_>) -> Self {
+        Self::scoped(heads, input, HomeScope::All)
+    }
+
+    /// The order of the rows in `scope`: the same order with the rows out
+    /// of scope left out. Channels are found over every head, as the whole
+    /// list's rows are.
+    pub fn scoped(heads: &[HomeHead<'_>], input: &HomeInboxInput<'_>, scope: HomeScope) -> Self {
         let channels = channels_of(heads.iter().map(|head| head.summary), input.me);
         let mut keyed: Vec<SortKey<'_>> = heads
             .iter()
-            .filter(|head| listed(head.summary, input, &channels))
+            .filter(|head| scope.holds(head.summary) && listed(head.summary, input, &channels))
             .map(|head| {
                 let state = input.states.get(&head.summary.id).copied().unwrap_or_default();
                 SortKey {

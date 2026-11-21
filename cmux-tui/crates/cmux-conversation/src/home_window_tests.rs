@@ -52,6 +52,15 @@ fn summaries(rng: &mut Rng, n: usize) -> Vec<Summary> {
                 })
                 .collect();
             let mut participants = vec![json!({"id": ME, "kind": "human", "display_name": "Me"})];
+            // Some conversations hold another person or an unplain agent id:
+            // out of the phone's scope.
+            match rng.below(8) {
+                0 => participants
+                    .push(json!({"id": "user_other", "kind": "human", "display_name": "Other"})),
+                1 => participants
+                    .push(json!({"id": "agent_x.y", "kind": "agent", "display_name": "Odd"})),
+                _ => {}
+            }
             for other in others {
                 if !participants.contains(&other) {
                     participants.push(other);
@@ -137,6 +146,20 @@ fn a_window_is_the_same_cut_of_the_whole_list() {
         let heads: Vec<HomeHead<'_>> = list.iter().map(HomeHead::of).collect();
         let order = HomeOrder::new(&heads, &input);
         assert_eq!(order.digest(), order_digest(whole.iter().map(|row| row.id.as_str())));
+        // The phone's scope: the same order with the rows out of scope left out.
+        let scoped = HomeOrder::scoped(&heads, &input, HomeScope::OwnerAndAgents);
+        let narrowed: Vec<&str> = whole
+            .iter()
+            .filter(|row| {
+                list.iter().any(|summary| summary.id == row.id && owner_and_agents(summary))
+            })
+            .map(|row| row.id.as_str())
+            .collect();
+        assert_eq!(
+            scoped.ids().iter().map(String::as_str).collect::<Vec<_>>(),
+            narrowed,
+            "seed {seed}"
+        );
     }
 }
 

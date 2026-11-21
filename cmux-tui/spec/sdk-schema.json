@@ -24478,6 +24478,14 @@
       },
       "presence": "optional",
       "nullable": true
+     },
+     "scope": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
      }
     },
     "additional_properties": false

@@ -14,7 +14,9 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use anyhow::Context;
-use cmux_conversation::{HomeHead, HomeInboxInput, HomeOrder, HomeRow, HomeWindow, Summary};
+use cmux_conversation::{
+    HomeHead, HomeInboxInput, HomeOrder, HomeRow, HomeScope, HomeWindow, Summary,
+};
 
 use super::{ConversationStore, load_head, load_message_by_seq, summary};
 
@@ -24,6 +26,7 @@ struct OrderKey {
     total_changes: i64,
     data_version: i64,
     me: String,
+    scope: HomeScope,
     deleted_chiefs: BTreeSet<String>,
     /// The caller's pins, sorted: `(id, pinned, position)`.
     pins: Vec<(String, bool, Option<u64>)>,
@@ -47,13 +50,14 @@ pub(crate) struct HomeWindowRead {
 }
 
 impl ConversationStore {
-    /// The window of `input.me`'s Home list (local conversations).
+    /// The window of `input.me`'s Home list (local conversations in `scope`).
     pub(crate) fn home_window(
         &mut self,
         input: &HomeInboxInput<'_>,
         window: &HomeWindow,
+        scope: HomeScope,
     ) -> anyhow::Result<HomeWindowRead> {
-        let (order, ordered_now) = self.home_order(input)?;
+        let (order, ordered_now) = self.home_order(input, scope)?;
         let transaction = self.connection.transaction()?;
         let mut rows = Vec::new();
         for (at, id) in order.select(window) {
@@ -68,7 +72,11 @@ impl ConversationStore {
 
     /// The order of `input.me`'s Home list: the kept one while nothing it
     /// was made from changed, else read again.
-    fn home_order(&mut self, input: &HomeInboxInput<'_>) -> anyhow::Result<(Arc<HomeOrder>, bool)> {
+    fn home_order(
+        &mut self,
+        input: &HomeInboxInput<'_>,
+        scope: HomeScope,
+    ) -> anyhow::Result<(Arc<HomeOrder>, bool)> {
         let total_changes: i64 =
             self.connection.query_row("SELECT total_changes()", [], |row| row.get(0))?;
         let data_version: i64 =
@@ -83,6 +91,7 @@ impl ConversationStore {
             total_changes,
             data_version,
             me: input.me.to_string(),
+            scope,
             deleted_chiefs: input.deleted_chiefs.clone(),
             pins,
         };
@@ -94,7 +103,7 @@ impl ConversationStore {
         let heads = self.home_heads()?;
         let refs: Vec<HomeHead<'_>> =
             heads.iter().map(|(summary, activity_at)| HomeHead { summary, activity_at }).collect();
-        let order = Arc::new(HomeOrder::new(&refs, input));
+        let order = Arc::new(HomeOrder::scoped(&refs, input, scope));
         self.home_order_cache.kept = Some((key, Arc::clone(&order)));
         Ok((order, true))
     }
@@ -141,3 +150,7 @@ impl ConversationStore {
         .collect()
     }
 }
+
+#[cfg(test)]
+#[path = "conversation_home_window_tests.rs"]
+mod tests;

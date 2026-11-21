@@ -7685,8 +7685,11 @@ list's length); a range adds `offset`, and its `rows` are exactly the whole
 list's rows from `offset`, at most `limit`; `ids` adds `order` (FNV-1a 64 over
 each row id and a newline, lowercase hex, of the whole order), and its `rows`
 are the asked rows in list order, each with its `index`; an id not listed is
-left out. An owner without the capability ignores these fields and replies with
-the whole list (no `window`).
+left out. `scope?:"agents"` (only with a window) lists only the conversations
+between `user_local` (human) and plain `agent_` ids, the scope a paired phone's
+link narrows to, so `total`, `offset`, `index` and `order` count that list.
+An owner without the capability ignores these fields and replies with the whole
+list (no `window`).
 
 Result: `object{me, rows:[HomeInboxRow], cloud}`. `me` is the caller's participant
 id (local). `cloud` is `included`; `signed_out` when this connection is not the

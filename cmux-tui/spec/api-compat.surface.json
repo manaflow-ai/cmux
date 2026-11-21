@@ -9895,6 +9895,10 @@
       "/owners/*": {
         "ty": "string"
       },
+      "/scope": {
+        "ty": "string",
+        "nullable": true
+      },
       "/since": {
         "ty": "uint64",
         "nullable": true

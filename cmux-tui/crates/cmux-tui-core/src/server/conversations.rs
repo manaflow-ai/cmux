@@ -156,6 +156,11 @@ pub(super) struct HomeInboxParams {
     limit: Option<u64>,
     #[serde(default)]
     ids: Option<Vec<String>>,
+    /// With a window: `"agents"` lists only conversations between
+    /// `user_local` and plain `agent_` ids (a paired phone's scope), so the
+    /// window's positions, `total` and `order` are that list's.
+    #[serde(default)]
+    scope: Option<String>,
 }
 
 /// The most rows one windowed `home-inbox` reply carries.
@@ -410,8 +415,14 @@ pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> any
         window.is_none() || params.since.is_none(),
         "bad request: since takes no offset, limit or ids"
     );
+    let scope = match params.scope.as_deref() {
+        None => cmux_conversation::HomeScope::All,
+        Some("agents") if window.is_some() => cmux_conversation::HomeScope::OwnerAndAgents,
+        Some("agents") => anyhow::bail!("bad request: scope needs offset and limit, or ids"),
+        Some(_) => anyhow::bail!("bad request: scope must be \"agents\""),
+    };
     if let Some(window) = window {
-        return home_inbox_window(mux, client, &window);
+        return home_inbox_window(mux, client, &window, scope);
     }
     let (cloud_rows, cloud) = if owners.iter().any(|owner| owner == "cloud") {
         cloud_home_rows(mux, client)
@@ -521,6 +532,7 @@ fn home_inbox_window(
     mux: &Mux,
     client: u64,
     window: &cmux_conversation::HomeWindow,
+    scope: cmux_conversation::HomeScope,
 ) -> anyhow::Result<Value> {
     let principal = mux.conversation_principal(client);
     let now_ms = std::time::SystemTime::now()
@@ -541,7 +553,7 @@ fn home_inbox_window(
             deleted_chiefs,
             preview_words: preview_words(),
         };
-        store.home_window(&input, window)
+        store.home_window(&input, window, scope)
     })?;
     let total = read.order.total();
     let ids = matches!(window, cmux_conversation::HomeWindow::Ids(_));
