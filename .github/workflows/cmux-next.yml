@@ -3057,7 +3057,7 @@ jobs:
           # One compile per head: the tip check's verdict for this exact head, when it has one; "none" compiles here.
           word=none
           if [[ -f scripts/ci/fleet_compile_result.py ]] && command -v python3 >/dev/null; then
-            word="$(timeout 960 python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" ${PR:+--pr "$PR"} --wait 900 --no-record 300)" || word=none
+            word="$(python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" ${PR:+--pr "$PR"} --wait 900 --no-record 300)" || word=none
           fi
           status=0
           case "$word" in
@@ -3195,7 +3195,7 @@ jobs:
           # One compile per head: the tip check's verdict for this exact head, when it has one; "none" compiles here.
           word=none
           if [[ -f scripts/ci/fleet_compile_result.py ]] && command -v python3 >/dev/null; then
-            word="$(timeout 960 python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" --pr "${{ github.event.pull_request.number }}" --wait 900 --no-record 300)" || word=none
+            word="$(python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" --pr "${{ github.event.pull_request.number }}" --wait 900 --no-record 300)" || word=none
           fi
           status=0 how="Debug, swift.org toolchain"
           case "$word" in
@@ -5768,7 +5768,7 @@ jobs:
           # One compile per head: the tip check's verdict for this exact head, when it has one; "none" compiles here.
           word=none
           if [[ -f scripts/ci/fleet_compile_result.py ]] && command -v python3 >/dev/null; then
-            word="$(timeout 960 python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" --wait 900 --no-record 300)" || word=none
+            word="$(python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" --wait 900 --no-record 300)" || word=none
           fi
           status=0
           case "$word" in
