@@ -6,9 +6,11 @@ import hashlib
 import os
 import platform
 import shutil
+import signal
 import subprocess
 import tarfile
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -105,11 +107,12 @@ class EnsureSetupNode(unittest.TestCase):
         self.assertEqual(self.github_path.read_text(), f"{self.tool}/bin\n")
 
     def test_the_checksum_is_checked_with_only_sha256sum_or_only_shasum(self) -> None:
-        tools = ["uname", "curl", "awk", "tar", "gzip", "mktemp", "rm", "mkdir", "mv", "touch", "dirname"]
+        tools = ["uname", "curl", "awk", "tar", "gzip", "mktemp", "rm", "rmdir", "mkdir", "mv", "touch", "dirname",
+                 "find"]
         for hasher in ("sha256sum", "shasum"):
             with self.subTest(hasher=hasher):
                 if not shutil.which(hasher):
-                    self.skipTest(f"no {hasher} on this host")
+                    continue  # skipTest here would skip the other hasher's case too
                 only = self.tmp / f"only-{hasher}"
                 only.mkdir()
                 for tool in tools + [hasher]:
@@ -126,6 +129,67 @@ class EnsureSetupNode(unittest.TestCase):
                     else:
                         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                         self.assertEqual(self.github_path.read_text(), f"{self.tool}/bin\n")
+
+    def test_a_working_entry_that_lands_before_the_lock_is_kept(self) -> None:
+        # Another job renames its entry in (no marker yet) after this one found none: it is never moved aside.
+        theirs = self.tool / "theirs"
+        (self.bin / "tar").write_text(
+            f'#!/bin/sh\n{shutil.which("tar")} "$@" || exit\n'
+            f'mkdir -p "{self.tool}/bin" && printf \'#!/bin/sh\\necho v{VERSION}\\n\' > "{self.tool}/bin/node"\n'
+            f'chmod +x "{self.tool}/bin/node" && touch "{theirs}"\n')
+        (self.bin / "tar").chmod(0o755)
+        self.publish()
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("another job installed", result.stdout)
+        self.assertTrue(theirs.exists())
+        self.assertTrue(Path(f"{self.tool}.complete").exists())
+        self.assertEqual(self.leftovers(), [])
+
+    def test_a_killed_jobs_lock_is_taken_over(self) -> None:
+        lock = Path(f"{self.tool}.lock")
+        lock.mkdir(parents=True)
+        os.utime(lock, (0, 0))  # left by a SIGKILLed job long ago
+        self.publish()
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(Path(f"{self.tool}.complete").exists())
+        self.assertEqual(self.leftovers(), [])
+
+    def test_stale_stage_dirs_of_this_script_are_swept(self) -> None:
+        self.tool.parent.mkdir(parents=True)
+        old, fresh, other = (self.tool.parent / n for n in (f"{ARCH}.Ab12Cd", f"{ARCH}.Ef34Gh", f"{ARCH}-keep.Ab12Cd"))
+        for d in (old, fresh, other):
+            (d / "node").mkdir(parents=True)
+        for d in (old, other):
+            os.utime(d, (0, 0))
+        self.publish()
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(old.exists())
+        self.assertTrue(fresh.exists())  # may belong to a job still unpacking
+        self.assertTrue(other.exists())  # not this script's template
+
+    def test_sigterm_during_the_unpack_leaves_no_stage(self) -> None:
+        started = self.tmp / "tar-started"
+        (self.bin / "tar").write_text(f'#!/bin/sh\ntouch "{started}"\nexec sleep 30\n')
+        (self.bin / "tar").chmod(0o755)
+        self.publish()
+        env = {"PATH": f"{self.bin}:/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(self.tmp),
+               "RUNNER_TOOL_CACHE": str(self.cache), "GITHUB_PATH": str(self.github_path),
+               "ENSURE_NODE_DIST": (self.tmp / "dist").as_uri(), "TMPDIR": str(self.tmp / "t")}
+        (self.tmp / "t").mkdir()
+        proc = subprocess.Popen([shutil.which("bash") or "bash", str(SCRIPT), VERSION], env=env,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        for _ in range(300):
+            if started.exists():
+                break
+            time.sleep(0.1)
+        self.assertTrue(started.exists())
+        os.killpg(proc.pid, signal.SIGTERM)  # the runner signals the job's process group
+        self.assertEqual(proc.wait(timeout=30), 143)
+        self.assertEqual(self.leftovers(), [])
+        self.assertEqual(list((self.tmp / "t").iterdir()), [])
 
     def test_a_partial_entry_without_its_marker_is_replaced(self) -> None:
         (self.tool / "bin").mkdir(parents=True)
