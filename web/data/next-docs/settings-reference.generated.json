@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 640,
+  "count": 641,
   "sections": [
     {
       "id": "general",
@@ -1505,10 +1505,6 @@
           "group": "Tabs",
           "values": [
             "minimal",
-            "cards",
-            "default",
-            "threads",
-            "console",
             "classic",
             "terminal"
           ]
@@ -6197,6 +6193,14 @@
           "key": "home.chiefDock.openBeside",
           "title": "Show Chief When Opening Workspaces",
           "help": "Links in the Chief open their workspace with the Chief over it. Esc hides it.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Chief Dock"
+        },
+        {
+          "key": "home.chiefDock.sidePanel",
+          "title": "Chief in Side Panel",
+          "help": "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it.",
           "kind": "toggle",
           "default": false,
           "group": "Chief Dock"

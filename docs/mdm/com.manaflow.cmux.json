@@ -3582,6 +3582,12 @@
       "title" : "Show Chief When Opening Workspaces",
       "type" : "boolean"
     },
+    "home.chiefDock.sidePanel" : {
+      "default" : false,
+      "description" : "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it.",
+      "title" : "Chief in Side Panel",
+      "type" : "boolean"
+    },
     "home.chiefEngine" : {
       "default" : "auto",
       "description" : "Auto uses this Mac's Chief while it runs, else the Hosted Chief.",
@@ -5805,10 +5811,6 @@
       "description" : "The layout of the New Tab page. Terminal opens a terminal instead.",
       "enum" : [
         "minimal",
-        "cards",
-        "default",
-        "threads",
-        "console",
         "classic",
         "terminal"
       ],
