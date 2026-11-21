@@ -12,7 +12,7 @@ import { resumeReference } from "../src/agent-session/acpmux/resumeCommand";
 const ID = "3224ed6e-c1e0-4741-bc35-60295c2878fb";
 const ask = { harness: "claude", agent: "Claude Code", model: "Claude Opus 5.5" };
 const rows = (text: string) => screenRows(text, { omnibar: EMPTY_OMNIBAR, ask, home: "/Users/me" });
-const fileRows = (list: ScreenRow[]) => list.filter((row) => "url" in row && row.url.startsWith("file:"));
+const fileRows = (list: ScreenRow[]) => list.filter((row) => "url" in row && !!row.url?.startsWith("file:"));
 
 test.each([
   [`/resume ${ID}`, ID],
@@ -61,7 +61,7 @@ test("a pasted session id leads with the Resume row; Ask stays offered under it"
   expect(list.some((row) => row.type === "ask")).toBe(true);
 });
 
-test.each([`claude --resume ${ID}`, `claude -r ${ID}`, `codex resume ${ID}`])(
+test.each([`claude --resume ${ID}`, `claude -r ${ID}`])(
   "%p leads with the Resume row, Run in Terminal still under it",
   (text) => {
     const list = rows(text);
@@ -69,6 +69,10 @@ test.each([`claude --resume ${ID}`, `claude -r ${ID}`, `codex resume ${ID}`])(
     expect(list.some((row) => row.type === "run" && row.command === text)).toBe(true);
   },
 );
+
+test("codex resume <id> leads with the Resume row", () => {
+  expect(rows(`codex resume ${ID}`)[0]).toEqual({ type: "resume", ref: ID });
+});
 
 test("a real path still opens as a file, and other slash commands are no file address", () => {
   expect(rows("/tmp")[0]).toEqual({ type: "open", url: "file:///tmp", text: "/tmp" });
