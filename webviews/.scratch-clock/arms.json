@@ -1,0 +1,7 @@
+{
+  "now": "",
+  "A-before-sizer": ".ui-clock::after{content:none!important}.ui-clock::before{content:attr(data-clock-size);display:block;height:0;overflow:hidden;visibility:hidden}",
+  "B-valign-top": ".ui-clock{vertical-align:top}",
+  "C-grid": ".ui-clock{display:inline-grid}.ui-clock::after{grid-area:1/1;height:auto}",
+  "D-sizer-before-plus-baseline-row": ".ui-clock::after{content:none!important}.ui-clock::before{content:attr(data-clock-size);display:block;height:0;overflow:hidden;visibility:hidden}.acpmux-host-line{align-items:baseline}"
+}
