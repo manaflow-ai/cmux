@@ -85,7 +85,7 @@ pub(crate) fn relay_program(
 }
 
 /// [`relay_program`] with this process's PATH, the login PATH and `$HOME`.
-fn find_relay_program(program: &str) -> Result<std::path::PathBuf> {
+pub(crate) fn find_relay_program(program: &str) -> Result<std::path::PathBuf> {
     let paths: Vec<std::ffi::OsString> =
         std::env::var_os("PATH").into_iter().chain(crate::login_env::path()).collect();
     relay_program(program, &paths, dirs::home_dir().as_deref())
