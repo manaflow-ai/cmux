@@ -445,7 +445,13 @@ extension CmuxTuiSurfaceProvider {
                         attempts: failures, reason: CloudMachineLink.errorText(error)
                     )
                     if failures >= Self.reservedAttachFailuresBeforeReporting {
+                        // Leave the pane in its recoverable failure state. The
+                        // Reconnect action installs a fresh attach task; keeping
+                        // this one alive would clear the failure back to loading.
+                        self.restoredAttachTasks[panelID] = nil
+                        self.materializedPanels.remove(panelID)
                         workspace.failReservedCloudTerminalPane(reservation, error: error)
+                        return
                     }
                     let delay = CloudTerminalAttachmentRetryPolicy.background.cappedDelay(afterFailures: failures)
                     do { try await self.attachmentClock.sleep(for: delay) } catch { return }
