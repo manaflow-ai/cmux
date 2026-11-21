@@ -479,6 +479,17 @@ RUN chmod 0755 /etc/update-motd.d/00-cmux \
   && echo "node $(node --version) · python $(python3 --version | awk '{print $2}') · bun $(bun --version) · uv $(uv --version | awk '{print $2}') · gh $(gh --version | head -1 | awk '{print $3}')" >> /etc/cmux/tool-versions \
   && cat /etc/cmux/tool-versions
 
+# `ubuntu` is a second name for the work user (devboxUbuntuAliasCommand):
+# same uid, home, password field, groups and sudo, listed after `cmux` so uid
+# 1000 still resolves to `cmux`. Runs after every layer that adds groups.
+RUN useradd --non-unique --uid 1000 --gid cmux --no-create-home --home-dir /home/cmux --shell "$(getent passwd cmux | cut -d: -f7)" ubuntu \
+  && usermod -p "$(getent shadow cmux | cut -d: -f2)" ubuntu \
+  && usermod -G "$(id -nG cmux | xargs -n1 | grep -vx cmux | paste -sd, -)" ubuntu \
+  && echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/92-cmux-account-alias \
+  && chmod 0440 /etc/sudoers.d/92-cmux-account-alias && visudo -cq \
+  && ln -s /home/cmux /home/ubuntu \
+  && [ "$(getent passwd 1000 | cut -d: -f1)" = cmux ] && [ "$(id -u ubuntu)" = 1000 ]
+
 # Image stamp, last: its presence says every layer above baked, and which
 # layers the image carries (verify-devbox-image.ts keys the desktop checks on
 # the word "desktop").
