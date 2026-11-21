@@ -676,9 +676,12 @@ jobs:
     # rollback remain observable, but smoke failures never block production or
     # a feature-branch/nightly path.
     continue-on-error: true
+    # !cancelled(): deploy-staging runs past a skipped migrate-staging (every main push), and GitHub's
+    # implicit success() would skip this job there (tests/test_ci_needs_skip_propagation.py).
     if: >-
-      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) ||
-      (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production'))
+      ${{ !cancelled() && needs.deploy-staging.result == 'success' &&
+      ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production'))) }}
     needs: deploy-staging
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
