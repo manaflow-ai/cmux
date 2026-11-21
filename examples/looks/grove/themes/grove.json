@@ -1,0 +1,85 @@
+// Grove: a forest look. By day, unbleached paper under moss-green ink, with frosted morning air
+// over Van Gogh's cypresses; by night, a deep fern dark over Friedrich's moonlit forest. Every color
+// is sampled from moss, lichen, bark, fog and earth pigments, and checked for contrast in DESIGN.md.
+{
+  "name": "Grove",
+  "description": "Unbleached paper by day, night forest by dark; moss accent, frosted-air sidebar, a painted grove behind the glass.",
+
+  // One terminal theme per appearance, and cmux's own surfaces follow it.
+  "appearance.theme": "light:Builtin Light,dark:Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  // Each appearance's own colors. A theme file's `colors` would paint both sides alike, so the look
+  // edits each side of the pair by name: paper, ink, a lichen selection, the moss accent, an ochre
+  // cursor, and sixteen earth-pigment terminal colors (red ochre, moss, yellow ochre, slate,
+  // heather, lichen teal).
+  "appearance.themeEdits": {
+    "Builtin Light/background": "#f4f0e4",
+    "Builtin Light/foreground": "#2b3326",
+    "Builtin Light/selection": "#dfe4cb",
+    "Builtin Light/accent": "#4a6a2c",
+    "Builtin Light/cursor": "#a26d23",
+    "Builtin Light/0": "#3a4033",
+    "Builtin Light/1": "#a3412b",
+    "Builtin Light/2": "#4f7229",
+    "Builtin Light/3": "#8a6312",
+    "Builtin Light/4": "#3a687a",
+    "Builtin Light/5": "#874f6e",
+    "Builtin Light/6": "#336f5f",
+    "Builtin Light/7": "#c9c3ad",
+    "Builtin Light/8": "#646a59",
+    "Builtin Light/9": "#b24a31",
+    "Builtin Light/10": "#52762a",
+    "Builtin Light/11": "#8d6317",
+    "Builtin Light/12": "#3f7186",
+    "Builtin Light/13": "#935a7a",
+    "Builtin Light/14": "#367463",
+    "Builtin Light/15": "#e9e4d3",
+    "Builtin Dark/background": "#151c16",
+    "Builtin Dark/foreground": "#dfd9c6",
+    "Builtin Dark/selection": "#2b3a2c",
+    "Builtin Dark/accent": "#a7c080",
+    "Builtin Dark/cursor": "#d6a85c",
+    "Builtin Dark/0": "#2b342b",
+    "Builtin Dark/1": "#e07a62",
+    "Builtin Dark/2": "#a7c080",
+    "Builtin Dark/3": "#dbb46a",
+    "Builtin Dark/4": "#7fa9b8",
+    "Builtin Dark/5": "#c895b0",
+    "Builtin Dark/6": "#83c0a0",
+    "Builtin Dark/7": "#d9d3bf",
+    "Builtin Dark/8": "#7c8671",
+    "Builtin Dark/9": "#ef8f76",
+    "Builtin Dark/10": "#b9d394",
+    "Builtin Dark/11": "#e8c582",
+    "Builtin Dark/12": "#94bccb",
+    "Builtin Dark/13": "#d8a9c2",
+    "Builtin Dark/14": "#9ad3b4",
+    "Builtin Dark/15": "#f2eddc"
+  },
+  "appearance.accent": "theme",
+
+  // The painted grove behind the glass: one picture per appearance, both from cmux's art catalog.
+  "appearance.background": "appearance",
+  "appearance.backgroundLight": "van-gogh-wheat-field-cypresses",
+  "appearance.backgroundDark": "friedrich-forest-moonlight",
+  "appearance.backgroundOpacity": 0.84,
+  "appearance.backgroundBlur": "frosted",
+  "appearance.wallpaperTint": true,
+
+  // The window: a soft separate sidebar shade beside one curved card. The sidebar keeps the
+  // window's frosted glass (no surface override); the chat and terminals are near-solid paper.
+  "appearance.chromeStyle": "two-tone",
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.agentPane.opacity": 0.97,
+  "appearance.surfaces.terminal.opacity": 0.95,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "arc",
+  "appearance.density": "comfortable",
+
+  // Motion: calm and slow, paint only. Colors blend over 320 ms (light to dark reads as one dusk),
+  // and the app's animations run at their normal, not fast, speed.
+  "ui.animationSpeed": "normal",
+  "appearance.colorTransition.duration": 320,
+  "appearance.colorTransition.curve": "easeInOut",
+  "appearance.colorTransition.colorSpace": "oklab"
+}

@@ -1,0 +1,47 @@
+// Gel: soft tonal surfaces from one sea-glass seed (#2f8fa3), light and dark. Every color below is a
+// tone of that seed's palettes (DESIGN.md): the page is the surface tone, the selection the primary
+// container, the accent the primary. No hairlines: surfaces part by tone. The window, title area and
+// sidebar are native glass at 88% of the surface tone; the chat stays opaque so text never shows
+// through. The terminal theme is a light/dark pair, so each appearance gets its own tones.
+{
+  "name": "Gel",
+  "description": "Sea-glass tonal surfaces, light and dark, with glass where layers float and no hairlines.",
+
+  // One theme per appearance; each one's colors are appearance.themeEdits of that theme.
+  "appearance.theme": "light:Builtin Light,dark:Builtin Dark",
+  // cmux's own window, sidebar and pages follow the terminal theme, not the person's App Theme.
+  "appearance.appTheme": "followTerminal",
+  "appearance.themeEdits": {
+    "Builtin Light/background": "#f5fafc",
+    "Builtin Light/foreground": "#171c1e",
+    "Builtin Light/cursor": "#006879",
+    "Builtin Light/selection": "#a9edff",
+    "Builtin Light/accent": "#006879",
+    "Builtin Dark/background": "#0f1416",
+    "Builtin Dark/foreground": "#dee3e5",
+    "Builtin Dark/cursor": "#84d2e6",
+    "Builtin Dark/selection": "#004e5b",
+    "Builtin Dark/accent": "#84d2e6"
+  },
+  "appearance.accent": "theme",
+
+  // Glass behind the chrome: no picture, the system material, the surface tone at 88% over it.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "glass",
+  "appearance.backgroundOpacity": 0.88,
+
+  // Flat chrome keeps the flush corner (the selected tab runs into the content card), with a subtle
+  // tonal step around the card instead of a line. No borders anywhere.
+  "appearance.chromeStyle": "flat",
+  "appearance.titleAreaTone": "subtleTone",
+  "appearance.borders": "none",
+
+  // The sidebar floats on the window glass; the chat is an opaque surface-tone card.
+  "appearance.sidebarSurface": "same",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "sidebar.sectionLook": "card",
+
+  // The circular arc while work runs; roomy density (compact would turn the flush corner off).
+  "appearance.statusIndicator.style": "arc",
+  "appearance.density": "comfortable"
+}
