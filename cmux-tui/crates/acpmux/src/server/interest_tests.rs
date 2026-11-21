@@ -141,3 +141,21 @@ fn an_events_fanout_clock_owes_only_the_inboxes_it_was_queued_for() {
     send(&router, unwanted);
     assert_eq!(row.fanout.owed(), 0);
 }
+
+#[test]
+fn a_dropped_interest_leaves_the_routing_table() {
+    let router = Arc::new(Router::new(64));
+    let interest = Interest::new(&router);
+    interest.attach("a");
+    interest.set_watching(true);
+    let inbox = interest.inbox.clone();
+    assert_eq!(router.inboxes(), 1);
+    drop(interest);
+    assert_eq!(router.inboxes(), 0, "a connection dropped without forget is no longer routed to");
+    send(&router, event("a", "in", "agent_message_chunk"));
+    assert_eq!(inbox.routed(), 0);
+    let closed = Interest::new(&router);
+    closed.forget();
+    drop(closed);
+    assert_eq!(router.inboxes(), 0, "forget then drop is idempotent");
+}

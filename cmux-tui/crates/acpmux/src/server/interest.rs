@@ -348,6 +348,14 @@ impl Interest {
     }
 }
 
+/// A connection whose task is dropped before it reaches its own `forget` (a cancelled future)
+/// still leaves the routing table; `forget` is idempotent, so the usual path closing first is fine.
+impl Drop for Interest {
+    fn drop(&mut self) {
+        self.forget();
+    }
+}
+
 #[cfg(test)]
 #[path = "interest_tests.rs"]
 mod tests;
