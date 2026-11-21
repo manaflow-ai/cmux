@@ -93,7 +93,6 @@ GATED = {
     "relay-tls.yml": "pull_request",
     "rust-workspaces.yml": "pull_request",
     "signing-keychain-macos.yml": "pull_request",
-    "swift-linux-packages.yml": "pull_request",
     "terminal-hang-diagnostics.yml": "pull_request",
     "test-ios.yml": "pull_request",
 }
