@@ -13,7 +13,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
@@ -236,11 +236,17 @@ fn run(
     // Interrupt the VM when the running evaluation passes its deadline.
     let base = Instant::now();
     let interrupt_at = Arc::new(AtomicU64::new(u64::MAX));
+    let interrupted = Arc::new(AtomicBool::new(false));
     {
         let interrupt_at = interrupt_at.clone();
+        let interrupted = interrupted.clone();
         runtime.set_interrupt_handler(Some(Box::new(move || {
             let at = interrupt_at.load(Ordering::Relaxed);
-            at != u64::MAX && base.elapsed().as_millis() as u64 >= at
+            let over = at != u64::MAX && base.elapsed().as_millis() as u64 >= at;
+            if over {
+                interrupted.store(true, Ordering::Relaxed);
+            }
+            over
         })));
     }
     let Ok(context) = Context::full(&runtime) else { return };
@@ -444,6 +450,16 @@ fn run(
     // Persistent values must not outlive the runtime.
     shared.borrow_mut().entry_points.clear();
     drop(running);
+    if interrupted.load(Ordering::Relaxed) {
+        // Never freed once an interrupt fired: QuickJS's error paths are not all sound when an
+        // interrupt lands inside a builtin (an interrupted `Array.prototype.find` frees an
+        // element twice, fixed upstream after the release rquickjs ships), and freeing such a
+        // runtime aborts the whole process in `JS_RunGC` (cmuxterm-hq#15405). The leak is at
+        // most the session's memory limit.
+        std::mem::forget(context);
+        std::mem::forget(runtime);
+        return;
+    }
     drop(context);
 }
 
