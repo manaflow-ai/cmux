@@ -5,6 +5,21 @@ import { changeSid, parseChange } from "./wire";
 import { createDocumentPump, type DocumentPumpPost } from "../documentPump";
 import type { Lanes } from "../schedule";
 
+/// A `taken` whose post failed goes again after each of `delays` (ms), so one dropped bridge call
+/// does not leave the host waiting out its own deadline (AcpmuxChatRowsHost.ackWait). Tests replace
+/// `schedule`.
+export const chatRowsTakenRetry = {
+  delays: [100, 500, 2000] as readonly number[],
+  schedule: (run: () => void, ms: number): void => void setTimeout(run, ms),
+};
+
+function postTaken(post: DocumentPumpPost, batch: number, attempt = 0): void {
+  void post("chat.rows.taken", { batch }).catch(() => {
+    const delay = chatRowsTakenRetry.delays[attempt];
+    if (delay !== undefined) chatRowsTakenRetry.schedule(() => postTaken(post, batch, attempt + 1), delay);
+  });
+}
+
 const pump = createDocumentPump<ChatRowsBatch, NonNullable<ReturnType<typeof parseChange>>, ChatRowsHost, StorePart>({
   frameKey: "chat-rows",
   globalKey: "cmuxChatRows",
@@ -23,8 +38,10 @@ const pump = createDocumentPump<ChatRowsBatch, NonNullable<ReturnType<typeof par
   },
   commit: (host, part) => host.store.commit(part),
   take: (post: DocumentPumpPost | undefined, batch) => {
-    if (post) void post("chat.rows.taken", { batch: batch.batch }).catch(() => {});
+    if (post) postTaken(post, batch.batch);
   },
+  // The host sends an untaken batch again under its number: applied once, taken again.
+  key: (batch) => batch.batch,
 });
 
 export function addChatRowsHost(host: ChatRowsHost, post: ChatRowsPost): void {

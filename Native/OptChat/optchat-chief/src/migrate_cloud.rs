@@ -135,14 +135,26 @@ pub struct Api {
     pub(crate) base: String,
     token: String,
     agent: ureq::Agent,
+    /// This Chief's build space (`crate::build_space`): every call carries it.
+    space: crate::build_space::Resolved,
 }
 
 impl Api {
     pub fn new(base: String, token: String) -> Api {
+        Api::in_space(base, token, crate::build_space::process())
+    }
+
+    /// [`Api::new`] in `space`; an unusable space makes every call fail, sending nothing.
+    pub fn in_space(base: String, token: String, space: crate::build_space::Resolved) -> Api {
         let agent = ureq::AgentBuilder::new()
             .timeout(Duration::from_secs(90))
             .build();
-        Api { base, token, agent }
+        Api {
+            base,
+            token,
+            agent,
+            space,
+        }
     }
 
     /// One call; the reply's JSON (also for an HTTP error status). The
@@ -159,6 +171,7 @@ impl Api {
             .set("authorization", &format!("Bearer {}", self.token))
             .set("content-type", "application/json")
             .set("user-agent", "optchat-chief-move");
+        let request = crate::build_space::apply(request, &self.space)?;
         let result = match body {
             Some(b) => request.send_string(&b.to_string()),
             None => request.call(),
@@ -757,6 +770,30 @@ pub fn first_turn(
 
 #[cfg(test)]
 mod tests {
+    use crate::build_space::testing::{Heads, dev, unusable};
+
+    /// `cmux chief move/fork --to cloud` from a dev build writes the build's own Cloud Chief.
+    #[test]
+    fn a_dev_chiefs_move_calls_carry_its_build_space() {
+        let heads = Heads::start();
+        let api = Api::in_space(heads.base_url.clone(), "tok".into(), dev());
+        api.call("POST", "/v1/ops", Some(&serde_json::json!({})))
+            .unwrap();
+        let nightly = Api::in_space(heads.base_url.clone(), "tok".into(), Ok(None));
+        nightly.call("GET", "/v1/read", None).unwrap();
+        assert_eq!(heads.spaces(), vec![Some("dev:my-tag".to_owned()), None]);
+    }
+
+    #[test]
+    fn an_unusable_build_space_moves_nothing() {
+        let heads = Heads::start();
+        let api = Api::in_space(heads.base_url.clone(), "tok".into(), unusable());
+        assert!(
+            api.call("POST", "/v1/ops", Some(&serde_json::json!({})))
+                .is_err()
+        );
+        assert!(heads.spaces().is_empty());
+    }
     use super::*;
 
     #[test]
