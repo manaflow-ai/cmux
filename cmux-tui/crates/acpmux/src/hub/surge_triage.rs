@@ -212,7 +212,7 @@ pub(super) static DIGEST_ACCEPTS: std::sync::Mutex<Vec<(String, Value)>> =
 /// The owner digest's prompt id under the chat's digest `id`.
 fn owner_digest_id(id: &str, owner: &str) -> String {
     let h = sha2::Sha256::digest(owner.as_bytes());
-    format!("{id}-o{}", &format!("{h:x}")[..12])
+    format!("{id}-o{}", format!("{h:x}").chars().take(12).collect::<String>())
 }
 
 use sha2::Digest as _;
@@ -349,6 +349,7 @@ impl Hub {
         self.persist_surge_triage(session, msg, open)
     }
 
+    #[cfg(test)]
     pub(crate) fn set_surge_triager(&self, triager: Option<SurgeTriager>) {
         *self.surge_triager.lock().unwrap_or_else(|e| e.into_inner()) = triager;
     }
@@ -413,14 +414,11 @@ impl Hub {
         session: &Arc<Session>,
     ) -> Result<PassEnd, RpcError> {
         let mut journal = self.surge_journal(session)?;
-        let result = self.surge_triage_pass_on(session, &mut journal).await;
         // A failed write leaves the cached state ahead of the disk: the next pass reads it again.
-        if result.is_err() {
-            return result;
-        }
+        let end = self.surge_triage_pass_on(session, &mut journal).await?;
         let mut all = self.surge_triage_journals.lock().unwrap_or_else(|e| e.into_inner());
         all.insert(session.id.clone(), journal);
-        result
+        Ok(end)
     }
 
     async fn surge_triage_pass_on(
@@ -469,7 +467,9 @@ impl Hub {
             let id = triage::digest_id(&session.id, &lines);
             for (batch, d) in &decided {
                 let mut record = triage::triaged_record(batch, d, Some(&id));
-                record["at"] = json!(now);
+                if let Some(fields) = record.as_object_mut() {
+                    fields.insert("at".into(), json!(now));
+                }
                 journal.read(triage::RECORD_KIND, &record, now);
                 let open = self.surge_open_topics(session, journal);
                 self.surge_persist(session, record, open)?;
@@ -501,7 +501,9 @@ impl Hub {
                 .collect();
             let mut marker = json!({"digestDelivered": id, "items": []});
             if !redirected.is_empty() {
-                marker["redirected"] = json!(redirected);
+                if let Some(fields) = marker.as_object_mut() {
+                    fields.insert("redirected".into(), json!(redirected));
+                }
             }
             journal.read(triage::RECORD_KIND, &marker, crate::store::now_ms());
             let open = self.surge_open_topics(session, journal);

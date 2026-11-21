@@ -273,9 +273,14 @@ impl Hub {
         let duplicate = |v: Value| {
             let mut answer = json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
             if v.pointer("/_meta/acpmux/surgeHeld").and_then(Value::as_bool) == Some(true) {
-                answer["inbox"] = json!(true);
-                answer["surgeHeld"] = json!(true);
-                answer["threadId"] = v["_meta"]["acpmux"]["threadId"].clone();
+                if let Some(fields) = answer.as_object_mut() {
+                    fields.insert("inbox".into(), json!(true));
+                    fields.insert("surgeHeld".into(), json!(true));
+                    fields.insert(
+                        "threadId".into(),
+                        v.pointer("/_meta/acpmux/threadId").cloned().unwrap_or(Value::Null),
+                    );
+                }
             }
             name_kept_message(&mut answer, session, &prompt_id);
             answer
@@ -1092,6 +1097,10 @@ impl Hub {
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.
         self.wake_cause(session, "prompt");
+        // A start for this turn asks for suggestions only when a person's prompt starts it.
+        session
+            .start_for
+            .store(super::host_level::start_for(&run, provenance.as_ref()), Ordering::SeqCst);
         // Boxed: two starts and the fallback check inline overflowed a debug build's 2 MiB
         // worker stack (`fatal runtime error: stack overflow` in every prompt after #27484).
         let mut started = Box::pin(self.child_for_since(session, stops)).await;
@@ -1313,8 +1322,6 @@ impl Hub {
         // summary worth a model call (`rolling_summary.rs`).
         self.recap_turn_started(session, person);
         self.summary_turn_started(session, person);
-        // A host below the level suggests a next prompt after any turn unless told (`host_level.rs`).
-        self.old_host_suggestions(session, &child, &agent_sid, person).await;
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
@@ -2281,9 +2288,6 @@ impl Hub {
         let asked_option = (m == method::SESSION_SET_CONFIG_OPTION)
             .then(|| super::full_access_bound::asked_option(&params))
             .flatten();
-        if m == method::SESSION_SET_CONFIG_OPTION {
-            self.person_set_suggestions(session, &params);
-        }
         let res = match child.request(m, params).await {
             Ok(v) => v,
             Err(mut e) => {

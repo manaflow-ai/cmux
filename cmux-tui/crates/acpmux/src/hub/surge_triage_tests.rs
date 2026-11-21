@@ -347,8 +347,7 @@ async fn owner_items_go_only_to_owners_the_recipient_authorized() {
     hub.surge_triage_pass(&s).await.unwrap();
     let events = hub.events(&s.id, 0, 100_000).unwrap();
     let revoked_record = records(&events, triage::RECORD_KIND)
-        .filter(|r| r["items"].as_array().is_some_and(|i| i.iter().any(|x| x["promptId"] == "m4")))
-        .next()
+        .find(|r| r["items"].as_array().is_some_and(|i| i.iter().any(|x| x["promptId"] == "m4")))
         .unwrap()
         .clone();
     assert_eq!(revoked_record["items"][0]["category"], "needs_this_session", "{revoked_record}");
