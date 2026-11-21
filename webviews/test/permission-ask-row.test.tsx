@@ -302,7 +302,7 @@ test("an ask whose allows the daemon refuses offers only Deny and says where to 
   );
   expect(buttons.map((button) => readName(button)?.trim())).toEqual(["Deny"]);
   const seen = visibleText(panel).replace(/\s+/g, " ");
-  expect(seen).toContain("Only the cmux app can approve this. Approve it in cmux on the Mac that runs this chat.");
+  expect(seen).toContain("Approve this on the Mac that runs this chat.");
   expect(seen).not.toContain("Always also allows");
   // The allow shortcuts do nothing; Deny's still answers.
   await act(async () => {

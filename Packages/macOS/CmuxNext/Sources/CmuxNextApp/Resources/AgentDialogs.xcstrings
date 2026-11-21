@@ -7,127 +7,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Only a deny can be sent here; a person approves permissions in cmux"
+            "value": "Approve this in the cmux window; from here you can only deny it"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ここでは拒否のみ送信できます。権限の許可は cmux で本人が行います"
+            "state": "needs_review",
+            "value": "cmux のウインドウで承認してください。ここからは拒否のみできます"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يمكن إرسال الرفض فقط هنا؛ يوافق الشخص على الأذونات في cmux"
+            "value": "وافق على هذا في نافذة cmux؛ من هنا يمكنك الرفض فقط"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovdje se može poslati samo odbijanje; osoba odobrava dozvole u cmux-u"
+            "value": "Odobrite ovo u prozoru cmux; odavde ga možete samo odbiti"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Her kan kun et afslag sendes; en person godkender tilladelser i cmux"
+            "value": "Godkend dette i cmux-vinduet; herfra kan du kun afvise det"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hier kann nur eine Ablehnung gesendet werden; Berechtigungen genehmigt eine Person in cmux"
+            "value": "Genehmige das im cmux-Fenster; von hier aus kannst du es nur ablehnen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aquí solo se puede enviar una denegación; una persona aprueba los permisos en cmux"
+            "value": "Apruébalo en la ventana de cmux; desde aquí solo puedes rechazarlo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Seul un refus peut être envoyé ici ; une personne approuve les autorisations dans cmux"
+            "value": "Approuvez-le dans la fenêtre cmux ; d’ici, vous pouvez seulement le refuser"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Qui si può inviare solo un rifiuto; i permessi li approva una persona in cmux"
+            "value": "Approvalo nella finestra di cmux; da qui puoi solo rifiutarlo"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "នៅទីនេះអាចផ្ញើបានតែការបដិសេធប៉ុណ្ណោះ; មនុស្សម្នាក់អនុម័តការអនុញ្ញាតនៅក្នុង cmux"
+            "value": "អនុម័តវានៅក្នុងបង្អួច cmux; ពីទីនេះ អ្នកអាចបដិសេធវាតែប៉ុណ្ណោះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "여기서는 거부만 보낼 수 있습니다. 권한 승인은 사람이 cmux에서 합니다"
+            "value": "cmux 창에서 승인하세요. 여기서는 거부만 할 수 있습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Her kan bare et avslag sendes; en person godkjenner tillatelser i cmux"
+            "value": "Godkjenn dette i cmux-vinduet; herfra kan du bare avslå det"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tutaj można wysłać tylko odmowę; uprawnienia zatwierdza osoba w cmux"
+            "value": "Zatwierdź to w oknie cmux; stąd możesz to tylko odrzucić"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aqui só é possível enviar uma negação; uma pessoa aprova as permissões no cmux"
+            "value": "Aprove isto na janela do cmux; daqui você só pode negar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Здесь можно отправить только отказ; разрешения одобряет человек в cmux"
+            "value": "Одобрите это в окне cmux; отсюда можно только отклонить"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ส่งได้เฉพาะการปฏิเสธที่นี่ การอนุมัติสิทธิ์ต้องทำโดยบุคคลใน cmux"
+            "value": "อนุมัติสิ่งนี้ในหน้าต่าง cmux จากที่นี่คุณปฏิเสธได้เท่านั้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Burada yalnızca ret gönderilebilir; izinleri cmux'ta bir kişi onaylar"
+            "value": "Bunu cmux penceresinde onaylayın; buradan yalnızca reddedebilirsiniz"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Тут можна надіслати лише відмову; дозволи схвалює людина в cmux"
+            "value": "Схваліть це у вікні cmux; звідси можна лише відхилити"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ở đây chỉ có thể gửi từ chối; quyền do một người phê duyệt trong cmux"
+            "value": "Phê duyệt việc này trong cửa sổ cmux; từ đây bạn chỉ có thể từ chối"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此处只能发送拒绝；权限需由本人在 cmux 中批准"
+            "value": "请在 cmux 窗口中批准；在这里只能拒绝"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此處只能傳送拒絕；權限需由本人在 cmux 中核准"
+            "value": "請在 cmux 視窗中核准；在這裡只能拒絕"
           }
         }
       }
@@ -1055,127 +1055,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux couldn't confirm the answer came from you; answer the question in the cmux window"
+            "value": "Answer this question in the cmux window"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "回答があなたからのものか cmux で確認できませんでした。cmux のウインドウで質問に答えてください"
+            "state": "needs_review",
+            "value": "この質問には cmux のウインドウで回答してください"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعذّر على cmux التأكد من أن الإجابة منك؛ أجب عن السؤال في نافذة cmux"
+            "value": "أجب عن هذا السؤال في نافذة cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux nije mogao potvrditi da je odgovor od vas; odgovorite na pitanje u prozoru cmuxa"
+            "value": "Odgovorite na ovo pitanje u prozoru cmux"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux kunne ikke bekræfte, at svaret kom fra dig; besvar spørgsmålet i cmux-vinduet"
+            "value": "Besvar dette spørgsmål i cmux-vinduet"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux konnte nicht bestätigen, dass die Antwort von dir kam; beantworte die Frage im cmux-Fenster"
+            "value": "Beantworte diese Frage im cmux-Fenster"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux no pudo confirmar que la respuesta fuera tuya; responde la pregunta en la ventana de cmux"
+            "value": "Responde esta pregunta en la ventana de cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux n’a pas pu confirmer que la réponse venait de vous ; répondez à la question dans la fenêtre cmux"
+            "value": "Répondez à cette question dans la fenêtre cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux non ha potuto confermare che la risposta venga da te; rispondi alla domanda nella finestra di cmux"
+            "value": "Rispondi a questa domanda nella finestra di cmux"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux មិនអាចបញ្ជាក់ថាចម្លើយមកពីអ្នកបានទេ សូមឆ្លើយសំណួរនៅក្នុងបង្អួច cmux"
+            "value": "ឆ្លើយសំណួរនេះនៅក្នុងបង្អួច cmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux가 답변이 본인에게서 왔는지 확인하지 못했습니다. cmux 창에서 질문에 답하세요"
+            "value": "cmux 창에서 이 질문에 답하세요"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux kunne ikke bekrefte at svaret kom fra deg; svar på spørsmålet i cmux-vinduet"
+            "value": "Svar på dette spørsmålet i cmux-vinduet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux nie mógł potwierdzić, że odpowiedź pochodzi od Ciebie; odpowiedz na pytanie w oknie cmux"
+            "value": "Odpowiedz na to pytanie w oknie cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux não conseguiu confirmar que a resposta veio de você; responda à pergunta na janela do cmux"
+            "value": "Responda a esta pergunta na janela do cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux не смог подтвердить, что ответ от вас; ответьте на вопрос в окне cmux"
+            "value": "Ответьте на этот вопрос в окне cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux ยืนยันไม่ได้ว่าคำตอบมาจากคุณ ตอบคำถามในหน้าต่าง cmux"
+            "value": "ตอบคำถามนี้ในหน้าต่าง cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux yanıtın sizden geldiğini doğrulayamadı; soruyu cmux penceresinde yanıtlayın"
+            "value": "Bu soruyu cmux penceresinde yanıtlayın"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux не зміг підтвердити, що відповідь від вас; дайте відповідь у вікні cmux"
+            "value": "Дайте відповідь на це питання у вікні cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux không xác nhận được câu trả lời là của bạn; hãy trả lời câu hỏi trong cửa sổ cmux"
+            "value": "Trả lời câu hỏi này trong cửa sổ cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 无法确认回答来自你；请在 cmux 窗口中回答问题"
+            "value": "请在 cmux 窗口中回答此问题"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 無法確認回答來自你；請在 cmux 視窗中回答問題"
+            "value": "請在 cmux 視窗中回答此問題"
           }
         }
       }
