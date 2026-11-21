@@ -10,11 +10,8 @@ test("a remote Codex or opencode chat cannot send, except on the person's own Cl
       canSend: false,
     });
     expect(remoteComposer({ ...chat(family), origin: "remote", ownerCloud: true })).toEqual({ canSend: true });
-    // The flag means nothing on a connection acpmux did not call remote.
-    expect(remoteComposer({ ...chat(family), origin: "unknown", ownerCloud: true })).toEqual({
-      note: "composer.originUnknown",
-      canSend: false,
-    });
+    // An origin acpmux has not named yet sends; acpmux itself refuses a remote one.
+    expect(remoteComposer({ ...chat(family), origin: "unknown" })).toEqual({ canSend: true });
     expect(remoteComposer({ ...chat(family), origin: "local" })).toEqual({ canSend: true });
   }
   expect(remoteComposer({ ...chat("claude"), origin: "remote" })).toEqual({ canSend: true });
