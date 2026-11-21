@@ -5282,6 +5282,8 @@ PACKAGE_JOBS = {
                   # which reads the bundle rule from cmux-agent-pane-policy; its `testing` feature adds cmux-scope
                   "cmux-tui/crates/cmux-build-space/", "cmux-tui/crates/cmux-agent-pane-policy/",
                   "cmux-tui/crates/cmux-scope/", "cmux-tui/crates/cmux-unix-socket/",
+                  # cmux-next-ios/rust names the phone's message preview words (cmux-message-preview, d1024754)
+                  "cmux-tui/crates/cmux-message-preview/",
                   # cmux-agent-pane-policy's bundle rule tests read the shared build-identity vectors
                   "schemas/build-identity/",
                   # cmux-wg's smoltcp is the vendored copy ([patch.crates-io] in cmux-next-ios/rust)
