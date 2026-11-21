@@ -104,6 +104,97 @@
           "workers/cmux-vm/cli/scripts/regenerate.sh": "generated_merge.py REGENERATE: a command, not run by the audit",
           "workers/iroh-v2/": "generated_merge.py REGENERATE: a command's working directory, not read by the audit"
         }
+      },
+      "pinned-asset-store": {
+        "why": "check-pinned-assets.sh verifies only the *.pin.json and cef-manifest.json files the change adds or modifies (git diff --diff-filter=AM against the base); a change to none of them, nor to the check's scripts, has nothing to verify",
+        "inputs": [
+          "**/*.pin.json",
+          "scripts/cmux-next/cef-manifest.json",
+          "scripts/cmux-next/check-pinned-assets.sh",
+          "scripts/cmux-next/ensure-remote-browser-host.sh",
+          "scripts/cmux-next/ensure-signed-pinned-asset.sh",
+          "scripts/cmux-next/ensure-cef.sh"
+        ],
+        "not_inputs": {}
+      },
+      "static-checks": {
+        "why": "vt-link-graph and package-notices data, the nightly's Ghostty notice checks on fixtures, the static capability list, the defaults guard's fixture tests, the menu checks and the page strings generation: each reads only these trees",
+        "inputs": [
+          "scripts/cmux-next/notices/",
+          "cmux-tui/dist/",
+          "cmux-tui/build-support/notices/",
+          "cmux-tui/rust-toolchain.toml",
+          "cmux-tui/crates/",
+          "ghostty",
+          "ghostty-next",
+          "THIRD_PARTY_LICENSES.md",
+          "scripts/cmux-next/check-daemon-capabilities.sh",
+          "plans/cmux-next/daemon-capabilities.json",
+          "tests/test_cmux_next_static_capability_runtime_only.py",
+          "tests/test_defaults_guard.py",
+          "tests/git_fixture_env.py",
+          "scripts/ci/defaults_guard.py",
+          "scripts/ci/risk_tier.py",
+          "scripts/ci/pr_status.py",
+          "scripts/cmux-next/check-group-menus.py",
+          "plans/cmux-next/action-surfaces.json",
+          "scripts/cmux-next/check-menu-actions.py",
+          "scripts/cmux-next/check-menu-actions-baseline.txt",
+          "Packages/macOS/CmuxNext/Sources/",
+          "webviews/",
+          "schemas/",
+          "release-notes/next/highlights/"
+        ],
+        "not_inputs": {
+          ".github/CODEOWNERS": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          ".github/defaults-call-owners.json": "test_defaults_guard.py writes its own copy into a fixture repository",
+          ".github/workflows/": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          ".github/workflows/cmux-next-batch.yml": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          ".github/workflows/risk-tier-tests.yml": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          ".github/workflows/risk-tier.yml": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "Native/OptChat/optchat-chief/src/acpmux_peer.rs": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "cmux-tui/Cargo.lock": "package_notices.py `generate` reads it; the job runs `check-data`, which does not",
+          "cmux-tui/bindings/examples/rust-agent-screen-detection/": "package_notices.py `generate` reads it; the job runs `check-data`, which does not",
+          "docs/ci/risk-tiers.md": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "scripts/ci/": "test_defaults_guard.py puts scripts/ci on sys.path to import defaults_guard and pr_status (inputs)",
+          "scripts/ci/next_batch.py": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "scripts/cmux-next/prepush-gate.py": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "scripts/cmux-next/push_range.py": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "scripts/gh-merge-green": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "scripts/git-hooks/hook_python.sh": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "scripts/git-hooks/merge_python.sh": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "scripts/git-hooks/post-merge": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "scripts/git-hooks/pre-push": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "scripts/git-hooks/refresh_checks.py": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "scripts/install-git-hooks.sh": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "scripts/web_lint_prepush.py": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's",
+          "web/proxy.ts": "test_defaults_guard.py copies defaults_guard.py and risk_tier.py into a temporary fixture repository and runs them there: their path literals name the fixture's files, not this tree's"
+        }
+      },
+      "rust-notices-tree": {
+        "why": "the job's own \"Changed notice inputs\" step generates the notices only when the change touches one of these paths (its grep pattern); a change to none of them already ran nothing but a checkout",
+        "inputs": [
+          "**/Cargo.toml",
+          "**/Cargo.lock",
+          "scripts/cmux-next/remote-browser-host.pin.json",
+          "cmux-tui/build-support/notices/",
+          "scripts/cmux-next/generate-third-party-notices.sh",
+          "scripts/cmux-next/notices/",
+          "Packages/macOS/CmuxNext/Package.resolved"
+        ],
+        "not_inputs": {
+          "Native/DiffSidecar/": "generate-third-party-notices.sh reads it only when the job's \"Changed notice inputs\" step matched one of the inputs; a change only here ran no generation before this route either",
+          "cmux-tui/bindings/examples/rust-agent-screen-detection/": "generate-third-party-notices.sh reads it only when the job's \"Changed notice inputs\" step matched one of the inputs; a change only here ran no generation before this route either",
+          "cmux-tui/crates/": "generate-third-party-notices.sh reads it only when the job's \"Changed notice inputs\" step matched one of the inputs; a change only here ran no generation before this route either",
+          "cmux-tui/crates/cmux-remote-browser-host/": "generate-third-party-notices.sh reads it only when the job's \"Changed notice inputs\" step matched one of the inputs; a change only here ran no generation before this route either",
+          "first-party-apps/cloud/server/": "generate-third-party-notices.sh reads it only when the job's \"Changed notice inputs\" step matched one of the inputs; a change only here ran no generation before this route either",
+          "scripts/cmux-next/cmux-tui.pin": "generate-third-party-notices.sh reads it only when the job's \"Changed notice inputs\" step matched one of the inputs; a change only here ran no generation before this route either",
+          "workers/cmux-vm/cli/": "generate-third-party-notices.sh reads it only when the job's \"Changed notice inputs\" step matched one of the inputs; a change only here ran no generation before this route either"
+        }
       }
     },
     ".github/workflows/cmux-next-react-doctor.yml": {
