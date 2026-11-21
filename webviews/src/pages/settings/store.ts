@@ -69,9 +69,12 @@ import {
   type IntegrationsState,
   type McpServersRun,
   type McpServersState,
+  type AgentMcpRun,
+  type AgentMcpState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
+  type RowNoteData,
   type SettingsClient,
   type SettingsOpName,
   type SettingsOps,
@@ -121,6 +124,8 @@ export type SettingsState = {
   revision: number;
   rows: ReadonlyMap<string, ListRow>;
   diagnostics: ReadonlyMap<string, string[]>;
+  /** Row notes by schema row: where a value comes from, and why it does not draw (#44894). */
+  notes: ReadonlyMap<string, RowNoteData[]>;
   /** Every problem of the last load, in file order (Advanced lists them). */
   problems: ReadonlyArray<{ path: string; message: string }>;
   managed: ReadonlyMap<string, ManagedInfo>;
@@ -192,6 +197,7 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     revision: scope?.revision ?? 0,
     rows,
     diagnostics: scope?.diagnostics ?? new Map(),
+    notes: scope?.notes ?? new Map(),
     problems: scope?.problems ?? [],
     managed: scope?.managed ?? new Map(),
     errors: ui.errors,
@@ -790,6 +796,18 @@ export class SettingsStore {
   async runMcpServers(run: McpServersRun): Promise<McpServersState | null> {
     await this.request("cmux.settings.mcp.run", run);
     return this.mcpServersState();
+  }
+
+  /** Settings > MCP Servers, Claude Code and Codex; null when the host has none. */
+  async agentMcpState(): Promise<AgentMcpState | null> {
+    const reply = await this.request("cmux.settings.agentMcp.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Claude Code / Codex MCP gesture, then the groups as they are after it (null: the host has none). */
+  async runAgentMcp(run: AgentMcpRun): Promise<AgentMcpState | null> {
+    await this.request("cmux.settings.agentMcp.run", run);
+    return this.agentMcpState();
   }
 
   /** Reads Settings > Models (a host without it rejects, and the part stays null). */

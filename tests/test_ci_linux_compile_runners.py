@@ -219,15 +219,23 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
     ("swift-linux-packages.yml", "swift-linux-packages", "runs-on"): (
         OWNER + FORK_PULL_REQUEST.format(label="blacksmith-16vcpu-ubuntu-2404"), ""),
     ("cmux-tui-artifacts.yml", "macos-cross-shadow", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
+    # Its pull request run is an advisory copy of the push run (post-merge-checks.json, CI v2 step 5): the 4 vCPU
+    # pool, since a compile there only reports, and the 8/16 vCPU sizes stall first.
+    ("cmux-mobile-ffi.yml", "rust", "runs-on"): (
+        OWNER + "github.event_name == 'pull_request' && fromJSON(vars.RUNNER_POOLS).linux_4 || ", ""),
     ("macos-cross-parity.yml", "linux-build", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER"): (
-        OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
+        OWNER + "github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && "
+        "(github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-nightly-x64' || "
+        "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_BUILD_RUNNER"): (
         OWNER + "(inputs.linux_build_runner != '' && inputs.linux_build_runner || inputs.linux_runner != '' && inputs.linux_runner || "
-        # Attempt 1 of a nightly-path tree run: the owned GCP build lanes first (cmux-tui-artifacts.yml jobs: comment).
+        # Attempt 1 of a nightly-path tree run: a nightly-next push or a tree request takes the nightly-only
+        # runners, a feat-cmux-next push the owned GCP build lanes (cmux-tui-artifacts.yml jobs: comment).
         "github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && "
-        "(github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || "
-        "github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-lane-build-x64' || vars.LINUX_BUILD_RUNNER || ", ")"),
+        "(github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-nightly-x64' || "
+        "github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && "
+        "github.ref == 'refs/heads/feat-cmux-next' && 'cmux-gcp-lane-build-x64' || vars.LINUX_BUILD_RUNNER || ", ")"),
     # Owner-gated jobs with no fork branch.
     ("cmux-next-terminal.yml", "rust-terminal-linux", "runs-on"): ("", ""),
     ("cmux-next-terminal.yml", "swift-terminal-linux", "runs-on"): ("", ""),

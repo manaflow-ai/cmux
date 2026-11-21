@@ -259,18 +259,18 @@ enum AgentHandlers {
             guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, "agentPane.continueIn") }
             view.showContinueIn()
         })
-        // The focused chat's page takes the keyboard, then opens the model picker, file search,
-        // or `/btw`'s side-question composer. The gate is published live from Debug Settings.
-        let keyboardCommands: [(ActionID, () -> String, (AgentPaneView) -> Void)] = [
-            ("agentPane.switchModel", { MiscHandlerStrings.switchModelNeedsFocus }, { $0.showModelPicker() }),
-            ("agentPane.searchFiles", { MiscHandlerStrings.pickerNeedsFocus }, { $0.showFileSearch() }),
-            ("agentPane.sideQuestion", { MiscHandlerStrings.sideQuestionNeedsFocus }, { $0.askSideQuestion() }),
-        ]
+        // The focused chat's page takes the keyboard, then opens the model picker, file search, `/btw`'s side-question composer or a composer
+        // bar control (AgentComposerControl; the person's own Toggle Plan Mode key is its mode switch's gesture). The gate is published live from Debug Settings.
+        let keyboardCommands: [(ActionID, () -> String, (AgentPaneView, ActionInvocation) -> Void)] = [
+            ("agentPane.switchModel", { MiscHandlerStrings.switchModelNeedsFocus }, { view, _ in view.showModelPicker() }),
+            ("agentPane.searchFiles", { MiscHandlerStrings.pickerNeedsFocus }, { view, _ in view.showFileSearch() }),
+            ("agentPane.sideQuestion", { MiscHandlerStrings.sideQuestionNeedsFocus }, { view, _ in view.askSideQuestion() }),
+        ] + AgentComposerControl.allCases.map { control -> (ActionID, () -> String, (AgentPaneView, ActionInvocation) -> Void) in (control.actionID, { MiscHandlerStrings.pickerNeedsFocus }, { $0.showComposerControl(control, byPerson: $1.isPersonsOwnRun, event: context.services.inputDispatch.event) }) }
         for (id, needsFocus, run) in keyboardCommands {
             registry.bind(id, run: { invocation in
                 guard invocation.allowsViewChange else { return context.refuse(needsFocus()) }
                 guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, id) }
-                run(view)
+                run(view, invocation)
             })
         }
         registry.bind("agentPane.createCheckpoint", run: { invocation in
