@@ -9,32 +9,11 @@ fn missing() -> Response {
     ("404 Not Found", b"not found".to_vec(), "text/plain")
 }
 
-/// No URL decoding or directory browsing: only the production builder's output.
-fn asset(path: &str) -> Option<(&str, &'static str)> {
-    let relative = path.strip_prefix("/app/")?;
-    let relative = if relative.is_empty() { "index.html" } else { relative };
-    let kind = match relative {
-        "index.html" => "text/html; charset=utf-8",
-        "pane.css" | "pane-copy.css" => "text/css; charset=utf-8",
-        "pane.js"
-        | "highlight-worker.js"
-        | "image-worker.js"
-        | "chat-snapshot.js"
-        | "__snapshot/chat.js" => "text/javascript; charset=utf-8",
-        _ => {
-            let (directory, name) = relative.split_once('/')?;
-            if !matches!(directory, "chunks" | "locales")
-                || name.starts_with('.')
-                || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
-                || !name.ends_with(".js")
-            {
-                return None;
-            }
-            "text/javascript; charset=utf-8"
-        }
-    };
-    Some((relative, kind))
-}
+#[path = "app_asset_paths.rs"]
+mod paths;
+use paths::asset;
+
+include!(concat!(env!("OUT_DIR"), "/browser_app_assets.rs"));
 
 /// A standalone distribution can put agent-pane beside its binary, or point at
 /// the output of build-agent-pane-web.sh. The app uses its existing SPM resource
@@ -63,6 +42,9 @@ pub(super) async fn serve(path: &str) -> Response {
     }
     let exe = std::env::current_exe().unwrap_or_default();
     let configured = std::env::var_os("ACPMUX_APP_ASSETS_DIR").map(PathBuf::from);
+    if configured.is_none() && !SHIPPED.is_empty() {
+        return shipped(relative, kind);
+    }
     for root in roots(&exe, configured) {
         if tokio::fs::metadata(root.join("index.html")).await.is_ok_and(|m| m.is_file()) {
             return read(&root, relative, kind).await;
@@ -73,6 +55,17 @@ pub(super) async fn serve(path: &str) -> Response {
         b"NEXT pane assets are not installed with this daemon".to_vec(),
         "text/plain",
     )
+}
+
+fn shipped(relative: &str, kind: &'static str) -> Response {
+    let Ok(index) = SHIPPED.binary_search_by_key(&relative, |(name, _)| *name) else {
+        return missing();
+    };
+    let mut body = SHIPPED[index].1.inflate();
+    if relative == "index.html" {
+        body = body.replace("connect-src 'none'", "connect-src 'self'");
+    }
+    ("200 OK", body.into_bytes(), kind)
 }
 
 async fn read(root: &Path, relative: &str, kind: &'static str) -> Response {

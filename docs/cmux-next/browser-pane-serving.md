@@ -27,17 +27,26 @@ the native resource on disk keeps its original CSP. The native saved-chat path
 `/app/__snapshot/chat.js` returns an empty script, since a browser has no native
 saved chat to paint. The browser host shim and handshake ship in `pane.js`.
 
-The daemon looks for `agent-pane` beside its executable, then the existing
-`CmuxNext_CmuxNextAgentPane.bundle` in the executable directory's parent
-(`Contents/Resources/agent-pane` or `agent-pane` inside that bundle), then
-`share/acpmux/agent-pane` in that parent. It never searches another installation,
-a checkout, the current directory, or a development server.
+The Linux and macOS daemon package embeds the same production pane, packed with
+`cmux_embed`. The package build runs `build-agent-pane-web.sh` and points
+`ACPMUX_BUNDLED_APP_ASSETS_DIR` at its output for Cargo; `build.rs` refuses any
+output the HTTP allowlist would not serve, and any missing required file. Install,
+update and rollback then carry the matching pane inside the one executable. The
+daemon's artifact key includes the pane's sources and inputs.
 
-For a standalone distribution, package the output of
-`scripts/cmux-next/build-agent-pane-web.sh --out <directory>` beside the binary
-as `agent-pane`, or start its daemon with `ACPMUX_APP_ASSETS_DIR=<directory>`.
-An explicit directory takes precedence, including when it is missing: another
-build's resources are never silently substituted. Missing resources return 503;
+A source build without an embedded pane looks for `agent-pane` beside its
+executable, then the existing `CmuxNext_CmuxNextAgentPane.bundle` in the executable
+directory's parent (`Contents/Resources/agent-pane` or `agent-pane` inside that
+bundle), then `share/acpmux/agent-pane` in that parent. It never searches another
+installation, a checkout, the current directory, or a development server.
+
+For a custom distribution, build the pane with
+`scripts/cmux-next/build-agent-pane-web.sh --out <directory>`, then embed it by
+setting `ACPMUX_BUNDLED_APP_ASSETS_DIR=<directory>` for the Rust build, package it
+beside the binary as `agent-pane`, or start the daemon with
+`ACPMUX_APP_ASSETS_DIR=<directory>`. That runtime directory takes precedence over
+the embedded pane, including when it is missing: another build's resources are
+never silently substituted. Missing resources return 503;
 unknown files return 404. Only the builder's known root files and `.js` files in
 `chunks/` and `locales/` are addressable. Traversal, encoded path separators and
 symlinks outside the resource directory cannot expose other files.
