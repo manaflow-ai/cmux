@@ -122,15 +122,26 @@ import Testing
         #expect(delivered() == [bypassed])
     }
 
-    // MARK: - Live detection source: claude/codex are detected by process name
+    // MARK: - Live detection source: claude/codex are matched via the coding-agent registry
 
     @Test func supportedAgentKindMatchesClaudeAndCodexByExecutableName() {
-        // Claude/Codex are NOT in the vault process-detection registry, so the
-        // live path must recognize them by executable basename.
+        // Claude/Codex are matched through CmuxTaskManagerCodingAgentDefinition,
+        // covering both direct basenames and version-named Claude installs.
         #expect(UntrackedAgentSessionMonitor.supportedAgentKind(processName: "claude", path: nil) == .claude)
         #expect(UntrackedAgentSessionMonitor.supportedAgentKind(processName: "codex", path: nil) == .codex)
-        // Full path wins over the (possibly truncated) name.
         #expect(UntrackedAgentSessionMonitor.supportedAgentKind(processName: "claude", path: "/Users/me/.local/bin/claude") == .claude)
+        #expect(
+            UntrackedAgentSessionMonitor.supportedAgentKind(
+                processName: "claude",
+                path: "/Users/dev/.local/share/claude/versions/2.1.140"
+            ) == .claude
+        )
+        #expect(
+            UntrackedAgentSessionMonitor.supportedAgentKind(
+                processName: "2.1.140",
+                path: "/Users/dev/.local/share/claude/versions/2.1.140"
+            ) == .claude
+        )
         #expect(UntrackedAgentSessionMonitor.supportedAgentKind(processName: "CODEX", path: nil) == .codex) // case-insensitive
     }
 
@@ -138,6 +149,7 @@ import Testing
         #expect(UntrackedAgentSessionMonitor.supportedAgentKind(processName: "node", path: nil) == nil)
         #expect(UntrackedAgentSessionMonitor.supportedAgentKind(processName: "bun", path: nil) == nil)
         #expect(UntrackedAgentSessionMonitor.supportedAgentKind(processName: "zsh", path: "/bin/zsh") == nil)
+        #expect(UntrackedAgentSessionMonitor.supportedAgentKind(processName: "opencode", path: nil) == nil)
         #expect(UntrackedAgentSessionMonitor.supportedAgentKind(processName: "", path: nil) == nil)
     }
 

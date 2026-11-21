@@ -100,15 +100,26 @@ final class UntrackedAgentSessionMonitor {
         }
     }
 
-    /// The agent kind for a process whose executable basename names a hook-tracked
-    /// agent (Claude/Codex), or nil. Claude/Codex are NOT in the vault
-    /// process-detection registry (that only emits custom/opencode kinds) and are
-    /// otherwise known to cmux only through their hook store — the tracked path. So
-    /// a *bypassed* claude/codex is invisible except as a raw process; detecting it
-    /// by executable name is the only signal for "running but untracked".
+    /// The hook-tracked agent kind (Claude/Codex) matched through the registered
+    /// coding-agent descriptors (`CmuxTaskManagerCodingAgentDefinition`), or nil.
+    /// Bypassed Claude/Codex sessions have no hook entry in `SharedLiveAgentIndex`,
+    /// so matching the live process against the agent registry (including
+    /// version-named installs such as `~/.local/share/claude/versions/<version>`)
+    /// is what surfaces "running but untracked".
     nonisolated static func supportedAgentKind(processName name: String, path: String?) -> RestorableAgentKind? {
-        let basename = ((path?.isEmpty == false ? path! : name) as NSString).lastPathComponent.lowercased()
-        switch basename {
+        let arguments = CmuxTaskManagerCodingAgentDefinition.shouldReadArguments(
+            processName: name,
+            processPath: path
+        ) ? (path.map { [$0] } ?? []) : []
+        guard let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: name,
+            processPath: path,
+            arguments: arguments,
+            environment: [:]
+        ) else {
+            return nil
+        }
+        switch definition.id {
         case "claude": return .claude
         case "codex": return .codex
         default: return nil
@@ -116,8 +127,9 @@ final class UntrackedAgentSessionMonitor {
     }
 
     /// Real tick: capture the process snapshot off-main (sysctl/top must not block
-    /// the main thread), find cmux-scoped Claude/Codex processes by executable
-    /// name, then evaluate on main using the cached, non-blocking hook lookup.
+    /// the main thread), find cmux-scoped Claude/Codex processes via the registered
+    /// coding-agent descriptors, then evaluate on main using the cached,
+    /// non-blocking hook lookup.
     func refresh() {
         refreshTask?.cancel()
         refreshTask = Task.detached(priority: .utility) {
