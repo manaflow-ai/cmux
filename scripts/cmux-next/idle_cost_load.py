@@ -297,9 +297,10 @@ def new_session(cli: str, env: dict, text: str) -> str | None:
         return None
 
 
-def stream(argv: list[str], env: dict, session: str, seconds: float, rate: float) -> bool:
-    """Starts a reply that streams for `seconds` (idle_cost_agent.py's `stream:`), without waiting for it."""
-    sent = subprocess.run(argv + ["send", "--no-wait", session, f"stream: {int(seconds)} {rate}"],
+def stream(argv: list[str], env: dict, session: str, seconds: float, rate: float, chunk: int = 0) -> bool:
+    """Starts a reply that streams for `seconds` (idle_cost_agent.py's `stream:`; `chunk` bytes a chunk, 0: one
+    word), without waiting for it."""
+    sent = subprocess.run(argv + ["send", "--no-wait", session, f"stream: {int(seconds)} {rate}" + (f" {chunk}" if chunk else "")],
                           capture_output=True, text=True, timeout=60, env=env)
     if sent.returncode != 0:
         print(f"   send {session}: {(sent.stdout + sent.stderr).strip()[:2000]}", file=sys.stderr)
@@ -360,7 +361,7 @@ def open_load(app: bm.App, bundle: str, agent: str, peer: PeerDaemon, page_url, 
                 opened.append((own, mirrored))
         reached["remote_chats"] = len(opened)
         # One opened remote chat streams on its own machine (the app mirrors it); the rest stream here.
-        if streaming_left and opened and stream([peer.binary], peer.env, opened[0][0], stream_s, counts["rate"]):
+        if streaming_left and opened and stream([peer.binary], peer.env, opened[0][0], stream_s, counts["rate"], counts.get("chunk") or 0):
             reached["streaming"] += 1
             streaming_left -= 1
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:
@@ -373,7 +374,7 @@ def open_load(app: bm.App, bundle: str, agent: str, peer: PeerDaemon, page_url, 
         if not workspace:
             continue
         reached["local_chats"] += 1
-        if streaming_left and stream([app.cli_path, "acp"], chats.env, session, stream_s, counts["rate"]):
+        if streaming_left and stream([app.cli_path, "acp"], chats.env, session, stream_s, counts["rate"], counts.get("chunk") or 0):
             reached["streaming"] += 1
             streaming_left -= 1
         elif first_idle is None:

@@ -2,7 +2,8 @@
 """The acpmux test agent (cmux-tui/crates/acpmux/tests/fake_agent.py) plus one prompt, for the
 idle-cost bench (bench_power.py `loaded`):
 
-  "stream: S R"  streams a word R times a second for S seconds (at most 3600), honours session/cancel
+  "stream: S R [B]"  streams a word R times a second for S seconds (at most 3600), honours session/cancel;
+                    with B, each chunk is about B bytes of text (a word and filler words), as a fast agent writes
 
 a reply still coming in through the measured window. Every other prompt is fake_agent's. It lives
 here, not in fake_agent.py, so the bench leaves the cmux-tui tree as it is: a fleet app build
@@ -32,13 +33,17 @@ def handle_prompt(rid, params):
     words = text[len("stream:"):].split()
     seconds = min(float(words[0]) if words else 60.0, 3600.0)
     rate = max(float(words[1]) if len(words) > 1 else 4.0, 0.1)
+    chunk = min(max(int(float(words[2])) if len(words) > 2 else 0, 0), 65536)
     deadline, n = time.monotonic() + seconds, 0
     while time.monotonic() < deadline:
         if sid in agent.cancelled:
             agent.cancelled.discard(sid)
             agent.send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
             return
-        agent.update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"word{n} "}})
+        text = f"word{n} "
+        if chunk > len(text):
+            text += ("lorem ipsum dolor sit amet " * (chunk // 27 + 1))[:chunk - len(text)]
+        agent.update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}})
         n += 1
         time.sleep(1 / rate)
     agent.send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})

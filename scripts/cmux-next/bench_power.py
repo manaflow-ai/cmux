@@ -61,9 +61,10 @@ One command on the fleet:
     --arg=scenarios=loaded --arg=config=bench --artifact artifacts/perf-idle-power.json
 
 `many-chats` (run it alone) is Leo's workload for the main thread (2026-11-21: 214 agent chat tabs,
-13 browsers, a few chats streaming, a New Tab page): 196 stored idle chats (no agent process) and 4
-live local chats, each opened in its own workspace and shown once, the 4 live ones streaming through
-the window, 13 Chromium tabs, then the window left on the New Tab page; 60 s settle, 60 s measured.
+13 browsers, chats streaming, a New Tab page): 190 stored idle chats (no agent process) and 10
+live local chats, each opened in its own workspace and shown once, the 10 live ones streaming 400-byte
+chunks 10 times a second through the window, 13 Chromium tabs, then the window left on the New Tab
+page; 60 s settle, 60 s measured.
 Besides the per-process rows it reads `debug.hangs` through the window (main-thread stalls of 50 ms
 and more, the watchdog's default threshold, cleared at the window's start, read every 2 s by
 sequence so no record is lost to the log's 128 slots) and reports the app's main-thread CPU % (busy
@@ -698,8 +699,10 @@ IDLE_COST_PRESETS = {
     "loaded": {"load_remote": 20, "load_local": 5, "load_streaming": 3, "load_tabs": 10, "settle": 120, "measure": 60},
     "idle-chats": {"load_remote": 0, "load_local": 40, "load_streaming": 0, "load_tabs": 0, "settle": 60, "measure": 120},
     # Leo's NIGHTLY on 2026-11-21: 214 agent chat tabs (35 daemon sessions live), 13 browsers, a few chats streaming.
-    "many-chats": {"load_remote": 0, "load_local": 4, "load_streaming": 4, "load_tabs": 13, "load_seeded_open": 196,
-                   "settle": 60, "measure": 60},
+    # 10 live chats stream (the 10 busy agent-pane.inbound queues of Leo's 60 s sample), 400 bytes 10 times a second
+    # each (a fast agent's text); 190 stored idle chats: 200 chat tabs.
+    "many-chats": {"load_remote": 0, "load_local": 10, "load_streaming": 10, "load_tabs": 13, "load_seeded_open": 190,
+                   "stream_chunk": 400, "settle": 60, "measure": 60},
 }
 IDLE_COST_LABELS = tuple(IDLE_COST_PRESETS)
 # Command-line flags that name a Chromium renderer when no page map does (process_rows).
@@ -870,7 +873,7 @@ def run_loaded(args):
     agent = os.path.join(HERE, "idle_cost_agent.py")  # fake_agent.py plus the `stream:` prompt
     peer, results, scratch = load.PeerDaemon(args.app, root, agent), [], None
     counts = {"remote": args.load_remote, "local": args.load_local, "streaming": args.load_streaming,
-              "tabs": args.load_tabs, "rate": args.stream_rate,
+              "tabs": args.load_tabs, "rate": args.stream_rate, "chunk": args.stream_chunk or 0,
               "seeded": load.seeded_idle_ids(args.load_sessions, args.load_closed, args.load_seeded_open or 0),
               "show": "newtab" if label == "many-chats" else "chat"}
     stream_s = args.settle + args.measure + 900  # the replies stream through the whole window
@@ -975,6 +978,7 @@ def main():
     parser.add_argument("--load-seeded-open", type=int,
                         help="stored idle chats (no agent process) opened as tabs, one workspace each (many-chats 196; else 0)")
     parser.add_argument("--stream-rate", type=float, default=10, help="loaded: streamed chunks a second per chat")
+    parser.add_argument("--stream-chunk", type=int, help="loaded: bytes of text per streamed chunk (many-chats 400; else one word)")
     # Chromium does post-load work (code caching, GC, tile purges) for about two
     # minutes after tabs open or hide; shorter settles measure that, not idle.
     # Unset: 120 and 60, or the idle-cost scenario's preset (idle-chats: 60 and 120).
