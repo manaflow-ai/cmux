@@ -115,6 +115,21 @@ import Testing
         #expect(c.swipe.rowOffset == 0)
     }
 
+    /// Fleet capture, 2026-11-21: right after a swipe, the 100 x 90 diagonal was taken as one. The
+    /// swipe's held motion (summed until its direction is known) stayed from the last gesture, so the
+    /// next one started 10 pt to the right.
+    @Test func aDiagonalRightAfterASwipeStaysAScroll() async throws {
+        let (r, c, p) = try await rig()
+        defer { r.stop() }
+        feed(c, p, try swipe(dx: 160, steps: 16))
+        c.dispatch(.closeThread)
+        r.frame()
+        let passed = feed(c, p, try swipe(dx: 100, dy: 90, steps: 25, from: 2))
+        #expect(passed.dropFirst(2).allSatisfy { $0 }, "a diagonal after a swipe was taken: \(passed)")
+        #expect(openThread(c) == nil)
+        #expect(c.swipe.rowOffset == 0)
+    }
+
     @Test func aLeftwardSwipeOnABubbleStaysAScroll() async throws {
         let (r, c, p) = try await rig()
         defer { r.stop() }
