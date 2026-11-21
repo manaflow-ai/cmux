@@ -9,12 +9,10 @@ public import AppKit
 /// - The lights sit as far from the window's left edge as from its top (``TrafficLightsLine``).
 /// - The lights, the toggle's glyph, Back's and Forward's stand one ``glyphGap`` apart, ink to ink, as in cmux
 ///   classic (Lawrence 2026-11-11: "make it look like that"), measured from each glyph's drawn ink
-///   (``slots(side:gap:buttonGap:glyphs:)``), so the gaps stay even at every density and with any glyph.
+///   (``slots(side:gap:glyphs:)``), so the gaps stay even at every density and with any glyph.
 /// - Every top-row button is the sidebar +'s height (``buttonSide``) and at most as wide, and the chrome's other
 ///   buttons take it too (`TitlebarBandButton.side`); a button whose narrow glyph sits closer than that to its
-///   neighbor's is narrower, so two buttons never overlap and always leave ``minimumButtonGap`` between them: that
-///   gap is the window's titlebar, where a press moves the window and a double-click runs the titlebar action
-///   (https://github.com/manaflow-ai/cmux/issues/48653; tiled buttons left no titlebar between the icons).
+///   neighbor's is narrower, so the buttons tile the band with no overlap and no dead gap between them.
 public struct TopRowSpacing {
     public init() {}
 
@@ -23,10 +21,6 @@ public struct TopRowSpacing {
 
     /// Classic's 6 pt between its 20 pt buttons, three tenths of a button on the half-point grid.
     public static var groupGap: CGFloat { (buttonSide * 0.3 * 2).rounded() / 2 }
-
-    /// The least space between two neighboring band buttons: classic's gap between its buttons (``groupGap``). It is
-    /// the window's titlebar, so a press between two icons moves the window (#48653).
-    public static var minimumButtonGap: CGFloat { groupGap }
 
     /// The one ink gap between the lights and the toggle's glyph and between consecutive glyphs: classic's
     /// button gap plus two margins of an arrow (``glyphExtent``) in its button.
@@ -77,14 +71,13 @@ public struct TopRowSpacing {
     }
 
     /// Lays the band's buttons out so consecutive glyphs sit `gap` apart, ink to ink, each button
-    /// centered on its image and at most `side` wide, ending `buttonGap / 2` before the midpoint
-    /// between its glyph and each neighbor's, so neighbors leave `buttonGap` of titlebar between them.
+    /// centered on its image and at most `side` wide, bounded by the midpoints between its glyph and
+    /// its neighbors'.
     /// - Parameter side: The buttons' largest width (``buttonSide``).
     /// - Parameter gap: The ink gap between consecutive glyphs (``glyphGap``).
-    /// - Parameter buttonGap: The least space between two neighboring buttons (``minimumButtonGap``).
     /// - Parameter glyphs: Each button's glyph, in band order.
     /// - Returns: The buttons' frames, the band's width and its first glyph's ink inset.
-    public static func slots(side: CGFloat, gap: CGFloat, buttonGap: CGFloat = minimumButtonGap, glyphs: [Glyph]) -> Slots {
+    public static func slots(side: CGFloat, gap: CGFloat, glyphs: [Glyph]) -> Slots {
         guard let first = glyphs.first else { return Slots(frames: [], width: 0, leadingInk: 0) }
         // Ink centers, from the first button's image center at side / 2.
         var centers = [side / 2 + first.centerOffset]
@@ -97,8 +90,8 @@ public struct TopRowSpacing {
         for index in glyphs.indices {
             let middle = centers[index] - glyphs[index].centerOffset // the button centers its image here
             var half = side / 2
-            if index > 0 { half = min(half, middle - edges[index - 1] - buttonGap / 2) }
-            if index < glyphs.count - 1 { half = min(half, edges[index] - middle - buttonGap / 2) }
+            if index > 0 { half = min(half, middle - edges[index - 1]) }
+            if index < glyphs.count - 1 { half = min(half, edges[index] - middle) }
             half = max(0, half)
             frames.append((middle - half, half * 2))
         }

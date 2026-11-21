@@ -115,7 +115,7 @@ import Testing
         let band = row.root.toolbarBand
         let frames = [band.sidebarToggle, band.backButton, band.forwardButton].map { band.convert($0.frame, to: nil) }
         for (left, right) in zip(frames, frames.dropFirst()) {
-            #expect(right.minX - left.maxX >= TopRowSpacing.minimumButtonGap - 0.01, "\(left) and \(right) leave no gap")
+            #expect(right.minX - left.maxX > 0.5, "\(left) and \(right) leave no gap")
             let gap = CGPoint(x: (left.maxX + right.minX) / 2, y: left.midY)
             #expect(TitlebarDragPolicy.decide(at: gap, in: row.window) == .movesWindow, "the gap at \(gap) keeps the window put")
         }

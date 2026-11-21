@@ -48,7 +48,7 @@ public final class GlyphInkMeasure {
 }
 
 extension GlyphInkMeasure {
-    /// The top-row band's buttons laid out from their images' ink, `gap` apart (``TopRowSpacing/slots(side:gap:buttonGap:glyphs:)``).
+    /// The top-row band's buttons laid out from their images' ink, `gap` apart (``TopRowSpacing/slots(side:gap:glyphs:)``).
     /// - Parameter images: Each button's image, in band order (nil: an empty glyph).
     /// - Parameter gap: The ink gap between consecutive glyphs.
     /// - Returns: The band's ``TopRowSpacing/Slots``.
