@@ -13,7 +13,65 @@
  }
  
  /// v1.1: the context-menu actions an owner supports for one conversation. An action that is
-@@ -116,6 +122,8 @@
+@@ -63,8 +69,10 @@
+     var title: String
+     var subtitle: String
+     var avatar: AvatarSpec
+-    init(id: String, title: String, subtitle: String = "", avatar: AvatarSpec) {
+-        self.id = id; self.title = title; self.subtitle = subtitle; self.avatar = avatar
++    /// cmux: the row's time (a matching message's), nil for none.
++    var date: Date?
++    init(id: String, title: String, subtitle: String = "", avatar: AvatarSpec, date: Date? = nil) {
++        self.id = id; self.title = title; self.subtitle = subtitle; self.avatar = avatar; self.date = date
+     }
+ }
+ 
+@@ -75,22 +83,36 @@
+     init(title: String, results: [SidebarSearchResult]) { self.title = title; self.results = results }
+ }
+ 
+-/// v1.1: one query to a `SidebarSearchProvider`. Answer once, from any thread, with
++/// v1.1: one query to a `SidebarSearchProvider` (cmux: answered with any number of sections, in
++/// order, and more than once: a fuller answer replaces the last). Answer from any thread with
+ /// `complete(_:)`. The next keystroke cancels it (`isCancelled` turns true and a later answer
+ /// is dropped), so a long search should check `isCancelled` and stop.
+ final class SidebarSearchRequest: @unchecked Sendable {
+     let query: String
+     private let lock = NSLock()
+     private var cancelled = false
+-    private var handler: ((SidebarSearchSection?) -> Void)?
+-    init(query: String, handler: @escaping (SidebarSearchSection?) -> Void) { self.query = query; self.handler = handler }
++    private var handler: (([SidebarSearchSection]) -> Void)?
++    private var cancelHandlers: [() -> Void] = []
++    init(query: String, handler: @escaping ([SidebarSearchSection]) -> Void) { self.query = query; self.handler = handler }
+     var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+-    func cancel() { lock.lock(); cancelled = true; handler = nil; lock.unlock() }
+-    /// The section for this query (nil or no results: no section). Any thread; once.
+-    func complete(_ section: SidebarSearchSection?) {
+-        lock.lock(); let h = cancelled ? nil : handler; handler = nil; lock.unlock()
+-        h?(section)
++    func cancel() {
++        lock.lock(); cancelled = true; handler = nil; let run = cancelHandlers; cancelHandlers = []; lock.unlock()
++        for h in run { h() }
++    }
++    /// cmux: runs `body` when the request is cancelled (a newer keystroke, an emptied field); at
++    /// once when it already is. The provider stops its work there.
++    func onCancel(_ body: @escaping () -> Void) {
++        lock.lock()
++        guard !cancelled else { lock.unlock(); body(); return }
++        cancelHandlers.append(body)
++        lock.unlock()
+     }
++    /// The sections for this query, in order (an empty one shows no title). Any thread; a later
++    /// answer replaces an earlier one (cmux: the quick sections first, then the slow ones).
++    func complete(_ sections: [SidebarSearchSection]) {
++        lock.lock(); let h = cancelled ? nil : handler; lock.unlock()
++        h?(sections)
++    }
+ }
+ 
+ /// v1.1: extra search results from the host (`SidebarController.searchProvider`).
+@@ -116,6 +138,8 @@
      func sidebar(_ sidebar: SidebarController, delete id: ConversationID) {}
      /// v1.2: a pinned tile was dragged to `index` in the pinned order (default: the tiles go back).
      func sidebar(_ sidebar: SidebarController, movePinned id: ConversationID, to index: Int) {}
@@ -22,7 +80,7 @@
  }
  
  /// v1.1: where the sidebar's strings come from. Every sidebar string is in one catalog,
-@@ -156,6 +164,9 @@
+@@ -156,6 +180,9 @@
      static var showAlerts: String { s("sidebar.menu.showAlerts", "Show Alerts") }
      static var delete: String { s("sidebar.menu.delete", "Delete Conversation…") }
      static var noResults: String { s("sidebar.noResults", "No Results") }
@@ -32,7 +90,7 @@
      static var conversations: String { s("sidebar.list", "Conversations") }
      static var pinned: String { s("sidebar.pinned", "Pinned") }
      static var typing: String { s("sidebar.typing", "Typing") }
-@@ -224,8 +235,13 @@
+@@ -224,8 +251,13 @@
      static let preferredWidth: CGFloat = 320
      /// Narrowest useful width: the compact list (avatar only) with its margins.
      static let minimumWidth: CGFloat = 76
@@ -47,7 +105,7 @@
      /// A pinned column needs this much width: 3 columns from 260 pt, 2 from 180 pt.
      static let minTileWidth: CGFloat = 80
      /// The pinned avatar at the column-count changes (no size jump between layouts).
-@@ -268,16 +284,30 @@
+@@ -268,16 +300,30 @@
      static let pinBottomPad: CGFloat = 8
      static let pinSelectionRadius: CGFloat = 12
      static let pinSectionBottom: CGFloat = 6
@@ -81,7 +139,7 @@
      var compact: Bool { width < Self.compactBelow }
      /// 3 at normal widths, 2 when 3 do not fit, 1 in the compact list.
      var columns: Int {
-@@ -286,20 +316,22 @@
+@@ -286,20 +332,22 @@
      }
      var tileWidth: CGFloat { ((width - 2 * Self.pinInsetX) / CGFloat(columns)).rounded(.down) }
      /// Grows with the tile in the 3-column grid, from 52 pt at its narrowest to 76 pt; with fewer
@@ -109,7 +167,7 @@
      }
      func tileRect(_ i: Int) -> CGRect {
          let cols = columns
-@@ -323,6 +355,8 @@
+@@ -323,6 +371,8 @@
      var selectionActive: CGColor
      var selectionInactive: CGColor
      var selectedText: CGColor
@@ -118,7 +176,7 @@
      var monogramTop: CGColor
      var monogramBottom: CGColor
      var groupDisc: CGColor
-@@ -357,6 +391,7 @@
+@@ -357,6 +407,7 @@
                  selectionActive: (selectionColor ?? NSColor.selectedContentBackgroundColor).cgColor,
                  selectionInactive: NSColor.unemphasizedSelectedContentBackgroundColor.cgColor,
                  selectedText: NSColor.alternateSelectedControlTextColor.cgColor,
@@ -126,3 +184,38 @@
                  // Contacts' monogram disc (grey gradient, white initials): to verify.
                  monogramTop: dark ? p3(132, 136, 145) : p3(166, 171, 184),
                  monogramBottom: dark ? p3(104, 108, 117) : p3(134, 139, 151),
+@@ -375,3 +426,34 @@
+         return palette ?? build()
+     }
+ }
++
++/// cmux: where the host's search sections start in a row list (each title sits above its first
++/// row) and the row geometry they shift. Values only: the search queue reads it too.
++struct SidebarSectionMarks: Equatable {
++    struct Mark: Equatable {
++        var start: Int
++        var title: String
++    }
++    /// In row order; no two share a start (a section with no rows has no mark).
++    var marks: [Mark] = []
++
++    /// True when a section's title sits above row `r`.
++    func starts(at r: Int) -> Bool { marks.contains { $0.start == r } }
++
++    /// Row `r`'s top below the pinned grid: the rows above it and every title at or above it.
++    func top(of r: Int, rowHeight: CGFloat, headerHeight: CGFloat) -> CGFloat {
++        CGFloat(r) * rowHeight + CGFloat(marks.count { $0.start <= r }) * headerHeight
++    }
++
++    /// The fractional row at `y` below the pinned grid, the inverse of `top(of:)`: a y on a title
++    /// gives its section's first row.
++    func position(_ y: CGFloat, rowHeight: CGFloat, headerHeight: CGFloat) -> CGFloat {
++        var d = y
++        for mark in marks {
++            let start = CGFloat(mark.start) * rowHeight
++            guard d > start else { break }
++            d = max(start, d - headerHeight)
++        }
++        return d / rowHeight
++    }
++}

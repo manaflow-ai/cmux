@@ -1,0 +1,16 @@
+{
+  "title": "Home list search: messages that mention the words",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "Go to Home", "cmux": ["action", "run", "home.show"], "wait": 3, "shot": false, "optional": "Home needs its page in this build"},
+    {"title": "Six conversations and a Chief, two pinned", "rpc": {"method": "debug.home.sidebar_fixture", "params": {"count": 6, "pinned": 2, "chiefs": [{"id": "agent_fixture_chief", "name": "Chief"}]}}, "wait": 1.5, "optional": "the Home list fixture is DEBUG only and needs the Home page", "shot": false},
+    {"title": "Messages in the fixture rows", "rpc": {"method": "debug.home.sidebar_fixture", "params": {"messages": [
+      {"row": 6, "text": "Booked the team lunch for Friday at noon, I'll send the menu"},
+      {"row": 2, "text": "Can we move lunch to 1? The deploy review runs long"},
+      {"row": 4, "text": "Lunch is on me next week, Aziz fixed the header"},
+      {"row": 1, "text": "The release notes are ready for review"}
+    ]}}, "wait": 0.5, "optional": "the Home list fixture is DEBUG only and needs the Home page", "shot": false},
+    {"title": "320 wide", "rpc": {"method": "debug.home.sidebar_fixture", "params": {"width": 320}}, "wait": 1, "optional": "the Home list fixture is DEBUG only and needs the Home page", "shot": false},
+    {"title": "\"lunch\": no name matches, three messages mention it", "rpc": {"method": "debug.home.sidebar_fixture", "params": {"query": "lunch"}}, "wait": 2, "optional": "the Home list fixture is DEBUG only and needs the Home page"}
+  ]
+}

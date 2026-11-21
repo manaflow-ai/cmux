@@ -49,6 +49,28 @@
      /// v1.2: the list's clock for the row times (default: the system clock; tests and still
      /// scenes give a fixed date). Changing it takes effect on the next reloadData().
      var now: () -> Date = { Date() }
+@@ -49,14 +75,14 @@
+     private(set) var snapshot = ConversationListSnapshot(items: [], pinned: [])
+     private var baseSnapshot = ConversationListSnapshot(items: [], pinned: [])
+     private var baseIndex: [ConversationID: Int] = [:]
+-    /// The first row of the extra section (nil: none) and its title.
+-    private(set) var extraStart: Int?
+-    private var extraTitle = ""
+-    private var extraSection: (query: String, section: SidebarSearchSection)?
++    /// The host's extra sections in the rows: each one's first row and title (none: no section).
++    private(set) var sections = SidebarSectionMarks()
++    private var extraSections: (query: String, sections: [SidebarSearchSection])?
+     private var extraRequest: SidebarSearchRequest?
+-    private let sectionHeader = CALayer()
+-    private var sectionHeaderKey = ""
+-    /// Room for the extra section's title above its first row.
++    /// One title layer per section, in order; the cache key each was last drawn for.
++    private var sectionHeaders: [CALayer] = []
++    private var sectionHeaderKeys: [String] = []
++    /// Room for an extra section's title above its first row.
+     static let sectionHeaderHeight: CGFloat = 28
+     /// Extra results' ids inside the list (they never collide with conversation ids).
+     static func extraID(_ id: String) -> ConversationID { "\u{1}sidebar.extra:" + id }
 @@ -82,25 +108,47 @@
      /// width it is designed for (to verify against Messages' default).
      var minimumWidth: CGFloat { SidebarMetrics.minimumWidth }
@@ -201,11 +223,24 @@
          typingAppeared = typingNow.subtracting(old)
          var frames: [ConversationID: CGRect] = [:]
          let clip = scrollView.contentView.bounds
-@@ -668,7 +744,12 @@
+@@ -634,8 +710,7 @@
+         var rows: [Int]
+         var rowOf: [Int32]
+         var searching: Bool
+-        var extraStart: Int? = nil
+-        var extraTitle = ""
++        var sections = SidebarSectionMarks()
+         init(pinned: [Int], rows: [Int], count: Int, searching: Bool) {
+             self.pinned = pinned; self.rows = rows; self.searching = searching
+             rowOf = [Int32](repeating: -1, count: count)
+@@ -666,9 +741,13 @@
+         pinnedItems = list.pinned
+         rowItems = list.rows
          rowOfItem = list.rowOf
-         extraStart = list.extraStart
-         extraTitle = list.extraTitle
+-        extraStart = list.extraStart
+-        extraTitle = list.extraTitle
 -        noResults.isHidden = !(list.searching && list.rows.isEmpty)
++        sections = list.sections
 +        // A filter with nothing typed: say what is filtered, and offer every chat again (the user, 2026-11-03,
 +        // msg 20156: "somehow i got search to be stuck in this state"). Before, an empty filtered list showed nothing.
 +        let filtered = query.isEmpty && filter != .all
@@ -215,7 +250,7 @@
          layoutSectionHeader()
          for (_, l) in rowLayers { recycle(l) }
          rowLayers.removeAll()
-@@ -677,21 +758,22 @@
+@@ -677,49 +756,53 @@
          layoutDocument()
          tile(force: true)
          updateAccessibility()
@@ -229,28 +264,81 @@
 -        CGRect(x: 0, y: rowTop(r), width: metrics.width, height: SidebarMetrics.rowHeight)
 +        CGRect(x: 0, y: rowTop(r), width: metrics.width, height: metrics.listRowHeight)
      }
-     /// A row's top: rows of the extra section sit below its title.
+-    /// A row's top: rows of the extra section sit below its title.
++    /// A row's top: rows of an extra section sit below its title (and every earlier one's).
      private func rowTop(_ r: Int) -> CGFloat {
 -        pinnedHeight + CGFloat(r) * SidebarMetrics.rowHeight + (extraStart.map { r >= $0 ? Self.sectionHeaderHeight : 0 } ?? 0)
-+        pinnedHeight + CGFloat(r) * metrics.listRowHeight + (extraStart.map { r >= $0 ? Self.sectionHeaderHeight : 0 } ?? 0)
++        pinnedHeight + sections.top(of: r, rowHeight: metrics.listRowHeight, headerHeight: Self.sectionHeaderHeight)
      }
      /// The row at a document y (fractional: the part below the row's top), the inverse of rowTop.
      private func rowPosition(_ y: CGFloat) -> CGFloat {
 -        let rh = SidebarMetrics.rowHeight
-+        let rh = metrics.listRowHeight
-         var d = y - pinnedHeight
-         if let e = extraStart, d > CGFloat(e) * rh {
-             d = max(CGFloat(e) * rh, d - Self.sectionHeaderHeight)
-@@ -700,7 +782,7 @@
+-        var d = y - pinnedHeight
+-        if let e = extraStart, d > CGFloat(e) * rh {
+-            d = max(CGFloat(e) * rh, d - Self.sectionHeaderHeight)
++        sections.position(y - pinnedHeight, rowHeight: metrics.listRowHeight, headerHeight: Self.sectionHeaderHeight)
++    }
++    /// Each extra section's title rect, in order (empty: no section).
++    var sectionHeaderRects: [CGRect] {
++        sections.marks.map {
++            CGRect(x: 0, y: rowTop($0.start) - Self.sectionHeaderHeight, width: metrics.width, height: Self.sectionHeaderHeight)
+         }
+-        return d / rh
      }
-     /// The extra section's title rect (nil: no section).
-     var sectionHeaderRect: CGRect? {
+-    /// The extra section's title rect (nil: no section).
+-    var sectionHeaderRect: CGRect? {
 -        extraStart.map { CGRect(x: 0, y: pinnedHeight + CGFloat($0) * SidebarMetrics.rowHeight, width: metrics.width, height: Self.sectionHeaderHeight) }
-+        extraStart.map { CGRect(x: 0, y: pinnedHeight + CGFloat($0) * metrics.listRowHeight, width: metrics.width, height: Self.sectionHeaderHeight) }
-     }
-     /// The section title: one small bitmap, drawn when the title, width or palette changes.
+-    }
+-    /// The section title: one small bitmap, drawn when the title, width or palette changes.
++    /// The section titles: one small bitmap each, drawn when its title, width or palette changes.
      private func layoutSectionHeader() {
-@@ -761,14 +843,27 @@
+         CATransaction.begin(); CATransaction.setDisableActions(true)
+         defer { CATransaction.commit() }
+-        if sectionHeader.superlayer == nil {
+-            sectionHeader.contentsGravity = .topLeft
+-            sectionHeader.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "contents": NSNull()]
+-            document.layer?.addSublayer(sectionHeader)
++        let rects = metrics.compact ? [] : sectionHeaderRects
++        while sectionHeaders.count < rects.count {
++            let layer = CALayer()
++            layer.contentsGravity = .topLeft
++            layer.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "contents": NSNull()]
++            document.layer?.addSublayer(layer)
++            sectionHeaders.append(layer)
++            sectionHeaderKeys.append("")
+         }
+-        guard let r = sectionHeaderRect, !metrics.compact else { sectionHeader.isHidden = true; return }
+-        sectionHeader.isHidden = false
+-        sectionHeader.frame = r
+         let ctx = renderContext
+-        let key = "\(extraTitle)|\(r.width)|\(ctx.generation)|\(ctx.scale)"
+-        guard key != sectionHeaderKey else { return }
+-        sectionHeaderKey = key
+-        sectionHeader.contentsScale = ctx.scale
+-        sectionHeader.contents = SidebarDraw.sectionHeader(extraTitle, width: r.width, ctx: ctx)
++        for (i, layer) in sectionHeaders.enumerated() {
++            guard let r = rects[checked: i], let title = sections.marks[checked: i]?.title else { layer.isHidden = true; continue }
++            layer.isHidden = false
++            layer.frame = r
++            let key = "\(title)|\(r.width)|\(ctx.generation)|\(ctx.scale)"
++            guard sectionHeaderKeys[checked: i] != key else { continue }
++            if let slot = sectionHeaderKeys.checkedIndex(i) { sectionHeaderKeys[slot] = key } // checked
++            layer.contentsScale = ctx.scale
++            layer.contents = SidebarDraw.sectionHeader(title, width: r.width, ctx: ctx)
++        }
+     }
+     func selectionRect(_ r: Int) -> CGRect { rowRect(r).insetBy(dx: SidebarMetrics.selectionInsetX, dy: 0) }
+     func tileRect(_ t: Int) -> CGRect { metrics.tileRect(t) }
+@@ -729,7 +812,7 @@
+             for t in pinnedItems.indices where tileRect(t).contains(p) { return .tile(t) }
+             return nil
+         }
+-        if let h = sectionHeaderRect, h.contains(p) { return nil }
++        if sectionHeaderRects.contains(where: { $0.contains(p) }) { return nil }
+         let r = CrashGuard.int(rowPosition(p.y).rounded(.down), in: CrashGuard.rowRange) // no trap on NaN
+         return r >= 0 && r < rowItems.count ? .row(r) : nil
+     }
+@@ -761,14 +844,27 @@
  
      func layout(in bounds: CGRect) {
          let M = SidebarMetrics.self
@@ -284,7 +372,7 @@
          let w = scrollView.contentSize.width
          if w > 0, w != metrics.width {
              let t0 = beginWork()
-@@ -797,7 +892,7 @@
+@@ -797,7 +893,7 @@
  
      private func clipMoved() { tile(force: false) }  // no selector
  
@@ -293,7 +381,7 @@
          SidebarRenderContext(metrics: metrics, palette: palette, scale: scale,
                               space: document.window?.screen?.colorSpace?.cgColorSpace ?? SidebarDraw.p3, generation: generation,
                               bellSecondary: bellSecondary, bellSelected: bellSelected,
-@@ -957,6 +1052,11 @@
+@@ -957,39 +1053,63 @@
          l.content.frame = CGRect(x: SidebarMetrics.textX, y: 0, width: metrics.textWidth, height: SidebarMetrics.rowHeight)
          l.selection.frame = CGRect(x: SidebarMetrics.selectionInsetX, y: 0, width: frame.width - 2 * SidebarMetrics.selectionInsetX, height: frame.height)
          l.selection.cornerRadius = SidebarMetrics.selectionRadius
@@ -305,7 +393,9 @@
          l.selection.isHidden = !selected
          l.selection.backgroundColor = windowActive ? palette.selectionActive : palette.selectionInactive
          // The separator under the text, hidden next to the selection (as NSTableView does).
-@@ -965,31 +1065,50 @@
+         let nextSelected = rowItems.dropFirst(r + 1).first.flatMap { snapshot.items[checked: $0] }.map { $0.id == highlightID } ?? false
+-        l.separator.isHidden = selected || nextSelected || r == rowItems.count - 1 || r + 1 == extraStart
++        l.separator.isHidden = selected || nextSelected || r == rowItems.count - 1 || sections.starts(at: r + 1)
          let s = 1 / max(1, document.window?.backingScaleFactor ?? 2)
          l.separator.frame = CGRect(x: SidebarMetrics.textX, y: frame.height - s, width: frame.width - SidebarMetrics.textX - SidebarMetrics.separatorInsetRight, height: s)
          l.separator.backgroundColor = palette.separator
@@ -367,7 +457,7 @@
          if l.shownKey == k { return }
          if let text = cache.image(k), let time = cache.image(timeKey(k)) {
              show(l, k, time: time, text: text)
-@@ -1068,11 +1187,10 @@
+@@ -1068,11 +1188,10 @@
          // change redraws only the parts that it truncates or wraps.
          let ctx = renderContext
          var work: [(SidebarBitmapKey, ConversationSummary)] = []
@@ -383,7 +473,7 @@
          }
          if work.count > 1 {
              var images = [CGImage?](repeating: nil, count: work.count)
-@@ -1103,7 +1221,7 @@
+@@ -1103,7 +1222,7 @@
      }
      static func tileKeys(_ c: ConversationSummary, natural n: (name: CGFloat, bubble: CGFloat), tileWidth tw: CGFloat,
                           emphasized: Bool, generation: Int) -> (name: SidebarBitmapKey, bubble: SidebarBitmapKey?) {
@@ -392,7 +482,7 @@
                                      emphasized: emphasized, generation: generation)
          let bubble = c.unread && !c.typing
              ? SidebarBitmapKey(kind: .tileBubble, id: c.id, version: c.version, width: SidebarDraw.tileBubbleKeyWidth(natural: n.bubble, tileWidth: tw),
-@@ -1134,6 +1252,10 @@
+@@ -1134,6 +1253,10 @@
          l.selection.isHidden = c.id != highlightID
          l.selection.backgroundColor = windowActive ? palette.selectionActive : palette.selectionInactive
          let ar = SidebarDraw.tileAvatar(metrics)
@@ -403,7 +493,7 @@
          // The avatar: one bitmap at the largest pin size, scaled to the current one.
          l.avatar.frame = ar
          l.avatar.minificationFilter = .trilinear
-@@ -1143,10 +1265,20 @@
+@@ -1143,10 +1266,20 @@
          }
          configureSenders(l, c, avatar: ar)
          l.dot.isHidden = !c.unread
@@ -426,7 +516,7 @@
              l.typing?.showsTail = true
              // Where the unread message bubble goes: centered over the avatar's top (to verify).
              l.typing?.position = CGPoint(x: ar.midX, y: ar.minY + ar.height * 0.30 - SidebarTypingLayer.size.height / 2)
-@@ -1154,17 +1286,17 @@
+@@ -1154,17 +1287,17 @@
          } else {
              l.setTyping(nil)
          }
@@ -450,7 +540,7 @@
                  // The newest unread message over the avatar's top (the typing bubble, a layer,
                  // takes its place while someone types).
                  let bw = CGFloat(b.width) / s, bh = CGFloat(b.height) / s
-@@ -1176,11 +1308,6 @@
+@@ -1176,11 +1309,6 @@
                  l.time.isHidden = true
              }
          }
@@ -462,12 +552,10 @@
          // Configured for this width (the stale check compares it).
          l.shownKey = SidebarBitmapKey(kind: .tile, id: c.id, version: c.version, width: metrics.tileWidth, emphasized: false, generation: generation)
          l.contentsScaleAll(s)
-@@ -1253,6 +1380,20 @@
-         case let .row(r)?: if let l = rowLayers[r] { configure(l, row: r, sync: true) }
-         case nil: break
+@@ -1255,6 +1383,20 @@
          }
-+    }
-+
+     }
+ 
 +    /// cmux: the person opened `id` (a plain click, Return, an accessibility press): it is
 +    /// selected, then the delegate's `didOpen` moves the keyboard into it. An extra result has
 +    /// its own start (`didSelectSearchResult`).
@@ -480,10 +568,92 @@
 +    /// cmux: Return in the list opens the highlighted conversation (none: nothing).
 +    func openHighlighted() {
 +        if let id = highlightID { open(id) }
++    }
++
+     /// Up/down: pinned tiles in order, then the rows.
+     func moveSelection(_ delta: Int) {
+         let order = pinnedItems.count + rowItems.count
+@@ -1280,25 +1422,25 @@
+         query = trimmed
+         extraRequest?.cancel()
+         extraRequest = nil
+-        if extraSection?.query != trimmed { extraSection = nil }
++        if extraSections?.query != trimmed { extraSections = nil }
+         runSearch(trimmed)
+         if !trimmed.isEmpty, let provider = searchProvider {
+-            let request = SidebarSearchRequest(query: trimmed) { [weak self] section in
+-                DispatchQueue.main.async { self?.extraResults(section, for: trimmed) }
++            let request = SidebarSearchRequest(query: trimmed) { [weak self] sections in
++                DispatchQueue.main.async { self?.extraResults(sections, for: trimmed) }
+             }
+             extraRequest = request
+             provider.sidebar(self, search: request)
+         }
      }
  
-     /// Up/down: pinned tiles in order, then the rows.
-@@ -1373,7 +1514,7 @@
+-    /// The provider answered: the section joins the current query's results (built and
+-    /// rendered on the search queue like any result).
+-    private func extraResults(_ section: SidebarSearchSection?, for q: String) {
++    /// The provider answered: its sections join the current query's results (built and
++    /// rendered on the search queue like any result). The request stays until the next query
++    /// cancels it: a fuller answer may follow (cmux).
++    private func extraResults(_ sections: [SidebarSearchSection], for q: String) {
+         guard q == query else { return }
+-        extraRequest = nil
+-        let s = section.flatMap { $0.results.isEmpty ? nil : $0 }
+-        guard s != extraSection?.section || (s != nil && extraSection == nil) else { return }
+-        extraSection = s.map { (q, $0) }
++        let s = sections.filter { !$0.results.isEmpty }
++        guard s != (extraSections?.sections ?? []) else { return }
++        extraSections = s.isEmpty ? nil : (q, s)
+         runSearch(q)
+     }
+ 
+@@ -1311,7 +1453,7 @@
+         let gen = searchGeneration
+         stale.set(gen)
+         let snap = baseSnapshot, index = baseIndex
+-        let extras = q.isEmpty ? nil : extraSection.flatMap { $0.query == q ? $0.section : nil }
++        let extras = q.isEmpty ? [] : extraSections.flatMap { $0.query == q ? $0.sections : nil } ?? []
+         let existing = searchIndex
+         let stale = stale
+         let prerender = prerenderer()
+@@ -1323,25 +1465,25 @@
+             if let idx {
+                 guard var m = idx.matches(q, cancelled: { stale.get() != gen }) else { return }
+                 m = m.filter { snap.items[checked: $0].map(filterNow.includes) ?? false } // checked
+-                if let extras {
+-                    // The host's rows after the conversations, as summaries of their own.
++                // The host's sections after the conversations, each row a summary of its own.
++                var marks = SidebarSectionMarks()
++                for section in extras {
+                     let start = m.count
+-                    for r in extras.results {
++                    for r in section.results {
+                         var c = ConversationSummary(id: SidebarController.extraID(r.id), title: r.title, participants: [], avatar: r.avatar,
+-                                                    preview: r.subtitle, previewSender: nil, lastAt: .distantPast, unreadCount: 0,
++                                                    preview: r.subtitle, previewSender: nil, lastAt: r.date ?? .distantPast, unreadCount: 0,
+                                                     pinned: false, muted: false, typing: false, lastReaction: nil)
+-                        var h = Hasher(); h.combine(r.title); h.combine(r.subtitle); h.combine(r.avatar)
++                        var h = Hasher(); h.combine(r.title); h.combine(r.subtitle); h.combine(r.avatar); h.combine(r.date)
+                         c.version = h.finalize()
+                         guard !shownIndex.keys.contains(c.id) else { continue } // dictionary spelled apart from index subscripts
+                         shownIndex.updateValue(shown.items.count, forKey: c.id)
+                         m.append(shown.items.count)
+                         shown.items.append(c)
+                     }
+-                    list = RowList(pinned: [], rows: m, count: shown.items.count, searching: true)
+-                    if m.count > start { list.extraStart = start; list.extraTitle = extras.title }
+-                } else {
+-                    list = RowList(pinned: [], rows: m, count: snap.items.count, searching: true)
++                    if m.count > start { marks.marks.append(.init(start: start, title: section.title)) }
+                 }
++                list = RowList(pinned: [], rows: m, count: shown.items.count, searching: true)
++                list.sections = marks
+             } else {
+                 list = RowList.full(snap, index, filter: filterNow)
+             }
+@@ -1373,7 +1515,7 @@
          let cached = cache.keys
          let selected = windowActive ? highlightID : nil
          let clip = scrollView.contentView.bounds
@@ -492,7 +662,24 @@
          let m = ctx.metrics
          return { snap, list in
              func key(_ kind: SidebarBitmapKey.Kind, _ c: ConversationSummary) -> SidebarBitmapKey {
-@@ -1462,6 +1603,8 @@
+@@ -1384,13 +1526,9 @@
+             // position as the clip view will clamp it to the new document (a shorter result list
+             // pulls a scrolled clip up to its end), with tile()'s own row arithmetic.
+             let ph = m.pinnedHeight(count: list.pinned.count)
+-            let header = list.extraStart != nil ? SidebarController.sectionHeaderHeight : 0
+-            let docHeight = max(ph + CGFloat(list.rows.count) * rh + header + 8, clip.height)
+-            func position(_ y: CGFloat) -> CGFloat {
+-                var d = y - ph
+-                if let e = list.extraStart, d > CGFloat(e) * rh { d = max(CGFloat(e) * rh, d - header) }
+-                return d / rh
+-            }
++            let header = SidebarController.sectionHeaderHeight
++            let docHeight = max(ph + list.sections.top(of: list.rows.count, rowHeight: rh, headerHeight: header) + 8, clip.height)
++            func position(_ y: CGFloat) -> CGFloat { list.sections.position(y - ph, rowHeight: rh, headerHeight: header) }
+             var rows = Set<Int>()
+             for top in [0, min(clip.minY, docHeight - clip.height)] {
+                 // no trap on NaN or a huge position (CrashGuard.int).
+@@ -1462,6 +1600,8 @@
          case #selector(NSResponder.insertNewline(_:)):
              if highlightID.map({ position(of: $0) == nil }) ?? true { moveSelection(1) } // no force unwrap
              view.window?.makeFirstResponder(document)
@@ -501,7 +688,7 @@
              return true
          case #selector(NSResponder.cancelOperation(_:)):
              searchField.stringValue = ""
-@@ -1529,10 +1672,11 @@
+@@ -1529,10 +1669,11 @@
          guard p != palette || bellSecondary == nil else { return }
          palette = p
          bellSecondary = Self.bell(NSColor.secondaryLabelColor, view.effectiveAppearance, scale: renderContext.scale)
@@ -515,7 +702,7 @@
          invalidateAll()
      }
      private func colorsChanged() {  // no selector
-@@ -1541,10 +1685,24 @@
+@@ -1541,10 +1682,24 @@
          invalidateAll()
      }
      private func resolvePalette() -> SidebarPalette {
@@ -541,7 +728,17 @@
          guard active != windowActive else { return }
          windowActive = active
          CATransaction.begin(); CATransaction.setDisableActions(true)
-@@ -1634,7 +1792,7 @@
+@@ -1612,7 +1767,8 @@
+             e.setAccessibilityRole(.row)
+             var parts = [c.title]
+             if c.typing { parts.append(SidebarStrings.typing) } else { parts.append(SidebarStrings.preview(c)) }
+-            if !Self.isExtra(c.id) { parts.append(timeFormatter.string(c.lastAt, now: now())) }
++            // An extra row has a time only when the host gave one (a matching message's).
++            if !Self.isExtra(c.id) || c.lastAt != .distantPast { parts.append(timeFormatter.string(c.lastAt, now: now())) }
+             if c.unread { parts.append(String(format: SidebarStrings.unreadFormat, c.unreadCount)) }
+             if c.failed { parts.append(SidebarStrings.notDelivered) }
+             if c.muted { parts.append(SidebarStrings.muted) }
+@@ -1634,7 +1790,7 @@
      weak var controller: SidebarController?
      let id: ConversationID
      init(controller: SidebarController, id: ConversationID) { self.controller = controller; self.id = id; super.init() }
@@ -550,7 +747,7 @@
      override func isAccessibilityElement() -> Bool { true }
      /// On screen, from the list's own (flipped) geometry at the time of the call: a frame in
      /// parent space came out mirrored on the list's height (dogfood 2026-10-08: rows at y 28590).
-@@ -1650,6 +1808,8 @@
+@@ -1650,6 +1806,8 @@
      let content = CALayer()
      let time = CALayer()
      let separator = CALayer()
@@ -559,7 +756,7 @@
      private(set) var typing: SidebarTypingLayer?
      /// A pinned group tile's recent senders (small avatars at the avatar's edge).
      var senders: [CALayer] = []
-@@ -1662,12 +1822,15 @@
+@@ -1662,12 +1820,15 @@
      var shownText: CGImage?
      var avatarSpec: AvatarSpec?
      var avatarGeneration = -1
@@ -576,7 +773,7 @@
          content.contentsGravity = .topLeft
          time.contentsGravity = .topLeft
          avatar.contentsGravity = .resize
-@@ -1677,15 +1840,16 @@
+@@ -1677,15 +1838,16 @@
      required init?(coder: NSCoder) { fatalError() }
      /// Hands the typing bubble to the caller (it fades it out elsewhere); the row has none after.
      func detachTyping() -> SidebarTypingLayer? { let t = typing; typing = nil; return t }
@@ -595,7 +792,7 @@
      }
  }
  
-@@ -1734,7 +1898,13 @@
+@@ -1734,7 +1896,13 @@
          if let c = controller, c.swipeClick(at: point(event)) { return }
          guard let c = controller, let h = c.hit(point(event)), let s = c.summary(h) else { return } // a stale hit selects nothing
          c.highlight(s.id, reveal: false)
@@ -610,7 +807,7 @@
      }
      override func mouseDragged(with event: NSEvent) { controller?.tileDragMoved(to: point(event)) }
      override func mouseUp(with event: NSEvent) { controller?.tileDragEnded(at: point(event)) }
-@@ -1746,6 +1916,9 @@
+@@ -1746,6 +1914,9 @@
          default: interpretKeyEvents([event])
          }
      }
