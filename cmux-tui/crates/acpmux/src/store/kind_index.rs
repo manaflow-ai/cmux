@@ -464,7 +464,7 @@ impl LocalStore {
         let segments = self.segments(id)?;
         let start = self.segment_starts.start(id, &segments, after)?;
         let mut past = |rec: EventRecord| rec.seq <= after || visit(rec);
-        for (index, path) in &segments[start..] {
+        for (index, path) in segments.get(start..).unwrap_or_default() {
             if !self.scan_segment(id, *index, path, &scan, &mut past)? {
                 break;
             }
@@ -577,7 +577,7 @@ impl LocalStore {
         let copy = self.kind_index_path(id, index);
         crate::config::private_state_file(&copy).ok()?.read_to_end(&mut bytes).ok()?;
         let end = bytes.iter().position(|b| *b == b'\n')?;
-        let header: Header = serde_json::from_slice(&bytes[..end]).ok()?;
+        let header: Header = serde_json::from_slice(bytes.get(..end)?).ok()?;
         let id = segment.id;
         let mut lines = bytes.split_off(end.saturating_add(1));
         // Bytes past the lines the header covers are an addition a crash cut before its header.
