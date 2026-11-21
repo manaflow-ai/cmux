@@ -121,6 +121,7 @@ import {
   settlePendingDraftWrites,
   useDraftActionsVersion,
   writePersistedDraft,
+  writeTypedDraft,
 } from "./composerDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
 import { useT } from "./i18n";
@@ -721,6 +722,9 @@ function ComposerFrame({
   /// When the person last pressed an editing key, input text or composed: a field change soon
   /// after is theirs (typing), any other is applied from outside.
   const typedAt = useRef(Number.NEGATIVE_INFINITY);
+  // The text the person's own keys made last (`promptChange`): its write to acpmux waits for typing
+  // to pause (writeTypedDraft); text set any other way (a restore, a chip, a command) goes at once.
+  const typedText = useRef<string | undefined>(undefined);
   /// A value applied from outside (a draft, another chat's prompt, a restore, a send's clear): the
   /// key before it, if it changed nothing itself, does not make the applied change typing.
   const notTyped = () => {
@@ -1235,7 +1239,14 @@ function ComposerFrame({
     pendingCaret.current = initial.length;
   }, [sessionId, text, draft]);
   // The pane closes: what it queued for its chat still goes to acpmux, but no quit compares it again.
-  useEffect(() => () => forgetQueuedDraft(persistedSession.current), []);
+  useEffect(
+    () => () => {
+      forgetQueuedDraft(persistedSession.current);
+      // A draft still waiting for typing to pause (writeTypedDraft) goes as the composer goes.
+      flushPendingDraftWrites();
+    },
+    [],
+  );
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
   useKeptAttachments(
     sessionId,
@@ -1316,7 +1327,10 @@ function ComposerFrame({
       if (editedBeforeHydration.current) cachePersistedDraft(sessionId, text);
       return;
     }
-    writePersistedDraft(sessionId, text);
+    // Typing: one write to acpmux per pause, not per key (composerDraft.ts, cmux#48612).
+    if (typedText.current === text) writeTypedDraft(sessionId, text);
+    else writePersistedDraft(sessionId, text);
+    typedText.current = undefined;
   }, [sessionId, text]);
   useEffect(() => {
     if (sessionId || !onUnsentDraft) return;
@@ -2676,6 +2690,7 @@ function ComposerFrame({
       if (hydratedSession.current !== sessionId) editedBeforeHydration.current = true;
       // Kept past this mount: a composer that comes back keeps the person's text over acpmux's.
       noteDraftEdited(sessionId);
+      typedText.current = value;
       // One change per key: what the field does after it (normalizing) is not another.
       typedAt.current = Number.NEGATIVE_INFINITY;
       if (value.trim()) onTyping?.(value, sessionId);

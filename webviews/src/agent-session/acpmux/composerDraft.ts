@@ -136,7 +136,7 @@ const WRITE_TIMED_OUT = new Error("chat.writeDraft timed out");
 
 /** How long one draft write may go unanswered before it counts as failed, and how long after that
  * a web swap still waits in case it lands late (tests change them). */
-export const draftWriteLimits = { timeoutMs: Number.POSITIVE_INFINITY, lateHoldMs: 30_000 };
+export const draftWriteLimits = { timeoutMs: Number.POSITIVE_INFINITY, lateHoldMs: 30_000, typedIdleMs: 400 };
 
 // A write that timed out may still land later. Nothing newer goes through the same connection
 // until it answers, so it can never land over a newer draft or a clear, and nothing is replayed.
@@ -341,9 +341,50 @@ export function cachePersistedDraft(sessionId: string | undefined, text: string)
   }
 }
 
+// How long typing pauses before its draft goes to acpmux (`writeTypedDraft`,
+// `draftWriteLimits.typedIdleMs`): longer than the gap between two typed keys, so a burst of keys is
+// one write.
+let typedDraftTimer: ReturnType<typeof setTimeout> | undefined;
+
 /// Stores or clears an unsent prompt in the remount cache and daemon session state.
 export function writePersistedDraft(sessionId: string | undefined, text: string): void {
-  if (!sessionId?.trim()) return;
+  if (!queueDraftWrite(sessionId, text)) return;
+  flushPendingDraftWrites();
+}
+
+/**
+ * A key the person typed: the remount cache holds it at once and the write is queued as
+ * `writePersistedDraft` queues it, but it goes to acpmux once typing pauses (`draftWriteLimits.typedIdleMs`),
+ * not on every key (https://github.com/manaflow-ai/cmux/issues/48612). Each write made acpmux save
+ * the chat's meta, append it to its journal and re-date the chat's list row, so a fast typist cost
+ * acpmux, the app and every list one round each per key, on the same saturated cores the pane types
+ * on. The queued text is authoritative while it waits (`hasPendingDraftWrite`), and every path that
+ * must not lose it drains the queue now: a quit or web swap (`settlePendingDraftWrites`, the
+ * web-swap hold), a clear or send (`writePersistedDraft`), a switch of chat, the composer
+ * unmounting, and the page hiding.
+ */
+export function writeTypedDraft(sessionId: string | undefined, text: string): void {
+  if (!queueDraftWrite(sessionId, text)) return;
+  // A cleared prompt goes at once: a send's clear must land before anything after it.
+  if (!text || draftWriteLimits.typedIdleMs <= 0) return flushPendingDraftWrites();
+  if (typedDraftTimer !== undefined) clearTimeout(typedDraftTimer);
+  typedDraftTimer = setTimeout(() => {
+    typedDraftTimer = undefined;
+    flushPendingDraftWrites();
+  }, draftWriteLimits.typedIdleMs);
+}
+
+if (typeof document !== "undefined" && typeof window !== "undefined") {
+  // A page going away or hidden sends what it holds now, not after the pause.
+  const flushHidden = () => {
+    if (document.visibilityState === "hidden") flushPendingDraftWrites();
+  };
+  window.addEventListener("pagehide", () => flushPendingDraftWrites());
+  document.addEventListener("visibilitychange", flushHidden);
+}
+
+function queueDraftWrite(sessionId: string | undefined, text: string): sessionId is string {
+  if (!sessionId?.trim()) return false;
   cachePersistedDraft(sessionId, text);
   // Keep only the newest value per session. This preserves clear-after-type ordering when a
   // connection is down, without dropping the final clear or sending stale keystrokes on repair.
@@ -356,7 +397,7 @@ export function writePersistedDraft(sessionId: string | undefined, text: string)
   // A cleared draft is nothing to compare with: its entry goes, so the map holds only live drafts.
   if (text) lastQueuedDraft.set(sessionId, text);
   else lastQueuedDraft.delete(sessionId);
-  flushPendingDraftWrites();
+  return true;
 }
 
 /// Reads the daemon draft; a missing page action is expected in browser-only and test hosts.

@@ -480,9 +480,8 @@ test("a quit's read answers before the load's: the editor and acpmux both keep s
   // One more edit keeps "saved".
   await type("!");
   await until(() => prompt() === "saved\n\ntyped!", "the next edit");
-  await settle();
-  await settle();
-  expect(state.held).toBe("saved\n\ntyped!");
+  // Typed keys go to acpmux once typing pauses (composerDraft.ts writeTypedDraft).
+  await until(() => state.held === "saved\n\ntyped!", "the next edit's write");
 });
 
 test("a multi-megabyte saved draft merges and is written whole", () => {
@@ -590,9 +589,8 @@ test("a read asked before an edit's write was answered never puts the old draft 
   await act(async () => markdownField()!.type(""));
   await type("buy bread");
   await until(() => prompt() === "buy bread", "the edit");
-  await settle();
-  await settle();
-  expect(held).toBe("buy bread");
+  // Typed keys go to acpmux once typing pauses (composerDraft.ts writeTypedDraft).
+  await until(() => held === "buy bread", "the edit's write");
   for (const answer of late.splice(0)) await act(async () => answer());
   await settle();
   await settle();
@@ -612,9 +610,8 @@ test("a quit after a reconnect took another pane's draft never writes it over th
   await act(async () => markdownField()!.type(""));
   await type("A");
   await until(() => prompt() === "A", "the edit");
-  await settle();
-  await settle();
-  expect(state.held).toBe("A");
+  // Typed keys go to acpmux once typing pauses (composerDraft.ts writeTypedDraft).
+  await until(() => state.held === "A", "the edit's write");
   delete page().cmuxAcpmuxActions;
   await act(async () => notifyDraftActionsChanged());
   state.held = "B";
