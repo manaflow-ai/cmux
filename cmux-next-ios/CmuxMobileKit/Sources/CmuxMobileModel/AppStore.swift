@@ -174,6 +174,12 @@ public final class AppStore {
         teams[index].macs = macs
     }
 
+    /// The team's picked Mac (``Team/pickedMacID``), which stands for its computer in the lists.
+    public func setPickedMac(_ macID: String?, teamID: String) {
+        guard let index = teams.firstIndex(where: { $0.id == teamID }), teams[index].pickedMacID != macID else { return }
+        teams[index].pickedMacID = macID
+    }
+
     /// Replaces one Mac's workspaces, keeping the others.
     public func replaceWorkspaces(macID: String, with next: [Workspace]) {
         var next = next
@@ -449,6 +455,13 @@ public final class AppStore {
         let tab = workspaces[index].tabs.remove(at: from)
         workspaces[index].tabs.insert(tab, at: max(0, min(position, workspaces[index].tabs.count)))
         return from
+    }
+
+    /// Sets a workspace's pane layout (a drag on the Panes page, before the Mac lists it, or its rollback).
+    public func setLayout(_ layout: WorkspaceLayout?, in workspaceID: String) {
+        let workspaceID = resolvedWorkspaceID(workspaceID)
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
+        workspaces[index].layout = layout
     }
 
     /// Puts back a tab whose close the Mac refused, at its old position.

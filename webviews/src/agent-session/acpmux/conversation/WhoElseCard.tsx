@@ -5,7 +5,7 @@
 // this where like Claude sometimes decides to look up who else is working on stuff potentially".
 import { useContext, useId, useMemo } from "react";
 import type { AcpmuxActivity } from "../model";
-import { useT, type Translate } from "../i18n";
+import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { SubsessionContext } from "../subagents/subsessions";
 import { AgentTag } from "./AgentTag";
 import { useFindReveal } from "./chatFind";
@@ -16,13 +16,14 @@ import { resolveSessionRef } from "./sessionRefs";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { pullLabel, type WhoElseCall, type WhoElseSession } from "./whoElseCalls";
 import "./WhoElseCard.css";
-import { whatText } from "./whoElseCardModel";
+import { topicOnly, whatText } from "./whoElseCardModel";
 import { signed } from "../../../ui/Typography";
 
 /// Rows shown before "N more" opens the rest.
 const ROWS_SHOWN = 5;
 export function WhoElseCard({ item, call }: { item: AcpmuxActivity; call: WhoElseCall }) {
   const t = useT();
+  const language = usePaneLanguage();
   const listId = useId();
   const [open, setOpen] = useTranscriptDisclosure(`who-else:${item.tool?.id ?? item.text}`);
   useFindReveal(
@@ -30,16 +31,21 @@ export function WhoElseCard({ item, call }: { item: AcpmuxActivity; call: WhoEls
     () => setOpen(true),
   );
   const answer = call.answer;
+  // whole-list-ok: this tool call's own answer (the sessions acpmux named for it), not the app's session list
   const sessions = answer?.sessions ?? [];
   // Sessions acpmux left out of its answer (past its row cap) count in the line, but no row can
   // show them: "N more" opens only the rows the answer holds, and a note names the rest.
   const omitted = answer?.more ?? 0;
   const total = sessions.length + omitted;
+  // whole-list-ok: the answer's own few sessions (at most its row cap), read once per answer
+  const allTopicOnly = sessions.every(topicOnly);
   const line = call.pending
     ? t("whoElse.looking")
     : total === 0
       ? t("whoElse.none")
-      : t(total === 1 ? "whoElse.one" : "whoElse.many", { count: String(total) });
+      : omitted === 0 && allTopicOnly
+        ? t(total === 1 ? "whoElse.oneSimilar" : "whoElse.manySimilar", { count: String(total) })
+        : t(total === 1 ? "whoElse.one" : "whoElse.many", { count: String(total) });
   const shown = open ? sessions : sessions.slice(0, ROWS_SHOWN);
   const hidden = sessions.length - shown.length;
   return (
@@ -74,7 +80,11 @@ export function WhoElseCard({ item, call }: { item: AcpmuxActivity; call: WhoEls
         <div className="cv-who-else__note">{t("whoElse.omitted", { count: String(omitted) })}</div>
       )}
       {answer && answer.unreached.length > 0 && (
-        <div className="cv-who-else__note">{t("whoElse.unreached", { hosts: answer.unreached.join(", ") })}</div>
+        <div className="cv-who-else__note">
+          {t("whoElse.unreached", {
+            hosts: new Intl.ListFormat(language, { type: "conjunction" }).format(answer.unreached),
+          })}
+        </div>
       )}
     </div>
   );

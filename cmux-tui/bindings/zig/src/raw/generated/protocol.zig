@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8";
+pub const ir_sha256 = "9e23695456a61db1d4ae9aa726f4287919ff5a51a8c001cf11da3b30c1555dd2";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -5277,6 +5277,64 @@ pub fn cloudSessionStatus(client: anytype, request: CloudSessionStatusRequest) !
     );
 }
 
+pub const ComputerUseApprovalsRequest = struct {
+    action: []const u8,
+    answer: wire.Field([]const u8) = .absent,
+    app_id: wire.Field([]const u8) = .absent,
+    id: wire.Field(u64) = .absent,
+};
+
+pub const ComputerUseApprovalsResult = JsonValue;
+
+pub fn computerUseApprovals(client: anytype, request: ComputerUseApprovalsRequest) !wire.Decoded(ComputerUseApprovalsResult) {
+    return client.callTyped(
+        ComputerUseApprovalsResult,
+        .{
+            .name = "computer-use-approvals",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "computer-use-v1",
+        },
+        request,
+    );
+}
+
+pub const ComputerUseConfigRequest = struct {
+    config: wire.Nullable(JsonValue),
+};
+
+pub const ComputerUseConfigResult = JsonValue;
+
+pub fn computerUseConfig(client: anytype, request: ComputerUseConfigRequest) !wire.Decoded(ComputerUseConfigResult) {
+    return client.callTyped(
+        ComputerUseConfigResult,
+        .{
+            .name = "computer-use-config",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "computer-use-v1",
+        },
+        request,
+    );
+}
+
+pub const ComputerUseEndpointRequest = struct {};
+
+pub const ComputerUseEndpointResult = JsonValue;
+
+pub fn computerUseEndpoint(client: anytype, request: ComputerUseEndpointRequest) !wire.Decoded(ComputerUseEndpointResult) {
+    return client.callTyped(
+        ComputerUseEndpointResult,
+        .{
+            .name = "computer-use-endpoint",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "computer-use-v1",
+        },
+        request,
+    );
+}
+
 pub const ConversationAgentTokenRequest = struct {
     participant: []const u8,
 };
@@ -9209,6 +9267,7 @@ pub const SendRequest = struct {
     expect_agent: wire.Field(SendExpectAgent) = .absent,
     expect_foreground: wire.Field([]const u8) = .absent,
     flow: wire.Field(u64) = .absent,
+    key: wire.Field([]const u8) = .absent,
     paste: ?bool = null,
     submit: ?bool = null,
     surface: wire.Field(Id) = .absent,
@@ -9240,6 +9299,7 @@ pub fn send(client: anytype, request: SendRequest) !wire.Decoded(SendResult) {
             .fields = &.{
                 .{ .name = "expect_agent", .since = null, .capability = "send-expect-agent-v1" },
                 .{ .name = "expect_foreground", .since = null, .capability = "send-expect-foreground-v1" },
+                .{ .name = "key", .since = null, .capability = "send-key-v1" },
                 .{ .name = "paste", .since = 7, .capability = null },
                 .{ .name = "submit", .since = null, .capability = "send-expect-agent-v1" },
                 .{ .name = "terminal_id", .since = null, .capability = "terminal-input-while-creating-v1" },
@@ -12701,7 +12761,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 305;
+pub const command_count: usize = 308;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12769,6 +12829,9 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-session-clear", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-set", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-status", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
+    .{ .name = "computer-use-approvals", .authority = "local-admin", .since = 12, .capability = "computer-use-v1", .stream = null },
+    .{ .name = "computer-use-config", .authority = "local-admin", .since = 12, .capability = "computer-use-v1", .stream = null },
+    .{ .name = "computer-use-endpoint", .authority = "local-admin", .since = 12, .capability = "computer-use-v1", .stream = null },
     .{ .name = "conversation-agent-token", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-attachment-link", .authority = "local-admin", .since = 12, .capability = "ws-attachments-v1", .stream = null },
     .{ .name = "conversation-attachment-read", .authority = "local-admin", .since = 12, .capability = "local-attachments-v1", .stream = null },
