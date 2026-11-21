@@ -72,9 +72,7 @@ pub(super) fn scope(
         let presence = !guest
             && !is_member(author)
             && matches!(cmd.as_str(), "agent-session-typing" | "agent-session-view")
-            && mux
-                .control_clients
-                .supports_capability(client, super::AGENT_SESSION_PRESENCE_CAPABILITY);
+            && mux.control_clients.agent_sessions.proxy_presence(client);
         if !verbs.contains(&cmd.as_str()) && !presence {
             let refusal = if guest { Refusal::ScopeNotGranted } else { Refusal::NotTrusted };
             return Some(refuse(writer, object.remove("id"), refusal));
@@ -159,15 +157,8 @@ pub(super) fn bind(
     }
     let mut capabilities = vec!["agent-session-attach-v1", "agent-session-observe-v1"];
     if presence && !is_guest(&author) {
-        let presence_capability = super::AGENT_SESSION_PRESENCE_CAPABILITY;
-        if mux
-            .control_clients
-            .set_info(client, None, None, Some(vec![presence_capability.to_owned()]))
-            .is_err()
-        {
-            return refuse(writer, id, Refusal::NotTrusted);
-        }
-        capabilities.push(presence_capability);
+        mux.control_clients.agent_sessions.set_proxy_presence(client);
+        capabilities.push(super::AGENT_SESSION_PRESENCE_CAPABILITY);
     }
     // No host paths, session inventory or machine metadata in the handshake.
     ok(
