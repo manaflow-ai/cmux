@@ -189,6 +189,11 @@ head, below LOST_FAILOVER_MAX_ATTEMPT, unless a newer dispatch of its kind took
 its job (superseding_dispatch()). A run (e) cancels this sweep is excluded from it. An orphan at an open pull request's
 head, whatever its event, is skipped like every category's (open_pr_at_head()).
 
+Superseded pull request runs that never started are one more (find_superseded_queued): a pull_request run
+still `queued` with no job started after SUPERSEDED_QUEUED_AGE (30 min) whose pull request has moved to another
+head or closed is cancelled under its own cap. After the 2026-11-11 stall GitHub left 684 runs created during
+it queued with no jobs at all; no runner or concurrency group ever ends those.
+
 Superseded delivery runs are one more pass (skip_superseded_delivery): "When
 nightly runs for older commits are stuck waiting (queued for a runner or a
 gate), skip them and build from the tip: cancel the stale runs" (Leo,
@@ -253,6 +258,7 @@ from delivery_workflows import REPLACEMENT_JOB_READS, attempt_jobs, build_starte
 from delivery_workflows import delivers, is_delivery_event, is_delivery_workflow  # noqa: E402
 from delivery_workflows import newer_head_runs, superseded_unstarted  # noqa: E402
 from delivery_workflows import dev_publish_published, dev_publish_source, dev_publish_superseded  # noqa: E402
+from cron_concurrency import collapsible_run  # noqa: E402
 
 
 # CI_RUNNER_STATE is an optional, already-sanitized source published by the
@@ -287,6 +293,9 @@ MAX_JOB_PAGES = 3
 # 2026-10-30 queue needed), JOB_LISTING_WORKERS at a time: one at a time took 0.5 s a request, and
 # 1,100 of them would not fit the workflow's 10 minutes. Runs past the cap leave the listing truncated.
 MAX_JOB_LISTINGS = 2000
+# The read token's installation budget a sweep never spends below (GitHub.read_token_floor_reached()): the Linux runner
+# scaler mints JIT runners on the same glaeda-route installation and holds its own creates below 1,600 left.
+READ_TOKEN_FLOOR = 3000
 JOB_LISTING_WORKERS = 6
 GRAPHQL_BATCH = 25
 # A read that meets a 5xx or a dropped connection is made again after each of these delays (seconds),
@@ -918,6 +927,10 @@ POOL_SETTINGS_ENV = {
 # `gates_error`) as full for a job queued over 3 minutes. The snapshot itself can be a sweep interval old, so a
 # reading in it is often minutes old already; a workflow that can read ${{ vars.CI_FLEET_GATES }} gets it fresher.
 FLEET_GATES_VERSION = 1
+# The dashboard's reading versions this reader takes. Version 2 (cmuxterm-hq#16097, 2026-11-21) only adds a top-level
+# `disk` inventory beside `labels`, which this cut drops; refusing it left every glaeda label read as full from 05:00Z.
+# The cut below is still written as FLEET_GATES_VERSION, the shape the snapshot's readers know.
+FLEET_GATES_READ_VERSIONS = (1, 2)
 FLEET_GATES_STALE_S = 300
 FLEET_GATES_COUNTS = ("listening", "busy", "down", "unreported", "queued", "oldest_queued_s")
 FLEET_GATES_HELD = ("total", "units", "cpu", "livelock", "other")
@@ -935,8 +948,9 @@ def fleet_gates(raw: str | None) -> tuple[dict[str, Any] | None, str | None]:
         data = json.loads(raw or "")
     except ValueError as error:
         return None, f"CI_FLEET_GATES is not JSON ({error})"
-    if not isinstance(data, dict) or data.get("version") != FLEET_GATES_VERSION:
-        return None, f"CI_FLEET_GATES is not version {FLEET_GATES_VERSION}"
+    version = data.get("version") if isinstance(data, dict) else None
+    if isinstance(version, bool) or version not in FLEET_GATES_READ_VERSIONS:
+        return None, f"CI_FLEET_GATES is not a version this reader takes {FLEET_GATES_READ_VERSIONS}"
 
     def stamp(value: Any) -> str | None:
         when = parse_time(value) if isinstance(value, str) and value.endswith("Z") else None
@@ -3017,6 +3031,8 @@ class Orphan:
     running_jobs: int = 0
     # The lost job's id, for a re-run of that job alone (orphan_reruns()).
     job_id: int | None = None
+    # find_superseded_queued(): cancelled only once its pull request's head has moved on.
+    superseded_only: bool = False
 
 
 def find_orphans(
@@ -3079,6 +3095,69 @@ def find_orphans(
         if run.get("status") == "queued" and created is not None and now - created >= hard_age and not running:
             orphans.append(Orphan(run, f"run still queued after {format_age(now - created)}", None, created, 0))
     return orphans
+
+
+# --- superseded runs that never started -----------------------------------------------------------------------
+# After the 2026-11-11 20:17Z-21:38Z Actions stall, 684 runs created during it were still `queued` at 22:52Z
+# with no job at all: GitHub never materialized them, and no runner or concurrency group ever will. 195 of the
+# 642 short pull request check runs created in the stall (risk tier, PR body checks, thunderdome label, ...)
+# were among them. A newer run in the same cancel-in-progress group did not cancel them: 13 of the 25 stuck
+# thunderdome-label runs had a later run of their pull request finish. Before this pass they waited out
+# GHOST_QUEUED_RUN_AGE (a day). A pull_request run still `queued` with nothing started after
+# SUPERSEDED_QUEUED_AGE whose pull request has moved to another head (or closed) is cancelled now: its result
+# is for a commit nobody will merge. One at its open head is never touched (OPEN_HEAD_RULE).
+#
+# The same stall left 18 queue-janitor and 21 owned-pool-rescue runs queued with no job. A schedule or
+# workflow_run run of a cron or maintenance workflow (cron_concurrency.collapsible_run(): never a nightly, DEV,
+# promote, release or publish workflow, never one whose run handles one source run) is interchangeable with
+# its workflow's newer runs, so only the newest such run per workflow and branch is kept; the older ones are
+# cancelled, which is what the workflow's shared concurrency group does for runs GitHub did materialize.
+SUPERSEDED_QUEUED_AGE = dt.timedelta(minutes=30)
+SUPERSEDED_QUEUED_MAX_CANCELS = 30
+# Pull request branches the pass adds to the sweep's one batched pull request lookup, oldest run first.
+SUPERSEDED_QUEUED_BRANCHES = 40
+SUPERSEDED_PR_EVENTS = frozenset({"pull_request", "pull_request_target"})
+
+
+def find_superseded_queued(
+    runs: Sequence[Mapping[str, Any]],
+    jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
+    *,
+    now: dt.datetime,
+    orphans: Sequence[Orphan] = (),
+) -> list[Orphan]:
+    """Runs `queued` for SUPERSEDED_QUEUED_AGE with no job started (none listed, or all unassigned).
+
+    A pull_request run is a candidate: build_orphan_plan() cancels it only when its pull request's head has
+    moved on or the pull request is closed (lost_pr_state()). A cron or maintenance run
+    (cron_concurrency.collapsible_run()) is cancelled when a newer run of its workflow on its branch exists in
+    this sweep's inventory: the newest is always kept. A run find_orphans() already holds is left to it."""
+    held = {orphan.run["id"] for orphan in orphans}
+    newest: dict[tuple[str, str], int] = {}
+    for run in runs:
+        if collapsible_run(run.get("path"), run.get("event")):
+            key = (str(run.get("path") or ""), str(run.get("head_branch") or ""))
+            newest[key] = max(newest.get(key, 0), int(run["id"]))
+    found = []
+    for run in runs:
+        if run.get("status") != "queued" or run["id"] in held:
+            continue
+        collapsible = collapsible_run(run.get("path"), run.get("event"))
+        if run.get("event") not in SUPERSEDED_PR_EVENTS and not collapsible:
+            continue
+        created = parse_time(run.get("created_at"))
+        if created is None or now - created < SUPERSEDED_QUEUED_AGE:
+            continue
+        if any(not never_assigned(job) for job in jobs_by_run.get(run["id"]) or ()):
+            continue
+        evidence = f"run queued {format_age(now - created)} with nothing started"
+        if collapsible:
+            newer = newest[(str(run.get("path") or ""), str(run.get("head_branch") or ""))]
+            if newer == run["id"]:
+                continue
+            evidence += f"; newer run {newer} of its {run.get('event')} workflow does its work"
+        found.append(Orphan(run, evidence, None, created, 0, superseded_only=True))
+    return found
 
 
 def orphan_protected_reason(run: Mapping[str, Any]) -> str | None:
@@ -3440,9 +3519,20 @@ def orphan_branches(orphans: Iterable[Orphan], now: dt.datetime) -> list[str]:
     since a run at an open pull request's head is never cancelled whatever its
     event (open_pr_at_head()); a protected orphan is never cancelled anyway.
     """
-    return sorted({str(o.run["head_branch"]) for o in orphans
-                   if o.run.get("head_branch") and not left_to_github(o, now)
-                   and orphan_protected_reason(o.run) is None})
+    branches = {str(o.run["head_branch"]) for o in orphans
+                if o.run.get("head_branch") and not o.superseded_only and not left_to_github(o, now)
+                and orphan_protected_reason(o.run) is None}
+    # find_superseded_queued()'s pull request runs: the oldest SUPERSEDED_QUEUED_BRANCHES branches.
+    extra: list[str] = []
+    for orphan in sorted((o for o in orphans if o.superseded_only and o.run.get("event") in SUPERSEDED_PR_EVENTS
+                          and o.run.get("head_branch") and orphan_protected_reason(o.run) is None),
+                         key=lambda o: (o.queued_since or now, o.run["id"])):
+        branch = str(orphan.run["head_branch"])
+        if branch not in branches and branch not in extra:
+            if len(extra) >= SUPERSEDED_QUEUED_BRANCHES:
+                break
+            extra.append(branch)
+    return sorted(branches | set(extra))
 
 
 @dataclasses.dataclass
@@ -3469,6 +3559,9 @@ def build_orphan_plan(
     GHOST_GIVE_UP_AGE a ghost is left to GitHub and never tried again,
     unless it is protected: that row stays for the human it names.
     """
+    superseded = sorted((o for o in orphans if o.superseded_only and o.run["id"] not in exclude_ids),
+                        key=lambda o: (o.queued_since or now, o.run["id"]))
+    orphans = [o for o in orphans if not o.superseded_only]
     lost = sorted((o for o in orphans if o.job_name is not None and o.run["id"] not in exclude_ids),
                   key=lambda o: (o.queued_since or now, o.run["id"]))
     ghosts = sorted((o for o in orphans if o.job_name is None and o.run["id"] not in exclude_ids),
@@ -3514,6 +3607,60 @@ def build_orphan_plan(
             decisions.append(OrphanDecision(orphan, "skip", f"orphan cap of {max_cancels} reached"))
             continue
         decisions.append(OrphanDecision(orphan, "cancel"))
+        cancels += 1
+    decisions += superseded_queued_plan(superseded, prs_by_branch)
+    return decisions
+
+
+def pull_request_target_head(run: Mapping[str, Any]) -> str | None:
+    """The pull request head a pull_request_target run was made for: the one head its `pull_requests` list records,
+    or None when it records none or more than one (the run is then kept, never judged by its base-branch head_sha)."""
+    heads = {str((pr.get("head") or {}).get("sha") or "") for pr in run.get("pull_requests") or ()
+             if isinstance(pr, Mapping)}
+    heads.discard("")
+    return heads.pop() if len(heads) == 1 else None
+
+
+def superseded_queued_plan(candidates: Sequence[Orphan],
+                           prs_by_branch: Mapping[str, Sequence[Mapping[str, Any]]]) -> list[OrphanDecision]:
+    """Cancel find_superseded_queued()'s candidates whose pull request moved on, oldest first, under their own cap.
+
+    A run at an open head, one whose pull request could not be read or resolved, a protected one and one
+    labelled `no-janitor` are left out without a row: they are ordinary queued runs, not orphans."""
+    decisions: list[OrphanDecision] = []
+    cancels = 0
+    for orphan in candidates:
+        run = orphan.run
+        if orphan_protected_reason(run) is not None:
+            continue
+        if run.get("event") not in SUPERSEDED_PR_EVENTS:
+            # A collapsible cron or maintenance run with a newer run of its workflow (find_superseded_queued()).
+            if cancels >= SUPERSEDED_QUEUED_MAX_CANCELS:
+                decisions.append(OrphanDecision(orphan, "skip", f"superseded cap of {SUPERSEDED_QUEUED_MAX_CANCELS} "
+                                                                "reached"))
+                continue
+            decisions.append(OrphanDecision(orphan, "cancel"))
+            cancels += 1
+            continue
+        branch_prs = prs_by_branch.get(str(run.get("head_branch") or ""), ())
+        judged = run
+        if run.get("event") == "pull_request_target":
+            # Its head_sha can be the base branch's commit, never the pull request's head: judge it by the head it
+            # recorded for its pull request, and keep it when it recorded none (an unchanged open PR's only run).
+            head = pull_request_target_head(run)
+            if head is None:
+                continue
+            judged = {**run, "head_sha": head}
+        if open_pr_at_head(judged, branch_prs) is not None:
+            continue
+        state, pr, why = lost_pr_state({**judged, "event": "pull_request"}, branch_prs)
+        if state != "stale" or pr is None or JANITOR_OPT_OUT_LABEL in pr_labels(pr):
+            continue
+        if cancels >= SUPERSEDED_QUEUED_MAX_CANCELS:
+            decisions.append(OrphanDecision(orphan, "skip", f"superseded cap of {SUPERSEDED_QUEUED_MAX_CANCELS} "
+                                                            "reached"))
+            continue
+        decisions.append(OrphanDecision(dataclasses.replace(orphan, evidence=f"{orphan.evidence}; {why}"), "cancel"))
         cancels += 1
     return decisions
 
@@ -4318,8 +4465,9 @@ def render_orphan_summary(
         "### Orphaned runs",
         "",
         f"A job queued with no runner for {format_age(min_age)} while a newer job on its pool got one, or "
-        f"anything still queued after {format_age(max(GHOST_QUEUED_RUN_AGE, min_age))}. Cancelled whatever the "
-        "queue length, under their own cap.",
+        f"anything still queued after {format_age(max(GHOST_QUEUED_RUN_AGE, min_age))}, or a pull request run "
+        f"queued {format_age(SUPERSEDED_QUEUED_AGE)} with nothing started whose pull request has moved on. "
+        "Cancelled whatever the queue length, under their own caps.",
         "",
     ]
     if not decisions:
@@ -4464,6 +4612,8 @@ class GitHub:
         # Another App's token for the sweep's GET reads (READ_TOKEN, use_read_token()), or "": every request then
         # goes on `token`, as before.
         self.read_token = ""
+        # The read token's installation budget a sweep leaves for its other users (read_token_floor_reached()).
+        self.read_token_floor = 0
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -4479,6 +4629,20 @@ class GitHub:
         too) is made again on `token`, and the rest of the sweep reads there, as before this split."""
         if read_token and read_token not in (self._token, self.fallback_token):
             self.read_token = read_token
+
+    def read_token_floor_reached(self) -> bool:
+        """Whether the read token's installation has read_token_floor calls or fewer left this hour, as its newest
+        response said. That installation (glaeda-route, 164690637) also pays the Linux runner scaler's JIT creates:
+        at 23:10-23:18Z on 2026-11-20 one sweep listed 5,617 in-flight runs (about 57 run pages and its 2,000 job
+        listings) and left it at 872 of 5000, and at 00:24Z the scaler read 0 of 5000 with 396 lane-build and 200 gate
+        creates waiting. So under the floor the sweep stops (RateLimited, an infra skip) instead of spending the rest,
+        and it does not move those reads onto cmux-bot's installation either."""
+        limits = self.rate_limits.get("core (read token)")
+        if not self.read_token or not self.read_token_floor or not limits:
+            return False
+        if "reset" in limits and time.time() >= limits["reset"]:
+            return False
+        return limits["remaining"] <= self.read_token_floor
 
     def request(self, method: str, path: str, body: Any | None = None, *, app_only: bool = False) -> Any:
         """One API call. A read (GET, or a GraphQL query) that meets a 5xx or a dropped connection is
@@ -4507,6 +4671,14 @@ class GitHub:
             headers["Content-Type"] = "application/json"
         # A GET goes on the read token while there is one (use_read_token()); writes, GraphQL and app_only never do.
         read_token = self.read_token if method == "GET" and not app_only else ""
+        if read_token and self.read_token_floor_reached():
+            left = self.rate_limits["core (read token)"]["remaining"]
+            limited = RateLimited(f"{method} {path.split('?')[0]} not sent: the read token's installation has {left} "
+                                  f"calls left, at or under the {self.read_token_floor} the sweep leaves for the "
+                                  "runner scaler (READ_TOKEN_FLOOR)")
+            with self._count_lock:
+                self.rate_limited = self.rate_limited or str(limited)
+            raise limited
         if read_token:
             headers["Authorization"] = f"Bearer {read_token}"
         request = urllib.request.Request(API + path, data=data, headers=headers, method=method)
@@ -5066,6 +5238,10 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     # backed-up queue no longer drains the cmux-bot installation every other workflow and reconciler shares.
     if os.environ.get("READ_TOKEN") and hasattr(github, "use_read_token"):
         github.use_read_token(os.environ["READ_TOKEN"])
+        # READ_TOKEN_FLOOR: the calls an hour the sweep leaves on the read token's installation (glaeda-route), which
+        # the runner scaler's JIT creates and about 30 workflows' mints share (read_token_floor_reached()).
+        if hasattr(github, "read_token_floor"):
+            github.read_token_floor = env_int("READ_TOKEN_FLOOR", READ_TOKEN_FLOOR)
     now = utc_now()
     linux_only = linux_only_workflow_paths(args.workflows_dir)
     branch_linux_only = branch_linux_only_paths(args.branch_workflows)
@@ -5110,6 +5286,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         # Orphans read only what is already fetched; their PR branches join
         # the one batched GraphQL lookup for the no-janitor label.
         orphans = find_orphans(runs, jobs_by_run, min_age=orphan_age, now=now)
+        orphans += find_superseded_queued(runs, jobs_by_run, now=now, orphans=orphans)
         # A delivery run queued past GHOST_QUEUED_RUN_AGE has no listing (needs_jobs()); read a few of them here.
         delivery_jobs = dict(jobs_by_run)
         unlisted = sorted((r for r in runs if r["id"] not in jobs_by_run and r.get("status") in IN_FLIGHT_RUN_STATUSES

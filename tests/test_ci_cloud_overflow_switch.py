@@ -17,9 +17,12 @@ import yaml
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-# The watch's own bounded CI_TRUSTED_RUNNER selector: ephemeral labels only, never a probed size.
+# The watch's own selector: the repair one-job JIT label first (no Blacksmith minutes, and it keeps working while the
+# probed sizes stall), then its own bounded CI_TRUSTED_RUNNER pick: ephemeral labels only, never a probed size.
+REPAIR_LABEL = "cmux-gcp-repair-jit-x64"
 WATCH_SELECTOR = (
-    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+    "vars.CI_REPAIR_SKIP_FLEET != '1' && '" + REPAIR_LABEL + "' || contains(fromJSON('"
     '["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'
     "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}"
 )
@@ -1164,7 +1167,12 @@ class WorkflowTests(unittest.TestCase):
                   *switch.ALTERNATE_FAILOVERS.values(), "blacksmith-2vcpu-ubuntu-2404",
                   "blacksmith-8vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"}
         for value in sorted(values):
+            # The repair label leads, whatever CI_TRUSTED_RUNNER holds; CI_REPAIR_SKIP_FLEET=1 leaves the pick.
+            self.assertEqual(evaluate_runs_on(tree, {"github.repository_owner": "manaflow-ai",
+                                                     "vars.CI_REPAIR_SKIP_FLEET": "",
+                                                     "vars.CI_TRUSTED_RUNNER": value}), REPAIR_LABEL)
             label = evaluate_runs_on(tree, {"github.repository_owner": "manaflow-ai",
+                                            "vars.CI_REPAIR_SKIP_FLEET": "1",
                                             "vars.CI_TRUSTED_RUNNER": value})
             with self.subTest(CI_TRUSTED_RUNNER=value):
                 self.assertNotIn(label, switch.PROBE_LABELS)
@@ -1218,7 +1226,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("environment: ci-overflow-switch", self.text)
 
     def test_never_reads_a_lane_switch(self) -> None:
-        code = "\n".join(line for line in self.text.splitlines() if not line.lstrip().startswith("#"))
+        # The switch never reads or changes a lane switch. One exception, read-only and outside the switch: the
+        # pools step hands CI_OWNED_POOL_SLOTS to expected_wait.py, which judges an owned family's expected wait
+        # by its slots (cmuxterm-hq#16113 step 3) and never writes it.
+        [pools] = [step for step in yaml.safe_load(self.text)["jobs"]["watch"]["steps"] if step.get("id") == "pools"]
+        self.assertEqual(pools["env"].get("CI_OWNED_POOL_SLOTS"), "${{ vars.CI_OWNED_POOL_SLOTS }}")
+        slots_line = "          CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}"
+        self.assertEqual(self.text.splitlines().count(slots_line), 1)
+        code = "\n".join(line for line in self.text.splitlines()
+                         if not line.lstrip().startswith("#") and line != slots_line)
         for name in LANE_SWITCHES:
             self.assertNotIn(name, code)
 
@@ -1345,7 +1361,9 @@ class ReadTokenTests(unittest.TestCase):
                          {"permission-actions": "read"})
         self.assertTrue(mint["continue-on-error"])
         [step] = [s for s in steps if s.get("id") == "switch"]
-        self.assertEqual(step["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
+        # Under the cmux-bot budget floor the switch reads on the workflow token (scripts/ci/app_spend_mark.py).
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ steps.app-spend.outputs.low != 'true' && "
+                                                  "steps.cmux-bot-token.outputs.token || github.token }}")
         self.assertEqual(step["env"]["GH_FALLBACK_TOKEN"], "${{ github.token }}")
         self.assertEqual(step["env"]["SWITCH_TOKEN"], "${{ steps.switch-token.outputs.token }}")
         self.assertNotIn("GLAEDA_ROUTE", step["env"]["GH_TOKEN"])

@@ -636,8 +636,8 @@ def test_release_build_waits_for_linux_preflight_admission() -> None:
         " || github.event_name == 'pull_request'"
         " && github.event.pull_request.head.repo.full_name != github.repository"
         " && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
-        " && 'blacksmith-4vcpu-ubuntu-2404'"
-        " || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+        " && 'ubuntu-24.04'"
+        " || 'cmux-linux' }}"
     ) in admission
     assert 'TARGET_JOB: "linux-preflight"' in admission
     assert "actions/runs/{run_id}/jobs?filter=latest&per_page=100" in admission
@@ -938,7 +938,7 @@ def test_diff_failure_does_not_look_like_a_known_empty_standalone_diff() -> None
 def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
     jobs = yaml.safe_load(REMOTE_DAEMON_WORKFLOW.read_text())["jobs"]
     admission = jobs["remote-daemon-admission"]
-    assert "LINUX_RUNNER" in admission["runs-on"]
+    assert admission["runs-on"].endswith("'cmux-linux' }}")
     assert jobs["remote-daemon-macos-tests"]["needs"] == "remote-daemon-admission"
     script = admission["steps"][0]["run"]
     with tempfile.TemporaryDirectory() as directory:
@@ -5684,7 +5684,7 @@ def test_ci_status_requires_the_suite_coverage_gate() -> None:
     gate = workflow_job_block("suite-coverage")
     assert "needs.changes.outputs.coverage_gap == 'true'" in gate
     # A Linux job, so refusing a run never costs a macOS runner.
-    assert "vars.LINUX_RUNNER" in gate
+    assert "'cmux-linux' }}" in gate
     assert "exit 1" in gate
 
 

@@ -380,6 +380,7 @@
     "typingCodingAgents": "ភ្នាក់ងារសរសេរកូដ",
     "typingMultitasking": "ពហុកិច្ចការ",
     "subtitle": "កម្មវិធី macOS ដើមប្រភពកូដបើកចំហ និងឥតគិតថ្លៃ បង្កើតលើ Ghostty។ ផ្ទាំងបញ្ឈរ, រង្វង់ជូនដំណឹងពេល agent ត្រូវការការយកចិត្តទុកដាក់, បន្ទះបំបែក, និង <cliLink>CLI</cliLink> សម្រាប់ការសរសេរកម្មវិធី។",
+    "nextCallout": "ថ្មី៖ សាកល្បង <link>cmux NEXT</link> ដែលជាកំណែមើលជាមុននៃ cmux បន្ទាប់។",
     "features": "មុខងារ",
     "faq": "សំណួរញឹកញាប់",
     "communitySection": "សហគមន៍",
