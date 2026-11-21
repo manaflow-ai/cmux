@@ -10,6 +10,7 @@
 //! `set-secret` and `unset-secret` need none of this: `set_secrets` and `remove_secrets` change
 //! only the secrets they name, and the platform merges them.
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::daemon::Daemon;
@@ -40,7 +41,7 @@ pub(super) fn update(
         // A platform from before revisions answers none: then the change is sent without a
         // precondition, as before, and a concurrent change to the same array can still be lost.
         if let Some(revision) = current.get("revision").filter(|revision| revision.is_number()) {
-            patch["expected_revision"] = revision.clone();
+            patch.set("expected_revision", revision.clone());
         }
         match daemon.call("update", &json!({"id": id, "patch": patch})) {
             Err(failure) if failure.code == CONFLICT => {

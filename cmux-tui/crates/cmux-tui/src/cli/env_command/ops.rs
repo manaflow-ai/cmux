@@ -4,6 +4,7 @@
 
 use std::path::Path;
 
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 use zeroize::Zeroizing;
 
@@ -308,7 +309,7 @@ pub(super) fn execute(
                 )?;
             let mut params = json!({"repo": repo, "environment": id(&record)?});
             if let Some(git_ref) = git_ref.clone().or_else(|| text("ref")) {
-                params["ref"] = json!(git_ref);
+                params.set("ref", json!(git_ref));
             }
             let derived = daemon.call("derive", &params)?;
             Ok(logs(&record, &repo, &derived))
@@ -352,7 +353,12 @@ fn whole_files(record: &Value) -> Result<Vec<Value>, Failure> {
     }) {
         Ok(files
             .into_iter()
-            .map(|file| json!({"path": file["path"], "content": file["content"]}))
+            .map(|file| {
+                json!({
+                    "path": file.get("path").cloned().unwrap_or_default(),
+                    "content": file.get("content").cloned().unwrap_or_default(),
+                })
+            })
             .collect())
     } else {
         Err(Failure::new(

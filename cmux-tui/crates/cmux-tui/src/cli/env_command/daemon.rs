@@ -177,6 +177,21 @@ impl Daemon for Live {
     }
 }
 
+/// A session older than `cmux env` refuses its op: the one command that swaps that session for
+/// this CLI's build, keeping its terminals (plans/cmux-next/version-skew.md step 4).
+#[cfg(unix)]
+fn forbidden(message: &str) -> String {
+    format!(
+        "{message} (the cmux session is older than cmux env; restart it with this build: {})",
+        super::super::fix_command::restart_routed_daemon()
+    )
+}
+
+#[cfg(not(unix))]
+fn forbidden(message: &str) -> String {
+    format!("{message} (the cmux session is older than cmux env)")
+}
+
 /// The daemon's reply as the answer or a failure. Its messages are the daemon's own: it never
 /// forwards an upstream message (environments.rs `refused`).
 pub(super) fn answer(reply: Value) -> Result<Value, Failure> {
@@ -186,9 +201,7 @@ pub(super) fn answer(reply: Value) -> Result<Value, Failure> {
     let code = reply.get("error_code").and_then(Value::as_str).unwrap_or("env.failed");
     let message = reply.get("error").and_then(Value::as_str).unwrap_or("the cmux session refused");
     let message = match reply.get("reason").and_then(Value::as_str) {
-        Some("forbidden") => {
-            format!("{message} (update the cmux app: its session is older than cmux env)")
-        }
+        Some("forbidden") => forbidden(message),
         _ => message.to_owned(),
     };
     Err(Failure::new(code, message, 1))

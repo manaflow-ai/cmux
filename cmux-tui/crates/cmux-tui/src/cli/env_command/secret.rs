@@ -1,5 +1,6 @@
 //! `cmux env set-secret`: the one place a secret's value exists in `cmux env`.
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::daemon::{Daemon, wipe};
@@ -43,7 +44,7 @@ pub(super) fn set(
     }
     let mut entry = json!({"name": key, "value": value.as_str(), "hosts": hosts});
     if let Some(header) = header {
-        entry["header"] = header;
+        entry.set("header", header);
     }
     let mut params = json!({"id": id, "patch": {"set_secrets": [entry]}});
     let saved = daemon.call("update", &params);
