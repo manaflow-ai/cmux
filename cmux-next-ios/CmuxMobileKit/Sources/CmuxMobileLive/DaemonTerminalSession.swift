@@ -509,12 +509,6 @@ public final class DaemonTerminalSession: TerminalSession {
         tailProbe = nil
     }
 
-    /// An attach refused because the Mac does not know the surface (its
-    /// error says "unknown surface N"), not for a field it sent.
-    static func refusesSurface(_ error: String) -> Bool {
-        error.hasPrefix("unknown surface")
-    }
-
     /// Attaches again after a dropped link. A no-op while attached or
     /// attaching, before `start`, and after the surface ended.
     public func reconnect() {
@@ -729,32 +723,10 @@ public final class DaemonTerminalSession: TerminalSession {
             // One write: the client info (it opts into the size lease) and identify.
             var info: [String: Any] = clientInfo
             info["capabilities"] = Self.capabilities(agentCLIHybrid: hybridWanted)
-            var batch: [(cmd: String, params: [String: Any])] = [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
-            // A first attach on screen sends the grid the page measured with
-            // the attach, in the same write (TerminalAttachPlan): the Mac
-            // answers with the replay at that grid one round trip after the
-            // start instead of two. Its events wait from now on.
-            let plan = TerminalAttachPlan.plan(firstAttach: !everAttached && attachRetries == 0, claimsSize: claimsSize,
-                                               size: lastSize ?? pendingSize, resumes: hybridResume != nil)
-            if case .pipelined(let columns, let rows) = plan {
-                sizing.clear()
-                lastActivityNote = nil
-                heldEvents = []
-                var params: [String: Any] = ["surface": surface, "cols": columns, "rows": rows]
-                if let historyRows = historyAllowance { params["replay_history_rows"] = historyRows }
-                batch.append((cmd: "attach-surface", params: params))
-            }
-            let setup = await client.requests(batch)
-            let identify = try? setup[1].get()
-            // The pipelined attach's reply. A link that failed under it is a
-            // failed attach (the retry below); a refusal falls back to the
-            // attach in series, with what identify listed.
-            let pipelined: (reply: Data, columns: Int, rows: Int)?
-            if case .pipelined(let columns, let rows) = plan, setup.count > 2 {
-                pipelined = (try setup[2].get(), columns, rows)
-            } else {
-                pipelined = nil
-            }
+            let setup = await client.requests(
+                [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
+            )
+            let identify = try? setup.last?.get()
             // Hidden: attach without a size, so the attach claims none.
             let initialSize = claimsSize && (identify.map(Self.acceptsInitialSize) ?? false)
             shortLease = identify.map { Self.lists(Self.shortSizeLeaseCapability, $0) } ?? false
@@ -799,43 +771,19 @@ public final class DaemonTerminalSession: TerminalSession {
                 tailReplay = false
                 return try await send(historyRows: nil)
             }
-            // A pipelined attach refused for its surface ("unknown surface": a
-            // Mac host that just restarted) failed as an attach, not for its
-            // grid or fields: the attach in series would hear the same. It goes
-            // to the retry like any failed attach, one attach a try, keeping
-            // the last frame (termqa D3).
-            if let pipelined, let error = Self.error(in: pipelined.reply), Self.refusesSurface(error) {
-                throw LinkError(code: "attach", message: error)
-            }
-            // The Mac took the pipelined attach: its replay is already held.
-            let pipelinedReply = pipelined.flatMap { Self.error(in: $0.reply) == nil ? $0 : nil }
-            if pipelinedReply == nil {
-                sizing.clear()
-                lastActivityNote = nil
-                // The mirror is not reset yet: a reattach that fails (a Mac host
-                // that just restarted answers "unknown surface" for a moment) keeps
-                // the last frame on screen under the reconnecting badge, instead
-                // of a blank screen with an error line (termqa D3). The replay's
-                // events wait in `heldEvents` until the attach is confirmed.
-                heldEvents = []
-            }
+            sizing.clear()
+            lastActivityNote = nil
+            // The mirror is not reset yet: a reattach that fails (a Mac host
+            // that just restarted answers "unknown surface" for a moment) keeps
+            // the last frame on screen under the reconnecting badge, instead
+            // of a blank screen with an error line (termqa D3). The replay's
+            // events wait in `heldEvents` until the attach is confirmed.
+            heldEvents = []
             // With the size in the attach the Mac builds the replay at that size
             // once; attached first and resized after, it reset the mirror and
             // replayed the whole history a second time (user report 2026-10-14).
             var reply: Data
-            if let pipelined = pipelinedReply {
-                // The Mac took the attach with the phone's grid. A daemon that
-                // does not list attach-initial-size ignored the grid: the
-                // resize after the attach claims it, as an attach in series does.
-                // The grid went out on screen: a page hidden since still
-                // holds the size the attach carried, and releases it below.
-                reply = pipelined.reply
-                if identify.map(Self.acceptsInitialSize) ?? false {
-                    lastSize = lastSize ?? (pipelined.columns, pipelined.rows)
-                    attachedWithSize = (pipelined.columns, pipelined.rows)
-                    lastClaimAt = .now
-                }
-            } else if initialSize, everAttached, let size = lastSize ?? pendingSize, let overruled,
+            if initialSize, everAttached, let size = lastSize ?? pendingSize, let overruled,
                overruled.asked.columns == size.columns, overruled.asked.rows == size.rows,
                overruled.mac.columns <= size.columns, overruled.mac.rows <= size.rows {
                 // The Mac kept its own size for this request last time, and it
