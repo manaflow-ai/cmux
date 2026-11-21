@@ -29,6 +29,8 @@ mod dual;
 #[cfg(test)]
 #[path = "peer_dual_tests.rs"]
 mod dual_tests;
+#[cfg(feature = "hub-carrier")]
+pub(crate) use carrier::CREDENTIAL_UNAVAILABLE;
 pub(crate) use carriers::paired_install;
 #[path = "peer_carrier.rs"]
 mod carrier;

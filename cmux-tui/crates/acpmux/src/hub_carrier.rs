@@ -80,6 +80,8 @@ use cmux_remote::provider::{
     spawn_relay_daemon_registration,
 };
 use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
+
+use crate::protocol::peer_state::OfflineReason;
 use serde::Deserialize;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use url::Url;
@@ -336,6 +338,9 @@ pub struct HubCarrier {
     cmux_tui: RwLock<Option<Arc<dyn CmuxTuiGate>>>,
     /// Whether a circuit may reach this machine's own cmux-tui session daemon; none refuses it.
     session: RwLock<Option<Arc<dyn SessionGate>>>,
+    /// Why this machine's own registration cannot heal by retrying alone, while it cannot
+    /// (`credential-unavailable`: no Register ticket comes). [`Self::serve_reason`].
+    serve_reason: RwLock<Option<OfflineReason>>,
 }
 
 impl std::fmt::Debug for HubCarrier {
@@ -362,6 +367,7 @@ impl HubCarrier {
             key_check: None,
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            serve_reason: RwLock::new(None),
         })
     }
 
@@ -386,6 +392,7 @@ impl HubCarrier {
             key_check: Some(check),
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            serve_reason: RwLock::new(None),
         })
     }
 
@@ -439,6 +446,27 @@ impl HubCarrier {
         &self.stats
     }
 
+    /// Why this machine cannot be reached through the carrier and will not be until something
+    /// changes (`credential-unavailable` while no Register ticket comes), or None. Registering
+    /// goes on behind it; `_acpmux/machine_routes` carries it as `carrierReason`.
+    pub fn serve_reason(&self) -> Option<OfflineReason> {
+        *self.serve_reason.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn set_serve_reason(&self, reason: Option<OfflineReason>) {
+        let mut held = self.serve_reason.write().unwrap_or_else(|e| e.into_inner());
+        if *held != reason {
+            match reason {
+                Some(reason) => tracing::warn!(
+                    "hub carrier: {}: no Register ticket; registering goes on behind it",
+                    reason.as_str()
+                ),
+                None => tracing::info!("hub carrier: registered"),
+            }
+        }
+        *held = reason;
+    }
+
     /// Reach peer `name` at the machine whose hub `daemonId` is `daemon`.
     pub fn set_route(&self, name: &str, daemon: &str) {
         self.routes.lock().unwrap_or_else(|e| e.into_inner()).insert(name.into(), daemon.into());
@@ -484,7 +512,11 @@ impl HubCarrier {
         if !self.key_current() {
             return Err("the node key was replaced; this carrier is stopped".into());
         }
-        let answer = self.tickets.connect(daemon).await?;
+        // No ticket is `credential-unavailable` on the peer's link (`peer_carrier::reason`).
+        let answer =
+            self.tickets.connect(daemon).await.map_err(|e| {
+                format!("{} no relay ticket: {e}", crate::peer::CREDENTIAL_UNAVAILABLE)
+            })?;
         let pinned = key_bytes(answer.peer_key.as_deref().ok_or("the hub named no key to pin")?)
             .ok_or("the hub's peer key is not 32 bytes of base64")?;
         if pinned != key_bytes(daemon).unwrap_or(pinned) {
@@ -621,6 +653,7 @@ impl HubCarrier {
             match self.tickets.register().await {
                 Ok(answer) => break answer,
                 Err(e) => {
+                    self.set_serve_reason(Some(OfflineReason::CredentialUnavailable));
                     // The first refusal is the start's answer, a warn. The later ones say at info
                     // where the asking stands, at most once per `REFUSAL_SAID_EVERY`.
                     let now = tokio::time::Instant::now();
@@ -698,13 +731,23 @@ impl HubCarrier {
         tracing::info!("hub carrier: serving on the relay as {}", self.identity().fingerprint());
         // Held until this task is aborted ([`HubServe`]'s drop) or the key is replaced, which
         // drops it and unregisters.
+        let mut state = registration.state();
         let _registration = registration;
         let mut every = tokio::time::interval(self.timings.key_check);
         every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // False once the registration's task ended (only at shutdown, which the drop does).
+        let mut reporting = true;
         loop {
+            let reason =
+                state.borrow_and_update().reason().map(|_| OfflineReason::CredentialUnavailable);
+            self.set_serve_reason(reason);
             tokio::select! {
                 _ = every.tick() => {}
                 () = self.rekeyed.notified() => {}
+                changed = state.changed(), if reporting => {
+                    reporting = changed.is_ok();
+                    continue;
+                }
             }
             if self.generation.load(Ordering::SeqCst) != generation {
                 return;

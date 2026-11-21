@@ -1756,6 +1756,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-deadline"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-device-kind"
 version = "0.1.0"
 dependencies = [
@@ -2264,6 +2272,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-identity",
+ "cmux-deadline",
  "cmux-json",
  "cmux-link",
  "cmux-netwatch",
