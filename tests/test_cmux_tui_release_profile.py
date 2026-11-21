@@ -66,7 +66,7 @@ MACHINE_PREFIX = "machine-channel-"
 PROFILES_PATH = ROOT / "scripts/cmux-next/cmux-tui-build-profiles.json"
 PROFILE_REF = re.compile(r"fromJSON\(needs\.tree-preflight\.outputs\.build_profiles\)\.([a-z_]+)\.([a-z_]+)")
 # The build-package inputs that decide what a tree build makes.
-BUILD_DEFINING = ("lto", "target_set", "artifact_prefix", "include_windows", "windows_acpmux")
+BUILD_DEFINING = ("lto", "target_set", "artifact_prefix", "include_windows", "windows_acpmux", "build_cmux_rd")
 
 
 def workflow(path):

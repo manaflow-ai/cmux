@@ -1184,6 +1184,7 @@
               "agentPane.display.thinking.shimmerBand",
               "agentPane.display.thinking.jumpButton",
               "agentPane.needsYou.enabled",
+              "agentPane.display.finishSound",
               "agentPane.showMachineLoadWarnings"
             ],
             "title" : {
@@ -1307,7 +1308,6 @@
           {
             "key" : "settings.group.agentChat",
             "rows" : [
-              "agentPane.display.finishSound",
               "agentPane.newChatsIn",
               "agents.defaultPermissionMode",
               "agents.promptCache",
