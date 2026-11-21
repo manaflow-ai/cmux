@@ -7,7 +7,18 @@
 //! The refusal is a usage error (exit 2) with `data.reason` `usage.unknown_flag`, `data.flag`,
 //! `data.command`, `data.takenBy` (the commands that take the flag) and `data.try` (a command to
 //! run instead), and the message ends with that command, as the daemon's refusals do
-//! (`server/remote_guard/hint.rs`). A flag no command takes keeps clap's own error.
+//! (`server/remote_guard/hint.rs`).
+//!
+//! A flag that is one of this command's own flags in another case convention (`--no_wait`,
+//! `--noWait`, `--NO-WAIT` for `--no-wait`) is read as that flag and the call runs, with one line
+//! on stderr naming the spelling it took, so the caller learns the real name (`repair`). Case and
+//! separators are the only thing that folds: two flags whose meanings differ are never aliased,
+//! and a spelling that several real flags answer to is refused naming each, never guessed.
+//!
+//! A flag no command takes and no fold reaches is refused by name, with this command's help, and
+//! never with a nearest spelling: clap's own tip for `acpmux send --file` was `--title`, an
+//! unrelated flag (Leo, 2026-11-21: "a wrong match is worse than an honest miss"). Only a fold or
+//! a declared alias may point at a flag; anything else gets the usage.
 
 use crate::cli::errors::{AppError, Code};
 use crate::harness_health::channel::quote;
@@ -52,7 +63,21 @@ pub(crate) fn explain(
         .map(clap::Command::get_name)
         .collect();
     if taken_by.is_empty() {
-        return None;
+        // No command takes it and no fold reached it: name the flag and give this command's
+        // help. Never a nearest spelling, which sent a caller at `--title` for `--file`.
+        let flag = format!("--{long}");
+        let try_command = format!("{program} {name} --help");
+        let message = format!(
+            "{name} takes no {flag}, and no command does.              {try_command} lists the flags {name} takes. Try: {try_command}"
+        );
+        let data = json!({
+            "reason": "usage.unknown_flag",
+            "flag": flag,
+            "command": name,
+            "takenBy": Vec::<&str>::new(),
+            "try": try_command,
+        });
+        return Some(AppError::new(Code::Usage, "unknown_flag", message).with_data(data));
     }
     let takers = taken_by
         .iter()
@@ -92,6 +117,109 @@ pub(crate) fn explain(
         "try": try_command,
     });
     Some(AppError::new(Code::Usage, "unknown_flag", message).with_data(data))
+}
+
+/// At most this many spellings are read in one call, so a repair can never loop.
+pub(crate) const REPAIRS: usize = 8;
+
+/// What `repair` found for one unknown flag.
+pub(crate) enum Repair {
+    /// The spelling is one real flag's, in another case convention: `argv` has it canonical.
+    Took { argv: Vec<OsString>, given: String, canonical: String },
+    /// Several real flags answer to the spelling: which was meant is refused, never picked.
+    Ambiguous(Box<AppError>),
+}
+
+/// How flag spellings are compared: case and separators carry no meaning, so `--no_wait`,
+/// `--noWait` and `--NO-WAIT` all fold to `nowait`. Nothing else folds. A fold is the whole
+/// name, never a prefix or an edit distance, so it cannot reach a flag the caller did not
+/// spell: `--file` folds to `file` and reaches neither `--attach` nor `--title`.
+fn fold(long: &str) -> String {
+    long.chars().filter(|c| *c != '-' && *c != '_').flat_map(char::to_lowercase).collect()
+}
+
+/// The command `argv` names (its command word at `at`), following nested command words.
+fn leaf<'c>(cli: &'c clap::Command, words: &[String], at: usize) -> Option<&'c clap::Command> {
+    let mut command = cli.find_subcommand(words.get(at)?)?;
+    let mut i = at + 1;
+    while let Some(next) = words.get(i).and_then(|w| command.find_subcommand(w)) {
+        command = next;
+        i += 1;
+    }
+    Some(command)
+}
+
+/// Clap's error `e` reread: when the unknown long flag is one of this command's own flags in
+/// another case convention, the argv to run instead, so the call the caller meant works. `None`
+/// when no fold reaches a real flag, which leaves the refusal to `explain`.
+///
+/// Only a whole-name fold counts. A spelling two distinct flags answer to is `Ambiguous`:
+/// picking one of two real flags for the caller would be far worse than the wasted call.
+pub(crate) fn repair(
+    e: &clap::Error,
+    cli: &clap::Command,
+    argv: &[OsString],
+    at: usize,
+    program: &str,
+) -> Option<Repair> {
+    if e.kind() != ErrorKind::UnknownArgument {
+        return None;
+    }
+    let Some(ContextValue::String(given)) = e.get(ContextKind::InvalidArg) else {
+        return None;
+    };
+    // A short flag has no case convention to read.
+    let token = given.split('=').next().unwrap_or(given);
+    let long = token.strip_prefix("--").filter(|l| !l.is_empty())?;
+    let words: Vec<String> = argv.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let command = leaf(cli, &words, at)?;
+    let want = fold(long);
+    // This command's own flags and the global ones, by name or declared alias, one hit per flag.
+    let mut hits: Vec<(&str, &str)> = Vec::new();
+    for arg in command.get_arguments().chain(cli.get_arguments()) {
+        let Some(canonical) = arg.get_long() else { continue };
+        let id = arg.get_id().as_str();
+        let folds = fold(canonical) == want
+            || arg.get_all_aliases().is_some_and(|all| all.iter().any(|a| fold(a) == want));
+        if folds && !hits.iter().any(|(seen, _)| *seen == id) {
+            hits.push((id, canonical));
+        }
+    }
+    let name = command.get_name();
+    if hits.len() > 1 {
+        let flags =
+            hits.iter().map(|(_, long)| format!("`--{long}`")).collect::<Vec<_>>().join(", ");
+        let try_command = format!("{program} {name} --help");
+        let message = format!(
+            "--{long} is the spelling of {} flags {name} takes ({flags}), whose meanings differ, \
+             so which you meant is not guessed. Name one. Try: {try_command}",
+            hits.len()
+        );
+        let data = json!({
+            "reason": "usage.ambiguous_flag",
+            "flag": format!("--{long}"),
+            "command": name,
+            "couldBe": hits.iter().map(|(_, l)| format!("--{l}")).collect::<Vec<_>>(),
+            "try": try_command,
+        });
+        let refusal = AppError::new(Code::Usage, "ambiguous_flag", message).with_data(data);
+        return Some(Repair::Ambiguous(Box::new(refusal)));
+    }
+    let (_, canonical) = *hits.first()?;
+    // Already the real spelling: clap refused it for another reason than its name.
+    if canonical == long {
+        return None;
+    }
+    let was = format!("--{long}");
+    let now = format!("--{canonical}");
+    let mut next = argv.to_vec();
+    let at_token = next.iter().position(|a| *a == OsString::from(given))?;
+    // `--flag=value` keeps its value.
+    next[at_token] = match given.split_once('=') {
+        Some((_, value)) => OsString::from(format!("{now}={value}")),
+        None => OsString::from(&now),
+    };
+    Some(Repair::Took { argv: next, given: was, canonical: now })
 }
 
 /// `send`'s words `rest` with `--prompt-file FILE` taken out and the file read on stdin:
