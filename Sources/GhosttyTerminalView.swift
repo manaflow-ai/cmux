@@ -12163,10 +12163,8 @@ final class GhosttySurfaceScrollView: NSView {
     func showPasteFailureNotice(_ notice: TerminalPasteFailureNotice) {
         pasteFailureNoticePresenter.show(notice, over: self)
     }
-    private func makeSearchOverlayRootView(
-        terminalSurface: TerminalSurface,
-        searchState: TerminalSurface.SearchState
-    ) -> SurfaceSearchOverlayRoot {
+    private func makeSearchOverlayRootView(terminalSurface: TerminalSurface, searchState: TerminalSurface.SearchState)
+        -> SurfaceSearchOverlayRoot {
         SurfaceSearchOverlay(
             tabId: terminalSurface.tabId,
             surfaceId: terminalSurface.id,
@@ -12185,7 +12183,8 @@ final class GhosttySurfaceScrollView: NSView {
             onClose: { [weak self, weak terminalSurface] in
                 terminalSurface?.closeSearchFromExplicitInput()
                 self?.moveFocus()
-            }
+            },
+            fullHistorySearch: makeRemoteTmuxFullHistorySearch(terminalSurface: terminalSurface, searchState: searchState)
         )
         .cmuxAccentColorEnvironment()
     }

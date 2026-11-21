@@ -10,6 +10,9 @@ enum RemoteTmuxControlCommandKind: Equatable {
     case paneOutputReset(Int, UUID)
     case paneOutputContinue(Int, UUID)
     case capturePane(Int, UUID)
+    /// One bounded range of history rows read ahead of a full-history seed's
+    /// screen capture (see ``RemoteTmuxPaneHistoryPlan``).
+    case capturePaneHistory(Int, UUID)
     case paneState(Int, UUID)
     case panePath(Int)
     case paneReflow(Int)
