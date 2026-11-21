@@ -315,3 +315,17 @@ test("nothing torn while a redraw is pending: fold, follow and the streamed text
   // Each commit is one snapshot whole: its seq and its row count agree.
   for (const commit of pane.commits) expect(commit.rows).toBe(commit.seq === 2 ? 302 : 301);
 });
+
+test("a turn that starts or ends, or a link that drops, draws at once; a streamed reply does not", async () => {
+  const { drawsAtOnce } = await import("../src/agent-session/acpmux/paneSnapshotLane");
+  const idle = chat(10, [row("reply", "assistant", "Done.")], { isWorking: false });
+  const working = chat(10, [row("reply", "assistant", "Done.")], { isWorking: true });
+  expect(drawsAtOnce(idle, working), "the turn starts: the composer offers Stop at once").toBe(true);
+  expect(drawsAtOnce(working, idle), "the turn ends: the composer offers Send at once").toBe(true);
+  expect(
+    drawsAtOnce(working, { ...working, connection: "disconnected" } as AcpmuxSnapshot),
+    "the link drops: the line above the composer says so at once",
+  ).toBe(true);
+  const grown = chat(10, [row("reply", "assistant", "Done. More")], { isWorking: true });
+  expect(drawsAtOnce(working, grown), "a reply that grows mid-turn is a transition").toBe(false);
+});

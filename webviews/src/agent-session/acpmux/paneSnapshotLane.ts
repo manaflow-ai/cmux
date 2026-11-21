@@ -22,6 +22,7 @@
 // message must not leave the composer a frame before the transcript shows it.
 import { startTransition } from "react";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
+import { turnPhase } from "./turnPhase";
 
 /// The id of the last row the person wrote, scanning back from the end (a sent prompt is appended
 /// there, so this reads a few rows, not the chat).
@@ -58,6 +59,10 @@ export function drawsAtOnce(drawn: AcpmuxSnapshot | undefined, next: AcpmuxSnaps
   if (!sameList(drawn.waitingSteers, next.waitingSteers) || drawn.newestOwnSteer !== next.newestOwnSteer) return true;
   // A stop the person asked for.
   if (drawn.stopping !== next.stopping) return true;
+  // The turn starts or ends, or the link goes up or down: the composer's Send and Stop and the
+  // line above it follow the turn's phase, and a deferred phase lets the composer's own state move
+  // its buttons a frame before the snapshot that matches them (agentStart.gallery.ts slow-start).
+  if (turnPhase(drawn) !== turnPhase(next)) return true;
   return false;
 }
 
