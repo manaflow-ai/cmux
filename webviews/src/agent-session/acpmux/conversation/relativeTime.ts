@@ -58,10 +58,10 @@ const EXACT: Intl.DateTimeFormatOptions = {
 /// `at` as Claude's hover tooltip writes it, in `locale`.
 export function exactTime(at: number, locale?: string): string {
   try {
-    return new Date(at).toLocaleString(locale, EXACT);
+    return intl.DateTimeFormat(locale, EXACT).format(at);
   } catch {
     // A language tag Intl does not take: the system's.
-    return new Date(at).toLocaleString(undefined, EXACT);
+    return intl.DateTimeFormat(undefined, EXACT).format(at);
   }
 }
 
@@ -71,9 +71,9 @@ export function replyTime(at: number, now: number, locale?: string): string {
   const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
   const fields: Intl.DateTimeFormatOptions = sameYear ? { ...EXACT, year: undefined } : EXACT;
   try {
-    return new Date(at).toLocaleString(locale, fields);
+    return intl.DateTimeFormat(locale, fields).format(at);
   } catch {
-    return new Date(at).toLocaleString(undefined, fields);
+    return intl.DateTimeFormat(undefined, fields).format(at);
   }
 }
 
@@ -127,9 +127,9 @@ function messageDate(at: number, now: number, locale?: string): string {
   const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
   const fields: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: sameYear ? undefined : "numeric" };
   try {
-    return new Date(at).toLocaleDateString(locale, fields);
+    return intl.DateTimeFormat(locale, fields).format(at);
   } catch {
-    return new Date(at).toLocaleDateString(undefined, fields);
+    return intl.DateTimeFormat(undefined, fields).format(at);
   }
 }
 

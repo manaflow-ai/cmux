@@ -7,10 +7,9 @@
 // `new Intl.NumberFormat(locale, options)`; the perf-footguns lint rule `cmux-perf/no-intl-construct`
 // points here.
 //
-// A formatter made without an explicit `timeZone` keeps the zone it was made in, so the whole cache is
-// dropped once a minute: a zone or language change shows within a minute, and the cache stays small.
-// A call with no arguments at all (`new Intl.DateTimeFormat().resolvedOptions()`, which reads the
-// current defaults) should stay a constructor.
+// A formatter made without an explicit locale or `timeZone` keeps the defaults it was made with, so the
+// whole cache is dropped once a minute: a zone or language change shows within a minute, and the cache
+// stays small. `intl.DateTimeFormat().resolvedOptions()` reads the current defaults the same way.
 
 const EPOCH_MS = 60_000;
 const LIMIT = 512;
@@ -50,6 +49,8 @@ export const intl = {
     cached("Collator", locales, options, () => new Intl.Collator(locales as string[], options)),
   Segmenter: (locales?: Locales, options?: Intl.SegmenterOptions): Intl.Segmenter =>
     cached("Segmenter", locales, options, () => new Intl.Segmenter(locales as string[], options)),
+  DisplayNames: (locales: Locales, options: Intl.DisplayNamesOptions): Intl.DisplayNames =>
+    cached("DisplayNames", locales, options, () => new Intl.DisplayNames(locales as string[], options)),
 };
 
 /** Tests only: start from an empty cache. */

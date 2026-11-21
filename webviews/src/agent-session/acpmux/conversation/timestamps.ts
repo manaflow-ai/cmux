@@ -61,7 +61,7 @@ function dayNumber(ms: number, timeZone?: string) {
 /// The line as text: "Sun, Sep 13 at 7:55 PM", "Yesterday 8:16 PM".
 export function timestampText(ms: number, clock: Clock): string {
   const { timeZone } = clock;
-  const locale = clock.locale ?? new Intl.DateTimeFormat().resolvedOptions().locale;
+  const locale = clock.locale ?? intl.DateTimeFormat().resolvedOptions().locale;
   const days = Math.max(dayNumber(clock.now, timeZone) - dayNumber(ms, timeZone), 0);
   const format = (options: Intl.DateTimeFormatOptions) =>
     intl.DateTimeFormat(locale, { timeZone, ...options }).format(ms);

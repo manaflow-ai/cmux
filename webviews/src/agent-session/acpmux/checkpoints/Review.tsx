@@ -60,7 +60,7 @@ export function CheckpointReview({
     if (code === "over_limit" || code === "too_large" || code === "file_too_large") return s.tooLarge;
     return s.unavailableFile;
   };
-  const count = (value: number) => new Intl.NumberFormat().format(value);
+  const count = (value: number) => intl.NumberFormat().format(value);
   const date = (value: string) => {
     const timestamp = new Date(value);
     return Number.isFinite(timestamp.getTime())
