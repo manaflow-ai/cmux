@@ -282,6 +282,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::ProcessListParams>(method::MUX_PROCESS_LIST, Request),
         keyed::<params::ProcessTailParams>(method::MUX_PROCESS_TAIL, Request),
         keyed::<params::ProcessKillParams>(method::MUX_PROCESS_KILL, Request),
+        untyped(method::MUX_PROCESS_CENSUS, Request),
         untyped(method::MUX_BG_START, Request),
         untyped(method::MUX_BG_LIST, Request),
         untyped(method::MUX_BG_OUTPUT, Request),
