@@ -20,6 +20,8 @@
 #   hosts <sha> <ghostty-sha> [version]  cmux-app-host, cmux-browser-host, cmux-cloud and the
 #                                  agent screen-detection plugin for both macOS targets
 #   acpmux                          focused feature-enabled acpmux link for both targets
+#   link-check                     dev-profile link of the daemon family (every bin that links the
+#                                  framework stubs); the PR-time check (macos-cross-link.yml)
 #   bins <sha> <ghostty-sha> <version>  cmux-tui, cmux-tui-hook, cmux-tui-host, cmux-holder, acpmux, cmux-relay, chatmux-relay
 #                                  (framework stubs) for both macOS targets
 #   all <sha> <ghostty-sha> <version>   hosts and bins, every cargo invocation at once
@@ -270,6 +272,29 @@ cmd_acpmux() {
   done
 }
 
+# The PR-time link check (.github/workflows/macos-cross-link.yml): the daemon family
+# (BIN_NAMES, the binaries that link the framework stubs) in the dev profile, so a
+# symbol or framework a change newly imports fails here instead of at publish. ld64.lld
+# binds every import of a live section, and rustc passes -dead_strip in every profile,
+# so a missing stub symbol is "undefined symbol" here as in the release link. The dev
+# profile skips the release link's LTO, the long part of a publish leg.
+cmd_link_check() {
+  [[ -f "$SYSROOT/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd" ]] \
+    || die "no framework stubs in $SYSROOT; run the toolchain command first"
+  export CARGO_TARGET_DIR="${XC_CARGO_TARGET_DIR:-$XC_ROOT/target-link-check}" CARGO_PROFILE_DEV_DEBUG=0
+  unset CMUX_GHOSTTY_SRC
+  for t in "${TARGETS[@]}"; do
+    use_target "$t" "${MIN_OS[$t]}"
+    local start; start=$(date +%s)
+    (cd "$repo_root/cmux-tui"
+      cargo build --locked --target "$t" -p cmux-tui --bin cmux-tui --bin cmux-tui-hook \
+        -p cmux-relay --bin cmux-relay -p chatmux-relay --bin chatmux-relay
+      cargo build --locked --target "$t" -p acpmux-standalone --bin acpmux-standalone \
+        $("$repo_root/scripts/ci/acpmux-build-features.sh" crates/acpmux/Cargo.toml "$t" acpmux))
+    echo "link-check $t: $(( $(date +%s) - start )) s"
+  done
+}
+
 cmd_bins() {
   local sha=${1:?sha} ghostty=${2:?ghostty sha} version=${3:?distribution version} out="$XC_ROOT/linux"; mkdir -p "$out"
   [[ -f "$SYSROOT/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd" ]] \
@@ -509,6 +534,7 @@ case "$command" in
   hosts) cmd_hosts "$@" ;;
   bins) cmd_bins "$@" ;;
   acpmux) cmd_acpmux ;;
+  link-check) cmd_link_check ;;
   all) cmd_all "$@" ;;
   weaken-compiler-rt) cmd_weaken_compiler_rt "$@" ;;
   parity-bins) cmd_parity_bins ;;
