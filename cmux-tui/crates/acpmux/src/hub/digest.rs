@@ -90,6 +90,8 @@ pub(super) fn gathers(session: &Session, p: &super::queue::Slot<'_>) -> bool {
     use crate::prompt_class::PromptClass;
     p.agent.is_some()
         && !p.no_queue
+        // A steer its turn ended before reading, or a prompt let in again: it waited already.
+        && !p.admitted
         && !p.after_turn
         && !p.interrupt
         && !p.steer_on_start

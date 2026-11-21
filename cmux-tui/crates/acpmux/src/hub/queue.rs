@@ -448,7 +448,7 @@ impl Hub {
                     // 4dcbe192, F3).
                     let free = |_: &_| {
                         session.turn().is_none()
-                            && !queue_waits(session)
+                            && !queue_waits_for(session, p.agent.is_some())
                             && !Self::rate_holds(session, p.provenance)
                             && (!self.restore_holds(session) || self.at_4dcb())
                     };
