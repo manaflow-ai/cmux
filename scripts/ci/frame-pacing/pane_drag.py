@@ -227,8 +227,12 @@ def judge_drop(drop: dict) -> dict:
         lifted = next((i for i in range(pre + 1, len(samples)) if at[i] >= first_move and _tabs_key(samples[i]) != rest_tabs), None)
         result["lift_ms"] = round((at[lifted] - first_move) * 1000, 2) if lifted is not None and at[lifted] < up + 0.5 else None
 
-    # The commit: the first frame after that whose layout differs; it shows at the next vsync (`at + refresh`).
-    commit = next((i for i in range(before_up + 1, len(samples)) if _layout_differs(maps[i], maps[before_up])), None)
+    # The commit: the first frame after that whose layout differs; it shows at the next vsync (`at + refresh`). A pane
+    # swap keeps every layout pane's rect and moves the tabs between them: its commit is the strips' change.
+    swap = drop.get("gesture") == "pane"
+    def changed(i: int, j: int) -> bool:
+        return _layout_differs(maps[i], maps[j]) or (swap and _tabs_key(samples[i]) != _tabs_key(samples[j]))
+    commit = next((i for i in range(before_up + 1, len(samples)) if changed(i, before_up)), None)
     if commit is None:
         result.update({"landed": False, "note": "no layout change after the drop"})
         result.update(frame_phases(drop.get("frames") or {}, press, up))
@@ -242,7 +246,7 @@ def judge_drop(drop: dict) -> dict:
         result["drop_ms_send"] = round(max(0.0, shown - float(drop["up_send_s"])) * 1000, 2)
     final = maps[-1]
     result["panes_after"] = len(final)
-    last_change = max((i for i in range(commit, len(samples)) if i == commit or _layout_differs(maps[i], maps[i - 1])), default=commit)
+    last_change = max((i for i in range(commit, len(samples)) if i == commit or changed(i, i - 1)), default=commit)
     result["settle_ms"] = round((at[last_change] - up) * 1000, 1)
 
     # Blank: late ground, alpha 0, or a final pane not listed yet, in any frame from the commit on.
@@ -341,6 +345,7 @@ class Driver:
         self.scale = None
         self.dead = False
         self.workspace = None
+        self.last_winner = None
         self.log: list[str] = []
 
     def rpc(self, method, params=None, timeout=30):
@@ -535,6 +540,8 @@ class Driver:
                 if wait > 0:
                     time.sleep(wait)  # bench: pointer pace, one move per 120 Hz frame
         finally:
+            state = self.rpc("debug.tab_drag", timeout=5)
+            self.last_winner = {k: state.get(k) for k in ("dragging", "winner", "outcome")} if isinstance(state, dict) else None
             up = now_s()
             self.rpc("debug.mouse", {"action": "up", "x": end[0], "y": end[1], **mods}, timeout=5)
         return {"press_s": press, "first_move_s": first_move, "up_s": up}
@@ -591,9 +598,11 @@ class Driver:
         verdict = judge_drop(drop)
         verdict["up_from"] = "journal" if journal else "send"
         verdict["samples"] = len((drop.get("trace") or {}).get("samples") or [])
+        verdict["winner_before_up"] = self.last_winner
+        verdict["panes_rest_after"] = len(self.panes())
         print("PANE-DRAG drop " + json.dumps({k: verdict.get(k) for k in (
             "gesture", "kind", "drop", "landed", "note", "error", "panes_before", "panes_after", "drop_ms", "lift_ms",
-            "blank_frames", "jumps", "up_from", "samples", "pixel_measured")}), flush=True)
+            "blank_frames", "jumps", "up_from", "samples", "pixel_measured", "winner_before_up", "panes_rest_after")})[:900], flush=True)
         time.sleep(0.4)  # bench: idle between drops
         return verdict
 
