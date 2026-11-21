@@ -342,6 +342,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         var windowY: CGFloat
         var width: CGFloat
         var offsetY: CGFloat
+        /// The committed-frame measure's: the row's top and bottom in the window.
+        var edges: (top: CGFloat, bottom: CGFloat)?
     }
     private var shiftSample: ShiftSample?
     /// The committed-frame measure's last sample, where the last committed frame drew the list, and
@@ -1010,62 +1012,51 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         guard !updating, let probe, let report = probe.frameShift, loaded, collectionView.window != nil else { return }
         let width = collectionView.bounds.width
         querying += 1
-        let current = committedReferenceRow()
+        let current = referenceRow()
+        let edges = current.flatMap { rowEdges(of: $0.id) }
         querying -= 1
         let offsetY = collectionView.contentOffset.y
         let frame = listFrame
         committedFrames += 1
         if probe.shiftDetail != nil {
-            let nextY = current?.next.flatMap { windowY(of: $0, bottom: false) }
             if drawnFrames.count == 6 { drawnFrames.removeFirst() }
-            drawnFrames.append(DrawnFrame(number: committedFrames, read: current?.windowY ?? .nan, next: nextY ?? .nan,
+            drawnFrames.append(DrawnFrame(number: committedFrames, read: edges?.top ?? .nan, next: edges?.bottom ?? .nan,
                                           offset: offsetY, explained: ledger.committedExplained, spring: spring.isRunning,
                                           trail: commitTrail))
         }
         defer {
-            committedSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, bottom: $0.bottom, windowY: $0.windowY, width: width, offsetY: offsetY) }
+            committedSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, bottom: $0.bottom, windowY: $0.windowY,
+                                                        width: width, offsetY: offsetY, edges: edges) }
             committedFrame = frame
             ledger.resetCommitted()
             commitTrail.removeAll(keepingCapacity: true)
         }
-        guard let last = committedSample, abs(last.width - width) < 0.5,
-              let indexPath = dataSource.indexPath(for: last.id), let now = windowY(of: last.id, bottom: last.bottom) else { return }
+        guard let last = committedSample, abs(last.width - width) < 0.5, let was = last.edges,
+              let indexPath = dataSource.indexPath(for: last.id), let now = rowEdges(of: last.id) else { return }
         if let next = last.next, let gap = last.gap {
             guard let nextPath = dataSource.indexPath(for: next), nextPath.item - indexPath.item == gap else { return }
         }
-        let was = last.windowY
-        let shift = (now - was) + ledger.committedExplained
+        let explained = ledger.committedExplained
+        let top = now.top - was.top + explained
+        let bottom = now.bottom - was.bottom + explained
+        let shift = PagedListShiftLedger.drawnShift(top: top, bottom: bottom)
         report(shift)
         if abs(shift) > 0.5, let detail = probe.shiftDetail {
-            detail(shift, shiftDetail(at: "commit", moved: now - was, explained: ledger.committedExplained,
+            detail(shift, shiftDetail(at: "commit", moved: shift - explained, explained: explained,
                                       offset: offsetY - last.offsetY, frame: frame)
+                + String(format: " edges=%+.1f,%+.1f", top, bottom)
                 + " frames=" + drawnFrames.map { f in
-                    String(format: "#%d[read=%.1f next=%.1f off=%.1f expl=%+.1f spring=%d ", f.number, f.read, f.next,
+                    String(format: "#%d[top=%.1f bottom=%.1f off=%.1f expl=%+.1f spring=%d ", f.number, f.read, f.next,
                            f.offset, f.explained, f.spring ? 1 : 0) + f.trail.joined(separator: ",") + "]"
                 }.joined(separator: " "))
         }
     }
 
-    /// The row the committed-frame measure follows: as ``referenceRow()``, but for a list read from
-    /// its top, the first row whose top is in view (at or below the reader's top edge). A row cut by
-    /// that edge that changes height keeps its bottom where it was (``PagedListLayout`` corrects the
-    /// offset for it, as for any row above), so its top moves while nothing the reader sees does:
-    /// following it counted a row growing under the bars as a shift (up-medium-flood 44 pt and
-    /// up-slow-flood 22 pt, steps 6d8bcee4 and f902d4d6, with the next row still to the point).
-    private func committedReferenceRow() -> (id: CellID, next: CellID?, gap: Int?, bottom: Bool, windowY: CGFloat)? {
-        guard direction != .up || !followsNewest else { return referenceRow() }
-        let top = readerTop
-        var found: (CellID, Int, CGFloat)?
-        for indexPath in collectionView.indexPathsForVisibleItems.sorted() {
-            guard let attributes = collectionView.layoutAttributesForItem(at: indexPath),
-                  attributes.frame.minY >= top - 0.5,
-                  let id = dataSource.itemIdentifier(for: indexPath), case .row = id else { continue }
-            if let first = found {
-                return (first.0, id, indexPath.item - first.1, false, first.2)
-            }
-            found = (id, indexPath.item, windowY(attributes))
-        }
-        return found.map { ($0.0, nil, nil, false, $0.2) }
+    /// The row's top and bottom in the window.
+    private func rowEdges(of id: CellID) -> (top: CGFloat, bottom: CGFloat)? {
+        guard let indexPath = dataSource.indexPath(for: id),
+              let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return nil }
+        return (windowY(attributes), windowY(attributes, bottom: true))
     }
 
     /// The list's frame in its window (a container that moves it moves what is read).
