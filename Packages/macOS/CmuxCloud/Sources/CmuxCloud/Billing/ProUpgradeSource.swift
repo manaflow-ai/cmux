@@ -34,6 +34,8 @@ public enum ProUpgradeSource: String, CaseIterable, Sendable {
     case newMachineAtLimit = "mac_new_machine_at_limit"
     /// "Upgrade Plan" on a create that failed at the plan's machine limit.
     case createFailedAtLimit = "mac_create_failed_at_limit"
+    /// "Upgrade Plan" on a create refused because the plan has no Cloud (`vm_requires_pro`).
+    case createFailedNeedsPlan = "mac_create_failed_needs_plan"
     /// New machine sheet "Upgrade to Max" under the locked 32 GB / 64 GB sizes.
     case newMachineSheetMaxUpgrade = "mac_new_machine_sheet_max_upgrade"
     /// Link inside the `vm_memory_requires_plan` error text (`VMClient`).

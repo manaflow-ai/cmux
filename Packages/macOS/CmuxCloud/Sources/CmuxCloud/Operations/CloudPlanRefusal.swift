@@ -91,7 +91,9 @@ public struct CloudPlanRefusal: Equatable, Sendable {
     ///   - plan: The currently loaded plan, or nil while it is unavailable.
     /// - Returns: Whether the row should show its upgrade action.
     public static func offersUpgrade(for code: String?, plan: MachinePlanSnapshot?) -> Bool {
-        if code == activeLimitExceededCode { return plan?.hasHigherPlan ?? true }
+        // A plan that cannot create machines at all, and a full set of slots,
+        // both clear by moving up. An unloaded plan still offers it.
+        if code == requiresProCode || code == activeLimitExceededCode { return plan?.hasHigherPlan ?? true }
         return code == resourcePoolExceededCode && plan?.hasHigherResourcePoolPlan == true
     }
 
@@ -129,6 +131,9 @@ public struct CloudPlanRefusal: Equatable, Sendable {
         }
     }
 
+    /// `vm_requires_pro`: this plan cannot create Cloud machines, so retrying never helps.
+    public static let requiresProCode = "vm_requires_pro"
+
     /// `vm_resource_pool_exceeded`: running machines hold the shared pool.
     public static let resourcePoolExceededCode = "vm_resource_pool_exceeded"
     /// `vm_active_limit_exceeded`: every active-machine slot is taken.
@@ -153,6 +158,16 @@ public struct CloudPlanRefusal: Equatable, Sendable {
             return nil
         }
         return String(line[match].dropFirst("(HTTP 402: ".count).dropLast())
+    }
+
+    /// The one line that keeps a refusal's code when the rest of the answer has
+    /// to be hidden from CLI output: a checkout link in `action` hides it all,
+    /// and the failed-create actions key on this code. Nil unless it is a `402`
+    /// with a code `code(inCLIFailureOutput:)` can read back.
+    public static func failureHeader(status: Int, body: String) -> String? {
+        guard let code = CloudPlanRefusal(status: status, body: body)?.code,
+              code.range(of: #"^[A-Za-z0-9_.-]+$"#, options: .regularExpression) != nil else { return nil }
+        return "Cloud VM request failed (HTTP 402: \(code))"
     }
 
     /// A full pool whose answer did not name the numbers.

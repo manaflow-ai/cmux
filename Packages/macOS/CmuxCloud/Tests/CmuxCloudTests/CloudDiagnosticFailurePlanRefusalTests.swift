@@ -100,6 +100,28 @@ extension CloudDiagnosticFailurePlanRefusalTests {
         }
     }
 
+    @Test("A plan without Cloud offers the upgrade, including before the plan has loaded")
+    func requiresProOffersUpgrade() {
+        let code = CloudPlanRefusal.requiresProCode
+        #expect(code == "vm_requires_pro")
+        #expect(CloudPlanRefusal.offersUpgrade(for: code, plan: nil))
+        for planID in ["free", "unknown"] {
+            #expect(CloudPlanRefusal.offersUpgrade(for: code, plan: MachinePlanSnapshot(activeCount: 0, planId: planID)), "\(planID)")
+        }
+        // A stale refusal on a plan that already includes Cloud has nothing to sell.
+        #expect(!CloudPlanRefusal.offersUpgrade(for: code, plan: MachinePlanSnapshot(activeCount: 0, planId: "pro")))
+    }
+
+    @Test("A refusal whose answer is hidden still carries its code to the failed create")
+    func failureHeaderKeepsTheCode() {
+        let body = #"{"error":"vm_requires_pro","action":"Upgrade at https://cmux.com/pricing"}"#
+        let header = CloudPlanRefusal.failureHeader(status: 402, body: body)
+        #expect(header.flatMap { CloudPlanRefusal.code(inCLIFailureOutput: "Error: \($0)") } == "vm_requires_pro")
+        #expect(CloudPlanRefusal.failureHeader(status: 500, body: body) == nil)
+        #expect(CloudPlanRefusal.failureHeader(status: 402, body: "nope") == nil)
+        #expect(CloudPlanRefusal.failureHeader(status: 402, body: #"{"error":"a b) (HTTP 402: x"}"#) == nil)
+    }
+
     @Test("Create-credit refusals keep the server's account or team billing scope")
     func createCreditsPreserveBillingScope() throws {
         let account = try #require(CloudPlanRefusal(status: 402, body: Self.body([
