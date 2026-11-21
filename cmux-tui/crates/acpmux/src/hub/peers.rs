@@ -1551,16 +1551,20 @@ impl Hub {
                 .filter(|(id, r)| names_remote(id, r, key))
                 .map(|(_, r)| &**r)
                 .collect();
-            let agent_key = key.split_once('/').map_or(key, |(_, rest)| rest);
+            let (requested_peer, agent_key) = match key.split_once('/') {
+                Some((peer, rest)) => (Some(peer), rest),
+                None => (None, key),
+            };
             let agent: Vec<&RemoteSession> = if strict.is_empty() {
                 map.named(agent_key)
                     .into_iter()
                     .filter(|(_, r)| {
-                        crate::session_identity::match_agent_session_id(
-                            r.summary.agent_session_id(),
-                            agent_key,
-                        )
-                        .is_some()
+                        requested_peer.map_or(true, |peer| r.peer == peer)
+                            && crate::session_identity::match_agent_session_id(
+                                r.summary.agent_session_id(),
+                                agent_key,
+                            )
+                            .is_some()
                     })
                     .map(|(_, r)| &**r)
                     .collect()
@@ -1901,7 +1905,6 @@ pub(super) fn listed_remote_text(
 /// or `PEER/NAME`.
 pub(super) fn names_remote(id: &str, r: &RemoteSession, key: &str) -> bool {
     let name = r.summary.name().unwrap_or("");
-    let agent_key = key.strip_prefix(&format!("{}/", r.peer)).unwrap_or(key);
     name == key
         || r.receipt.mux_session_id.starts_with(key)
         || id.starts_with(key)

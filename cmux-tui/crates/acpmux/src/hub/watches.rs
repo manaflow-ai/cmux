@@ -247,7 +247,14 @@ fn concerns(hub: &Hub, e: &HubEvent) -> bool {
 /// Bind a name once. A rename or a new session reusing it cannot retarget a watch.
 pub fn resolve(hub: &Hub, key: &str) -> Result<String, RpcError> {
     if let Some(route) = hub.key_route(key)? {
-        return Ok(route);
+        let valid = if route.contains('/') {
+            hub.resolve_remote(&route).is_some()
+        } else {
+            hub.resolve(&route).is_ok()
+        };
+        if valid {
+            return Ok(route);
+        }
     }
     if let Ok(session) = hub.resolve(key) {
         return Ok(session.id.clone());
