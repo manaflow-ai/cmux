@@ -244,7 +244,12 @@ public final class MacScreenPane {
     /// single `connect()` failed at once. Tests count the starts.
     var connectSession: @MainActor (MacScreenSession) -> Void = { $0.reconnect() }
 
-    public var focusTarget: NSView { view.input.view }
+    /// The screen's input surface; while a state card shows, its default button (Full Control on the
+    /// Connect chooser), so the keyboard can act on the card.
+    public var focusTarget: NSView {
+        guard view.chrome.showsCard, let button = view.chrome.card.keyButton else { return view.input.view }
+        return button
+    }
 
     /// The tab is shown: a device tab with a scope waiting asks the hub.
     public func resume() {
@@ -303,7 +308,7 @@ public final class MacScreenPane {
 
     public func focus() {
         guard let window = view.window else { return }
-        window.makeFirstResponder(view.input.view)
+        window.makeFirstResponder(focusTarget)
     }
 
     private func reconnect() {

@@ -110,6 +110,7 @@ final class MacScreenCardView: MacScreenThemedView {
         }
         guard next != shown else { return }
         shown = next
+        let heldKeyboard = paneHoldsKeyboard
         if next.look != backgroundLook || quiet != backgroundQuiet { installBackground(next.look) }
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         background.isHidden = next.card == nil
@@ -120,8 +121,38 @@ final class MacScreenCardView: MacScreenThemedView {
             }
         }
         paint(background)
+        linkKeys(refocus: heldKeyboard)
         // The pane centers the card at its new size.
         superview?.needsLayout = true
+    }
+
+    /// The button the keyboard lands on while this card shows: its primary button, else its first.
+    private(set) var keyButton: MacScreenButton?
+
+    /// The pane this card sits in holds the keyboard (its screen, or one of this card's buttons).
+    private var paneHoldsKeyboard: Bool {
+        guard let pane = superview, let focused = window?.firstResponder as? NSView else { return false }
+        return focused === pane || focused.isDescendant(of: pane)
+    }
+
+    /// Makes the card's buttons a keyboard loop: Tab and Shift-Tab move between them, Space presses the
+    /// focused one, Return the primary. A pane that held the keyboard moves it to the new card's
+    /// button, or back to the screen once no card shows (a CLI-opened share's chooser).
+    private func linkKeys(refocus: Bool) {
+        let buttons = Self.buttons(in: stack)
+        for (index, button) in buttons.enumerated() {
+            button.takesKeyFocus = true
+            button.nextKeyView = buttons[(index + 1) % buttons.count]
+        }
+        keyButton = buttons.first { $0.role == .primary } ?? buttons.first
+        if refocus { actions.focusScreen() }
+    }
+
+    private static func buttons(in view: NSView) -> [MacScreenButton] {
+        view.subviews.flatMap { subview -> [MacScreenButton] in // visible-only: a card holds a few rows of text and buttons
+            if let button = subview as? MacScreenButton { return [button] }
+            return buttons(in: subview)
+        }
     }
 
     /// The failure's detail for `card`: the failed card's (``MacScreenPaneModel/failedDetail``), or
