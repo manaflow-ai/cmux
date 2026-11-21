@@ -94,12 +94,13 @@ import QuartzCore
         let velocity = span > 0 ? samples.dropFirst().reduce(0) { $0 + $1.dx } / span : 0
         let target = pager.target(velocity: velocity, width: width)
         self.pager = nil
-        let goes = target != pager.index
+        // A swipe that began before Spaces turned off settles back on its own page (no switch it would be refused).
+        let goes = target != pager.index && pagesSpaces
         let end: CGFloat = goes ? (target > pager.index ? 1 : -1) : 0
         if goes { pendingTarget = profiles[target] }
         place(offset: end, animated: .settle) { [weak self] in
             guard let self else { return }
-            if goes, let target = self.pendingTarget {
+            if goes, self.pagesSpaces, let target = self.pendingTarget {
                 self.host.model.send(.switchProfile(target))
             } else {
                 self.endPaging()

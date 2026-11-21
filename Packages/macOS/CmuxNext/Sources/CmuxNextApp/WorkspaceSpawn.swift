@@ -129,10 +129,10 @@ struct WorkspaceSpawner {
         }
     }
 
-    /// The profile the workspace is born in: its window's, else (Spaces off, #48355) the person's space, else the
-    /// active window's, else `default`.
+    /// The profile the workspace is born in: its window's, else the active
+    /// window's, else `default`.
     private var profile: ProfileID {
-        windowID.flatMap { windows.states[$0]?.profileID } ?? windows.spaceForNewWindow ?? windows.active?.state.profileID ?? .defaultProfile
+        windowID.flatMap { windows.states[$0]?.profileID } ?? windows.active?.state.profileID ?? .defaultProfile
     }
 
     private func renamed(_ name: String?) -> Self {

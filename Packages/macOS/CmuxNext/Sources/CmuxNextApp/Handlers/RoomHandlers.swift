@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSidebar
@@ -173,15 +172,6 @@ enum RoomHandlers {
         }
         RoomMoveHandlers.bind(bind, context: context)
         registry.installSpacesGate(reason: RoomStrings.spacesOff) { context.services.windows.spacesOn } // #48355: off by default
-        // The shared-space guests follow the setting at once (`shareSpaces`), not at the next window transition.
-        // task-owner: app lifetime (AppActions.bind runs once per launch); it holds the services weakly.
-        Task { [weak services = context.services] in
-            var last: Bool?
-            for await on in ObservationStream({ services?.windows.spacesOn ?? true }) {
-                if let last, last != on { services?.windows.spaceDidChange() }
-                last = on
-            }
-        }
     }
 
     /// A new space with the next free color and its own first workspace.
@@ -262,8 +252,7 @@ enum RoomHandlers {
     /// spaces on the local daemon (no `profiles-v1`, personal state not loaded) a plain new window.
     static func newWindow(_ invocation: ActionInvocation, _ context: AppActionContext) {
         let services = context.services, local = services.machines.local
-        // Spaces off (#48355): a plain new window, in the space the person is on (`WindowManager.state(for:)`).
-        guard local.supports(DaemonCapability.profiles.rawValue), local.store.personal.isLoaded, services.windows.spacesOn else {
+        guard local.supports(DaemonCapability.profiles.rawValue), local.store.personal.isLoaded else {
             services.windows.newWindow(holdingKeysFrom: services.windows.active?.window)
             return
         }
