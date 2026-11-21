@@ -380,6 +380,28 @@ def command_line(argv: list[str]) -> str:
     return " ".join(word if re.fullmatch(r"[\w@%+=:,./-]+", word) else json.dumps(word) for word in argv)
 
 
+def on_console() -> tuple[str, str] | None:
+    """(user, uid) of the session on the physical display: the IOConsoleUsers entry with kCGSSessionOnConsoleKey
+    (`ioreg`, needs no right), or None when the registry names none or cannot be read.
+
+    Not /dev/console's owner: that names whoever logged in last. Since `fleet gui-ci-users` (cmuxterm-hq#13193,
+    2026-11-18) logs cmuxci-gui-01..03 in through each GUI mini's Screen Sharing, /dev/console reads cmuxci-gui-03
+    while the runner's own user `cmux` is on the display. The tour then hopped to cmuxci-gui-03 through `sudo -n
+    launchctl asuser`, which the runner may not do, and every What's New clip failed at launch with "sudo: a password
+    is required" (cmux-next-media runs 44661108446, 44677589803, 44686797632). cmuxterm-hq
+    docs/handbook/console-user-read-as-last-login.md."""
+    try:
+        raw = subprocess.run(["ioreg", "-n", "Root", "-d1", "-a"], capture_output=True, timeout=10).stdout
+        users = plistlib.loads(raw).get("IOConsoleUsers") or []
+    except Exception:  # no ioreg (Linux), or an unreadable registry: the caller falls back to /dev/console
+        return None
+    for entry in users:
+        if isinstance(entry, dict) and entry.get("kCGSSessionOnConsoleKey") and entry.get("kCGSSessionUserNameKey"):
+            uid = entry.get("kCGSSessionUserIDKey")
+            return str(entry["kCGSSessionUserNameKey"]), "" if uid is None else str(uid)
+    return None
+
+
 class Session:
     """Runs commands in the console user's GUI session.
 
@@ -398,11 +420,11 @@ class Session:
     def __init__(self) -> None:
         self.prefix: list[str] = []
         self.user = getpass.getuser()
-        console = subprocess.run(["stat", "-f", "%Su", "/dev/console"],
-                                 capture_output=True, text=True).stdout.strip()
+        console, uid = on_console() or (subprocess.run(["stat", "-f", "%Su", "/dev/console"],
+                                                       capture_output=True, text=True).stdout.strip(), "")
         asuser: list[str] = []
         if console and console not in ("root", "loginwindow"):
-            uid = subprocess.run(["id", "-u", console], capture_output=True, text=True).stdout.strip()
+            uid = uid or subprocess.run(["id", "-u", console], capture_output=True, text=True).stdout.strip()
             asuser = ["sudo", "-n", "launchctl", "asuser", uid, "sudo", "-n", "-H", "-u", console]
             if console != self.user:
                 self.prefix = asuser

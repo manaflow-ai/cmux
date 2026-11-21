@@ -16,6 +16,7 @@ fn event(dir: &str, kind: &str, update: Value) -> HubEvent {
         update_line: Default::default(),
         row: Default::default(),
         list_seq: 0,
+        peer_batch: false,
     }
 }
 
