@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-21 (lane/sidebar-pin-archive): Sidebar-Look: Leo, 2026-11-21: "the pin button does not make sense. you
+  expect this to be the pinned thing. but it isn't. when you pin it, the pin goes to teh left of the bar as an empty
+  looking pin symbol." A hover control says what a press does, never what the row is: Pin on an unpinned row is the
+  outline pin (`action.pin`); Unpin on a pinned row, a pinned tile and a pinned group header is the struck-through pin
+  (`browser.toolbar.unpin`, pin.slash). The pinned state alone draws the filled pin (`state.pinned`, solid): a Pinned
+  row's leading pin, a pinned group's pin and the Pinned header's glyph. Replaces the a-sidebar-pin-hover entry's
+  outline-pin/filled-pin pair (last good 58deafaa036), where the filled hover Unpin and the outline leading mark read
+  the wrong way round.
 - 2026-11-20 (nx-48416-chief-onboarding): Sidebar-Look: user, 2026-11-20 (https://github.com/manaflow-ai/cmux/issues/48416):
   "rename Home to Chief in the UI". Only names change: the Home item reads Chief (`sidebar.builtin.home`), and the
   item that was already called Chief (its conversation, status and subagents, `LayoutItem.chief`) reads Chief
