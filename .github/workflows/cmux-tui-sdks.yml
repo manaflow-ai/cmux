@@ -579,18 +579,24 @@ jobs:
           go-version: "1.22.12"
           cache-dependency-path: cmux-tui/bindings/go/go.mod
 
-      - name: Select JDK 17
+      # The reused fleet image (LINUX_RUNNER) has no hosted toolcache JDK, so
+      # JAVA_HOME_17_X64 is unset there; setup-java provisions Temurin 17 on any runner.
+      - name: Set up JDK 17
         if: matrix.language == 'java'
-        run: |
-          test -x "$JAVA_HOME_17_X64/bin/java"
-          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
-          "$JAVA_HOME_17_X64/bin/java" -version
-          "$JAVA_HOME_17_X64/bin/javac" -version
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
 
+      # The reused fleet image (LINUX_RUNNER) ships no clang; install it there.
       - name: Select Clang C++20
         if: matrix.language == 'cpp'
-        run: clang++ --version
+        run: |
+          if ! command -v clang++ >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y clang
+          fi
+          clang++ --version
 
       - name: Set up Zig
         if: matrix.language == 'zig'
@@ -777,18 +783,24 @@ jobs:
             cmux-tui/bindings/go/go.mod
             cmux-tui/bindings/examples/go-terminal-bot/go.mod
 
-      - name: Select JDK 17
+      # The reused fleet image (LINUX_RUNNER) has no hosted toolcache JDK, so
+      # JAVA_HOME_17_X64 is unset there; setup-java provisions Temurin 17 on any runner.
+      - name: Set up JDK 17
         if: matrix.language == 'java'
-        run: |
-          test -x "$JAVA_HOME_17_X64/bin/java"
-          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
-          "$JAVA_HOME_17_X64/bin/java" -version
-          "$JAVA_HOME_17_X64/bin/javac" -version
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
 
+      # The reused fleet image (LINUX_RUNNER) ships no clang; install it there.
       - name: Select Clang C++20
         if: matrix.language == 'cpp'
-        run: clang++ --version
+        run: |
+          if ! command -v clang++ >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y clang
+          fi
+          clang++ --version
 
       - name: Set up Zig
         if: matrix.language == 'zig'
@@ -901,8 +913,18 @@ jobs:
         with:
           persist-credentials: false
 
+      # The reused fleet image (LINUX_RUNNER) may lack rustup or keep it off PATH;
+      # provision it as setup-cmux-tui-rust does.
       - name: Install Rust 1.88 MSRV toolchain
-        run: rustup toolchain install 1.88.0 --profile minimal --component clippy --component rustfmt
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustup toolchain install 1.88.0 --profile minimal --component clippy --component rustfmt
 
       # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
       - name: Give this runner instance its own CARGO_HOME
@@ -1007,14 +1029,14 @@ jobs:
           go-version: "1.22.12"
           cache-dependency-path: cmux-tui/bindings/go/go.mod
 
-      - name: Select JDK 17
+      # The reused fleet image (LINUX_RUNNER) has no hosted toolcache JDK, so
+      # JAVA_HOME_17_X64 is unset there; setup-java provisions Temurin 17 on any runner.
+      - name: Set up JDK 17
         if: ${{ steps.tree.outputs.hit != 'true' }}
-        run: |
-          test -x "$JAVA_HOME_17_X64/bin/java"
-          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
-          "$JAVA_HOME_17_X64/bin/java" -version
-          "$JAVA_HOME_17_X64/bin/javac" -version
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
 
       - name: Resolve Ghostty Zig version
         if: ${{ steps.tree.outputs.hit != 'true' }}
