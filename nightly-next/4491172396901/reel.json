@@ -1,0 +1,151 @@
+{
+  "version": 1,
+  "build": "4491172396901",
+  "notes": "notes/4491172396901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 48497,
+      "title": "acpmux: add default-off Organizer board experiment",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48638,
+      "title": "cmux-health-core: pages silent together are one stall, waited out, not reloaded each then their renderer killed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49008,
+      "title": "customize-demo looks: studio turns on the Settled shelf",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48909,
+      "title": "Tell the user when the running app is older than the installed build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49044,
+      "title": "ci-v2 step 3: drop 10 schedule keys that never fire on feat-cmux-next",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48845,
+      "title": "acpmux: Claude and Codex team mode on a hub-joined machine through the hub gateway; gateway mode joined",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48899,
+      "title": "customize demo: recorded NIGHTLY walkthrough of the Claude, Codex and studio looks",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/48899/looks-studio.mp4",
+      "source": "manual",
+      "note": "3 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 48888,
+      "title": "composer: video player opens in its final box; ratchet composer shift rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49010,
+      "title": "webviews_pr_shards: a webviews script a vite config loads, or a test reads as data, picks every shard",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48520,
+      "title": "ci: macOS-only daemon tests (shadow) is workflow_dispatch only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48984,
+      "title": "ci: Windows cargo check, acpmux sim sweep and Swift acpmux protocol run in the post-merge batch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48518,
+      "title": "ci: fleet test-compile (advisory) no longer runs on pull requests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48900,
+      "title": "Cloud start-chat: a start refused before its fresh machine retries with no machine named",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46548,
+      "title": "perf-idle-ab: home=1 adds Home's first open and the first Chief reply per arm, and footprint medians",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48943,
+      "title": "cmux-tui artifacts: build one feat-cmux-next tree per 120-minute window",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49003,
+      "title": "cmux-vm: workerd integration tests get the node config's 30 s timeout",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48705,
+      "title": "prepush: the main-twin check holds only the crons of a file main runs as another workflow",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48741,
+      "title": "Skills: Claude Code and Codex skills and slash commands listed, edited and turned on/off in cmux NEXT (Labs)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48983,
+      "title": "base_red_excuse: read every post-merge batch suite's base verdict from the batch runs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48990,
+      "title": "nightly: a push run's slot wait starts at its first job; the tree fallback search runs beside the runs reads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48775,
+      "title": "ci: Web validation becomes a pr-router callee: a feat-cmux-next head no longer takes a runner to echo a status",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47172,
+      "title": "Glass toolbar groups with shortcut keycaps (Settings > Experiments, off by default)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48965,
+      "title": "Computer Use (Rust engine): a locked Mac answers mac_locked before any input; opt-in whileLocked keeps window-scoped calls",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
