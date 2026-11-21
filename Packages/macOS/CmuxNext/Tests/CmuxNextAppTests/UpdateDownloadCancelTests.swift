@@ -89,6 +89,22 @@ import Testing
         #expect(downloads == 1, "Update after a cancel did not download the found update")
     }
 
+    @Test func quitCancelsAnActiveDownloadBeforeProceeding() {
+        let updater = UpdateLoadingIndicatorTests.updater()
+        var cancels = 0
+        updater.cancelDownloadNow = {
+            cancels += 1
+            updater.debugIndicatorPhase = .hidden
+            return true
+        }
+        updater.send(.attemptRequested)
+        updater.debugIndicatorPhase = .downloading(.downloading(received: 250, expected: 250))
+        updater.syncFlowPhase()
+
+        #expect(updater.prepareForQuit() == .proceed)
+        #expect(cancels == 1, "quit left the active update download running")
+    }
+
     @Test func anUpdateClickWhoseCheckEndsEmptyDoesNotDownloadALaterUpdate() {
         let updater = UpdateLoadingIndicatorTests.updater()
         updater.cancelDownloadNow = {
