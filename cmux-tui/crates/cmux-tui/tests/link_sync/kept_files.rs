@@ -56,3 +56,30 @@ fn a_file_deleted_here_but_changed_on_the_machine_stays_a_conflict_after_a_push(
     assert_eq!(answer["conflicts"], serde_json::json!(["notes.txt"]), "{answer}");
     assert!(!repo.join("notes.txt").exists(), "the pull brought the machine's file back");
 }
+
+/// A machine-side touch (a checkout, a formatter that changed nothing) moves the revision but
+/// not the bytes: that file is still as the last push left it, so this Mac's edit goes. RED
+/// before: it was kept on every push and a pull called it unchanged, so the edit never went.
+#[test]
+fn a_file_the_machine_only_touched_still_takes_this_macs_edit() {
+    let (_root, _sockets, repo, remote, socket) = pushed_repo();
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(120);
+    std::fs::File::options()
+        .write(true)
+        .open(remote.join("notes.txt"))
+        .unwrap()
+        .set_modified(later)
+        .unwrap();
+    std::fs::write(repo.join("notes.txt"), "notes\nfrom the mac\n").unwrap();
+
+    let again = push(&socket, &repo, &remote);
+    assert_eq!(again["kept"], 0, "{again}");
+    assert_eq!(
+        std::fs::read_to_string(remote.join("notes.txt")).unwrap(),
+        "notes\nfrom the mac\n",
+        "the push kept a file the machine only touched: {again}"
+    );
+    // And the record holds the write: a pull finds nothing to do on either side.
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(ok, "{answer}");
+}

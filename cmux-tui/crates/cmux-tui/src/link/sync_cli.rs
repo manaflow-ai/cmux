@@ -1271,7 +1271,8 @@ fn push_inner(
         summary,
         next: Manifest {
             version: 1,
-            files: spared.into_iter().collect(),
+            // A path this Mac made a link has the link's record, never a spared file's too.
+            files: spared.into_iter().filter(|(path, _)| !set.links.contains_key(path)).collect(),
             git,
             links: BTreeMap::new(),
         },
@@ -1294,19 +1295,29 @@ fn push_inner(
         let sha256 = stages.hashing(|| hash(file))?;
         let bytes = size(file)?;
         if let Some(pushed) = previous.files.get(relative) {
+            let there = listings.revision(&mut remote, &target)?;
+            let mut pushed = pushed.clone();
+            let mut as_pushed = there.as_deref() == Some(pushed.revision.as_str());
+            // A revision is size and mtime: one that moved with the bytes still as this push
+            // left them (a touch, a checkout, a formatter that changed nothing) is the last
+            // push under a new revision, and the record takes it, so this Mac's edits still go.
+            if !as_pushed
+                && let Some(revision) = there
+                && remote.sha256(&target)?.as_deref() == Some(pushed.sha256.as_str())
+            {
+                pushed.revision = revision;
+                as_pushed = true;
+            }
             // The machine changed or removed it since the last push (an earlier chat there): it
             // stays as the machine has it, and the record keeps the last push, so a pull still
             // sees both sides' changes against it. A `cmux link access` share (`files_only`) is
             // this Mac's folder as this Mac has it, so it is written again.
-            if !files_only
-                && listings.revision(&mut remote, &target)?.as_deref()
-                    != Some(pushed.revision.as_str())
-            {
-                tally.kept(relative, pushed, bytes);
+            if !as_pushed && !files_only {
+                tally.kept(relative, &pushed, bytes);
                 continue;
             }
-            if pushed.sha256 == sha256 && pushed.permissions == file.permissions {
-                tally.unchanged(relative, pushed, bytes);
+            if as_pushed && pushed.sha256 == sha256 && pushed.permissions == file.permissions {
+                tally.unchanged(relative, &pushed, bytes);
                 continue;
             }
         }
