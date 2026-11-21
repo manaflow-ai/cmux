@@ -98,7 +98,7 @@
   .cv-since__rule,
   .cv-since__tag,
   .cv-since__lead {
-    transition: opacity var(--cv-exit-lead) var(--cv-exit-ease, ease-out); /* motion-allow: the exit lead, half the quick step (exitLead.ts) */
+    transition: opacity var(--cv-exit-lead) var(--cv-exit-ease); /* motion-allow: the exit lead, half the quick step (exitLead.ts) */
   }
   .cv-since__menu {
     transition: height var(--agent-motion-calm) var(--agent-ease-out) var(--cv-exit-lead); /* motion-allow: delayed by the exit lead (exitLead.ts) */
