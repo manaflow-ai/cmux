@@ -229941,8 +229941,401 @@
         }
       }
     },
+    "settings.group.experiments": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التجارب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksperimenti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksperimenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experimente"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experiments"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experimentos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expériences"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperimenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実験"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការពិសោធន៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실험"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksperimenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksperymenty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experimentos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эксперименты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การทดลอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deneyler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Експерименти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thử nghiệm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实验"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "實驗"
+          }
+        }
+      }
+    },
+    "settings.experiments.glassToolbarGroups": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مجموعات شريط الأدوات الزجاجية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staklene grupe alatne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glasgrupper i værktøjslinjen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glas-Symbolleistengruppen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass Toolbar Groups"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupos de barra de herramientas de cristal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Groupes de barre d'outils en verre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruppi della barra degli strumenti in vetro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ガラスのツールバーグループ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្រុមរបារឧបករណ៍កញ្ចក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유리 도구 막대 그룹"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glassgrupper i verktøylinjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szklane grupy paska narzędzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupos de barra de ferramentas de vidro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стеклянные группы панели инструментов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กลุ่มแถบเครื่องมือกระจก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cam araç çubuğu grupları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скляні групи панелі інструментів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhóm thanh công cụ kính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玻璃工具栏分组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玻璃工具列分組"
+          }
+        }
+      }
+    },
+    "settings.experiments.glassToolbarGroups.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصبح أزرار ترويسة المحادثة أزرارًا زجاجية مستديرة، وتتشارك الإجراءات المترابطة كبسولة زجاجية واحدة، مع شريحة بحث ومفاتيح اختصار."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dugmad u zaglavlju razgovora postaju okrugla staklena dugmad, povezane radnje dijele jednu staklenu kapsulu, uz čip za pretragu i tipke prečica."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knapperne i chattens overskrift bliver runde glasknapper, hvor relaterede handlinger deler én glaskapsel, med en søgechip og genvejstaster."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Schaltflächen der Chat-Kopfzeile werden zu runden Glasschaltflächen; zusammengehörige Aktionen teilen sich eine Glaskapsel, dazu ein Suchfeld und Kurzbefehl-Tasten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los botones del encabezado del chat se vuelven botones redondos de cristal; las acciones relacionadas comparten una cápsula de cristal, con un chip de búsqueda y teclas de atajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les boutons de l'en-tête du chat deviennent des boutons ronds en verre ; les actions liées partagent une même capsule de verre, avec une puce de recherche et des touches de raccourci."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I pulsanti dell'intestazione della chat diventano pulsanti rotondi in vetro; le azioni correlate condividono una capsula di vetro, con un chip di ricerca e tasti di scelta rapida."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのヘッダーのボタンが丸いガラスのボタンになり、関連する操作は1つのガラスのカプセルにまとまります。検索チップとショートカットのキーキャップも表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប៊ូតុងនៅក្បាលការជជែកក្លាយជាប៊ូតុងកញ្ចក់មូល ដោយសកម្មភាពពាក់ព័ន្ធចែករំលែកកន្សោមកញ្ចក់តែមួយ ជាមួយបន្ទះស្វែងរក និងគ្រាប់ចុចផ្លូវកាត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 헤더의 버튼이 둥근 유리 버튼이 되고, 관련 동작은 하나의 유리 캡슐을 함께 쓰며, 검색 칩과 단축키 키캡이 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knappene i chattens topptekst blir runde glassknapper, der relaterte handlinger deler én glasskapsel, med en søkebrikke og snarveistaster."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przyciski w nagłówku czatu stają się okrągłymi szklanymi przyciskami, powiązane działania dzielą jedną szklaną kapsułę, z polem wyszukiwania i klawiszami skrótów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os botões do cabeçalho do chat viram botões redondos de vidro; ações relacionadas compartilham uma cápsula de vidro, com um chip de busca e teclas de atalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопки в заголовке чата становятся круглыми стеклянными кнопками, связанные действия делят одну стеклянную капсулу, а также появляются поле поиска и клавиши сочетаний."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปุ่มในส่วนหัวของแชทจะเป็นปุ่มกระจกทรงกลม การทำงานที่เกี่ยวข้องจะอยู่ในแคปซูลกระจกเดียวกัน พร้อมชิปค้นหาและปุ่มลัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet başlığının düğmeleri yuvarlak cam düğmelere dönüşür; ilgili eylemler tek bir cam kapsülü paylaşır, bir arama çipi ve kısayol tuşları eklenir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопки в заголовку чату стають круглими скляними кнопками, пов'язані дії ділять одну скляну капсулу, а також з'являються поле пошуку й клавіші скорочень."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các nút trên tiêu đề cuộc trò chuyện trở thành nút kính tròn, các thao tác liên quan dùng chung một viên nang kính, kèm ô tìm kiếm và phím tắt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天标题栏的按钮变为圆形玻璃按钮，相关操作共用一个玻璃胶囊，并显示搜索标签和快捷键键帽。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天標題列的按鈕變為圓形玻璃按鈕，相關操作共用一個玻璃膠囊，並顯示搜尋標籤和快速鍵鍵帽。"
+          }
+        }
+      }
+    },
     "settings.labs.agentCustomization": {
-      "comment": "Settings > Advanced > Labs: toggle that shows and edits Claude Code's and Codex's own MCP servers (product names, never translated)",
+      "comment": "Settings > Advanced > Labs: toggle that shows and edits Claude Code's and Codex's own MCP servers, skills and commands (product names, never translated)",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -230080,127 +230473,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show and edit the MCP servers Claude Code and Codex use, in their own config files."
+            "value": "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اعرض خوادم MCP التي يستخدمها Claude Code وCodex وعدّلها، في ملفات إعدادهما."
+            "value": "اعرض خوادم MCP والمهارات والأوامر التي يستخدمها Claude Code وCodex وعدّلها، في ملفات إعدادهما."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prikažite i uredite MCP servere koje Claude Code i Codex koriste, u njihovim konfiguracijskim datotekama."
+            "value": "Prikažite i uredite MCP servere, vještine i komande koje Claude Code i Codex koriste, u njihovim konfiguracijskim datotekama."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis og rediger de MCP-servere, Claude Code og Codex bruger, i deres egne konfigurationsfiler."
+            "value": "Vis og rediger de MCP-servere, skills og kommandoer, Claude Code og Codex bruger, i deres egne konfigurationsfiler."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "MCP-Server, die Claude Code und Codex nutzen, in deren eigenen Konfigurationsdateien anzeigen und bearbeiten."
+            "value": "MCP-Server, Skills und Befehle, die Claude Code und Codex nutzen, in deren eigenen Konfigurationsdateien anzeigen und bearbeiten."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra y edita los servidores MCP que usan Claude Code y Codex, en sus propios archivos de configuración."
+            "value": "Muestra y edita los servidores MCP, las habilidades y los comandos que usan Claude Code y Codex, en sus propios archivos de configuración."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affichez et modifiez les serveurs MCP qu'utilisent Claude Code et Codex, dans leurs propres fichiers de configuration."
+            "value": "Affichez et modifiez les serveurs MCP, compétences et commandes qu'utilisent Claude Code et Codex, dans leurs propres fichiers de configuration."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostra e modifica i server MCP usati da Claude Code e Codex, nei loro file di configurazione."
+            "value": "Mostra e modifica i server MCP, le skill e i comandi usati da Claude Code e Codex, nei loro file di configurazione."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code と Codex が使う MCP サーバーを、それぞれの設定ファイルで表示・編集します。"
+            "value": "Claude Code と Codex が使う MCP サーバー、スキル、コマンドを、それぞれの設定ファイルで表示・編集します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បង្ហាញ និងកែម៉ាស៊ីនមេ MCP ដែល Claude Code និង Codex ប្រើ នៅក្នុងឯកសារកំណត់ផ្ទាល់ខ្លួនរបស់វា។"
+            "value": "បង្ហាញ និងកែម៉ាស៊ីនមេ MCP ជំនាញ និងពាក្យបញ្ជា ដែល Claude Code និង Codex ប្រើ នៅក្នុងឯកសារកំណត់ផ្ទាល់ខ្លួនរបស់វា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code와 Codex가 쓰는 MCP 서버를 각자의 설정 파일에서 보고 편집합니다."
+            "value": "Claude Code와 Codex가 쓰는 MCP 서버, 스킬, 명령을 각자의 설정 파일에서 보고 편집합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis og rediger MCP-serverne Claude Code og Codex bruker, i deres egne konfigurasjonsfiler."
+            "value": "Vis og rediger MCP-serverne, ferdighetene og kommandoene Claude Code og Codex bruker, i deres egne konfigurasjonsfiler."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pokaż i edytuj serwery MCP używane przez Claude Code i Codex, w ich własnych plikach konfiguracji."
+            "value": "Pokaż i edytuj serwery MCP, umiejętności i polecenia używane przez Claude Code i Codex, w ich własnych plikach konfiguracji."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostre e edite os servidores MCP que o Claude Code e o Codex usam, nos próprios arquivos de configuração deles."
+            "value": "Mostre e edite os servidores MCP, as habilidades e os comandos que o Claude Code e o Codex usam, nos próprios arquivos de configuração deles."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показывать и изменять серверы MCP, которые используют Claude Code и Codex, в их собственных файлах настроек."
+            "value": "Показывать и изменять серверы MCP, навыки и команды, которые используют Claude Code и Codex, в их собственных файлах настроек."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แสดงและแก้ไขเซิร์ฟเวอร์ MCP ที่ Claude Code และ Codex ใช้ ในไฟล์ตั้งค่าของแต่ละตัว"
+            "value": "แสดงและแก้ไขเซิร์ฟเวอร์ MCP ทักษะ และคำสั่งที่ Claude Code และ Codex ใช้ ในไฟล์ตั้งค่าของแต่ละตัว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code ve Codex'in kullandığı MCP sunucularını kendi yapılandırma dosyalarında gösterin ve düzenleyin."
+            "value": "Claude Code ve Codex'in kullandığı MCP sunucularını, becerileri ve komutları kendi yapılandırma dosyalarında gösterin ve düzenleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показувати й редагувати сервери MCP, які використовують Claude Code і Codex, у їхніх власних файлах налаштувань."
+            "value": "Показувати й редагувати сервери MCP, навички та команди, які використовують Claude Code і Codex, у їхніх власних файлах налаштувань."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hiện và sửa các máy chủ MCP mà Claude Code và Codex dùng, trong tệp cấu hình riêng của chúng."
+            "value": "Hiện và sửa các máy chủ MCP, kỹ năng và lệnh mà Claude Code và Codex dùng, trong tệp cấu hình riêng của chúng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 Claude Code 和 Codex 各自的配置文件中查看和编辑它们使用的 MCP 服务器。"
+            "value": "在 Claude Code 和 Codex 各自的配置文件中查看和编辑它们使用的 MCP 服务器、技能和命令。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 Claude Code 與 Codex 各自的設定檔中檢視和編輯它們使用的 MCP 伺服器。"
+            "value": "在 Claude Code 與 Codex 各自的設定檔中檢視和編輯它們使用的 MCP 伺服器、技能和命令。"
           }
         }
       }
