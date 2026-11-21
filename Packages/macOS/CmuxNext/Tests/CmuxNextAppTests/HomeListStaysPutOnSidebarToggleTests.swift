@@ -73,6 +73,54 @@ import Testing
         }
     }
 
+    /// A narrow list in a window with a wide accessory after the lights (the toolbar band, an
+    /// incognito badge): under the lights the accessory pushes the Unread toggle down onto the
+    /// search row. Clear of the lights the toggle keeps that row, never back up on the lights' line.
+    @Test(arguments: [200, 260] as [CGFloat])
+    func aNarrowListBesideAWideAccessoryKeepsItsToggle(width: CGFloat) throws {
+        _ = NSApplication.shared
+        let window = AccessoryWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
+                                     styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                                     backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.titlebarAppearsTransparent = true
+        defer { window.close() }
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 1200, height: 800))
+        window.contentView = root
+        let lights = try #require(WindowTitlebar.trafficLightsFrame(in: window))
+        // The accessory runs from after the lights to 30 pt short of the toggle's place, on their line.
+        window.accessory = CGRect(x: lights.maxX + 6, y: lights.minY - 3,
+                                  width: width - 40 - lights.maxX, height: lights.height + 6)
+        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: width, height: 800))
+        root.addSubview(home)
+        var seen: [CGFloat: (HomeSidebarHeaderLayout, CGRect, CGRect)] = [:]
+        for x in [0, 300] as [CGFloat] {
+            home.frame = NSRect(x: x, y: 0, width: width, height: 800)
+            home.layoutSubtreeIfNeeded()
+            home.updateWindowControlsAvoidance()
+            home.list.headerView.needsLayout = true
+            home.list.headerView.layoutSubtreeIfNeeded()
+            let field = home.list.searchField
+            seen[x] = (home.header, home.unreadToggle.convert(home.unreadToggle.bounds, to: nil), field.convert(field.bounds, to: nil))
+        }
+        let under = try #require(seen[0]), beside = try #require(seen[300])
+        print("HOME_LIST_DRIFT|accessory-\(Int(width))|filter|\(abs(beside.1.minY - under.1.minY))|under=\(under.1)|beside=\(beside.1)")
+        #expect(under.0 == beside.0, "\(width): Home's header changed when the window's sidebar showed: \(under.0) -> \(beside.0)")
+        #expect(abs(beside.1.minY - under.1.minY) <= 0.5, "\(width): the Unread toggle moved up or down: \(under.1) -> \(beside.1)")
+        #expect(abs(beside.2.minY - under.2.minY) <= 0.5, "\(width): the search field moved up or down: \(under.2) -> \(beside.2)")
+        // Under the lights nothing of the header lies on the accessory.
+        home.frame.origin.x = 0
+        home.updateWindowControlsAvoidance()
+        home.list.headerView.layoutSubtreeIfNeeded()
+        let toggle = home.unreadToggle.convert(home.unreadToggle.bounds, to: nil)
+        #expect(!toggle.intersects(window.accessory) && !toggle.intersects(lights), "\(width): the toggle sits on the lights or the accessory")
+    }
+
+    private final class AccessoryWindow: NSWindow, TitlebarAccessoryHosting {
+        var accessory: CGRect = .zero
+        var titlebarAccessoryFrame: CGRect? { accessory.isEmpty ? nil : accessory }
+    }
+
     private func settle(_ home: HomeSidebarView, _ split: NSView) {
         split.needsLayout = true
         split.layoutSubtreeIfNeeded()
