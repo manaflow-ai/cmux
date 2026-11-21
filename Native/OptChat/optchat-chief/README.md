@@ -834,8 +834,9 @@ that profile is named. Any other Claude-family profile must also be kind
 proxy` replaced by a `claude-stdio` profile that runs `claude` with no
 arguments) only when its `ANTHROPIC_BASE_URL` is the team subrouter on
 cmux-lawrence (`harness_gate::TEAM_SUBROUTER_URLS`); a real `sr claude
-proxy` profile wins over it. A refused turn starts no session and posts `(turn refused:
-...)` in the chat. A session that acpmux resolved or moved onto another
+proxy` profile wins over it. A refused turn starts no session and posts a short plain reply
+(`harness_gate::refused_reply`): it quotes the message it answers, says what is missing and what
+to do, and a repeat says how many turns in a row were refused, so no two in a row read the same. A session that acpmux resolved or moved onto another
 profile is checked again by its own harness, at the start and at the end
 of the turn. Every refusal is a `harness.refused` trace event (role,
 harness, reason), and each `turn.end` records `harness_profile`,
