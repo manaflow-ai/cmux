@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextMacScreen
 import Foundation
 
 /// cmux:// links: `link.open`, the one resolution path every link takes,
@@ -22,6 +23,8 @@ enum LinkHandlers {
                 return
             }
             if let url = URL(string: trimmed), let action = DeepLink.appInstallAction(for: url, linkScheme: services.linkScheme) { _ = registry.perform(action.id, invocation: ActionInvocation(arguments: action.arguments, origin: invocation.origin)); return } // `apps/install?repo=…`: app.install, whose consent card always shows
+            // A screen link (`cmux://mac-screen?device=&display=`, or `https://cmux.com/deeplink/screen?…`): that device's Screen Sharing tab.
+            if let url = URL(string: trimmed), let record = MacScreenRecord(link: url, linkScheme: services.linkScheme) { return services.macScreenTabs.openAddress(record, in: nil, focus: !background) }
             if let url = URL(string: trimmed), let reference = DeepLink.agentReference(url, linkScheme: services.linkScheme) { // a footer's `cmux://agent?id=aid-…`
                 return try DeepLinkNavigator(services: services).openAgentLink(nil, bare: reference, background ? .bringForward : .raise, asking: true)
             }
