@@ -234,6 +234,12 @@ fn a_split_character_waits_for_its_last_byte() {
     assert_eq!(utf8_complete(euro), 3);
     assert_eq!(utf8_complete(b"ab\xE2"), 2);
     assert_eq!(utf8_complete(b"plain"), 5);
+    let face = "a\u{1F600}".as_bytes();
+    assert_eq!(utf8_complete(&face[..4]), 1, "a four-byte character missing its last byte");
+    assert_eq!(utf8_complete(face), 5);
+    assert_eq!(utf8_complete(b""), 0);
+    // No character start in the last four bytes: nothing to hold back.
+    assert_eq!(utf8_complete(b"a\x80\x80\x80\x80"), 5);
 }
 
 #[test]
