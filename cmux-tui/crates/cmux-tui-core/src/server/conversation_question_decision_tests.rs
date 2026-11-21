@@ -155,8 +155,8 @@ fn request_digest_matches_the_golden_fixture_and_acpmux() {
 }
 
 /// A deadline with a whole budget left.
-fn soon() -> std::time::Instant {
-    std::time::Instant::now() + std::time::Duration::from_secs(60)
+fn soon() -> Instant {
+    Instant::now() + Duration::from_secs(60)
 }
 
 /// `_acpmux/info` of a Chief owner subagent `raw` of home `1234abcd`, holding one prompt.
@@ -319,7 +319,7 @@ fn the_displayed_question_must_be_the_stored_one() {
     let mut other_option = shown.clone();
     other_option["items"][0]["options"][0]["label"] = json!("Yep");
     assert_eq!(stale(Some(&other_option), true), "question.stale");
-    let mut closed = shown.clone();
+    let mut closed = shown;
     closed["state"] = json!({"kind": "cancelled"});
     assert_eq!(stale(Some(&closed), true), "question.stale");
     assert_eq!(stale(Some(&json!("not a question")), true), "question.stale");
