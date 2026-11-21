@@ -23,7 +23,8 @@ final class TranscriptTapDismissUITests: XCTestCase {
 
         // The collapsed capsule opens the field.
         let field = app.textViews["chat.composer.field"]
-        if !field.exists { app.staticTexts["Reply to Claude"].firstMatch.tap() }
+        // The collapsed capsule is a button reading the placeholder.
+        if !field.exists { app.buttons["Reply to Claude"].firstMatch.tap() }
         XCTAssertTrue(field.waitForExistence(timeout: 5), "the composer field\n\(app.debugDescription)")
         if !app.keyboards.firstMatch.exists { field.tap() }
         expect(app.keyboards.firstMatch, "exists == true", "the keyboard comes up")

@@ -1,0 +1,17 @@
+.atd{display:flex;flex-wrap:wrap;gap:16px;padding:16px;background:var(--agent-page-bg);color:var(--agent-text);font-size:var(--text-detail)}
+.atd-menu,.atd-palette,.atd-cloud{display:flex;flex-direction:column;min-width:240px;padding:8px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-surface-elevated)}
+.atd-row,.atd-palette-row,.atd-cloud-row{display:flex;align-items:center;gap:8px;min-height:24px;padding:4px 8px;border-radius:6px}
+.atd-palette-row{min-height:32px}
+.atd-text{display:flex;flex-direction:column;min-width:0;flex:1 1 auto}
+.atd-detail,.atd-muted,.atd-section,.atd-palette-title{color:var(--agent-muted)}
+.atd-section{padding:4px 8px;font-weight:600}
+.atd-check{width:12px;flex:none;text-align:center}
+.atd-accessory{width:16px;flex:none;text-align:center}
+.atd-avatar{display:inline-flex;align-items:center;justify-content:center;width:1rem;aspect-ratio:1;border-radius:50%;background:var(--agent-muted);color:var(--agent-page-bg);font-size:var(--text-caption)}
+.atd-sep{margin:4px 8px;border-top:1px solid var(--agent-border)}
+.atd-badge{padding:0 4px;border-radius:4px;border:1px solid var(--agent-border);color:var(--agent-muted)}
+.atd-chevron{color:var(--agent-muted)}
+.atd-palette-title{padding:4px 8px}
+.atd-cloud{gap:8px}
+.atd-cloud-row .acpmux-team-tag{margin-left:auto}
+.atd-machines-header{display:flex;align-items:center;gap:8px;padding:0 8px;font-weight:600;color:var(--agent-muted)}

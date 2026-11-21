@@ -61,7 +61,16 @@ export interface SyncReport {
 }
 
 type StripeItem = { id: string; quantity?: number; price: { id: string; product: string | { id: string }; lookup_key?: string | null; recurring?: { interval?: string } | null }; current_period_start?: number; current_period_end?: number }
-type StripeSubscription = { id: string; status: string; customer: string | { id: string }; metadata?: Record<string, string>; items: { data: StripeItem[] } }
+type StripeInvoice = { id: string; status?: string | null; amount_paid?: number; billing_reason?: string | null; status_transitions?: { paid_at?: number | null } | null }
+type StripeSubscription = { id: string; status: string; customer: string | { id: string }; metadata?: Record<string, string>; items: { data: StripeItem[] }; latest_invoice?: string | StripeInvoice | null }
+
+/**
+ * The invoice that lifts the raise lock (billing-catalog.ts teamCapUnpaidMaxPools): a renewal (billing_reason
+ * subscription_cycle) that was paid with money (amount_paid above 0). The sign-up invoice does not count: a card that
+ * pays a first month can still be one that is disputed later; a renewal paid a month on is the signal.
+ */
+export const paidRenewal = (inv: string | StripeInvoice | null | undefined): StripeInvoice | null =>
+  inv && typeof inv === "object" && inv.status === "paid" && inv.billing_reason === "subscription_cycle" && Number(inv.amount_paid ?? 0) > 0 ? inv : null
 
 export const stripeFetch = async (key: string, method: "GET" | "POST", path: string, form?: Record<string, string>, idempotencyKey?: string): Promise<any> => {
   const headers: Record<string, string> = { authorization: `Bearer ${key}`, "stripe-version": STRIPE_API_VERSION }
@@ -105,7 +114,7 @@ const listActive = async (key: string): Promise<{ subs: StripeSubscription[]; tr
     let after: string | undefined
     let page = 0
     for (; page < MAX_PAGES; page++) {
-      const list = await stripeFetch(key, "GET", `/v1/subscriptions?status=${status}&limit=100${after ? `&starting_after=${after}` : ""}`)
+      const list = await stripeFetch(key, "GET", `/v1/subscriptions?status=${status}&limit=100&expand[]=data.latest_invoice${after ? `&starting_after=${after}` : ""}`)
       subs.push(...(list.data as StripeSubscription[]))
       if (!list.has_more || list.data.length === 0) break
       after = list.data.at(-1).id
@@ -117,12 +126,13 @@ const listActive = async (key: string): Promise<{ subs: StripeSubscription[]; tr
 
 /**
  * The price set in force: `e2e` only on the development Worker that asks for it; `v2` (Team 25 USD per seat,
- * Leo 2026-11-09) only on development or staging with BILLING_USAGE_PRICE_SET=v2. Production stays v1
- * whatever the setting: it waits for Leo's go.
+ * model overage at list + 10%, the spending cap; Leo 2026-11-09) on development, staging or production with
+ * BILLING_USAGE_PRICE_SET=v2. Production has no setting, so it stays v1 until the founders' go sets it
+ * (plans/cmux-next/billing-go-live.md); live keys stay refused by stripeKeyMode either way.
  */
 export const usagePriceSet = (env: Pick<Env, "ENVIRONMENT" | "BILLING_USAGE_PRICE_SET">): UsagePriceSet => {
   if (env.ENVIRONMENT === "development" && env.BILLING_USAGE_PRICE_SET === "e2e") return "e2e"
-  if ((env.ENVIRONMENT === "development" || env.ENVIRONMENT === "staging") && env.BILLING_USAGE_PRICE_SET === "v2") return "v2"
+  if ((env.ENVIRONMENT === "development" || env.ENVIRONMENT === "staging" || env.ENVIRONMENT === "production") && env.BILLING_USAGE_PRICE_SET === "v2") return "v2"
   return "v1"
 }
 
@@ -152,7 +162,7 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
   }
   const isUsageItem = (i: StripeItem) => usagePrices.has(i.price.id) || idOf(i.price.product) === USAGE_PRODUCT_ID
 
-  const listed = only?.subscription ? { subs: [(await stripeFetch(key, "GET", `/v1/subscriptions/${encodeURIComponent(only.subscription)}`)) as StripeSubscription], truncated: false } : await listActive(key)
+  const listed = only?.subscription ? { subs: [(await stripeFetch(key, "GET", `/v1/subscriptions/${encodeURIComponent(only.subscription)}?expand[]=latest_invoice`)) as StripeSubscription], truncated: false } : await listActive(key)
   if (listed.truncated) console.error(JSON.stringify({ msg: "billing.usage_sync.truncated", pages: MAX_PAGES }))
   const isCmux = (sub: StripeSubscription) => sub.metadata?.app === "cmux" && ACTIVE.has(sub.status)
   const cmux = listed.subs.filter(isCmux)
@@ -263,6 +273,9 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       // it closes (a set change mid-period neither raises nor lowers it; usage-billing-store.ts periodMarkupBp).
       const markupBp = await meter.periodMarkup(team!, start, Math.round(overageModelMarkup(set) * 10_000))
       await meter.markBillable(team!, sub.id, end, { period_start: start, mode, seats, included_usd: periodIncluded, markup_bp: markupBp })
+      // The raise lock lifts at the first paid renewal (team-cap.ts); the subscription list carries its latest invoice.
+      const renewal = paidRenewal(sub.latest_invoice)
+      if (renewal) await meter.markPaidInvoice(team!, sub.id, renewal.id, Number(renewal.amount_paid), renewal.status_transitions?.paid_at ?? Math.floor(Date.now() / 1000))
       if (await pushLevel(team!, sub, start, end, mode, periodIncluded, seats, markupBp)) report.pushed++
       else report.unchanged++
     } catch (e) {

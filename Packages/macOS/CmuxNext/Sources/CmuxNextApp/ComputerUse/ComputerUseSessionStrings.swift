@@ -44,6 +44,14 @@ enum ComputerUseSessionStrings {
                               table: "MiscHandlers", bundle: .module), message)
     }
 
+    static var noApp: String {
+        String(localized: "handlers.computerUse.noApp", defaultValue: "Name the app (app_id).", table: "MiscHandlers", bundle: .module)
+    }
+    static var noDecision: String {
+        String(localized: "handlers.computerUse.noDecision", defaultValue: "The decision must be always or never.",
+               table: "MiscHandlers", bundle: .module)
+    }
+
     /// Why no helper answers, from the phase `computer_use.status` reports.
     static func notRunning(_ phase: ComputerUseSetup.Phase) -> String {
         switch phase {

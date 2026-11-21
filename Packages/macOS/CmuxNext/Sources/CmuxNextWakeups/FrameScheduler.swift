@@ -205,9 +205,9 @@ public final class FrameScheduler: NSObject {
         if client.workClass.isBudgeted, !budgetedOrder.contains(id) { budgetedOrder.append(id) }
         dropLinkOfAnotherScreen()
         guard let link = link ?? makeLink() else {
-            // No screen (headless launch): tick once on the next turn.
-            // task-owner: one hop; the client deactivates or re-arms on its tick
-            Task { @MainActor [weak self] in self?.frameDidFire(timestamp: nil) }
+            // No screen (headless launch): tick once on the next run loop pass, not in a main-actor task, which a
+            // nested run loop inside a main-queue job (a menu, a modal, a caller pumping the run loop) never runs.
+            MainRunLoopBlock.perform { [weak self] in self?.frameDidFire(timestamp: nil) }
             return
         }
         if link.isPaused {

@@ -7,7 +7,7 @@
 // (frame/main.ts and its hosts read it: env.ts's controls, the scripts and slots of
 // frame/scripts.ts, the experiment arm); an `app` axis is read by the window around the panes.
 // Adding an axis the stage already reads is one row here.
-import { BACKGROUNDS, DENSITIES, LOCALES, SCALES } from "../env";
+import { BACKGROUNDS, DENSITIES, LOCALES, SCALES, TITLE_AREA_TONES } from "../env";
 import { PANE_LAYOUTS, WINDOW_PRESETS } from "../window";
 import { SCRIPTS, SLOTS } from "../frame/scripts";
 
@@ -110,6 +110,13 @@ export const AXES: readonly Axis[] = [
     values: BACKGROUNDS,
     default: "none",
     note: "A picture behind the window's glass.",
+  },
+  {
+    key: "titleAreaTone",
+    to: "frame",
+    values: TITLE_AREA_TONES,
+    default: "one-color",
+    note: "`appearance.titleAreaTone`: the chrome in the content's colour, or a subtle shade apart.",
   },
   {
     key: "locale",

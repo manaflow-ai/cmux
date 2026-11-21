@@ -1,19 +1,21 @@
+import CCmuxLayoutReducerFFI
 import CoreGraphics
 
-// The rules of ``ClosingPanes`` over plain numbers: the screen's geometry, the live panes' frames and the row columns'
-// scrolls go in as the values these rules read (``ClosingPanes`` gathers them), with each pane, scroll area and row
-// column named by a number the wrapper hands out, so the same rules run in cmux-layout-reducer (`closing_panes`) over
-// the same inputs. The fixture `cmux-tui/crates/cmux-layout-reducer/tests/data/closing_panes_corpus.txt` holds their
-// answers for seeded scripts of closes; `ClosingPanesCorpusTests` (Swift) and `closing_panes_corpus` (Rust) both check
-// against it, so the Rust port is proven equal before the app calls it (RUST MIGRATION, swift-logic owner, step A).
+// The rules of ``ClosingPanes`` are Rust's: cmux-layout-reducer `closing_panes` behind the app FFI's
+// `cmux_closing_panes_*` (cmux-layout-reducer-ffi `closing_panes.rs`). This value owns one handle per screen and turns
+// the facts ``ClosingPanes`` gathers (the screen's geometry, the live panes' frames and the row columns' scrolls, with
+// each pane, scroll area and row column named by a number the wrapper hands out) into the C structs, and the answers
+// back. Nothing here decides. The fixture `cmux-tui/crates/cmux-layout-reducer/tests/data/closing_panes_corpus.txt`
+// (recorded from the Swift rules this replaced) holds their answers and state for seeded scripts of closes;
+// `ClosingPanesCorpusTests` replays it through this value and `closing_panes_corpus` (Rust) through the crate.
 //
-// A strip pane's x is in strip coordinates and a fixed (docked) pane's in the view's (`ScreenGeometry`): a pane beside one
-// of the other kind reads its edges moved by the strip's view shift (``across(_:_:strip:)``), so a docked pane borders the
-// strip panes beside it and closes on their spring as a strip pane does (CLOSE MOTION 2 case E).
+// The handle is a reference: copies of this value share one state. ``ClosingPanes`` keeps one per screen and never
+// copies it; the land rule's question (``landingMoves(frames:restStrip:snap:)``) places the panes on copies inside
+// Rust.
 //
-// Each body is the former ``ClosingPanes`` body with the geometry reads replaced by inputs, in the same order of
-// operations: a rect's sides are the ones CoreGraphics read from it (``Edges``), and a rect this file makes is
-// `(x, y, max(0, maxX - x), max(0, maxY - y))`, whose sides are `x` and `x + width`.
+// Cost: a call converts its arrays once (the live panes' frames, the row travels: a few elements per screen) and
+// copies the answer out of the handle's buffer, which Rust reuses, so Rust allocates nothing per frame once its buffers
+// have grown; `landingMoves` copies the state two times, as the Swift value copies did.
 nonisolated struct ClosingPanesRules {
     /// A rect's sides as CoreGraphics reads them (`CGRect.minX`, `maxX`, `minY`, `maxY`).
     struct Edges: Equatable {
@@ -29,10 +31,7 @@ nonisolated struct ClosingPanesRules {
             self.maxY = maxY
         }
 
-        /// The sides of a rect these rules made (`x`, `y`, `width >= 0`, `height >= 0`).
-        init(_ rect: Placed) {
-            self.init(minX: rect.x, maxX: rect.x + rect.width, minY: rect.y, maxY: rect.y + rect.height)
-        }
+        var c: CmuxClosingEdges { CmuxClosingEdges(min_x: Double(minX), max_x: Double(maxX), min_y: Double(minY), max_y: Double(maxY)) }
     }
 
     /// One pane of the layout a close left (`ScreenGeometry.panes`), in ascending pane order (the order a side lists
@@ -45,6 +44,7 @@ nonisolated struct ClosingPanesRules {
         var rowColumn: UInt64
     }
 
+    /// `CMUX_CLOSING_HANDLE_*`.
     enum HandleKind: UInt8 {
         case split = 0
         case columnEdge = 1
@@ -99,9 +99,18 @@ nonisolated struct ClosingPanesRules {
         var y: CGFloat
         var width: CGFloat
         var height: CGFloat
+
+        init(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
+            self.x = x
+            self.y = y
+            self.width = width
+            self.height = height
+        }
+
+        init(_ rect: CmuxClosingRect) { self.init(x: rect.x, y: rect.y, width: rect.width, height: rect.height) }
     }
 
-    /// Where a taken-back close starts and its sides' velocities (``ClosingPanes/remove(_:frames:)``).
+    /// Where a taken-back close starts and its sides' velocities (``ClosingPanes/remove(_:frames:fixed:strip:)``).
     struct Taken: Equatable {
         var rect: Placed
         var vx: CGFloat
@@ -110,314 +119,151 @@ nonisolated struct ClosingPanesRules {
         var vh: CGFloat
     }
 
-    /// One side of a closing pane (``ClosingPanes/Side``).
-    struct Side: Equatable {
-        var neighbours: [UInt64]
-        var gap: CGFloat
-        var fixed: CGFloat
-        var start: CGFloat?
-        var end: CGFloat?
-    }
+    private let handle = ClosingPanesHandle()
 
-    struct Travel: Equatable {
-        var start: CGFloat
-        var target: CGFloat
-    }
+    /// Whether panes the last change began closing wait for its cameras.
+    var hasAwaiting: Bool { cmux_closing_panes_has_awaiting(handle.pointer) != 0 }
 
-    struct Shown: Equatable {
-        var minX: CGFloat
-        var maxX: CGFloat
-    }
-
-    /// One closing pane (``ClosingPanes/Entry``, less what only the wrapper reads).
-    struct Entry: Equatable {
-        var minX: Side
-        var maxX: Side
-        var minY: Side
-        var maxY: Side
-        var scrolls: Bool
-        var rowColumn: UInt64
-        var carriedShown: Shown?
-        var rowTravel: Travel?
-    }
-
-    private(set) var entries: [UInt64: Entry] = [:]
-    private(set) var order: [UInt64] = []
-    private(set) var awaiting: Set<UInt64> = []
-
-    var isEmpty: Bool { entries.isEmpty }
-    var hasAwaiting: Bool { !awaiting.isEmpty }
-
-    // MARK: Swift's comparisons, as the former bodies used them
-
-    /// `Swift.min(x, y)`.
-    static func minimum(_ x: CGFloat, _ y: CGFloat) -> CGFloat { y < x ? y : x }
-    /// `Swift.max(x, y)`.
-    static func maximum(_ x: CGFloat, _ y: CGFloat) -> CGFloat { y >= x ? y : x }
-    /// `Sequence.min()`.
-    static func least(_ values: [CGFloat]) -> CGFloat? {
-        guard var result = values.first else { return nil }
-        for value in values.dropFirst() where value < result { result = value }
-        return result
-    }
-
-    /// `Sequence.max()`.
-    static func most(_ values: [CGFloat]) -> CGFloat? {
-        guard var result = values.first else { return nil }
-        for value in values.dropFirst() where result < value { result = value }
-        return result
-    }
-
-    /// What to add to the x of a pane that scrolls as `other` does to place it in the coordinates of one that scrolls as
-    /// `own` does: 0 for the same kind, else the strip's view shift `strip`, added to a strip x seen from a fixed pane and
-    /// taken from a fixed x seen from a strip pane.
-    static func across(_ own: Bool, _ other: Bool, strip: CGFloat) -> CGFloat {
-        own == other ? 0 : other ? strip : -strip
-    }
-
-    // MARK: The rules
+    /// The hash of the whole state (every side, travel and carry, the close order and the panes awaiting the cameras):
+    /// the corpus tests compare it after each call.
+    var stateHash: UInt64 { cmux_closing_panes_state_hash(handle.pointer) }
 
     /// ``ClosingPanes/begin(_:shown:before:kept:maxGap:rank:viewShift:stripShift:)``: `panes` are the layout it left, in
-    /// ascending pane order; `handles` its handles; `stripShift` that layout's view shift at the camera of the close (a
-    /// pane of the other scroll kind is read moved by it). Returns whether the pane was in that layout (it starts closing).
+    /// ascending pane order; `handles` its handles; `stripShift` that layout's view shift at the camera of the close.
+    /// Returns whether the pane was in that layout (it starts closing).
     @discardableResult
     mutating func begin(_ pane: UInt64, shown: Edges, panes: [PaneFact], handles: [HandleFact], maxGap: CGFloat,
                         viewShift: CGFloat?, stripShift: CGFloat) -> Bool {
-        guard let own = panes.first(where: { $0.id == pane }) else { return false }
-        let rest = own.edges
-        var lead: [(UInt64, CGFloat)] = [], trail: [(UInt64, CGFloat)] = [], top: [(UInt64, CGFloat)] = [], bottom: [(UInt64, CGFloat)] = []
-        let scrolls = own.scrolls, area = own.area, rowColumn = own.rowColumn
-        for other in panes where other.id != pane {
-            let dx = Self.across(scrolls, other.scrolls, strip: stripShift)
-            let was = Edges(minX: other.edges.minX + dx, maxX: other.edges.maxX + dx, minY: other.edges.minY, maxY: other.edges.maxY)
-            if Self.minimum(was.maxY, rest.maxY) - Self.maximum(was.minY, rest.minY) > 1, other.area == area {
-                let gapBefore = rest.minX - was.maxX, gapAfter = was.minX - rest.maxX
-                if gapBefore >= -0.5, gapBefore <= maxGap { lead.append((other.id, Self.maximum(0, gapBefore))) }
-                if gapAfter >= -0.5, gapAfter <= maxGap { trail.append((other.id, Self.maximum(0, gapAfter))) }
-            }
-            if Self.minimum(was.maxX, rest.maxX) - Self.maximum(was.minX, rest.minX) > 1, other.rowColumn == rowColumn {
-                let gapAbove = rest.minY - was.maxY, gapBelow = was.minY - rest.maxY
-                if gapAbove >= -0.5, gapAbove <= maxGap { top.append((other.id, Self.maximum(0, gapAbove))) }
-                if gapBelow >= -0.5, gapBelow <= maxGap { bottom.append((other.id, Self.maximum(0, gapBelow))) }
+        let cPanes = panes.map { fact in
+            var p = CmuxClosingPane()
+            p.id = fact.id
+            p.area = fact.area
+            p.row_column = fact.rowColumn
+            p.edges = fact.edges.c
+            p.scrolls = fact.scrolls ? 1 : 0
+            return p
+        }
+        let cHandles = handles.map { fact in
+            var h = CmuxClosingHandle()
+            h.hit = fact.hit.c
+            h.mid_x = Double(fact.midX)
+            h.mid_y = Double(fact.midY)
+            h.area = fact.area
+            h.column = fact.column
+            h.kind = fact.kind.rawValue
+            h.horizontal = fact.horizontal ? 1 : 0
+            h.kept = fact.kept ? 1 : 0
+            h.fixed_split = fact.fixedSplit ? 1 : 0
+            h.docked = fact.docked ? 1 : 0
+            return h
+        }
+        var cShown = shown.c
+        let code = cPanes.withUnsafeBufferPointer { panes in
+            cHandles.withUnsafeBufferPointer { handles in
+                cmux_closing_panes_begin(handle.pointer, pane, &cShown, panes.baseAddress, panes.count, handles.baseAddress, handles.count,
+                                         Double(maxGap), viewShift == nil ? 0 : 1, Double(viewShift ?? 0), Double(stripShift))
             }
         }
-        func handleStays(from lo: CGFloat, to hi: CGFloat, horizontal: Bool) -> Bool? {
-            var stays: Bool?
-            let across = horizontal ? (rest.minY, rest.maxY) : (rest.minX, rest.maxX)
-            for handle in handles {
-                let eligible = switch handle.kind {
-                case .split: handle.fixedSplit != scrolls && (handle.area != 0 ? handle.area : area) == area
-                case .columnEdge: !handle.docked == scrolls
-                case .rowEdge: handle.column == rowColumn
-                }
-                guard eligible else { continue }
-                let along = handle.horizontal ? handle.midX : handle.midY
-                let cross = handle.horizontal ? (handle.hit.minY, handle.hit.maxY) : (handle.hit.minX, handle.hit.maxX)
-                guard handle.horizontal == horizontal, along >= lo - 0.5, along <= hi + 0.5,
-                      Self.minimum(cross.1, across.1) - Self.maximum(cross.0, across.0) > 1 else { continue }
-                stays = stays == true || handle.kept
-            }
-            return stays
-        }
-        func widest(_ found: [(UInt64, CGFloat)]) -> CGFloat { Self.most(found.map(\.1)) ?? 0 }
-        let keepsMinX = !lead.isEmpty && (handleStays(from: rest.minX - widest(lead), to: rest.minX, horizontal: true) ?? !trail.isEmpty)
-        let keepsMaxX = !trail.isEmpty && (handleStays(from: rest.maxX, to: rest.maxX + widest(trail), horizontal: true) ?? false)
-        let keepsMinY = !top.isEmpty && (handleStays(from: rest.minY - widest(top), to: rest.minY, horizontal: false) ?? !bottom.isEmpty)
-        let keepsMaxY = !bottom.isEmpty && (handleStays(from: rest.maxY, to: rest.maxY + widest(bottom), horizontal: false) ?? false)
-        func side(_ found: [(UInt64, CGFloat)], keepsGap: Bool, at value: CGFloat) -> Side {
-            Side(neighbours: found.map(\.0), gap: keepsGap ? Self.least(found.map(\.1)) ?? 0 : 0, fixed: value)
-        }
-        entries[pane] = Entry(minX: side(lead, keepsGap: keepsMinX, at: shown.minX), maxX: side(trail, keepsGap: keepsMaxX, at: shown.maxX),
-                              minY: side(top, keepsGap: keepsMinY, at: shown.minY), maxY: side(bottom, keepsGap: keepsMaxY, at: shown.maxY),
-                              scrolls: scrolls, rowColumn: rowColumn,
-                              carriedShown: viewShift.map { scrolls ? Shown(minX: shown.minX + $0, maxX: shown.maxX + $0) : Shown(minX: shown.minX, maxX: shown.maxX) })
-        order.removeAll { $0 == pane }
-        order.append(pane)
-        awaiting.insert(pane)
-        return true
+        return code == 1
     }
 
-    /// ``ClosingPanes/settle(frames:row:)``.
+    /// ``ClosingPanes/settle(frames:row:)``: the panes nothing moves over.
     mutating func settle(frames: [FrameFact], rows: [RowTravel]) -> Set<UInt64> {
-        defer { awaiting = [] }
-        for pane in awaiting {
-            guard var entry = entries[pane], entry.rowColumn != 0,
-                  entry.minY.neighbours.isEmpty != entry.maxY.neighbours.isEmpty, let travel = Self.row(entry.rowColumn, rows),
-                  abs(travel.target - travel.now) >= 0.5 else { continue }
-            entry.rowTravel = Travel(start: travel.now, target: travel.target)
-            entries[pane] = entry
+        let cFrames = Self.c(frames), cRows = Self.c(rows)
+        var out = CmuxClosingIds(ids: nil, count: 0)
+        let code = cFrames.withUnsafeBufferPointer { frames in
+            cRows.withUnsafeBufferPointer { rows in
+                cmux_closing_panes_settle(handle.pointer, frames.baseAddress, frames.count, rows.baseAddress, rows.count, &out)
+            }
         }
-        return still(awaiting, frames: frames)
+        guard code == CMUX_LAYOUT_REDUCER_OK, let ids = out.ids else { return [] }
+        // The list borrows the handle's buffer until the next call: copied out here.
+        return Set(UnsafeBufferPointer(start: ids, count: out.count))
     }
 
-    /// ``ClosingPanes/rects(frames:row:strip:restStrip:)``: each closing pane's frame, in the order they were placed.
-    /// `strip`: the strip's view shift now; `restStrip`: where it rests (a neighbour of the other scroll kind is read moved
-    /// by them, its presented sides by `strip` and its target sides by `restStrip`).
+    /// ``ClosingPanes/rects(frames:fixed:row:strip:restStrip:)``: each closing pane's frame, in the order they were
+    /// placed. `strip`: the strip's view shift now; `restStrip`: where it rests.
     mutating func rects(frames: [FrameFact], rows: [RowTravel], strip: CGFloat, restStrip: CGFloat) -> [(UInt64, Placed)] {
-        var shown: [UInt64: Placed] = [:], rests: [UInt64: Placed] = [:], placed: [(UInt64, Placed)] = []
-        for pane in order.reversed() {
-            guard var entry = entries[pane] else { continue }
-            let scrolls = entry.scrolls
-            /// A neighbour's x side in this pane's coordinates (`dx` 0 for a y side).
-            func facing(_ neighbour: UInt64, _ edge: (Edges) -> CGFloat, x: Bool) -> CGFloat? {
-                if let frame = Self.frame(neighbour, frames) {
-                    return edge(frame.now) + (x ? Self.across(scrolls, frame.scrolls, strip: strip) : 0)
-                }
-                guard let rect = shown[neighbour], let other = entries[neighbour] else { return nil }
-                return edge(Edges(rect)) + (x ? Self.across(scrolls, other.scrolls, strip: strip) : 0)
+        let cFrames = Self.c(frames), cRows = Self.c(rows)
+        var out = CmuxClosingPlacedList(placed: nil, count: 0)
+        let code = cFrames.withUnsafeBufferPointer { frames in
+            cRows.withUnsafeBufferPointer { rows in
+                cmux_closing_panes_rects(handle.pointer, frames.baseAddress, frames.count, rows.baseAddress, rows.count, Double(strip),
+                                         Double(restStrip), &out)
             }
-            func restingEdge(_ neighbour: UInt64, _ edge: (Edges) -> CGFloat, x: Bool) -> CGFloat? {
-                if let frame = Self.frame(neighbour, frames) {
-                    return edge(frame.target) + (x ? Self.across(scrolls, frame.scrolls, strip: restStrip) : 0)
-                }
-                guard let rect = rests[neighbour], let other = entries[neighbour] else { return nil }
-                return edge(Edges(rect)) + (x ? Self.across(scrolls, other.scrolls, strip: restStrip) : 0)
-            }
-            func place(_ side: inout Side, slowest: ([CGFloat]) -> CGFloat?, edge: (Edges) -> CGFloat, x: Bool, sign: CGFloat) -> CGFloat? {
-                if let value = slowest(side.neighbours.compactMap({ facing($0, edge, x: x) })) { side.fixed = value + sign * side.gap }
-                if side.start == nil { side.start = side.fixed }
-                return slowest(side.neighbours.compactMap { restingEdge($0, edge, x: x) }).map { $0 + sign * side.gap }
-            }
-            func collapse(_ free: inout Side, toward rider: inout Side, rest: CGFloat?, travel: inout Travel?, scroll: RowTravel?) {
-                guard free.neighbours.isEmpty, !rider.neighbours.isEmpty else { return }
-                let end = rest ?? rider.fixed
-                let rescrolled = travel.map { travel in scroll.map { abs($0.target - travel.target) >= 0.5 } ?? false } ?? false
-                if rescrolled || free.end.map({ abs($0 - end) >= 0.5 }) == true {
-                    (free.start, rider.start) = (free.fixed, rider.fixed)
-                    if let scroll, travel != nil { travel = Travel(start: scroll.now, target: scroll.target) }
-                }
-                free.end = end
-                guard let freeStart = free.start else { return }
-                var done: CGFloat?
-                if let rest, let riderStart = rider.start, abs(rest - riderStart) >= 0.5 {
-                    done = Self.minimum(1, Self.maximum(0, (rider.fixed - riderStart) / (rest - riderStart)))
-                } else if let travel, let scroll {
-                    let length = travel.target - travel.start
-                    done = abs(length) < 0.5 ? 1 : Self.minimum(1, Self.maximum(0, (scroll.now - travel.start) / length))
-                }
-                guard let done else { return }
-                free.fixed = freeStart + (end - freeStart) * done
-            }
-            func resting(_ side: Side, _ own: CGFloat?, opposite: Side, _ other: CGFloat?) -> CGFloat {
-                own ?? (side.neighbours.isEmpty && !opposite.neighbours.isEmpty ? other ?? opposite.fixed : side.fixed)
-            }
-            let restMinX = place(&entry.minX, slowest: Self.least, edge: \.maxX, x: true, sign: 1)
-            let restMaxX = place(&entry.maxX, slowest: Self.most, edge: \.minX, x: true, sign: -1)
-            let restMinY = place(&entry.minY, slowest: Self.least, edge: \.maxY, x: false, sign: 1)
-            let restMaxY = place(&entry.maxY, slowest: Self.most, edge: \.minY, x: false, sign: -1)
-            let scroll = entry.rowColumn != 0 ? Self.row(entry.rowColumn, rows) : nil
-            var none: Travel?
-            collapse(&entry.maxX, toward: &entry.minX, rest: restMinX, travel: &none, scroll: nil)
-            collapse(&entry.minX, toward: &entry.maxX, rest: restMaxX, travel: &none, scroll: nil)
-            collapse(&entry.maxY, toward: &entry.minY, rest: restMinY, travel: &entry.rowTravel, scroll: scroll)
-            collapse(&entry.minY, toward: &entry.maxY, rest: restMaxY, travel: &entry.rowTravel, scroll: scroll)
-            entries[pane] = entry
-            let rect = Placed(x: entry.minX.fixed, y: entry.minY.fixed, width: Self.maximum(0, entry.maxX.fixed - entry.minX.fixed),
-                              height: Self.maximum(0, entry.maxY.fixed - entry.minY.fixed))
-            shown[pane] = rect
-            placed.append((pane, rect))
-            let x0 = resting(entry.minX, restMinX, opposite: entry.maxX, restMaxX), x1 = resting(entry.maxX, restMaxX, opposite: entry.minX, restMinX)
-            let y0 = resting(entry.minY, restMinY, opposite: entry.maxY, restMaxY), y1 = resting(entry.maxY, restMaxY, opposite: entry.minY, restMinY)
-            rests[pane] = Placed(x: x0, y: y0, width: Self.maximum(0, x1 - x0), height: Self.maximum(0, y1 - y0))
         }
-        return placed
+        guard code == CMUX_LAYOUT_REDUCER_OK, let placed = out.placed else { return [] }
+        // The list borrows the handle's buffer until the next call: copied out here.
+        return UnsafeBufferPointer(start: placed, count: out.count).map { ($0.pane, Placed($0.rect)) }
+    }
+
+    /// ``ClosingPanes/landingMovesAClosingPane(frames:fixed:restStrip:snap:)``: would a landing now, which puts every
+    /// live frame (`frames`, where this frame's step put them) on its target, move a side of a closing pane more than
+    /// `snap`? The cameras are taken at rest (`restStrip`, no row travel). Rust places the panes on two copies of the
+    /// state; this one is not changed.
+    func landingMoves(frames: [FrameFact], restStrip: CGFloat, snap: CGFloat) -> Bool {
+        let cFrames = Self.c(frames)
+        return cFrames.withUnsafeBufferPointer { frames in
+            cmux_closing_panes_landing_moves(handle.pointer, frames.baseAddress, frames.count, Double(restStrip), Double(snap))
+        } == 1
     }
 
     /// ``ClosingPanes/carry(drift:viewShift:)``.
     mutating func carry(drift: CGFloat, viewShift: CGFloat?) {
-        for (pane, entry) in entries {
-            var entry = entry
-            if entry.scrolls, drift != 0 { Self.shiftX(&entry, by: drift) }
-            entry.carriedShown = viewShift.map { shift in
-                entry.scrolls ? Shown(minX: entry.minX.fixed + shift, maxX: entry.maxX.fixed + shift)
-                    : Shown(minX: entry.minX.fixed, maxX: entry.maxX.fixed)
-            }
-            entries[pane] = entry
-        }
+        cmux_closing_panes_carry(handle.pointer, Double(drift), viewShift == nil ? 0 : 1, Double(viewShift ?? 0))
     }
 
     /// ``ClosingPanes/settleCarried(stripShift:)``.
-    mutating func settleCarried(stripShift shift: CGFloat) {
-        for (pane, entry) in entries {
-            guard let shown = entry.carriedShown else { continue }
-            var entry = entry
-            let offset = entry.scrolls ? shift : 0
-            Self.move(&entry.minX, to: shown.minX - offset)
-            Self.move(&entry.maxX, to: shown.maxX - offset)
-            entry.carriedShown = nil
-            entries[pane] = entry
-        }
-    }
+    mutating func settleCarried(stripShift shift: CGFloat) { cmux_closing_panes_settle_carried(handle.pointer, Double(shift)) }
 
     /// ``ClosingPanes/shiftY(inRowColumn:by:)``.
-    mutating func shiftY(inRowColumn column: UInt64, by delta: CGFloat) {
-        for (pane, entry) in entries where entry.rowColumn == column {
-            var entry = entry
-            Self.move(&entry.minY, to: entry.minY.fixed + delta)
-            Self.move(&entry.maxY, to: entry.maxY.fixed + delta)
-            entries[pane] = entry
-        }
-    }
+    mutating func shiftY(inRowColumn column: UInt64, by delta: CGFloat) { cmux_closing_panes_shift_y(handle.pointer, column, Double(delta)) }
 
-    /// ``ClosingPanes/remove(_:frames:strip:)``: `strip`, the strip's view shift now (a neighbour of the other scroll kind
-    /// is read moved by it).
+    /// ``ClosingPanes/remove(_:frames:fixed:strip:)``: `strip`, the strip's view shift now.
     mutating func remove(_ pane: UInt64, frames: [FrameFact], strip: CGFloat) -> Taken? {
-        guard let entry = entries.removeValue(forKey: pane) else { return nil }
-        order.removeAll { $0 == pane }
-        awaiting.remove(pane)
-        let rect = Placed(x: entry.minX.fixed, y: entry.minY.fixed, width: Self.maximum(0, entry.maxX.fixed - entry.minX.fixed),
-                          height: Self.maximum(0, entry.maxY.fixed - entry.minY.fixed))
-        let edges = Edges(rect)
-        func speed(_ side: Side, at value: CGFloat, edge: (Edges) -> CGFloat, x: Bool, _ velocity: (FrameFact) -> CGFloat) -> CGFloat {
-            let live = side.neighbours.compactMap { Self.frame($0, frames) }
-            func distance(_ frame: FrameFact) -> CGFloat {
-                abs(edge(frame.now) + (x ? Self.across(entry.scrolls, frame.scrolls, strip: strip) : 0) - value)
-            }
-            guard var best = live.first else { return 0 }
-            for frame in live.dropFirst() where distance(frame) < distance(best) { best = frame }
-            return velocity(best)
+        let cFrames = Self.c(frames)
+        var out = CmuxClosingTaken()
+        let code = cFrames.withUnsafeBufferPointer { frames in
+            cmux_closing_panes_remove(handle.pointer, pane, frames.baseAddress, frames.count, Double(strip), &out)
         }
-        let vMinX = speed(entry.minX, at: edges.minX - entry.minX.gap, edge: \.maxX, x: true) { $0.vx + $0.vw }
-        let vMaxX = speed(entry.maxX, at: edges.maxX + entry.maxX.gap, edge: \.minX, x: true) { $0.vx }
-        let vMinY = speed(entry.minY, at: edges.minY - entry.minY.gap, edge: \.maxY, x: false) { $0.vy + $0.vh }
-        let vMaxY = speed(entry.maxY, at: edges.maxY + entry.maxY.gap, edge: \.minY, x: false) { $0.vy }
-        return Taken(rect: rect, vx: vMinX, vw: vMaxX - vMinX, vy: vMinY, vh: vMaxY - vMinY)
+        guard code == 1 else { return nil }
+        return Taken(rect: Placed(out.rect), vx: out.vx, vw: out.vw, vy: out.vy, vh: out.vh)
     }
 
     /// ``ClosingPanes/drop(_:)``.
-    mutating func drop(_ pane: UInt64) {
-        entries[pane] = nil
-        order.removeAll { $0 == pane }
-        awaiting.remove(pane)
-    }
+    mutating func drop(_ pane: UInt64) { cmux_closing_panes_drop(handle.pointer, pane) }
 
-    private func still(_ closing: Set<UInt64>, frames: [FrameFact]) -> Set<UInt64> {
-        func neighbours(_ entry: Entry) -> [UInt64] { entry.minX.neighbours + entry.maxX.neighbours + entry.minY.neighbours + entry.maxY.neighbours }
-        var covered = Set(entries.compactMap { pane, entry in
-            !closing.contains(pane) || entry.rowTravel != nil || neighbours(entry).contains { Self.frame($0, frames)?.moving ?? false } ? pane : nil
-        })
-        var grew = true
-        while grew {
-            grew = false
-            for (pane, entry) in entries where !covered.contains(pane) && neighbours(entry).contains(where: covered.contains) {
-                covered.insert(pane)
-                grew = true
-            }
+    private static func c(_ frames: [FrameFact]) -> [CmuxClosingFrame] {
+        frames.map { fact in
+            var f = CmuxClosingFrame()
+            f.id = fact.id
+            f.now = fact.now.c
+            f.target = fact.target.c
+            f.vx = Double(fact.vx)
+            f.vy = Double(fact.vy)
+            f.vw = Double(fact.vw)
+            f.vh = Double(fact.vh)
+            f.moving = fact.moving ? 1 : 0
+            f.fixed = fact.scrolls ? 0 : 1
+            return f
         }
-        return closing.subtracting(covered)
     }
 
-    private static func frame(_ id: UInt64, _ frames: [FrameFact]) -> FrameFact? { frames.first { $0.id == id } }
-    private static func row(_ column: UInt64, _ rows: [RowTravel]) -> RowTravel? { rows.first { $0.column == column } }
+    private static func c(_ rows: [RowTravel]) -> [CmuxClosingRow] {
+        rows.map { CmuxClosingRow(column: $0.column, now: Double($0.now), target: Double($0.target)) }
+    }
+}
 
-    private static func shiftX(_ entry: inout Entry, by delta: CGFloat) {
-        move(&entry.minX, to: entry.minX.fixed + delta)
-        move(&entry.maxX, to: entry.maxX.fixed + delta)
+/// Owns the `cmux_closing_panes_*` handle: made one time, freed one time when the last ``ClosingPanesRules`` copy lets
+/// go. A null handle (allocation failed) answers nothing: every call returns `ERR_NULL` and no pane closes springing.
+private nonisolated final class ClosingPanesHandle {
+    let pointer: OpaquePointer?
+
+    init() {
+        pointer = cmux_closing_panes_new()
     }
 
-    private static func move(_ side: inout Side, to value: CGFloat) {
-        side.start = side.start.map { $0 + value - side.fixed }
-        side.end = side.end.map { $0 + value - side.fixed }
-        side.fixed = value
+    deinit {
+        cmux_closing_panes_free(pointer)
     }
 }

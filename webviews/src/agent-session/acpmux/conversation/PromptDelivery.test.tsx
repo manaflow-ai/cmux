@@ -14,6 +14,7 @@ import { failedRuns, failedSendText } from "../sendFailure";
 import { messageMenuTarget } from "./messageMenu";
 import { DeliveryFailure } from "./PromptDelivery";
 import { FailedSendsContext, type FailedSends } from "./promptDeliveryModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -39,6 +40,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

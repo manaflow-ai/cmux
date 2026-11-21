@@ -1,6 +1,8 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { activityCue, headerMotionOf, motionCues, motionMorphs, motionSprings } from "./headerMotion";
-import { headerState, setHeaderState } from "./headerState";
+import { headerState, resetHeaderStateForTests, setHeaderState } from "./headerState";
+
+afterEach(() => resetHeaderStateForTests());
 
 test("the header stays still unless the App picks a motion style", () => {
   expect(headerState().headerMotion).toBe("still");

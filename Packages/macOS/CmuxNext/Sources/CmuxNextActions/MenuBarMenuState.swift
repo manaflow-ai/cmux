@@ -16,13 +16,17 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
         public var lines: [String]
         /// The selected team's name; its row opens the team picker.
         public var team: String?
+        /// The selected team's icon: a person for the person's own team, people for a shared one.
+        public var teamSymbol: String
 
         /// - Parameters:
         ///   - lines: Who is signed in, top to bottom.
         ///   - team: The selected team, nil without one.
-        public init(lines: [String], team: String? = nil) {
+        ///   - teamSymbol: The team row's SF Symbol (the account menu's and Switch Active Team's).
+        public init(lines: [String], team: String? = nil, teamSymbol: String = "person.2") {
             self.lines = lines
             self.team = team
+            self.teamSymbol = teamSymbol
         }
     }
 
@@ -59,30 +63,44 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
         }
     }
 
-    /// Computer Use on this Mac: a session that drives an app, or the feature ready with none.
+    /// Computer Use on this Mac: the agent sessions cmux Remote's worker reports (who acts, on which
+    /// app), or the feature ready with none.
     public struct ComputerUse: Sendable, Hashable {
-        /// The newest live session, nil when Computer Use is on and nothing drives an app.
-        public var session: Session?
+        /// The sessions that acted, newest action first; empty when no agent used an app.
+        public var sessions: [Session]
+        /// The newest session, nil when Computer Use is on and nothing drives an app.
+        public var session: Session? { sessions.first }
 
-        /// A live session.
+        /// An agent session of the worker.
         public struct Session: Sendable, Hashable {
             public var id: String
-            /// The app it drives (its name and bundle id), nil before its first act.
+            /// The agent's name ("Claude Code"), nil when the worker has none.
+            public var agent: String?
+            /// The app it drives (its name and bundle id), nil when the worker does not know it.
             public var appName: String?
             public var bundleID: String?
-            /// The person took over: the agent waits until Hand Back.
-            public var paused: Bool
+            /// It acted within the last 2 s.
+            public var acting: Bool
+            /// The person stopped its Computer Use (the menu's Stop); Resume lets it act again.
+            public var stopped: Bool
 
-            public init(id: String, appName: String? = nil, bundleID: String? = nil, paused: Bool = false) {
+            public init(id: String, agent: String? = nil, appName: String? = nil, bundleID: String? = nil, acting: Bool = false,
+                        stopped: Bool = false) {
                 self.id = id
+                self.agent = agent
                 self.appName = appName
                 self.bundleID = bundleID
-                self.paused = paused
+                self.acting = acting
+                self.stopped = stopped
             }
         }
 
-        public init(session: Session? = nil) {
-            self.session = session
+        public init(sessions: [Session] = []) {
+            self.sessions = sessions
+        }
+
+        public init(session: Session?) {
+            self.init(sessions: session.map { [$0] } ?? [])
         }
     }
 

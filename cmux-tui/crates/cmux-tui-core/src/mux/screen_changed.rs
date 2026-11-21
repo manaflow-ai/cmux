@@ -46,6 +46,7 @@ impl Mux {
                         entity,
                         workspace_revision: None,
                         transaction: transaction.clone(),
+                        mutation: None,
                     })
                 })
                 .collect::<Vec<_>>()

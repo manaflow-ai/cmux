@@ -56,7 +56,32 @@ const PHASE_KEYS: Record<string, StringKey> = {
   checkout: "cloudStartup.phase.checkout",
   submodules: "cloudStartup.phase.submodules",
   lfs: "cloudStartup.phase.lfs",
+  // A copy's steps before its first file (cmux-tui `link/sync_cli.rs`).
+  prepare: "cloudStartup.phase.prepare",
+  folders: "cloudStartup.phase.folders",
 };
+
+/** Why a seed copied the folder instead, by its `fallback_code` (cmux-tui `link/seed/plan.rs`, `link/seed_cli.rs`). */
+const FALLBACK_KEYS: Record<string, StringKey> = {
+  not_git: "cloudStartup.because.notGit",
+  no_remote: "cloudStartup.because.noRemote",
+  ambiguous_remote: "cloudStartup.because.noRemote",
+  not_github: "cloudStartup.because.notGithub",
+  no_base: "cloudStartup.because.noBase",
+  unmerged: "cloudStartup.because.unmerged",
+  submodule_local_work: "cloudStartup.because.submodule",
+  "seed.needs_github": "cloudStartup.because.needsGithub",
+  "seed.base_missing": "cloudStartup.because.noBase",
+  "seed.clone_failed": "cloudStartup.because.cloneFailed",
+  machine_outdated: "cloudStartup.because.machineOutdated",
+  "seed.unavailable": "cloudStartup.because.machineOutdated",
+};
+
+/** "Copying the folder instead", with why in plain words when the code is one the card knows. */
+function copyInstead(fallback: string, t: Translate): string {
+  const reason = FALLBACK_KEYS[fallback];
+  return reason ? t("cloudStartup.copyInsteadBecause", { reason: t(reason) }) : t("cloudStartup.copyInstead");
+}
 
 function cloneDetail(operation: CloudStartupOperation | undefined, t: Translate, language: string): string | undefined {
   if (!operation) return undefined;
@@ -66,10 +91,10 @@ function cloneDetail(operation: CloudStartupOperation | undefined, t: Translate,
   if (operation.phase === "cached") parts.push(t("cloudStartup.cached"));
   else if (operation.phase === "complete") {
     // The row's check mark says it finished; only a seed that copied instead says so.
-    if (operation.fallback) parts.push(t("cloudStartup.copyInstead"));
+    if (operation.fallback) parts.push(copyInstead(operation.fallback, t));
   } else if (operation.phase === "copy" || progress?.filesTotal !== undefined) {
     // The streamed copy: files, then bytes.
-    if (operation.fallback) parts.push(t("cloudStartup.copyInstead"));
+    if (operation.fallback) parts.push(copyInstead(operation.fallback, t));
     if (progress?.filesTotal !== undefined)
       parts.push(
         t("cloudStartup.copyingFiles", {
@@ -84,6 +109,8 @@ function cloneDetail(operation: CloudStartupOperation | undefined, t: Translate,
   } else if (operation.phase === "upload") {
     parts.push(t("cloudStartup.phase.upload", { size: size(progress?.bytesTotal ?? progress?.receivedBytes) ?? "" }));
   } else {
+    // A copy's steps before its files keep saying why it copies.
+    if (operation.fallback) parts.push(copyInstead(operation.fallback, t));
     const key = operation.phase ? PHASE_KEYS[operation.phase] : undefined;
     parts.push(key ? t(key) : operation.phase);
     const total = progress?.totalObjects;
@@ -91,6 +118,11 @@ function cloneDetail(operation: CloudStartupOperation | undefined, t: Translate,
       parts.push(`${Math.min(100, Math.floor((progress.objects / total) * 100))}%`);
     else if (progress?.receivedBytes) parts.push(size(progress.receivedBytes));
   }
+  // A first pass of a very large folder: the files it left here, so the copy does not read as complete.
+  if (operation.leftOnMac)
+    parts.push(
+      t("cloudStartup.leftOnMac", { n: operation.leftOnMac, count: operation.leftOnMac.toLocaleString(language) }),
+    );
   return parts.filter(Boolean).join(" · ") || operation.error;
 }
 
@@ -103,6 +135,18 @@ const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
   "cloudStartup.harness": "Started {harness}",
   "cloudStartup.harnessStarting": "Starting {harness}",
   "cloudStartup.copyInstead": "Copying the folder instead",
+  "cloudStartup.copyInsteadBecause": "Copying the folder instead, because {reason}",
+  "cloudStartup.because.notGit": "it is not a git repository",
+  "cloudStartup.because.noRemote": "its repository has no remote to clone from",
+  "cloudStartup.because.notGithub": "its remote is not on GitHub",
+  "cloudStartup.because.noBase": "none of its commits are on GitHub",
+  "cloudStartup.because.unmerged": "it has unresolved merge conflicts",
+  "cloudStartup.because.submodule": "a submodule is at a commit that is not on GitHub",
+  "cloudStartup.because.needsGithub": "the Cloud machine can't read the repository",
+  "cloudStartup.because.cloneFailed": "the Cloud machine could not clone the repository",
+  "cloudStartup.because.machineOutdated": "the Cloud machine needs an update to clone",
+  "cloudStartup.phase.prepare": "Checking files",
+  "cloudStartup.phase.folders": "Making folders",
   "cloudStartup.copyingFiles": "{done} of {total} files",
   "cloudStartup.ofSize": "{done} of {total}",
   "cloudStartup.installApp": "Install the cmux GitHub App to clone it next time",
@@ -113,11 +157,13 @@ const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
   "cloudStartup.phase.checkout": "Checking out files",
   "cloudStartup.phase.submodules": "Getting submodules",
   "cloudStartup.phase.lfs": "Getting large files",
+  "cloudStartup.leftOnMac": "{count} files stayed on this Mac",
+  "cloudStartup.leftOnMac#one": "{count} file stayed on this Mac",
 };
 export function startupChecklist(
   start: CloudStartProgress,
   t: Translate = (key, values = {}) =>
-    (DEFAULT_STARTUP_STRINGS[key] ?? key)
+    (DEFAULT_STARTUP_STRINGS[values.n === 1 ? `${key}#one` : key] ?? DEFAULT_STARTUP_STRINGS[key] ?? key)
       .replace("{harness}", String(values.harness ?? "Harness"))
       .replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? String(values[name]) : whole)),
   now = Date.now(),

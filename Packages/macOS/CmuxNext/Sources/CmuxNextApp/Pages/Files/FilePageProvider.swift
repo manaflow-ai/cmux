@@ -99,6 +99,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// Where the editor puts the cursor on the tab's file (a Find result's line and column): the
     /// next config of that file carries it once as `reveal`. The markdown page ignores it.
     var reveal: FilePosition?
+    /// The page reported an edit no save has covered yet (app health's hold; ``ReportedEdits``).
+    let reportedEdits = ReportedEdits()
     /// Whether the tab's file may be saved (the last config's answer).
     private var writable = false
     var isWritable: Bool { writable }
@@ -415,7 +417,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         let workspace = inWorkspace(file)
         let result: FileSaveResult
         do {
-            result = try await files.save(text, to: file, baseHash: base, inWorkspace: workspace)
+            result = try await reportedEdits.covering { () async throws(FileSaveFailure) in try await files.save(text, to: file, baseHash: base, inWorkspace: workspace) }
         } catch .readOnly {
             throw PageError(code: kind.op("read_only"), message: file.path)
         } catch .conflict(let hash, let text) {
@@ -465,14 +467,11 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         let url = try path(params["path"])
         guard let file, canonical(url) == file else { throw PageError.invalidParams("path is not this page's file") }
         guard let text = params["text"]?.stringValue else { throw PageError.invalidParams("text is required") }
+        reportedEdits.reported()
         // Crash drafts are keyed by this Mac's paths (FilePageRecovery): none for another machine's file.
         guard files.isLocal else { return ["recovery": "invalidID"] }
         let accepted = host.edited(file, text: text, baseHash: params["baseHash"]?.stringValue, writable: writable)
-        switch accepted {
-        case .kept: return ["recovery": "kept"]
-        case .tooLarge: return ["recovery": "tooLarge"]
-        case .invalidID: return ["recovery": "invalidID"]
-        }
+        return ["recovery": .string(accepted.rawValue)]
     }
 
     // MARK: Preferences

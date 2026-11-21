@@ -13,10 +13,14 @@ import tempfile
 import unittest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci/nightly_next_feed_rollback.py"
-spec = importlib.util.spec_from_file_location("feed_rollback", SCRIPT)
-rollback = importlib.util.module_from_spec(spec)
-sys.modules["feed_rollback"] = rollback
-spec.loader.exec_module(rollback)
+# One module object per file (tests/test_script_module_loads.py): the name another test imports it by, reused when
+# that test loaded it first.
+rollback = sys.modules.get("nightly_next_feed_rollback")
+if rollback is None:
+    spec = importlib.util.spec_from_file_location("nightly_next_feed_rollback", SCRIPT)
+    rollback = importlib.util.module_from_spec(spec)
+    sys.modules["nightly_next_feed_rollback"] = rollback
+    spec.loader.exec_module(rollback)
 
 GUARD = Path(__file__).resolve().parents[1] / "scripts/ci/nightly-next-guard.py"
 BASE = "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/"

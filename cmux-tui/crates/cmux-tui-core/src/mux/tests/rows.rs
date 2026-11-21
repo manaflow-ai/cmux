@@ -142,11 +142,13 @@ fn a_lone_column_of_rows_keeps_its_id_when_a_second_column_joins() {
         };
         let four = RegistryLayoutNode::Leaf { pane: restore_pane_id(4) };
         let layout = RegistryLayoutNode::Split {
+            divider_hidden: false,
             split: restore_split_id(1),
             direction: "down".into(),
             ratio: 0.6,
             first: column.clone(),
             second: Box::new(RegistryLayoutNode::Split {
+                divider_hidden: false,
                 split: restore_split_id(2),
                 direction: "right".into(),
                 ratio: 0.5,

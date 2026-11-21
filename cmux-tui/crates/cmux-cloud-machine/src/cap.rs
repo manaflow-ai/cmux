@@ -41,7 +41,9 @@ pub struct Cap {
 
 /// The card for an app-server refusal (its `code` and `details`) at the cap
 /// (`cmux.cloud.quota_exceeded`, upstream `cloud.quota.exceeded`); None for any other refusal,
-/// including another quota.
+/// including another quota and the team's VM limit (`cloud.quota.vm_limit`, cmux-platform#1192):
+/// paused machines count there, so the card's Pause and Upgrade free nothing, and the refusal's
+/// own words (its limit, delete one) stand.
 pub fn refusal(code: &str, details: Option<&Value>) -> Option<Cap> {
     if !(code.ends_with("quota_exceeded") || code.ends_with("quota.exceeded")) {
         return None;

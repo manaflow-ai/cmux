@@ -29,7 +29,13 @@ import unittest
 
 import yaml
 
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/pr-checks.yml"
@@ -37,7 +43,7 @@ WORKFLOW = yaml.safe_load(WORKFLOW_PATH.read_text())
 JOBS = WORKFLOW["jobs"]
 STEP = next(s for s in JOBS["base-only"]["steps"] if s.get("id") == "decide")
 # PR size answers on every push: a base-only skip would keep an older answer.
-SKIPPED_ON_BASE_ONLY = ("link", "split", "ui-review")
+SKIPPED_ON_BASE_ONLY = ("link", "swift-logic", "split", "ui-review")
 ALWAYS = ("size",)
 ANSWER = "needs.base-only.outputs.base_only != 'true'"
 LINES = "".join(f"let a{i} = {i}\n" for i in range(60))
@@ -271,12 +277,12 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(JOBS["base-only"]["if"], "github.event.action == 'synchronize'")
 
     def test_only_advisory_jobs_and_every_one_waits_on_it(self):
-        self.assertEqual(set(JOBS), {"portable-placement", "base-only", *SKIPPED_ON_BASE_ONLY, *ALWAYS})
+        self.assertEqual(set(JOBS), {"base-only", *SKIPPED_ON_BASE_ONLY, *ALWAYS})
         for job_id in SKIPPED_ON_BASE_ONLY:
             with self.subTest(job=job_id):
                 job = JOBS[job_id]
                 placed = job_id in {"ui-review", "split"}
-                self.assertEqual(job["needs"], ["base-only", "portable-placement"] if placed else "base-only")
+                self.assertEqual(job["needs"], "base-only")
                 # A skipped or failed answer runs the job: no implicit success().
                 prefix = "${{ always() && !cancelled() && " if placed else "${{ !cancelled() && "
                 self.assertTrue(str(job["if"]).startswith(prefix + ANSWER))
@@ -286,7 +292,7 @@ class WorkflowShapeTests(unittest.TestCase):
     def test_the_size_check_never_skips_on_a_base_only_update(self):
         for job_id in ALWAYS:
             job = JOBS[job_id]
-            self.assertEqual(job["needs"], "portable-placement")
+            self.assertNotIn("needs", job)
             self.assertNotIn("base_only", str(job["if"]))
             self.assertTrue(str(job["if"]).startswith("${{ always() && !cancelled() && "))
             self.assertNotIn("continue-on-error", job)
@@ -301,7 +307,7 @@ class WorkflowShapeTests(unittest.TestCase):
 
     def test_a_description_edit_never_cancels_a_push_run(self):
         group = WORKFLOW["concurrency"]["group"]
-        self.assertIn("github.event.action == 'edited' && 'edited' || 'push'", group)
+        self.assertIn("&& 'edited' || github.event.action == 'edited' && format('edit-{0}', github.run_id) || 'push'", group)
         self.assertTrue(WORKFLOW["concurrency"]["cancel-in-progress"])
         for job_id in (*SKIPPED_ON_BASE_ONLY, *ALWAYS):
             self.assertNotIn("concurrency", JOBS[job_id])

@@ -41,7 +41,7 @@
           },
           "help": {
             "key": "settings.agentPane.composerRing.help",
-            "text": "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them."
+            "text": "What the ring at the end of the composer shows."
           },
           "kind": "choice",
           "choices": [
@@ -110,10 +110,6 @@
           "title": {
             "key": "settings.agentPane.dictationSource",
             "text": "Dictate With"
-          },
-          "help": {
-            "key": "settings.agentPane.dictationSource.help",
-            "text": "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut."
           },
           "kind": "choice",
           "choices": [
@@ -199,7 +195,7 @@
           },
           "help": {
             "key": "settings.agentPane.dictationShortcut.help",
-            "text": "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default."
+            "text": "The shortcut sent to your dictation app. Empty uses the app's default."
           },
           "kind": "text",
           "default": "",
@@ -247,7 +243,7 @@
           },
           "help": {
             "key": "settings.agentPane.attachmentView.help",
-            "text": "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same."
+            "text": "How pictures and files show in the composer and in sent messages."
           },
           "kind": "choice",
           "choices": [
@@ -349,7 +345,7 @@
           },
           "help": {
             "key": "settings.agentPane.newChatsIn.help",
-            "text": "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat."
+            "text": "Cloud copies your project to your Cloud machine. A chat's composer can change it."
           },
           "kind": "choice",
           "choices": [
