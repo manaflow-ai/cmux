@@ -9,13 +9,14 @@ private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
 /// The shared, injected auth orchestrator for cmux.
 ///
 /// Owns the observable session state (``isAuthenticated`` / ``currentUser`` /
-/// ``isLoading`` / ``isRestoringSession``) and sequences every sign-in flow plus
-/// session restore/validation. Replaces the iOS `AuthManager.shared` singleton
-/// (and is intended to replace the macOS `ObservableObject` AuthManager too).
+/// ``isLoading`` / ``isRestoringSession``). What happens next in every sign-in
+/// flow, session restore, team refresh and sign-out is decided by the Rust
+/// reducer behind ``AuthReducerEngine`` (cmux-tui/crates/cmux-auth-coordinator);
+/// this class runs the effects it asks for (token store, network, caches,
+/// clocks) and feeds their answers back.
 ///
-/// Construct it once at the app composition root with an injected
-/// ``AuthClient``, persistence stores, presentation anchor, config, and launch
-/// options, then inject it into the UI as `@Environment`:
+/// Construct it once at the app composition root, then inject it into the UI
+/// as `@Environment`:
 ///
 /// ```swift
 /// let coordinator = AuthCoordinator(
@@ -25,7 +26,8 @@ private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
 ///     teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "auth_selected_team"),
 ///     anchor: AuthPresentationContextProvider(),
 ///     config: config,
-///     launch: launchOptions
+///     launch: launchOptions,
+///     reducer: AuthReducerFFI.factory
 /// )
 /// coordinator.start()
 /// ```
@@ -37,172 +39,119 @@ public final class AuthCoordinator {
     /// The signed-in user, if any.
     public internal(set) var currentUser: CMUXAuthUser?
     /// Whether an interactive sign-in flow is in flight (drives spinners).
-    public private(set) var isLoading = false
+    public internal(set) var isLoading = false
     /// Whether a cached session is being restored/validated at launch.
-    public private(set) var isRestoringSession = false
+    public internal(set) var isRestoringSession = false
     /// Token-free detail (code, HTTP status, request ID) of the raw error that
     /// failed the last ``completeExternalSignIn()``, captured before the error
     /// collapses to a display-safe ``AuthError``.
-    public private(set) var lastExternalSignInFailureDetail: String?
+    public internal(set) var lastExternalSignInFailureDetail: String?
     /// The teams the signed-in user belongs to (refreshed on sign-in/restore).
     public internal(set) var availableTeams: [CMUXAuthTeam] = [] {
-        didSet { publishAuthenticatedTeamScope() }
+        didSet {
+            guard !isMirroring, availableTeams != oldValue else { return }
+            feed(["availableTeamsSet": AuthWire(encoding: availableTeams)])
+        }
     }
     /// The user's selected team id. Writes persist through the injected
     /// ``CMUXAuthCore/CMUXAuthTeamSelectionStore``.
     public var selectedTeamID: String? {
         didSet {
-            guard selectedTeamID != oldValue else { return }
-            teamSelection.selectedTeamID = selectedTeamID
-            publishAuthenticatedTeamScope()
+            guard !isMirroring, selectedTeamID != oldValue else { return }
+            feed(["setSelectedTeam": AuthWire(selectedTeamID)])
         }
     }
 
     /// The team id API calls should target. While the team refresh is unavailable
-    /// or still loading, the account-scoped persisted selection remains effective
-    /// so local state and reconnect routes do not temporarily fall into the
-    /// teamless partition. Once teams load, an invalid selection falls back to the
-    /// first available team.
-    public var resolvedTeamID: String? {
-        Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: availableTeams)
-    }
+    /// or still loading, the account-scoped persisted selection remains effective;
+    /// once teams load, an invalid selection falls back to the first team.
+    public var resolvedTeamID: String? { snapshot.resolvedTeamId }
 
     var apiBaseURL: String { config.apiBaseURL }
 
     let client: any AuthClient
     let sessionCache: CMUXAuthSessionCache
-    private let userCache: CMUXAuthIdentityStore
-    private let teamSelection: CMUXAuthTeamSelectionStore
-    private let anchor: any AuthPresentationAnchoring
-    private let config: AuthConfig
+    let userCache: CMUXAuthIdentityStore
+    let teamSelection: CMUXAuthTeamSelectionStore
+    let anchor: any AuthPresentationAnchoring
+    let config: AuthConfig
     let launch: AuthLaunchOptions
     let timeouts: AuthTimeouts
     let clock: any Clock<Duration>
-    private let isOnline: @Sendable () async -> Bool
+    let isOnline: @Sendable () async -> Bool
     /// Reports whether the persisted token store is currently readable. On iOS the data-protection keychain is unreadable before the first unlock after boot (background push launch, prewarm); an empty token read while unavailable must be treated as transient, never as a signed-out verdict.
     let isTokenStorageAvailable: @Sendable () async -> Bool
-    private let onSessionWillTransition: @MainActor @Sendable () -> Void
-    private let onSignedIn: @Sendable () async -> Void
+    let onSessionWillTransition: @MainActor @Sendable () -> Void
+    let onSignedIn: @Sendable () async -> Void
     let log = AuthDebugLog()
     let phaseTimeoutRegistry = AuthPhaseTimeoutRegistry()
+    /// Reports sign-in service 429s of the sign-in and session-check flows.
+    @ObservationIgnored public let rateLimitTelemetry: StackRateLimitTelemetry
 
-    private var pendingNonce: String?
-    var debugCredentials: CMUXAuthAutoLoginCredentials?
-    private var bootstrapTask: Task<Void, Never>?
-    var isRevalidatingSession = false
-    var sessionRevalidationWaiters: [CheckedContinuation<Void, Never>] = []
-    /// Monotonic session epoch, advanced by every session transition: each
-    /// ``clearAuthState(reason:preservePendingCode:sessionTransitionAlreadyAnnounced:)`` AND each published sign-in
-    /// (``applySignedInUser(_:)``). Flows that touch session state after
-    /// suspension points (launch restore, foreground revalidation, sign-in
-    /// completion) capture it at entry and drop their writes when it has
-    /// moved on: local-first sign-out clears state up front with no trailing
-    /// clear, so a sign-out that lands while such a flow is parked in a
-    /// network call must win instead of being overwritten by the stale
-    /// result; conversely a stale validation failure must not wipe a newer
-    /// session, including one published with no clear in between. Same
-    /// pattern as `HostBrowserSignInFlow.signOutGeneration`.
-    @ObservationIgnored var sessionGeneration: UInt64 = 0
-    /// Monotonic sign-out epoch, advanced synchronously at the top of every
-    /// ``signOut(onSignedOut:teardownTimeout:)`` before its first await.
-    /// Distinguishes "a sign-out began after this flow started" from
-    /// publish-driven generation bumps inside the stale-completion rollback:
-    /// local-first sign-out flips `isAuthenticated` only at the END of its
-    /// local clear, so a flow completing inside sign-out's await window
-    /// would read the stale published flag and skip the rollback that keeps
-    /// its raced store write from surviving the sign-out.
-    @ObservationIgnored var signOutEpoch: UInt64 = 0
-    /// Why the app last signed out locally (``clearAuthState(reason:preservePendingCode:sessionTransitionAlreadyAnnounced:)``).
-    @ObservationIgnored private(set) var lastSignOutReason: String?
-    /// Monotonic sign-in attempt count, allocating each flow's attempt id.
-    @ObservationIgnored var signInAttemptCounter: UInt64 = 0
+    /// The reducer and what it published after the last event.
+    @ObservationIgnored let engine: any AuthReducerEngine
+    @ObservationIgnored var snapshot: AuthReducerSnapshot
+    @ObservationIgnored var isDraining = false
+    @ObservationIgnored var isMirroring = false
+
+    @ObservationIgnored var pendingNonce: String?
+    @ObservationIgnored var debugCredentials: CMUXAuthAutoLoginCredentials?
+    @ObservationIgnored private var bootstrapTask: Task<Void, Never>?
+    @ObservationIgnored var latestSignInRefreshToken: String?
+    @ObservationIgnored var exchangeRecordedRefreshToken = false
+    @ObservationIgnored var lastLocalClear: Task<Void, Never>?
+    @ObservationIgnored var lastRateLimit: AuthRateLimit?
+
+    // Restore: the in-flight run and the answers its later steps reuse.
+    @ObservationIgnored var restoreInFlight = false
+    @ObservationIgnored var restoreWaiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored var restoreReadBaselines: [UInt64: TokenReadBaseline] = [:]
+    @ObservationIgnored var survivingRefreshTokens: [UInt64: String] = [:]
+    @ObservationIgnored var teamScopeRecoveryTasks: [UInt64: Task<Void, Never>] = [:]
+    @ObservationIgnored var lastTeamRefresh: Task<Void, Never>?
+
+    // Sign-in: the caller waiting on each attempt, and its raw error.
+    @ObservationIgnored var requestedSignIn: PendingSignIn?
+    @ObservationIgnored var signIns: [UInt64: PendingSignIn] = [:]
+    @ObservationIgnored var signInErrors: [UInt64: any Error] = [:]
+
+    // Sign-out and token reads.
+    @ObservationIgnored var pendingSignOut: PendingSignOut?
+    @ObservationIgnored var phaseDampersCleared: Task<Void, Never>?
+    @ObservationIgnored var tokenReadFailure: AuthError?
+    @ObservationIgnored var tokenReadTriesDevAuth = false
+
     @ObservationIgnored var authenticatedSessionIdentityContinuations: [
         UUID: AsyncStream<AuthenticatedSessionIdentity?>.Continuation
     ] = [:]
     @ObservationIgnored var authenticatedTeamScopeContinuations: [
         UUID: AsyncStream<AuthenticatedTeamScope?>.Continuation
     ] = [:]
-    @ObservationIgnored var authenticatedTeamsSessionGeneration: UInt64?
-    @ObservationIgnored var authenticatedTeamScopeGeneration: UInt64 = 0
-    @ObservationIgnored var lastPublishedAuthenticatedTeamScope: AuthenticatedTeamScope?
-    /// The retry loop that restores a missing team scope; see
-    /// ``scheduleTeamScopeRecoveryIfNeeded()``.
-    @ObservationIgnored var teamScopeRecovery: (id: UUID, task: Task<Void, Never>)?
-    /// Set while the sign-in service answers the session check with 429:
-    /// the consecutive count and the backoff chosen for it. Recovery then
-    /// waits longer, and app activation, wake, and network changes do not
-    /// start an extra check. Cleared by a successful team load.
-    @ObservationIgnored var teamScopeRateLimit: (streak: Int, delay: Duration)?
-    /// Reports sign-in service 429s of the sign-in and session-check flows.
-    /// Refresh-exchange and other SDK 429s always go to
-    /// ``StackRateLimitTelemetry/shared``.
-    @ObservationIgnored public let rateLimitTelemetry: StackRateLimitTelemetry
-    /// Team-list fetches in flight. A refresh that is still running owns the
-    /// outcome, so recovery waits for it instead of starting a second fetch.
-    @ObservationIgnored var activeTeamRefreshCount = 0
-    /// Sign-in attempts that currently own a possible write to the token store.
-    ///
-    /// This ownership spans the whole flow, not just the credential-exchange
-    /// task: a token consumer can run after an exchange starts but before its
-    /// tokens land, or after the exchange returns while user/team publication
-    /// is still finishing. In either window an empty token read is transient;
-    /// only the owning sign-in may decide whether the session transition
-    /// succeeds or fails. Token readers consult this registry instead of clearing
-    /// coordinator state out from under the active writer.
-    @ObservationIgnored var activeSignInFlows: [UInt64: SignInFlowContext] = [:]
-    /// The highest attempt id whose credential exchange has written the token
-    /// store (recorded when the flow reaches its completion step, immediately
-    /// after the exchange's write). The last writer owns the store: a stale
-    /// attempt's rollback (clearing the tokens its resuming exchange
-    /// re-stored after a sign-out) may only run while no NEWER attempt has
-    /// written, so a newer in-flight attempt's tokens survive even before it
-    /// publishes, while a newer attempt that failed before writing does not
-    /// block the cleanup.
-    @ObservationIgnored var tokenStoreWriteHighWater: UInt64 = 0
-    @ObservationIgnored var latestSignInRefreshToken: String?
     @ObservationIgnored var activeSignInExchanges: [UInt64: AuthTrackedSignInExchange] = [:]
     @ObservationIgnored var activeSessionValidations: [UUID: AuthTrackedTokenWork] = [:]
     @ObservationIgnored var activePostSignInHooks: [UUID: AuthTrackedTokenWork] = [:]
     @ObservationIgnored var activeTokenTouchingPhases: [UUID: AuthTrackedTokenWork] = [:]
     @ObservationIgnored var timedOutTokenTouchingPhaseStates: [AuthPhase: AuthPhaseTimedOutState] = [:]
     @ObservationIgnored var tokenTouchingTimedOutResetNanoseconds: UInt64 = 30_000_000_000
-    @ObservationIgnored var teamMutationGeneration: UInt64 = 0
+    /// Bumped by a team switch or create: a team-list read that started
+    /// before one must not put the old selection back.
+    @ObservationIgnored var teamMutationGeneration: UInt64 = 0 {
+        didSet { feed("teamSelectionMutated") }
+    }
     /// Bumped by a team delete or rename: a team-list read that started
     /// before one answers with the list it changed.
-    @ObservationIgnored var teamListGeneration: UInt64 = 0
+    @ObservationIgnored var teamListGeneration: UInt64 = 0 {
+        didSet { feed("teamListMutated") }
+    }
     /// Whether a team switch is still waiting on its server request.
     public internal(set) var isSelectingTeam = false
     /// Whether a team create is still waiting on its server request.
     public internal(set) var isCreatingTeam = false
     /// Whether a team delete is still waiting on its server request (and its fallback selection).
     public internal(set) var isDeletingTeam = false
-    /// Every switch remains here until its request returns, even if a later
-    /// switch replaces its pending UI projection.
     @ObservationIgnored var activeTeamSwitches: Set<UUID> = []
     @ObservationIgnored var isCapturingSignOutCredentials = false
     @ObservationIgnored var signOutCredentialCaptureWaiters: [CheckedContinuation<Void, Never>] = []
-    /// Begin a sign-in flow: register it as the newest attempt and capture
-    /// the staleness context. Call before the flow's first await.
-    private func beginSignInFlow() async throws -> SignInFlowContext {
-        signInAttemptCounter &+= 1
-        let flow = SignInFlowContext(generation: sessionGeneration, attempt: signInAttemptCounter, signOutEpoch: signOutEpoch)
-        activeSignInFlows[flow.attempt] = flow
-        do {
-            try await waitForSessionTokenWorkToQuiesceBeforeSignIn()
-            guard flow.generation == sessionGeneration, flow.signOutEpoch == signOutEpoch else {
-                throw CancellationError()
-            }
-            return flow
-        } catch {
-            activeSignInFlows[flow.attempt] = nil
-            throw error
-        }
-    }
-
-    private func finishSignInFlow(_ flow: SignInFlowContext) {
-        activeSignInFlows[flow.attempt] = nil
-        publishAuthenticatedSessionIdentity()
-    }
 
     /// Creates an auth coordinator.
     ///
@@ -214,22 +163,17 @@ public final class AuthCoordinator {
     ///   - anchor: Presentation anchor provider for OAuth flows.
     ///   - config: Resolved auth configuration (callback URL, project, API base).
     ///   - launch: Launch-time priming inputs (UI-test fixtures, dev-auth flag).
-    ///   - timeouts: Per-phase deadlines for the sign-in/session flows. Every
-    ///     phase that holds a loading state is bounded so the UI can never spin
-    ///     forever; a phase that hits its deadline fails with the localized,
-    ///     retryable ``AuthError/timedOut``. Defaults to ``AuthTimeouts/default``.
-    ///   - clock: The clock the phase deadlines sleep on. Injected so tests
-    ///     drive timeouts with virtual time. Defaults to `ContinuousClock`.
+    ///   - timeouts: Per-phase deadlines; a phase that hits its deadline fails
+    ///     with the retryable ``AuthError/timedOut``.
+    ///   - clock: The clock the phase deadlines sleep on (virtual in tests).
     ///   - isOnline: Connectivity probe; sign-in flows fail fast when offline.
-    ///     Defaults to always-online so tests need not supply it.
     ///   - isTokenStorageAvailable: Reports whether the persisted token store is currently readable. On iOS the data-protection keychain is unreadable before the first unlock after boot (background push launch, prewarm); an empty token read while unavailable must be treated as transient, never as a signed-out verdict.
     ///   - onSessionWillTransition: Synchronous hook invoked before the
     ///     coordinator advances to a different auth-session generation.
-    ///   - onSignedIn: Hook run after a successful sign-in / session restore, for
-    ///     side effects above this package (e.g. push token re-upload). Defaults
-    ///     to a no-op.
-    ///   - rateLimitTelemetry: Receives sign-in service 429 records. The
-    ///     default, ``StackRateLimitTelemetry/shared``, also receives the SDK's.
+    ///   - onSignedIn: Hook run after a successful sign-in / session restore.
+    ///   - rateLimitTelemetry: Receives sign-in service 429 records.
+    ///   - reducer: Makes the Rust reducer from its config JSON: the Mac app
+    ///     passes its C ABI binding, the iPhone app its UniFFI one.
     public init(
         client: any AuthClient,
         sessionCache: CMUXAuthSessionCache,
@@ -244,7 +188,8 @@ public final class AuthCoordinator {
         isTokenStorageAvailable: @escaping @Sendable () async -> Bool = { true },
         onSessionWillTransition: @escaping @MainActor @Sendable () -> Void = {},
         onSignedIn: @escaping @Sendable () async -> Void = {},
-        rateLimitTelemetry: StackRateLimitTelemetry = .shared
+        rateLimitTelemetry: StackRateLimitTelemetry = .shared,
+        reducer: AuthReducerFactory
     ) {
         self.client = client
         self.rateLimitTelemetry = rateLimitTelemetry
@@ -260,60 +205,68 @@ public final class AuthCoordinator {
         self.isTokenStorageAvailable = isTokenStorageAvailable
         self.onSessionWillTransition = onSessionWillTransition
         self.onSignedIn = onSignedIn
-        self.selectedTeamID = teamSelection.selectedTeamID
-        primeSessionState()
+        let reducerConfig = Self.reducerConfig(
+            launch: launch,
+            cachedUser: Self.loadCachedUser(userCache),
+            hasTokens: sessionCache.hasTokens,
+            selectedTeamID: teamSelection.selectedTeamID
+        )
+        do {
+            let made = try reducer(JSONEncoder().encode(reducerConfig))
+            engine = made
+            snapshot = try JSONDecoder().decode(AuthReducerSnapshot.self, from: made.snapshot())
+        } catch {
+            preconditionFailure("The auth reducer refused its config: \(error)")
+        }
+        // The reducer primed the session from its config; its first effects
+        // (clears the launch asked for) are already queued.
+        drain()
     }
 
     /// Begin asynchronous session restore. Call once after construction at the
-    /// composition root. Idempotent priming already ran in `init`, and repeat
-    /// calls are no-ops.
+    /// composition root; repeat calls are no-ops.
     public func start() {
         guard bootstrapTask == nil else { return }
-        bootstrapTask = Task { await bootstrapSession() }
+        bootstrapTask = Task { await restore("launch") }
     }
 
     /// Await the launch session restore started by ``start()``. Returns
     /// immediately once restore has finished (or when ``start()`` was never
     /// called).
     ///
-    /// Any probe that needs a definitive ``isAuthenticated`` value (socket
-    /// `auth.status`, CLI-facing checks, token reads racing app launch) must
-    /// await this first, otherwise it can observe the transient signed-out
-    /// state while stored tokens are still being validated.
+    /// Any probe that needs a definitive ``isAuthenticated`` value must await
+    /// this first, otherwise it can observe the transient signed-out state
+    /// while stored tokens are still being validated.
     public func awaitBootstrapped() async {
         await bootstrapTask?.value
     }
 
     /// Re-validate the persisted session against the live token store.
     ///
-    /// Call this on foreground so a session that died while backgrounded (the
-    /// SDK rejected the refresh token, or the keychain was cleared) routes to
-    /// sign-in on resume instead of surfacing a stale shell. Reuses the same
-    /// live-store probe as launch restore. A fully signed-out foreground return
-    /// is a no-op so it can't discard an in-progress email-code nonce before the
-    /// user enters it; re-entrant foreground calls coalesce.
+    /// Call this on foreground so a session that died while backgrounded routes
+    /// to sign-in on resume instead of surfacing a stale shell. A fully
+    /// signed-out foreground return is a no-op; re-entrant calls coalesce.
     public func revalidateSession() async {
-        guard isAuthenticated || isRestoringSession || sessionCache.hasTokens else { return }
-        await checkExistingSession()
+        await restore("foreground")
     }
 
     /// Supersede parked timed-out auth phases before an explicit interactive
-    /// attempt (a pairing attempt, a tapped retry). One Stack call hung on a
-    /// dead pooled connection times its phase out and dampens it for 30s;
-    /// without this, the very next user action fails in milliseconds with
-    /// ``AuthError/timedOut`` even though a fresh request would succeed. The
-    /// timed-out operation was already cancelled at its deadline and its
-    /// writes are dropped by the sign-in chokepoint, so releasing its slot is
-    /// safe; live operations keep their exclusivity.
+    /// attempt (a pairing attempt, a tapped retry), so one hung Stack call does
+    /// not fail the next user action for 30s. Live operations keep their
+    /// exclusivity.
     public func supersedeTimedOutAuthPhases() async {
-        // Both dampers: sign-in exchanges park in the phase registry, and
-        // token-touching work (access-token fetches, session probes) parks in
-        // the coordinator's own timed-out states. Token-touching phases allow
-        // concurrent actives by construction (write safety is generational,
-        // via finishTokenTouchingPhase), so dropping the damper alone is
-        // sufficient there.
         await phaseTimeoutRegistry.supersedeTimedOutPhases()
         timedOutTokenTouchingPhaseStates.removeAll()
+    }
+
+    /// Starts (or joins) a session restore and returns once it finishes.
+    func restore(_ trigger: AuthWire) async {
+        feed(["restore": trigger])
+        guard restoreInFlight else { return }
+        await withCheckedContinuation { continuation in
+            guard restoreInFlight else { return continuation.resume() }
+            restoreWaiters.append(continuation)
+        }
     }
 
     // MARK: - Sign-in flows
@@ -321,8 +274,9 @@ public final class AuthCoordinator {
     /// Send a sign-in code to `email`, or run the debug `42` shortcut (dev account from the launch environment).
     public func sendCode(to email: String) async throws {
         try await requireOnline()
-        isLoading = true
-        defer { isLoading = false }
+        feed("sendCodeStarted")
+        var sent = false
+        defer { feed(["sendCodeFinished": ["sent": .bool(sent)]]) }
 
         // The DEBUG dev account comes from the launch environment
         // (`CMUX_UITEST_STACK_EMAIL` / `CMUX_UITEST_STACK_PASSWORD`), never from
@@ -336,6 +290,7 @@ public final class AuthCoordinator {
            ) {
             try await signInWithPassword(email: creds.email, password: creds.password, setLoading: false)
             debugCredentials = creds
+            feed("debugCredentialsRemembered")
             return
         }
 
@@ -346,6 +301,7 @@ public final class AuthCoordinator {
                 try await client.sendMagicLinkEmail(email: email, callbackURL: callbackURL)
             }
             pendingNonce = nonce
+            sent = true
         } catch {
             throw AuthError(displaySafe: error) ?? error
         }
@@ -356,45 +312,18 @@ public final class AuthCoordinator {
         guard let nonce = pendingNonce else {
             throw AuthError.invalidCode
         }
-        // Captured before the first await so a sign-out landing anywhere in
-        // this flow (connectivity probe, exchange, user fetch) wins.
-        let flow = try await beginSignInFlow()
-        defer { finishSignInFlow(flow) }
-        try await requireOnline()
-        isLoading = true
-        defer { isLoading = false }
-
         let fullCode = CMUXAuthMagicLinkCode(code: code, nonce: nonce).composed
-        do {
-            let client = self.client
-            try await runExchange(.verifyCode, flow: flow, timeout: timeouts.network) {
-                try await client.signInWithMagicLink(code: fullCode)
-            }
-            try await completeSignIn(flow: flow)
-        } catch {
-            throw AuthError(displaySafe: error) ?? error
+        let client = self.client
+        try await signIn("verifyCode") {
+            try await client.signInWithMagicLink(code: fullCode)
         }
-        pendingNonce = nil
     }
 
     /// Sign in with an email/password credential.
     public func signInWithPassword(email: String, password: String, setLoading: Bool = true) async throws {
-        // Captured before the first await so a sign-out landing anywhere in
-        // this flow (connectivity probe, exchange, user fetch) wins.
-        let flow = try await beginSignInFlow()
-        defer { finishSignInFlow(flow) }
-        try await requireOnline()
-        if setLoading { isLoading = true }
-        defer { if setLoading { isLoading = false } }
-
-        do {
-            let client = self.client
-            try await runExchange(.passwordSignIn, flow: flow, timeout: timeouts.network) {
-                try await client.signInWithCredential(email: email, password: password)
-            }
-            try await completeSignIn(flow: flow)
-        } catch {
-            throw AuthError(displaySafe: error) ?? error
+        let client = self.client
+        try await signIn("password", setsLoading: setLoading) {
+            try await client.signInWithCredential(email: email, password: password)
         }
     }
 
@@ -408,95 +337,18 @@ public final class AuthCoordinator {
     public func signInWithGitHub() async throws { try await signInWithOAuth(provider: "github") }
 
     private func signInWithOAuth(provider: String) async throws {
-        // Captured before the first await so a sign-out landing anywhere in
-        // this flow (connectivity probe, OAuth exchange, user fetch) wins.
-        let flow = try await beginSignInFlow()
-        defer { finishSignInFlow(flow) }
-        try await requireOnline()
-        isLoading = true
-        defer { isLoading = false }
+        // Interactive deadline: ASAuthorizationController and
+        // ASWebAuthenticationSession callbacks are not guaranteed to fire.
+        let client = self.client
+        let anchor = self.anchor
         do {
-            // Interactive deadline: ASAuthorizationController (Sign in with
-            // Apple) and ASWebAuthenticationSession callbacks are not
-            // guaranteed to fire; without a bound a stuck system sheet left
-            // the sign-in screen loading forever with no error and no way out.
-            let client = self.client
-            let anchor = self.anchor
-            try await runExchange(.oauth, flow: flow, timeout: timeouts.interactiveFlow) {
+            try await signIn("oauth") {
                 try await client.signInWithOAuth(provider: provider, anchor: anchor)
             }
-            try await completeSignIn(flow: flow)
         } catch {
             log.log("auth.oauth provider=\(provider) failed: \(error)")
-            throw AuthError(displaySafe: error) ?? error
+            throw error
         }
-    }
-
-    /// - Parameter flow: The context captured at the public sign-in
-    ///   entrypoint, before the credential exchange's first await, so a
-    ///   sign-out landing anywhere in the flow wins (not only during the
-    ///   final user fetch).
-    private func completeSignIn(flow: SignInFlowContext) async throws {
-        // This flow's credential exchange (or external seeding) just wrote
-        // the token store; record it as the store's latest known writer.
-        if tokenStoreWriteHighWater < flow.attempt {
-            latestSignInRefreshToken = await client.refreshToken()
-        }
-        tokenStoreWriteHighWater = max(tokenStoreWriteHighWater, flow.attempt)
-        // A sign-out landed during the credential exchange that ran before
-        // this completion. The resuming exchange re-stored fresh tokens that
-        // the sign-out's clear never saw, so drop those too: otherwise the
-        // next launch restore resurrects the session the user just signed out
-        // of. The rollback only runs while no NEWER attempt has written the
-        // token store and nothing newer has published: a newer attempt owns
-        // the store from the moment its exchange writes (even before it
-        // publishes), and clearing here would wipe its tokens; a newer
-        // attempt that failed before writing does not block the cleanup.
-        // The race surfaces as a cancellation (the sign-in UI treats
-        // `.cancelled` as a deliberate back-out, not a failure).
-        //
-        // This rollback is the second line of defense: sign-out also CANCELS
-        // every registered in-flight exchange (see `runExchange`), and the
-        // SDK's write chokepoint drops a cancelled flow's store write, so a
-        // stale exchange normally never re-stores tokens at all. The
-        // rollback covers a write that already raced past the chokepoint
-        // when the cancellation landed.
-        //
-        // `runExchange` advances the high-water mark as soon as the SDK
-        // exchange returns, before this completion fetches the user. Keeping
-        // the assignment here is harmless for external seed paths and makes
-        // this method's ownership requirement explicit.
-        guard flow.generation == sessionGeneration else {
-            // `!isAuthenticated` covers publish-driven bumps (a newer session
-            // published over this flow's store write must not have its store
-            // wiped). It is NOT a reliable read during sign-out: local-first
-            // sign-out flips the flag only at the end of its local clear, so
-            // a completion interleaving with sign-out's awaits would see the
-            // OLD session's stale `true`. The epoch comparison restores the
-            // rollback there: a sign-out begun after this flow started always
-            // rolls back this flow's write (the high-water check still keeps
-            // a newer attempt's tokens safe).
-            let signOutBeganSinceFlowStart = flow.signOutEpoch != signOutEpoch
-            if (signOutBeganSinceFlowStart || !isAuthenticated)
-                && tokenStoreWriteHighWater == flow.attempt {
-                await client.clearLocalSession()
-            }
-            throw CancellationError()
-        }
-        let client = self.client
-        let user = try await runPhase(.fetchUser, timeout: timeouts.network) {
-            try await client.currentUser(throwOnMissing: true)
-        }
-        guard let user else {
-            throw AuthError.unauthorized
-        }
-        // A sign-out landed during the user fetch instead: the exchange's
-        // tokens were already in the store when sign-out cleared it, so
-        // nothing lingers; only the publish must be dropped.
-        guard flow.generation == sessionGeneration else {
-            throw CancellationError()
-        }
-        await applySignedInUser(user, publication: .signIn)
     }
 
     /// Complete a sign-in whose credentials were established outside the
@@ -508,19 +360,24 @@ public final class AuthCoordinator {
     /// - Throws: ``AuthError/unauthorized`` when no signed-in user could be
     ///   fetched with the seeded tokens; other display-safe errors otherwise.
     public func completeExternalSignIn() async throws {
-        // The credentials were seeded before this call, so the capture here
-        // covers the validation round trip; the seeding flow keeps its own
-        // sign-out race guard for the seeded tokens.
-        let flow = try await beginSignInFlow()
-        defer { finishSignInFlow(flow) }
-        isLoading = true
-        defer { isLoading = false }
-        lastExternalSignInFailureDetail = nil
-        do {
-            try await completeSignIn(flow: flow)
-        } catch {
-            lastExternalSignInFailureDetail = AuthError.failureDetail(for: error)
-            throw AuthError(displaySafe: error) ?? error
+        try await signIn("external", exchange: nil)
+    }
+
+    /// Runs one sign-in through the reducer: it decides when the exchange,
+    /// user fetch and team refresh run, and how the flow ends.
+    private func signIn(
+        _ kind: String,
+        setsLoading: Bool = true,
+        exchange: (@Sendable () async throws -> Void)?
+    ) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            requestedSignIn = PendingSignIn(continuation: continuation, exchange: exchange, kind: kind)
+            feed(["signInRequested": ["kind": .string(kind), "setsLoading": .bool(setsLoading)]])
+            // The reducer always starts or refuses the flow; this is only a backstop.
+            if let unclaimed = requestedSignIn {
+                requestedSignIn = nil
+                unclaimed.continuation.resume(throwing: AuthError.cancelled)
+            }
         }
     }
 
@@ -529,350 +386,58 @@ public final class AuthCoordinator {
     ///
     /// Local session state (tokens, cached user, team selection, the published
     /// signed-in flags) is cleared before any network I/O, so sign-out behaves
-    /// identically with no connectivity. Offline, the Stack revocation DELETE
-    /// neither completes nor fails promptly; sign-out used to await it before
-    /// clearing anything, leaving the user stuck signed in. The credentials the
-    /// server-side teardown needs are captured with raw stored reads (no
-    /// network) before the clear.
+    /// identically with no connectivity. The credentials the server-side
+    /// teardown needs are captured with raw stored reads (no network) before
+    /// the clear.
     ///
     /// Security tradeoff, chosen deliberately: when the teardown deadline fires
     /// (offline, dead server), the server-side session is NOT revoked, so the
     /// refresh token stays valid server-side until it expires or is revoked
-    /// elsewhere. The device's copy is destroyed by the local clear, so using
-    /// it requires having exfiltrated it beforehand. The alternative (blocking
-    /// sign-out on revocation) leaves a user who wants out stuck signed in,
-    /// which is the worse failure for a device about to change hands.
+    /// elsewhere. The device's copy is destroyed by the local clear.
     ///
-    /// - Parameter onSignedOut: An async hook the composition root uses to run
-    ///   token-authenticated teardown (e.g. deleting the APNs device token from
-    ///   the server) that lives above this package. It receives the
-    ///   access/refresh tokens captured before the local clear (the access
-    ///   token freshly minted from the captured refresh token when the store
-    ///   was refresh-only), because by the time it runs the live token store
-    ///   is already empty; it runs before the Stack session revocation so the
-    ///   server still honors those credentials. Defaults to a no-op.
+    /// - Parameter onSignedOut: An async hook for token-authenticated teardown
+    ///   above this package (e.g. deleting the APNs device token). It receives
+    ///   the access/refresh tokens captured before the local clear and runs
+    ///   before the Stack session revocation. Defaults to a no-op.
     /// - Parameter teardownTimeout: How long the best-effort server teardown
-    ///   (hook + revocation) may run before it is cancelled so a hanging call
-    ///   can't hold `signOut()` open. Sleeps on the injected clock so tests
-    ///   drive the deadline with virtual time. Defaults to 5 seconds.
+    ///   (hook + revocation) may run before it is cancelled. Sleeps on the
+    ///   injected clock. Defaults to 5 seconds.
     public func signOut(
         onSignedOut: @escaping @Sendable (_ accessToken: String?, _ refreshToken: String?) async -> Void = { _, _ in },
         teardownTimeout: Duration = .seconds(5)
     ) async {
         isCapturingSignOutCredentials = true
-        defer { finishSignOutCredentialCapture() }
-        // Cancel in-flight sign-in exchanges FIRST: the SDK's token-write
-        // chokepoint refuses to store after cancellation, so a parked
-        // exchange can never re-store credentials behind this sign-out's
-        // local clear, no matter when its network call resumes. Keep the
-        // exchange registered until its completion cleanup runs so a later
-        // sign-in preflight still sees and waits on cancellation-ignoring SDK
-        // work instead of racing a stale token write.
-        for exchange in activeSignInExchanges.values { exchange.task.cancel() }
-        for validation in activeSessionValidations.values { validation.cancel() }
-        cancelPostSignInHooksForSignOut()
-        for phase in activeTokenTouchingPhases.values { phase.cancel() }
-        // Mark the sign-out epoch synchronously, before the first await
-        // below, so a sign-in completion whose exchange write already raced
-        // past the cancellation chokepoint and which interleaves with the
-        // awaited reads/clear sees a stale epoch and takes its rollback path
-        // instead of publishing over this sign-out. clearAuthState() bumps
-        // again afterwards; epochs only need to be monotonic. The dedicated
-        // signOutEpoch lets that rollback distinguish this sign-out from a
-        // publish-driven generation bump even while `isAuthenticated` still
-        // reads the old session's stale `true` (it flips only at the end of
-        // the local clear below).
-        advanceSessionGeneration()
-        signOutEpoch &+= 1
-        publishAuthenticatedSessionIdentity()
-        await phaseTimeoutRegistry.clear([.sendCode, .verifyCode, .passwordSignIn, .oauth, .validateSession])
-
-        // Capture the teardown credentials with raw stored reads (no refresh,
-        // no network) before they are destroyed.
-        let accessToken = await client.storedAccessToken()
-        let refreshToken = await client.refreshToken()
-        // LOCAL-FIRST: clear everything local before any network I/O. From
-        // here the device is signed out no matter what the network does.
-        latestSignInRefreshToken = nil
-        await client.clearLocalSession()
-        finishSignOutCredentialCapture()
-        if launch.includesDevAuth { debugCredentials = nil }
-        clearAuthState(reason: "signed out by the person", sessionTransitionAlreadyAnnounced: true)
-        await waitForPostSignInHooksAfterSignOut(timeout: teardownTimeout)
-
-        // Best-effort bounded server-side teardown with the captured tokens:
-        // the hook first (the push-token DELETE needs the session to still be
-        // valid server-side), then the Stack session revocation. STRUCTURED:
-        // on deadline the group cancels and joins the work child, so it can
-        // never outlive sign-out and interleave with a later sign-in. Both
-        // legs run on URLSession (cancellation-aware), so the join is prompt.
-        let client = self.client
-        let clock = self.clock
-        let log = self.log
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask {
-                // The raw capture can hold an expired access token (the SDK
-                // leaves stale ones stored while a valid refresh survives) or
-                // none at all on a refresh-only store. Run the captured pair
-                // through the refresh-aware ephemeral credential path so the
-                // teardown presents a usable Bearer: the captured token when
-                // still fresh, else one minted from the captured refresh,
-                // never touching the cleared live store. Best-effort and
-                // cancellation-aware (URLSession) like the rest of the tail.
-                var teardownAccessToken = accessToken
-                if let refreshToken {
-                    teardownAccessToken = await client.freshAccessToken(
-                        accessToken: accessToken,
-                        refreshToken: refreshToken
-                    ) ?? accessToken
-                }
-                // The mint swallows cancellation into `nil` (it treats it as
-                // a transient failure), so a deadline that fired while the
-                // mint was parked leaves this task cancelled but running.
-                // Re-check before EACH leg: the deadline bounds the whole
-                // teardown, and a post-deadline hook could interleave with a
-                // later sign-in's setup.
-                guard !Task.isCancelled else {
-                    log.log("auth.signOut teardown deadline hit before the sign-out hook; server teardown skipped")
-                    return
-                }
-                await onSignedOut(teardownAccessToken, refreshToken)
-                guard !Task.isCancelled else {
-                    log.log("auth.signOut teardown deadline hit before revocation; server session left unrevoked")
-                    return
-                }
-                do {
-                    try await client.revokeSession(accessToken: teardownAccessToken, refreshToken: refreshToken)
-                } catch {
-                    // Best-effort by design; see the security tradeoff above.
-                    // The full error goes to the unified log privately; the
-                    // public redacted sink gets only the error TYPE, because
-                    // a Stack error body can carry opaque identifiers the
-                    // redaction regexes don't recognize.
-                    authLog.error("Sign-out session revocation failed: \(error.localizedDescription, privacy: .private)")
-                    log.log("auth.signOut revocation failed: \(String(describing: type(of: error)))")
-                }
-            }
-            group.addTask {
-                // Bounded, cancellable teardown deadline (carve-out); the loser
-                // is cancelled by `cancelAll()` once the first side finishes.
-                try? await clock.sleep(for: teardownTimeout, tolerance: nil)
-            }
-            await group.next()
-            group.cancelAll()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // A second sign-out supersedes the first's teardown wait.
+            pendingSignOut?.continuation.resume()
+            pendingSignOut = PendingSignOut(onSignedOut: onSignedOut, teardownTimeout: teardownTimeout, continuation: continuation)
+            feed("signOutRequested")
         }
+        finishSignOutCredentialCapture()
     }
 
     // MARK: - State helpers
-    /// Why a signed-in user is being published, deciding whether the session
-    /// generation advances.
-    enum SessionPublication {
-        /// A COMPLETED credential exchange. The token session was replaced, so
-        /// the generation ALWAYS advances — even for the same account:
-        /// operations pinned to the previous generation (the forget flow's
-        /// frozen credential pair, the activation runtime's pinned source)
-        /// must fail closed rather than keep acting with the replaced
-        /// session's authority.
-        case signIn
-        /// A revalidation of the ALREADY-published session (foreground return,
-        /// startup cache validation). No new exchange happened, so the same
-        /// account keeps its generation: long-lived pins would otherwise be
-        /// starved on every foreground even though the very same session
-        /// remains signed in. An account CHANGE (or publishing over a
-        /// signed-out state) is still a transition and advances.
-        case revalidation
-    }
-    func applySignedInUser(
-        _ user: CMUXAuthUser,
-        publication: SessionPublication
-    ) async {
-        // Publishing a session TRANSITION advances the epoch exactly like
-        // clearing one: any other flow that captured the pre-publish generation
-        // (a stale revalidation of the previous session still parked in its
-        // fetch) must not clear or overwrite this newer session when it
-        // resumes. Which publications count as transitions is the caller's
-        // declaration — see ``SessionPublication``.
-        let shouldRunPostSignInHook: Bool
-        switch publication {
-        case .signIn:
-            // A new credential session owns a fresh recovery budget.
-            cancelTeamScopeRecovery()
-            advanceSessionGeneration()
-            shouldRunPostSignInHook = true
-        case .revalidation:
-            let isSessionTransition = !isAuthenticated || currentUser?.id != user.id
-            if isSessionTransition {
-                advanceSessionGeneration()
-            }
-            // Foreground and launch revalidation refresh the published user and
-            // teams, but a same-account validation did not establish a new
-            // session. Re-running side effects such as the push-token upload on
-            // every foreground return turns a read into a write storm.
-            shouldRunPostSignInHook = isSessionTransition
-        }
-        let generation = sessionGeneration
-        currentUser = user
-        isAuthenticated = true
-        isRestoringSession = false
-        publishAuthenticatedSessionIdentity()
-        saveCachedUser(user)
-        sessionCache.setHasTokens(true)
-        await refreshTeams(generation: generation)
-        // A sign-out landed during the team refresh: the flags above were
-        // already cleared by it, so skip the signed-in side effects (push
-        // token re-upload would re-register the account the user just left).
-        guard generation == sessionGeneration else { return }
-        guard shouldRunPostSignInHook else { return }
-        // Bound the post-sign-in hook (e.g. push token re-upload) too: it runs
-        // while `isLoading` is still true, so an unbounded hook would hold the
-        // sign-in spinner after the session is already published. Failure and
-        // timeout are tolerated; the hook is a side effect, not a gate.
-        let onSignedIn = self.onSignedIn
-        await runPostSignInHook(timeout: timeouts.network) {
-            await onSignedIn()
-        }
-    }
-    /// Refresh ``availableTeams`` from the client, tolerating failure so a
-    /// flaky team fetch never blocks or unwinds a successful sign-in. Drops
-    /// the writes when a sign-out raced the fetch, so a signed-out shell does
-    /// not get the old account's teams persisted back.
-    func refreshTeams(generation: UInt64) async {
-        // A selection made while this read was in flight is newer than the
-        // server's answer to it: the read must not put the old team back.
-        let mutationGeneration = teamMutationGeneration
-        let listGeneration = teamListGeneration
-        activeTeamRefreshCount += 1
-        let result: Result<([CMUXAuthTeam], String?), any Error>
-        do {
-            let client = self.client
-            // A 429 here is reported by noteTeamScopeFailure as a session check.
-            result = .success(try await StackAuthRateLimitReporting.$callerReports.withValue(true) {
-                try await runPhase(.listTeams, timeout: timeouts.network) {
-                    async let teams = client.listTeams()
-                    async let selectedTeamID: String? = try? await client.selectedTeamID()
-                    return try await (teams, selectedTeamID)
-                }
-            })
-        } catch {
-            result = .failure(error)
-        }
-        activeTeamRefreshCount -= 1
-        switch result {
-        case let .success((teams, serverSelectedTeamID)):
-            guard generation == sessionGeneration else { return }
-            teamScopeRateLimit = nil
-            rateLimitTelemetry.succeeded(.sessionCheck)
-            authenticatedTeamsSessionGeneration = generation
-            // A delete or rename that landed while this read was in flight is newer than
-            // its list: keep the list the change left (the change re-reads after it).
-            if listGeneration == teamListGeneration { availableTeams = teams }
-            let selectionChanged = mutationGeneration != teamMutationGeneration
-            selectedTeamID = Self.resolveTeamID(
-                selectedTeamID: selectionChanged ? selectedTeamID : serverSelectedTeamID ?? selectedTeamID,
-                teams: availableTeams
-            )
-        case let .failure(error):
-            authLog.error("Failed to list teams: \(error.localizedDescription, privacy: .private)")
-            guard generation == sessionGeneration else { return }
-            noteTeamScopeFailure(error)
-            scheduleTeamScopeRecoveryIfNeeded()
-        }
-    }
-    private static func resolveTeamID(
-        selectedTeamID: String?,
-        teams: [CMUXAuthTeam]
-    ) -> String? {
-        if teams.isEmpty {
-            return selectedTeamID
-        }
-        if let selectedTeamID,
-           teams.contains(where: { $0.id == selectedTeamID }) {
-            return selectedTeamID
-        }
-        return teams.first?.id
-    }
+
     /// Signs the app out locally: the one place every sign-out goes through,
     /// so each one leaves a record of why (`reason`, logged at error level
-    /// and kept in ``lastSignOutReason``). A field sign-out that logged
-    /// nothing could not be diagnosed (manaflow-ai/cmuxterm-hq#8831).
-    func clearAuthState(
-        reason: String,
-        preservePendingCode: Bool = false,
-        sessionTransitionAlreadyAnnounced: Bool = false
-    ) {
-        authLog.error("Signing out locally reason=\(reason, privacy: .public)")
-        lastSignOutReason = reason
-        advanceSessionGeneration(notifySessionWillTransition: !sessionTransitionAlreadyAnnounced)
-        cancelTeamScopeRecovery()
-        latestSignInRefreshToken = nil
-        if !preservePendingCode { pendingNonce = nil }
-        userCache.clear()
-        sessionCache.clear()
-        availableTeams = []
-        selectedTeamID = nil
-        apply(.cleared())
+    /// and kept in ``lastSignOutReason``).
+    func clearAuthState(reason: String, preservePendingCode: Bool = false) {
+        feed(["clearAuthStateRequested": ["reason": .string(reason), "preservePendingCode": .bool(preservePendingCode)]])
     }
 
-    private func advanceSessionGeneration(notifySessionWillTransition: Bool = true) {
-        if notifySessionWillTransition {
-            onSessionWillTransition()
-        }
-        sessionGeneration &+= 1
-        authenticatedTeamsSessionGeneration = nil
-        availableTeams = []
-    }
+    var sessionGeneration: UInt64 { snapshot.sessionGeneration }
+    var signOutEpoch: UInt64 { snapshot.signOutRevision }
+    var tokenStoreWriteHighWater: UInt64 { snapshot.tokenStoreWriteHighWater }
+    var hasActiveSignInFlows: Bool { snapshot.hasActiveSignInFlows }
+    /// Why the app last signed out locally (``clearAuthState(reason:preservePendingCode:)``).
+    var lastSignOutReason: String? { snapshot.lastSignOutReason }
 
-    /// Whether one coordinator-owned transition can legitimately observe an
-    /// empty token store before it reaches its terminal state.
-    ///
-    /// Consumers such as analytics, presence, or push may request a token at
-    /// any time. They are readers, so they must not turn temporary emptiness
-    /// into `clearAuthState()` while launch restore or a sign-in owns the store.
-    /// Returning a retryable error leaves the transition's single owner in
-    /// charge. Interactive sign-out is included while it captures credentials;
-    /// its own local-first clear remains authoritative.
+    /// Whether one coordinator-owned transition (launch restore, a sign-in, or
+    /// sign-out's credential capture) can legitimately observe an empty token
+    /// store before it reaches its terminal state. Token readers then return a
+    /// retryable error instead of clearing state out from under the writer.
     var sessionTokenTransitionIsActive: Bool {
-        let currentSignInOwnsStore = activeSignInFlows.values.contains { flow in
-            flow.generation == sessionGeneration && flow.signOutEpoch == signOutEpoch
-        }
-        // A sign-out makes an in-flight validation stale before it clears the
-        // published flags. Keep reads transient during credential capture, then
-        // stop treating that stale validation as an owner once local-first clear
-        // publishes the signed-out state.
-        let currentValidationOwnsStore = isRevalidatingSession
-            && (isRestoringSession || isAuthenticated)
-        return currentSignInOwnsStore
-            || currentValidationOwnsStore
-            || isCapturingSignOutCredentials
-    }
-
-    func preserveCachedSessionAfterValidationFailure() {
-        sessionCache.setHasTokens(true)
-        let cachedUser = currentUser ?? loadCachedUser()
-        currentUser = cachedUser
-        isAuthenticated = cachedUser != nil
-        isRestoringSession = false
-        publishAuthenticatedSessionIdentity()
-        scheduleTeamScopeRecoveryIfNeeded()
-    }
-
-    func clearPersistedAuthForUITest() async {
-        if launch.includesDevAuth { debugCredentials = nil }
-        await clearPersistedStackSession()
-    }
-
-    /// Clear the locally persisted Stack session, with no server round trip.
-    ///
-    /// Used on restore/validation paths where the session is already dead or
-    /// unusable (definitive refresh-token rejection, vanished user, failed
-    /// auto-login, UI-test resets). These paths previously ran the SDK's
-    /// network sign-out, whose revocation DELETE can block for minutes offline
-    /// and wedge launch restore; revoking an already-dead session buys
-    /// nothing, so they clear locally only. Interactive sign-out
-    /// (``signOut(onSignedOut:teardownTimeout:)``) still attempts a bounded
-    /// best-effort revocation.
-    func clearPersistedStackSession() async {
-        await client.clearLocalSession()
+        snapshot.sessionTokenTransitionIsActive || isCapturingSignOutCredentials
     }
 
     func requireOnline() async throws {
@@ -881,14 +446,9 @@ public final class AuthCoordinator {
         }
     }
 
-    func apply(_ state: CMUXAuthState) {
-        currentUser = state.currentUser
-        isAuthenticated = state.isAuthenticated
-        isRestoringSession = state.isRestoringSession
-        publishAuthenticatedSessionIdentity()
-    }
+    func loadCachedUser() -> CMUXAuthUser? { Self.loadCachedUser(userCache) }
 
-    func loadCachedUser() -> CMUXAuthUser? {
+    static func loadCachedUser(_ userCache: CMUXAuthIdentityStore) -> CMUXAuthUser? {
         do {
             return try userCache.load()
         } catch {
@@ -912,18 +472,20 @@ public final class AuthCoordinator {
             mockDataEnabled: launch.mockDataEnabled
         )
     }
+}
 
-    var fixtureUser: CMUXAuthUser? {
-        CMUXAuthUser(
-            uiTestFixtureEnvironment: launch.environment,
-            clearAuth: launch.clearAuthRequested,
-            mockDataEnabled: launch.mockDataEnabled
-        )
-    }
+/// A sign-in caller waiting for the reducer to end its flow.
+struct PendingSignIn {
+    let continuation: CheckedContinuation<Void, any Error>
+    let exchange: (@Sendable () async throws -> Void)?
+    let kind: String
+}
 
-    static let uiTestMockUser = CMUXAuthUser(
-        id: "uitest_user",
-        primaryEmail: "uitest@cmux.local",
-        displayName: "UI Test"
-    )
+/// A sign-out caller and the teardown it asked for.
+struct PendingSignOut {
+    let onSignedOut: @Sendable (_ accessToken: String?, _ refreshToken: String?) async -> Void
+    let teardownTimeout: Duration
+    let continuation: CheckedContinuation<Void, Never>
+    var waitsForPostSignInHooks = false
+    var capturedTokens: (accessToken: String?, refreshToken: String?) = (nil, nil)
 }

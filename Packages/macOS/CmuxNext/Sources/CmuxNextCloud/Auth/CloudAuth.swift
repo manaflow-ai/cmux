@@ -242,7 +242,8 @@ public final class CloudAuth {
                                       includesDevAuth: signIn.devAuth, replaceStoredSessionWithAutoLogin: login?.replaceSession ?? false,
                                       // A signed build signs in only from the file's resolved credentials, never raw launch keys.
                                       allowsEnvironmentAutoLogin: login?.allowsEnvironmentAutoLogin ?? signIn.devAuth),
-            isOnline: { !useCaptureFixture }
+            isOnline: { !useCaptureFixture },
+            reducer: AuthReducerFFI.factory
         )
         activeTeam = ActiveTeam(source: coordinator)
         callbackRouter = AuthCallbackRouter(extraAllowedScheme: configuration.callbackScheme)
