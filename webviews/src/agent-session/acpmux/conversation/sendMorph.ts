@@ -22,6 +22,7 @@ import { MOTION_EASE_SEND, MOTION_SEND_MS } from "../../../motion/scale.generate
 import { motionMode } from "../../../ui/motion/motionMode";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { cssTimeMs } from "./fold";
+import { SNAPSHOT_SKIP_ATTRIBUTE } from "../chatSnapshot/shared";
 
 /// How the composer's prompt becomes its message. `shell` (the product's): a bubble's glass grows
 /// out of the composer's card around the words and settles as the sent bubble while the words move
@@ -308,6 +309,8 @@ class Flight {
     this.layer = doc.createElement("div");
     this.layer.setAttribute("aria-hidden", "true");
     this.layer.setAttribute("data-send-morph-layer", "");
+    // Only while the send plays: a chat's snapshot leaves it out.
+    this.layer.setAttribute(SNAPSHOT_SKIP_ATTRIBUTE, "");
     Object.assign(this.layer.style, {
       position: "fixed",
       inset: "0",

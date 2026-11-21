@@ -20,6 +20,7 @@ import { motionMode } from "../../../ui/motion/motionMode";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { cssTimeMs } from "./fold";
 import { INLINE_TOKEN } from "../attachments";
+import { SNAPSHOT_SKIP_ATTRIBUTE } from "../chatSnapshot/shared";
 
 /// How the copy goes (the gallery compares them through `data-send-tuck` on an ancestor,
 /// SendTuck.gallery.tsx): `arc` (the product's) rises on a short arc drifting toward the sent
@@ -220,6 +221,8 @@ function layer(doc: Document, half: "over" | "under"): HTMLElement {
   const element = doc.createElement("div");
   element.className = "acpmux-send-tuck-layer";
   element.setAttribute("data-send-tuck-layer", half);
+  // Flying only while the send plays: a chat's snapshot leaves it out.
+  element.setAttribute(SNAPSHOT_SKIP_ATTRIBUTE, "");
   element.setAttribute("aria-hidden", "true");
   return element;
 }

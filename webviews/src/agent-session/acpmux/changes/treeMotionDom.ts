@@ -26,6 +26,7 @@ import {
   type TreeArm,
 } from "./treeMotion";
 import { isAgentMotionOff } from "../../shared/motion";
+import { SNAPSHOT_SKIP_ATTRIBUTE } from "../chatSnapshot/shared";
 
 type Snapshot = {
   time: number;
@@ -161,6 +162,8 @@ export function attachTreeMotion(container: HTMLElement, arm: TreeArm): () => vo
     if (layer?.isConnected) return layer;
     layer = document.createElement("div");
     layer.dataset.cmuxTreeGhosts = "";
+    // Rows leaving on a Web Animation: a chat's snapshot leaves them out.
+    layer.setAttribute(SNAPSHOT_SKIP_ATTRIBUTE, "");
     layer.setAttribute("aria-hidden", "true");
     layer.style.cssText = "position:absolute;inset:0;pointer-events:none;z-index:1";
     listElement.append(layer);

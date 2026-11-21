@@ -4,6 +4,7 @@
 // it forces at most the one layout the page already needs for its next frame.
 import {
   attributesOf,
+  SNAPSHOT_SKIP_SELECTOR,
   PAGE_STYLE_ID,
   SNAPSHOT_MAX_CHARS,
   SNAPSHOT_SCROLL_ATTRIBUTE,
@@ -22,6 +23,8 @@ type Plan = { drop: boolean; scroll?: string; checked?: boolean; shadow?: Shadow
 
 function planFor(element: Element, viewHeight: number): Plan | undefined {
   let plan: Plan | undefined;
+  // A motion's own element (a fold's fading row copy, a send's pill): the page already sits where it lands.
+  if (element.matches(SNAPSHOT_SKIP_SELECTOR)) return { drop: true };
   if (element.matches(ROW_SELECTOR)) {
     const rect = element.getBoundingClientRect();
     if (rect.bottom < 0 || rect.top > viewHeight) return { drop: true };
