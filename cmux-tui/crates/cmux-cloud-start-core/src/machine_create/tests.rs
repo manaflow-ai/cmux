@@ -8,6 +8,11 @@ fn a_refusal_that_made_no_machine_gives_the_retry_a_new_key() {
     for code in [
         "cmux.cloud.quota_exceeded",
         "cloud.quota.exceeded",
+        "cloud.quota.vm_limit",
+        "cmux.cloud.spend_cap_reached",
+        "cloud.spend_cap.reached",
+        "cmux.cloud.member_budget_reached",
+        "cloud.member_budget.reached",
         "cmux.cloud.plan_required",
         "cmux.cloud.size_locked",
         "cmux.cloud.approval_denied",
@@ -25,6 +30,7 @@ fn a_refusal_that_made_no_machine_gives_the_retry_a_new_key() {
         "cmux.cloud.relay_unavailable",
         "cmux.cloud.bad_response",
         "cmux.cloud.failed",
+        "cmux.cloud.rate_limited",
         INDETERMINATE,
     ] {
         assert!(!is_definitive_refusal(code), "an uncertain outcome lost its key: {code}");

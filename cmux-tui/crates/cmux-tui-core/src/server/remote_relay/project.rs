@@ -115,8 +115,8 @@ fn part(part: &Part) -> Option<RemotePart> {
         // A paired install cannot fetch the picture (no relay read of
         // attachment bytes yet), so a link preview reaches it as its URL.
         Part::LinkPreview { url, .. } => Some(RemotePart::Text { text: url.clone(), runs: None }),
-        // A paired install has no app runtime: a widget reaches it as its
-        // fallback text (chat-widgets-DESIGN.md section 3).
+        // A paired install has no extension runtime: a widget reaches it
+        // as its fallback text.
         Part::Widget(widget) => {
             Some(RemotePart::Text { text: widget.fallback.clone(), runs: None })
         }

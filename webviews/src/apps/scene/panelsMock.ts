@@ -8,6 +8,25 @@ export const MOCK_APP_PANELS: readonly AppPanel[] = [
   { app: "samples/session", section: "details", title: "Session notes", symbol: "doc.text" },
 ];
 
+/** What `apps.composer.list` answers in the mock: one extension's slash commands. */
+export const MOCK_COMPOSER_COMMANDS: readonly unknown[] = [
+  {
+    app: "samples/standup",
+    extension: "Standup",
+    name: "standup",
+    description: "Ask for today's standup notes",
+    insert: "Write my standup: what I did yesterday, what I do today, what blocks me.",
+  },
+  {
+    app: "samples/standup",
+    extension: "Standup",
+    name: "retro",
+    description: "Start a sprint retro",
+    hint: "<sprint>",
+    insert: "Run a retro for sprint ",
+  },
+];
+
 export function mockPanelScene(panel: AppPanel, context?: MountContext): SceneOp[] {
   const rows =
     panel.app === "samples/github-prs"
@@ -48,7 +67,10 @@ export function mockPanelScene(panel: AppPanel, context?: MountContext): SceneOp
  * dispatch, and unmount through the production controller instead of injecting rendered rows. */
 export class MockAppPanelsClient implements PageClient {
   panels: readonly AppPanel[] = MOCK_APP_PANELS;
+  composerCommands: readonly unknown[] = MOCK_COMPOSER_COMMANDS;
   readonly dispatches: unknown[] = [];
+  readonly reloads: string[] = [];
+  readonly layouts: { mount_id: string; height: number }[] = [];
   private nextMount = 0;
   private seq = 0;
   private readonly mounts = new Map<string, { panel: AppPanel; context: MountContext }>();
@@ -61,6 +83,9 @@ export class MockAppPanelsClient implements PageClient {
     switch (op) {
       case "cmux.apps.panels.list":
         result = { panels: this.panels };
+        break;
+      case "cmux.apps.panels.composer":
+        result = { commands: this.composerCommands, mentions: [] };
         break;
       case "cmux.apps.panels.mount": {
         const panel = this.panels.find((entry) => entry.app === params.app && entry.section === params.section);
@@ -75,6 +100,12 @@ export class MockAppPanelsClient implements PageClient {
         break;
       case "cmux.apps.panels.dispatch":
         this.dispatches.push(params);
+        break;
+      case "cmux.apps.panels.reload":
+        this.reloads.push(String(params.mount_id));
+        break;
+      case "cmux.apps.panels.layout":
+        this.layouts.push({ mount_id: String(params.mount_id), height: Number(params.height) });
         break;
       default:
         throw pageError("cmux.protocol.unknown_op", op);
@@ -121,6 +152,18 @@ export class MockAppPanelsClient implements PageClient {
   setPanels(panels: readonly AppPanel[]): void {
     this.panels = panels;
     for (const listener of this.changed) listener(undefined, ++this.seq);
+  }
+
+  /** A mock save of an extension's composer commands: the page lists them again on `changed`. */
+  setComposerCommands(commands: readonly unknown[]): void {
+    this.composerCommands = commands;
+    for (const listener of this.changed) listener(undefined, ++this.seq);
+  }
+
+  /** Sends a mount's status on its scene stream, as the host forwards its model's status. */
+  status(mountId: string, status: "loading" | "ready" | "failed" | "disconnected", reason?: string): void {
+    for (const listener of this.scenes.get(mountId) ?? [])
+      listener({ mount_id: mountId, status, ...(reason !== undefined && { reason }) } satisfies SceneEvent, ++this.seq);
   }
 
   /** A mock local edit sends a replacement scene to every mount of the same contribution. */

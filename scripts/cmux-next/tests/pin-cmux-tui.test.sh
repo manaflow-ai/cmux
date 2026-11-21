@@ -10,6 +10,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 # git_q, and no background git maintenance in the scratch repositories.
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
 source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 
 # origin: a repo whose feat-cmux-next tip changes cmux-tui.
@@ -28,7 +29,7 @@ git_q -C "$TMP/src" commit -m one
 git_q -C "$TMP/src" update-index --add --cacheinfo 160000,"$(git -C "$TMP/src" rev-parse HEAD)",ghostty
 git_q -C "$TMP/src" commit -m gitlink
 git_q -C "$TMP/src" branch -M feat-cmux-next
-git_q clone --bare "$TMP/src" "$TMP/origin.git"
+git_fixture_clone --bare "$TMP/src" "$TMP/origin.git"
 
 # The host mirror: a full clone, then origin moves on.
 git_q clone "$TMP/origin.git" "$TMP/mirror"
@@ -92,7 +93,7 @@ grep -q 'on no remote branch' <<<"$out" || { printf 'an unpushed commit was not 
 # run on that commit; its tree differs, so it never extends the wait. The run check
 # runs only for a caller that waits (a wait of 0 looks once and reads no runs), so
 # this case waits 1 s.
-git_q clone --bare "$TMP/origin.git" "$TMP/public.git"
+git_fixture_clone --bare "$TMP/origin.git" "$TMP/public.git"
 git_q clone "$TMP/public.git" "$TMP/public-work"
 echo elsewhere > "$TMP/public-work/cmux-tui/a"
 git_q -C "$TMP/public-work" add cmux-tui/a

@@ -10,6 +10,10 @@
 // only when chosen; Verdana and the system font come with macOS. Leo, 2026-11-05: "I feel like we can
 // look into a hell of a lot more and try out a hell of a lot more" (the font study,
 // webviews/src/gallery/fontStudy, picked cmux Sans, Hanken Grotesk and Atkinson Hyperlegible Next).
+// A font pack (a community typography theme) can name any family instead (`font.uiFamily`,
+// chatDisplay.ts): it wins over the choice and draws as a bundled face does, at its designed spacing,
+// its faces declared by chatFontFaces.ts.
+import { measurableStack, quoteFamilyStack } from "./chatFontFaces";
 
 export type ChatUiFont =
   | "inter-tuned"
@@ -68,7 +72,8 @@ export const BUNDLED_FAMILY: Record<BundledChatFont, string> = {
   hanken: "cmux Hanken Grotesk",
   atkinson: "cmux Atkinson Hyperlegible Next",
 };
-const isBundled = (font: ChatUiFont): font is BundledChatFont => font in BUNDLED_FAMILY;
+export const isBundledChatFont = (font: ChatUiFont): font is BundledChatFont => font in BUNDLED_FAMILY;
+const isBundled = isBundledChatFont;
 
 /// The system font's stack, desktop.css's `--font-ui`.
 const SYSTEM = "-apple-system, BlinkMacSystemFont, system-ui, sans-serif";
@@ -114,9 +119,25 @@ const INTER_TUNED: Record<(typeof STEPS)[number], string> = {
   heading: "-0.0167em",
 };
 
+/// cmux Sans: Source Sans 3's narrow letters under a taller lowercase read packed at chat sizes, so
+/// it draws a step looser than its designed spacing, most at the small steps (Leo, 2026-11-19: "The
+/// kerning in cmux sans is off it all looks too packed together and narrow a lot of the time").
+const CMUX_SANS: Record<(typeof STEPS)[number], string> = {
+  caption: "0.02em",
+  detail: "0.018em",
+  body: "0.015em",
+  field: "0.012em",
+  title: "0.008em",
+  heading: "0.004em",
+};
+
 /// The letter-spacing table `font` sets on the type scale's steps, or null when it sets none.
-const trackingTable = (font: ChatUiFont) =>
-  font === "system-ui-tight" ? TIGHT : font === "inter-tuned" ? INTER_TUNED : null;
+const TRACKING: Partial<Record<ChatUiFont, Record<(typeof STEPS)[number], string>>> = {
+  "system-ui-tight": TIGHT,
+  "inter-tuned": INTER_TUNED,
+  "cmux-sans": CMUX_SANS,
+};
+const trackingTable = (font: ChatUiFont) => TRACKING[font] ?? null;
 
 /// The letter-spacing `font` gives a type-scale step, in em: what chatUiFontVariables sets on
 /// `--text-STEP--letter-spacing`, 0 for a step it has none for and for the faces with none.
@@ -127,13 +148,23 @@ export function chatUiTracking(font: ChatUiFont, step: string): number {
 
 /// The page's variables for `font`; a null value removes the variable (the stylesheet's own: the
 /// system font with no letter-spacing). `--cv-tracking` is the reply text's spacing (conversation.css).
-export function chatUiFontVariables(font: ChatUiFont): Record<string, string | null> {
+/// A pack's `family` (a safe family or stack, chatDisplay.ts) wins over `font`: its stack, then the
+/// system font, at its designed spacing.
+export function chatUiFontVariables(font: ChatUiFont, family: string | null = null): Record<string, string | null> {
   const variables: Record<string, string | null> = { "--font-ui": null, "--cv-tracking": null };
   for (const step of STEPS) variables[`--text-${step}--letter-spacing`] = null;
+  if (family) {
+    variables["--font-ui"] = `${quoteFamilyStack(family)}, ${SYSTEM}`;
+    variables["--cv-tracking"] = "0px";
+    for (const step of STEPS) variables[`--text-${step}--letter-spacing`] = "0em";
+    return variables;
+  }
   if (font === DEFAULT_CHAT_UI_FONT) return variables;
   variables["--font-ui"] = STACKS[font];
   const table = trackingTable(font);
-  variables["--cv-tracking"] = font === "system-ui-tight" ? TIGHT.body : "0px";
+  // The reply text follows the body step of the tables that loosen or tighten the face (not cmux
+  // Inter's, whose reply text kept its own spacing).
+  variables["--cv-tracking"] = font === "system-ui-tight" ? TIGHT.body : font === "cmux-sans" ? CMUX_SANS.body : "0px";
   for (const step of STEPS) variables[`--text-${step}--letter-spacing`] = table ? table[step] : "0em";
   return variables;
 }
@@ -145,7 +176,12 @@ const loadedFaces = new Set<BundledChatFont>();
 /// (a canvas can't read CSS variables). A bundled face counts only once it has loaded: until then
 /// the page draws the stack's next face, so the estimate measures that, and the stack changing at
 /// the load is what makes the estimator's caches, keyed by it, measure the text again.
-export function chatUiMeasureStack(font: ChatUiFont): string {
+export function chatUiMeasureStack(font: ChatUiFont, family: string | null = null): string {
+  if (family) {
+    // A pack's family counts once its face has loaded (chatFontFaces.ts measurableStack).
+    const stack = measurableStack(family);
+    return stack ? `${stack}, ${SYSTEM}` : SYSTEM;
+  }
   if (isBundled(font) && !loadedFaces.has(font)) return STACKS[font].replace(`"${BUNDLED_FAMILY[font]}", `, "");
   return STACKS[font];
 }

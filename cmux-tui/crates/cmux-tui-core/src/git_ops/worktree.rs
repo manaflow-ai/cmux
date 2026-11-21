@@ -74,7 +74,7 @@ pub(super) fn dispatch(
                 attempt
             }
         };
-        match create(repository, &git, &attempt) {
+        match create(repository, &git, &attempt, target.common_dir()) {
             Ok(()) => {
                 let mut value = described(&attempt, target.common_dir());
                 value.set("setup", setup(mux, &attempt, target.common_dir()));
@@ -161,14 +161,25 @@ fn plan(
 }
 
 /// Makes the attempt's worktree and records its base, unless a lost
-/// reply's run already made it.
+/// reply's run already made it in the repository whose git folder is
+/// `common_dir` ([`made`]). A success of `git worktree add` is not enough:
+/// the folder is given only when this repository keeps it as its worktree
+/// ([`kept`]), else the create is refused with `git_failed`. The folder and
+/// the branch that git made stay, and the message names them.
 fn create(
     repository: &Repository,
     git: &UserGit<'_>,
     attempt: &Attempt,
+    common_dir: &Path,
 ) -> Result<(), ResourceError> {
-    if !made(attempt) {
+    if let Some(why) = not_made(attempt, common_dir) {
         if attempt.root.exists() {
+            // The reply names no cause; the session host's log has it.
+            eprintln!(
+                "cmux-tui: {}: not a finished worktree on {}: {why}",
+                attempt.root.display(),
+                attempt.branch
+            );
             let message = format!(
                 "{} exists and is not a finished worktree on {}",
                 attempt.root.display(),
@@ -193,8 +204,16 @@ fn create(
             vec!["worktree", "add", "-b", branch, root.as_ref(), attempt.base_commit.as_str()]
         };
         let run = git.run(&arguments).map_err(|failure| run_failed(OPERATION, &failure))?;
-        if !run.success && !made(attempt) {
+        if !run.success && !made(attempt, common_dir) {
             let message = "git worktree add failed";
+            return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
+        }
+        if run.success && !kept(attempt, common_dir) {
+            let message = format!(
+                "git worktree add ended, and {root} is not a worktree that this repository keeps; \
+                 the folder and the branch {} stay",
+                attempt.branch
+            );
             return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
         }
     }
@@ -210,36 +229,94 @@ fn create(
 }
 
 /// Starts the new worktree's setup from the project's recipe; what the
-/// reply says of it.
+/// reply says of it. The ports of the worktree are in `common_dir`, the
+/// repository's git folder. No setup starts and no port is given when the
+/// folder that the worktree's `.git` file names is not the git folder that
+/// this repository keeps for the worktree
+/// ([`worktree_setup::Place::is_of`]): a line on stderr says so, or it gives
+/// the kind of the error of the open when the place did not open that
+/// folder. The check is of the folder that the place opened, and the setup
+/// keeps that folder.
 fn setup(mux: &Mux, attempt: &Attempt, common_dir: &Path) -> Value {
     let main = main_root(common_dir).map(Path::to_path_buf);
     let Some(git_dir) = admin_dir(&attempt.root) else { return json!({"state": "none"}) };
-    let resolved =
-        worktree_recipe::resolve(mux, main.as_deref(), main.as_deref().unwrap_or(common_dir));
     let root = worktree_setup::resolved(&attempt.root);
-    let place = worktree_setup::Place { root, main_root: main, git_dir };
+    let place = worktree_setup::Place::new(root, main, &git_dir, common_dir);
+    if !place.is_of(common_dir) {
+        let why = match place.not_opened() {
+            Some(kind) => format!("is not open ({kind})"),
+            None => format!(
+                "is not the git folder that {} keeps for this worktree",
+                common_dir.display()
+            ),
+        };
+        eprintln!(
+            "cmux-tui: {}: no setup starts: the folder that the `.git` file names {why}",
+            attempt.root.display()
+        );
+        return json!({"state": "none"});
+    }
+    let main = place.main_root.as_deref();
+    let resolved = worktree_recipe::resolve(mux, main, main.unwrap_or(common_dir));
     worktree_setup::start(place, resolved.recipe)
 }
 
-/// A linked worktree's own git folder, from its `.git` file.
+/// A linked worktree's own git folder, from its `.git` file. The file is
+/// read as a file that cmux keeps in a git folder is read
+/// ([`worktree_setup::read_small`]): a regular file only, at most 1 MiB of
+/// it, with no wait, and a link in its place is not followed.
 pub(super) fn admin_dir(root: &Path) -> Option<PathBuf> {
-    let link = std::fs::read_to_string(root.join(".git")).ok()?;
+    let link = String::from_utf8(worktree_setup::read_small(root, ".git")?).ok()?;
     let admin = link.trim().strip_prefix("gitdir:")?.trim();
     let admin = root.join(admin);
     admin.is_dir().then_some(admin)
 }
 
+/// The repository whose git folder is `common_dir` keeps the attempt's folder
+/// as its worktree, by the check that the setup of the worktree has
+/// ([`worktree_setup::keeps`]).
+fn kept(attempt: &Attempt, common_dir: &Path) -> bool {
+    admin_dir(&attempt.root)
+        .is_some_and(|admin| worktree_setup::keeps(&admin, &attempt.root, common_dir))
+}
+
 /// The attempt's worktree exists on its branch and git finished making it:
 /// its administrative folder is no longer locked (`git worktree add` locks
-/// it while it checks the files out).
-fn made(attempt: &Attempt) -> bool {
-    let Some(admin) = admin_dir(&attempt.root) else { return false };
-    if admin.join("locked").exists() {
-        return false;
+/// it while it checks the files out). The worktree is of the repository
+/// whose git folder is `common_dir`, by the check that its setup has
+/// ([`worktree_setup::keeps`]): a folder that is a worktree of a different
+/// repository on the same branch is not the worktree of this create. The
+/// check and the look for the lock are at one open of the administrative
+/// folder ([`worktree_setup::kept`]). When a create finds a folder that is
+/// not a made worktree, a line on stderr says which of these it is
+/// ([`not_made`]).
+fn made(attempt: &Attempt, common_dir: &Path) -> bool {
+    not_made(attempt, common_dir).is_none()
+}
+
+/// Why the attempt's folder is not a made worktree ([`made`]); `None` for a
+/// made worktree. The text is for a line on stderr, not for a reply.
+fn not_made(attempt: &Attempt, common_dir: &Path) -> Option<String> {
+    let Some(admin) = admin_dir(&attempt.root) else {
+        return Some("it has no `.git` file that names a git folder".to_string());
+    };
+    let named = "the folder that its `.git` file names";
+    let why = match worktree_setup::kept(&admin, &attempt.root, common_dir) {
+        worktree_setup::Kept::Yes => None,
+        worktree_setup::Kept::Locked => Some("git has its lock on the worktree".to_string()),
+        worktree_setup::Kept::No => {
+            let keeper = common_dir.display();
+            Some(format!("{named} is not the git folder that {keeper} keeps for this worktree"))
+        }
+        worktree_setup::Kept::NotOpened(kind) => Some(format!("{named} is not open ({kind})")),
+    };
+    if why.is_some() {
+        return why;
     }
     let arguments = ["symbolic-ref", "--quiet", "--short", "HEAD"];
-    run_git(&attempt.root, &[], &arguments, MAX_SMALL_OUTPUT_BYTES)
-        .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == attempt.branch)
+    let on_branch = run_git(&attempt.root, &[], &arguments, MAX_SMALL_OUTPUT_BYTES)
+        .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == attempt.branch);
+    (!on_branch).then(|| "its HEAD is not on the branch".to_string())
 }
 
 fn described(attempt: &Attempt, common_dir: &Path) -> Value {
@@ -295,3 +372,6 @@ fn generated_name() -> String {
     }
     format!("chat-{:02x}{:02x}{:02x}", bytes[0], bytes[1], bytes[2])
 }
+
+#[cfg(test)]
+mod tests;

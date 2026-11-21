@@ -45,14 +45,14 @@ public final class SidebarApprovals {
     var answerable: [String: String] { approvals.mapValues(\.permission) }
 
     /// The chats of this Mac's acpmux (`store`) waiting for the person, while a sidebar surface that
-    /// answers is on. Reads the store's waiting index, never every lane; the whole-map read only
-    /// subscribes to lane changes.
+    /// answers is on. Reads the store's waiting sessions (written only when one starts or stops waiting)
+    /// and each waiting session's own cell, never the lane map: another agent's step re-reads nothing
+    /// (main-thread-scheduling.md section 3, O7).
     static func waitingChats(in store: AgentLaneStore, enabled: Bool) -> [String: Wait] {
         guard enabled else { return [:] }
-        let lanes = store.lanes
         var waiting: [String: Wait] = [:]
-        for id in store.waiting {
-            guard let lane = lanes[id], lane.state == .input, lane.peer == nil else { continue }
+        for id in store.waitingSessions {
+            guard let lane = store.lane(id), lane.state == .input, lane.peer == nil else { continue }
             waiting[id] = Wait(since: lane.since, step: lane.step)
         }
         return waiting

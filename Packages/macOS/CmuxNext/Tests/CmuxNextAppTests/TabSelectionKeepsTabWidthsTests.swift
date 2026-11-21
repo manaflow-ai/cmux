@@ -37,7 +37,7 @@ import Testing
         let pane = PaneContentView(stripModel: model, reveal: LaunchReveal(deadline: .zero))
         pane.frame = NSRect(x: 0, y: 0, width: 1280, height: 300)
         window.contentView = pane
-        let toolbar = PaneToolbar(registry: { nil }, newTabMenu: { nil })
+        let toolbar = PaneToolbar(registry: { nil })
         pane.toolbar = toolbar
 
         var seen: [String: Geometry] = [:]

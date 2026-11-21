@@ -428,7 +428,7 @@
   inline-size: 100%;
   padding: var(--ds-space-1) var(--ds-space-2);
   border: 0;
-  border-radius: var(--ds-radius-md);
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: inherit;
   text-align: start;
@@ -798,7 +798,7 @@
   inline-size: 100%;
   padding: var(--ds-space-1) var(--ds-space-2);
   border: 0;
-  border-radius: var(--ds-radius-md);
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: inherit;
   text-align: start;

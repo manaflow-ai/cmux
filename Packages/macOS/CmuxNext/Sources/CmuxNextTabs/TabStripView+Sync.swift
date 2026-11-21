@@ -14,12 +14,10 @@ extension TabStripView {
     /// A strip in a window but out of sight (a parked workspace's, a hidden screen bar) lays
     /// nothing out and animates nothing: a script that reorders, renames or moves tabs in
     /// background workspaces costs it no work until it shows, then one sync to the final state
-    /// (``syncShown(_:)``; CLAUDE.md "Go past Chrome where cmux is scripted").
+    /// (``syncShown(_:)``; CLAUDE.md "Go past Chrome where cmux is scripted"). A strip whose pane leaves after a close
+    /// keeps the tabs it shows until the pane goes (``TabStripSyncHold``).
     public func syncFromModel() {
-        if window != nil, !isShownInWindow {
-            modelChangedWhileHidden = true
-            return
-        }
+        if syncHold.holds(self, atRest: isAtRest(closing: true)) { return }
         layOutPaneIfOneTabChanged()
         let input = ModelSnapshot(model)
         if hasSynced, window != nil, let last = lastSyncedInput {
@@ -133,7 +131,7 @@ extension TabStripView {
         let closing = cells.keys.contains { !ids.contains($0) && !dying.contains($0) && !departing.contains($0) }
         // A pane's last tab never shrinks out: its pane (or its workspace) closes as one (close cases B, C, D).
         let closesLastTab = removing && ordered.isEmpty
-        let structureAnimates = (!adding || Motion.tabs.animates(.newTab)) && !closesLastTab
+        let structureAnimates = (!adding || Motion.tabs.animates(.newTab, in: window)) && !closesLastTab
         let inGesture = drag != nil || groups.drag != nil || pendingDrop != nil
         let animated = hasSynced && !reduceMotion && animating && (structureAnimates || inGesture)
         // Added/closed cells move only outside a gesture; a sync that adds no tab never re-tokens the strip.
@@ -171,7 +169,7 @@ extension TabStripView {
                 _ = makeCell(item, animated: false)
                 placed[item.id] = place
                 // It shows where that cell shows now; `relayout` moves it on from there.
-                cells[item.id]?.frame = (shown.layer.presentation() ?? shown.layer).frame
+                cells[item.id]?.frame = TabStripMove.shownFrame(shown.layer)
                 removeTab(from)
             } else {
                 added.insert(makeCell(item, animated: cellsAnimate))

@@ -44,6 +44,38 @@ fn a_line_split_across_chunks_and_escapes_is_one_line() {
     assert_eq!(line.tail(), Some("Deployed web@a1b2c3 to staging"));
 }
 
+/// CMUX-283: lines were split on every `\n` and `\r` before escapes were stripped, so a
+/// title or shell-integration string holding one ended a line inside it and showed its rest.
+#[test]
+fn a_newline_inside_an_osc_string_ends_no_line() {
+    let mut line = TailLine::default();
+    line.feed(b"build ok\n\x1b]0;one\ntwo\x07\n");
+    assert_eq!(line.tail(), Some("build ok"));
+    // The same with the string split across chunks, and a carriage return in it.
+    line.feed(b"done\n\x1b]633;E;echo a\r");
+    line.feed(b"b\x1b\\\n");
+    assert_eq!(line.tail(), Some("done"));
+    // A DCS payload with line breaks in it.
+    line.feed(b"\x1bPq#0;2;0;0;0\n#1~~\r\n-\x1b\\\n");
+    assert_eq!(line.tail(), Some("done"));
+    // CAN ends a string a program left open, and the text after it shows.
+    line.feed(b"\x1b]0;stuck\x18next\n");
+    assert_eq!(line.tail(), Some("next"));
+}
+
+/// A link whose escape runs past `MAX_LINE_BYTES` was cut in half, and stripping the open half
+/// took the rest of the line with it.
+#[test]
+fn a_long_escape_never_takes_the_text_after_it() {
+    let mut line = TailLine::default();
+    let mut bytes = b"ok \x1b]8;;https://example.com/".to_vec();
+    bytes.extend(vec![b'u'; MAX_LINE_BYTES * 2]);
+    bytes.extend_from_slice(b"\x1b\\link\x1b]8;;\x1b\\\n");
+    line.feed(&bytes);
+    assert_eq!(line.tail(), Some("ok link"));
+    assert!(line.pending.is_empty());
+}
+
 #[test]
 fn take_change_reports_each_new_tail_once() {
     let mut line = TailLine::default();

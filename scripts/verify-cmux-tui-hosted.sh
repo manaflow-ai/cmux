@@ -32,6 +32,11 @@ The wait ends after CMUX_TUI_HOSTED_TIMEOUT_SECONDS (default 7200). The hosted
 run is not cancelled then: the script prints the run URL and how to keep
 waiting, and exits with status 3. Ctrl-C cancels the hosted run.
 --cancel-on-timeout also cancels the hosted run when the wait ends (exit 1).
+
+A run state that cannot be read is not "still running": after
+CMUX_TUI_HOSTED_UNREADABLE_READS (default 3) failed reads in a row the script
+stops waiting, prints the read's error and the run URL, and exits with status
+5. The run is not cancelled.
 EOF
 }
 
@@ -83,6 +88,13 @@ timeout_seconds="${CMUX_TUI_HOSTED_TIMEOUT_SECONDS:-7200}"
 rescue_window_seconds="${CMUX_TUI_HOSTED_RESCUE_WINDOW_SECONDS:-300}"
 # The shortest time between two waiter rounds.
 round_seconds="${CMUX_TUI_HOSTED_ROUND_SECONDS:-30}"
+# How many state reads in a row may fail before the wait ends as unreadable
+# (exit 5). A state that cannot be read is never "still running".
+unreadable_reads_limit="${CMUX_TUI_HOSTED_UNREADABLE_READS:-3}"
+if [[ ! "$unreadable_reads_limit" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: CMUX_TUI_HOSTED_UNREADABLE_READS must be a positive integer" >&2
+  exit 2
+fi
 if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: hosted verification timeout must be a positive integer" >&2
   exit 2
@@ -458,17 +470,39 @@ exec 3<> "$watch_result_fifo"
     exec 5>&-
     rm -f "$done_fifo"
   }
+  # Reads the run's status, conclusion and attempt. A gh that has no
+  # `attempt` field refuses the whole read (cmuxterm-hq#10604: every read
+  # failed, and the script waited out its 2-hour deadline after the run had
+  # passed), so that answer is read again without it, attempt "?". A read
+  # that fails or answers no known status sets run_status to "unreadable",
+  # never to a state that means "not done yet".
   read_run_state() {
     : > "$run_state_file"
     run_child 60 gh run view --repo "$REPO" "$run_id" --json status,conclusion,attempt \
-      --jq '"\(.status)|\(.conclusion)|\(.attempt)"' > "$run_state_file"
-    run_status="unknown"
-    run_conclusion="unknown"
+      --jq '"\(.status)|\(.conclusion)|\(.attempt)"' > "$run_state_file" 2> "$run_state_err"
+    if [[ "$child_status" -ne 0 ]] && grep -q 'Unknown JSON field: "attempt"' "$run_state_err"; then
+      : > "$run_state_file"
+      run_child 60 gh run view --repo "$REPO" "$run_id" --json status,conclusion \
+        --jq '"\(.status)|\(.conclusion)|?"' > "$run_state_file" 2> "$run_state_err"
+    fi
+    run_status="unreadable"
+    run_conclusion=""
     run_attempt="?"
     if [[ "$child_status" -eq 0 ]]; then
       # "|", not a tab: IFS whitespace would merge the empty conclusion of a
       # queued run into one separator.
-      IFS='|' read -r run_status run_conclusion run_attempt < "$run_state_file" || true
+      local status="" conclusion="" attempt=""
+      IFS='|' read -r status conclusion attempt < "$run_state_file" || true
+      case "$status" in
+        queued|in_progress|completed|waiting|requested|pending)
+          run_status="$status"
+          run_conclusion="$conclusion"
+          run_attempt="${attempt:-?}"
+          ;;
+        *) printf 'gh answered no known run status: %s\n' "$(head -c 200 "$run_state_file")" > "$run_state_err" ;;
+      esac
+    elif [[ ! -s "$run_state_err" ]]; then
+      echo "gh run view exited $child_status" > "$run_state_err"
     fi
   }
 
@@ -484,6 +518,8 @@ exec 3<> "$watch_result_fifo"
   deadline=$((SECONDS + timeout_seconds))
   waiter_log="$temp_dir/waiter.log"
   run_state_file="$temp_dir/run-state"
+  run_state_err="$temp_dir/run-state.err"
+  unreadable_reads=0
   have_glaeda=false
   command -v glaeda-gh >/dev/null 2>&1 && have_glaeda=true
   use_glaeda=$have_glaeda
@@ -509,6 +545,15 @@ exec 3<> "$watch_result_fifo"
     waiter_status=$child_status
     waited=$((SECONDS - round_start))
     read_run_state
+    if [[ "$run_status" == "unreadable" ]]; then
+      unreadable_reads=$((unreadable_reads + 1))
+      echo "warning: could not read the run's state (${unreadable_reads} of ${unreadable_reads_limit} in a row): $(tr '\n' ' ' < "$run_state_err" | head -c 300)" >&2
+      if (( unreadable_reads >= unreadable_reads_limit )); then
+        break
+      fi
+    else
+      unreadable_reads=0
+    fi
 
     # A run that ended other than in success may be re-run by the CI rescue:
     # cancelled (the run waited for a busy owned pool) or failed (a runner
@@ -556,7 +601,9 @@ exec 3<> "$watch_result_fifo"
     fi
   done
   # The deadline came while a re-run may still follow: that is not a result.
-  if [[ -n "$ended_since" ]]; then
+  if [[ "$run_status" == "unreadable" ]]; then
+    run_conclusion="$(tr '\n\t' '  ' < "$run_state_err" | head -c 300)"
+  elif [[ -n "$ended_since" ]]; then
     run_status="ended-awaiting-rerun"
   fi
   set -e
@@ -572,6 +619,15 @@ if IFS=$'\t' read -r -t "$((timeout_seconds + 150))" run_status run_conclusion <
   wait "$watch_owner_pid" || true
   watch_owner_pid=""
   [[ "$run_status" == "completed" ]] && run_finished=true
+fi
+# The run's state could not be read: that is not "still running". Say so and
+# leave the run alone.
+if [[ "$run_status" == "unreadable" ]]; then
+  cancel_on_interrupt=false
+  stop_owned_process watch_owner_pid
+  echo "error: could not read hosted run $run_id's state ${unreadable_reads_limit} times in a row (${run_conclusion}); not cancelled: $run_url" >&2
+  echo "Read it with: glaeda-gh status run $REPO/$run_id --jobs (or wait on it: glaeda-gh wait run $REPO/$run_id)" >&2
+  exit 5
 fi
 # The deadline came with the run not done. The macOS queue can be longer than
 # the wait, so by default the run keeps going and the caller waits on it; it is

@@ -9,6 +9,10 @@ public import UIKit
 @MainActor
 public final class HomeViewController: UIViewController {
     private let store: HomeStore
+    /// The Hosted Chief check: Home shows its card while the Chief does not answer.
+    private let chiefBrain: HomeChiefBrainModel?
+    /// Whether the last render was online: each return online reads the Chief's brain again.
+    private var renderedOnline = false
     private(set) var options: HomeUIOptions
     private let performer: HomeRowActionPerformer
     private let list: HomeListController
@@ -25,8 +29,9 @@ public final class HomeViewController: UIViewController {
         didSet { if isViewLoaded { configureTrailingItems() } }
     }
 
-    public init(store: HomeStore, options: HomeUIOptions) {
+    public init(store: HomeStore, options: HomeUIOptions, chiefBrain: HomeChiefBrainModel? = nil) {
         self.store = store
+        self.chiefBrain = chiefBrain
         self.options = options
         performer = HomeRowActionPerformer(store: store)
         list = HomeListController(performer: performer)
@@ -65,6 +70,11 @@ public final class HomeViewController: UIViewController {
         list.collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(list.collectionView)
         list.onSelect = { [weak self] id in self?.openConversation(id, focus: nil) }
+        list.onTurnOnChief = { [weak self] in
+            guard let chiefBrain = self?.chiefBrain else { return }
+            // task-owner: one Turn On; ends with its answer
+            Task { await chiefBrain.turnOn() }
+        }
         performer.onFailure = { [weak self] rejection in self?.showFailure(rejection) }
 
         list.setUpdateRequired(updateRequired)
@@ -99,6 +109,14 @@ public final class HomeViewController: UIViewController {
     private func render() {
         let isOnline = store.isOnline
         list.update(rows: store.rows, me: store.me?.id, isOnline: isOnline, density: options.density)
+        // The Chief card only while online: offline, the offline card says why nothing answers.
+        let chiefBanner = chiefBrain?.banner
+        list.setChiefBanner(isOnline ? chiefBanner : nil)
+        if isOnline, !renderedOnline, let chiefBrain {
+            // task-owner: one brain read per return online; ends with its answer
+            Task { await chiefBrain.refresh() }
+        }
+        renderedOnline = isOnline
         composeItem.isEnabled = isOnline
         inviteItem.isEnabled = isOnline
         searchResults.isOnline = isOnline

@@ -46,6 +46,7 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, bail};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
@@ -106,15 +107,25 @@ impl std::fmt::Display for NoSeedBase {
 impl std::error::Error for NoSeedBase {}
 
 /// The machine's state, as its export answered it.
-struct Exported {
-    head_ref: Option<String>,
-    head: String,
-    index: String,
-    work: String,
-    stash: Option<String>,
-    unchanged: bool,
-    bundle_bytes: u64,
+pub(crate) struct Exported {
+    pub(crate) head_ref: Option<String>,
+    pub(crate) head: String,
+    pub(crate) index: String,
+    pub(crate) work: String,
+    pub(crate) stash: Option<String>,
+    pub(crate) unchanged: bool,
+    pub(crate) bundle_bytes: u64,
     left_out: Value,
+    /// A move's export only ([`export_move_to`]): the base it used and the remote's URL.
+    pub(crate) moved: Option<MoveBase>,
+}
+
+/// The base a move's export used (its HEAD and WORK), and the remote's URL as the folder
+/// configures it.
+pub(crate) struct MoveBase {
+    pub(crate) head: String,
+    pub(crate) work: String,
+    pub(crate) url: String,
 }
 
 /// Compare-and-swap update of refs/stash, planned against the last accepted seed.
@@ -179,7 +190,8 @@ pub(crate) fn seed_pull(
         parent.trim_end_matches('/'),
         std::process::id()
     );
-    let exported = export(&mut remote, remote_root, base, &remote_bundle)?;
+    let since = json!({ "since_work": base.work, "since_head": base.head });
+    let exported = export(&mut remote, remote_root, since, &remote_bundle)?;
     let new_base = json!({
         "head": exported.head, "index": exported.index, "work": exported.work,
         "stash": exported.stash,
@@ -382,11 +394,91 @@ pub(crate) fn seed_pull(
     })))
 }
 
+/// The machine at `socket`'s export of `remote_root` since `base`, its bundle streamed to `to`
+/// (a new private file on this Mac, never in a working copy). Move to another Cloud machine
+/// sends it on to the second machine (`seed_cli::hop`). None when nothing changed since `base`.
+pub(crate) fn export_to(
+    socket: &Path,
+    remote_root: &str,
+    base: &SeedBase,
+    to: &Path,
+) -> anyhow::Result<Option<Exported>> {
+    let params = json!({ "since_work": base.work, "since_head": base.head });
+    Ok(Some(export_into(socket, remote_root, params, to)?).filter(|exported| !exported.unchanged))
+}
+
+/// A move's export of `remote_root` on the machine at `socket` (`git.seed.export` with `move`:
+/// its own refs, the folder's seed records left as they are), streamed to `to` as
+/// [`export_to`] streams it. `from` is `upstream` (since the tip its branch tracks, which GitHub
+/// has), `seed` (since the folder's own seed) or `since` (since `since`, the move's last
+/// export: HEAD, WORK). `unchanged` (and no bundle at `to`) when nothing changed since.
+pub(crate) fn export_move_to(
+    socket: &Path,
+    remote_root: &str,
+    from: &str,
+    since: Option<(&str, &str)>,
+    to: &Path,
+) -> anyhow::Result<(Exported, MoveBase)> {
+    let mut params = json!({ "move": from });
+    if let Some((head, work)) = since {
+        params.set("since_head", json!(head));
+        params.set("since_work", json!(work));
+    }
+    let mut exported = export_into(socket, remote_root, params, to)?;
+    let moved = exported
+        .moved
+        .take()
+        .context("the machine's export named no base: it runs a cmux-tui without move exports")?;
+    Ok((exported, moved))
+}
+
+/// Whether the folder at `remote_root` is still as its record `head`/`work` left it (a move's
+/// `check`: nothing is recorded and no bundle is written there).
+pub(crate) fn still_as_recorded(
+    socket: &Path,
+    remote_root: &str,
+    head: &str,
+    work: &str,
+) -> anyhow::Result<bool> {
+    let mut remote = Remote::connect(socket)?;
+    let params = json!({ "move": "check", "since_head": head, "since_work": work });
+    // The daemon writes no bundle for a check; the name is never created.
+    let (parent, _) = super::remote::split(remote_root)?;
+    let unused = format!("{}/.cmux-seed-check.bundle", parent.trim_end_matches('/'));
+    Ok(export(&mut remote, remote_root, params, &unused)?.unchanged)
+}
+
+fn export_into(
+    socket: &Path,
+    remote_root: &str,
+    params: Value,
+    to: &Path,
+) -> anyhow::Result<Exported> {
+    let mut remote = Remote::connect(socket)?;
+    let (parent, _) = super::remote::split(remote_root)?;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos());
+    let remote_bundle = format!(
+        "{}/.cmux-seed-move-{}-{nanos}.bundle",
+        parent.trim_end_matches('/'),
+        std::process::id()
+    );
+    let exported = export(&mut remote, remote_root, params, &remote_bundle)?;
+    if exported.unchanged {
+        return Ok(exported);
+    }
+    let downloaded = download(&mut remote, &remote_bundle, to);
+    let _ = remote.delete(&[remote_bundle]);
+    downloaded?;
+    Ok(exported)
+}
+
 /// Starts the export and waits (bounded) for it to end.
 fn export(
     remote: &mut Remote,
     remote_root: &str,
-    base: &SeedBase,
+    mut params: Value,
     bundle: &str,
 ) -> anyhow::Result<Exported> {
     let refused = |error: anyhow::Error| match super::remote::refusal_code(&error) {
@@ -396,12 +488,9 @@ fn export(
         }),
         None => error,
     };
-    let started = remote
-        .call(
-            "git.seed.export",
-            json!({ "folder": remote_root, "since_work": base.work, "since_head": base.head, "bundle": bundle }),
-        )
-        .map_err(refused)?;
+    params.set("folder", json!(remote_root));
+    params.set("bundle", json!(bundle));
+    let started = remote.call("git.seed.export", params).map_err(refused)?;
     let job = started
         .get("job")
         .and_then(Value::as_str)
@@ -452,6 +541,14 @@ fn export(
         unchanged: status.get("unchanged").and_then(Value::as_bool) == Some(true),
         bundle_bytes: status.get("bundle_bytes").and_then(Value::as_u64).unwrap_or(0),
         left_out: status.get("left_out").cloned().unwrap_or_default(),
+        moved: match text("url") {
+            Some(url) => Some(MoveBase {
+                head: sha("since_head")?,
+                work: sha("since_work")?,
+                url: url.to_string(),
+            }),
+            None => None,
+        },
     })
 }
 

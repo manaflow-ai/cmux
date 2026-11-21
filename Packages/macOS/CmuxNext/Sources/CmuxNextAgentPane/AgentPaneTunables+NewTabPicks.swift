@@ -5,9 +5,11 @@ nonisolated extension AgentPaneTunables {
     /// default, Lawrence 2026-10-19, restated 2026-11-05: "New Tab page click opens in the pane to the
     /// right, not the same pane"): it lands where links do (`layout.linkPlacement`: the pane on the
     /// right, else a new split). Off (Leo 2026-10-20): it replaces the page in its pane, like a
-    /// browser's new tab, so no pane or divider moves.
+    /// browser's new tab, so no pane or divider moves. A browser pick (a typed address, a search, a visited
+    /// page) is a navigation and always takes the page's tab (Lawrence 2026-11-11), unless the person asked
+    /// for a new tab (Option-Return, ``AgentPaneOpenTab/beside``).
     public static let newTabPicksFollowLinks = Tunable<Bool>.toggle(
         "newTab.picksFollowLinks", .tabs, "New tab picks open like links",
-        help: "What a New Tab page opens (a chat, an address, a terminal) goes where Open Links and Files puts links, beside the page, instead of replacing the page in its pane.",
+        help: "What a New Tab page opens (a chat, a terminal; an address navigates the page itself) goes where Open Links and Files puts links, beside the page, instead of replacing the page in its pane.",
         default: true, code: "AgentPaneTunables.newTabPicksFollowLinks")
 }

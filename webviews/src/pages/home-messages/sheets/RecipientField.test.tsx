@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import { createStrings } from "../../shared/i18n";
 import { RecipientField } from "./RecipientField";
 import { EMPTY_DRAFT, type HomeContact, type RecipientDraft } from "./recipients";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -65,9 +66,10 @@ function mount(initial: RecipientDraft = EMPTY_DRAFT) {
   return seen;
 }
 
-afterEach(() => {
+afterEach(async () => {
   if (root) act(() => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

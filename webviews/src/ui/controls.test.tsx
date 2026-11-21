@@ -114,6 +114,15 @@ test("solid danger buttons keep a danger hover and open-popup fill", () => {
   expect(css).toContain("color-mix(in srgb, var(--ds-color-danger) 88%, var(--ds-color-on-accent))");
 });
 
+test("an open popup's ghost or subtle button stays pressed under the pointer", () => {
+  // The hover rules out-rank the [data-popup-open] rule (one more attribute), so without the
+  // exclusion, hovering a button whose menu is open dropped it from pressed back to the hover fill.
+  const css = fs.readFileSync(path.join(import.meta.dir, "controls.css"), "utf8");
+  for (const variant of ["ghost", "subtle"]) {
+    expect(css).toContain(`.ui-btn[data-variant="${variant}"]:hover:not([data-disabled], [data-popup-open])`);
+  }
+});
+
 test("Switch is role switch, toggles on click and reports its state", () => {
   const changes: boolean[] = [];
   const doc = render(<Switch aria-label="Fast mode" onCheckedChange={(checked) => changes.push(checked)} />);

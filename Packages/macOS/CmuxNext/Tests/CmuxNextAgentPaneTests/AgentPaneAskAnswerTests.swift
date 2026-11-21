@@ -47,6 +47,27 @@ struct AgentPaneAskAnswerTests {
             answers.append((approval.session, approval.permission, allow))
             return true
         }
+
+        /// Questions pending, by `session permission`: the request acpmux holds.
+        var questions: [String: [String: Any]] = [:]
+        var replies: [(session: String, permission: String, reply: String)] = []
+
+        func pendingQuestion(session: String, permission: String) async -> AgentPendingQuestion? {
+            reads.append("\(session) \(permission)")
+            guard let request = questions["\(session) \(permission)"],
+                  let json = AcpmuxSecretKey.canonicalJSON(request), let digest = AcpmuxSecretKey.canonicalDigest(request) else { return nil }
+            return AgentPendingQuestion(requestJSON: json, digest: digest)
+        }
+
+        func answerQuestion(_ reply: AgentPaneQuestionReply, spend: @MainActor () -> Bool) async -> Bool {
+            let key = "\(reply.input.sessionId) \(reply.input.permissionId)"
+            if goneBeforeAnswer { questions[key] = nil }
+            guard let request = questions[key], AcpmuxSecretKey.canonicalDigest(request) == reply.input.requestDigest,
+                  spend() else { return false }
+            questions[key] = nil
+            replies.append((reply.input.sessionId, reply.input.permissionId, reply.canonicalJSON))
+            return true
+        }
     }
 
     private final class Clock { var now: TimeInterval = 100 }
@@ -207,12 +228,88 @@ struct AgentPaneAskAnswerTests {
         #expect(answerer.reads.isEmpty && answerer.answers.isEmpty)
     }
 
-    /// The op takes exactly a chat, an ask and an option.
-    @Test func theRequestIsExactlyThreeIds() {
+    /// A question another chat asks (Claude Code's AskUserQuestion), as acpmux holds it: "Remove
+    /// both (Recommended)" or "Leave them", Other allowed.
+    private static let cleanup: [String: Any] = {
+        let item: [String: Any] = ["id": "q", "header": "Cleanup", "prompt": "Remove the two stale worktrees?", "allowsOther": true,
+                                   "options": [["id": "remove", "label": "Remove both (Recommended)"], ["id": "leave", "label": "Leave them"]]]
+        return ["options": [["optionId": "yes", "kind": "allow_once"], ["optionId": "no", "kind": "reject_once"]],
+                "toolCall": ["toolCallId": "call", "_meta": ["acpmux": ["question": ["harness": "claude", "items": [item]]],
+                                                              "claude": ["tool": "AskUserQuestion"]]]]
+    }()
+
+    private static func reply(_ answer: String, session: String = "tests", permission: String = "q1") -> AgentPaneAskAnswer {
+        AgentPaneAskAnswer(["sessionId": session, "permissionId": permission, "optionId": "yes",
+                            "answers": ["Remove the two stale worktrees?": answer]])!
+    }
+
+    /// Leo (2026-11-10): "this is unusable to respond to i necessarily have to open... this is bad
+    /// ui". Another chat's question is answered in place, a choice or a typed answer, on the
+    /// person's fresh click, validated against the request acpmux holds, once per click.
+    @Test func aClickAnswersAnotherChatsQuestionWithAChoiceOrATypedAnswer() async {
+        let (model, answerer, _) = Self.home()
+        answerer.questions["local/tests q1"] = Self.cleanup
+        answerer.questions["local/tests q2"] = Self.cleanup
+        model.transport.gestures.record(click: true)
+        #expect(Self.code(await Self.send(Self.reply("Remove both (Recommended)"), model, answerer)) == nil)
+        #expect(answerer.replies.map { "\($0.session) \($0.permission)" } == ["local/tests q1"])
+        #expect(answerer.replies.first?.reply == AcpmuxSecretKey.canonicalJSON(
+            ["optionId": "yes", "answers": ["Remove the two stale worktrees?": "Remove both (Recommended)"]]))
+        #expect(Self.code(await Self.send(Self.reply("Leave them", permission: "q2"), model, answerer)) == "refused", "the same click")
+        model.transport.gestures.record(click: true)
+        #expect(Self.code(await Self.send(Self.reply("Keep the newer one", permission: "q2"), model, answerer)) == nil, "Other")
+        #expect(answerer.replies.count == 2)
+    }
+
+    /// A reply the question does not take (no answer for its item, the deny option, an ask that is
+    /// a tool permission or no longer pending) is refused, sends nothing, and leaves the click.
+    @Test func aReplyTheQuestionDoesNotTakeIsRefusedAndKeepsTheClick() async {
+        let (model, answerer, _) = Self.home()
+        answerer.questions["local/tests q1"] = Self.cleanup
+        model.transport.gestures.record(click: true)
+        let wrongItem = AgentPaneAskAnswer(["sessionId": "tests", "permissionId": "q1", "optionId": "yes", "answers": ["Other?": "x"]])!
+        let deny = AgentPaneAskAnswer(["sessionId": "tests", "permissionId": "q1", "optionId": "no",
+                                       "answers": ["Remove the two stale worktrees?": "Leave them"]])!
+        #expect(Self.code(await Self.send(wrongItem, model, answerer)) == "refused")
+        #expect(Self.code(await Self.send(deny, model, answerer)) == "refused")
+        #expect(Self.code(await Self.send(Self.reply("Leave them", permission: "p1"), model, answerer)) == "refused", "a tool permission")
+        #expect(Self.code(await Self.send(Self.reply("Leave them", permission: "gone"), model, answerer)) == "refused")
+        answerer.goneBeforeAnswer = true
+        #expect(Self.code(await Self.send(Self.reply("Leave them"), model, answerer)) == "refused", "answered elsewhere meanwhile")
+        #expect(answerer.replies.isEmpty)
+        #expect(model.transport.gestures.hasFreshAnswerGesture)
+    }
+
+    /// A question reply needs the same fresh click, and is this op's only for another chat on this
+    /// pane's own acpmux: the pane's own chat and a peer's are `unsupported`, so the page opens them.
+    @Test func aQuestionReplyNeedsAClickAndAnotherLocalChat() async {
+        let (model, answerer, _) = Self.home()
+        answerer.questions["local/tests q1"] = Self.cleanup
+        #expect(Self.code(await Self.send(Self.reply("Leave them"), model, answerer)) == "refused", "no click")
+        model.transport.gestures.record()
+        #expect(Self.code(await Self.send(Self.reply("Leave them"), model, answerer)) == "refused", "a keystroke")
+        let (own, _, _) = Self.home(chat: "tests")
+        own.transport.gestures.record(click: true)
+        #expect(Self.code(await Self.send(Self.reply("Leave them"), own, answerer)) == "unsupported")
+        model.transport.gestures.record(click: true)
+        #expect(Self.code(await Self.send(Self.reply("Leave them", session: "build-box/tests"), model, answerer)) == "unsupported")
+        #expect(answerer.replies.isEmpty && answerer.reads.isEmpty)
+    }
+
+    /// The op takes a chat, an ask and an option, and for a question its answers (an object, not
+    /// empty) and optional annotations (an object); nothing else.
+    @Test func theRequestIsThreeIdsAndAQuestionsAnswers() {
         let valid: [String: Any] = ["sessionId": "tests", "permissionId": "p1", "optionId": "allow_once"]
         #expect(AgentPaneRequest(body: ["method": "chat.asks.answer", "params": valid]) == .asksAnswer(Self.ask(option: "allow_once")))
+        let answered = valid.merging(["answers": ["Q?": "A"], "annotations": ["Q?": ["notes": "n"]]]) { $1 }
+        #expect(AgentPaneAskAnswer(answered)?.reply == AcpmuxSecretKey.canonicalJSON(
+            ["optionId": "allow_once", "answers": ["Q?": "A"], "annotations": ["Q?": ["notes": "n"]]]))
         for params in [
             valid.merging(["answers": [String: Any]()]) { $1 },
+            valid.merging(["answers": "A"]) { $1 },
+            valid.merging(["annotations": ["Q?": ["notes": "n"]]]) { $1 },
+            valid.merging(["answers": ["Q?": "A"], "annotations": "n"]) { $1 },
+            valid.merging(["answers": ["Q?": "A"], "extra": 1]) { $1 },
             valid.filter { $0.key != "optionId" },
             valid.merging(["permissionId": ""]) { $1 },
             valid.merging(["sessionId": String(repeating: "a", count: 257)]) { $1 },

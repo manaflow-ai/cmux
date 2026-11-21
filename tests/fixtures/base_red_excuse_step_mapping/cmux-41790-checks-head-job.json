@@ -1,0 +1,541 @@
+{
+ "name": "cmux-next checks (god files, concurrency, crash safety, l10n)",
+ "steps": [
+  {
+   "number": 1,
+   "name": "Set up job",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T09:59:49Z",
+   "completed_at": "2026-11-12T09:59:49Z"
+  },
+  {
+   "number": 2,
+   "name": "Set up runner",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T09:59:49Z",
+   "completed_at": "2026-11-12T09:59:49Z"
+  },
+  {
+   "number": 3,
+   "name": "Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T09:59:49Z",
+   "completed_at": "2026-11-12T10:00:34Z"
+  },
+  {
+   "number": 4,
+   "name": "Drop stale submodule checkouts (self-hosted reused workspace)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:00:34Z",
+   "completed_at": "2026-11-12T10:00:34Z"
+  },
+  {
+   "number": 5,
+   "name": "Prepare check Python (PyYAML) and timeout",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:00:34Z",
+   "completed_at": "2026-11-12T10:00:36Z"
+  },
+  {
+   "number": 6,
+   "name": "Start the slow checks in the background",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:00:36Z",
+   "completed_at": "2026-11-12T10:00:36Z"
+  },
+  {
+   "number": 7,
+   "name": "God files and types (Swift)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:00:36Z",
+   "completed_at": "2026-11-12T10:00:40Z"
+  },
+  {
+   "number": 8,
+   "name": "God files (cmux-tui Rust)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:00:40Z",
+   "completed_at": "2026-11-12T10:00:43Z"
+  },
+  {
+   "number": 9,
+   "name": "CmuxNextApp size cap",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:00:43Z",
+   "completed_at": "2026-11-12T10:00:43Z"
+  },
+  {
+   "number": 10,
+   "name": "No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:00:43Z",
+   "completed_at": "2026-11-12T10:00:43Z"
+  },
+  {
+   "number": 11,
+   "name": "No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:00:43Z",
+   "completed_at": "2026-11-12T10:00:43Z"
+  },
+  {
+   "number": 12,
+   "name": "One omnibar (popups, New Tab and tabs share AddressBarView)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:00:43Z",
+   "completed_at": "2026-11-12T10:00:44Z"
+  },
+  {
+   "number": 13,
+   "name": "React pages are listed (native chrome and Home are Swift)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:00:44Z",
+   "completed_at": "2026-11-12T10:00:44Z"
+  },
+  {
+   "number": 14,
+   "name": "No new SwiftUI (macOS UI is AppKit)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:00:44Z",
+   "completed_at": "2026-11-12T10:00:46Z"
+  },
+  {
+   "number": 15,
+   "name": "No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:00:46Z",
+   "completed_at": "2026-11-12T10:00:52Z"
+  },
+  {
+   "number": 16,
+   "name": "Default cursor (no pointing hand in app UI)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:00:52Z",
+   "completed_at": "2026-11-12T10:00:55Z"
+  },
+  {
+   "number": 17,
+   "name": "No literal state roots (per-build isolation S7, cx-is1kf.8)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:00:55Z",
+   "completed_at": "2026-11-12T10:01:02Z"
+  },
+  {
+   "number": 18,
+   "name": "Dialog buttons show their keys (u2647)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:02Z",
+   "completed_at": "2026-11-12T10:01:03Z"
+  },
+  {
+   "number": 19,
+   "name": "Main-thread concurrency",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:03Z",
+   "completed_at": "2026-11-12T10:01:03Z"
+  },
+  {
+   "number": 20,
+   "name": "One web view factory",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:03Z",
+   "completed_at": "2026-11-12T10:01:04Z"
+  },
+  {
+   "number": 21,
+   "name": "Crash safety",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:04Z",
+   "completed_at": "2026-11-12T10:01:04Z"
+  },
+  {
+   "number": 22,
+   "name": "Tests inject their notification center",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:04Z",
+   "completed_at": "2026-11-12T10:01:05Z"
+  },
+  {
+   "number": 23,
+   "name": "String tables (21 languages)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:05Z",
+   "completed_at": "2026-11-12T10:01:07Z"
+  },
+  {
+   "number": 24,
+   "name": "Module resource bundles",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:07Z",
+   "completed_at": "2026-11-12T10:01:07Z"
+  },
+  {
+   "number": 25,
+   "name": "Scrollbars thin, one style",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:07Z",
+   "completed_at": "2026-11-12T10:01:10Z"
+  },
+  {
+   "number": 26,
+   "name": "Motion tokens",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:10Z",
+   "completed_at": "2026-11-12T10:01:19Z"
+  },
+  {
+   "number": 27,
+   "name": "Overlays are glass, never solid",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:19Z",
+   "completed_at": "2026-11-12T10:01:19Z"
+  },
+  {
+   "number": 28,
+   "name": "Type scale",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:19Z",
+   "completed_at": "2026-11-12T10:01:20Z"
+  },
+  {
+   "number": 29,
+   "name": "Layout grid",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:20Z",
+   "completed_at": "2026-11-12T10:01:20Z"
+  },
+  {
+   "number": 30,
+   "name": "UI font (the system font)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:20Z",
+   "completed_at": "2026-11-12T10:01:29Z"
+  },
+  {
+   "number": 31,
+   "name": "Motion scale",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:29Z",
+   "completed_at": "2026-11-12T10:01:29Z"
+  },
+  {
+   "number": 32,
+   "name": "Motion and colour tokens",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:29Z",
+   "completed_at": "2026-11-12T10:01:45Z"
+  },
+  {
+   "number": 33,
+   "name": "Surface roles",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:45Z",
+   "completed_at": "2026-11-12T10:01:45Z"
+  },
+  {
+   "number": 34,
+   "name": "Menu metrics",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:45Z",
+   "completed_at": "2026-11-12T10:01:46Z"
+  },
+  {
+   "number": 35,
+   "name": "Protected-folder copies",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:46Z",
+   "completed_at": "2026-11-12T10:01:46Z"
+  },
+  {
+   "number": 36,
+   "name": "Settings source copies",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:46Z",
+   "completed_at": "2026-11-12T10:01:46Z"
+  },
+  {
+   "number": 37,
+   "name": "Phone lane field allowlist",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:46Z",
+   "completed_at": "2026-11-12T10:01:47Z"
+  },
+  {
+   "number": 38,
+   "name": "Backdrop art export",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:47Z",
+   "completed_at": "2026-11-12T10:01:47Z"
+  },
+  {
+   "number": 39,
+   "name": "Stale scheme PCM cleanup",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:47Z",
+   "completed_at": "2026-11-12T10:01:47Z"
+  },
+  {
+   "number": 40,
+   "name": "Script tests (pin-cmux-tui, embed-cef, ensure-cef store)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:01:47Z",
+   "completed_at": "2026-11-12T10:04:36Z"
+  },
+  {
+   "number": 41,
+   "name": "Ghostty resources bundle",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:04:36Z",
+   "completed_at": "2026-11-12T10:04:39Z"
+  },
+  {
+   "number": 42,
+   "name": "Bundled terminfo",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:04:39Z",
+   "completed_at": "2026-11-12T10:04:39Z"
+  },
+  {
+   "number": 43,
+   "name": "Package conventions lint",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:04:39Z",
+   "completed_at": "2026-11-12T10:04:39Z"
+  },
+  {
+   "number": 44,
+   "name": "Browser chrome icons",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:04:39Z",
+   "completed_at": "2026-11-12T10:04:39Z"
+  },
+  {
+   "number": 45,
+   "name": "App Store review rules (cmux-next-ios intents, Info.plist)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:04:39Z",
+   "completed_at": "2026-11-12T10:04:42Z"
+  },
+  {
+   "number": 46,
+   "name": "Perf source guard (no window capture or CATransaction.flush)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:04:42Z",
+   "completed_at": "2026-11-12T10:04:43Z"
+  },
+  {
+   "number": 47,
+   "name": "No fleet host names in gallery fixtures",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:04:43Z",
+   "completed_at": "2026-11-12T10:04:44Z"
+  },
+  {
+   "number": 48,
+   "name": "Kill switches are declared, tied to a PR and unexpired",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:04:44Z",
+   "completed_at": "2026-11-12T10:04:46Z"
+  },
+  {
+   "number": 49,
+   "name": "Checks job structure",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:04:46Z",
+   "completed_at": "2026-11-12T10:04:46Z"
+  },
+  {
+   "number": 50,
+   "name": "Tier routing",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:04:46Z",
+   "completed_at": "2026-11-12T10:04:46Z"
+  },
+  {
+   "number": 51,
+   "name": "Package dependency lists sorted",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:04:46Z",
+   "completed_at": "2026-11-12T10:04:46Z"
+  },
+  {
+   "number": 52,
+   "name": "Web bundle key inputs",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:04:46Z",
+   "completed_at": "2026-11-12T10:04:46Z"
+  },
+  {
+   "number": 53,
+   "name": "Prebuilt web bundles install and stamp",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:04:46Z",
+   "completed_at": "2026-11-12T10:04:46Z"
+  },
+  {
+   "number": 54,
+   "name": "Web update pointer",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:04:46Z",
+   "completed_at": "2026-11-12T10:04:51Z"
+  },
+  {
+   "number": 55,
+   "name": "Companion workflows",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:04:51Z",
+   "completed_at": "2026-11-12T10:05:40Z"
+  },
+  {
+   "number": 56,
+   "name": "Base-red classifier (per test)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:05:40Z",
+   "completed_at": "2026-11-12T10:06:27Z"
+  },
+  {
+   "number": 57,
+   "name": "DEV update and classic import scripts",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:06:27Z",
+   "completed_at": "2026-11-12T10:06:31Z"
+  },
+  {
+   "number": 58,
+   "name": "Routing replay (router changes)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:06:31Z",
+   "completed_at": "2026-11-12T10:06:31Z"
+  },
+  {
+   "number": 59,
+   "name": "Check the app FFI pin",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:06:31Z",
+   "completed_at": "2026-11-12T10:06:35Z"
+  },
+  {
+   "number": 60,
+   "name": "Daemon capabilities export is fresh",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:06:35Z",
+   "completed_at": "2026-11-12T10:06:35Z"
+  },
+  {
+   "number": 61,
+   "name": "App capability references are listed",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:06:35Z",
+   "completed_at": "2026-11-12T10:06:38Z"
+  },
+  {
+   "number": 62,
+   "name": "Capability texts never say update the app",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:06:38Z",
+   "completed_at": "2026-11-12T10:06:39Z"
+  },
+  {
+   "number": 63,
+   "name": "Pushed commits add no violations",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:06:39Z",
+   "completed_at": "2026-11-12T10:06:54Z"
+  },
+  {
+   "number": 64,
+   "name": "Fail on any red check",
+   "status": "completed",
+   "conclusion": "failure",
+   "started_at": "2026-11-12T10:06:54Z",
+   "completed_at": "2026-11-12T10:06:54Z"
+  },
+  {
+   "number": 127,
+   "name": "Post Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:06:54Z",
+   "completed_at": "2026-11-12T10:06:54Z"
+  },
+  {
+   "number": 128,
+   "name": "Complete runner",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:06:54Z",
+   "completed_at": "2026-11-12T10:06:54Z"
+  },
+  {
+   "number": 129,
+   "name": "Complete job",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-12T10:06:54Z",
+   "completed_at": "2026-11-12T10:06:54Z"
+  }
+ ]
+}

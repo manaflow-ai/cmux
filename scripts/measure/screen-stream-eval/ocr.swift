@@ -4,7 +4,10 @@
 // the scene drew (TRUTH_TXT), which says how far the OCR itself is from the truth.
 //
 //   swiftc -O -o screen-eval-ocr ocr.swift
-//   screen-eval-ocr HOST_IMAGE VIEWER_IMAGE TRUTH_TXT    (PNG, or binary PPM from cmux-rd bench)
+//   screen-eval-ocr HOST_IMAGE VIEWER_IMAGE TRUTH_TXT [--host-crop X,Y,W,H --viewer-crop X,Y,W,H
+//     --calibration FILE --source-geometry FILE --readiness FILE]
+// Crops use explicit top-left image pixels. A common-marker comparison needs
+// a real-pair calibration bound to the current source and selected window.
 //
 // Prints one JSON object. Lines are compared in reading order with runs of spaces collapsed, since
 // OCR does not keep a code file's indentation.
@@ -86,22 +89,106 @@ func cer(_ text: String, against reference: String) -> Double {
     reference.isEmpty ? 1 : Double(distance(Array(text), Array(reference))) / Double(reference.count)
 }
 
+struct PixelCrop {
+    let values: [Int]
+    init(_ value: String, image: CGImage) {
+        let fields = value.split(separator: ",", omittingEmptySubsequences: false)
+        let numbers = fields.compactMap { Int($0) }
+        guard numbers.count == 4, numbers[0] >= 0, numbers[1] >= 0,
+              numbers[2] > 0, numbers[3] > 0, numbers[0] < image.width, numbers[1] < image.height,
+              numbers[2] <= image.width - numbers[0], numbers[3] <= image.height - numbers[1]
+        else { fail("crop must be a positive in-bounds top-left pixel rect: \(value)") }
+        values = numbers
+    }
+    var rect: CGRect { CGRect(x: CGFloat(values[0]), y: CGFloat(values[1]), width: CGFloat(values[2]), height: CGFloat(values[3])) }
+}
+
+func jsonObject(_ path: String?) -> [String: Any]? {
+    guard let path else { return nil }
+    guard let data = FileManager.default.contents(atPath: path),
+          let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    else { fail("cannot read JSON object: \(path)") }
+    return object
+}
+
+func sameJSON(_ lhs: Any?, _ rhs: Any?) -> Bool {
+    guard let lhs = lhs as? NSObject, let rhs = rhs as? NSObject else { return false }
+    return lhs.isEqual(rhs)
+}
+
 let args = CommandLine.arguments
-guard args.count == 4 else { fail("usage: screen-eval-ocr HOST_IMAGE VIEWER_IMAGE TRUTH_TXT") }
+guard args.count >= 4, (args.count - 4) % 2 == 0 else { fail("usage: screen-eval-ocr HOST_IMAGE VIEWER_IMAGE TRUTH_TXT [--host-crop X,Y,W,H --viewer-crop X,Y,W,H --calibration FILE --source-geometry FILE --readiness FILE]") }
+var options: [String: String] = [:]
+for index in stride(from: 4, to: args.count, by: 2) {
+    let key = args[index]
+    guard ["--host-crop", "--viewer-crop", "--calibration", "--source-geometry", "--readiness"].contains(key), options[key] == nil else { fail("unknown or repeated option: \(key)") }
+    options[key] = args[index + 1]
+}
 let hostImage = image(args[1]), viewerImage = image(args[2])
-let host = recognize(hostImage).joined(separator: "\n"), viewer = recognize(viewerImage).joined(separator: "\n")
+var hostInput = hostImage, viewerInput = viewerImage
+var cropReceipt: [String: Any]?
+var comparisonReady = true
+if !options.isEmpty {
+    guard let hostValue = options["--host-crop"], let viewerValue = options["--viewer-crop"] else { fail("explicit host and viewer crops must be supplied together") }
+    let hostCrop = PixelCrop(hostValue, image: hostImage), viewerCrop = PixelCrop(viewerValue, image: viewerImage)
+    guard let croppedHost = hostImage.cropping(to: hostCrop.rect), let croppedViewer = viewerImage.cropping(to: viewerCrop.rect) else { fail("cannot crop input images") }
+    hostInput = croppedHost; viewerInput = croppedViewer
+    let source = jsonObject(options["--source-geometry"])
+    let readiness = jsonObject(options["--readiness"])
+    let observer = readiness?["observer"] as? [String: Any]
+    let calibration = jsonObject(options["--calibration"])
+    let binding: [String: Any] = [
+        "host_image": ["width": hostImage.width, "height": hostImage.height],
+        "viewer_image": ["width": viewerImage.width, "height": viewerImage.height],
+        "host_crop": hostCrop.values, "viewer_crop": viewerCrop.values,
+        "source_content_rect_points": source?["content_rect_points"] ?? NSNull(),
+        "source_display_size_points": source?["display_size_points"] ?? NSNull(),
+        "requested_host": readiness?["requested_host"] ?? NSNull(),
+        "quality_profile": readiness?["quality_profile"] ?? NSNull(),
+        "pid": observer?["pid"] ?? NSNull(), "window": observer?["window"] ?? NSNull(),
+        "window_geometry_points": observer?["window_geometry_points"] ?? NSNull(),
+    ]
+    let nonce = source?["nonce"] as? String ?? ""
+    let evidence = calibration?["evidence"] as? String ?? ""
+    comparisonReady = calibration?["schema"] as? String == "cmux.screen-ocr-calibration/1"
+        && calibration?["verified"] as? Bool == true && !evidence.isEmpty
+        && source?["schema"] as? String == "cmux.source-scene/1"
+        && nonce.count == 32 && nonce.allSatisfy({ "0123456789abcdef".contains($0) })
+        && readiness?["expected_nonce"] as? String == nonce && observer?["expected_nonce"] as? String == nonce
+        && observer?["schema"] as? String == "cmux.presented-marker-series/2"
+        && observer?["complete"] as? Bool == true && observer?["host_identity_verified"] as? Bool == true
+        && observer?["nonce_observed"] as? Bool == true
+        && binding.allSatisfy { !($0.value is NSNull) && sameJSON(calibration?[$0.key], $0.value) }
+    cropReceipt = binding
+    cropReceipt?["coordinate_space"] = "top-left pixels of each actual image, independently calibrated"
+    cropReceipt?["viewer_pixels_per_host_pixel"] = [Double(viewerInput.width) / Double(hostInput.width), Double(viewerInput.height) / Double(hostInput.height)]
+    cropReceipt?["host_crop_image"] = ["width": hostInput.width, "height": hostInput.height]
+    cropReceipt?["viewer_crop_image"] = ["width": viewerInput.width, "height": viewerInput.height]
+    cropReceipt?["current_source_nonce"] = nonce
+    cropReceipt?["calibration"] = calibration ?? [:]
+    cropReceipt?["comparison_ready"] = comparisonReady
+    if !comparisonReady {
+        cropReceipt?["reason"] = "missing or mismatched real-pair calibration, source geometry, or current selected-window readiness"
+    }
+}
+let host = comparisonReady ? recognize(hostInput).joined(separator: "\n") : ""
+let viewer = comparisonReady ? recognize(viewerInput).joined(separator: "\n") : ""
 let truth = (try? String(contentsOfFile: args[3], encoding: .utf8))?
     .split(separator: "\n", omittingEmptySubsequences: false).map { normalize(String($0)) }.filter { !$0.isEmpty }
     .joined(separator: "\n") ?? ""
-let report: [String: Any] = [
-    "cer": cer(viewer, against: host),
-    "host_chars": host.count,
-    "viewer_chars": viewer.count,
-    "host_cer_vs_truth": cer(host, against: truth),
-    "viewer_cer_vs_truth": cer(viewer, against: truth),
+var report: [String: Any] = [
+    "cer": comparisonReady ? cer(viewer, against: host) as Any : NSNull(),
+    "host_chars": comparisonReady ? host.count as Any : NSNull(),
+    "viewer_chars": comparisonReady ? viewer.count as Any : NSNull(),
+    "host_cer_vs_truth": comparisonReady ? cer(host, against: truth) as Any : NSNull(),
+    "viewer_cer_vs_truth": comparisonReady ? cer(viewer, against: truth) as Any : NSNull(),
     "truth_chars": truth.count,
     "host_image": ["width": hostImage.width, "height": hostImage.height],
     "viewer_image": ["width": viewerImage.width, "height": viewerImage.height],
 ]
+if let cropReceipt {
+    report["crops"] = cropReceipt
+    report["comparison_ready"] = comparisonReady
+}
 let json = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
 print(String(decoding: json, as: UTF8.self))

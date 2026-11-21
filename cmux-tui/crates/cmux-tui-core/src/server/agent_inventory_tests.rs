@@ -148,7 +148,7 @@ impl Owner {
             self.current = Some(self.connections.recv_timeout(Duration::from_secs(5)).unwrap());
         }
         let stream = self.current.as_mut().unwrap();
-        stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+        cmux_tui_platform::read_timeout_or_ended(stream, Duration::from_millis(500)).unwrap();
         assert_eq!(
             stream.read(&mut [0u8; 1]).expect("native cancellation did not close the link"),
             0

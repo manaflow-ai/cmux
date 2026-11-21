@@ -3,6 +3,7 @@
   "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+DeveloperTools.generated.swift",
   "type": "DeveloperToolsSettingsSchema",
   "lists": {
-    "developerTools": ["descriptors", null]
+    "developerTools": ["descriptors", null],
+    "internalDeveloperMode": ["internalDeveloperMode", null]
   }
 }

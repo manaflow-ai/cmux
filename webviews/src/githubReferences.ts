@@ -152,6 +152,61 @@ export function commitReferences(text: string, repository?: string, bare = false
   return out;
 }
 
+/** A GitHub Actions run written in prose: `build N` (a nightly build number) or `run N`. */
+export type RunReference = GithubReference & { source: "build" | "run"; run: number; attempt: number };
+
+/// The repository whose nightly workflow mints build numbers (`.github/workflows/nightly.yml`,
+/// "Fix this run's build number"): a build is that run's id followed by its attempt as two digits,
+/// so build 4270949510401 is attempt 1 of run 42709495104. Only cmux's nightly writes them, so a
+/// build links there whatever repository the chat is in.
+export const NIGHTLY_REPOSITORY = "manaflow-ai/cmux";
+
+// The word that says what the number is, then the number, whole: `build 4270949510401`, `nightly
+// 4270949510401`, `nightly-next build #4270949510401`, `run 42709495104`, `rerun 42709495104`,
+// `run id: 42709495104`. A run id is 9 to 12 digits (GitHub's have passed a billion since 2021), a
+// build one more run id and its attempt (01 to 99), so `build 2026`, `run 3 tests` and `build
+// 1.2.3` stay text. Not after a word (`prebuild`), a path or a URL, not before a word, a dash or
+// a decimal (`run 123456789-1`, `build 12345678901.5`).
+const RUN =
+  /(?<![\w./#&:@-])(?<word>nightly(?:-next)?(?:\s+build)?|build|(?:re)?run(?:\s+id)?)(?<gap>:?\s+#?)(?<number>[1-9][0-9]{8,13})(?![\w-]|[.,]\d)/gi;
+
+/** Nightly builds and Actions runs in `text`, linked to their run's page (`/attempts/N` past the
+ * first). A build is cmux's nightly's (NIGHTLY_REPOSITORY); a run needs `repository`, or the one
+ * it gives for the run's offset in `text`. Only the number is the link; the word before it stays
+ * prose. */
+export function runReferences(
+  text: string,
+  repository?: string | ((at: number) => string | undefined),
+): RunReference[] {
+  if (!/build|nightly|run/i.test(text)) return [];
+  const out: RunReference[] = [];
+  for (const match of text.matchAll(RUN)) {
+    const number = match.groups!.number!;
+    const build = !/run/i.test(match.groups!.word!);
+    let run = number;
+    let attempt = 1;
+    if (build) {
+      // A run id and its attempt: 11 to 14 digits, the attempt never 00.
+      if (number.length < 11 || number.endsWith("00")) continue;
+      run = number.slice(0, -2);
+      attempt = Number(number.slice(-2));
+    } else if (number.length > 12) continue;
+    const start = match.index! + match.groups!.word!.length + match.groups!.gap!.length;
+    const repo = build ? NIGHTLY_REPOSITORY : typeof repository === "function" ? repository(start) : repository;
+    if (!repo) continue;
+    out.push({
+      start,
+      end: start + number.length,
+      text: number,
+      source: build ? "build" : "run",
+      run: Number(run),
+      attempt,
+      href: `https://github.com/${repo}/actions/runs/${run}${attempt > 1 ? `/attempts/${attempt}` : ""}`,
+    });
+  }
+  return out;
+}
+
 // A fenced block (to its closing fence, or the end of an unfinished one) and a code span.
 const CODE = /^[ \t]*(`{3,}|~{3,})[\s\S]*?(?:^[ \t]*\1|(?![\s\S]))|(`+)[^`]*?\2/gm;
 // github.com's own pages, whose first segment is not an owner (`gh auth login` prints
