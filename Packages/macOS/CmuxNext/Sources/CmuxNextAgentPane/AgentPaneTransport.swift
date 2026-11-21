@@ -45,8 +45,19 @@ import CmuxNextCompat
     /// Runs right before anything reaches the page: a push here, a script call or a picture
     /// (``AgentPaneView/callPageScript(_:arguments:timeout:)``, ``AgentPaneView/pageSnapshot()``). A hidden page
     /// that froze (the app's hibernation) thaws first, so the work runs now instead of waiting on a
-    /// page that runs no script (a push's completion paces the next one).
-    public var beforePageWork: (@MainActor () -> Void)?
+    /// page that runs no script (a push's completion paces the next one). Set exactly while the page is
+    /// frozen: meanwhile other chats' rows are left out, not queued (``AcpmuxPaneSocket/setAsleep(_:)``).
+    public var beforePageWork: (@MainActor () -> Void)? {
+        didSet { syncListNotices() }
+    }
+    /// Nobody can see the pane (its pacer's probe, ``AgentPaneFramePacer/onSightChange``): other chats'
+    /// rows are left out until it shows, as for a frozen page.
+    public var pageUnseen = false {
+        didSet { if pageUnseen != oldValue { syncListNotices() } }
+    }
+
+    /// Whether the page hears other chats' rows now (``AcpmuxPaneSocket/setAsleep(_:)``).
+    func syncListNotices() { socket?.setAsleep(beforePageWork != nil || pageUnseen) }
     /// Tests: runs on the main actor after a pass's frames were read off it and before the main
     /// actor decides the next one, where a reconnect can land. Nil in the app.
     var afterAnalyze: (@MainActor () async -> Void)?
@@ -336,6 +347,8 @@ import CmuxNextCompat
             Task { @MainActor [weak self] in self?.arrived(id) }
         }
         self.socket = socket
+        // A page hidden or frozen before this connection opened: its list notices wait for its show too.
+        syncListNotices()
         onQuestionStateChanged?()
         // cx-fcaq: the local WebSocket goes only to a port the acpmux this app runs listens on.
         if connection.remote == nil, let executable = connection.executable, let port = connection.url.port,

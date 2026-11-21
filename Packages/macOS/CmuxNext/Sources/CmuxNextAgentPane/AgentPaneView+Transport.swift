@@ -104,6 +104,10 @@ extension AgentPaneView {
         let pacer = AgentPaneFramePacer(view: self)
         transportPacer = pacer
         model.transport.pacer = pacer
+        // A pane nobody sees hears no other chat's row until it shows (AcpmuxPaneSocket.setAsleep).
+        let transport = model.transport
+        pacer.onSightChange = { [weak transport] unseen in transport?.pageUnseen = unseen }
+        pacer.reportSight()
         model.transport.onOtherInstall = { [weak self] other in self?.showOtherInstallNotice(other) }
         model.transport.onPersonProof = { [weak self] proven in self?.showPersonProof(proven) }
         model.transport.recoverPersonProof = { [weak self] in await self?.recoverPersonProof() ?? false }
