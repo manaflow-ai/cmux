@@ -579,7 +579,13 @@ export function FolderPopover({
             if (event.key === "Tab" && highlighted.current?.startsWith("\u0000")) event.preventDefault();
             // Shift-Return on a folder: the chat also sees it (its row's +), the menu still open.
             const folder = highlighted.current;
-            if (extra && event.key === "Enter" && event.shiftKey && folder && (shown.has(folder) || folder === typedPath)) {
+            if (
+              extra &&
+              event.key === "Enter" &&
+              event.shiftKey &&
+              folder &&
+              (shown.has(folder) || folder === typedPath)
+            ) {
               // Never a pick: on the chat's own folder or one already added it does nothing.
               event.preventDefault();
               event.preventBaseUIHandler?.();

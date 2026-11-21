@@ -151,7 +151,9 @@ async function mount(environments: boolean, extra: Record<string, unknown> = {})
     peerConnected: peerConnectedFromStatus(relayedStatus),
     onRefreshMachines: () => refreshes++,
     localName: "cosmic-gray",
-    projectChoices: [{ cwd: "/Users/you/src/cmux", label: "cmux", repo: { root: "/Users/you/src/cmux", name: "cmux" } }],
+    projectChoices: [
+      { cwd: "/Users/you/src/cmux", label: "cmux", repo: { root: "/Users/you/src/cmux", name: "cmux" } },
+    ],
     onProject: (cwd: string, peer?: string) => calls.push(["project", cwd, peer]),
     onConnect: (kind: string) => calls.push(["connect", kind]),
     // The picker's own behaviour (its rows, ⌥⌘1–9, search, moves) is the combined control's; the

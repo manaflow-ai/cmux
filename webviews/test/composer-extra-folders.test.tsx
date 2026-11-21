@@ -126,7 +126,9 @@ test("Shift-Return on a highlighted folder adds it; Return alone still moves the
   const { root, changes } = await renderTray({ onProject: (cwd: string) => picked.push(cwd) });
   try {
     await openFolderMenu();
-    const field = dom.window.document.querySelector<HTMLInputElement>(".acpmux-folder-popover .acpmux-location-search")!;
+    const field = dom.window.document.querySelector<HTMLInputElement>(
+      ".acpmux-folder-popover .acpmux-location-search",
+    )!;
     const key = async (init: KeyboardEventInit) => {
       await act(async () => {
         field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));

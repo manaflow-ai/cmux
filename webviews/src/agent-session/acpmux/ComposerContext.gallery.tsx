@@ -1601,11 +1601,20 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: extraProps("local", [], {
         summary: { sessionId: "", harness: "claude", cwd: "/Users/you/src/cmux", host: "This Mac", hostKind: "local" },
         projectChoices: [
-          { cwd: "/Users/you/src/cmux", label: "cmux", repo: { root: "/Users/you/src/cmux", name: "cmux", branch: "main" } },
+          {
+            cwd: "/Users/you/src/cmux",
+            label: "cmux",
+            repo: { root: "/Users/you/src/cmux", name: "cmux", branch: "main" },
+          },
           {
             cwd: "/Users/you/src/cmux-worktrees/sidebar-fix",
             label: "sidebar-fix",
-            repo: { root: "/Users/you/src/cmux", top: "/Users/you/src/cmux-worktrees/sidebar-fix", name: "cmux", branch: "sidebar-fix" },
+            repo: {
+              root: "/Users/you/src/cmux",
+              top: "/Users/you/src/cmux-worktrees/sidebar-fix",
+              name: "cmux",
+              branch: "sidebar-fix",
+            },
           },
           { cwd: "/Users/you/notes", label: "notes" },
         ],

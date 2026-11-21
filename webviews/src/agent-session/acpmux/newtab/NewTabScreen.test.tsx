@@ -552,7 +552,8 @@ test("the location bar has no New Worktree control; the repository's chevron in 
   expect(folder?.textContent).toContain("cmux");
   await act(async () => folder!.click());
   // cmux#48299: not pinned under the list; under the repository's chevron.
-  const options = () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => o.textContent?.trim());
+  const options = () =>
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => o.textContent?.trim());
   expect(options()).not.toContain("New Worktree");
   const chevron = document.querySelector<HTMLElement>(".acpmux-folder-popover .acpmux-location-worktrees");
   expect(chevron).toBeTruthy();
