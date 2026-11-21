@@ -38,7 +38,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         let colors = themeColors()
         return SettingsSchema.all.filter { $0.isPaletteListed(developerTools: DevTools.isEnabled) }.map { descriptor in
             let current = pending[descriptor.id].map { $0.value ?? settings.defaultValue(of: descriptor) } ?? descriptor.effectiveValue(in: root)
-            return row(descriptor, current: current, colors: colors)
+            return row(descriptor, current: current, inherited: descriptor.inheritedValue(in: root), colors: colors)
         }
     }
 
@@ -94,7 +94,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         SettingsSchema.descriptor(for: id.split(separator: ".").map(String.init))
     }
 
-    private func row(_ descriptor: SettingDescriptor, current: JSONValue?, colors: [ThemeRGB]) -> PaletteSettingRow {
+    private func row(_ descriptor: SettingDescriptor, current: JSONValue?, inherited: JSONValue?, colors: [ThemeRGB]) -> PaletteSettingRow {
         let isFont = descriptor.kind == .fontFamily
         let options = if descriptor.kind == .theme, let themes {
             Self.themeOptions(current: current?.stringValue, names: themes.names, defaultLabel: descriptor.defaultLabel ?? "",
@@ -102,10 +102,10 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         } else if isFont {
             settings.recentFonts.options(current: current?.stringValue, families: SettingsPageDomains.fontFamilies, defaultLabel: descriptor.defaultLabel ?? descriptor.title)
         } else {
-            settings.paletteOptions(descriptor, current: current, themeColors: colors)
+            settings.paletteOptions(descriptor, current: current, inherited: inherited, themeColors: colors)
         }
         let currentOption = options.first(where: \.isCurrent)
-        let label = currentOption?.title ?? current?.compactText ?? descriptor.defaultLabel ?? ""
+        let label = descriptor.paletteSummary(current: current, options: options) ?? currentOption?.title ?? current?.compactText ?? descriptor.defaultLabel ?? ""
         let kind: PaletteSettingRow.Kind
         if descriptor.kind == .toggle {
             kind = .toggle(isOn: current?.boolValue ?? false)
