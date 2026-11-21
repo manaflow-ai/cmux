@@ -389,6 +389,9 @@ on:
       - docs/remote-agents-and-cloud.md
       - docs/cmux-next/customize-recipes.md
       - scripts/cmux-next/check-generator-inputs.sh
+      # The daemon-test generated-files verdict reads these when the PR autofix may repair a stale export.
+      - scripts/cmux-next/generated-autofixable.sh
+      - scripts/cmux-next/autofix-areas.sh
       - tests/test_ci_generator_input_freshness.sh
       - tests/test_cmux_next_base_autofix_finishes.py
       - tests/test_base_autofix_pushed_exports.py
