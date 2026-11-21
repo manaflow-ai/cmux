@@ -192,6 +192,20 @@ import Testing
         #expect(!AcpmuxHub.peerMayAllow(ask(edit, [once]), optionID: "n"))
     }
 
+    /// cmux#37398: the peer's own lists decide (acpmux `may_allow_options`), with answers and without; a peer
+    /// that sends none falls back to the phone's older check.
+    @Test func thePeersReportedOptionsDecideWhatThePhoneSigns() {
+        let once: JSONValue = .object(["optionId": .string("y"), "kind": .string("allow_once")])
+        let request: JSONValue = .object(["toolCall": .object(["kind": .string("edit")]), "options": .array([once])])
+        let reported: JSONValue = .object(["request": request, "enrolledMayAllow": .array([]),
+                                           "enrolledMayAnswer": .array([.string("y")])])
+        // The peer says no for a plain allow, though the option is allow_once: the peer wins.
+        #expect(!AcpmuxHub.peerCounts(reported, optionID: "y", answered: false))
+        #expect(AcpmuxHub.peerCounts(reported, optionID: "y", answered: true))
+        // An older peer: the phone's own check.
+        #expect(AcpmuxHub.peerCounts(.object(["request": request]), optionID: "y", answered: false))
+    }
+
     @Test func anUnreadableApprovalKeySendsNothing() async throws {
         let sent = Sent()
         let hub = AcpmuxHub()
