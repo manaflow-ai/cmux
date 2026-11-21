@@ -225,7 +225,8 @@ export function diskHealthState(health: CloudDiskHealth | null | undefined, now 
       (value) => Number.isFinite(value) && value >= 0,
     ) ||
     health.total_mb < health.free_mb ||
-    health.total_mb < health.used_mb
+    health.total_mb < health.used_mb ||
+    health.free_mb + health.used_mb > health.total_mb
   ) {
     return "unknown";
   }

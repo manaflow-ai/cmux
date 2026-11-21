@@ -5,7 +5,18 @@ import type { Strings } from "../shared/i18n";
 
 const strings: Strings = {
   language: "en",
-  t: (key) => (key === "unit.gigabytes" ? "{value} GB" : key),
+  t: (key) =>
+    ({
+      "unit.gigabytes": "{value} GB",
+      "disk.dataUnavailable": "Disk data unavailable",
+      "disk.dataStale": "Disk data is stale",
+      "disk.lowSpace": "Low disk space",
+      "disk.free": "Free",
+      "disk.used": "Used",
+      "disk.floor": "Floor",
+      "disk.topUsers": "Top users",
+      "field.disk": "Disk",
+    })[key] ?? key,
   format: (key, ...args) => key.replace("%@", args[0] ?? ""),
 };
 

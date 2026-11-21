@@ -25,4 +25,5 @@ test("disk health becomes stale after fifteen minutes", () => {
 test("missing and inconsistent reports are not actionable", () => {
   expect(diskHealthState(undefined, 1_000_000)).toBe("unknown");
   expect(diskHealthState(report({ used_mb: 70_000 }), 1_000_000)).toBe("unknown");
+  expect(diskHealthState(report({ free_mb: 60_000, used_mb: 10_000 }), 1_000_000)).toBe("unknown");
 });

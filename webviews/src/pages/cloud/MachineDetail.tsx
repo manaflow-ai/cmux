@@ -226,7 +226,7 @@ export function MachineDetailView({
         </dd>
         {machine.disk_health && (
           <>
-            <dt>Disk</dt>
+            <dt>{t(L.fieldDisk)}</dt>
             <dd>
               <DiskHealthSummary health={machine.disk_health} strings={strings} />
             </dd>
