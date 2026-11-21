@@ -83,6 +83,37 @@ import Testing
         }
     }
 
+    /// The footer's avatar draws in its layout slot at every density, so the Search button, which centers on the
+    /// footer's first item, sits on the avatar's line (#44449 left it 1.5 pt off at Compact and Comfortable).
+    @Test(arguments: DensityPreset.allCases)
+    func theFooterAvatarDrawsInItsLayoutSlot(_ density: DensityPreset) async throws {
+        let design = DesignSettings.shared
+        let saved = design.densityTokens
+        defer { design.densityTokens = saved }
+        design.densityTokens = density.tokens
+        let h = await make()
+        defer { h.window.close() }
+        let region = h.sidebar.footerRegion
+        let avatar = try #require(h.sidebar.footerBand.profileControl)
+        let slots: [(LayoutItemID, NSRect)] = region.layoutResult.rows.compactMap { row in
+            switch row.kind {
+            case .tile(let id, _), .chip(let id, _): (id, h.sidebar.convert(row.frame, from: region))
+            default: nil
+            }
+        }
+        let report = slots.map { id, slot in
+            let drawn = region.itemView(id).map { h.frame(of: $0) }.map { "\($0)" } ?? "none"
+            return "\(id.rawValue): slot \(slot), drawn \(drawn), superview \(String(describing: region.itemView(id)?.superview.map { type(of: $0) }))"
+        }.joined(separator: "; ")
+        let slot = try #require(slots.first { $0.0 == avatar.id }?.1, "the avatar has no slot: \(report)")
+        let drawn = h.frame(of: avatar.view)
+        do {
+            Issue.record("DIAG \(density): avatar \(avatar.id.rawValue) drawn \(drawn), first row \(String(describing: h.sidebar.footerBand.bandFirstRow)), search \(h.frame(of: h.sidebar.searchButton)); items \(report)")
+        }
+        #expect(abs(drawn.midY - slot.midY) <= 0.25 && abs(drawn.height - slot.height) <= 0.25,
+                "\(density): avatar drawn \(drawn), slot \(slot), search side \(SidebarFooterBand.searchButtonSide); items \(report)")
+    }
+
     @Test func pressingTheButtonOpensSearchAnchoredToIt() async {
         let h = await make()
         defer { h.window.close() }
