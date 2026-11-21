@@ -248,7 +248,8 @@ jobs:
               bun install --frozen-lockfile
               bun scripts/gallery/manifest.ts --entries "$ids" --themes pair --widths narrow \
                 --frame component --out "$RUNNER_TEMP/base-all.json"
-              CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build
+              # A translation the base lacked (a later push added it) must not fail the base build.
+              CMUX_STRINGS_BEST_EFFORT=1 CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build
             else
               echo '[]' > "$RUNNER_TEMP/base-all.json"
             fi
