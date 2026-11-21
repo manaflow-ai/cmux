@@ -170,7 +170,7 @@ async fn request_bounded(
     budget: Option<&ListBudget>,
 ) -> Result<Value> {
     match budget {
-        Some(budget) => bounded_step(budget, "request", client.request(method, params)).await,
+        Some(budget) => bounded_step(budget, "request", client.request(method, params)).await?,
         None => client.request(method, params).await,
     }
 }
@@ -179,7 +179,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     // A listing never starts a daemon (hq#4897 failure 4: an empty one on a dead socket read as
     // a host with no sessions).
     let budget = ListBudget::new(args.host.as_deref());
-    let client = bounded_step(&budget, "connect", connect_running()).await?;
+    let client = bounded_step(&budget, "connect", connect_running()).await??;
     let via = Via::daemon();
     let (out, scope) = bounded_total(
         &budget,
@@ -193,7 +193,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
             Some(&budget),
         ),
     )
-    .await?;
+    .await??;
     // The scope line goes to stderr, never stdout: a script reading the JSON reads the same
     // bytes with it or without it.
     if let Some(line) = scope {
@@ -383,7 +383,7 @@ async fn scoped_output_with_budget(
         match budget {
             Some(budget) => {
                 bounded_step(budget, "request", via.open_knowing(client, known_peers.as_deref()))
-                    .await?
+                    .await??
             }
             None => via.open_knowing(client, known_peers.as_deref()).await?,
         }
