@@ -213,6 +213,7 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
             Some(fake_rb_host::launcher(Arc::clone(&browser_launches))),
             4,
         ),
+        read_only_workspaces: false,
         surface: cmux_mobile_host::surface::SurfaceConfig::new(
             Some(fake_surface_source::launcher(Arc::clone(&surface_inputs))),
             4,

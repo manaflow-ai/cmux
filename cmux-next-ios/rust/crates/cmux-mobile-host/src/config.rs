@@ -53,6 +53,12 @@ pub struct ServiceConfig {
     pub browser: crate::browser::BrowserConfig,
     /// The `surface` service: who starts simulator surface sources, and the running hosts.
     pub surface: crate::surface::SurfaceConfig,
+    /// Labs, off by default: `CMUX_MOBILE_LABS_READ_ONLY_WORKSPACES=1` serves
+    /// phones a read-only workspace list (P1 of the hive design: a Linux box
+    /// visible on the phone with live workspaces). Only `auth`, `echo`,
+    /// `version` and `daemon` open, and `daemon` passes only
+    /// [`crate::policy::READ_ONLY_COMMANDS`].
+    pub read_only_workspaces: bool,
 }
 
 impl ServiceConfig {
@@ -473,6 +479,7 @@ impl HostConfig {
                     .unwrap_or_else(|| default_state_dir().join("uploads")),
                 browser,
                 surface,
+                read_only_workspaces: env("CMUX_MOBILE_LABS_READ_ONLY_WORKSPACES").is_some_and(|v| v == "1"),
             },
         })
     }

@@ -175,6 +175,7 @@ async fn exercise_selection_then_creation(
         uploads_dir: sockets.path().join("uploads"),
         chief_socket: None,
         browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
+        read_only_workspaces: false,
         surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
     });
     let (phone_stream, mac_stream) = tokio::io::duplex(64 * 1024);

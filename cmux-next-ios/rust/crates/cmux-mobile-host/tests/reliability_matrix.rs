@@ -307,6 +307,7 @@ impl Rig {
             uploads_dir: dir.path().join("uploads"),
             chief_socket: None,
             browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
+            read_only_workspaces: false,
             surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
         });
         let (phone_stream, mac_stream, toxic) = toxic_pipe(toxics, 0x5eed);

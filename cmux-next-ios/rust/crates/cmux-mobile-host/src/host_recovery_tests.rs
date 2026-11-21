@@ -113,6 +113,7 @@ async fn recovery_sample(wake: bool) -> Duration {
             uploads_dir: dir.path().into(),
             chief_socket: None,
             browser: crate::browser::BrowserConfig::new(None, 1),
+            read_only_workspaces: false,
             surface: crate::surface::SurfaceConfig::new(None, 1),
         },
     };
