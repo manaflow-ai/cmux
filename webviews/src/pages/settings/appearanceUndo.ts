@@ -6,6 +6,7 @@ import { displayNumber, unitLabel } from "./format";
 import { rowsByKey } from "./schema";
 import type { SettingsState } from "./store";
 import { t, text } from "./strings";
+import { isYouTubeId } from "./youtubeWallpaper";
 
 /** The Settings pages whose rows the stack records and that show its Undo bar: Appearance,
  * Personalization (which draws the old Theme page's cards) and Sidebar (every row of it was
@@ -117,6 +118,8 @@ function valueTitle(state: SettingsState, key: string, value: unknown): string {
   // A background the schema lists no choice for: a picture of the host's grid, by its title.
   const backdrop = typeof value === "string" ? state.host?.backdrops?.find((item) => item.id === value) : undefined;
   if (backdrop) return backdrop.title;
+  // A YouTube video the host does not list (yet), named as its picker tile is.
+  if (typeof value === "string" && isYouTubeId(value)) return t("settingsWindow.backdropPicker.youtubeTitle");
   if (typeof value === "number") {
     const unit = unitLabel(row?.range);
     return unit ? `${displayNumber(value, row?.range)} ${unit}` : displayNumber(value, row?.range);
