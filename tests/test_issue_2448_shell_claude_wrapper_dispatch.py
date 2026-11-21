@@ -127,6 +127,32 @@ def run_zsh_with_late_user_function(shell_dir: Path, real_bin: Path, log_path: P
     return result.returncode, combined, read_lines(log_path)
 
 
+def run_zsh_with_agy_flag_alias(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str, list[str]]:
+    env = dict(os.environ)
+    env["CMUX_SHELL_INTEGRATION_DIR"] = str(shell_dir)
+    env["CMUX_TEST_LOG"] = str(log_path)
+    env["CMUX_TEST_REAL_BIN"] = str(real_bin)
+    env["PATH"] = f"{real_bin}:/usr/bin:/bin"
+    env.pop("GHOSTTY_BIN_DIR", None)
+
+    result = subprocess.run(
+        [
+            "zsh",
+            "-fic",
+            f'source "{shell_dir / "cmux-zsh-integration.zsh"}"; '
+            'alias agy="agy --dangerously-skip-permissions --remote-control"; '
+            '_cmux_fix_path; PATH="$CMUX_TEST_REAL_BIN:$PATH"; eval "agy zsh-agy-alias-case"',
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    combined = ((result.stdout or "") + (result.stderr or "")).strip()
+    return result.returncode, combined, read_lines(log_path)
+
+
 def run_bash(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str, list[str]]:
     env = dict(os.environ)
     env["CMUX_SHELL_INTEGRATION_DIR"] = str(shell_dir)
@@ -337,6 +363,13 @@ printf 'wrapper:%s\n' "$*" >> "$CMUX_TEST_LOG"
 """,
         )
         write_executable(
+            bundle_bin / "agy",
+            """#!/bin/sh
+set -eu
+printf 'agy-wrapper:%s\n' "$*" >> "$CMUX_TEST_LOG"
+""",
+        )
+        write_executable(
             real_bin / "claude",
             """#!/bin/sh
 set -eu
@@ -399,6 +432,13 @@ printf 'current-wrapper:%s\n' "$*" >> "$CMUX_TEST_LOG"
             failures.append(f"zsh late function case exited non-zero rc={rc}: {output}")
         elif lines != ["wrapper:zsh-late-function-case"]:
             failures.append(f"zsh late function case expected wrapper dispatch, saw {lines!r}")
+
+        zsh_agy_alias_log = tmp / "zsh-agy-alias.log"
+        rc, output, lines = run_zsh_with_agy_flag_alias(shell_dir, real_bin, zsh_agy_alias_log)
+        if rc != 0:
+            failures.append(f"zsh agy alias case exited non-zero rc={rc}: {output}")
+        elif lines != ["agy-wrapper:--dangerously-skip-permissions --remote-control zsh-agy-alias-case"]:
+            failures.append(f"zsh agy alias case expected wrapper dispatch with alias flags, saw {lines!r}")
 
         bash_alias_log = tmp / "bash-alias.log"
         rc, output, lines = run_bash_with_alias(shell_dir, real_bin, bash_alias_log)
