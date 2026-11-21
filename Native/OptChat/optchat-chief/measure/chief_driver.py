@@ -802,7 +802,17 @@ try:
         r2, t2 = say("Call the cmux MCP tool workspace_list (on the cmux server) once, then tell me how many "
                      "workspaces it listed, as a number.", "tool", lambda t: any(c.isdigit() for c in t), 600)
         tool_names = [str(e.get("name")) for e in trace_events() if e.get("ev") == "tool" and e.get("ts", 0) >= t2]
-        proof["cmux_mcp_tool"] = any("workspace_list" in n for n in tool_names)
+        # A called tool that failed is no pass (coordinator 2026-11-21): the reply must give the
+        # daemon's real workspace count, read here from the same daemon.
+        try:
+            real = len((ask({"cmd": "list-workspaces"}) or {}).get("workspaces") or [])
+        except (OSError, RuntimeError, ValueError) as e:
+            real = None
+            log(f"BRAIN diag list-workspaces failed: {e}")
+        said = [int(x) for x in re.findall(r"\b\d+\b", r2 or "")]
+        called = any("workspace_list" in n for n in tool_names)
+        log(f"BRAIN tool check: called={called} real_count={real} numbers_in_reply={said[:5]}")
+        proof["cmux_mcp_tool"] = called and real is not None and real in said
         r3, _ = say(f"From now on, end every reply with the word HERON-{tag}. Save that as a lasting preference "
                     "with the Chief's remember tool now (`chief remember \"...\"` from your shell when you have "
                     "no remember tool), then confirm in one line.", "remember", lambda t: len(t) > 0, 600)
