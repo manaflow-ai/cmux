@@ -2259,6 +2259,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/browser_sign_in_start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/browser_sign_in_complete",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine.tunnel.attach",
       "params": true,
       "result": true

@@ -944,6 +944,13 @@ pub mod method {
     /// joins (`server/web_device.rs`): `{accessToken, publicKey}` -> `{credential, machineId,
     /// userId}`, to that connection only. Nothing is written to disk. Web only.
     pub const MUX_DEVICE_ENROLL: &str = "_acpmux/device_enroll";
+    /// A browser on the web listener starts its own email-code sign-in for this daemon's owner
+    /// (`server/web_device.rs`): `{email, publicKey}` -> `{expiresIn: 300}`. One pending sign-in
+    /// per connection; a new start replaces it. Web only.
+    pub const MUX_BROWSER_SIGN_IN_START: &str = "_acpmux/browser_sign_in_start";
+    /// Completes it with the emailed code: `{code}` -> `{accessToken, publicKey}`, the browser's
+    /// own credential for `_acpmux/device_enroll`, to that connection only. Single-use. Web only.
+    pub const MUX_BROWSER_SIGN_IN_COMPLETE: &str = "_acpmux/browser_sign_in_complete";
     // This Mac's Cloud tunnel on the team mesh (`crate::machine_tunnel`,
     // `server/machine_tunnel.rs`): the app's person-proved connection only, with the person's
     // cmux access token in `token`. `attach|detach {token, networkId?}` -> the platform's
