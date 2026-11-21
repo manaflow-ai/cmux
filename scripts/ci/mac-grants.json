@@ -1,0 +1,4 @@
+{
+  "on": false,
+  "_why": "CI v2 step 9 (cmuxterm-hq#16502): with on=true every same-repository Mac pull request job runs on the per-run label the controller grants, cmux-<run_id>-<run_attempt>-mac (plus xcode-<version>), not a glaeda pool. Flip only once every PR mini runs an asker: no standing runner carries the label. scripts/ci/mac_grants.py reads this file."
+}
