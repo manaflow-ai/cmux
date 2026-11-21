@@ -291,6 +291,8 @@ def cmd_tick(args: argparse.Namespace) -> int:
 
 
 def tick(args: argparse.Namespace) -> int:
+    # No web tick: the batch's `web` suite gives the base its web verdict, so cmux-next-web.yml's coalescing
+    # tick (#49173) would run the same checks a second time.
     tip = gh_api(f"repos/{args.repo}/commits/{args.branch}")["sha"]
     runs = list_runs(args.repo, args.branch)
     action, reason = tick_decision(tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes))
