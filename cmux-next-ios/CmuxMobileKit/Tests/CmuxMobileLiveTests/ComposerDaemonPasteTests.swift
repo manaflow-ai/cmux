@@ -1,3 +1,5 @@
+// TerminalModel is iOS only: these run in the kit's iOS simulator step.
+#if os(iOS)
 import CmuxMobileArtifacts
 import CmuxMobileTerminal
 import CmuxMobileTransport
@@ -171,3 +173,4 @@ import Testing
         #expect(condition())
     }
 }
+#endif
