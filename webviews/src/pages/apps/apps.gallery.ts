@@ -55,6 +55,117 @@ deployedInstalled.installed["manaflow-ai/hello-deploy"] = {
   },
 };
 
+// The curated store (Leo, 2026-11-16: "idk if we want to ship THOSE as standard apps"): Discover
+// lists only the first-party apps cmux ships (Cloud, CodeRouter); the SDK examples are on the
+// Examples shelf, offered to developers; `cmux ext dev` apps show only under Installed.
+const curatedTemplate = structuredClone(template);
+const app = (
+  id: string,
+  name: string,
+  description: string,
+  shelf: "store" | "example" | "local",
+  categories: string[],
+  symbol: string,
+): (typeof base.details)[string] => ({
+  ...structuredClone(curatedTemplate),
+  id,
+  name,
+  description,
+  shelf,
+  categories,
+  icon: { symbol },
+  publisher: id.split("/")[0]!,
+  publisher_verified: shelf === "store",
+  tier: shelf === "store" ? "first-party" : "unverified",
+  latest_version: "1.0.0",
+  versions: [{ version: "1.0.0", engines: "cmux ^2.0" }],
+  installed: shelf === "local",
+  scopes: [],
+});
+const curatedApps = [
+  app(
+    "cmux/cloud",
+    "Cloud",
+    "Create, start, pause, resize and delete your cmux Cloud machines, take and restore snapshots, and see your plan and usage.",
+    "store",
+    ["cloud", "developer-tools"],
+    "cloud",
+  ),
+  app(
+    "cmux/coderouter",
+    "CodeRouter",
+    "Set up and watch CodeRouter, the cmux model router: provider accounts, sharing, API keys, usage, failover order and a test request.",
+    "store",
+    ["agents", "cloud", "monitoring"],
+    "arrow.triangle.branch",
+  ),
+  app(
+    "manaflow-ai/quick-links",
+    "Quick Links",
+    "A declarative app: your links as a sidebar section and a pane, drawn natively by cmux from a scene.",
+    "example",
+    ["sidebar", "productivity"],
+    "link",
+  ),
+  app(
+    "manaflow-ai/standup",
+    "Standup",
+    "A command-only app: jot what you did, list it at standup, clear it after.",
+    "example",
+    ["productivity"],
+    "checklist",
+  ),
+  app(
+    "manaflow-ai/cmux-docs",
+    "cmux Docs",
+    "A web app: the cmux docs pinned in the sidebar, opening as a tab in your workspace.",
+    "example",
+    ["developer-tools"],
+    "book",
+  ),
+  app(
+    "manaflow-ai/hello-deploy",
+    "Hello Deploy",
+    "Install = deploy + pin: runs a small web server on your Cloud machine or one you host, as a pane.",
+    "example",
+    ["developer-tools", "cloud"],
+    "server.rack",
+  ),
+  app(
+    "local/changes",
+    "Changes",
+    "Your open pull requests, live, in the sidebar.",
+    "local",
+    ["git"],
+    "arrow.triangle.pull",
+  ),
+  app("local/clock", "Clock", "A clock on the New Tab page.", "local", ["fun"], "clock"),
+];
+const curated = {
+  details: Object.fromEntries(curatedApps.map((detail) => [detail.id, detail])),
+  installed: Object.fromEntries(
+    curatedApps
+      .filter((detail) => detail.shelf === "local")
+      .map((detail) => [
+        detail.id,
+        {
+          id: detail.id,
+          name: detail.name,
+          version: "1.0.0",
+          enabled: true,
+          hidden: false,
+          sandboxed: false,
+          source: "local" as const,
+          tier: "unverified" as const,
+          icon: detail.icon,
+        },
+      ]),
+  ),
+  grants: {},
+};
+// A developer (developer mode on, or a `cmux ext dev` app): the owner offers Examples.
+const curatedDeveloper = { ...structuredClone(curated), examples: true };
+
 export default appsPageEntry({
   id: "pages.apps",
   title: "App Store",
@@ -73,6 +184,36 @@ export default appsPageEntry({
     "pages/apps/items.tsx",
   ],
   variants: {
+    curated: {
+      note: "Discover as everyone sees it: only cmux's first-party apps (Cloud, CodeRouter); no SDK examples, no cmux ext dev apps.",
+      hash: "#/discover?layout=grid",
+      data: curated,
+    },
+    "curated-examples-chip": {
+      note: "Chosen: for a developer, an Examples toggle ends the category row; Discover itself is unchanged.",
+      hash: "#/discover?layout=grid",
+      data: curatedDeveloper,
+    },
+    "curated-examples-chip-on": {
+      note: "The Examples toggle on: the SDK examples (Quick Links, Standup, cmux Docs, Hello Deploy), no Cloud banner.",
+      hash: "#/discover?layout=grid&shelf=examples",
+      data: curatedDeveloper,
+    },
+    "curated-examples-tab": {
+      note: "Variant (DEV, examples=tab): Examples as a third toolbar tab between Discover and Installed.",
+      hash: "#/discover?layout=grid&examples=tab&shelf=examples",
+      data: curatedDeveloper,
+    },
+    "curated-examples-section": {
+      note: "Variant (DEV, examples=section): the examples in their own section under the store's apps.",
+      hash: "#/discover?layout=grid&examples=section",
+      data: curatedDeveloper,
+    },
+    "curated-installed-local": {
+      note: "Installed: cmux ext dev apps show here as Local (dev), never on Discover.",
+      hash: "#/installed",
+      data: curated,
+    },
     list: {
       note: "The discover grid with first-party, verified and unverified apps, under the featured Cloud banner.",
       hash: "#/discover?layout=grid",
