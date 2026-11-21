@@ -793,7 +793,11 @@ async fn dispatch(
             serde_json::to_value(daemon.connection_snapshots().await).map_err(IdentityError::Json)
         }
         AdminRequest::Revoke { device_id } => {
-            auth.revoke(&device_id).await.map(|()| serde_json::json!({}))
+            // The revoked device's record (name, fingerprint, revoked_at_unix):
+            // an older client printed the reply as is, and `{}` said nothing.
+            auth.revoke(&device_id)
+                .await
+                .and_then(|record| serde_json::to_value(record).map_err(IdentityError::Json))
         }
         AdminRequest::Disconnect { device_id, session_id } => {
             match SessionId::from_hex(&session_id) {
