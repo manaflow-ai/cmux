@@ -1000,7 +1000,7 @@ def _read_bun_step(lines: list[str], step: int, attempts: list, result: Result) 
 # Each log is parsed once per process (2026-11-06, cmux#36356 at 2c9f6957). base_red_excuse.py's window compares the
 # head's log with up to BASE_WINDOW base logs and re-classifies the whole window each time it grows, and classify,
 # classify_any, observations and flaky_failures each read the head again: 50 reads of 6 logs. A `cmux-next daemon
-# tests` log is 20 to 27 MB, about 3 s a read, so that judge spent 110 s of CPU in read() alone and merge_hold's 120 s
+# tests` log is 20 to 27 MB, about 3 s a read, so that judge spent 110 s of CPU in read() alone and land-judge's 120 s
 # bound on the classifier refused the merge three times. A read depends only on the log's text and BUN, so its result
 # is kept by text: each caller gets its own copy, and at most KEEP_PARSED texts are kept (the window's logs, which
 # the judge holds anyway, plus the head), the oldest dropped first.

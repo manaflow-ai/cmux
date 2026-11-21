@@ -623,7 +623,7 @@ jobs:
     # our own Linux runners through the same selector as validate and prepare_release, never on a
     # GitHub-hosted runner (tests/test_ci_self_hosted_guard.sh check_no_github_hosted_runners).
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     permissions:
       contents: read
     outputs:

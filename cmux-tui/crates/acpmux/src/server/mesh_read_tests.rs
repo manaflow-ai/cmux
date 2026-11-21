@@ -53,6 +53,8 @@ struct Loopback {
     user: &'static str,
     receipts: Mutex<std::collections::HashMap<String, Receipt>>,
     unknown: bool,
+    /// The reads sent: each is one round trip through the hub and the receiver's inbox.
+    asks: std::sync::atomic::AtomicUsize,
 }
 
 impl Loopback {
@@ -62,7 +64,14 @@ impl Loopback {
             Some(dir.join("mesh-controls.json")),
         )
         .with_own_user(Arc::new(|| Some("person-1".to_owned())));
-        Self { b: b.clone(), hook, user, receipts: Mutex::default(), unknown: false }
+        Self {
+            b: b.clone(),
+            hook,
+            user,
+            receipts: Mutex::default(),
+            unknown: false,
+            asks: Default::default(),
+        }
     }
 }
 
@@ -85,6 +94,7 @@ impl MeshHub for Loopback {
     fn send<'a>(&'a self, m: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(async move {
             m.validate().map_err(HubError::refused)?;
+            self.asks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if self.unknown {
                 let mut e = HubError::refused("no such recipient");
                 e.code = Some("mesh.unknown_recipient".into());
@@ -159,6 +169,23 @@ fn a_key_names_a_session_id_or_a_name_on_its_host() {
     assert_eq!(
         serde_json::from_str::<Value>(&body(method::MUX_INFO, &json!({"x": 1}))).unwrap()["params"],
         json!({})
+    );
+    let search: Value = serde_json::from_str(&body(
+        method::MUX_SESSION_SEARCH,
+        &json!({
+            "sessionId": "x",
+            "host": "y",
+            "query": "ship the build",
+            "withTurnTime": true,
+            "role": "assistant",
+            "sinceMs": 123,
+            "limit": 4,
+        }),
+    ))
+    .unwrap();
+    assert_eq!(
+        search["params"],
+        json!({"query": "ship the build", "role": "assistant", "sinceMs": 123, "limit": 4, "withTurnTime": true})
     );
 }
 
@@ -288,6 +315,73 @@ async fn a_chat_page_with_a_record_over_64_kib_opens_through_the_hub() {
     assert_eq!(replies, [format!("echo: {big}")]);
 }
 
+/// cmuxterm-hq#15806: claude-sr2-coord's 373 KB detail went through the hub in ten round trips,
+/// 52 to 106 s on a busy host, past the 50 s a read waits, and `acpmux last` reads it first.
+/// A detail of any size is one round trip now, its largest fields marked omitted.
+#[tokio::test]
+async fn a_chat_detail_of_any_size_reads_through_the_hub_in_one_round_trip() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "big-detail"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    // About 400 KB of commands, as a coordinator's detail was 373 KB.
+    let commands: Vec<Value> = (0..3000)
+        .map(|i| json!({"name": format!("command-{i}"), "description": "d".repeat(110)}))
+        .collect();
+    b.resolve(&session).unwrap().set_available_commands_for_test(json!(commands));
+    let whole = call(&b, method::MUX_INFO, json!({"sessionId": session})).await;
+    assert!(
+        whole.to_string().len() > 350 * 1024,
+        "the detail is {} bytes",
+        whole.to_string().len()
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback::new(&b, dir.path(), "person-1");
+
+    let info = read(&hub, "machine-b", "big-detail", method::MUX_INFO, &json!({})).await.unwrap();
+    let asks = hub.asks.load(std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(asks, 1, "info took {asks} round trips through the hub");
+    assert_eq!(info["sessionId"].as_str(), Some(session.as_str()));
+    assert_eq!((info["peer"].as_str(), info["via"].as_str()), (Some("machine-b"), Some("hub")));
+    let omitted: Vec<&str> =
+        info["omitted"]["fields"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    assert!(omitted.contains(&"availableCommands"), "{omitted:?}");
+    // `acpmux last`'s id: what it reads from the detail is whole.
+    assert_eq!(crate::cli::resolve::routed_id(&info).unwrap(), format!("machine-b/{session}"));
+}
+
+/// The queue an `_acpmux/info` through the hub carries is its next [`HUB_QUEUE_KEEP`] prompts
+/// and their count, whatever its length: 368 queued prompts were 229 KB of one detail.
+#[test]
+fn a_detail_through_the_hub_carries_the_queue_head_and_its_count() {
+    let queued: Vec<Value> = (0..400)
+        .map(|i| json!({"promptId": format!("p-{i}"), "prompt": "q".repeat(600)}))
+        .collect();
+    let mut detail = json!({
+        "sessionId": "s", "status": "running", "queue": queued,
+        "timeBreakdown": {"rows": "t".repeat(80 * 1024)},
+    });
+    fit_info(&mut detail);
+    assert!(detail.to_string().len() <= HUB_INFO_BYTES, "{} bytes", detail.to_string().len());
+    let queue = detail["queue"].as_array().unwrap();
+    assert_eq!(queue.len(), HUB_QUEUE_KEEP);
+    assert_eq!(queue[0]["promptId"], "p-0");
+    assert_eq!(
+        (detail["queueCount"].as_u64(), detail["queueTruncated"].as_bool()),
+        (Some(400), Some(true))
+    );
+    assert_eq!(detail["sessionId"], "s");
+    // A short queue goes whole, with no count.
+    let mut short = json!({"sessionId": "s", "queue": [{"promptId": "p-0"}]});
+    fit_info(&mut short);
+    assert_eq!(short, json!({"sessionId": "s", "queue": [{"promptId": "p-0"}]}));
+}
+
 #[tokio::test]
 async fn a_read_runs_only_a_read_method() {
     let b = machine_b();
@@ -392,12 +486,16 @@ async fn history_reads_through_the_hub_and_other_session_reads_never_answer_no_s
         (Some("machine-b"), Some("hub"))
     );
 
-    for m in [
+    let found = call(
+        &a,
         method::MUX_SESSION_SEARCH,
-        method::MUX_QUEUE_TEXT,
-        method::MUX_ATTACHMENT,
-        method::MUX_WAIT,
-    ] {
+        json!({"sessionId": "machine-b/own-e2e", "query": "turn on b", "role": "user"}),
+    )
+    .await;
+    assert_eq!(found["hits"][0]["snippet"], "turn on b");
+    assert_eq!(found["peer"], "machine-b");
+
+    for m in [method::MUX_QUEUE_TEXT, method::MUX_ATTACHMENT, method::MUX_WAIT] {
         let refused = call_error(&a, m, json!({"sessionId": "machine-b/own-e2e"})).await;
         assert_eq!(
             refused.pointer("/data/reason"),
