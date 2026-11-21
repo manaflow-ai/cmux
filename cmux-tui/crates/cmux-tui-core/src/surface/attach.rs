@@ -2,6 +2,7 @@
 //! render attach streams.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Surface {
     /// Attach to a PTY surface: a VT replay plus a live byte stream.
