@@ -10,9 +10,8 @@ import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-const ENTRY = "src/agent-session/acpmux/conversation/RowActionsSlots.gallery.ts";
-
 await requireBrowserLane("row-actions-slots-browser.test.ts", async () => {
+  const ENTRY = "src/agent-session/acpmux/conversation/RowActionsSlots.gallery.ts";
   setDefaultTimeout(360_000);
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
