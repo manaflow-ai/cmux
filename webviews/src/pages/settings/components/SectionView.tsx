@@ -97,12 +97,6 @@ export function SectionView({
 }
 
 /** One card, loaded with its section (cardModules.tsx). */
-function CardSlot(props: {
-  card: CategoryCard;
-  focus: string | null;
-  workspace: string | null;
-  reveal: boolean;
-}) {
+function CardSlot(props: { card: CategoryCard; focus: string | null; workspace: string | null; reveal: boolean }) {
   return <Card {...props} />;
 }
-

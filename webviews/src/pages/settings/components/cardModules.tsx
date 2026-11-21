@@ -13,11 +13,7 @@ import { text } from "../strings";
 
 /** How a card draws: `focus` is the route's focused key, `workspace` the workspace the page was
  * opened for, `reveal` whether the route opens the page on this card. */
-export type CardRender = (
-  focus: string | null,
-  workspace: string | null,
-  reveal: boolean,
-) => ReactNode;
+export type CardRender = (focus: string | null, workspace: string | null, reveal: boolean) => ReactNode;
 
 const machinesTitle = () => text(sections.find((section) => section.id === "machines")?.title);
 
