@@ -8038,7 +8038,7 @@ a.cv-sha:focus-visible {
   pointer-events: auto;
 }
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-jump-latest {
-  --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
+  --glass-tint: color-mix(in srgb, var(--agent-page-bg) var(--ds-glass-popover-tint), transparent);
 }
 /* Hover lays a wash of the text over the glass, in every mode. */
 .acpmux-jump-latest:hover {
@@ -9194,8 +9194,8 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   border: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge);
   border-radius: 8px;
   background: color-mix(in srgb, var(--glass-surface) var(--cv-selection-reply-veil), transparent);
-  -webkit-backdrop-filter: blur(var(--glass-frost)) saturate(1.4);
-  backdrop-filter: blur(var(--glass-frost)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--glass-frost)) saturate(var(--ds-glass-saturation));
+  backdrop-filter: blur(var(--glass-frost)) saturate(var(--ds-glass-saturation));
   box-shadow: var(--elevation-2);
   color: var(--agent-text);
   font-family: var(--cv-font);
