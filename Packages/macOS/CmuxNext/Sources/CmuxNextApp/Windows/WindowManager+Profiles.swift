@@ -21,6 +21,8 @@ extension WindowManager {
     /// workspace created in it.
     func switchProfile(_ profile: ProfileID, in state: WindowState, keepingHomes: Bool = false) {
         guard profile != state.profileID else { return }
+        // Spaces off (#48355): the window stays on the space it shows, so its workspaces, groups and pins stay put.
+        guard spacesOn else { return services.registry.refuse(RoomStrings.spacesOff, quiet: true) }
         // An incognito space lives in its incognito window (spaces-overhaul-DESIGN.md rule 2): switching another
         // window to it shows that window instead, and an incognito space's window never shows a normal space.
         if incognitoSpaces[state.id] != nil { return services.registry.refuse(RefusalStrings.incognitoMismatch) }
@@ -56,6 +58,22 @@ extension WindowManager {
         let remembered = state.profileWorkspaces[profile].flatMap { visible.contains($0) ? $0 : nil }
         state.enterProfile(profile)
         select(remembered ?? visible.first, in: state)
+    }
+
+    /// `sidebar.showSpaces` (https://github.com/manaflow-ai/cmux/issues/48355, off by default): nothing makes,
+    /// switches or moves into a space, and a new window opens in the space the person is on. No settings layer
+    /// (a headless host) keeps the daemon's spaces reachable.
+    var spacesOn: Bool { services.settings.map { $0.snapshot.sidebarSections.showSpaces } ?? true }
+
+    /// The space a new window opens in while Spaces is off: the active window's, else the newest other normal
+    /// window's (open or kept closed in the registry), so a fresh window never drops the person into another
+    /// space. Never an incognito window's space (spaces-overhaul rule 2).
+    var spaceForNewWindow: ProfileID? {
+        guard !spacesOn else { return nil }
+        let value = registry.value
+        let normal = { (id: String) in !value.isIncognito(id) && self.incognitoSpaces[id] == nil }
+        if let active, normal(active.state.id) { return active.state.profileID }
+        return value.windows.reversed().lazy.compactMap { normal($0.id) ? self.states[$0.id]?.profileID : nil }.first
     }
 
     /// Next (+1) or previous (-1) profile of the local daemon, clamped at
@@ -224,7 +242,9 @@ extension WindowManager: SpaceWindowSource {
 // Window, agent fork, tear-off) takes a new space as New Window does (spaces-overhaul rule 3); Open Space in New Window shares (rule 4).
 enum WindowOwnSpace {
     /// Window `id` (normal, no Home, spaces on the home daemon) shows a space another open window shows.
+    /// Spaces off (#48355): never, so a moved workspace's new window stays in the person's space.
     static func shares(_ id: String, in windows: WindowManager) -> Bool {
+        guard windows.spacesOn else { return false }
         let value = windows.registry.value, local = windows.services.machines.local, members = value.window(id)?.ownedIDs ?? []
         guard let state = windows.states[id], value.window(id)?.isOpen == true, !value.isIncognito(id), windows.incognitoSpaces[id] == nil,
               local.supports(DaemonCapability.profiles.rawValue), local.store.personal.isLoaded, !members.isEmpty,

@@ -171,6 +171,7 @@ enum RoomHandlers {
             context.services.windows.switchProfile(room.id, in: window.state)
         }
         RoomMoveHandlers.bind(bind, context: context)
+        registry.installSpacesGate(reason: RoomStrings.spacesOff) { context.services.windows.spacesOn } // #48355: off by default
     }
 
     /// A new space with the next free color and its own first workspace.
@@ -251,7 +252,8 @@ enum RoomHandlers {
     /// spaces on the local daemon (no `profiles-v1`, personal state not loaded) a plain new window.
     static func newWindow(_ invocation: ActionInvocation, _ context: AppActionContext) {
         let services = context.services, local = services.machines.local
-        guard local.supports(DaemonCapability.profiles.rawValue), local.store.personal.isLoaded else {
+        // Spaces off (#48355): a plain new window, in the space the person is on (`WindowManager.state(for:)`).
+        guard local.supports(DaemonCapability.profiles.rawValue), local.store.personal.isLoaded, services.windows.spacesOn else {
             services.windows.newWindow(holdingKeysFrom: services.windows.active?.window)
             return
         }

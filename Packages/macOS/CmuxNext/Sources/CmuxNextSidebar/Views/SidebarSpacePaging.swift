@@ -64,9 +64,13 @@ import QuartzCore
         }
     }
 
+    /// `sidebar.showSpaces` off (the default, https://github.com/manaflow-ai/cmux/issues/48355): no swipe or
+    /// wheel pages to another space, so the list stays on the space the window shows.
+    private var pagesSpaces: Bool { host.design.sidebarSections.showSpaces }
+
     private func start() {
         profiles = host.model.profiles.map(\.id)
-        guard profiles.count > 1, pendingTarget == nil, let active = host.model.activeProfileID,
+        guard pagesSpaces, profiles.count > 1, pendingTarget == nil, let active = host.model.activeProfileID,
               let index = profiles.firstIndex(of: active) else { return }
         pager = SpacePager(index: index, count: profiles.count)
         samples = []
@@ -183,7 +187,7 @@ import QuartzCore
     /// rest, like a switch by dot. Past the first or last space nothing moves
     /// (POLISH: no bouncy transforms).
     func page(by step: Int) {
-        guard pager == nil, pendingTarget == nil, step != 0 else { return }
+        guard pagesSpaces, pager == nil, pendingTarget == nil, step != 0 else { return }
         _ = host.model.stepProfile(by: step)
     }
 
