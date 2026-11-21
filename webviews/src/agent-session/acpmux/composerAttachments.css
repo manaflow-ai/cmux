@@ -300,6 +300,15 @@
   margin-inline: 0;
   overflow: hidden;
 }
+/* A held chip in the text takes no height either: a zero-wide chip still 48px tall would grow its line
+   at the drop, and the text would reflow a second time when the gesture shows (the composer growing
+   29px, then 23px). Held, the line keeps the text's height until every chip of the gesture shows. */
+.acpmux-md-inline > .acpmux-md-inline-chip[data-held],
+.acpmux-md-inline > .acpmux-attachment-menu > .acpmux-md-inline-chip[data-held] {
+  height: 0;
+  min-height: 0;
+  box-shadow: none;
+}
 /* A loading image's own picture (composer/attachmentIntake.tsx InstantPreview), there the moment it
    is pasted or dropped, filling its tile under the spinner until its chip takes the tile's place
    (Leo, 2026-11-07: "can't we make this all "appear" a lot faster"). */
