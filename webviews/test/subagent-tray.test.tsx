@@ -75,6 +75,17 @@ type StartedSession = import("../src/agent-session/acpmux/started/startedSession
 type Row = import("../src/agent-session/acpmux/model").AcpmuxRow;
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 
+/// The stacked header marks draw in the folded header's non-`kinds` arms only: since #48542 the
+/// default `kinds` arm draws each kind's own mark instead (trayFoldHead.experiment.ts). A test of the
+/// stack pins the `counts` arm while it mounts the tray, which reads the arm once.
+function pinFoldHead(arm: string): () => void {
+  const before = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...before, "subagent-tray-fold-head": arm };
+  return () => {
+    globalThis.cmuxExperiments = before;
+  };
+}
+
 afterAll(async () => {
   setPaneLanguage("en");
   configureSubagentTray(true);
@@ -455,9 +466,10 @@ describe("the tray", () => {
       NONE,
       true,
     );
+    const unpin = pinFoldHead("counts");
     const shown = await render(
       createElement(SubagentTray, { items: few, working: true, waiting: new Set<string>(), onOpen: () => {} }),
-    );
+    ).finally(unpin);
     try {
       const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
       // Folded to its one line: no line under the header until it is opened.
@@ -1149,9 +1161,10 @@ describe("the tray tells the truth", () => {
       // a session. What ended counts after what runs, its failures apart in the danger colour.
       if (head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
-        "2 subagents running · 1 session · 1 waiting · 1 server · 2 done",
+        "2 subagents running · 1 session · 1 waiting · 1 server · 2 done · 2 failed",
       );
-      expect(head.querySelector(".acpmux-running-tray__failed")?.textContent).toBe("· 2 failed");
+      // The `kinds` header (#48542) counts the failures as their own kind, in the danger tone.
+      expect(head.querySelector('.acpmux-running-tray__kind[data-tone="failed"]')?.textContent).toBe("2 failed");
       const lines = liveLines(root);
       expect(lines.length).toBe(5);
       // The chat waiting on the person leads (trayAttention.ts), so the list's height cap never
@@ -1325,8 +1338,9 @@ describe("the tray tells the truth", () => {
       ["A=$(touch marker); bun test", "touch marker · bun test"],
       ['A="$(git rev-parse HEAD)"; bun test', "git rev-parse HEAD · bun test"],
       ["A=`git rev-parse HEAD`; bun test", "git rev-parse HEAD · bun test"],
-      ['A=$(printf "%s" "$(git rev-parse HEAD)"); bun test', "git rev-parse HEAD · printf · bun test"],
-      ['printf "%s" "$(git rev-parse HEAD)"', "git rev-parse HEAD · printf"],
+      // printf, like echo, is quiet work (#48542 commandWorkLabel.ts): only what it runs is named.
+      ['A=$(printf "%s" "$(git rev-parse HEAD)"); bun test', "git rev-parse HEAD · bun test"],
+      ['printf "%s" "$(git rev-parse HEAD)"', "git rev-parse HEAD"],
       ["sleep $((60 * 5))", "sleep $((60 * 5))"],
       ["export A=$(git rev-parse HEAD); bun test", "git rev-parse HEAD · bun test"],
       ["cd /tmp && A=$(git rev-parse HEAD); /opt/bin/cmux-ci run --ref $A", "git rev-parse HEAD · cmux-ci run"],
@@ -1836,6 +1850,7 @@ describe("subagents show their harness logos", () => {
       NONE,
       true,
     );
+    const unpin = pinFoldHead("counts");
     const { root, done } = await render(
       createElement(
         SubagentHarnessContext.Provider,
@@ -1843,7 +1858,7 @@ describe("subagents show their harness logos", () => {
         createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
       ),
       { open: true },
-    );
+    ).finally(unpin);
     try {
       const icons = [...root.querySelectorAll(".acpmux-agent-line .acpmux-lineage__icon")];
       expect(icons.length).toBe(3);
@@ -1887,6 +1902,7 @@ test("many live and finished commands share one terminal header mark without hid
   const agents = [agent("Reviewer", { harness: "claude" })];
   const items = trayItems(agents, commands, NONE, true);
   const finished = [{ kind: "command" as const, id: "done", command: command("done", { state: "completed" }) }];
+  const unpin = pinFoldHead("counts");
   const shown = await render(
     createElement(
       SubagentHarnessContext.Provider,
@@ -1894,7 +1910,7 @@ test("many live and finished commands share one terminal header mark without hid
       createElement(SubagentTray, { items, finished, working: true, waiting: new Set<string>(), onOpen: () => {} }),
     ),
     { open: true },
-  );
+  ).finally(unpin);
   try {
     const stack = shown.root.querySelector(".acpmux-running-tray__stack")!;
     expect(stack.querySelectorAll('[data-icon="terminal"]')).toHaveLength(1);
