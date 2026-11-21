@@ -627,13 +627,19 @@ _ROUTING_TABLES = frozenset({
     "scripts/ci/workflow_guard_groups.py",
 })
 # Files that list test paths without running them: the routing tables,
-# cmux-next.yml's path router, the guard wiring test's manual-lane list, and
-# base_red_excuse.py's guard-test input table with its test's fixtures (#30467).
+# cmux-next.yml's path router, the guard wiring test's manual-lane list,
+# base_red_excuse.py's guard-test input table with its test's fixtures (#30467),
+# and workflow_jobs.py, a module guards import, whose UNRESOLVED_MATRICES
+# reasons name the test that checks each job (it runs no test; once
+# run-script-tests.py named the script tests, the walk reached
+# test_cmux_next_checks_workflow.py and that reason made every helper on the
+# path fail open).
 _TEST_PATH_LISTS = _ROUTING_TABLES | frozenset({
     "scripts/ci/base_red_excuse.py",
     "scripts/ci/cmux_next_route.py",
     "tests/test_base_red_excuse.py",
     "tests/test_ci_workflow_guards_are_wired.py",
+    "tests/workflow_jobs.py",
 })
 # The execution registry runs its entries: ci-macos.yml's
 # `run_python_test_lane.py --lane ...` step executes every test in the lanes it
