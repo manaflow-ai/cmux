@@ -22,8 +22,10 @@ name: cmux-next PR autofix
 # a same-repository pull request's job packs these exports on that build (base-autofix-exports-pack.sh
 # --pr). generated-exports takes that pack (base_autofix_pushed_exports.py pr-lookup: this pull
 # request's own run at this head, the merge commit and its tree, every file's SHA-256, only the listed
-# exports at their paths), waiting while that job can still upload one; action-exports runs only on a
-# miss (no run, the job skipped or failed, a pack of another commit or tree), as before.
+# exports at their paths), waiting up to 10 minutes for that job to upload one; action-exports runs only on a
+# miss (no run, the job skipped or failed, not done in 10 minutes, a pack of another commit or tree), as before.
+# The wait was 2 hours until 2026-11-21: a 2 vCPU runner slept 66 minutes on average, ~14,900 runner-minutes a day
+# (CI time map); a pack that is not there in 10 minutes now takes the Mac path.
 #
 # Two jobs hold the token boundary, so the pull request's own code never runs next to a write token:
 #   repair: runs the repairs the pull request's changed paths need
@@ -116,7 +118,7 @@ jobs:
   # request that changes neither the catalog nor the settings never takes a Mac.
   action-areas:
     name: action export areas
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     # The checkout below fetches every branch's commit graph and trees (no blobs): 4-5 minutes on the 2 vCPU pool on
     # 2026-11-03, so a 5-minute limit cancelled 27 of the last 40 runs inside actions/checkout.
     timeout-minutes: 15
@@ -130,6 +132,10 @@ jobs:
       # The owned gui label while one of its runners is idle now, else empty (the Mac job then
       # takes Blacksmith macOS).
       mac_runner: ${{ steps.mac-runner.outputs.runs_on }}
+      # CI v2 scheduler grants (scripts/ci/mac_grants.py, scripts/ci/mac-grants.json from the base): action-exports
+      # takes grant_runner when the switch names it.
+      grant_runner: ${{ steps.grant.outputs.grant_runner }}
+      grant_jobs: ${{ steps.grant.outputs.grant_jobs }}
     steps:
       # Only the merge commit and scripts/cmux-next (the fallback copies of the
       # two scripts below); the next step fetches the history it needs. A
@@ -270,6 +276,17 @@ jobs:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
         run: python3 "$RUNNER_TEMP/placement/scripts/ci/cmux_next_media_runner.py" --same-repo true --idle-now --gui-only
 
+      # A base without the script grants nothing.
+      - name: Scheduler grant for the Mac exports
+        id: grant
+        if: steps.placement.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+        run: if [ -f "$RUNNER_TEMP/placement/scripts/ci/mac_grants.py" ]; then python3 "$RUNNER_TEMP/placement/scripts/ci/mac_grants.py"; fi
+
   # The exports from this merge commit's cmux-next generated-files job (see the header), or a miss
   # (hit=false) and action-exports regenerates them. Every step is continue-on-error and the wait is
   # under the job's limit, so this job always succeeds. The pack is data: it is checked file by file
@@ -279,7 +296,7 @@ jobs:
     needs: action-areas
     if: (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
-    timeout-minutes: 135
+    timeout-minutes: 25
     permissions:
       contents: read
     outputs:
@@ -333,7 +350,7 @@ jobs:
         id: lookup
         if: steps.checkout.outcome == 'success'
         continue-on-error: true
-        timeout-minutes: 125
+        timeout-minutes: 15
         env:
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -348,7 +365,7 @@ jobs:
           lookup=base/scripts/cmux-next/base_autofix_pushed_exports.py
           grep -q 'pr-lookup' "$lookup" 2>/dev/null || lookup=scripts/cmux-next/base_autofix_pushed_exports.py
           python3 -I "$lookup" pr-lookup --out "$RUNNER_TEMP/action-exports" --head-sha "$HEAD_SHA" --pr "$PR" \
-            --actions "${ACTIONS:-false}" --settings "${SETTINGS:-false}" --wait 7200 --skip "$SKIP_REASON" | tee -a "$GITHUB_OUTPUT"
+            --actions "${ACTIONS:-false}" --settings "${SETTINGS:-false}" --wait 600 --skip "$SKIP_REASON" | tee -a "$GITHUB_OUTPUT"
           if (( $(date +%s) - started >= 120 )); then echo "stale_pick=true" >> "$GITHUB_OUTPUT"; fi
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -379,7 +396,7 @@ jobs:
     # --gui-only), never the session label (cmux#24295). With none idle, or the runners unread,
     # they take Blacksmith macOS at once: the owned-pool rescue never cancels an active pull
     # request run, so a job queued on a dark gui label (the office minis, 2026-11-10) waited there.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.generated-exports.outputs.stale_pick != 'true' && needs.action-areas.outputs.mac_runner || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || contains(needs.action-areas.outputs.grant_jobs, ' action-exports ') && fromJSON(needs.action-areas.outputs.grant_runner) || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.generated-exports.outputs.stale_pick != 'true' && needs.action-areas.outputs.mac_runner || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -926,7 +943,7 @@ jobs:
   generated-drift:
     name: generated drift
     needs: [action-areas]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     timeout-minutes: 5
     if: ${{ !cancelled() && !contains(github.event.pull_request.labels.*.name, 'generated-drift-ok') }}
     permissions:
@@ -974,7 +991,7 @@ jobs:
     # push after a cancelled areas job (its fetch timing out) or failed exports
     # would leave the exports stale for every later run (#21814, run 39315375602).
     if: ${{ github.event_name != 'pull_request' && !cancelled() && needs.action-areas.result == 'success' && (needs.action-exports.result == 'success' || needs.action-exports.result == 'skipped') && needs.repair.result == 'success' && needs.repair.outputs.patch == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }} # ephemeral-required: holds a contents write token for a pull request branch; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }} # ephemeral-required: holds a contents write token for a pull request branch; ephemeral Blacksmith VM
     timeout-minutes: 10
     permissions:
       contents: read

@@ -111,14 +111,16 @@
 .ui-btn[data-danger]:not([data-variant="solid"], [data-disabled]):is(:hover, :active, [data-popup-open]) {
   color: color-mix(in srgb, var(--ds-color-danger) 65%, var(--ds-color-fg));
 }
+/* A destructive solid is a fill, not text: it keeps the page's danger hue on glass too (glass.css
+   lifts --ds-color-danger toward the text only for words). */
 .ui-btn[data-danger][data-variant="solid"] {
-  background: var(--ds-color-danger);
+  background: var(--glass-hue-danger, var(--ds-color-danger));
   color: var(--ds-color-on-accent);
 }
 /* Keep destructive solids in the danger colour family while hovering or holding a popup open. */
 .ui-btn[data-danger][data-variant="solid"]:hover:not([data-disabled]),
 .ui-btn[data-danger][data-variant="solid"][data-popup-open] {
-  background: color-mix(in srgb, var(--ds-color-danger) 88%, var(--ds-color-on-accent));
+  background: color-mix(in srgb, var(--glass-hue-danger, var(--ds-color-danger)) 88%, var(--ds-color-on-accent));
 }
 .ui-btn[data-disabled] {
   opacity: var(--ds-disabled-opacity, 0.6);
@@ -272,6 +274,12 @@
 }
 .ui-input::placeholder {
   color: var(--ds-color-faint);
+}
+/* Over a see-through window the field is clear glass over art or the desktop, where the tertiary ink
+   fell to 1.44:1 (Settings search on the Great Wave, dark; fleet capture, text-inputs-glass). The
+   placeholder takes the secondary tier there, as pageBase.css lifts tertiary text. */
+:root[data-cmux-see-through] .ui-input::placeholder {
+  color: var(--cmux-text-secondary, var(--ds-color-faint));
 }
 .ui-input[data-size="sm"] {
   height: var(--ds-control-compact);
