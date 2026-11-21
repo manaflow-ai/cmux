@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4486503949201",
+  "notes": "notes/4486503949201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 47833,
+      "title": "Model menu: Fast on a chat whose model the menu misses no longer picks another model",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47714,
+      "title": "Settings: switching background modes keeps Rotate's folder and Off's picture",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47622,
+      "title": "Agent chat: a Chief's and an agent's avatar stay round beside a long sender name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48341,
+      "title": "ci: no feat-cmux-next job can route to a GitHub-hosted runner",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
