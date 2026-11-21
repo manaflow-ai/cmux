@@ -1220,6 +1220,19 @@ async fn dispatch_request_with_identity(
             return Ok(json!({"harnesses": rows}));
         }
     }
+    if m == method::MUX_SESSION_SEARCH && params.get("allSessions") == Some(&Value::Bool(true)) {
+        if params.get("sessionId").is_some() || params.get("session").is_some() {
+            return Err(RpcError::invalid_params("allSessions cannot name a session"));
+        }
+        let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
+        if !crate::hub::vm_boundary::owner(conn.auth, control, &params) {
+            return Err(RpcError::new(
+                -32001,
+                "history search requires the owner's local or peer connection",
+            ));
+        }
+        return hub.search_history(&params, conn.origin != Origin::Peer).await;
+    }
     // Rows by key (`info.rs`) are answered here, a peer's from its mirror: never forwarded, and
     // refused when they name one session beside them.
     let rows_by_key =
@@ -3430,6 +3443,18 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_RENAME => {
             let s = hub.resolve(session_key(&params)?)?;
+            if let Some(handle) = params.get("newHandle") {
+                let handle = handle
+                    .as_str()
+                    .ok_or_else(|| RpcError::invalid_params("newHandle must be a string"))?;
+                if params.get("newName").is_some() || params.get("to").is_some() {
+                    return Err(RpcError::invalid_params(
+                        "rename a name or a handle in one request",
+                    ));
+                }
+                hub.rename_spoken_handle(&s, handle)?;
+                return Ok(hub.session_summary(&s));
+            }
             let name = str_param(&params, "newName")
                 .or_else(|| str_param(&params, "to"))
                 .ok_or_else(|| RpcError::invalid_params("newName is required"))?;
