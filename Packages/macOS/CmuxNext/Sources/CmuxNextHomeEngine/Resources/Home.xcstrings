@@ -6589,127 +6589,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الرئيسية"
+            "value": "Chief"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Početna"
+            "state": "translated",
+            "value": "Chief"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hjem"
+            "state": "translated",
+            "value": "Chief"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inicio"
+            "value": "Chief"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Accueil"
+            "value": "Chief"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Home"
+            "state": "translated",
+            "value": "Chief"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ホーム"
+            "value": "Chief"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ទំព័រដើម"
+            "state": "translated",
+            "value": "Chief"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "홈"
+            "value": "Chief"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hjem"
+            "state": "translated",
+            "value": "Chief"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Start"
+            "state": "translated",
+            "value": "Chief"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Início"
+            "state": "translated",
+            "value": "Chief"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Главная"
+            "state": "translated",
+            "value": "Chief"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "หน้าหลัก"
+            "state": "translated",
+            "value": "Chief"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ana Sayfa"
+            "state": "translated",
+            "value": "Chief"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Головна"
+            "state": "translated",
+            "value": "Chief"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Trang chủ"
+            "state": "translated",
+            "value": "Chief"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "主页"
+            "value": "Chief"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "主頁"
+            "value": "Chief"
           }
         }
       }
