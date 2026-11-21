@@ -1069,18 +1069,22 @@ function expanded(
   const names = new Set(reads.flat());
   if (names.size === 0) return rule(args);
   const fixed = new Map<string, string>();
+  // A name this step cannot read (`H=$(…)`, a glob loop's): fine where the label never shows it
+  // (`--match-head-commit $H`), never where it does ("Read $f").
+  const unread = new Set<string>();
   let loop: { name: string; values: string[] } | undefined;
   for (const name of names) {
     // The innermost loop of that name is the one its step reads.
     const bound = [...loops].reverse().find((each) => each.name === name);
     if (bound) {
-      if (!bound.values?.length || loop) return undefined;
-      loop = { name, values: bound.values };
+      if (!bound.values?.length) unread.add(name);
+      else if (loop) return undefined;
+      else loop = { name, values: bound.values };
       continue;
     }
     const value = vars.get(name);
-    if (value?.length !== 1) return undefined;
-    fixed.set(name, value[0]!);
+    if (value?.length === 1) fixed.set(name, value[0]!);
+    else unread.add(name);
   }
   const fill = (pass?: string) =>
     args.map((arg, at) =>
@@ -1088,8 +1092,14 @@ function expanded(
         ? arg.replace(VARIABLE, (whole, name: string) => (name === loop?.name ? pass! : (fixed.get(name) ?? whole)))
         : arg,
     );
-  if (!loop) return rule(fill());
-  const acts = loop.values.map((value) => rule(fill(value)));
+  const shown = (act: Act | undefined) => {
+    if (!act || !unread.size) return act;
+    const said = JSON.stringify([act.values ?? {}, act.files ?? []]);
+    for (const match of said.matchAll(VARIABLE)) if (unread.has(match[1]!)) return undefined;
+    return act;
+  };
+  if (!loop) return shown(rule(fill()));
+  const acts = loop.values.map((value) => shown(rule(fill(value))));
   if (acts.some((act) => act === undefined)) return undefined;
   const all = acts as Act[];
   if (all.every((act) => act.files?.length)) return read([...new Set(all.flatMap((act) => act.files!))]);
