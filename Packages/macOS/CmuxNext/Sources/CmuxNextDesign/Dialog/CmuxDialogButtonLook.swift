@@ -83,16 +83,7 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
         if !isEnabled, let base = card.first {
             fill = fill.alpha < 1 ? fill.withAlpha(fill.alpha * 0.5) : fill.mixed(toward: base, 0.5)
         }
-        var surfaces = card.map { fill.composited(over: $0) }
-        if isEnabled, role == .cancel || role == .normal {
-            // A translucent gray over grounds no one ink reads on (a mid-tone theme's popover glass over a white and a
-            // black page) densifies until one does: Hot Dog Stand's Stop read 4.08:1 in black over the page and its
-            // Open Agent Activity 2.66:1 in the gray the passes ended on.
-            for _ in 0..<12 where fill.alpha < 1 && !Self.fits(Self.readable(ink, over: surfaces), over: surfaces) {
-                fill = fill.withAlpha(min(1, fill.alpha + 0.08))
-                surfaces = card.map { fill.composited(over: $0) }
-            }
-        }
+        let surfaces = card.map { fill.composited(over: $0) }
         if isEnabled {
             ink = Self.readable(ink, over: surfaces)
         } else if let under = surfaces.first {
@@ -157,30 +148,15 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
         return deep
     }
 
-    /// Whether `ink` reads at `minimum` on every surface.
-    static func fits(_ ink: ThemeRGB, over surfaces: [ThemeRGB], minimum: Double = minimumContrast) -> Bool {
-        surfaces.allSatisfy { ink.contrast(with: $0) >= minimum }
-    }
-
     /// `ink` moved toward its pole until it reads at ``minimumContrast`` on every surface. A move for
     /// one surface can lower the contrast on another, so the passes repeat until all read (a few at
     /// most: the card's surfaces are near one another).
-    ///
-    /// When no ink reads on every surface (a mid-tone theme's popover glass over both a white and a black page), the
-    /// passes stop on a gray between the poles that reads on none: Hot Dog Stand's Stop read 3.68:1 and Open Agent
-    /// Activity 2.66:1 on its red glass. Then the ink is the one of that gray, white and black that reads on the most
-    /// surfaces, and of those the one whose worst contrast is highest.
     static func readable(_ ink: ThemeRGB, over surfaces: [ThemeRGB], minimum: Double = minimumContrast) -> ThemeRGB {
         let target = minimum + 0.05
         var fitted = ink
         for _ in 0..<4 where !surfaces.allSatisfy({ fitted.contrast(with: $0) >= target }) {
             fitted = surfaces.reduce(fitted) { ThemeTokens.readable($0, over: $1, minimum: target) }
         }
-        guard !surfaces.allSatisfy({ fitted.contrast(with: $0) >= target }) else { return fitted }
-        func score(_ candidate: ThemeRGB) -> (reads: Int, worst: Double) {
-            (surfaces.filter { candidate.contrast(with: $0) >= target }.count,
-             surfaces.map { candidate.contrast(with: $0) }.min() ?? 0)
-        }
-        return [fitted, white, black].max { score($0) < score($1) } ?? fitted
+        return fitted
     }
 }
