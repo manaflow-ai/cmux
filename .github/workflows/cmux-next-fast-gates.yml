@@ -316,8 +316,12 @@ jobs:
   # full, and a red there posts failure naming the receipt and its producer. A rejected receipt runs everything.
   receipt:
     name: local test receipt
-    needs: [resolve, portable-placement]
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.body, 'CI-Receipt:') }}
+    needs: [resolve, portable-placement, fast-check-route]
+    # The body line is optional: with none, the verifier finds the passing Fast checks run of one of this pull request's
+    # commits itself (ci_receipt.py discover), so a lane's green `cmux-ci test -- python3 scripts/ci/ci_receipt.py
+    # produce fast-gates` counts with no one writing a pointer. It runs only where the gates would run (the route),
+    # and vars.CI_RECEIPT_DISCOVER=0 returns to the body line alone.
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.fast-check-route.outputs.fast_gates != 'false' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (contains(github.event.pull_request.body, 'CI-Receipt:') || (vars.CI_RECEIPT_DISCOVER || '1') != '0') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' receipt ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' receipt ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:
@@ -346,6 +350,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          DISCOVER: ${{ vars.CI_RECEIPT_DISCOVER }}
           HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
           BASE: ${{ needs.resolve.outputs.base }}
           HEAD_TREE: ${{ needs.resolve.outputs.head_tree }}
@@ -358,9 +364,12 @@ jobs:
             echo "::notice title=CI receipt::the base has no receipt verifier yet; the gates run"
             exit 0
           fi
+          DISCOVER_ARGS=()
+          # The base's verifier decides: one from before discover existed has no --pr.
+          if [[ "${DISCOVER:-1}" != 0 ]] && grep -q -- '"--pr"' scripts/ci/ci_receipt.py; then DISCOVER_ARGS=(--pr "$PR_NUMBER"); fi
           python3 scripts/ci/ci_receipt.py verify fast-gates --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" \
             --base "$BASE" --head-tree "$HEAD_TREE" --merge-tree "$MERGE_TREE" --audit-percent "$AUDIT_PERCENT" \
-            --output "$GITHUB_OUTPUT"
+            ${DISCOVER_ARGS[@]+"${DISCOVER_ARGS[@]}"} --output "$GITHUB_OUTPUT"
 
       - name: Post the cmux-next/fast-gates status from the receipt
         if: ${{ steps.verify.outputs.valid == 'true' && needs.resolve.outputs.post == 'true' }}
