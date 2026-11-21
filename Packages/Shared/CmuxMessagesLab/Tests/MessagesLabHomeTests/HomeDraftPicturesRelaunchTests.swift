@@ -34,8 +34,19 @@ import UniformTypeIdentifiers
             self.window = window
         }
 
-        /// Quit: the view goes, then the store writes its cache.
-        @MainActor func quit() {
+        /// Quit, as the app's quit does: the view goes, the store's cache reaches the disk (the
+        /// quit's save step, `HomeService.flushCacheForQuit`), then the store stops. `stop()` alone
+        /// only hands the last write to the cache actor (a655624744be), so a relaunch right after
+        /// it could read the cache from before the last change.
+        @MainActor func quit() async {
+            view.stop()
+            window.close()
+            await store.flushCache()
+            store.stop()
+        }
+
+        /// The end of a test: the view and the store go, with nothing read back after.
+        @MainActor func close() {
             view.stop()
             window.close()
             store.stop()
@@ -82,10 +93,10 @@ import UniformTypeIdentifiers
         first.view.projection.draftChanged()
         let shot = try await paste(first)
         #expect(first.view.draftAttachments == [shot])
-        first.quit()
+        await first.quit()
 
         let second = try await launch(root)
-        defer { second.quit() }
+        defer { second.close() }
         await until { second.view.draftAttachments == [shot] }
         #expect(second.view.draftAttachments == [shot], "the screenshot's chip is back")
         #expect(second.view.draftText.contains("what is this"), "with the text")
@@ -97,10 +108,10 @@ import UniformTypeIdentifiers
         let first = try await launch(root)
         let shot = try await paste(first)
         first.view.removeDraftAttachment(shot.ref.hash)
-        first.quit()
+        await first.quit()
 
         let second = try await launch(root)
-        defer { second.quit() }
+        defer { second.close() }
         #expect(second.store.draftAttachments(for: Self.conversation).isEmpty, "nothing for the field to restore")
         #expect(second.view.draftAttachments.isEmpty)
     }
@@ -121,10 +132,10 @@ import UniformTypeIdentifiers
                                                             typeIdentifier: UTType.png.identifier)
         await first.view.addDraftAttachment(other)
         #expect(first.store.draftAttachments(for: Self.conversation).count == 2)
-        first.quit()
+        await first.quit()
 
         let second = try await launch(root)
-        defer { second.quit() }
+        defer { second.close() }
         #expect(second.view.draftAttachments.isEmpty, "Return comes before any chip is back")
         #expect(second.view.sendDraft() != nil, "held for the chips")
         let pictures: @MainActor () -> Int = {
@@ -191,7 +202,7 @@ import UniformTypeIdentifiers
         let first = try await launch(root)
         let draft = try await interleaved(first)
         let back = try await reopen(first)
-        defer { back.quit() }
+        defer { back.close() }
         await until { back.view.draftAttachments.count == draft.shots.count }
         #expect(back.view.draftAttachments == draft.shots, "both pictures are back, in order")
         #expect(back.view.draftText == draft.text, "each picture sits where it was in the text")
@@ -202,10 +213,10 @@ import UniformTypeIdentifiers
         defer { try? FileManager.default.removeItem(at: root) }
         let first = try await launch(root)
         let draft = try await interleaved(first)
-        first.quit()
+        await first.quit()
 
         let second = try await launch(root)
-        defer { second.quit() }
+        defer { second.close() }
         await until { second.view.draftAttachments.count == draft.shots.count }
         #expect(second.view.draftAttachments == draft.shots)
         #expect(second.view.draftText == draft.text, "each picture sits where it was in the text")
@@ -218,10 +229,10 @@ import UniformTypeIdentifiers
         _ = try await paste(first)
         #expect(first.view.sendDraft() == nil)
         #expect(first.store.draftAttachments(for: Self.conversation).isEmpty)
-        first.quit()
+        await first.quit()
 
         let second = try await launch(root)
-        defer { second.quit() }
+        defer { second.close() }
         #expect(second.store.draftAttachments(for: Self.conversation).isEmpty, "nothing for the field to restore")
         #expect(second.view.draftAttachments.isEmpty)
     }
@@ -233,7 +244,7 @@ import UniformTypeIdentifiers
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("home-draft-pictures-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let launch = try await launch(root)
-        defer { launch.quit() }
+        defer { launch.close() }
         var heard: [[String]] = []
         launch.view.onDraftAttachmentsChange = { heard.append($0) }
         let first = try await paste(launch)
