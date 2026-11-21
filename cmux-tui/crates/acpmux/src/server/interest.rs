@@ -90,14 +90,17 @@ struct Queue {
 
 impl Inbox {
     /// Queues `ev` for send number `send`, unless it already holds it; wakes the reader when the
-    /// queue was empty (a reader with events left reads on without one).
-    fn push(&self, send: u64, ev: &HubEvent) {
+    /// queue was empty (a reader with events left reads on without one). Whether it queued it:
+    /// a queued event's fan-out clock owes this connection a take (`gauges.fanout`).
+    fn push(&self, send: u64, ev: &HubEvent) -> bool {
         let was_empty = {
             let mut q = lock(&self.queue);
             if q.closed || q.last_send == send {
-                return;
+                return false;
             }
             q.last_send = send;
+            // Owed before it can be read, so the reader's take never comes first.
+            ev.row.fanout.owe_one();
             if q.events.len() >= self.capacity {
                 q.events.pop_front();
                 q.dropped += 1;
@@ -110,6 +113,7 @@ impl Inbox {
         if was_empty {
             self.wake.notify_one();
         }
+        true
     }
 
     /// The next event routed here, as `broadcast::Receiver::recv` answers: `Lagged(n)` once after
@@ -201,21 +205,25 @@ impl Router {
         let mut routes = lock(&self.routes);
         routes.sends += 1;
         let send = routes.sends;
+        // Its fan-out clock waits for each connection it is queued for (`gauges.fanout`).
+        ev.row.fanout.open();
+        let mut queued = 0;
         if let Some(attached) = routes.by_session.get(&ev.session_id) {
             for inbox in attached {
-                inbox.push(send, &ev);
+                queued += usize::from(inbox.push(send, &ev));
             }
         }
         if !routes.watchers.is_empty() && watch_hears(&ev) {
             for inbox in &routes.watchers {
-                inbox.push(send, &ev);
+                queued += usize::from(inbox.push(send, &ev));
             }
         }
         if !routes.activity.is_empty() && activity_hears(&ev) {
             for inbox in &routes.activity {
-                inbox.push(send, &ev);
+                queued += usize::from(inbox.push(send, &ev));
             }
         }
+        ev.row.fanout.routed(queued);
         broadcast(ev)
     }
 
