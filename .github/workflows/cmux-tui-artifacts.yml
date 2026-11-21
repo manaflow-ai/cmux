@@ -199,6 +199,24 @@ jobs:
           echo "::error title=cmux-tui pin ref rejected::cmux-tui-pin-* refs are not a publisher. Land the reviewed change, then re-run after a trusted feat-cmux-next publication. A fleet build can bundle its own daemon without publishing it."
           exit 1
 
+  # One build per HOLD-minute window on the feat-cmux-next tip (base-coalesce.yml), not one per merge.
+  # 2026-11-21 05-11Z: feat-cmux-next pushes built about 9 new tree keys an hour, each key's three
+  # targets plus its daemon tests, about 1,700 runner-minutes an hour (cmuxterm-hq
+  # docs/ci/ci-cut-ledger.md). The first push of each window runs this workflow as before and its
+  # tree covers every commit since the last window's; every other push stops here (tree-preflight
+  # and everything after it skip, no runner taken). A tree nobody built is still had on demand:
+  # cmux-tui-tree-request.yml re-runs the commit's own run, and a re-run (attempt > 1) always runs.
+  # nightly-next pushes, main, dispatches and every other ref never coalesce (the coalesce job is
+  # skipped on them). Bisect on a red: base-red-watch's commit_bisect over the window's range.
+  # vars.NEXT_TUI_ARTIFACTS_COALESCE = '0' builds every push again; vars.NEXT_TUI_ARTIFACTS_HOLD_MINUTES
+  # sets the window (default 120, about 12 builds a day).
+  coalesce:
+    uses: ./.github/workflows/base-coalesce.yml
+    with:
+      key: cmux-tui-artifacts
+      hold_minutes: ${{ fromJSON(vars.NEXT_TUI_ARTIFACTS_HOLD_MINUTES || '120') }}
+      no_coalesce: ${{ format('{0}', vars.NEXT_TUI_ARTIFACTS_COALESCE) == '0' }}
+
   # A superseded lane-branch push stops here, before it takes a preflight-sized runner.
   # On 2026-11-18 at 06:35Z 418 runs of this workflow sat queued, the oldest since
   # 11-17 22:00Z, each waiting for a Blacksmith Linux runner only to run tree-preflight.
@@ -249,8 +267,9 @@ jobs:
   tree-preflight:
     name: cmux-tui tree preflight
     # push-gate is skipped for trunk pushes and dispatches; !cancelled() runs this job then.
-    needs: push-gate
-    if: ${{ !cancelled() && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && needs.push-gate.outputs.stale != 'true' }}
+    # coalesce is skipped (run empty) everywhere but a feat-cmux-next push, so only a coalesced push stops here.
+    needs: [push-gate, coalesce]
+    if: ${{ !cancelled() && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && needs.push-gate.outputs.stale != 'true' && needs.coalesce.outputs.run != 'false' }}
     # Secrets only: no deployment on the PR. The tree-claim authority checks the token's
     # repository and workflow_ref, not its subject (cmuxterm-hq controller tree_claim.go).
     environment:
