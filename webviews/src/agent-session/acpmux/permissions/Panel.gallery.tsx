@@ -51,7 +51,9 @@ const dependency = {
 
 const unavailableDependency = {
   status: "unavailable",
-  packages: [{ ecosystem: "crates", name: "telemetry-kit", status: "unavailable", maintainers: 0, installScripts: false }],
+  packages: [
+    { ecosystem: "crates", name: "telemetry-kit", status: "unavailable", maintainers: 0, installScripts: false },
+  ],
 };
 
 const request = (title: string, command: string | string[], path: string, dependency?: object) => ({
@@ -118,7 +120,11 @@ const dependencyState: PermissionClientState = {
     {
       ...pendingGroup,
       items: [
-        { ...pendingGroup.items[0], permissionId: "permission-gallery-dependency", request: request("Install package", "npm install reqeusts", "package.json", dependency) },
+        {
+          ...pendingGroup.items[0],
+          permissionId: "permission-gallery-dependency",
+          request: request("Install package", "npm install reqeusts", "package.json", dependency),
+        },
       ],
     },
   ],
@@ -130,7 +136,11 @@ const unavailableDependencyState: PermissionClientState = {
     {
       ...dependencyState.groups[0]!,
       items: [
-        { ...dependencyState.groups[0]!.items[0]!, permissionId: "permission-gallery-unavailable", request: request("Install crate", "cargo add telemetry-kit", "Cargo.toml", unavailableDependency) },
+        {
+          ...dependencyState.groups[0]!.items[0]!,
+          permissionId: "permission-gallery-unavailable",
+          request: request("Install crate", "cargo add telemetry-kit", "Cargo.toml", unavailableDependency),
+        },
       ],
     },
   ],

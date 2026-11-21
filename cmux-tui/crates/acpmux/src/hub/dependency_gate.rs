@@ -4,7 +4,7 @@
 //! and a registry outage becomes an explicit card state after a short bounded request.
 
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -146,7 +146,10 @@ fn command(request: &Value) -> Option<String> {
             match values.as_slice() {
                 [shell, flag, script]
                     if matches!(shell.rsplit('/').next(), Some("sh" | "bash" | "zsh"))
-                        && matches!(*flag, "-c" | "-lc") => Some((*script).to_owned()),
+                        && matches!(*flag, "-c" | "-lc") =>
+                {
+                    Some((*script).to_owned())
+                }
                 _ => None,
             }
         }
@@ -168,15 +171,24 @@ fn parse_segment(segment: &str) -> Vec<PackageSpec> {
     let program = program.rsplit('/').next().unwrap_or(program.as_str());
     let (ecosystem, index) = match program {
         "npm" | "pnpm" | "yarn" | "bun" => {
-            let Some(index) = args.iter().position(|arg| matches!(arg.as_str(), "add" | "install" | "i")) else { return Vec::new() };
+            let Some(index) =
+                args.iter().position(|arg| matches!(arg.as_str(), "add" | "install" | "i"))
+            else {
+                return Vec::new();
+            };
             ("npm", index + 1)
         }
         "pip" | "pip3" => {
-            let Some(index) = args.iter().position(|arg| arg == "install") else { return Vec::new() };
+            let Some(index) = args.iter().position(|arg| arg == "install") else {
+                return Vec::new();
+            };
             ("pypi", index + 1)
         }
         "uv" => {
-            let Some(index) = args.iter().position(|arg| matches!(arg.as_str(), "add" | "install")) else { return Vec::new() };
+            let Some(index) = args.iter().position(|arg| matches!(arg.as_str(), "add" | "install"))
+            else {
+                return Vec::new();
+            };
             ("pypi", index + 1)
         }
         "poetry" => {
@@ -192,7 +204,9 @@ fn parse_segment(segment: &str) -> Vec<PackageSpec> {
             ("go", index + 1)
         }
         "brew" => {
-            let Some(index) = args.iter().position(|arg| arg == "install") else { return Vec::new() };
+            let Some(index) = args.iter().position(|arg| arg == "install") else {
+                return Vec::new();
+            };
             ("brew", index + 1)
         }
         _ => return Vec::new(),
@@ -210,7 +224,9 @@ fn normalize_name(ecosystem: &str, raw: &str) -> Option<String> {
         return None;
     }
     let raw = raw.trim_matches(|c: char| c == '\'' || c == '"');
-    if raw.is_empty() { return None; }
+    if raw.is_empty() {
+        return None;
+    }
     let name = match ecosystem {
         "npm" if raw.starts_with('@') => raw[1..].find('@').map_or(raw, |at| &raw[..at + 1]),
         "npm" => raw.split_once('@').map_or(raw, |(name, _)| name),
@@ -233,12 +249,16 @@ fn shell_words(input: &str) -> Vec<String> {
             (Some(_), c) => word.push(c),
             (None, '\'' | '"') => quote = Some(ch),
             (None, c) if c.is_whitespace() => {
-                if !word.is_empty() { words.push(std::mem::take(&mut word)); }
+                if !word.is_empty() {
+                    words.push(std::mem::take(&mut word));
+                }
             }
             (None, c) => word.push(c),
         }
     }
-    if !word.is_empty() { words.push(word); }
+    if !word.is_empty() {
+        words.push(word);
+    }
     words
 }
 
@@ -256,18 +276,36 @@ async fn fetch(package: PackageSpec) -> PackageMetadata {
     }
 }
 
-async fn fetch_npm(client: &reqwest::Client, package: PackageSpec, lookalike: Option<String>) -> PackageMetadata {
+async fn fetch_npm(
+    client: &reqwest::Client,
+    package: PackageSpec,
+    lookalike: Option<String>,
+) -> PackageMetadata {
     let url = format!("https://registry.npmjs.org/{}", package.name);
     let response = client.get(url).send().await.and_then(|response| response.error_for_status());
     let Ok(response) = response else { return unavailable(package, lookalike) };
-    let Ok(body) = response.json::<NpmResponse>().await else { return unavailable(package, lookalike) };
+    let Ok(body) = response.json::<NpmResponse>().await else {
+        return unavailable(package, lookalike);
+    };
     let version = body.dist_tags.as_ref().and_then(|tags| tags.latest.clone());
-    let scripts = version.as_ref().and_then(|version| body.versions.as_ref()?.get(version)?.scripts.as_ref());
+    let scripts =
+        version.as_ref().and_then(|version| body.versions.as_ref()?.get(version)?.scripts.as_ref());
     let created = body.time.as_ref().and_then(|time| time.get("created"));
-    PackageMetadata { ecosystem: package.ecosystem, name: package.name, status: "ok", version,
-        age_days: created.and_then(|value| age_days(value)), weekly_downloads: npm_downloads(client, &package.name).await,
+    PackageMetadata {
+        ecosystem: package.ecosystem,
+        name: package.name,
+        status: "ok",
+        version,
+        age_days: created.and_then(|value| age_days(value)),
+        weekly_downloads: npm_downloads(client, &package.name).await,
         maintainers: body.maintainers.map_or(0, |maintainers| maintainers.len() as u64),
-        install_scripts: scripts.is_some_and(|scripts| scripts.keys().any(|key| matches!(key.as_str(), "preinstall" | "install" | "postinstall"))), lookalike }
+        install_scripts: scripts.is_some_and(|scripts| {
+            scripts
+                .keys()
+                .any(|key| matches!(key.as_str(), "preinstall" | "install" | "postinstall"))
+        }),
+        lookalike,
+    }
 }
 
 async fn npm_downloads(client: &reqwest::Client, name: &str) -> Option<u64> {
@@ -275,31 +313,85 @@ async fn npm_downloads(client: &reqwest::Client, name: &str) -> Option<u64> {
     client.get(url).send().await.ok()?.json::<NpmDownloads>().await.ok()?.downloads
 }
 
-async fn fetch_pypi(client: &reqwest::Client, package: PackageSpec, lookalike: Option<String>) -> PackageMetadata {
+async fn fetch_pypi(
+    client: &reqwest::Client,
+    package: PackageSpec,
+    lookalike: Option<String>,
+) -> PackageMetadata {
     let url = format!("https://pypi.org/pypi/{}/json", package.name);
     let response = client.get(url).send().await.and_then(|response| response.error_for_status());
     let Ok(response) = response else { return unavailable(package, lookalike) };
-    let Ok(body) = response.json::<PyPiResponse>().await else { return unavailable(package, lookalike) };
+    let Ok(body) = response.json::<PyPiResponse>().await else {
+        return unavailable(package, lookalike);
+    };
     let info = body.info.unwrap_or(PyPiInfo { version: None, author: None, maintainers: None });
     let version = info.version.clone();
-    let created = version.as_ref().and_then(|version| body.releases.as_ref()?.get(version)?.first()?.upload_time_iso_8601.as_deref().map(str::to_owned));
-    PackageMetadata { ecosystem: package.ecosystem, name: package.name, status: "ok", version,
-        age_days: created.as_deref().and_then(age_days), weekly_downloads: None,
-        maintainers: info.maintainers.map_or(u64::from(info.author.is_some()), |maintainers| maintainers.len() as u64), install_scripts: false, lookalike }
+    let created = version.as_ref().and_then(|version| {
+        body.releases
+            .as_ref()?
+            .get(version)?
+            .first()?
+            .upload_time_iso_8601
+            .as_deref()
+            .map(str::to_owned)
+    });
+    PackageMetadata {
+        ecosystem: package.ecosystem,
+        name: package.name,
+        status: "ok",
+        version,
+        age_days: created.as_deref().and_then(age_days),
+        weekly_downloads: None,
+        maintainers: info
+            .maintainers
+            .map_or(u64::from(info.author.is_some()), |maintainers| maintainers.len() as u64),
+        install_scripts: false,
+        lookalike,
+    }
 }
 
-async fn fetch_crates(client: &reqwest::Client, package: PackageSpec, lookalike: Option<String>) -> PackageMetadata {
+async fn fetch_crates(
+    client: &reqwest::Client,
+    package: PackageSpec,
+    lookalike: Option<String>,
+) -> PackageMetadata {
     let url = format!("https://crates.io/api/v1/crates/{}", package.name);
-    let response = client.get(url).header("User-Agent", "cmux-dependency-gate").send().await.and_then(|response| response.error_for_status());
+    let response = client
+        .get(url)
+        .header("User-Agent", "cmux-dependency-gate")
+        .send()
+        .await
+        .and_then(|response| response.error_for_status());
     let Ok(response) = response else { return unavailable(package, lookalike) };
-    let Ok(body) = response.json::<CratesResponse>().await else { return unavailable(package, lookalike) };
+    let Ok(body) = response.json::<CratesResponse>().await else {
+        return unavailable(package, lookalike);
+    };
     let Some(krate) = body.krate else { return unavailable(package, lookalike) };
-    PackageMetadata { ecosystem: package.ecosystem, name: package.name, status: "ok", version: krate.max_stable_version,
-        age_days: krate.created_at.as_deref().and_then(age_days), weekly_downloads: krate.downloads, maintainers: 0, install_scripts: false, lookalike }
+    PackageMetadata {
+        ecosystem: package.ecosystem,
+        name: package.name,
+        status: "ok",
+        version: krate.max_stable_version,
+        age_days: krate.created_at.as_deref().and_then(age_days),
+        weekly_downloads: krate.downloads,
+        maintainers: 0,
+        install_scripts: false,
+        lookalike,
+    }
 }
 
 fn unavailable(package: PackageSpec, lookalike: Option<String>) -> PackageMetadata {
-    PackageMetadata { ecosystem: package.ecosystem, name: package.name, status: "unavailable", version: None, age_days: None, weekly_downloads: None, maintainers: 0, install_scripts: false, lookalike }
+    PackageMetadata {
+        ecosystem: package.ecosystem,
+        name: package.name,
+        status: "unavailable",
+        version: None,
+        age_days: None,
+        weekly_downloads: None,
+        maintainers: 0,
+        install_scripts: false,
+        lookalike,
+    }
 }
 
 fn age_days(timestamp: &str) -> Option<u64> {
@@ -323,8 +415,12 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 }
 
 fn lookalike(ecosystem: &str, name: &str) -> Option<String> {
-    let list: HashMap<String, Vec<String>> = serde_json::from_str(include_str!("../../data/dependency-top-packages.json")).ok()?;
-    list.get(ecosystem)?.iter().find(|candidate| candidate.as_str() != name && edit_distance(candidate, name) == 1).cloned()
+    let list: HashMap<String, Vec<String>> =
+        serde_json::from_str(include_str!("../../data/dependency-top-packages.json")).ok()?;
+    list.get(ecosystem)?
+        .iter()
+        .find(|candidate| candidate.as_str() != name && edit_distance(candidate, name) == 1)
+        .cloned()
 }
 
 fn edit_distance(left: &str, right: &str) -> usize {
@@ -376,12 +472,27 @@ mod tests {
 
     #[test]
     fn registry_fixtures_match_supported_shapes() {
-        let npm: NpmResponse = serde_json::from_str(include_str!("../../tests/fixtures/dependency-gate/npm.json")).unwrap();
+        let npm: NpmResponse =
+            serde_json::from_str(include_str!("../../tests/fixtures/dependency-gate/npm.json"))
+                .unwrap();
         assert_eq!(npm.dist_tags.and_then(|tags| tags.latest), Some("1.2.3".into()));
-        assert!(npm.versions.unwrap().get("1.2.3").unwrap().scripts.as_ref().unwrap().contains_key("preinstall"));
-        let pypi: PyPiResponse = serde_json::from_str(include_str!("../../tests/fixtures/dependency-gate/pypi.json")).unwrap();
+        assert!(
+            npm.versions
+                .unwrap()
+                .get("1.2.3")
+                .unwrap()
+                .scripts
+                .as_ref()
+                .unwrap()
+                .contains_key("preinstall")
+        );
+        let pypi: PyPiResponse =
+            serde_json::from_str(include_str!("../../tests/fixtures/dependency-gate/pypi.json"))
+                .unwrap();
         assert_eq!(pypi.info.unwrap().version, Some("2.31.0".into()));
-        let crates: CratesResponse = serde_json::from_str(include_str!("../../tests/fixtures/dependency-gate/crates.json")).unwrap();
+        let crates: CratesResponse =
+            serde_json::from_str(include_str!("../../tests/fixtures/dependency-gate/crates.json"))
+                .unwrap();
         assert_eq!(crates.krate.unwrap().downloads, Some(123456));
     }
 }
