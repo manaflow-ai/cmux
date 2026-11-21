@@ -94,6 +94,46 @@ fn list_pages_follow_the_cursor() {
 }
 
 #[test]
+fn machine_list_relays_disk_health_to_the_app() {
+    let mut s = server();
+    let disk_health = json!({
+        "free_mb": 4096,
+        "used_mb": 12288,
+        "total_mb": 16384,
+        "floor_mb": 1024,
+        "top_users": [{ "path": "/home/cmux", "used_mb": 2048 }],
+        "observed_at": 1_700_000_000_000i64
+    });
+    let machine = json!({
+        "id": vm(9),
+        "team": "team_t0000000000000000001",
+        "creator": "user_u0000000000000000001",
+        "name": "disk-health",
+        "size": { "cpu": 2, "memory_mb": 4096, "disk_mb": 16384 },
+        "status": "running",
+        "image": { "id": "img_i0000000000000000001", "daemon_version": "0.40.0" },
+        "host": host(9),
+        "classic": false,
+        "created_at": 1_790_000_001_000i64,
+        "last_active_at": null,
+        "idle_policy": { "idle_seconds": 1800 },
+        "error": null,
+        "revision": "3",
+        "disk_health": disk_health
+    });
+    s.control_plane_mut().answer(
+        "cloud.machine.list",
+        json!({}),
+        None,
+        json!({ "machines": [machine], "next_cursor": null, "revision": "3" }),
+    );
+
+    let page = s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
+    assert_eq!(page["machines"][0]["disk_health"], disk_health);
+    assert_eq!(record(&s, &vm(9))["disk_health"], disk_health);
+}
+
+#[test]
 fn create_replays_on_the_same_key_and_never_creates_twice() {
     let mut s = server();
     let args =

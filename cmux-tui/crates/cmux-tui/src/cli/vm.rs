@@ -836,6 +836,12 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return Some(super::cloud_client_session::run_words(&global, &words));
     }
     let env = |name: &str| std::env::var(name).ok();
+    if scope == Scope::Vm
+        && let [verb, tail @ ..] = rest
+        && verb == "pool"
+    {
+        return Some(run_pool(tail, global.output, &env));
+    }
     if let [verb, tail @ ..] = rest
         && matches!(verb.as_str(), "new" | "create")
     {
@@ -879,6 +885,23 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return Some(mint_through_app(&global, &plan));
     }
     Some(run_in_process(plan, scope, &env))
+}
+
+/// `cmux vm pool …`: the CI runner pool's surge, idle pause and scheduler (crate cmux-vm-pool). It talks to
+/// Freestyle, GCE and GitHub with their own credentials (`cmux vm pool --help`), not the VM API's.
+fn run_pool(tail: &[String], output: OutputMode, env: &dyn Fn(&str) -> Option<String>) -> i32 {
+    let runtime = match client_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("cmux: cannot start the pool client: {error}");
+            return 1;
+        }
+    };
+    let mut words = tail.to_vec();
+    if output == OutputMode::Json {
+        words.push("--json".to_owned());
+    }
+    runtime.block_on(cmux_vm_pool::cli::run(&words, env, &mut std::io::stdout().lock()))
 }
 
 /// Runs the cmux-vm CLI on its own runtime, with this process's stdio.
