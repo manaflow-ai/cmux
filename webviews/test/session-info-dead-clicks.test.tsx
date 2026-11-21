@@ -107,6 +107,10 @@ let terminalOpens = true;
 
 /// A fresh place to draw into.
 function mount(): HTMLElement {
+  // A view tall enough for every row of the fixture: a long list mounts the rows in view and its
+  // overscan (WindowedRows.tsx; session-info-windowed-rows-renders.test.tsx counts that window), and
+  // jsdom, which has no layout, cannot scroll to the rest. Every line has to be there to be clicked.
+  Object.defineProperty(dom.window, "innerHeight", { configurable: true, value: 8_000 });
   const container = dom.window.document.createElement("main");
   dom.window.document.body.replaceChildren(container);
   return container;
