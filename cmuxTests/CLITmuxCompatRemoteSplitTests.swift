@@ -248,19 +248,19 @@ import Testing
     /// expression like `cd … && … claude` makes it try to exec the `cd` builtin as a
     /// binary, the pane exits immediately, and the teammate never gets a visible pane
     /// (it falls back to in-process). The fix runs every tmux respawn shell-command
-    /// through a POSIX login shell (/bin/sh -lc) so profile/path_helper runs
+    /// through a POSIX login shell (/bin/sh -l -c) so profile/path_helper runs
     /// before Ghostty execs the shell, not the expression.
     /// `tmux_start_command` stays the raw command so `#{pane_start_command}` / OMX-HUD
     /// detection keep reporting it.
     @Test func respawnPaneRunsShellExpressionsThroughLoginShell() throws {
-        let shellPrefix = "/bin/sh -lc "
+        let shellPrefix = "/bin/sh -l -c "
 
         // Claude Code teammate command: spaced `cd … && … claude` shell expression.
         let teammate = "cd /tmp/work && env CLAUDECODE=1 /opt/claude --agent-id alice@team --agent-name alice"
         let teammateResult = try respawnPaneForwardedCommand(teammate)
         #expect(
             teammateResult.command.hasPrefix(shellPrefix),
-            "teammate command must run through /bin/sh -lc, got: \(teammateResult.command)"
+            "teammate command must run through /bin/sh -l -c, got: \(teammateResult.command)"
         )
         #expect(
             teammateResult.command.contains(teammate),
@@ -303,6 +303,52 @@ import Testing
         )
     }
 
+    /// Regression for #28452: on macOS 26 and later `/bin/sh` is a selector shim
+    /// that re-execs the shell chosen in `/private/var/select/sh`. Invoked as
+    /// `/bin/sh -lc '<body>'` with a body of roughly 1 KB or more, the shim is
+    /// SIGKILLed before any shell starts; `/bin/sh -l -c '<body>'` with the same
+    /// body runs. Every claude-teams teammate respawn crosses that size once the
+    /// launcher PATH is exported ahead of the `cd … && env … claude …` body, so
+    /// Ghostty reported "failed to launch the requested command" for every
+    /// teammate while `respawn-pane` still returned 0. Launch the forwarded
+    /// command the way Ghostty does on macOS (`bash --noprofile --norc -c
+    /// "exec -l <command>"`) and require the body to actually run.
+    @Test func respawnPaneLongCommandLaunchesThroughGhosttyExec() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tmux-compat-long-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let marker = tmpDir.appendingPathComponent("ran").path
+
+        // Mirror a real teammate respawn: a long exported PATH ahead of the
+        // `cd … && env … <claude> …` body. The PATH is synthesised so the launch
+        // string is past the shim's limit regardless of the host's PATH; it keeps
+        // the system directories so `env` still resolves once it is exported.
+        let longPath = (0..<64).map { "/opt/tool-\($0)/bin" }.joined(separator: ":") + ":/usr/bin:/bin"
+        let teammate = "export PATH='\(longPath)'; cd '\(tmpDir.path)' && env CLAUDECODE=1 /usr/bin/touch '\(marker)'"
+        let forwarded = try respawnPaneForwardedCommand(teammate)
+        #expect(
+            forwarded.command.utf8.count > 1_100,
+            "test must exercise a launch string over 1 KB, got \(forwarded.command.utf8.count) bytes"
+        )
+
+        let result = Self.runProcess(
+            executablePath: "/bin/bash",
+            arguments: ["--noprofile", "--norc", "-c", "exec -l \(forwarded.command)"],
+            environment: ["HOME": tmpDir.path, "PATH": "/usr/bin:/bin"],
+            timeout: 30
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(
+            result.status == 0,
+            "Ghostty-style launch of a \(forwarded.command.utf8.count)-byte respawn command exited \(result.status): \(result.stderr)"
+        )
+        #expect(
+            FileManager.default.fileExists(atPath: marker),
+            "the respawned command body never ran; launch string: \(forwarded.command)"
+        )
+    }
+
     /// Regression for #6447: even after the teammate command runs through a shell,
     /// each spawned `claude` opened its pane but then blocked forever on Claude
     /// Code's interactive "Do you trust this folder?" gate and never checked in —
@@ -324,8 +370,8 @@ import Testing
             extraEnvironment: ["CMUX_CLAUDE_TEAMS_SANDBOXED": "1"]
         )
         #expect(
-            inTeams.command.hasPrefix("/bin/sh -lc "),
-            "claude-teams respawn must still run through /bin/sh -lc, got: \(inTeams.command)"
+            inTeams.command.hasPrefix("/bin/sh -l -c "),
+            "claude-teams respawn must still run through /bin/sh -l -c, got: \(inTeams.command)"
         )
         #expect(
             inTeams.command.contains("export CLAUDE_CODE_SANDBOXED="),
@@ -403,7 +449,7 @@ import Testing
         )
         #expect(inTeams.startCommand == teammate)
 
-        let unchangedCommand = "/bin/sh -lc '\(teammate)'"
+        let unchangedCommand = "/bin/sh -l -c '\(teammate)'"
         let inOMO = try respawnPaneForwardedCommand(teammate)
         #expect(
             inOMO.command == unchangedCommand,

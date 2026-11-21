@@ -216,8 +216,8 @@ extension CMUXCLI {
     /// the pane exits before the real command runs; that is why Claude Code
     /// 2.1.183 teammates never opened a split pane (issue #6447).
     ///
-    /// Every command is run through `/bin/sh -lc '<command>'`, so Ghostty execs a
-    /// login shell rather than a builtin/expression/assignment-prefix. The `-l`
+    /// Every command is run through `/bin/sh -l -c '<command>'`, so Ghostty execs
+    /// a login shell rather than a builtin/expression/assignment-prefix. The `-l`
     /// is important: Ghostty's `exec -l` only changes argv[0], and does not make
     /// macOS `/bin/sh` read `/etc/profile` when it is given a non-interactive `-c`
     /// command. The login shell therefore runs `path_helper` and restores the
@@ -228,6 +228,15 @@ extension CMUXCLI {
     /// operators with no surrounding whitespace). Commands that are already a
     /// shell invocation (e.g. OMO's `/bin/sh -c "…"`) are simply run through one
     /// more shell, which execs straight into them.
+    ///
+    /// `-l` and `-c` are passed as separate arguments on purpose. On macOS 26 and
+    /// later `/bin/sh` is a selector shim that re-execs the shell named in
+    /// `/private/var/select/sh`; invoked as `/bin/sh -lc '<command>'` (or `-cl`)
+    /// with a command of roughly 1 KB or more it is SIGKILLed before any shell
+    /// starts, and Ghostty reports "failed to launch the requested command".
+    /// `/bin/sh -l -c` with the same command runs. Every claude-teams teammate
+    /// respawn crosses that size once the launcher PATH is exported ahead of the
+    /// `cd … && env … <claude> …` body (issue #28452).
     ///
     /// A POSIX shell (`/bin/sh`) is used deliberately rather than the user's
     /// `$SHELL`: the commands being wrapped are POSIX `sh` syntax (Claude Code's
@@ -240,7 +249,7 @@ extension CMUXCLI {
     func tmuxShellInvokedStartCommand(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return command }
-        return "/bin/sh -lc \(tmuxShellQuote(trimmed))"
+        return "/bin/sh -l -c \(tmuxShellQuote(trimmed))"
     }
 
     /// Like `tmuxShellInvokedStartCommand`, but first exports `prependEnv` inside
