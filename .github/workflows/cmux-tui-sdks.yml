@@ -354,6 +354,10 @@ env:
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
   CMUX_GHOSTTY_SRC: ""
+  # Cached binaries are restored across pool VMs with different CPU models.
+  # Build libghostty-vt for the x86-64 baseline so the restored binary cannot
+  # terminate with SIGILL on a runner with fewer CPU features.
+  CMUX_GHOSTTY_VT_ZIG_CPU: baseline
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
@@ -980,7 +984,7 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          sudo apt-get install -y clang libclang-dev pkg-config cmake
 
       - name: Set up Python
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -1049,7 +1053,7 @@ jobs:
         id: headless-key
         run: |
           set -euo pipefail
-          echo "key=cmux-tui-headless-v2-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
+          echo "key=cmux-tui-headless-v3-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
 
       - name: Restore the headless cmux-tui build
         if: ${{ steps.tree.outputs.hit != 'true' }}
