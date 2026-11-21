@@ -435,7 +435,7 @@ public final class DesignSettings {
         case .dividerThickness: 0...6
         case .dividerHitWidth: 1...24
         case .panelCornerRadius: 0...20
-        case .chromeFontSize: 10...16
+        case .chromeFontSize: 10...20
         case .tabFontSize: 10...18
         case .titlebarHeight: 24...56
         case .sidebarRowInset, .sidebarRowPadding: 0...24

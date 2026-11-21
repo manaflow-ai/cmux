@@ -331,8 +331,8 @@ fn cloud_create_list_run_and_the_plan_refusal() {
     let steps = command["params"]["body"]["steps"].as_array().unwrap();
     assert_eq!(
         steps.len(),
-        1 + 14,
-        "a start step, then waits of at most 90 s that cover 20 minutes"
+        1 + 5,
+        "a start step, then waits of at most 280 s that cover 20 minutes"
     );
     assert!(steps.iter().all(|s| s["machine"] == "vm_abcdefghij0123456789"));
     assert!(steps[0]["command"].as_str().unwrap().contains("fetch --quiet origin feat-cmux-next"));
