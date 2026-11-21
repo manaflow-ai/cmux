@@ -9,6 +9,7 @@ cmux terminal list --json
 # create
 cmux pane pane_… neighbor right --json         # reuse the pane to its right if there is one
 cmux pane pane_… split --right -- npm run dev     # new pane runs the command (no empty shell)
+cmux pane caller split --right --fit --browser --url "$PR_URL"  # only a browser tab
 cmux pane pane_… split --down --ratio 0.3 --cwd "$PWD"
 cmux pane pane_… run --name dev -- npm run dev
 cmux pane pane_… run shell 'tail -f logs/dev.log'

@@ -62,6 +62,7 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "right",
     "up",
     "down",
+    "browser",
     // `pane split --focus`: the new pane takes the focus.
     "focus",
     "force",

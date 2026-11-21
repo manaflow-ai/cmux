@@ -72,10 +72,10 @@ pub(super) const TOOLS: &[AgentTool] = &[
     AgentTool {
         name: "agents_terminal_split",
         verb: Verb::TerminalSplit,
-        title: "Split terminal",
-        description: "Split a pane (the current one unless pane is given) and open a \
-            terminal beside it (`cmux agents terminal split`). The cmux window keeps the \
-            user's focus.",
+        title: "Split pane",
+        description: "Split a pane (current unless pane is given). Set browser: true to open \
+            a browser with the optional url (default about:blank), without creating a terminal. \
+            Otherwise open a terminal. The cmux window keeps the user's focus.",
     },
     AgentTool {
         name: "agents_palette_open",
@@ -285,6 +285,18 @@ impl AgentTool {
                 properties.insert(
                     "pane".into(),
                     id_schema("The pane to split (pane_ id); default the current pane."),
+                );
+                properties.insert(
+                    "fit".into(),
+                    json!({"type":"boolean","description":"For a right split, add a column that shares the window. Use beside an agent chat dock."}),
+                );
+                properties.insert(
+                    "browser".into(),
+                    json!({"type":"boolean","description":"Create only a browser tab in the new pane."}),
+                );
+                properties.insert(
+                    "url".into(),
+                    json!({"type":"string","minLength":1,"description":"Start URL with browser: true. Defaults to about:blank."}),
                 );
                 required.push("direction");
             }
@@ -516,6 +528,15 @@ impl AgentTool {
                 words.extend(["terminal".into(), "split".into(), direction]);
                 if args.values.contains_key("pane") {
                     words.extend(["--surface".into(), args.word("pane")?]);
+                }
+                if args.flag("fit")? {
+                    words.push("--fit".into());
+                }
+                if args.flag("browser")? {
+                    words.push("--browser".into());
+                }
+                if let Some(url) = args.text("url")? {
+                    words.extend(["--url".into(), url]);
                 }
             }
             Verb::PaletteOpen => words.extend(["palette".into(), "open".into()]),

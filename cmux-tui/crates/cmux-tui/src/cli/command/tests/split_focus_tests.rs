@@ -38,6 +38,34 @@ fn pane_split_takes_the_new_panes_command() {
 }
 
 #[test]
+fn browser_pane_split_cli_uses_the_socket_contract() {
+    let url = "https://example.com/";
+    let with_url =
+        protocol(&["pane", PANE, "split", "--right", "--fit", "--browser", "--url", url]);
+    assert_eq!(with_url.params["browser"], true);
+    assert_eq!(with_url.params["url"], url);
+    assert_plan_matches_catalog(&with_url, "pane.split", &operation_catalog());
+
+    let blank = protocol(&["pane", PANE, "split", "--down", "--browser"]);
+    assert_eq!(blank.params["browser"], true);
+    assert!(blank.params.get("url").is_none());
+    for args in [
+        vec!["--url", url],
+        vec!["--browser", "--url", ""],
+        vec!["--browser", "--cwd", "/tmp"],
+        vec!["--browser", "--shell", "echo test"],
+        vec!["--browser", "--", "echo", "test"],
+    ] {
+        let mut words = vec!["pane", PANE, "split"];
+        words.extend(args);
+        assert!(
+            parse(&strings(&words), super::super::super::Surface::CmuxTui).is_err(),
+            "{words:?}",
+        );
+    }
+}
+
+#[test]
 fn workspace_create_sends_focus_only_when_asked() {
     let catalog = operation_catalog();
     let plain = protocol(&["workspace", "create", "--name", "bg"]);

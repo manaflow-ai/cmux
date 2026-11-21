@@ -21,15 +21,17 @@ use serde_json::{Value, json};
 
 use super::{ParsedResourceRequest, content, operation_name, resource_operation_error};
 use crate::browser::BrowserStatus;
+use crate::mux::{PANE_BROWSER_ENGINE_FIELD, PANE_BROWSER_URL_FIELD};
 use crate::resource::{OperationClass, ResourceError, ResourceOperation};
 use crate::server::FRONTEND_BROWSER_TABS_CAPABILITY;
 use crate::state::frontend_browser_keys::KeyedFrontendBrowser;
 use crate::workspace_registry::FrontendBrowserRecord;
 use crate::{Mux, ResourceTarget};
 
-/// Turns a plain `tab.create_browser` into a frontend browser tab when no
-/// cmux-browser provider is attached and a connected frontend renders
-/// browser tabs: the record is registered under the request's key first
+/// Routes browser creation to an app that renders its own tabs when no
+/// daemon provider is attached. Browser splits register their frontend
+/// record in the durable creation effect, under its reserved browser id.
+/// For `tab.create_browser`, the record is registered under the request's key first
 /// (the keyed `new-frontend-browser-tab` path), and the request then carries
 /// its `frontend_browser_id`. A retry under the same key reuses that id, so
 /// the topology receipt replays. A request that was received before on the
@@ -38,11 +40,33 @@ pub(super) fn route_to_frontend(
     mux: &Arc<Mux>,
     request: &mut ParsedResourceRequest,
 ) -> Result<(), ResourceError> {
-    if request.envelope.operation != ResourceOperation::TabCreateBrowser
+    let operation = request.envelope.operation;
+    if operation == ResourceOperation::PaneSplit
+        && request.fields.remove("browser").and_then(|value| value.as_bool()) == Some(true)
+    {
+        let url = request.fields.remove("url").unwrap_or_else(|| json!("about:blank"));
+        request.fields.insert(PANE_BROWSER_URL_FIELD.into(), url);
+        let frontend_engine = if mux.browser_provider_snapshot().is_none()
+            && mux.control_clients.any_client_supports(FRONTEND_BROWSER_TABS_CAPABILITY)
+        {
+            let engine = crate::browser_profile_ops::requested_or_default_engine(
+                mux,
+                None,
+                super::required_string(&request.fields, PANE_BROWSER_URL_FIELD)?,
+            )?;
+            json!(engine.to_string())
+        } else {
+            Value::Null
+        };
+        request.fields.insert(PANE_BROWSER_ENGINE_FIELD.into(), frontend_engine);
+        return Ok(());
+    }
+    if operation != ResourceOperation::TabCreateBrowser
         || request.fields.contains_key("frontend_browser_id")
     {
         return Ok(());
     }
+    let name = operation_name(operation);
     let Some(key) = request.envelope.idempotency_key.clone() else { return Ok(()) };
     let keyed = mux.has_frontend_browser_key(&key).map_err(resource_operation_error)?;
     if !keyed
@@ -52,7 +76,7 @@ pub(super) fn route_to_frontend(
     {
         return Ok(());
     }
-    let url = request.fields.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
+    let url = super::required_string(&request.fields, "url")?.to_string();
     // The request's `engine`, else the person's `browser.siteEngines` rule
     // for the URL, else `browser.defaultEngine` (Chromium unless set to
     // WebKit): an agent's tab opens in the same engine as one the person opens.
@@ -70,14 +94,14 @@ pub(super) fn route_to_frontend(
         owner: None,
     };
     let fingerprint = json!({
-        "operation": "tab.create_browser",
+        "operation": name,
         "params": request.envelope.params,
     });
     let browser = match mux
         .keyed_frontend_browser(&key, record, fingerprint, |id| Ok(id.clone()))
         .map_err(|error| {
         if error.to_string().starts_with("idempotency.conflict") {
-            ResourceError::idempotency_conflict(&key, "tab.create_browser")
+            ResourceError::idempotency_conflict(&key, &name)
         } else {
             resource_operation_error(error)
         }
@@ -86,7 +110,7 @@ pub(super) fn route_to_frontend(
         KeyedFrontendBrowser::Placed(surface) => {
             mux.frontend_browser_id(&surface).ok_or_else(|| {
                 ResourceError::operation_failed(
-                    "tab.create_browser",
+                    name,
                     "the browser tab this key made is no longer rendered by the cmux app",
                     json!({}),
                 )

@@ -127,7 +127,7 @@ USAGE
   cmux pane <selector> rename <name>|--name <name>
   cmux pane <selector> split [--right|--down] [--ratio <value>]
     [--fit | --viewport-width <fraction>] [--focus] [--correlation-key <value>]
-    [--shell <script> | -- <argv...>]
+    [--browser [--url <url>] | --shell <script> | -- <argv...>]
   cmux pane <selector> focus direction <left|right|up|down>
   cmux pane <selector> neighbor <left|right|up|down>
   cmux pane <selector> swap --other-workspace <selector>
@@ -153,7 +153,9 @@ beside a chat. --viewport-width <fraction> makes a column of exactly that
 share of the window, and the row scrolls sideways when the columns are wider
 than the window.
 
-split keeps the focus where it is unless --focus is given. With --shell or
+split keeps the focus where it is unless --focus is given. Use --browser
+[--url <url>] for a browser as the new pane's only tab; it opens about:blank
+when the URL is omitted. With --shell or
 -- argv the new pane (of split or create) runs that command instead of a
 shell. To add a terminal
 to a pane that already exists, use `cmux tab create terminal --pane <selector>`

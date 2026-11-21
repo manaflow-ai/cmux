@@ -34,7 +34,7 @@ pub(super) use wait::{
     DEFAULT_TIMEOUT_SECONDS as DEFAULT_WAIT_SECONDS, MAX_TIMEOUT_SECONDS as MAX_WAIT_SECONDS,
 };
 
-const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|chat|wait|events|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty] [--top]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents chat new [--workspace <ws>|--pane <pane>|--top] [--harness <h>] [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] [--attach <file>]... [--] [<prompt>]\n  cmux agents chat send <chat> [--] <text>\n  cmux agents chat read <chat> [--after <item-id>] [--limit <n>]\n  cmux agents chat state <chat>\n  cmux agents chat interrupt <chat>\n  cmux agents chat continue <chat> [[--] <text>]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents events [--after <cursor>] [--kind dialog|notification|tab|workspace|agent ...] [--timeout <seconds>] [--limit <n>] [--json]\n  cmux agents events --until <kind>.<change>|<prefix>* [--match <path>=<value> ...] [--timeout <duration>] [--json]   (the first matching event; exit 124 on timeout)\n  cmux agents doctor [--json]\n";
+const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|chat|wait|events|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty] [--top]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>] [--fit] [--browser [--url <url>]]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents chat new [--workspace <ws>|--pane <pane>|--top] [--harness <h>] [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] [--attach <file>]... [--] [<prompt>]\n  cmux agents chat send <chat> [--] <text>\n  cmux agents chat read <chat> [--after <item-id>] [--limit <n>]\n  cmux agents chat state <chat>\n  cmux agents chat interrupt <chat>\n  cmux agents chat continue <chat> [[--] <text>]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents events [--after <cursor>] [--kind dialog|notification|tab|workspace|agent ...] [--timeout <seconds>] [--limit <n>] [--json]\n  cmux agents events --until <kind>.<change>|<prefix>* [--match <path>=<value> ...] [--timeout <duration>] [--json]   (the first matching event; exit 124 on timeout)\n  cmux agents doctor [--json]\n";
 
 /// Handles the `agents` namespace before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -248,28 +248,32 @@ fn command_capped(args: &[String], wait_max: u64) -> Result<AgentCommand, UsageE
         ["terminal", "split", direction, rest @ ..]
             if matches!(*direction, "left" | "right" | "up" | "down") =>
         {
-            let mut mapped = scoped_resource_path("pane", "current", "split");
-            mapped.push(format!("--{direction}"));
-            let mut pane: Option<String> = None;
-            let mut index = 0;
-            while index < rest.len() {
-                if rest[index] == "--surface" {
-                    let value = rest.get(index + 1).ok_or_else(|| {
-                        UsageError::new("agents terminal split: --surface needs a value")
-                    })?;
-                    pane = Some((*value).into());
-                    index += 2;
-                } else {
-                    return Err(UsageError::new(format!(
-                        "agents terminal split: unexpected argument {:?}",
-                        rest[index]
-                    )));
+            let mut pane = "current";
+            let mut options = vec![format!("--{direction}")];
+            let mut rest = rest.iter().copied();
+            while let Some(flag) = rest.next() {
+                match flag {
+                    "--surface" => {
+                        pane = rest.next().ok_or_else(|| {
+                            UsageError::new("agents terminal split: --surface needs a value")
+                        })?;
+                    }
+                    "--browser" | "--fit" => options.push(flag.into()),
+                    "--url" => {
+                        let url = rest.next().ok_or_else(|| {
+                            UsageError::new("agents terminal split: --url needs a value")
+                        })?;
+                        options.push(format!("--url={url}"));
+                    }
+                    _ => {
+                        return Err(UsageError::new(format!(
+                            "agents terminal split: unexpected argument {flag:?}",
+                        )));
+                    }
                 }
             }
-            if let Some(pane) = pane {
-                mapped = scoped_resource_path("pane", &pane, "split");
-                mapped.push(format!("--{direction}"));
-            }
+            let mut mapped = scoped_resource_path("pane", pane, "split");
+            mapped.extend(options);
             Ok(resource("terminal.split", mapped))
         }
         ["palette", "open"] => {

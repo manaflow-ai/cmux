@@ -1204,7 +1204,10 @@ structures. Viewport columns retain stable IDs and widths. The document also
 retains active and zoomed pane IDs. Nested same-direction splits are not
 flattened. A rightward `pane.split` may include `viewport_width` from 0.1
 through 1.0 to create the terminal as a separate scrolling viewport column;
-ordinary splits omit it. `pane.split` keeps the caller's focus unless it sends
+ordinary splits omit it. Set `browser: true` to create a pane with exactly one
+browser tab. Optional `url` defaults to `about:blank`; `cwd`, `argv`, and
+`shell` are terminal-only. The result is a `CreatedBrowserPath` instead of a
+`CreatedTerminalPath`. `pane.split` keeps the caller's focus unless it sends
 `focus: true`, like `tab.create_terminal`; only the user's own splits (raw
 `split` from the app or TUI) focus the new pane. `pane.split` may send at most
 one of `argv` or `shell` (same rules as `pane.run`) so the new pane runs that

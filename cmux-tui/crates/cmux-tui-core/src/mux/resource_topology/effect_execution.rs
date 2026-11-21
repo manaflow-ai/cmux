@@ -86,6 +86,13 @@ impl Mux {
             intent.set("pane_reservation", json!({ "pane_id": pane_id }));
         }
         if operation == ResourceOperation::PaneSplit {
+            // This runs only for a fresh creation, after receipt lookup.
+            // A committed or prepared retry does not need a live renderer.
+            if fields.get(PANE_BROWSER_ENGINE_FIELD).is_some_and(Value::is_null)
+                && let Some(error) = self.browser_engine_unavailable(operation.wire_name())
+            {
+                return Err(error.into());
+            }
             // The new split's public id is fixed here too: the caller's
             // (`split-client-split-id-v1`), so the layout names the split the
             // caller already shows, else a new one, so the first layout that

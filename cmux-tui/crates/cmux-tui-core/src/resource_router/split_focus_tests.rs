@@ -85,6 +85,40 @@ fn programmatic_split_keeps_the_callers_focus() {
 }
 
 #[test]
+fn browser_pane_split_creates_one_browser_without_a_terminal_and_replays() {
+    let mux = mux();
+    let first = focused_workspace(&mux, "browser-split");
+    mux.attach_test_browser_provider(1);
+    let before = mux.surface_count();
+    let split = || {
+        send(
+            &mux,
+            "pane.split",
+            json!({"pane":first,"direction":"right","fit":true,"browser":true,"url":"about:blank#split"}),
+            Some("browser-split-key"),
+        )
+    };
+    let result = split();
+    let value = &result["value"];
+    let created = value["pane_id"].as_str().unwrap();
+    let tabs = pane_tabs(&mux, created);
+    assert_eq!(value["kind"], "browser");
+    assert!(value["terminal_id"].is_null());
+    assert_ne!(created, first);
+    assert_eq!(tabs.len(), 1);
+    assert_eq!(mux.surface_count(), before + 1);
+    let surface = mux.surface(tabs[0]).unwrap();
+    assert_eq!(surface.kind(), crate::SurfaceKind::Browser);
+    assert_eq!(surface.browser_url().as_deref(), Some("about:blank#split"));
+    assert_eq!(focused_pane(&mux), first);
+    assert!(mux.unregister_browser_provider(1));
+    let replayed = split();
+    assert_eq!(replayed["value"], *value);
+    assert_eq!(replayed["replayed"], true);
+    assert_eq!(mux.surface_count(), before + 1);
+}
+
+#[test]
 fn programmatic_split_with_focus_true_focuses_the_new_pane() {
     let mux = mux();
     let first = focused_workspace(&mux, "focus-true");

@@ -31990,6 +31990,23 @@
               "name": "decimal"
             },
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          },
+          "browser": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Create one browser tab in the split instead of a terminal."
+          },
+          "url": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Start URL for a browser split. Defaults to about:blank."
           }
         },
         "extra": false,
@@ -31999,7 +32016,8 @@
           "fit requires direction left or right and excludes viewport_width, ratio, row_height and around.",
           "cols and rows are paired.",
           "At most one of argv or shell is present; argv[0] is non-empty.",
-          "focus defaults to false: a programmatic split never moves the user's focus unless it asks."
+          "focus defaults to false: a programmatic split never moves the user's focus unless it asks.",
+          "url requires browser: true. Browser splits do not take cwd, argv or shell."
         ]
       },
       "result": {
@@ -32007,8 +32025,18 @@
         "name": "MutationResult",
         "arguments": [
           {
-            "kind": "ref",
-            "name": "CreatedTerminalPath"
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "ref",
+                "name": "CreatedTerminalPath"
+              },
+              {
+                "kind": "ref",
+                "name": "CreatedBrowserPath"
+              }
+            ],
+            "discriminator": "kind"
           }
         ]
       },

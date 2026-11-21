@@ -330,6 +330,7 @@ impl Mux {
                 }
             }
             ResourceCreationEvidence::NotApplied(reason) => {
+                self.discard_unplaced_frontend_split_browser(&recovery.intent)?;
                 self.rollback_interrupted_workspace_creation(&recovery.intent)?;
                 let error = failure.unwrap_or_else(|| {
                     ResourceError::operation_failed(

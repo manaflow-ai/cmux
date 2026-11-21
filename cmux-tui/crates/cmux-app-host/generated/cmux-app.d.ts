@@ -21,7 +21,7 @@ declare namespace Cmux {
   type AvatarRef = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number }
   type Body = unknown
   type BrowserAttachFrame = { kind: "frame"; mime_type: "image/png" | "image/jpeg"; data_base64: string; width_px: number; height_px: number; pointer_frame_seq: string | null }
-  type BrowserAttachItem = unknown
+  type BrowserAttachItem = Cmux.BrowserAttachSnapshot | Cmux.BrowserAttachFrame | Cmux.BrowserAttachState
   type BrowserAttachSnapshot = { kind: "snapshot"; browser: Cmux.BrowserSnapshot; size: Cmux.PixelSize }
   type BrowserAttachState = { kind: "state"; url: string; title: string; loading: boolean }
   type BrowserDeviceAddResult = { device: Cmux.JsonValue }
@@ -116,7 +116,7 @@ declare namespace Cmux {
   type ConnectionStatus = "pending" | "active" | "needs_reauth" | "error" | "revoked" | "expired"
   type ConversationChangedItem = { type: "conversation"; conversation: string; rev: number; summary: Cmux.ConversationSummary }
   type ConversationDraftItem = { type: "draft"; conversation: string; participant: string; turn: string; segment: number; seq: number; kind: "talk" | "thought"; text: string; fresh: boolean; done: boolean; truncated?: boolean; harness?: string }
-  type ConversationEventItem = unknown
+  type ConversationEventItem = Cmux.ConversationSnapshotItem | Cmux.ConversationMessageItem | Cmux.ConversationReadCursorItem | Cmux.ConversationChangedItem | Cmux.ConversationTypingItem | Cmux.ConversationDraftItem
   type ConversationId = string
   type ConversationKind = "chief" | "dm" | "group"
   type ConversationMessage = { id: string; conversation: string; seq: number; client_msg_id: string; author: string; parts: Array<Cmux.JsonValue>; reply_to?: Cmux.ConversationPartRef; answers?: Array<string>; answers_pending?: Array<string>; thread_root?: string; created_at: string; edited_at?: string; retracted_at?: string; reactions: Array<Cmux.JsonValue>; origin?: Cmux.ConversationOrigin }
@@ -133,7 +133,7 @@ declare namespace Cmux {
   type ConversationSummary = { id: string; owner: "local"; title: string; participants: Array<Cmux.ConversationParticipant>; last_seq: number; rev: number; created_at: string; updated_at: string; last_message?: Cmux.ConversationMessage; read_cursors: Record<string, number> }
   type ConversationTypingItem = { type: "typing"; conversation: string; participant: string; on: boolean }
   type CreatedBrowserPath = { kind: "browser"; workspace_id: string /* workspace_… */; screen_id: string /* screen_… */; pane_id: string /* pane_… */; tab_id: string /* tab_… */; browser_id: string /* browser_… */ }
-  type CreatedPath = unknown
+  type CreatedPath = Cmux.CreatedWorkspaceOnly | Cmux.CreatedTerminalPath | Cmux.CreatedBrowserPath
   type CreatedTerminalPath = { kind: "terminal"; workspace_id: string /* workspace_… */; screen_id: string /* screen_… */; pane_id: string /* pane_… */; tab_id: string /* tab_… */; terminal_id: string /* terminal_… */ }
   type CreatedWorkspaceOnly = { kind: "workspace"; workspace_id: string /* workspace_… */ }
   type CreationResolution = { correlation_key: string; state: "pending" | "created" | "not_applied" | "indeterminate"; recovery: "retry_same_idempotency_key" | "retry_new_idempotency_key" | "wait" | "none" | "do_not_retry"; operation?: string; idempotency_key?: string; created_path?: Cmux.CreatedPath; generation?: string; revision?: string }
@@ -308,7 +308,7 @@ declare namespace Cmux {
   type LayoutColumnDock = { edge: "left" | "right" | "top" | "bottom"; mode: "docked" | "overlay"; role?: "agent_chat"; permanent?: boolean; pinned?: boolean; allow_tabs?: boolean }
   type LayoutDocument = { version: number; screen_id: string /* screen_… */; active_pane_id: string /* pane_… */; zoomed_pane_id: string /* pane_… */ | null; root: Cmux.LayoutNode; extra?: Record<string, Cmux.JsonValue> }
   type LayoutLeaf = { kind: "leaf"; pane_id: string /* pane_… */; tab_ids: Array<string /* tab_… */>; active_tab_id?: string /* tab_… */ }
-  type LayoutNode = unknown
+  type LayoutNode = Cmux.LayoutLeaf | Cmux.LayoutSplit | Cmux.LayoutStack | Cmux.LayoutViewport
   type LayoutRow = { row_id?: string /* split_… */; height: number }
   type LayoutSplit = { kind: "split"; split_id: string /* split_… */; direction: "horizontal" | "vertical"; ratio: number; first: Cmux.LayoutNode; second: Cmux.LayoutNode }
   type LayoutStack = { kind: "stack"; pane_ids: Array<string /* pane_… */>; expanded_pane_id: string /* pane_… */ }
@@ -388,7 +388,7 @@ declare namespace Cmux {
   type RepoPattern = string
   type RequestCancelResult = { canceled: boolean }
   type RequestOrigin = "page" | "agent" | "app" | "user"
-  type ResourceChange = unknown
+  type ResourceChange = Cmux.ResourceUpsert | Cmux.ResourceDelete | Cmux.StateUpsert | Cmux.StateDelete
   type ResourceChangeId = unknown
   type ResourceDelete = { kind: "delete"; sequence: number; resource: Cmux.ResourceKind; id: Cmux.ResourceChangeId }
   type ResourceEntitySnapshot = unknown
@@ -416,7 +416,7 @@ declare namespace Cmux {
   type ServerNetworkReservation = { state: "reserved"; tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; device: Cmux.NativeDeviceId }
   type ServerNetworkState = unknown
   type SessionDelta = { kind: "delta"; cursor: Cmux.Cursor; previous_revision: string; revision: string; changes: Array<Cmux.ResourceChange> }
-  type SessionEventItem = unknown
+  type SessionEventItem = Cmux.SessionSnapshotItem | Cmux.SessionDelta
   type SessionJournalRecord = { sequence: string; event_id: string; schema_version: number; kind: string; class: Cmux.JournalClass; replay: Cmux.JournalReplayPolicy; occurred_at_ms: string; committed_at_ms: string; producer: Cmux.JournalProducer; authority: Cmux.JournalAuthority | null; causation_id: string | null; correlation_id: string | null; causation_depth: number; subjects: Array<Cmux.JournalSubject>; sensitivity: Cmux.JournalSensitivity; payload: Cmux.JsonValue; resource_revision: string | null; previous_resource_revision: string | null }
   type SessionSnapshot = { id: string /* session_… */; machine_id: string /* machine_… */; name?: string; generation: string; revision: string; connected: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SessionSnapshotItem = { kind: "snapshot"; cursor: Cmux.Cursor; reset_reason?: "initial" | "generation_changed" | "cursor_expired"; snapshot: Cmux.ResourceSnapshot }
@@ -425,7 +425,7 @@ declare namespace Cmux {
   type SettingsEditChange = { keys: Array<string>; applied: Array<number> }
   type Sharing = "team" | "private"
   type ShutdownResult = { accepted: boolean }
-  type SidebarAttachItem = unknown
+  type SidebarAttachItem = Cmux.SidebarAttachSnapshot | Cmux.SidebarAttachPatch | Cmux.SidebarAttachScroll
   type SidebarAttachPatch = { kind: "patch"; sidebar_view_id: string /* sidebar_view_… */; render: Cmux.RenderPatch }
   type SidebarAttachScroll = { kind: "scroll"; sidebar_view_id: string /* sidebar_view_… */; scroll: Cmux.RenderScroll }
   type SidebarAttachSnapshot = { kind: "snapshot"; sidebar_view: Cmux.SidebarViewSnapshot; render: Cmux.RenderSnapshot }
@@ -434,7 +434,7 @@ declare namespace Cmux {
   type SidebarDocSnapshot = { revision: string; sections: Array<Cmux.SidebarSectionSnapshot>; items: Array<Cmux.SidebarItemSnapshot> }
   type SidebarItemRef = { kind: string; value: string }
   type SidebarItemSnapshot = { id: string; section: string; parent?: string; order: string; body: Cmux.JsonValue; shows_label: boolean; span?: number; extra?: Record<string, Cmux.JsonValue> }
-  type SidebarLayoutOp = unknown
+  type SidebarLayoutOp = Cmux.SidebarLayoutOpSectionAdd | Cmux.SidebarLayoutOpSectionUpdate | Cmux.SidebarLayoutOpSectionMove | Cmux.SidebarLayoutOpSectionRemove | Cmux.SidebarLayoutOpItemAdd | Cmux.SidebarLayoutOpItemMove | Cmux.SidebarLayoutOpItemRemove | Cmux.SidebarLayoutOpItemRemoveRef | Cmux.SidebarLayoutOpItemUpdate | Cmux.SidebarLayoutOpReset
   type SidebarLayoutOpItemAdd = { kind: "item.add"; item: Cmux.JsonValue; section: string; index: number }
   type SidebarLayoutOpItemMove = { kind: "item.move"; id: string; section: string; index: number }
   type SidebarLayoutOpItemRemove = { kind: "item.remove"; id: string }
@@ -502,7 +502,7 @@ declare namespace Cmux {
   type TeamVmStatus = "none" | "provisioning" | "starting" | "running" | "paused" | "failed"
   type TeamVmTaint = { epoch: number; at: number; users: Array<string>; accepted_by: string | null; accepted_at: number | null }
   type TeamVmView = { team: Cmux.TeamId; status: Cmux.TeamVmStatus; vm: string | null; epoch: number; leases: Array<{ lease: Cmux.TeamVmLeaseId; holder: string; reason: string; expires_at: number }>; last_error: Cmux.TeamVmError | null; updated_at: number; taint: Cmux.TeamVmTaint | null; retired: Array<Cmux.TeamVmRetired>; no_owner?: boolean }
-  type TerminalAttachItem = unknown
+  type TerminalAttachItem = Cmux.TerminalAttachSnapshot | Cmux.TerminalAttachPatch | Cmux.TerminalAttachScroll
   type TerminalAttachPatch = { kind: "patch"; terminal_id: string /* terminal_… */; render: Cmux.RenderPatch }
   type TerminalAttachScroll = { kind: "scroll"; terminal_id: string /* terminal_… */; scroll: Cmux.RenderScroll }
   type TerminalAttachSnapshot = { kind: "snapshot"; terminal_id: string /* terminal_… */; render: Cmux.RenderSnapshot }
@@ -510,7 +510,7 @@ declare namespace Cmux {
   type TerminalDefaultsSnapshot = { foreground?: string | null; background?: string | null; cursor?: string | null; selection_background?: string | null; selection_foreground?: string | null; cursor_style?: "block" | "bar" | "underline" | null; cursor_blink?: boolean | null; palette?: Record<string, string> }
   type TerminalExit = { outcome: Cmux.TerminalExitOutcome; exited_at: string; revision: string }
   type TerminalExitCode = { kind: "exit"; code: number }
-  type TerminalExitOutcome = unknown
+  type TerminalExitOutcome = Cmux.TerminalExitCode | Cmux.TerminalExitSignal | Cmux.TerminalExitUnknown
   type TerminalExitSignal = { kind: "signal"; signal: number; core_dumped: boolean }
   type TerminalExitUnknown = { kind: "unknown"; reason: string }
   type TerminalHistoryResult = { start: string; next?: string | null; rows: Array<Cmux.RenderRow> }
@@ -521,7 +521,7 @@ declare namespace Cmux {
   type TerminalStateResult = { state_base64: string; cols: number; rows: number }
   type TerminalWaitExitExited = { state: "exited"; terminal_id: string /* terminal_… */; lifecycle: "exited"; outcome: Cmux.TerminalExitOutcome; exited_at: string; revision: string }
   type TerminalWaitExitPending = { state: "pending"; terminal_id: string /* terminal_… */; lifecycle: "launching" | "running"; revision: string }
-  type TerminalWaitExitResult = unknown
+  type TerminalWaitExitResult = Cmux.TerminalWaitExitPending | Cmux.TerminalWaitExitExited
   type TerminalWaitResult = { matched: boolean; text: string }
   type ThemeScheme = { name: string | null; author: string | null; background: string; foreground: string; cursor: string | null; cursorText: string | null; selectionBackground: string | null; selectionForeground: string | null; palette: Array<string>; accent: string | null; base16: Array<string> }
   type ThemeSchemeFromImageResult = { appearance: "dark" | "light"; accent: string; glassTint: string; swatches: Array<Cmux.ThemeSchemeSwatch>; format: "ghostty" | "base16" | "iterm2" | "windows-terminal"; text: string; scheme: Cmux.ThemeScheme }
@@ -1318,7 +1318,7 @@ interface CmuxGlobal {
     /** `pane.run` (mutation, scope `workspace:execute`) */
     run: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; correlation_key?: string; argv?: Array<string>; shell?: string; cwd?: string; name?: string; on_exit?: "close" | "keep" | "shell"; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `pane.split` (mutation, scope `workspace:write`) */
-    split: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; correlation_key?: string; direction: "left" | "right" | "up" | "down"; ratio?: number; viewport_width?: number; fit?: boolean; cwd?: string; argv?: Array<string>; shell?: string; focus?: boolean; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
+    split: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; correlation_key?: string; direction: "left" | "right" | "up" | "down"; ratio?: number; viewport_width?: number; fit?: boolean; cwd?: string; argv?: Array<string>; shell?: string; focus?: boolean; cols?: number; rows?: number; expected_revision?: string; browser?: boolean; url?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath | Cmux.CreatedBrowserPath>>
     split_ratio: {
       /** `pane.split_ratio.set` (mutation, scope `workspace:write`) */
       set: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; split_id: string /* split_… */; ratio: number; expected_revision?: string }, Cmux.MutationResult<Cmux.PaneSnapshot>>
