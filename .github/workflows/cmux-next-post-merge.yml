@@ -127,8 +127,18 @@ jobs:
     permissions:
       contents: read
 
+  cmux-tui-sdks:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' cmux-tui-sdks ')
+    uses: ./.github/workflows/cmux-tui-sdks.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
   judge:
-    needs: [plan, drill]
+    needs: [plan, drill, cmux-tui-sdks]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15

@@ -1,14 +1,22 @@
 name: cmux-tui SDKs
 
 on:
+  # feat-cmux-next runs this in the post-merge batch (cmux-next-post-merge.yml, suite cmux-tui-sdks
+  # in .github/post-merge-batch.json), not once per merge: sha is the commit to test, only one job
+  # id a bisect probe runs alone. Leo 2026-11-21: "whatever we need to cut, we cut."
+  workflow_call:
+    inputs:
+      sha:
+        description: Commit to test (empty is the caller's commit).
+        type: string
+        default: ""
+      only:
+        description: Run only this job id (a bisect probe); empty runs every job.
+        type: string
+        default: ""
   push:
-    # feat-cmux-next too: a pull request into it is judged against the base's own verdict
-    # (scripts/ci/base_red_excuse.py), and with main alone a contract red the base caused
-    # (b9783320dc5, create-workspace first_tab) had no feat-cmux-next verdict to excuse it
-    # with, so every cmux-tui pull request stalled behind it (cmux#41132).
     branches:
       - main
-      - feat-cmux-next
     paths:
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
@@ -343,9 +351,9 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: cmux-tui-sdks-${{ github.workflow }}-${{ github.ref }}
-  # A pull request's newer push supersedes its run. A base push never cancels a started run (conformance now
-  # judges merges there): the next one waits, one pending at most, so the runs batch the merges between them.
+  # A pull request's newer push supersedes its run. A batch run and its bisect probes (one commit, one job each)
+  # never cancel one another, and a started batch run is never cancelled.
+  group: cmux-tui-sdks-${{ github.workflow }}-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -372,6 +380,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
           # The pull request merge commit and its base parent.
           fetch-depth: 2
 
@@ -527,7 +536,7 @@ jobs:
   packages:
     name: ${{ matrix.language }} package
     needs: contract
-    if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
+    if: ${{ (inputs.only == '' || inputs.only == 'packages') && (needs.contract.outputs.sdk_inputs == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 25
     strategy:
@@ -545,6 +554,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       - name: Set up Python 3.9
         if: matrix.language == 'python'
@@ -729,7 +739,7 @@ jobs:
   consumers:
     name: ${{ matrix.language }} consumer
     needs: contract
-    if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
+    if: ${{ (inputs.only == '' || inputs.only == 'consumers') && (needs.contract.outputs.sdk_inputs == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 25
     strategy:
@@ -747,6 +757,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       - name: Set up Python 3.9
         if: matrix.language == 'python'
@@ -915,13 +926,14 @@ jobs:
   rust-msrv:
     name: Rust SDK MSRV (1.88)
     needs: contract
-    if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
+    if: ${{ (inputs.only == '' || inputs.only == 'rust-msrv') && (needs.contract.outputs.sdk_inputs == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       # The reused fleet image (LINUX_RUNNER) may lack rustup or keep it off PATH;
       # provision it as setup-cmux-tui-rust does.
@@ -985,14 +997,15 @@ jobs:
     # By the crate graph (the contract job's graph step); a failed or skipped router never skips it.
     # After merge (CI 10x, 2026-11-21: 1.57% of pull request runner-minutes, 0.05% of heads it alone caught): a
     # pull request runs it only when it changes the SDK and protocol inputs (sdk_inputs: bindings/, spec/, the
-    # workspace manifests) or carries full-ci; every feat-cmux-next push the graph reaches runs it.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.contract.outputs.sdk_inputs != 'false' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.contract.result != 'success' || needs.contract.outputs.conformance != 'false') }}
+    # workspace manifests) or carries full-ci; every post-merge batch the graph reaches runs it.
+    if: ${{ (inputs.only == '' || inputs.only == 'conformance') && (!cancelled() && (github.event_name != 'pull_request' || needs.contract.outputs.sdk_inputs != 'false' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.contract.result != 'success' || needs.contract.outputs.conformance != 'false')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       # A green result of this job for the same input tree (affected_jobs.py result_key) is this
       # run's result: the tested steps are skipped and the job reports green with that run named.
@@ -1124,7 +1137,7 @@ jobs:
       # Pull request caches stay read-only. main publishes the build they reuse,
       # and cmux-tui-headless-debug.yml does on feat-cmux-next.
       - name: Save the headless cmux-tui build
-        if: ${{ steps.tree.outputs.hit != 'true' && (github.event_name == 'push' && steps.headless-cache.outputs.cache-hit != 'true') }}
+        if: ${{ steps.tree.outputs.hit != 'true' && ((github.event_name == 'push' || inputs.sha != '') && steps.headless-cache.outputs.cache-hit != 'true') }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: cmux-tui/target/debug/cmux-tui
@@ -1186,12 +1199,14 @@ jobs:
   # it skips without bun and bwrap, so this job installs both and the test fails on CI without them.
   code-mode:
     name: code-mode MCP cancellation
+    if: inputs.only == '' || inputs.only == 'code-mode'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
