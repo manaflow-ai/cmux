@@ -83,6 +83,11 @@ impl Ledger {
         self.snoozed.iter().filter(|(_, until)| **until <= now).map(|(id, _)| id.clone()).collect()
     }
 
+    /// How many items the panel list holds.
+    pub(crate) fn list_len(&self) -> usize {
+        self.list.len()
+    }
+
     /// The panel list's ids, in order.
     pub(crate) fn list_ids(&self) -> impl Iterator<Item = &str> {
         self.list.iter().map(|key| key.id.as_str())
