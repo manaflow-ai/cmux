@@ -39,6 +39,23 @@ use futures::StreamExt as _;
 /// How many due harnesses one idle pass ends at once (`stop_idle_children`).
 const IDLE_EXITS_AT_ONCE: usize = 16;
 
+/// How long an agent marked to restart when quiet (`Session::respawn_when_quiet`) logs nothing
+/// before the idle pass ends it. While it is at work each pass that finds it busy starts the
+/// period again, so a marked agent costs at most one gate check (and census) per period.
+const QUIET_RESPAWN: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// [`QUIET_RESPAWN`]; debug builds read `ACPMUX_TEST_QUIET_RESPAWN_MS` (the integration tests'
+/// seam). Release builds have no seam.
+fn quiet_respawn() -> std::time::Duration {
+    #[cfg(debug_assertions)]
+    if let Some(ms) =
+        std::env::var("ACPMUX_TEST_QUIET_RESPAWN_MS").ok().and_then(|v| v.parse::<u64>().ok())
+    {
+        return std::time::Duration::from_millis(ms);
+    }
+    QUIET_RESPAWN
+}
+
 /// One agent request on its way to its answer (`Session::agent_requests`): counted from when the
 /// inbound loop reads it until its task ends.
 pub(super) struct AgentRequest(Arc<Session>);
@@ -102,6 +119,28 @@ impl Hub {
             // A Claude chat with turns but none stored would wake as a fresh conversation with
             // its transcript restored into the prompt (`claude_resume_refusal`): kept awake.
             && !(session.meta().claude_unstored && session.meta().turn_count > 0)
+    }
+
+    /// The agent of `session` restarts once nothing runs in it (`Session::respawn_when_quiet`):
+    /// the idle pass ends it after [`quiet_respawn`] with nothing logged, under every gate an idle
+    /// exit has, the census of what runs under it included, and its next prompt starts it again.
+    pub(super) fn respawn_when_quiet(self: &Arc<Self>, session: &Session) {
+        session.respawn_when_quiet.store(true, Ordering::SeqCst);
+        self.wake_idle_reaper();
+    }
+
+    /// The idle period of `session`'s agent: [`quiet_respawn`] (or the idle period when that is
+    /// shorter) for one marked to restart when quiet, also with idle hibernation off; else the
+    /// idle period.
+    fn idle_period(
+        session: &Session,
+        idle: Option<std::time::Duration>,
+    ) -> Option<std::time::Duration> {
+        if session.respawn_when_quiet.load(Ordering::Relaxed) {
+            Some(idle.map_or(quiet_respawn(), |idle| idle.min(quiet_respawn())))
+        } else {
+            idle
+        }
     }
 
     /// What a host this daemon starts does once no daemon controls it (`agent_host::OrphanExit`;
@@ -186,14 +225,19 @@ impl Hub {
 
     /// When the first live child's idle period ends, on the hub clock.
     pub(super) fn next_idle_deadline(&self) -> Option<std::time::Duration> {
-        let idle = (*self.idle_child.lock().unwrap())?;
+        let idle = *self.idle_child.lock().unwrap();
         // The live sessions, unsorted: this runs on every wake of the reaper (each turn's start
         // and end, each sign of a model), and sorting every session's record, closed ones
         // included, to take a minimum cost O(N log N) with ~3,000 chats.
         self.live_session_handles()
             .iter()
             .filter(|s| s.child.try_lock().map(|c| c.is_some()).unwrap_or(true))
-            .map(|s| std::time::Duration::from_nanos(s.last_active.load(Ordering::Relaxed)) + idle)
+            .filter_map(|s| {
+                let period = Self::idle_period(s, idle)?;
+                Some(
+                    std::time::Duration::from_nanos(s.last_active.load(Ordering::Relaxed)) + period,
+                )
+            })
             .min()
     }
 
@@ -204,14 +248,18 @@ impl Hub {
         if self.stopping.load(Ordering::SeqCst) {
             return;
         }
-        let Some(idle) = *self.idle_child.lock().unwrap() else { return };
+        // Off (`ACPMUX_IDLE_CHILD_SECS=0`): only an agent marked to restart when quiet is due.
+        let idle = *self.idle_child.lock().unwrap();
         let now = self.clock_now();
-        let idle = idle.as_nanos() as u64;
         // The live sessions past their deadline, newest first as before: only those are sorted.
         let due = newest_first(
             self.live_session_handles()
                 .into_iter()
-                .filter(|s| s.last_active.load(Ordering::Relaxed).saturating_add(idle) <= now)
+                .filter(|s| {
+                    Self::idle_period(s, idle).is_some_and(|period| {
+                        s.last_active.load(Ordering::Relaxed).saturating_add(nanos(period)) <= now
+                    })
+                })
                 .collect(),
         );
         // Each due harness on its own, several at once: an exit waits on its harness (or its host)
@@ -224,7 +272,11 @@ impl Hub {
 
     /// One due session of [`Self::stop_idle_children`]: its harness exits when it is still idle,
     /// nothing but its MCP servers runs under it, and nothing moved its deadline meanwhile.
-    async fn idle_exit(&self, session: Arc<Session>, idle: u64, now: u64) {
+    async fn idle_exit(&self, session: Arc<Session>, idle: Option<std::time::Duration>, now: u64) {
+        let Some(period) = Self::idle_period(&session, idle) else { return };
+        let idle = nanos(period);
+        // Marked to restart when quiet (`Session::respawn_when_quiet`), for its log line.
+        let quiet = session.respawn_when_quiet.load(Ordering::SeqCst);
         if session.last_active.load(Ordering::Relaxed).saturating_add(idle) > now {
             return;
         }
@@ -320,7 +372,7 @@ impl Hub {
         drop((turn, using, spawning));
         tracing::info!(
             session = %session.id,
-            cause = "idle",
+            cause = if quiet { "restart-when-quiet" } else { "idle" },
             idle_secs = idle_for / 1_000_000_000,
             exit_ms = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX),
             "hibernated: no turn, nothing queued, no question pending, nothing but its MCP \
@@ -610,3 +662,8 @@ mod idle_tests;
 // Compact an idle Claude chat before its prompt cache expires.
 #[path = "cache_compact.rs"]
 pub(super) mod cache_compact;
+
+/// `period` in the hub clock's nanoseconds (`Session::last_active`).
+fn nanos(period: std::time::Duration) -> u64 {
+    u64::try_from(period.as_nanos()).unwrap_or(u64::MAX)
+}
