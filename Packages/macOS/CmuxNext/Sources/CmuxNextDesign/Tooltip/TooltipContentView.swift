@@ -88,17 +88,20 @@ final class TooltipContentView: NSView {
     }
 
     /// The text's size at the narrowest wrap width, at most `limit`, that keeps the line count it has at `limit`
-    /// (a binary search to the point; a tooltip shows a few times a minute, never per frame).
+    /// (a bisection to half a point, about ten measures; a tooltip shows a few times a minute, never per frame).
     private func fitText(within limit: CGFloat) -> NSSize {
         text.preferredMaxLayoutWidth = limit
         let full = text.fittingSize
-        var low: CGFloat = 1, high = limit
-        while high - low > 0.5 {
-            let middle = ((low + high) / 2).rounded(.up)
+        // `fits` keeps the line count, `tooNarrow` does not (zero: nothing narrower is known). The midpoint is not
+        // rounded, so it always lies strictly between the two and the gap halves every pass: a rounded midpoint
+        // can land on `fits` itself and never narrow the gap.
+        var tooNarrow: CGFloat = 0, fits = limit
+        while fits - tooNarrow > 0.5 {
+            let middle = (tooNarrow + fits) / 2
             text.preferredMaxLayoutWidth = middle
-            if text.fittingSize.height <= full.height + 0.5 { high = middle } else { low = middle }
+            if text.fittingSize.height <= full.height + 0.5 { fits = middle } else { tooNarrow = middle }
         }
-        let width = min(limit, ceil(high))
+        let width = min(limit, ceil(fits))
         text.preferredMaxLayoutWidth = width
         return NSSize(width: width, height: full.height)
     }
