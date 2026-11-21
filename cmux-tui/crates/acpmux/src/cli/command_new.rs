@@ -154,7 +154,6 @@ impl NewArgs {
             && !self.detach
             && !self.quiet
             && !self.ephemeral
-            && !self.wait
             && self.parent.is_none()
         {
             self.name = self.prompt.pop();
@@ -195,16 +194,22 @@ mod tests {
 
     #[test]
     fn compatibility_spellings_keep_the_name_and_wait_on_local() {
-        let mut args =
-            New::try_parse_from(["new", "codex-nightly-check", "--harness", "codex", "--stay"])
-                .unwrap()
-                .args;
+        let mut args = New::try_parse_from([
+            "new",
+            "codex-nightly-check",
+            "--harness",
+            "codex",
+            "--stay",
+            "--wait",
+        ])
+        .unwrap()
+        .args;
         let notices = args.apply_compat();
         assert_eq!(args.name.as_deref(), Some("codex-nightly-check"));
         assert!(args.prompt.is_empty());
         assert_eq!(args.host.as_deref(), Some("local"));
-        assert!(!args.detach);
-        assert_eq!(notices.len(), 2);
+        assert!(args.detach);
+        assert_eq!(notices.len(), 3);
     }
 
     #[test]
@@ -226,12 +231,24 @@ mod tests {
         for mut args in [
             New::try_parse_from(["new", "do the work", "--detach"]).unwrap().args,
             New::try_parse_from(["new", "do the work", "--quiet"]).unwrap().args,
-            New::try_parse_from(["new", "do the work", "--wait"]).unwrap().args,
         ] {
             args.apply_compat();
             assert_eq!(args.prompt, ["do the work"]);
             assert!(args.name.is_none());
         }
+    }
+
+    #[test]
+    fn wait_with_a_prompt_uses_an_explicit_name_to_disambiguate() {
+        let mut args =
+            New::try_parse_from(["new", "--name", "codex-nightly-check", "--wait", "do the work"])
+                .unwrap()
+                .args;
+        args.apply_compat();
+        assert_eq!(args.name.as_deref(), Some("codex-nightly-check"));
+        assert_eq!(args.prompt, ["do the work"]);
+        assert!(args.quiet);
+        assert!(!args.detach);
     }
 
     #[test]
