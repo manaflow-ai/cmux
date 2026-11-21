@@ -36,6 +36,7 @@ fn a_shape_with_a_keyword_the_validator_skips_is_refused() {
         json!({ "type": "array", "items": { "anyOf": [{ "type": "string" }] } }),
         json!({ "type": "object", "properties": { "a": { "format": "uri" } } }),
         json!({ "type": "strings" }),
+        json!({ "type": [] }),
         json!({ "maxItems": -1 }),
         json!("array"),
     ] {

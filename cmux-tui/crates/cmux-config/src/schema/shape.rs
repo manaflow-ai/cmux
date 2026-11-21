@@ -62,7 +62,11 @@ fn check_at(shape: &Value, at: &str) -> Result<(), String> {
             "type" => match value {
                 Value::String(name) => TYPES.contains(&name.as_str()),
                 Value::Array(names) => {
-                    names.iter().all(|name| name.as_str().is_some_and(|name| TYPES.contains(&name)))
+                    // An empty list allows no value at all: refused, as JSON Schema requires.
+                    !names.is_empty()
+                        && names
+                            .iter()
+                            .all(|name| name.as_str().is_some_and(|name| TYPES.contains(&name)))
                 }
                 _ => false,
             },
