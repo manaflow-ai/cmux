@@ -5,7 +5,7 @@ import CmuxNextDaemon
 /// sidebar shows it as an unread dot and the Dock badge counts it once. Like
 /// the old app's manual unread, it clears on typing into one of the
 /// workspace's terminals and with Mark as Read or Clear Notifications;
-/// focusing or opening the workspace clears it. Typing clears marks of the
+/// focusing or opening the workspace keeps it. Typing clears marks of the
 /// local daemon only (the notification service follows the local store).
 enum WorkspaceUnreadMark {
     typealias Sent = (marked: Bool, at: ContinuousClock.Instant)

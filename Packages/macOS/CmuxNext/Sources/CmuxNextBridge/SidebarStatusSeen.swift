@@ -23,18 +23,28 @@ public final class SidebarStatusSeenStore {
         return reports.filter { !seen.contains($0) }
     }
 
-    /// Marks all current row reports as seen. A changed report remains visible
-    /// because its state, label, source, or update time changes its identity.
+    /// Marks the current row's error and success reports as seen, the symbols that
+    /// report something finished. Live states (working, busy, paused, waiting on the
+    /// person) stay drawn: seeing them does not end them. A changed report remains
+    /// visible because its state, label, source, or update time changes its identity.
+    /// The kept set is the current one, so reports that went away are forgotten.
     @discardableResult
     public func markSeen(_ reports: [StatusReport], workspaceID: String) -> Bool {
-        let current = Set(reports.filter { $0.state.isVisible })
-        guard !current.isEmpty else { return false }
+        let current = Set(reports.filter { Self.clearsWhenSeen($0.state) })
         let old = seen[workspaceID, default: []]
-        let next = old.union(current)
-        guard next != old else { return false }
-        seen[workspaceID] = next
+        guard current != old else { return false }
+        if current.isEmpty { seen[workspaceID] = nil } else { seen[workspaceID] = current }
+        // Forgetting reports that went away hides nothing new: no row needs to redraw.
+        guard !current.isSubset(of: old) else { return false }
         revisions[workspaceID] = (revisions[workspaceID] ?? 0) &+ 1
         return true
     }
 
+    /// Whether a look at the row ends the symbol, as it reads the blue dot.
+    public static func clearsWhenSeen(_ state: StatusIndicatorState) -> Bool {
+        switch state {
+        case .error, .success: true
+        default: false
+        }
+    }
 }

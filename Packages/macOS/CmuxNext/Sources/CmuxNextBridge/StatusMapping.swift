@@ -182,8 +182,36 @@ public struct StatusMapping {
 
     /// A workspace's merged status over its tabs and its `cmux status set` entries.
     public func summary(tabs: [TabModel], status: WorkspaceStatus? = nil, workspaceID: String? = nil) -> StatusSummary {
-        let reports = tabs.flatMap(reports) + reports(status)
+        let superseded = supersededFailures(tabs)
+        let reports = tabs.flatMap(reports).filter { !superseded.contains($0.id) } + reports(status)
         return StatusStack.resolve(statusSeen.visible(reports, workspaceID: workspaceID ?? status?.workspaceID.rawValue), honoring: honored)
+    }
+
+    /// The report ids (`acp:<session>`) of each failed or lost agent chat that another chat of the same
+    /// workspace went on past (cmux#48434: "just because one of them is red and open but something else is
+    /// running means that this shouldnt be red again"): one that works or waits on the person now, or one
+    /// that came to rest after the failure (acpmux's `lane.since`), the chat continued or forked and
+    /// finished. The workspace's merged mark leaves them out; the failed chat's own tab keeps its mark. A
+    /// failure with nothing after it, or beside only other failures, stays.
+    func supersededFailures(_ tabs: [TabModel]) -> Set<String> {
+        struct Chat { let id: String; let state: AgentTurnState?; let since: UInt64? }
+        var chats: [String: Chat] = [:]
+        for tab in tabs {
+            guard let ref = tab.agentSession else { continue }
+            let id = ref.session ?? tab.id
+            let detail = turns.detail(for: ref)
+            chats[id] = Chat(id: id, state: turn(tab), since: detail?.laneSinceMs)
+        }
+        let failed = chats.values.filter { $0.state == .failed || $0.state == .lost }
+        guard !failed.isEmpty, failed.count < chats.count else { return [] }
+        let others = chats.values.filter { $0.state != .failed && $0.state != .lost }
+        let active = others.contains { $0.state == .working || $0.state == .needsInput }
+        let lastRest = others.filter { $0.state == .done || $0.state == nil }.compactMap(\.since).max()
+        return Set(failed.filter { chat in
+            if active { return true }
+            guard let lastRest, let since = chat.since else { return false }
+            return lastRest > since
+        }.map { "acp:\($0.id)" })
     }
 
     /// A workspace's merged status, each tab's own (a hover card tab row's mark) and whether any tab has
@@ -192,6 +220,7 @@ public struct StatusMapping {
     public func summaries(tabs: [TabModel], status: WorkspaceStatus? = nil, workspaceID: String? = nil)
         -> (workspace: StatusSummary, tabs: [StatusIndicatorState], working: Bool) {
         let honored = honored
+        let superseded = supersededFailures(tabs)
         var all: [StatusReport] = []
         var states: [StatusIndicatorState] = []
         states.reserveCapacity(tabs.count)
@@ -206,7 +235,7 @@ public struct StatusMapping {
             }
             states.append(StatusStack.resolve(visible, honoring: honored).state)
             working = working || visible.contains { $0.state.isWorking }
-            all += visible
+            all += visible.filter { !superseded.contains($0.id) }
         }
         let workspaceReports = statusSeen.visible(all + reports(status), workspaceID: seenWorkspace)
         return (StatusStack.resolve(workspaceReports, honoring: honored), states, working)

@@ -36,7 +36,7 @@ public struct AutoArchiveCandidates {
         let newest: UInt64 = tabs.map { tab -> UInt64 in
             max(tab.lastOutputMs ?? 0, tab.agent?.updatedAtMs ?? 0, tab.notification?.createdAtMs ?? 0)
         }.max() ?? 0
-        let asks: Bool = switch StatusMapping.shared.summary(tabs: tabs, status: workspace.status, workspaceID: workspace.id).state {
+        let asks: Bool = switch StatusMapping.shared.summary(tabs: tabs, status: workspace.status).state {
         case .waiting, .error: true
         default: false
         }

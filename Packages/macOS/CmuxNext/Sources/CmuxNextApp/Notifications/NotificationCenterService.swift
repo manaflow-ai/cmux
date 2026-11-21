@@ -247,7 +247,7 @@ final class NotificationCenterService {
     /// another one, so a ring stays until its own pane is clicked. A click
     /// outside the panes (sidebar, titlebar, tab bar gaps) reads nothing. A
     /// left press on a pane's tab strip waits for its mouse-up (``noteMouseUp(in:at:)``):
-    /// it may start dragging the tab or the pane, and the ring goes with it.
+    /// it may start dragging the tab or the pane, and the ring goes with it. A ring the click reads blinks out at once (cmux#46908).
     /// `screen`: where it went down before dispatch (a titlebar press may have moved the window
     /// since); `synthetic`: the app's own input (`SyntheticInput`), whose button is no hardware's.
     func noteMouseDown(in window: NSWindow?, at location: NSPoint, left: Bool = true,
@@ -262,6 +262,7 @@ final class NotificationCenterService {
             beginStripPress(tab: press.tab, target: interactionTarget(tabID: press.tab, in: window), at: screen ?? window.convertPoint(toScreen: location), synthetic: synthetic)
             return
         }
+        if let pane = press.pane, content(of: window)?.layoutModel.enterAttention(pane, click: true) == true { return }
         interacted(.click, tabID: press.tab, in: window)
     }
 
@@ -271,11 +272,11 @@ final class NotificationCenterService {
     /// page, reads the tab that has the keyboard, which the click gave it.
     /// `onStrip`: the press is on the pane's tab strip, found from the pane's own
     /// strip rather than a window hit test (in the top row the titlebar takes that).
-    func clickedTab(in window: NSWindow?, at location: NSPoint) -> (tab: String, onStrip: Bool)? {
+    func clickedTab(in window: NSWindow?, at location: NSPoint) -> (tab: String, onStrip: Bool, pane: LayoutPaneID?)? {
         guard let services, let window else { return nil }
         let host = CmuxApplication.accessibilityWindow(for: window) ?? window
         guard let controller = services.windows.controllers.first(where: { $0.window === host }),
-              controller.state.page == nil, let content = controller.content else { return focusedTab(in: window).map { ($0, false) } }
+              controller.state.page == nil, let content = controller.content else { return focusedTab(in: window).map { ($0, false, nil) } }
         let inHost = host === window ? location : host.convertPoint(fromScreen: window.convertPoint(toScreen: location))
         let root = content.layoutView
         let point = root.convert(inHost, from: nil)
@@ -290,7 +291,7 @@ final class NotificationCenterService {
         let tab = (model.tabs.first { $0.id == shown } ?? model.tabs[min(max(model.defaultTabIndex, 0), model.tabs.count - 1)]).id
         let strip = content.panes[pane]?.view.stripView
         let onStrip = strip.map { $0.window === host && !$0.isHiddenOrHasHiddenAncestor && $0.bounds.contains($0.convert(inHost, from: nil)) } ?? false
-        return (tab, onStrip)
+        return (tab, onStrip, pane)
     }
 
     /// A window's settled focus or key holder changed: the viewed-tab rules read it (one path for a focus and for an
@@ -391,13 +392,16 @@ final class NotificationCenterService {
         return true
     }
 
-    /// One read rule on every machine, with `owner` told for remote tabs.
+    /// One read rule on every machine: the policy decides and `owner`, the tab's daemon, is told
+    /// (a remote tab once only hid its attention ring, so its notification rang on).
     func interacted(_ trigger: NotificationTrigger, tab: TabModel, owner known: DaemonService? = nil) {
         let owner = known ?? self.owner(of: tab), local = owner?.isLocal ?? true
-        // A strip press hold ends when the tab is entered.
+        // Going into a tab a strip press held ends the hold: its focus is a look again.
         if [.click, .keystroke, .open].contains(trigger), !viewHolds.isEmpty { viewHolds.remove(tab.id) }
-        // The client owns seen state while daemon owners keep the facts.
+        // Any look at the tab sees its OSC 7501 done and error records and an
+        // agent chat's completed turn (client view state; the owners keep the facts).
         ProgramStatusSeenStore.shared.markSeen(tab)
+        markWorkspaceStatusSeen(trigger, tab: tab, owner: owner)
         if local, agentFinished[tab.id] != nil, NotificationPolicy(prefs: preferences).clears(trigger, for: .agent) {
             note("\(trigger.rawValue) read agent turn \(tab.id)")
             agentFinished[tab.id] = nil
@@ -415,38 +419,47 @@ final class NotificationCenterService {
         acknowledge(tab, owner: owner)
     }
 
-    /// Hide an agent attention ring after its tab is entered.
+    /// A look at a tab (focus, a click, opening it) sees its workspace row's error and success
+    /// symbols, as it reads the row's blue dot: the sidebar hides those exact reports until they
+    /// change (``SidebarStatusSeenStore``). Client view state; the daemon keeps the reports. Typing
+    /// and the timeout skip it: the pane was already focused, and typing runs per keystroke.
+    private func markWorkspaceStatusSeen(_ trigger: NotificationTrigger, tab: TabModel, owner: DaemonService?) {
+        guard [.focus, .click, .open].contains(trigger), let store = (owner ?? services?.daemon)?.store,
+              let pane = store.pane(holding: tab), let workspace = store.workspace(containing: pane.handle) else { return }
+        StatusMapping.shared.markSeen(tabs: Array(workspace.screens.lazy.flatMap(\.panes).flatMap(\.tabs)),
+                                      status: workspace.status, workspaceID: workspace.id)
+    }
+
+    /// The person went into a tab an agent marked (a click, a key, opening it, or focus under the `focus` dismissal): its ring has done its job,
+    /// the mark stays until the agent clears it or the page changes.
     func dismissAttention(_ trigger: NotificationTrigger, tab: TabModel) {
-        // A missing request id still hides this client's ring.
+        // Hiding the ring is this client's view state, so a mark without a request id (an older
+        // daemon's) hides it too, by its generation; only the owner's clear needs the id.
+        // Opening it (jump to unread, a banner) goes into the tab as a click does.
         guard tab.attention != nil, [.click, .keystroke, .open].contains(trigger) || trigger == .focus && NotificationPolicy(prefs: preferences).clears(.focus, for: .agent) else { return }
         hideAttentionRing(of: tab)
     }
 
-    /// Going into a pane reads its tab's Mark as Unread and attention request,
-    /// as it reads an unread notification. Focus and opening count as seeing it.
+    /// Going into a pane (a click or a key) reads its tab's Mark as Unread, as it reads an unread
+    /// notification: the ring both draw goes with it. Focus alone keeps the mark (a tab marked
+    /// while viewed stays marked until it is viewed again, ``clearTabMarks(entering:)``).
     private func readMark(_ trigger: NotificationTrigger, tab: TabModel, owner: DaemonService?) {
         dismissAttention(trigger, tab: tab)
-        guard [.click, .open, .focus, .keystroke].contains(trigger), trigger != .keystroke || tab.keyMayRead(),
-              let daemon = owner ?? services?.daemon else { return }
-        if let workspace = WorkspaceUnreadMark.workspace(ofTab: tab.id, in: daemon.store) {
-            StatusMapping.shared.markSeen(tabs: workspace.screens.flatMap(\.panes).flatMap(\.tabs), status: workspace.status, workspaceID: workspace.id)
-            if workspace.markedUnread { WorkspaceUnreadMark.set(false, on: [workspace], daemon: daemon) }
-        }
-        if tab.markedUnread {
-            note("\(trigger.rawValue) read mark \(tab.id)")
-            if DesignSettings.shared.attention.flashesOnEntry(trigger) { entryReads.insert(tab.id) }
-            try? TabUnreadMark.set(false, tab: tab, daemon: daemon)
-        }
-        if tab.attention != nil {
-            try? TabUnreadMark.clearAttention(tab: tab, daemon: daemon)
-        }
+        guard tab.markedUnread, trigger == .click || trigger == .keystroke && tab.keyMayRead(), let daemon = owner ?? services?.daemon else { return }
+        note("\(trigger.rawValue) read mark \(tab.id)")
+        if DesignSettings.shared.attention.flashesOnEntry(trigger) { entryReads.insert(tab.id) }
+        try? TabUnreadMark.set(false, tab: tab, daemon: daemon)
     }
 
-    /// Terminal typing clears the workspace's manual unread mark.
+    /// Typing into a terminal clears its workspace's manual unread mark, as
+    /// terminal input did in the old app; focus, selection, and typing in
+    /// a page or find bar keep it.
     private func clearUnreadMark(ofTab tab: String) {
+        // Runs per keystroke: no workspace or tab walk unless some workspace is marked (a kept count).
         guard let services, services.daemon.store.unreadTotals.markedWorkspaces > 0,
               let workspace = WorkspaceUnreadMark.workspace(ofTab: tab, in: services.daemon.store),
               workspace.markedUnread else { return }
+        // One clear per echo window, however fast the keys come.
         WorkspaceUnreadMark.set(false, on: [workspace], daemon: services.daemon, throttled: true)
     }
 
