@@ -15,10 +15,14 @@ pub struct RdDocument {
     pub key: String,
     pub candidates: Vec<String>,
     pub display: Option<i64>,
+    /// Offer: the display to show by CGDirectDisplayID (a run's screen link); wins over `display`.
+    pub display_id: Option<u32>,
     pub max_width: Option<u32>,
     pub max_fps: Option<u32>,
     pub displays: Vec<(u32, u32)>,
     pub current_display: Option<usize>,
+    /// Answer: each display's CGDirectDisplayID, in `displays` order (macOS hosts).
+    pub display_ids: Vec<u32>,
 }
 
 impl RdDocument {
@@ -27,6 +31,9 @@ impl RdDocument {
         lines.extend(self.candidates.iter().map(|c| format!("a=cmux-rd-candidate:{c}")));
         if let Some(d) = self.display {
             lines.push(format!("a=cmux-rd-display:{d}"));
+        }
+        if let Some(id) = self.display_id {
+            lines.push(format!("a=cmux-rd-display-id:{id}"));
         }
         if let Some(w) = self.max_width {
             lines.push(format!("a=cmux-rd-max-width:{w}"));
@@ -38,6 +45,10 @@ impl RdDocument {
             let sizes: Vec<String> =
                 self.displays.iter().map(|(w, h)| format!("{w}x{h}")).collect();
             lines.push(format!("a=cmux-rd-displays:{}", sizes.join(",")));
+        }
+        if !self.display_ids.is_empty() {
+            let ids: Vec<String> = self.display_ids.iter().map(u32::to_string).collect();
+            lines.push(format!("a=cmux-rd-display-ids:{}", ids.join(",")));
         }
         if let Some(c) = self.current_display {
             lines.push(format!("a=cmux-rd-current:{c}"));
@@ -60,6 +71,10 @@ impl RdDocument {
                 "fingerprint" => key = value.strip_prefix(KEY_PREFIX).map(str::to_owned),
                 "cmux-rd-candidate" => doc.candidates.push(value.to_owned()),
                 "cmux-rd-display" => doc.display = value.parse().ok(),
+                "cmux-rd-display-id" => doc.display_id = value.parse().ok(),
+                "cmux-rd-display-ids" => {
+                    doc.display_ids = value.split(',').filter_map(|s| s.parse().ok()).collect();
+                }
                 "cmux-rd-max-width" => doc.max_width = value.parse().ok(),
                 "cmux-rd-max-fps" => doc.max_fps = value.parse().ok(),
                 "cmux-rd-current" => doc.current_display = value.parse().ok(),
@@ -184,8 +199,12 @@ mod tests {
             max_fps: Some(60),
             displays: vec![(2560, 1440)],
             current_display: Some(0),
+            display_id: Some(17),
+            display_ids: vec![1, 17],
         };
         let text = doc.text();
+        assert!(text.contains("a=cmux-rd-display-id:17\r\n"));
+        assert!(text.contains("a=cmux-rd-display-ids:1,17\r\n"));
         assert!(text.starts_with("cmux.rd/1\r\na=fingerprint:cmux-rd-key 0011"));
         assert_eq!(RdDocument::parse(&text), Some(doc));
         assert_eq!(fingerprint_of(&text).as_deref(), Some(format!("cmux-rd-key {KEY}").as_str()));
