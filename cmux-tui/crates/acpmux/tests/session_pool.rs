@@ -791,6 +791,32 @@ async fn a_pooled_claude_session_claimed_in_bypass_refuses_a_web_prompt() {
     assert_eq!(reply["error"]["data"]["reason"], "remote.local_claude_session", "{reply}");
 }
 
+/// A pooled Claude Code whose profile pins `--permission-mode default` runs in Manual, and the
+/// chat that takes it says Manual from the start. The pool started its translator in Claude Code's
+/// own Auto whatever the argv pinned, so until Claude Code's `system/init` (sent only when a turn
+/// starts, here `FAKE_CLAUDE_INIT_ON_TURN`) the chat showed Auto over a process that asks.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_claude_pinned_to_manual_is_taken_in_manual() {
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let fakeb = json!({
+        "kind": "claude-stdio",
+        "family": "claude",
+        "argv": ["python3", fake_claude, "--permission-mode", "default"],
+        "env": {"FAKE_CLAUDE_INIT_ON_TURN": "1"},
+    });
+    let daemon = Daemon::with_fakeb("claudepin", 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let (claimed, _) = new_session(&mut rpc, &home, "fakeb").await;
+    assert!(taken(&daemon, &claimed), "the session came from the pool");
+    let info = rpc.call("_acpmux/info", json!({"sessionId": claimed})).await;
+    assert_eq!(info["modes"]["currentModeId"], "default", "{info}");
+}
+
 /// `sessions.allowFullAccess` off: a pooled chat whose harness started in full access on its own
 /// settings (not its argv, which acpmux leaves alone) is moved to a mode that asks when it is
 /// taken, the same as a cold start, before anything runs in it.
