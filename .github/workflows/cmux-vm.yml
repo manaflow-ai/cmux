@@ -333,24 +333,16 @@ jobs:
       - name: Store tests on PGlite against the migration
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short != 'true' }}
         run: bun run test:pg
-      # The short check's own step: each environment's list parses and passes the Worker's schema (auto-roll.ts
-      # locate) and stays within Cloudflare's 5,120-byte text binding limit (MAX_BYTES), so a list the deploy
-      # would refuse fails here.
-      - name: Boot image lists and the image lock parse, within the binding limit (short check)
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.roll.outputs.short == 'true' }}
+      # On every check, the short one too: each environment's list parses and passes the Worker's schema
+      # (auto-roll.ts locate) and stays within Cloudflare's 5,120-byte text binding limit (MAX_BYTES), so a list
+      # the deploy would refuse fails here. An entry may carry a large image only when this commit's Worker reads
+      # `large` (auto-roll.ts workerReadsLarge asks its list parser, installed above): a Worker from before the
+      # field refuses the whole list and disables every image. A change to the Worker's parser is not a roll
+      # commit and takes the full check, so this runs there as well, before that commit deploys anywhere.
+      - name: Boot image lists and the image lock parse, within the binding limit, beside a Worker that reads them
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         working-directory: .
-        run: |
-          bun -e '
-            const { readFileSync } = await import("node:fs");
-            const { DEFAULT_LOCK, DEFAULT_WRANGLER, MAX_BYTES, locate } = await import(`${process.cwd()}/images/cmux-vm/auto-roll.ts`);
-            JSON.parse(readFileSync(DEFAULT_LOCK, "utf8"));
-            const text = readFileSync(DEFAULT_WRANGLER, "utf8");
-            for (const env of ["staging", "production"]) {
-              const bytes = Buffer.byteLength(JSON.stringify(locate(text, env).images), "utf8");
-              console.log(`${env} VM_BOOT_IMAGES: ${bytes} bytes (at most ${MAX_BYTES})`);
-              if (bytes > MAX_BYTES) throw new Error(`${env} VM_BOOT_IMAGES is ${bytes} bytes, over ${MAX_BYTES}`);
-            }
-          '
+        run: bun images/cmux-vm/auto-roll.ts lists
       # The stale boot image detector: the entry each environment boots (cmux-platform's CLOUD_VM_API_IMAGE_FOLLOW:
       # production's first, staging's last) is at most MAX_ROLLS_BEHIND rolls behind production's newest roll.
       - name: Each environment boots a recent image roll

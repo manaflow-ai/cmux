@@ -436,6 +436,56 @@ production's `VM_BOOT_IMAGES`):
 then upload the commit's diff without pushing) or `live`. One roll runs at a
 time and one waits; a newer request replaces the waiting one.
 
+The same file's `large_image` (`false` unless set) makes the roll publish an
+image's large snapshot (`web/scripts/cmux-vm-image/large-image.ts`, 4 vCPU /
+16 GiB / 64 GiB) as `large` on that image's entry, in both lists:
+
+- It works in direct mode only: this repository deploys the Worker
+  (`CMUX_VM_DEPLOY_ENABLED` is `1` in the `cmux-vm-production` environment),
+  so the roll commit's lists deploy beside the Worker the roll asked. In
+  platform mode the lists are cmux-platform's, written from a checkout with no
+  Worker source to ask: the switch then bakes and publishes nothing, and the
+  roll's `publish-mode` job says so.
+- The roll's bake makes the large image only when the promote job could
+  publish it: the switch is on, the tip's Worker reads `large` (the plan asks
+  it) and the mode is direct. The candidate records the large snapshot only
+  when its own smoke passed. A candidate without one rolls as before, with no
+  `large`; the large image never fails a roll.
+- `approve` writes `large` only when the Worker at the tip reads the field. It
+  asks that Worker's own list parser (`auto-roll.ts` `workerReadsLarge`): a
+  Worker from before the field refuses the whole list for one unknown entry
+  field and disables every approved image, so beside such a Worker, or beside
+  no Worker source at all, the entry is written without `large`. The parser
+  and its dependencies run in a child process that gets `PATH`, `HOME`,
+  `TMPDIR` and `LANG` and none of the job's tokens; a child that fails is a no.
+- `auto-roll.ts lists` runs in every `cmux-vm.yml` check, before any deploy:
+  it fails a list that carries `large` beside a Worker that does not read it,
+  so a revert of the Worker's parser after a `large` is published is red
+  before it reaches staging or production.
+- A large snapshot that was baked and kept but not published (the Worker's
+  dependencies did not install, the tip moved, a dry run, a failed push) is
+  named in the promote job's summary and a warning, with its name and id.
+  Nothing deletes it: remove it at the provider.
+- A revision's `large` is published with the revision and never added, removed
+  or replaced afterwards: a retry of a create in flight boots the snapshot its
+  first attempt was journaled from. Every write refuses such a change. A
+  revision leaves a list only whole (rollback, trim), its `large` with it. Do
+  not hand-edit `large` onto or off a listed entry.
+- The sizes the roll accepts on `large` are the Worker's (`LARGE_BOUNDS` there
+  mirrors `Large` in `src/upstream/live-images.ts`); change both together.
+- A `large` is 105 bytes on its entry, and a list is one Worker text binding
+  of at most 5,120 bytes. Production's list fits 6 rolls that all carry one
+  (4,983 bytes). Staging's, with 12 hand-approved entries, fits 5 (5,092; 6
+  would be 5,545), so with the switch on a roll that would not fit drops the
+  oldest rolls first, never below 3 and never a hand-approved entry: staging
+  keeps 5 rolls, not 6, once every roll carries one. Each dropped roll is
+  named (list, id, revision, bytes) in the push step's log, `approve.json`
+  and the promote job's summary. With the switch off nothing is dropped for
+  size: a list over the limit refuses the roll, as before. A create that names a dropped image is
+  refused as withdrawn, as for any trimmed roll; machines already running on
+  it are not touched. Removing old hand-approved staging entries in a reviewed
+  commit gives the sixth roll back.
+
 Each roll's record (fix commits with merge times, gate, promotion commit and
 time, production smoke time, rollback) is `rolls/<run id>.json` on the
 `cloud-image-rolls` branch: `git fetch origin cloud-image-rolls` reads it with
