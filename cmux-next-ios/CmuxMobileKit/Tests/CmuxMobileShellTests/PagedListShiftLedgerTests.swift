@@ -103,4 +103,17 @@ struct PagedListShiftLedgerTests {
         #expect(PagedListShiftLedger.drawnShift(top: 10, bottom: 32) == 10)
         #expect(PagedListShiftLedger.drawnShift(top: -410, bottom: -414.7) == -410)
     }
+
+    /// The rule's limit, by choice: a jump in the same frame as a resize of the row being read.
+    /// A resize the same way as the jump leaves the jump in full; a resize the other way hides as much
+    /// of the jump as the resize's size, down to nothing (a 10 pt jump down while the row shrinks
+    /// 22 pt at its bottom reports 0; with a 5 pt shrink it reports 5). A one-frame jump still counts
+    /// on its way back, which comes with no resize; a jump that stays, landing in the very frame the
+    /// row being read resizes the other way, is not seen.
+    @Test func aJumpWithAnOppositeResizeOfTheRowBeingReadCountsLessByTheResize() {
+        #expect(PagedListShiftLedger.drawnShift(top: 10, bottom: 10 + 22) == 10)
+        #expect(PagedListShiftLedger.drawnShift(top: 10, bottom: 10 - 5) == 5)
+        #expect(PagedListShiftLedger.drawnShift(top: 10, bottom: 10 - 22) == 0)
+        #expect(PagedListShiftLedger.drawnShift(top: -10 + 22, bottom: -10) == 0)
+    }
 }
