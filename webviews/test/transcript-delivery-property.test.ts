@@ -370,8 +370,8 @@ function faulty(live: EventRecord[], seed: number): SimDelivery {
 /// The rows as the person sees them. A reply's id is the first of its chunks the pane held, so one whose first
 /// chunk came late is made again under the earlier id and keeps drawing in the element it had (`frame`,
 /// `adoptFrames`): the same words in the same place, so the frame is not compared.
-function shown(rows: readonly AcpmuxRow[]): unknown[] {
-  return rows.map((row) => (row.frame === undefined ? row : { ...row, frame: undefined }));
+function shown(rows: unknown): unknown[] {
+  return (rows as readonly AcpmuxRow[]).map((row) => (row.frame === undefined ? row : { ...row, frame: undefined }));
 }
 
 /// Plays one window of the recorded chat: `deliver` sends its live part.
