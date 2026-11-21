@@ -452,6 +452,9 @@ pub enum Call {
     },
     /// `link machine pin`: the Linux build this client pins.
     MachinePin,
+    /// `inference gateway status --json`: the active team's inference gateway and the agents it serves now
+    /// (`serves`), which the Cloud start gate counts when nothing of the person's own serves the chat (hq#15762).
+    InferenceGatewayStatus,
     /// `link start-chat reserve|release --request JSON`.
     StartChatReservation {
         release: bool,
@@ -676,6 +679,12 @@ pub fn invocation(call: &Call) -> Invocation {
         Call::MachinePin => Invocation {
             args: words(&["link", "machine", "pin"]),
             timeout_seconds: Some(150),
+            min_timeout_seconds: None,
+        },
+        // One status read on a start's path, before any machine: short, so a slow API costs a start little.
+        Call::InferenceGatewayStatus => Invocation {
+            args: words(&["inference", "gateway", "status", "--json"]),
+            timeout_seconds: Some(10),
             min_timeout_seconds: None,
         },
         Call::StartChatReservation { release, request } => Invocation {

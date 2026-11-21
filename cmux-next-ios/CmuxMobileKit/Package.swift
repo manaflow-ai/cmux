@@ -33,6 +33,8 @@ let package = Package(
     dependencies: [
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
         .package(path: "../../Packages/Shared/CmuxAgentQuestion"),
+        // A message's preview words (MessagePreview), shared with the Mac's Home.
+        .package(path: "../../Packages/Shared/CmuxHomeCore"),
         // Shared Stack Auth runtime (used as-is; do not modify from here).
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
         // Connectivity observability: verbose for the cmux team, sampled for everyone.
@@ -57,6 +59,8 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxVNCWebRTC"),
         // The one spinner, on the period every cmux spinner turns at (shared with the web pages and the Mac).
         .package(path: "../../Packages/Shared/CmuxSpinner"),
+        // The one Chief list rule, shared with the Mac's Home.
+        .package(path: "../../Packages/Shared/CmuxChiefList"),
         // The Mac chrome's colors from a terminal theme (ThemeTokens.derive): the phone derives the
         // same palette from the theme its Mac sends, or from its cached copy offline (ask-87d30da8e5).
         .package(path: "../../Packages/Shared/CmuxTheme"),
@@ -134,6 +138,7 @@ let package = Package(
         // CmuxMobileBrowserStream: the info page's Computer card streams a Cloud machine's screen.
         .target(name: "CmuxMobileChief", dependencies: [
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
+            .product(name: "CmuxChiefList", package: "CmuxChiefList"),
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileAgentChat", "CmuxMobileMarkdown", "CmuxMobileArtifacts", "CmuxMobileNotifications",
             "CmuxMobileBrowserStream",
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
@@ -142,6 +147,7 @@ let package = Package(
             .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
             .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
+            .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
         ], resources: [.process("Resources")]),
         // Live data: device registry, presence, the Mac link state machine, the
         // daemon tree, acpmux chats, Feed events and Chief over the link.
@@ -239,7 +245,7 @@ let package = Package(
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
         ]),
         .testTarget(name: "CmuxMobileLiveTests", dependencies: [
-            "CmuxMobileLive", "CmuxMobileChief", "CmuxMobileNotifications", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTerminal", "CmuxMobileDesign",
+            "CmuxMobileLive", "CmuxMobileChief", "CmuxMobileNotifications", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTerminal", "CmuxMobileDesign", "CmuxMobileMarkdown",
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
@@ -258,6 +264,7 @@ let package = Package(
         .testTarget(name: "CmuxMobileOnboardingTests", dependencies: ["CmuxMobileOnboarding", "CmuxMobileDesign"]),
         .testTarget(name: "CmuxMobileChiefTests", dependencies: [
             "CmuxMobileChief", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat",
+            .product(name: "CmuxChiefList", package: "CmuxChiefList"),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
             .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),

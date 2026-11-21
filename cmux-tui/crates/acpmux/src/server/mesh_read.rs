@@ -41,15 +41,19 @@ use std::time::Duration;
 pub(crate) mod parts;
 
 /// The methods a read may run: each answers a page of a session and changes nothing.
-const READ_METHODS: &[&str] =
-    &[method::MUX_INFO, method::MUX_EVENTS, method::MUX_ATTACH, method::MUX_HISTORY];
+const READ_METHODS: &[&str] = &[
+    method::MUX_INFO,
+    method::MUX_EVENTS,
+    method::MUX_ATTACH,
+    method::MUX_HISTORY,
+    method::MUX_SESSION_SEARCH,
+];
 
 /// The other reads of one session a client may ask of `HOST/KEY` (`pairing/read_only.rs`): no
 /// read carries them, so a session only the hub reaches answers that, never `no session` from
 /// this daemon's own handlers (2026-11-19: `acpmux history` of one answered no_session while
 /// `acpmux last` of it worked).
-const NOT_CARRIED: &[&str] =
-    &[method::MUX_ATTACHMENT, method::MUX_QUEUE_TEXT, method::MUX_SESSION_SEARCH, method::MUX_WAIT];
+const NOT_CARRIED: &[&str] = &[method::MUX_ATTACHMENT, method::MUX_QUEUE_TEXT, method::MUX_WAIT];
 
 /// Whether `m` reads a page of events, so its params cross and its budget halves.
 fn pages(m: &str) -> bool {
@@ -66,6 +70,7 @@ fn crossing(m: &str) -> &'static [&'static str] {
     match m {
         _ if pages(m) => EVENT_PARAMS,
         method::MUX_HISTORY => &["limit"],
+        method::MUX_SESSION_SEARCH => &["query", "role", "sinceMs", "limit", "withTurnTime"],
         _ => &[],
     }
 }
@@ -164,7 +169,11 @@ async fn run(hub: &Arc<Hub>, message: &InMessage) -> Result<String, String> {
         if pages(m) {
             params["maxBytes"] = json!(budget);
         }
-        let reply = super::rpc_call(&tx, &mut rx, id, m, params.clone()).await.map_err(failure)?;
+        let mut reply =
+            super::rpc_call(&tx, &mut rx, id, m, params.clone()).await.map_err(failure)?;
+        if m == method::MUX_INFO {
+            fit_info(&mut reply);
+        }
         let text = reply.to_string();
         if text.len() <= MAX_READ_RESULT_BYTES {
             return Ok(text);
@@ -182,6 +191,37 @@ async fn run(hub: &Arc<Hub>, message: &InMessage) -> Result<String, String> {
         return Ok(json!({PARTS: {"id": held, "count": count}}).to_string());
     }
     Err("mesh.read_too_large: the answer does not fit the hub's 64 KiB".into())
+}
+
+/// The queued prompts an `_acpmux/info` through the hub carries: the next ones to run. The
+/// rest are counted (`queueCount`, `queueTruncated`); `acpmux queue HOST/NAME` lists them all.
+const HUB_QUEUE_KEEP: usize = 16;
+
+/// The most an `_acpmux/info` answer through the hub holds: one hub message, with room for the
+/// ack and the `peer`/`via` the sender adds.
+const HUB_INFO_BYTES: usize = 56 * 1024;
+
+/// A chat's detail as one hub message, whatever its queue or fields hold: its queue cut to
+/// [`HUB_QUEUE_KEEP`], then its largest fields trimmed, marked `omitted` (`hub/reply_fit.rs`),
+/// until it fits [`HUB_INFO_BYTES`]. A whole detail went in 45 KiB parts, one round trip each:
+/// claude-sr2-coord's was 373 KB (229 KB of it 368 queued prompts, 76 KB `timeBreakdown`), ten
+/// round trips through a busy host's inbox, 52 to 106 s, past the 50 s a read waits
+/// (cmuxterm-hq#15806). `acpmux last HOST/NAME` reads it first, so it paid the same.
+fn fit_info(reply: &mut Value) {
+    let queued = reply.get_mut("queue").and_then(Value::as_array_mut).and_then(|queue| {
+        let count = queue.len();
+        (count > HUB_QUEUE_KEEP).then(|| {
+            queue.truncate(HUB_QUEUE_KEEP);
+            count
+        })
+    });
+    if let Some(count) = queued
+        && let Some(object) = reply.as_object_mut()
+    {
+        object.insert("queueCount".into(), json!(count));
+        object.insert("queueTruncated".into(), json!(true));
+    }
+    crate::hub::reply_fit::fit_object(reply, HUB_INFO_BYTES);
 }
 
 fn failure(failure: super::ControlFailure) -> String {
@@ -328,28 +368,68 @@ async fn gather(
     let most = crate::rpc::MAX_MESSAGE_BYTES.div_ceil(PART_BYTES) as u64;
     let count = held.get("count").and_then(Value::as_u64).filter(|n| (1..=most).contains(n));
     let count = count.ok_or_else(malformed)?;
-    let mut text = Vec::new();
-    for index in 0..count {
+    let read_part = |index: u64| async move {
         let body = json!({
             "version": 1, "method": READ_PART, "params": {"id": id, "index": index}
         });
         let part: Value = serde_json::from_str(&ask(mesh, host, key, body.to_string()).await?)
             .map_err(|_| malformed())?;
         let part = part.get("part").and_then(Value::as_str).ok_or_else(malformed)?;
-        let part =
-            base64::engine::general_purpose::STANDARD.decode(part).map_err(|_| malformed())?;
-        text.extend_from_slice(&part);
-    }
+        base64::engine::general_purpose::STANDARD.decode(part).map_err(|_| malformed())
+    };
+    // Every part but the last at once, then the last: one after another, each round trip
+    // through a busy host's inbox added its wait to the read's (cmuxterm-hq#15806). The
+    // receiver drops the answer once its last part is read (`mesh_read_parts.rs`, older
+    // builds too), so that one goes after the rest.
+    let last = count.saturating_sub(1);
+    let mut text = futures::future::try_join_all((0..last).map(&read_part)).await?.concat();
+    text.extend_from_slice(&read_part(last).await?);
     serde_json::from_slice(&text).map_err(|_| malformed())
 }
 
-/// One read message to `HOST/KEY` through the hub, and the receiver's answer text.
+/// How many times a read is sent afresh when the hub lets go of its receipt (404
+/// `mesh.not_found` while it is awaited): a read changes nothing, so asking again is safe.
+const READ_ROUNDS: usize = 2;
+
+/// One read message to `HOST/KEY` through the hub, and the receiver's answer text. Each hub call
+/// is tried again on a failure that passes (`mesh_retry`), and a read whose receipt the hub let
+/// go of is sent again once, all within `READ_WAIT`.
 async fn ask(
     mesh: &dyn crate::mesh::MeshHub,
     host: &str,
     key: &str,
     body: String,
 ) -> Result<String, RpcError> {
+    let deadline = tokio::time::Instant::now() + READ_WAIT;
+    let mut round = 1;
+    loop {
+        match ask_once(mesh, host, key, body.clone(), deadline).await {
+            Ok(text) => return Ok(text),
+            Err(Asked::Gone(e)) if round < READ_ROUNDS => {
+                tracing::debug!(host, error = %e, "the hub let go of a read's receipt; asking again");
+                round += 1;
+            }
+            Err(Asked::Gone(e)) => return Err(hub_error(host, key, e)),
+            Err(Asked::Failed(e)) => return Err(e),
+        }
+    }
+}
+
+/// How one round of [`ask`] ended without an answer.
+enum Asked {
+    /// The hub no longer knows the read's receipt (404 `mesh.not_found`): send it again.
+    Gone(HubError),
+    Failed(RpcError),
+}
+
+async fn ask_once(
+    mesh: &dyn crate::mesh::MeshHub,
+    host: &str,
+    key: &str,
+    body: String,
+    deadline: tokio::time::Instant,
+) -> Result<String, Asked> {
+    let failed = |e| Asked::Failed(hub_error(host, key, e));
     let message = OutMessage {
         to: recipient(host, key),
         from: Sender { host: Some(crate::pairing::machine_name()), ..Sender::default() },
@@ -359,35 +439,38 @@ async fn ask(
         mode: Mode::Now,
         idempotency_key: format!("read-{}", uuid::Uuid::now_v7()),
     };
-    let mut receipt = mesh.send(&message).await.map_err(|e| hub_error(host, key, e))?;
-    let deadline = tokio::time::Instant::now() + READ_WAIT;
+    // One idempotency key for every try, so a send the hub took before a lost answer is one read.
+    let mut receipt =
+        crate::mesh_retry::retry(true, || mesh.send(&message)).await.map_err(failed)?;
     loop {
         match receipt.state.as_str() {
             "delivered" => break,
             "refused" => {
                 let why = receipt.detail.unwrap_or_else(|| "the machine refused the read".into());
-                return Err(if why.starts_with(NO_SESSION) {
+                return Err(Asked::Failed(if why.starts_with(NO_SESSION) {
                     RpcError::not_found(format!("no session matches \"{host}/{key}\""))
                 } else {
                     RpcError::new(-32003, why).with_data(json!({"reason": "mesh.read_refused"}))
-                });
+                }));
             }
-            "expired" => return Err(unanswered(host)),
+            "expired" => return Err(Asked::Failed(unanswered(host))),
             _ => {}
         }
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
         if left.is_zero() {
-            return Err(unanswered(host));
+            return Err(Asked::Failed(unanswered(host)));
         }
-        receipt = mesh
-            .answer(&receipt.message_id, left.min(ANSWER_WAIT))
+        let id = receipt.message_id.clone();
+        receipt = crate::mesh_retry::retry(false, || mesh.answer(&id, left.min(ANSWER_WAIT)))
             .await
-            .map_err(|e| hub_error(host, key, e))?;
+            .map_err(|e| {
+                if e.code.as_deref() == Some("mesh.not_found") { Asked::Gone(e) } else { failed(e) }
+            })?;
     }
     receipt.result.ok_or_else(|| {
-        RpcError::internal(format!(
+        Asked::Failed(RpcError::internal(format!(
             "{host} answered the read with no result; is it on a build that reads?"
-        ))
+        )))
     })
 }
 
@@ -397,17 +480,29 @@ fn unanswered(host: &str) -> RpcError {
 }
 
 /// The hub's refusal as this daemon's: a session it does not know is `no session`, as a send's.
+/// Any other failure (after `mesh_retry` tried again what passes) names the route it took, the
+/// only one this daemon has to HOST (`forward` comes here only when no ssh peer or tailnet has
+/// the session), and the route that does not need the hub.
 fn hub_error(host: &str, key: &str, e: HubError) -> RpcError {
     match e.code.as_deref() {
         Some("mesh.unknown_recipient") => {
             RpcError::not_found(format!("no session matches \"{host}/{key}\""))
         }
-        code => RpcError::new(-32000, e.message.clone()).with_data(json!({
+        code => RpcError::new(-32000, through_hub_only(host, &e.message)).with_data(json!({
             "reason": code.unwrap_or("mesh.unavailable"),
             "candidates": e.candidates,
             "retryable": !e.refused,
+            "route": "hub",
         })),
     }
+}
+
+/// A failed read's words: what the hub said, that the hub is the only route here, and the other.
+fn through_hub_only(host: &str, why: &str) -> String {
+    format!(
+        "{why} (this machine reaches {host} only through the mesh hub; a direct link does not \
+         need it: `acpmux machine add {host}`)"
+    )
 }
 
 #[cfg(test)]
