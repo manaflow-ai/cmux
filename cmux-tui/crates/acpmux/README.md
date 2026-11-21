@@ -560,6 +560,15 @@ in a WARN column, shown only while some row has one; `cmux agent ls --wide` name
 number and commands (`ctx 412k: cmux agent send NAME /compact | sessions rotate NAME`), and `--json` rows carry the whole list. The cmux NEXT
 sidebar draws a warning triangle on the row whose tooltip is each `text`.
 
+`remoteSandbox.hooks` (absent or empty by default): user hooks a remote chain's sandboxed
+Claude Code runs, in Claude Code's own `hooks` shape
+(`{"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "...", "timeout": 10}]}]}`).
+A chain whose profile brings its own model route starts with `--setting-sources project,local`, so
+the user's `~/.claude/settings.json` (its `env`, and with it every user hook) never applies there;
+the hooks listed here go into the chain's inline `--settings` under `hooks` alone and run inside the
+same sandbox. Nothing here reaches the chain's `env`. Only `command` hooks; a malformed list
+refuses config.json at load, naming the entry (`config/remote_sandbox.rs`).
+
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
 event) gets an instant first-message placeholder, then a 3-6 word model title, logged
 as `titled`. A thin first message may get one refresh after its first completed turn;
