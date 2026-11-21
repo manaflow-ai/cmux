@@ -68,7 +68,10 @@ final class TooltipContentView: NSView {
         return NSSize(width: keycap.width(forHeight: height), height: height)
     }
 
-    /// The surface's size for the current text: as narrow as its lines, at most `maxWidth` wide.
+    /// The surface's size for the current text: as narrow as its text, at most `maxWidth` wide. A wrapped tooltip
+    /// keeps the line count it has at `maxWidth` and takes the narrowest width that holds it, so its lines come out
+    /// even and no empty room stands beside them (David Beyer, 2026-11-20: tooltips "look strangely wide"; the
+    /// pages' `text-wrap: balance` and ui/tooltipFit.ts do the same).
     func fittingSurfaceSize(maxWidth: CGFloat = TooltipMetrics.maxWidth * TooltipContentView.scale) -> NSSize {
         let scale = Self.scale
         let padBlock = TooltipMetrics.paddingBlock * scale
@@ -76,13 +79,28 @@ final class TooltipContentView: NSView {
         let key = keycapSize
         // With a keycap, the end's room is the keycap's inset, and the gap sits between it and the text.
         let trailing = keycap == nil ? padInline : TooltipMetrics.keycapInset * scale + key.width + TooltipMetrics.keycapGap * scale
-        text.preferredMaxLayoutWidth = max(1, maxWidth - padInline - trailing)
-        let textSize = text.fittingSize
+        let textSize = fitText(within: max(1, maxWidth - padInline - trailing))
         // One line is one height, keycap or not: the line height, or the keycap and its inset.
         let line = max(textSize.height, TooltipMetrics.lineHeight * scale)
         let minHeight = keycap == nil ? 0 : key.height + TooltipMetrics.keycapInset * scale * 2
         return NSSize(width: ceil(padInline + textSize.width + trailing),
                       height: ceil(max(line + padBlock * 2, minHeight)))
+    }
+
+    /// The text's size at the narrowest wrap width, at most `limit`, that keeps the line count it has at `limit`
+    /// (a binary search to the point; a tooltip shows a few times a minute, never per frame).
+    private func fitText(within limit: CGFloat) -> NSSize {
+        text.preferredMaxLayoutWidth = limit
+        let full = text.fittingSize
+        var low: CGFloat = 1, high = limit
+        while high - low > 0.5 {
+            let middle = ((low + high) / 2).rounded(.up)
+            text.preferredMaxLayoutWidth = middle
+            if text.fittingSize.height <= full.height + 0.5 { high = middle } else { low = middle }
+        }
+        let width = min(limit, ceil(high))
+        text.preferredMaxLayoutWidth = width
+        return NSSize(width: width, height: full.height)
     }
 
     override func layout() {
