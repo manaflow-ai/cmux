@@ -1283,6 +1283,7 @@ name = "cmux-agent-customize"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cmux-config",
  "cmux-process",
  "cmux-tui-hooks",
  "cmux-tui-platform",
@@ -1851,6 +1852,14 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-follow-cam"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
