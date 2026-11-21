@@ -24,12 +24,18 @@ concurrency:
 
 jobs:
   rerun:
+    # A comment takes a runner only when it can be a receipt: its body starts `Review (` and names
+    # `): SHIP at `. Every other comment on every pull request used to start this job, whose first step
+    # then exited; on 2026-11-19 those were 49 of the newest 1,000 queued Actions runs, each waiting for
+    # a Linux runner. The step below still checks the exact first line, the author and the head.
     if: >-
       ${{
         (github.event_name == 'pull_request_review' &&
           github.event.pull_request.base.ref == 'feat-cmux-next' &&
           github.event.pull_request.head.repo.full_name == github.repository) ||
-        (github.event_name == 'issue_comment' && github.event.issue.pull_request != null)
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request != null &&
+          startsWith(github.event.comment.body, 'Review (') &&
+          contains(github.event.comment.body, '): SHIP at '))
       }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted actions-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 5
