@@ -3185,6 +3185,9 @@ export class AcpmuxDirectClient {
       busy: number;
       /// When it was first sent: the liveness probe is timed from the oldest waiting one.
       since: number;
+      /// What was asked: an answer the app's bridge makes itself (`_acpmux/status`) proves no
+      /// daemon alive (`daemonSpoke`).
+      method: string;
     }
   >();
   /// A request crossed its progress threshold on an open socket. This is a UI state, never a
@@ -5564,6 +5567,7 @@ export class AcpmuxDirectClient {
         return;
       }
       const request = this.pending.get(message.id);
+      if (!stale && request && "result" in message && !hostAnswered.has(request.method)) this.daemonSpoke();
       const busy = (message.error?.data as { reason?: unknown } | undefined)?.reason === "connection.busy";
       if (request && busy && request.retryable) {
         // The daemon's count and this page's drifted: the request goes again later, never at once.
@@ -5620,6 +5624,7 @@ export class AcpmuxDirectClient {
       return;
     }
     const notification = message as Notification;
+    if (!stale && fromDaemon(notification)) this.daemonSpoke();
     if (notification.method === "_acpmux/peer_state_changed") {
       if (!stale && !this.closed && this.peerEvents.changed(notification.params)) {
         this.applyPeerStates();
@@ -7222,6 +7227,7 @@ export class AcpmuxDirectClient {
         busy: send ? 0 : BUSY_TRIES,
         retryable: Boolean(send),
         since: Date.now(),
+        method,
       });
     });
   }
@@ -7337,6 +7343,23 @@ export class AcpmuxDirectClient {
     if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
     this.daemonLivenessTimer = undefined;
     if (this.daemonWaitingSince !== undefined) this.armDaemonLiveness();
+  }
+
+  /// A frame only the daemon makes came on the current socket (a result it computed, a
+  /// notification it sent): it is alive, only slow, whatever became of the probe. A daemon at full
+  /// CPU streams and answers while its probe answer is late; before, the pane cut every socket
+  /// of that daemon 15 s after its probe went, though frames kept coming, and each pane then
+  /// reattached its chat at once, on a daemon already behind (Leo: "the connection between the
+  /// daemon and the display broke"). Costs nothing while no request waits.
+  private daemonSpoke(): void {
+    if (this.waitingRequests === 0 && !this.daemonProbe) return;
+    this.daemonProvedAt = Date.now();
+    if (!this.daemonProbe) return;
+    // The probe's late answer, if it comes, is an unknown id and drops; the next one is timed from now.
+    this.daemonProbe = undefined;
+    if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
+    this.daemonLivenessTimer = undefined;
+    this.armDaemonLiveness();
   }
 
   /// Asks the daemon on `socket` one cheap question, outside the request budget: its own answer,
@@ -17016,6 +17039,19 @@ function warnIfNotAllowlisted(method: string, error: unknown): void {
   if (notAllowlisted.has(method)) return;
   notAllowlisted.add(method);
   console.warn(`cmux: the host refused ${method}: it is not on the agent pane's relay allowlist`);
+}
+
+/// Requests the app's bridge answers itself, with or without a daemon (AgentPaneTransport+Check.swift
+/// `.status`): their results prove no daemon alive (`daemonSpoke`).
+const hostAnswered = new Set(["_acpmux/status"]);
+
+/// Whether `notification` is one the daemon sent, not one the app's host made: the host's own are
+/// its question key requests (`_cmux/*`, AgentPaneTransport+QuestionKeys.swift) and the lag notice
+/// it writes when its queue to the page fills (AcpmuxPaneShedding.swift, `host_queue_full`).
+function fromDaemon(notification: Notification): boolean {
+  const method = notification.method;
+  if (typeof method !== "string" || method.startsWith("_cmux/")) return false;
+  return !(method === "_acpmux/lagged" && notification.params?.reason === "host_queue_full");
 }
 
 /// The host's refusals of the liveness probe's method itself (`probeAnswered`): no daemon saw it.
