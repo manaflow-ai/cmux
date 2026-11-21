@@ -82,11 +82,16 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Some("serve") => serve_command(args.get(1..).unwrap_or_default()),
         Some("enable") => set_enabled(true).map(|()| json!({"ok": true, "enabled": true})),
         Some("disable") => set_enabled(false).map(|()| json!({"ok": true, "enabled": false})),
-        Some("status") => Ok(json!({"ok": true, "enabled": enabled()})),
+        Some("status") => Ok(json!({"ok": true, "enabled": enabled(), "moves": moves_enabled()})),
+        Some("moves") => match args.get(1).map(String::as_str) {
+            Some("on") => set_moves(true).map(|()| json!({"ok": true, "moves": true})),
+            Some("off") => set_moves(false).map(|()| json!({"ok": true, "moves": false})),
+            _ => Err(anyhow::anyhow!("usage: cmux link project moves on|off")),
+        },
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
         _ => Err(anyhow::anyhow!(
             "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
-             REMOTE | enable | disable | status"
+             REMOTE | enable | disable | status | moves on|off"
         )),
     };
     match outcome {
@@ -114,6 +119,45 @@ pub(crate) fn enabled() -> bool {
         _ => {}
     }
     !off_path().is_some_and(|path| path.exists())
+}
+
+/// The env switch for a moved chat's folder (`1`/`true` on, `0`/`false` off), over the setting.
+const MOVES_ENV: &str = "CMUX_PROJECTED_MOVES";
+
+/// Whether Move to Cloud projects the chat's folder (`cmux link seed push`, seed_cli.rs): off
+/// unless [`MOVES_ENV`] or `cmux link project moves on` turned it on, and never while projection
+/// itself is off. Off by default until Bring Back Local brings a projection's edits home: a
+/// projected folder has no seed or copy record for Bring Back to merge against.
+pub(crate) fn moves_enabled() -> bool {
+    if !enabled() {
+        return false;
+    }
+    match std::env::var(MOVES_ENV).ok().as_deref() {
+        Some("1" | "true") => return true,
+        Some("0" | "false") => return false,
+        _ => {}
+    }
+    moves_on_path().is_some_and(|path| path.exists())
+}
+
+/// The opt-in marker for moves: present only after `cmux link project moves on`.
+fn moves_on_path() -> Option<PathBuf> {
+    Some(
+        cmux_tui_core::platform::workspace_state_dir()?
+            .join("link-sync")
+            .join("projected-moves-on"),
+    )
+}
+
+fn set_moves(on: bool) -> anyhow::Result<()> {
+    let path = moves_on_path().context("this Mac has no state folder")?;
+    if on {
+        std::fs::create_dir_all(path.parent().context("no state folder")?)?;
+        std::fs::write(&path, b"on\n")?;
+    } else if path.exists() {
+        std::fs::remove_file(&path)?;
+    }
+    Ok(())
 }
 
 /// The opt-out marker: present only after `cmux link project disable`.

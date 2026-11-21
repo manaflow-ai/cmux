@@ -383,6 +383,7 @@ fn seed_push(
     command
         .env("CMUX_TUI_STATE_DIR", state)
         .env("CMUX_PROJECTED_FOLDERS", "1")
+        .env("CMUX_PROJECTED_MOVES", "1")
         .args(["link", "seed", "push", "--socket"])
         .arg(socket)
         .arg(local)

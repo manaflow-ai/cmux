@@ -633,12 +633,16 @@ fn refusal(local: &Path, fallback: SeedError) -> SeedError {
 }
 
 /// Move to Cloud's full push (`cmux link seed push LOCAL REMOTE`, no `--head-first`): the folder
-/// is projected (`sync_cli/project.rs`) when projection is on and the machine serves it, as a new
+/// is projected (`sync_cli/project.rs`) when projected moves are on (`cmux link project moves
+/// on`; off until Bring Back Local brings a projection's edits home) and the machine serves it, as a new
 /// Cloud chat's folder is, so the chat moves at once whatever the folder's size or whether it is a
 /// git repository, its files read from this Mac on first use. None when it is not, or the
 /// projection fails: the seed or copy goes as before. A seed record of an earlier push of the
 /// folder there is dropped, so neither `--since-last` nor Bring Back Local builds on it.
 fn project_first(socket: &Path, local: &Path, remote: &str) -> Option<Pushed> {
+    if !sync_cli::project::moves_enabled() {
+        return None;
+    }
     let local = std::fs::canonicalize(local).ok()?;
     let key = sync_cli::project::move_key(remote);
     match sync_cli::project::restart(socket, &local, remote, &key) {
