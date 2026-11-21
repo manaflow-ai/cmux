@@ -1446,7 +1446,9 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
             Bytes::new(),
             FrameFlags::HEARTBEAT_REQUEST,
         );
-        let Ok(send_result) = probe_by(send, &mut deadline, &mut network, &mut close_state).await
+        let Ok(send_result) =
+            probe_by(send, &mut deadline, &mut network, &mut close_state, &|| route.is_gone())
+                .await
         else {
             return;
         };
@@ -1454,12 +1456,16 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
             Some(Ok(_)) => {}
             Some(Err(_)) => continue,
             None => {
+                route.forget_if_gone();
                 let _ = connection.recover(generation).await;
                 continue;
             }
         }
         let answer = connection.probe_liveness(generation, observed);
-        let Ok(live) = probe_by(answer, &mut deadline, &mut network, &mut close_state).await else {
+        let Ok(live) =
+            probe_by(answer, &mut deadline, &mut network, &mut close_state, &|| route.is_gone())
+                .await
+        else {
             return;
         };
         let live = live.unwrap_or(false);
@@ -1469,6 +1475,7 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
             continue;
         }
         if !live && connection.last_received() <= observed {
+            route.forget_if_gone();
             let _ = connection.recover(generation).await;
         }
     }
@@ -1509,6 +1516,13 @@ impl RouteSource {
         self.source = None;
     }
 
+    /// The probe failed: a source that is gone is acted on by this redial, so it is not kept.
+    fn forget_if_gone(&mut self) {
+        if self.is_gone() {
+            self.forget();
+        }
+    }
+
     fn is_gone(&self) -> bool {
         self.source.is_some_and(crate::route_source::address_is_gone)
     }
@@ -1523,6 +1537,7 @@ async fn probe_by<T>(
     deadline: &mut tokio::time::Instant,
     network: &mut watch::Receiver<u64>,
     close_state: &mut watch::Receiver<CloseState>,
+    route_gone: &dyn Fn() -> bool,
 ) -> Result<Option<T>, ()> {
     tokio::pin!(phase);
     loop {
@@ -1531,7 +1546,9 @@ async fn probe_by<T>(
             result = tokio::time::timeout_at(*deadline, phase.as_mut()) => return Ok(result.ok()),
             _ = close_state.changed() => return Err(()),
             Ok(()) = network.changed() => {
-                let short = tokio::time::Instant::now() + NETWORK_CHANGE_PROBE_TIMEOUT;
+                // A route whose address is gone cannot answer: end the probe now.
+                let wait = if route_gone() { Duration::ZERO } else { NETWORK_CHANGE_PROBE_TIMEOUT };
+                let short = tokio::time::Instant::now() + wait;
                 *deadline = (*deadline).min(short);
             }
         }
@@ -1873,7 +1890,11 @@ impl From<SessionError> for ConnectionError {
 mod route_source_tests {
     use std::net::{IpAddr, Ipv4Addr};
 
-    use super::RouteSource;
+    use std::time::Duration;
+
+    use tokio::sync::watch;
+
+    use super::{CloseState, RouteSource, probe_by};
 
     fn route_from(source: Option<IpAddr>) -> RouteSource {
         RouteSource { remote: None, source }
@@ -1893,5 +1914,45 @@ mod route_source_tests {
     fn a_route_from_a_live_address_or_an_unknown_one_is_not_gone() {
         assert!(!route_from(Some(IpAddr::from(Ipv4Addr::LOCALHOST))).is_gone());
         assert!(!route_from(None).is_gone());
+    }
+
+    /// A probe waiting on a route whose address went away ends at the change, not after the
+    /// two seconds a probe on a route that may have survived gets.
+    #[tokio::test(start_paused = true)]
+    async fn a_probe_ends_at_a_network_change_that_took_its_address() {
+        let (network_tx, mut network) = watch::channel(0_u64);
+        let (_close_tx, mut close_state) = watch::channel(CloseState::Pending);
+        let mut deadline = tokio::time::Instant::now() + Duration::from_secs(4);
+        network_tx.send_modify(|generation| *generation += 1);
+        let started = tokio::time::Instant::now();
+        let ended = probe_by(
+            std::future::pending::<()>(),
+            &mut deadline,
+            &mut network,
+            &mut close_state,
+            &|| true,
+        )
+        .await;
+        assert!(matches!(ended, Ok(None)));
+        assert!(started.elapsed() < Duration::from_millis(50));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_probe_on_a_route_that_may_have_survived_gets_the_short_window() {
+        let (network_tx, mut network) = watch::channel(0_u64);
+        let (_close_tx, mut close_state) = watch::channel(CloseState::Pending);
+        let mut deadline = tokio::time::Instant::now() + Duration::from_secs(4);
+        network_tx.send_modify(|generation| *generation += 1);
+        let started = tokio::time::Instant::now();
+        let ended = probe_by(
+            std::future::pending::<()>(),
+            &mut deadline,
+            &mut network,
+            &mut close_state,
+            &|| false,
+        )
+        .await;
+        assert!(matches!(ended, Ok(None)));
+        assert_eq!(started.elapsed(), Duration::from_secs(2));
     }
 }
