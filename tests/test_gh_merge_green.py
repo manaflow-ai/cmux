@@ -956,6 +956,25 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertIn("has changed the check path .github/workflows/ci-web.yml since", result.stderr)
             self.assertIn("check-path gate", result.stderr)
 
+    def test_a_missing_protected_paths_list_refuses_before_the_check_path_gate_dispatches(self):
+        """Review protpaths-1 of #39942 (F1): the list was read only in the merged-tree checks, after
+        the fast gate's wait and the check-path gate's dispatch, so a missing list spent a Linux run
+        and up to --wait first. It is read as soon as the fast gate is chosen."""
+        for name, protected_list in (("missing", None), ("only comments", "# no entries\n")):
+            with self.subTest(name), tempfile.TemporaryDirectory() as directory:
+                marker, events = Path(directory) / "merged", Path(directory) / "events"
+                helper = MergedHeadChecksRegression.helper_copy(directory, protected_list)
+                result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                         event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                         fast_gates_after=(MERGED_SHA, "success"), tip_sha=MERGED_SHA,
+                                         compare=self.LANDED, helper_script=helper)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertFalse(events.exists() and "dispatch" in events.read_text().splitlines(),
+                                 result.stdout + result.stderr)
+                self.assertIn("protected gate paths", result.stderr)
+                self.assertIn("merge-fast-gate-protected-paths.txt", result.stderr)
+
     def test_the_check_path_gate_merges_on_the_reruns_fresh_success(self):
         with tempfile.TemporaryDirectory() as directory:
             marker, events = Path(directory) / "merged", Path(directory) / "events"
