@@ -128,7 +128,7 @@ impl ClaimRuns {
         };
         let (mut kinds, mut hidden) = classify(&command);
         let ok = !failed(update);
-        if !ok && classified_steps(&command) > 1 {
+        if !ok && !failure_is_its_check(&command) {
             hidden |= kinds;
             kinds = 0;
         }
@@ -336,8 +336,16 @@ fn classify(command: &str) -> (u8, u8) {
 
 /// How many `&&` steps of `command` run a claim kind: a failed chain of two or more does not say
 /// which one failed, nor whether the later ones ran.
-fn classified_steps(command: &str) -> usize {
-    steps(command).iter().filter(|(step, _)| classify_simple(step) != 0).count()
+/// Whether a failed chain's exit status is its one checked step's: every other step is a `cd`.
+/// In `cargo test && false` or `false && cargo test` the failure may not be the tests'.
+fn failure_is_its_check(command: &str) -> bool {
+    let steps = steps(command);
+    let checked = steps.iter().filter(|(step, _)| classify_simple(step) != 0).count();
+    let other = steps.iter().filter(|(step, _)| classify_simple(step) == 0).all(|(step, _)| {
+        let step = step.trim();
+        step == "cd" || step.starts_with("cd ")
+    });
+    checked == 1 && other
 }
 
 const TESTS: u8 = 1;
