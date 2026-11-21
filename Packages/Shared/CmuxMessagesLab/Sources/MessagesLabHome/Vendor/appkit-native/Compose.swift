@@ -914,6 +914,10 @@ final class ComposeView: UIView {
             emptyLinesMemo = (w, n)
             return n
         }
+        // cmux: the field's own lines when it shows this draft at this width: TextKit 1 laid them
+        // out for the key already (with the field's kern, which the plain measure leaves out), so a
+        // key typesets nothing again here (cmux21 `sample`, 3,000 characters: 0.13 ms a key).
+        if let n = textView.view.textKit1LineCount(showing: text, width: w) { return n }
         // cmux: typing at the end of the draft (each key's case) lays out only from the start of the
         // memo's second-to-last line: a greedy break before it cannot move when text is appended. The
         // cost follows the change, not the draft (perf-lead.md issue 5, typing-frame-bench.py).
