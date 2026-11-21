@@ -422,6 +422,8 @@ impl Drop for Sampler {
 
 /// A daemon the sampler reads: role, name, socket.
 type Target = (&'static str, String, PathBuf);
+/// (idx, round, latency us, ok) of each fan-out a collector saw.
+type FanoutDone = Arc<Mutex<Vec<(u64, u64, u64, bool)>>>;
 
 /// The daemon's resident KiB from its own gauges, and the status call's ms.
 fn gauge_rss(rpc: &Rpc) -> (Option<u64>, f64) {
@@ -611,8 +613,7 @@ fn ramp_in<'s>(
     let ctrl_pid = ctrl.pid();
     fleet_guard.0.push(ctrl);
     let mut targets: Vec<Target> = vec![("daemon", "controller".into(), ctrl_rec.socket.clone())];
-    targets
-        .extend(host_meta.iter().map(|(name, _, .., sock)| ("host", name.clone(), sock.clone())));
+    targets.extend(host_meta.iter().map(|(name, .., sock)| ("host", name.clone(), sock.clone())));
     let samp = sampler(s, &dir.join("proc.ndjson"), targets)?;
 
     // The app: one client of the controller.
@@ -700,7 +701,7 @@ fn ramp_in<'s>(
     let mut attach_one = Vec::new();
     let mut list_window = Vec::new();
     let mut fanout_sent: Vec<(u64, u64, u64)> = Vec::new(); // (idx, round, sent us)
-    let fanout_done: Arc<Mutex<Vec<(u64, u64, u64, bool)>>> = Arc::new(Mutex::new(Vec::new())); // (idx, round, latency us, ok)
+    let fanout_done: FanoutDone = Arc::new(Mutex::new(Vec::new())); // (idx, round, latency us, ok)
     let mut collectors = Vec::new();
     let mut next_round = 1u64;
     let mut burst_on = false;

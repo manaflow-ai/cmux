@@ -3,6 +3,10 @@
 //! Only counts and log2 histograms: bucket `b` holds values in `[2^(b-1), 2^b)`, bucket 0 holds 0.
 //! The generator samples from these; no transcript content ever reaches this crate.
 
+// Shared model of the coord-sim subcommands: each of gen, agent, drive, degen, fanin and report reads its own
+// part (and the coord-shape.v1 schema fields stay whole), so one subcommand's build leaves the rest unread.
+#![allow(dead_code)]
+
 use crate::rng::Rng;
 use serde::Deserialize;
 use std::collections::BTreeMap;
