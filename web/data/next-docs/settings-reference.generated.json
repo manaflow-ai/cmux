@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 643,
+  "count": 645,
   "sections": [
     {
       "id": "general",
@@ -6214,6 +6214,14 @@
           "group": "Chief Dock"
         },
         {
+          "key": "home.chiefDock.sidePanel",
+          "title": "Chief in Side Panel",
+          "help": "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Chief Dock"
+        },
+        {
           "key": "home.chiefEngine",
           "title": "Engine",
           "help": "Auto uses this Mac's Chief while it runs, else the Hosted Chief.",
@@ -6948,9 +6956,17 @@
           "group": "Developer Tools"
         },
         {
+          "key": "experiments.glassToolbarGroups",
+          "title": "Glass Toolbar Groups",
+          "help": "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
           "key": "labs.agentCustomization",
           "title": "Claude Code and Codex Customization",
-          "help": "Show and edit the MCP servers Claude Code and Codex use, in their own config files.",
+          "help": "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

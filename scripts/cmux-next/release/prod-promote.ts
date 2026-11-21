@@ -160,7 +160,27 @@ const cf = async (path: string): Promise<any> => {
 /** Waits before each retry of a GitHub 5xx or network error (one 502 failed promote-gates before G1-G7 ran). 4xx never retries. */
 export const GH_RETRY_DELAYS_MS: ReadonlyArray<number> = [2_000, 5_000, 10_000]
 
-export const gh = async (path: string, init: RequestInit = {}, delays: ReadonlyArray<number> = GH_RETRY_DELAYS_MS): Promise<any> => {
+/**
+ * The longest gh() waits for a spent token hour to reset before its one retry. The repository's GITHUB_TOKEN hour is
+ * shared by every workflow and still ran out a few minutes before its reset (2026-11-21 14:49Z for 14:51Z); a
+ * promote-gates read in those minutes failed the promote. Ten minutes leaves promote-gates (25) room to finish.
+ */
+export const GH_RATE_LIMIT_WAIT_MS = 10 * 60_000
+
+/** The clock gh() waits on for a rate-limit reset; tests pass a fake one. */
+export type GhLimits = { now: () => number; sleep: (ms: number) => Promise<void> }
+const realLimits: GhLimits = { now: () => Date.now(), sleep: (ms) => new Promise((done) => setTimeout(done, ms)) }
+
+/** How long until a rate-limit refusal's hour resets (plus a second), or null when it is no such refusal or the reset is too far away. */
+const rateLimitWait = (r: Response, now: number): number | null => {
+  if ((r.status !== 403 && r.status !== 429) || r.headers.get("x-ratelimit-remaining") !== "0") return null
+  const reset = Number(r.headers.get("x-ratelimit-reset"))
+  if (!Number.isFinite(reset)) return null
+  const ms = Math.max(0, reset * 1000 - now) + 1_000
+  return ms <= GH_RATE_LIMIT_WAIT_MS ? ms : null
+}
+
+export const gh = async (path: string, init: RequestInit = {}, delays: ReadonlyArray<number> = GH_RETRY_DELAYS_MS, limits: GhLimits = realLimits): Promise<any> => {
   const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
   const repo = process.env.GITHUB_REPOSITORY ?? "manaflow-ai/cmux"
   if (!token) throw new Error("GITHUB_TOKEN is not set")
@@ -180,7 +200,15 @@ export const gh = async (path: string, init: RequestInit = {}, delays: ReadonlyA
     await sleep(retries[attempt]!)
     return fetchOnce(attempt + 1)
   }
-  const r = await fetchOnce(0)
+  let r = await fetchOnce(0)
+  // A refused request did nothing (a POST too), so one retry after the reset is safe; a second refusal throws.
+  const wait = rateLimitWait(r, limits.now())
+  if (wait !== null) {
+    await r.body?.cancel().catch(() => {})
+    console.error(`prod-promote: GitHub ${path}: the token's hour is spent; waiting ${Math.round(wait / 1000)} s for its reset, then retrying once`)
+    await limits.sleep(wait)
+    r = await fetchOnce(0)
+  }
   // The body and the rate-limit headers say why (a 403 is a rate limit or a permission; the status alone hid which).
   if (!r.ok) throw new Error(`GitHub ${path}: HTTP ${r.status} ${(await r.text().catch(() => "")).slice(0, 300)} [remaining ${r.headers.get("x-ratelimit-remaining")}, reset ${r.headers.get("x-ratelimit-reset")}, retry-after ${r.headers.get("retry-after")}]`)
   return r.status === 204 ? null : r.json()

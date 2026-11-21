@@ -69,9 +69,6 @@
     "cmux-next-car-guards.yml": {
       "linux": "runs tests/test_ci_fleet_rule_lints.py, whose allowlist names cmux-next-ios/verify/ scripts; with them absent its git grep skips them and it reports 20 stale entries"
     },
-    "ci-guard-attribution.yml": {
-      "analyze": "runs the CI guards (the fleet rule lints among them) in scratch worktrees that would inherit the patterns; it checks out main, which has no cmux-next-ios/, so leaving it out saves nothing"
-    },
     "cloud-vm-image-roll.yml": {
       "promote": "images/cmux-vm/image-roll-push.sh commits the roll and rebases it onto feat-cmux-next before the push; the production push keeps the full tree it was proven with rather than a sparse index"
     }
