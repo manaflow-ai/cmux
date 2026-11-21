@@ -48,6 +48,8 @@ BIG = "blacksmith-32vcpu-ubuntu-2404"
 SMALL = "blacksmith-16vcpu-ubuntu-2404"
 
 
+PERSISTENT = "cmux-linux"
+
 def blacksmith_set(job: str) -> set[str]:
     """Members of the pools selected for this job's size and failover."""
     labels = (size_label(WORKFLOW.name, job), failover_label(WORKFLOW.name, job))
@@ -176,7 +178,9 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             labels = resolved(runs_on, "manaflow-ai", linux_runner, overflow, trusted)
             # A non-Blacksmith LINUX_RUNNER wins; a job that does not read it (the daemon
             # tests) never takes it. The nightly path's attempt 1 takes the owned pool.
+            # A job whose same-repository branch names the persistent pool takes it.
             allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
+                       | ({PERSISTENT} if runs_on.rstrip().endswith(f"'{PERSISTENT}' }}}}") else set())
                        | ({OWNED, NIGHTLY} if name in NIGHTLY_TREE_JOBS + OWNED_FIRST_OWN_ROUTE_JOBS else set()))
             with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow), trusted=trusted):
                 self.assertTrue(labels <= allowed, labels - allowed)
@@ -187,6 +191,9 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             # A write-token job reads only the ephemeral_only linux_4 pool, whose own next member is its overflow
             # (tests/test_ci_ephemeral_pool_readers.py); the switch does not move it.
             if "CI_CLOUD_OVERFLOW_SAVED" not in runs_on and runs_on.rstrip().endswith("fromJSON(vars.RUNNER_POOLS).linux_4 }}"):
+                continue
+            # The persistent pool is one label; there is no other Blacksmith size to move to.
+            if runs_on.rstrip().endswith(f"'{PERSISTENT}' }}}}"):
                 continue
             for linux_runner in ("", "blacksmith-4vcpu-ubuntu-2404", SMALL):
                 with self.subTest(job=name, linux_runner=linux_runner):
