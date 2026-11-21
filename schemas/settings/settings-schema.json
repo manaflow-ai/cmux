@@ -181,49 +181,12 @@
       },
       {
         "actions" : [
-
+          "appearance"
         ],
         "aliases" : [
-          "theme"
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.appTheme",
-            "rows" : [
-              "appearance.theme",
-              "appearance.appTheme",
-              "appearance.themeEdits",
-              "appearance.favoriteThemes",
-              "appearance.rotateFavoriteThemes",
-              "appearance.accent",
-              "appearance.themeFile",
-              "appearance.highlightColor"
-            ],
-            "title" : {
-              "key" : "settings.group.appTheme",
-              "text" : "App Theme"
-            }
-          }
-        ],
-        "id" : "personalization",
-        "lead" : [
+          "appearance",
+          "theme",
           "personalization"
-        ],
-        "symbol" : "wand.and.stars",
-        "title" : {
-          "key" : "settings.category.personalization",
-          "text" : "Personalization"
-        },
-        "trail" : [
-          "customizeLibrary"
-        ]
-      },
-      {
-        "actions" : [
-          "appearance"
-        ],
-        "aliases" : [
-          "appearance"
         ],
         "groups" : [
           {
@@ -402,11 +365,30 @@
               "key" : "settings.pageGroup.viewerSurfaces",
               "text" : "Surfaces: Viewers"
             }
+          },
+          {
+            "key" : "settings.group.appTheme",
+            "rows" : [
+              "appearance.theme",
+              "appearance.appTheme",
+              "appearance.themeEdits",
+              "appearance.favoriteThemes",
+              "appearance.rotateFavoriteThemes",
+              "appearance.accent",
+              "appearance.themeFile",
+              "appearance.highlightColor"
+            ],
+            "title" : {
+              "key" : "settings.group.appTheme",
+              "text" : "App Theme"
+            }
           }
         ],
         "id" : "appearance",
         "lead" : [
-
+          "themeStudio",
+          "backdrops",
+          "density"
         ],
         "symbol" : "paintbrush",
         "title" : {
@@ -414,7 +396,7 @@
           "text" : "Appearance"
         },
         "trail" : [
-
+          "customizeLibrary"
         ]
       },
       {
@@ -724,42 +706,6 @@
         "title" : {
           "key" : "settings.category.tabsAndPanes",
           "text" : "Tabs and Panes"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "newTab.0",
-            "rows" : [
-              "tabs.newTabTemplate",
-              "tabs.newTabApp",
-              "tabs.nativeNewTabPage",
-              "sidebar.showChats",
-              "tabs.newTabNowPlaying"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.newTabPage",
-              "text" : "New Tab Page"
-            }
-          }
-        ],
-        "id" : "newTab",
-        "lead" : [
-
-        ],
-        "symbol" : "plus.square",
-        "title" : {
-          "key" : "settings.pageGroup.newTabPage",
-          "text" : "New Tab Page"
         },
         "trail" : [
 
@@ -1500,138 +1446,6 @@
         ],
         "groups" : [
           {
-            "key" : "settings.group.computerUse",
-            "rows" : [
-              "computerUse.mode",
-              "computerUse.deniedApps",
-              "computerUse.allowOwnMachines",
-              "computerUse.pauseOnTakeover",
-              "computerUse.showCursor",
-              "computerUse.cursorTag",
-              "computerUse.settle",
-              "computerUse.livePreview",
-              "computerUse.menus",
-              "computerUse.allowForeground"
-            ],
-            "title" : {
-              "key" : "settings.group.computerUse",
-              "text" : "Computer Use"
-            }
-          }
-        ],
-        "id" : "computerUse",
-        "lead" : [
-          "computerUse"
-        ],
-        "symbol" : "cursorarrow.click.2",
-        "title" : {
-          "key" : "settings.category.computerUse",
-          "text" : "Computer Use"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.mcpServers",
-            "rows" : [
-              "agents.mcpServers.enabled"
-            ],
-            "title" : {
-              "key" : "settings.group.mcpServers",
-              "text" : "Agent Chats"
-            }
-          }
-        ],
-        "id" : "mcpServers",
-        "lead" : [
-          "mcpServers"
-        ],
-        "symbol" : "server.rack",
-        "title" : {
-          "key" : "settings.category.mcpServers",
-          "text" : "MCP Servers"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-
-        ],
-        "id" : "models",
-        "lead" : [
-          "models"
-        ],
-        "symbol" : "cpu",
-        "title" : {
-          "key" : "settings.category.models",
-          "text" : "Models"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.cloudWorkspaces",
-            "rows" : [
-              "cloud.newWorkspacesInCloud",
-              "cloud.newWorkspaceFolder",
-              "cloud.agentsStartWithoutAsking",
-              "cloud.turnCheckpoints"
-            ],
-            "title" : {
-              "key" : "settings.group.cloudWorkspaces",
-              "text" : "Cloud Workspaces"
-            }
-          }
-        ],
-        "id" : "cloud",
-        "lead" : [
-          "cloudModels",
-          "cloudEnvironments"
-        ],
-        "symbol" : "cloud",
-        "title" : {
-          "key" : "settings.category.cloud",
-          "text" : "Cloud"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
             "key" : "settings.group.chiefChat",
             "rows" : [
               "home.chiefBubbleStyle",
@@ -1711,6 +1525,7 @@
         "id" : "chief",
         "lead" : [
           "chiefs",
+          "chiefPet",
           "voiceInput"
         ],
         "symbol" : "crown",
@@ -1720,6 +1535,29 @@
         },
         "trail" : [
           "notices"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "models",
+        "lead" : [
+          "models"
+        ],
+        "symbol" : "cpu",
+        "title" : {
+          "key" : "settings.category.models",
+          "text" : "Models"
+        },
+        "trail" : [
+
         ]
       },
       {
@@ -1916,29 +1754,6 @@
       },
       {
         "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-
-        ],
-        "id" : "menus",
-        "lead" : [
-          "contextMenus"
-        ],
-        "symbol" : "contextualmenu.and.cursorarrow",
-        "title" : {
-          "key" : "settings.category.menus",
-          "text" : "Menus"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
           "accounts",
           "machines"
         ],
@@ -1990,29 +1805,6 @@
 
         ],
         "groups" : [
-
-        ],
-        "id" : "keys",
-        "lead" : [
-          "keys"
-        ],
-        "symbol" : "key",
-        "title" : {
-          "key" : "settings.category.keys",
-          "text" : "Keys"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
           {
             "key" : "settings.group.mobile",
             "rows" : [
@@ -2048,6 +1840,197 @@
         },
         "trail" : [
           "mobile"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "newTab.0",
+            "rows" : [
+              "tabs.newTabTemplate",
+              "tabs.newTabApp",
+              "tabs.nativeNewTabPage",
+              "sidebar.showChats",
+              "tabs.newTabNowPlaying"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.newTabPage",
+              "text" : "New Tab Page"
+            }
+          }
+        ],
+        "id" : "newTab",
+        "lead" : [
+
+        ],
+        "symbol" : "plus.square",
+        "title" : {
+          "key" : "settings.pageGroup.newTabPage",
+          "text" : "New Tab Page"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "menus",
+        "lead" : [
+          "contextMenus"
+        ],
+        "symbol" : "contextualmenu.and.cursorarrow",
+        "title" : {
+          "key" : "settings.category.menus",
+          "text" : "Menus"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.computerUse",
+            "rows" : [
+              "computerUse.mode",
+              "computerUse.deniedApps",
+              "computerUse.allowOwnMachines",
+              "computerUse.pauseOnTakeover",
+              "computerUse.showCursor",
+              "computerUse.cursorTag",
+              "computerUse.settle",
+              "computerUse.livePreview",
+              "computerUse.menus",
+              "computerUse.allowForeground"
+            ],
+            "title" : {
+              "key" : "settings.group.computerUse",
+              "text" : "Computer Use"
+            }
+          }
+        ],
+        "id" : "computerUse",
+        "lead" : [
+          "computerUse"
+        ],
+        "symbol" : "cursorarrow.click.2",
+        "title" : {
+          "key" : "settings.category.computerUse",
+          "text" : "Computer Use"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.mcpServers",
+            "rows" : [
+              "agents.mcpServers.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.mcpServers",
+              "text" : "Agent Chats"
+            }
+          }
+        ],
+        "id" : "mcpServers",
+        "lead" : [
+          "mcpServers"
+        ],
+        "symbol" : "server.rack",
+        "title" : {
+          "key" : "settings.category.mcpServers",
+          "text" : "MCP Servers"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.cloudWorkspaces",
+            "rows" : [
+              "cloud.newWorkspacesInCloud",
+              "cloud.newWorkspaceFolder",
+              "cloud.agentsStartWithoutAsking",
+              "cloud.turnCheckpoints"
+            ],
+            "title" : {
+              "key" : "settings.group.cloudWorkspaces",
+              "text" : "Cloud Workspaces"
+            }
+          }
+        ],
+        "id" : "cloud",
+        "lead" : [
+          "cloudModels",
+          "cloudEnvironments"
+        ],
+        "symbol" : "cloud",
+        "title" : {
+          "key" : "settings.category.cloud",
+          "text" : "Cloud"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "keys",
+        "lead" : [
+          "keys"
+        ],
+        "symbol" : "key",
+        "title" : {
+          "key" : "settings.category.keys",
+          "text" : "Keys"
+        },
+        "trail" : [
+
         ]
       },
       {
@@ -2319,11 +2302,9 @@
       },
       {
         "categories" : [
-          "personalization",
           "appearance",
           "sidebar",
-          "tabs",
-          "newTab"
+          "tabs"
         ],
         "id" : "look",
         "title" : {
@@ -2347,11 +2328,8 @@
         "categories" : [
           "chat",
           "agents",
-          "computerUse",
-          "mcpServers",
-          "models",
-          "cloud",
-          "chief"
+          "chief",
+          "models"
         ],
         "id" : "ai",
         "title" : {
@@ -2362,8 +2340,7 @@
       {
         "categories" : [
           "notifications",
-          "keyboard",
-          "menus"
+          "keyboard"
         ],
         "id" : "interaction",
         "title" : {
@@ -2374,9 +2351,7 @@
       {
         "categories" : [
           "accounts",
-          "keys",
-          "mobile",
-          "devices"
+          "mobile"
         ],
         "id" : "devices",
         "title" : {
@@ -2386,16 +2361,24 @@
       },
       {
         "categories" : [
+          "newTab",
+          "menus",
+          "computerUse",
+          "mcpServers",
+          "cloud",
+          "keys",
+          "devices",
           "import",
           "privacy",
           "advanced",
           "experimental",
           "development"
         ],
-        "id" : "system",
+        "collapsed" : true,
+        "id" : "more",
         "title" : {
-          "key" : "settings.sidebarSection.system",
-          "text" : "Data and System"
+          "key" : "settings.sidebarSection.more",
+          "text" : "More"
         }
       }
     ]
@@ -10191,7 +10174,7 @@
         true,
         false
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -10324,7 +10307,7 @@
         240,
         120.5
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -33730,7 +33713,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -33797,7 +33780,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -33809,9 +33792,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -64718,7 +64703,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -101104,7 +101089,7 @@
         "glow"
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -101183,7 +101168,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -101195,9 +101180,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -103266,7 +103253,7 @@
       },
       "help" : {
         "key" : "settings.labs.previewFeatures.help",
-        "text" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
+        "text" : "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view."
       },
       "kept_on_reset_all" : false,
       "key" : "labs.previewFeatures",
@@ -103275,7 +103262,10 @@
         "preview",
         "experimental",
         "beta",
-        "prototype"
+        "prototype",
+        "app store",
+        "apps",
+        "extensions"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
@@ -108342,7 +108332,7 @@
         true,
         false
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -111660,7 +111650,7 @@
       "symbol" : "house",
       "title" : {
         "key" : "settings.section.home",
-        "text" : "Home"
+        "text" : "Chief"
       }
     },
     {
