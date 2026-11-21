@@ -181,9 +181,9 @@ describe("auto-roll keeps cmux-platform's pinned image", () => {
     let text = approve(wrangler, pinned).text;
     for (let run = 1; run <= KEEP_AUTO + 3; run++) text = approve(text, entry(String(500 + run)), [pinned.id]).text;
     for (const env of ["staging", "production"] as const) {
-      expect(locate(text, env).images.filter((i) => i.id === pinned.id).length, env).toBe(1);
+      expect({ env, pinned: locate(text, env).images.filter((i) => i.id === pinned.id).length }).toEqual({ env, pinned: 1 });
       // The pin does not count toward KEEP_AUTO: the newest KEEP_AUTO rolls stay too.
-      expect(locate(text, env).images.filter((i) => i.id.startsWith(AUTO_PREFIX)).length, env).toBe(KEEP_AUTO + 1);
+      expect({ env, auto: locate(text, env).images.filter((i) => i.id.startsWith(AUTO_PREFIX)).length }).toEqual({ env, auto: KEEP_AUTO + 1 });
     }
   });
   test("rollback refuses to take out a pinned image", () => {
@@ -750,14 +750,25 @@ describe("auto-roll scripts", () => {
     expect(jobs.length).toBeGreaterThanOrEqual(2);
     for (const [name, steps] of jobs) {
       const pins = steps.findIndex((s) => s.uses?.startsWith("actions/checkout@") && s.with?.repository === "manaflow-ai/cmux-platform" && s.with?.path === "cmux-platform-pins");
-      expect(pins, `${name}: a checkout of cmux-platform into cmux-platform-pins`).toBeGreaterThan(-1);
+      // A checkout of cmux-platform into cmux-platform-pins.
+      expect({ name, hasPinsCheckout: pins > -1 }).toEqual({ name, hasPinsCheckout: true });
       const step = steps[pins]!;
       expect(String(step.with?.["sparse-checkout"]).split("\n").map((l) => l.trim())).toContain("wrangler.jsonc");
       const push = steps.findIndex((s) => /image-roll-push\.sh (roll|rollback)/.test(s.run ?? ""));
-      expect(push, name).toBeGreaterThan(pins);
-      expect(steps[push]!.run, name).toContain('--platform-wrangler "$GITHUB_WORKSPACE/cmux-platform-pins/wrangler.jsonc"');
+      expect({ name, pushAfterPins: push > pins }).toEqual({ name, pushAfterPins: true });
+      expect({ name, run: steps[push]!.run }).toMatchObject({ name, run: expect.stringContaining('--platform-wrangler "$GITHUB_WORKSPACE/cmux-platform-pins/wrangler.jsonc"') });
       // The pins are read whenever the push runs: the checkout's condition is the push step's, or none.
-      expect(step.if ?? steps[push]!.if, name).toBe(steps[push]!.if);
+      expect({ name, if: step.if ?? steps[push]!.if }).toEqual({ name, if: steps[push]!.if });
+      // Roll 44852142963 (2026-11-20): the pr-autofix app's installation is "selected" repositories without
+      // cmux-platform, so its token mint answered 404 and no roll could promote. The pins token comes from cmux-bot,
+      // installed on every repository of the org, read-only and for cmux-platform alone.
+      const mint = steps.find((s) => s.id === "pins-token");
+      expect({ name, mint: mint?.with }).toMatchObject({
+        name,
+        mint: { "app-id": "${{ vars.CMUX_BOT_APP_ID }}", "private-key": "${{ secrets.CMUX_BOT_APP_KEY }}", owner: "manaflow-ai", repositories: "cmux-platform", "permission-contents": "read" },
+      });
+      expect({ name, keys: Object.keys(mint!.with!).filter((k) => k.startsWith("permission-")) }).toEqual({ name, keys: ["permission-contents"] });
+      expect({ name, token: step.with?.token }).toEqual({ name, token: "${{ steps.pins-token.outputs.token }}" });
     }
   });
 
