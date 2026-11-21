@@ -573,7 +573,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(job["uses"], "./.github/workflows/base-coalesce.yml")
         self.assertEqual(job["with"]["key"], "cmux-next-web")
         self.assertEqual(job["with"]["hold_minutes"], 120)
-        self.assertEqual(job["with"]["no_coalesce"], "${{ vars.NEXT_WEB_COALESCE == '0' }}")
+        self.assertEqual(job["with"]["no_coalesce"], "${{ format('{0}', vars.NEXT_WEB_COALESCE) == '0' }}")
         gate = yaml.safe_load((ROOT / ".github/workflows/base-coalesce.yml").read_text())
         for step in gate["jobs"]["coalesce"]["steps"]:
             self.assertNotIn("sleep", step.get("run", ""), step.get("name"))

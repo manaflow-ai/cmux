@@ -110,7 +110,7 @@ jobs:
     with:
       key: cmux-next-guards
       hold_minutes: 30
-      no_coalesce: ${{ vars.NEXT_GUARDS_COALESCE == '0' }}
+      no_coalesce: ${{ format('{0}', vars.NEXT_GUARDS_COALESCE) == '0' }}
 
   # A pin manifest is a publication contract: a source change that records a
   # missing artifact would otherwise fail much later on a cold pool VM.  This
