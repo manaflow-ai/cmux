@@ -22,7 +22,8 @@ Two rules refuse a push:
    layer_upward, layer_unplaced, stateful_singletons, global_mutable_statics,
    assume_isolated_outside_adapters, app_broadcast_names, observer_sites, blocking_allow_escapes, app_lines
    (CmuxNextApp physical lines; ratcheted since the reward-hacking audit of 2026-10-30, cmux-ad: it rose
-   143,610 -> 164,014 while it was report only). Report only: assume_isolated_total.
+   143,610 -> 164,014 while it was report only), next_swift_logic_lines (swift-logic-lines.py's logic + mirror
+   lines; the refusal lists the declarations that grew and any whose table row a move left behind). Report only: assume_isolated_total.
    A new or edited blocking_allow_escapes site (a (file, line text) the base does not have) is refused unless the
    head's json has a reviewed `escape_reviews` entry for it (escape_rule), whatever exception covers the count.
 2. Record: the push raises a ratcheted total in plans/cmux-next/arch-ratchet.json (or deletes the file)
@@ -501,6 +502,47 @@ SWAP_ROWS = frozenset({"stateful_singletons", "global_mutable_statics", "app_bro
                        "assume_isolated_outside_adapters"})
 
 
+_LOGIC_SITE = re.compile(r"^(?P<label>.*): (?P<n>\d+) of \d+ lines \(")
+
+
+def logic_growth(delta) -> list:
+    """The declarations the push grows in next_swift_logic_lines, largest rise first, each as a site whose text
+    leads with its rise: a HEAD site (`kind name #ordinal`) against the BASE one of the same file and label, else of
+    the same label in another file (a move), else none (new). A declaration that lost its table row rises by
+    what the row did not count."""
+    def parse(site):
+        found = _LOGIC_SITE.match(site.text)
+        return (found.group("label"), int(found.group("n"))) if found else (site.text, 0)
+
+    base = collections.Counter()
+    for site in delta.before.sites[LOGIC_ROW]:
+        label, n = parse(site)
+        base[(site.path, label)] += n
+    by_label = collections.Counter()
+    for (_, label), n in base.items():
+        by_label[label] += n
+    head = collections.Counter()
+    first = {}
+    for site in delta.after.sites[LOGIC_ROW]:
+        label, n = parse(site)
+        head[(site.path, label)] += n
+        first.setdefault((site.path, label), site)
+    out = []
+    for (path, label), n in head.items():
+        was = base.pop((path, label), None)
+        if was is None:
+            was = by_label[label] if any(k[1] == label for k in base) else 0
+            for k in [k for k in base if k[1] == label]:
+                base.pop(k)
+        else:
+            by_label[label] -= was
+        if n > was:
+            site = first[(path, label)]
+            out.append((n - was, dataclasses.replace(site, text=f"+{n - was}: {site.text}")))
+    out.sort(key=lambda x: (-x[0], x[1].path, x[1].line))
+    return [site for _, site in out]
+
+
 def count_rule(changes: Changes, answered: dict[str, int] | None = None) -> tuple[list[tuple[str, str]], list[str]]:
     """Rule 1: a ratcheted row's total may not rise in the code the push changes (moves pass), and a row with
     site identity may not gain a site no removed one accounts for (a swap adds debt too).
@@ -518,6 +560,10 @@ def count_rule(changes: Changes, answered: dict[str, int] | None = None) -> tupl
     unknown = delta.unknown()
     for why in dict.fromkeys(unknown.values()):
         rows = ", ".join(r for r in counts.ROW_IDS if unknown.get(r) == why)
+        if rows == LOGIC_ROW:
+            notes.append(f"arch-ratchet: {rows} not judged for this push: {why}. Tell the Performance Lead with "
+                         "this line.")
+            continue
         notes.append(f"arch-ratchet: {rows} not judged for this push: {why} at one end and no earlier map parses, "
                      "so its edges are unknown")
     for row in counts.ROWS:
@@ -545,9 +591,19 @@ def count_rule(changes: Changes, answered: dict[str, int] | None = None) -> tupl
             head += (f", {len(new)} new site(s) that replace none the push removes (a swap adds debt even when the "
                      "total holds; a static or unproved call moved to another type counts as new debt)")
         lines = [head + (f", {allowed} allowed by the exceptions this push adds" if allowed else "")]
-        for site in (new or delta.new_sites(row.id))[:12]:
+        shown = new or delta.new_sites(row.id)
+        if row.id == LOGIC_ROW:
+            shown = logic_growth(delta)
+        for site in shown[:12]:
             place = f"{site.path}:{site.line}" if site.line else site.path
             lines.append(f"  {place}: {site.text}")
+        if len(shown) > 12:
+            lines.append(f"  ... and {len(shown) - 12} more")
+        moved = delta.after.notes.get(row.id, [])
+        if moved:
+            lines.append("  Moved or renamed with the table row left behind (the declaration counts in full until "
+                         "its row follows it):")
+            lines.extend(f"    {m}" for m in moved[:12])
         lines.append(f"  Right pattern: {FIX.get(row.id, 'see arch_counts.py')}.")
         lines.append(f"  The only escape (a reviewed reason, never to pass the hook): add "
                      f"{exception_form(row.id, rise - by_module - allowed)} as a new file {EXCEPTIONS_DIR}/<id>.json "
@@ -703,7 +759,7 @@ class Derivation:
     def __init__(self, repo: Path, upstream_ref: str):
         self.repo, self.upstream_ref = repo, upstream_ref
         self._totals: dict[str, dict[str, int] | None] = {}
-        self._rises: dict[tuple[str, bool], dict[str, int] | None] = {}
+        self._rises: dict[tuple[str, str], dict[str, int] | None] = {}
         self._ancestor: dict[tuple[str, str], bool] = {}
         self._parents: dict[str, int] = {}
 
@@ -722,9 +778,9 @@ class Derivation:
 
     def rise(self, sha: str, row: str) -> int:
         """ROW's rise in commit SHA over its first parent, from git objects only (as raised_by counts it)."""
-        key = (sha, row == APP_LINES)
+        key = (sha, row if row in FAST_RISES else "")
         if key not in self._rises:
-            rows = {APP_LINES} if row == APP_LINES else set(load_counts().ROW_IDS)
+            rows = {row} if row in FAST_RISES else set(load_counts().ROW_IDS)
             self._rises[key] = commit_rises(self.repo, sha, rows)
         rises = self._rises[key]
         return max(0, rises[row]) if rises is not None else 0
@@ -1016,13 +1072,26 @@ def app_lines_rise(repo: Path, sha: str) -> int | None:
     return sum((texts[(sha, x)] or "").count("\n") - (texts[(f"{sha}^1", x)] or "").count("\n") for x in app)
 
 
+LOGIC_ROW = "next_swift_logic_lines"
+
+
+def logic_rise(repo: Path, sha: str) -> int | None:
+    """next_swift_logic_lines' change in commit SHA over its first parent (arch_counts.logic_rise: the delta's own
+    count of the row, without the other rows' type lookups)."""
+    return load_counts().logic_rise(repo, sha)
+
+
+# The rows commit_rises counts on their own, without the full delta_count.
+FAST_RISES = {APP_LINES: app_lines_rise, LOGIC_ROW: logic_rise}
+
+
 def commit_rises(repo: Path, sha: str, rows: set[str]) -> dict[str, int] | None:
     """{row: change} of ROWS in commit SHA over its first parent, from git objects only; None for a root commit.
-    app_lines alone takes app_lines_rise; any other row, the full delta_count."""
-    if rows <= {APP_LINES}:
-        fast = app_lines_rise(repo, sha)
-        if fast is not None:
-            return {APP_LINES: fast}
+    Rows that are all FAST_RISES take their own counts; any other row, the full delta_count."""
+    if rows <= set(FAST_RISES):
+        fast = {row: FAST_RISES[row](repo, sha) for row in rows}
+        if None not in fast.values():
+            return fast
     try:
         delta = load_counts().delta_count(repo, f"{sha}^1", sha, use_worktree=False)
     except RuntimeError:
@@ -1049,7 +1118,8 @@ def raised_by(repo: Path, since: str, until: str, rows: set[str]) -> dict[str, l
         dirs = {f"{p}/Sources/{counts.APP_PACKAGE}" for scope in scopes for p in scope.packages}
         paths = sorted(dirs | {p for scope in scopes for p in scope.count_inputs}) + [":(glob)**/Package.swift"]
     else:
-        paths = sorted({p for scope in scopes for p in scope.sources + scope.count_inputs}) + [":(glob)**/Package.swift"]
+        paths = sorted({p for scope in scopes for p in scope.sources + scope.count_inputs}
+                       | ({counts.LOGIC_TABLE} if LOGIC_ROW in rows else set())) + [":(glob)**/Package.swift"]
     code, out = git(repo, "log", "--no-merges", "--reverse", "--format=%H%x1f%an%x1f%s", f"{since}..{until}", "--", *paths)
     if code != 0:
         return found

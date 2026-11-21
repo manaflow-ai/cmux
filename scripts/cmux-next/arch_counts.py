@@ -103,6 +103,20 @@ rewrites the json without comparing totals: reviewers compare the definitions):
                           2026-10-24)
   app_lines               physical lines (newlines) of CmuxNextApp Swift; ratchets down only (reward-hacking
                           audit, cmux-ad 2026-10-30: it rose 143,610 -> 164,014 while it was report only)
+  next_swift_logic_lines  swift-logic-lines.py's swift_logic_lines + mirror_lines (that script's docstring
+                          defines them: each declaration's lines by its plans/cmux-next/swift-logic-classes.tsv
+                          row, an unlisted declaration counts in full unless it is view-shaped or generated),
+                          per module; ratchets down only (plans/cmux-next/language-layers.md: state and logic
+                          with no view go to Rust). Counted only at a revision that has the table (a revision
+                          without it counts 0; a range whose one end lacks it counts that end's declarations
+                          unlisted, so deleting the table raises the row). Added in v6 without a version bump:
+                          no other row's definition changed, and the first --update records its total. The
+                          script is read beside this file, else from the counted commit. Delta mode counts only
+                          the changed Swift files and the files of the table rows the range changes (the count
+                          is a sum over files; a Package.swift change counts every file), with per-file units in
+                          FactsCache; a range with no Swift, Package.swift or table change reads nothing for it.
+                          A move inside Swift never lowers it; a moved or renamed declaration whose table row did
+                          not follow counts as unlisted until the row is updated
 
 Every row reads the whole closure: a Shared package's static or observer counts under its module, and its
 targets are placed (layer_unplaced) and their edges classified like CmuxNext's.
@@ -3938,17 +3952,43 @@ def _count_logic(git: "Git", store: "FactsCache", base: str, head: str, scopes: 
         return
     add_logic(before, ends[0])
     add_logic(after, ends[1])
-    after.notes[LOGIC_ROW] = logic_moves(sll, ends[1], {p for _, p in files})
+    gone = {p for _, p in files if blobs.get((head, p)) is None}
+    after.notes[LOGIC_ROW] = logic_moves(sll, ends[1], tables[(head, LOGIC_TABLE)], {p for _, p in files}, gone)
 
 
-def logic_moves(sll, head, changed: set[str]) -> list[str]:
-    """The rename hints of HEAD's count: an unlisted declaration whose kind and name a table row the count left
-    unused has in a file the range changes (a declaration moved or renamed with its table row left behind)."""
+def logic_rise(repo: Path, sha: str, cache: bool = True) -> int | None:
+    """next_swift_logic_lines' change in commit SHA over its first parent, from git objects only (arch-ratchet.py's
+    per-commit attribution): the delta's own count of this row, without the other rows' type lookups. None for a
+    root commit or when the row is unknown."""
+    git = Git(repo)
+    store = FactsCache(git, cache)
+    try:
+        parent = git.rev(f"{sha}^1")
+        files, blobs = git.changed(parent, sha)
+        scopes = {parent: _scope(git, parent, store)}
+        scopes[sha] = _scope_after(git, sha, scopes[parent], files, store)
+        before, after = Counts.empty(), Counts.empty()
+        _count_logic(git, store, parent, sha, scopes, files, blobs, before, after)
+    except RuntimeError:
+        return None
+    finally:
+        store.flush()
+    if LOGIC_ROW in after.unknown:
+        return None
+    return sum(after.rows[LOGIC_ROW].values()) - sum(before.rows[LOGIC_ROW].values())
+
+
+def logic_moves(sll, head, table: str | None, changed: set[str], gone: set[str]) -> list[str]:
+    """The rename hints of HEAD's count: an unlisted declaration whose kind and name a TABLE row HEAD left unused
+    has in a file the range CHANGED (a declaration moved or renamed with its table row left behind). A row of a
+    file the range deletes (GONE) is unused at HEAD."""
     files = {sll.in_module(p) for p in changed} - {None}
+    deleted = {sll.in_module(p) for p in gone} - {None}
+    missing = {key for key, _ in head.missing}
     left = collections.defaultdict(list)
-    for (module, where, kind, name, _), entry in head.missing:
-        if (module, where) in files:
-            left[(kind, name)].append(entry)
+    for key, entry in sll.parse_table(table, files)[0].items():
+        if key in missing or key[:2] in deleted:
+            left[key[2:4]].append(entry)
     out = []
     for path, line, text in head.sites.get("unlisted", []):
         label = text.split(":", 1)[0]

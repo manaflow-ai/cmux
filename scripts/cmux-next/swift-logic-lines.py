@@ -380,18 +380,35 @@ def in_module(path: str) -> tuple[str, str] | None:
     return (m.group(1), m.group(2)) if m else None
 
 
-def parse_table(text: str | None) -> tuple[dict[tuple[str, str, str, str, int], Entry], int]:
+def parse_table(text: str | None, files: set[tuple[str, str]] | None = None
+                ) -> tuple[dict[tuple[str, str, str, str, int], Entry], int]:
     """({(module, path in the module, kind, name, ordinal in the file): entry}, invalid row count) of the table TEXT
-    (docstring, Table)."""
+    (docstring, Table). FILES ({(module, path in the module)}, or None for all): only the rows of those files (a
+    delta's few files skip the parse of the rest; the invalid count is then theirs only)."""
     table: dict[tuple[str, str, str, str, int], Entry] = {}
     invalid = 0
-    lines = [line.rstrip("\r") for line in (text or "").split("\n")]
-    if tuple(lines[0].split("\t")) != HEADER:
-        return table, sum(1 for line in lines[1:] if line.strip())
-    for line in lines[1:]:
+    text = text or ""
+    first = text.split("\n", 1)[0].rstrip("\r")
+    if tuple(first.split("\t")) != HEADER:
+        return table, (sum(1 for line in text.split("\n")[1:] if line.strip()) if files is None else 0)
+    if files is None:
+        lines = [line.rstrip("\r") for line in text.split("\n")[1:]]
+    else:  # only the lines that mention one of FILES' paths: one search over the text, not one per line
+        starts = set()
+        if files:
+            near = re.compile("|".join(sorted(re.escape(where) for _, where in files)))
+            for m in near.finditer(text, len(first)):
+                starts.add(text.rfind("\n", 0, m.start()) + 1)
+        lines = []
+        for start in sorted(starts):
+            end = text.find("\n", start)
+            lines.append(text[start:end if end >= 0 else len(text)].rstrip("\r"))
+    for line in lines:
         if not line.strip():
             continue
         fields = line.split("\t", len(HEADER) - 1)
+        if files is not None and (in_module(fields[7]) if len(fields) > 7 else None) not in files:
+            continue
         if len(fields) < 7:
             invalid += 1
             continue
@@ -462,9 +479,10 @@ class Count:
         }
 
 
-def count_units(files: dict[str, list[Unit]], table_text: str | None, sha: str = "") -> Count:
-    """The count of FILES ({path: its units}) by the table TABLE_TEXT."""
-    table, invalid = parse_table(table_text)
+def count_units(files: dict[str, list[Unit]], table_text: str | None, sha: str = "", own_rows: bool = False) -> Count:
+    """The count of FILES ({path: its units}) by the table TABLE_TEXT. OWN_ROWS: read only the rows of FILES (the
+    count is the same; `missing` and `invalid` are then those files' only)."""
+    table, invalid = parse_table(table_text, {in_module(p) or (AC.package_of(p), p) for p in files} if own_rows else None)
     rows = {row: collections.Counter() for row in ROWS}
     unlisted: collections.Counter = collections.Counter()
     sites: dict[str, list[tuple[str, int, str]]] = {row: [] for row in ROWS + ("unlisted",)}
@@ -507,12 +525,37 @@ def count_units(files: dict[str, list[Unit]], table_text: str | None, sha: str =
                  frozenset(key[0] for key in table))
 
 
-def linked_scope(git, sha: str, scope):
+_LINKED: dict[tuple, tuple[str, ...]] = {}
+
+
+def linked_scope(git, sha: str, scope, store=None):
     """SCOPE less the packages that only test targets reach. From CmuxNext, a manifest's local dependency is followed
     unless its test targets name it (`.product(package:)` or a by-name dependency matching its identity) and none of
     its other targets do; a non-test target with a dependency the static reader cannot resolve follows them all (the
     scope errs toward reading more, as arch_counts does). A dependency no target names stays, as before."""
     paths = [f"{p}/Package.swift" for p in scope.packages if f"{p}/Package.swift" in scope.manifests]
+    # The answer depends on the manifests alone: kept by their blob ids (both ends of most ranges share them).
+    memo = (scope.packages, tuple(sorted((p, scope.manifests[p]) for p in paths)))
+    key = f"{METHOD}:{FINGERPRINT}:linked:" + hashlib.sha1(repr(memo).encode()).hexdigest()
+    if memo not in _LINKED and store is not None:
+        text = store.get_text(key)
+        if text is not None:
+            _LINKED[memo] = tuple(json.loads(text))
+    if memo not in _LINKED:
+        _LINKED[memo] = _linked(git, sha, scope, paths)
+        if store is not None:
+            store.put_text(key, json.dumps(list(_LINKED[memo])))
+    reached = set(_LINKED[memo])
+    kept = tuple(p for p in scope.packages if p in reached)
+    return dataclasses.replace(
+        scope, packages=kept,
+        manifests={m: b for m, b in scope.manifests.items() if m.rsplit("/", 1)[0] in reached},
+        modules={m: tuple(p for p in ps if p in reached) for m, ps in scope.modules.items()
+                 if any(p in reached for p in ps)})
+
+
+def _linked(git, sha: str, scope, paths: list[str]) -> tuple[str, ...]:
+    """The packages linked_scope keeps (by the manifests at PATHS)."""
     raws = git.read([(sha, path) for path in paths])
     reached, todo = {AC.PACKAGE_DIR}, [AC.PACKAGE_DIR]
     while todo:
@@ -538,12 +581,7 @@ def linked_scope(git, sha: str, scope):
             if path in scope.packages and path not in reached:
                 reached.add(path)
                 todo.append(path)
-    kept = tuple(p for p in scope.packages if p in reached)
-    return dataclasses.replace(
-        scope, packages=kept,
-        manifests={m: b for m, b in scope.manifests.items() if m.rsplit("/", 1)[0] in reached},
-        modules={m: tuple(p for p in ps if p in reached) for m, ps in scope.modules.items()
-                 if any(p in reached for p in ps)})
+    return tuple(sorted(reached))
 
 
 def file_units(git, store, blobs: dict[str, str]) -> dict[str, list[Unit]]:
@@ -574,12 +612,12 @@ def count_at(git, store, sha: str, scope, table_text: str | None, blobs: dict[st
     TABLE_TEXT. ONLY (a set of paths, or None for every file) restricts it to those files, BLOBS ({path: blob id},
     or None: one `ls-tree` of the closure's Sources) gives their blobs: the count is a sum over files (a table key
     names one file), so the files a range changes count its whole change when the table and the closure hold."""
-    scope = linked_scope(git, sha, scope)
+    scope = linked_scope(git, sha, scope, store)
     scope.check()
     if blobs is None:
         blobs = git.swift_blobs(sha, scope)
     blobs = {p: b for p, b in blobs.items() if b and scope.is_source(p) and (only is None or p in only)}
-    return count_units(file_units(git, store, blobs), table_text, sha)
+    return count_units(file_units(git, store, blobs), table_text, sha, own_rows=only is not None)
 
 
 def table_files(old: str | None, new: str | None) -> set[tuple[str, str]]:

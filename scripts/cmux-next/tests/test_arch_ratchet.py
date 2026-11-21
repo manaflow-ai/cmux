@@ -2176,6 +2176,122 @@ OBSERVE = ("final class Watch {\n    func start() {\n        _ = NotificationCen
            "            forName: NSWindow.didBecomeKeyNotification, object: nil, queue: nil) { _ in }\n    }\n}\n")
 
 
+LOGIC_HEADER = "module\tkind\tname\tordinal\tclass\tlogic_share\tmirror_share\tpath\treason\n"
+ENGINE = ("struct Engine {\n    var total = 0\n    mutating func add(_ n: Int) {\n        total += n\n"
+          "        total *= 2\n    }\n}\n")
+GLUE = "struct Glue {\n    func open() {\n        print(1)\n        print(2)\n    }\n}\n"
+
+
+class LogicRowTests(Repo):
+    """next_swift_logic_lines: swift-logic-lines.py's logic + mirror count, ratcheted like app_lines once the
+    class table exists (a revision without the table does not count the row)."""
+
+    ROW = counts.LOGIC_ROW
+
+    def setUp(self):
+        super().setUp()
+        self.write(f"{SRC}/CmuxNextDomain/Glue.swift", GLUE)
+        self.table(("CmuxNextDomain", "struct", "Glue", 0, "PLATFORM", 0, 0,
+                    f"{SRC}/CmuxNextDomain/Glue.swift", "fixture glue"))
+        self.assertEqual(self.update()[0], 0)
+        self.base = self.commit("the class table and its record")
+
+    def table(self, *rows):
+        self.write(counts.LOGIC_TABLE, LOGIC_HEADER + "".join("\t".join(str(v) for v in r) + "\n" for r in rows))
+
+    def total(self, rev="HEAD"):
+        return counts.full_count(self.repo, rev)[1].totals()[self.ROW]
+
+    def test_a_rise_is_refused_with_the_fix(self):
+        rows, refusals = self.refused_rows({f"{SRC}/CmuxNextDomain/Engine.swift": ENGINE})
+        self.assertEqual(rows, [self.ROW])
+        text = refusals[0][1]
+        self.assertIn(f"[{self.ROW}]", text)
+        self.assertIn("struct Engine #0", text)
+        self.assertIn("move the new state and logic to Rust", text)
+        self.assertIn("plans/cmux-next/swift-logic-classes.tsv", text)
+        self.assertIn(f'"row": "{self.ROW}", "allow": {self.total() - self.total(self.base)}', text)
+        refused, out = self.run_push()
+        self.assertTrue(refused, out)
+
+    def test_a_rise_covered_by_an_exception_file_is_allowed(self):
+        self.write(f"{SRC}/CmuxNextDomain/Engine.swift", ENGINE)
+        self.commit("new Swift logic")
+        rise = self.total() - self.total(self.base)
+        self.assertGreater(rise, 0)
+        entry = {"date": "2026-10-23", "row": self.ROW, "allow": rise - 1, "why": "fixture too small", **REVIEW}
+        self.write(f"{ratchet.EXCEPTIONS_DIR}/small.json", json.dumps(entry))
+        self.commit("an exception one line short")
+        refusals, _ = self.check()
+        self.assertEqual(self.rows(refusals), [self.ROW])
+        entry["allow"] = rise
+        self.write(f"{ratchet.EXCEPTIONS_DIR}/small.json", json.dumps(entry))
+        self.commit("an exception that covers it")
+        refusals, notes = self.check()
+        self.assertEqual(refusals, [], notes)
+        refused, out = self.run_push()
+        self.assertFalse(refused, out)
+
+    def test_a_drop_passes_and_update_lowers_the_total(self):
+        self.write(f"{SRC}/CmuxNextDomain/Engine.swift", ENGINE)
+        entry = {"date": "2026-10-23", "row": self.ROW, "allow": 100, "why": "fixture", **REVIEW}
+        self.write(f"{ratchet.EXCEPTIONS_DIR}/engine.json", json.dumps(entry))
+        self.commit("Engine and its exception")
+        self.assertEqual(self.update()[0], 0)
+        recorded = self.commit("the record")
+        high = self.recorded()["totals"][self.ROW]
+        self.assertEqual(high, self.total())
+        self.write(f"{SRC}/CmuxNextDomain/Engine.swift", "struct Engine {\n    var total = 0\n}\n")
+        head = self.commit("Engine's logic moved out")
+        refusals, notes = self.check(base=recorded, head=head)
+        self.assertEqual(refusals, [], notes)
+        self.assertTrue(any(f"{self.ROW} -" in n for n in notes), notes)
+        self.assert_matches_full(recorded, head)
+        self.assertEqual(self.update()[0], 0)
+        self.assertEqual(self.recorded()["totals"][self.ROW], self.total())
+        self.assertLess(self.recorded()["totals"][self.ROW], high)
+
+    def test_a_move_inside_swift_never_lowers_the_row_and_a_lost_table_row_is_named(self):
+        self.remove(f"{SRC}/CmuxNextDomain/Glue.swift")
+        self.write(f"{SRC}/CmuxNextDomain/Platform/Glue.swift", GLUE)
+        rows, refusals = self.refused_rows({}, "Glue moved, its table row left behind")
+        self.assertEqual(rows, [self.ROW])
+        text = refusals[0][1]
+        self.assertIn("Moved or renamed with the table row left behind", text)
+        self.assertIn(f"struct Glue #0 has no table row, and the PLATFORM row for it names {SRC}/CmuxNextDomain/"
+                      "Glue.swift", text)
+        self.table(("CmuxNextDomain", "struct", "Glue", 0, "PLATFORM", 0, 0,
+                    f"{SRC}/CmuxNextDomain/Platform/Glue.swift", "fixture glue"))
+        head = self.commit("the row follows it")
+        refusals, notes = self.check(head=head)
+        self.assertEqual(refusals, [], notes)
+        self.assert_matches_full(self.base, head)
+        self.assertEqual(self.total(head), self.total(self.base))
+
+    def test_deleting_or_breaking_the_table_is_not_a_way_down(self):
+        self.write(counts.LOGIC_TABLE, "not a table\n")
+        rows, _ = self.refused_rows({}, "a broken table")
+        self.assertEqual(rows, [self.ROW])
+        self.remove(counts.LOGIC_TABLE)
+        head = self.commit("no table")
+        refusals, _ = self.check(head=head)
+        self.assertEqual(self.rows(refusals), [self.ROW])
+
+    def test_a_push_without_swift_reads_nothing_and_the_commit_rise_matches_the_delta(self):
+        self.write("README", "docs only\n")
+        head = self.commit("docs")
+        delta = counts.delta_count(self.repo, self.base, head)
+        self.assertEqual(delta.total(self.ROW), 0)
+        self.assertEqual(delta.after.sites[self.ROW], [])
+        self.write(f"{SRC}/CmuxNextDomain/Engine.swift", ENGINE)
+        sha = self.commit("logic")
+        want = counts.delta_count(self.repo, f"{sha}^1", sha, use_worktree=False).total(self.ROW)
+        self.assertGreater(want, 0)
+        self.assertEqual(ratchet.commit_rises(self.repo, sha, {self.ROW}), {self.ROW: want})
+        self.assertEqual(ratchet.commit_rises(self.repo, sha, {self.ROW, "app_lines"}),
+                         {self.ROW: want, "app_lines": 0})
+
+
 class ClosureTests(Repo):
     """The count's scope is CmuxNext plus the transitive closure of its local `.package(path:)` dependencies
     (method v5): moving code into a linked local package is not a drop."""
