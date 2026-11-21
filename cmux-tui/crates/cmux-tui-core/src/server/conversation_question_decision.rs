@@ -144,16 +144,30 @@ pub(in crate::server) fn decide_from(
     reply(question, decision, &entry["request"])
 }
 
-/// Reads `_acpmux/info` for `session` from the acpmux at `socket`: connect, initialize, info.
+/// One budget for the whole exchange (every socket's connect, initialize and info read), and the
+/// longest any one call may take. A connect has its own bound of this size, so none starts with
+/// less than this left.
+#[cfg(any(unix, test))]
+const BUDGET: std::time::Duration = std::time::Duration::from_secs(15);
+#[cfg(any(unix, test))]
+const CALL_CAP: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Reads `_acpmux/info` for `session` from the acpmux at `socket`: connect, initialize, info,
+/// every call within `deadline` (and none past [`CALL_CAP`]).
 #[cfg(unix)]
-fn read_info(socket: &std::path::Path, session: &str) -> Result<Value, &'static str> {
+fn read_info(
+    socket: &std::path::Path,
+    session: &str,
+    deadline: std::time::Instant,
+) -> Result<Value, &'static str> {
     use super::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
     use serde_json::json;
-    use std::time::Duration;
+    use std::time::Instant;
 
     let link = AcpmuxLink::connect(socket, |_| {}).map_err(|_| "question.agent_gone")?;
     let call = |method: &str, params: Value| {
-        link.call(method, params, Duration::from_secs(3)).map_err(|error| match error {
+        let until = deadline.min(Instant::now() + CALL_CAP);
+        link.call_until(method, params, until).map_err(|error| match error {
             LinkError::Closed => "question.agent_gone",
             LinkError::Timeout => "question.agent_busy",
             _ => "question.refused",
@@ -172,6 +186,8 @@ fn read_info(socket: &std::path::Path, session: &str) -> Result<Value, &'static 
 /// The unsigned decision from the first of `sockets` whose acpmux holds `raw` as this machine's
 /// own session (`sessionId == raw`, no peer) and, when a Chief route resolved (`owner` is its
 /// home id), as that Chief's owner subagent. A socket that does not is not asked for a decision.
+/// `read` gets the one `deadline` all sockets share; no socket is tried once less than a connect's
+/// bound is left of it.
 #[cfg(any(unix, test))]
 fn decide_over(
     question: &Question,
@@ -179,11 +195,16 @@ fn decide_over(
     raw: &str,
     sockets: &[std::path::PathBuf],
     owner: Option<&str>,
-    mut read: impl FnMut(&std::path::Path, &str) -> Result<Value, &'static str>,
+    deadline: std::time::Instant,
+    mut read: impl FnMut(&std::path::Path, &str, std::time::Instant) -> Result<Value, &'static str>,
 ) -> anyhow::Result<Value> {
     let mut refusal = "question.agent_gone";
     for socket in sockets {
-        match read(socket, raw) {
+        if deadline.saturating_duration_since(std::time::Instant::now()) < CALL_CAP {
+            refusal = "question.agent_busy";
+            break;
+        }
+        match read(socket, raw, deadline) {
             Err(code) => refusal = code,
             Ok(info) => {
                 let own = info.get("sessionId").and_then(Value::as_str) == Some(raw)
@@ -225,7 +246,8 @@ pub(in crate::server) fn decision(mux: &Mux, params: DecisionParams) -> anyhow::
         .map(|r| r.candidates.clone())
         .unwrap_or_else(|| mux.control_clients.agent_sessions.socket().into_iter().collect());
     let owner = resolved.as_ref().map(|r| r.chief_home_id.as_str());
-    decide_over(&question, &params.answer, raw, &sockets, owner, read_info)
+    let deadline = std::time::Instant::now() + BUDGET;
+    decide_over(&question, &params.answer, raw, &sockets, owner, deadline, read_info)
 }
 
 /// Other daemon builds reach no acpmux: they refuse, and do not advertise the capability.

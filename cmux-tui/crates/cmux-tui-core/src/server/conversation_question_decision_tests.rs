@@ -152,6 +152,11 @@ fn request_digest_matches_the_golden_fixture_and_acpmux() {
     }
 }
 
+/// A deadline with a whole budget left.
+fn soon() -> std::time::Instant {
+    std::time::Instant::now() + std::time::Duration::from_secs(60)
+}
+
 /// `_acpmux/info` of a Chief owner subagent `raw` of home `1234abcd`, holding one prompt.
 fn owned_info(raw: &str, permission: &str) -> Value {
     json!({"sessionId": raw, "policy": "approve-all", "pending": [entry(permission)],
@@ -182,11 +187,12 @@ fn a_non_owner_socket_is_skipped_and_the_owner_socket_decides() {
     assert!(asked.iter().all(|(_, session)| session == "sess_mux"));
     // Only the non-owner: refused, never decided from it.
     let only_other = [PathBuf::from("/other")];
-    let refused = decide_over(&q, &answer(), "sess_mux", &only_other, Some("1234abcd"), |_, _| {
-        let mut info = owned_info("sess_mux", "perm_1");
-        info["tags"]["optchat.subagent"] = json!("");
-        Ok(info)
-    });
+    let refused =
+        decide_over(&q, &answer(), "sess_mux", &only_other, Some("1234abcd"), soon(), |_, _, _| {
+            let mut info = owned_info("sess_mux", "perm_1");
+            info["tags"]["optchat.subagent"] = json!("");
+            Ok(info)
+        });
     assert_eq!(code(refused), "question.not_local");
 }
 
@@ -197,17 +203,17 @@ fn a_socket_must_hold_the_exact_local_session() {
     use std::path::PathBuf;
     let q = question(Some("perm_1"));
     let sockets = [PathBuf::from("/app")];
-    let wrong = decide_over(&q, &answer(), "sess_mux", &sockets, None, |_, _| {
+    let wrong = decide_over(&q, &answer(), "sess_mux", &sockets, None, soon(), |_, _, _| {
         Ok(owned_info("sess_other", "perm_1"))
     });
     assert_eq!(code(wrong), "question.not_local");
-    let peer = decide_over(&q, &answer(), "sess_mux", &sockets, None, |_, _| {
+    let peer = decide_over(&q, &answer(), "sess_mux", &sockets, None, soon(), |_, _, _| {
         let mut info = owned_info("sess_mux", "perm_1");
         info["peer"] = json!("other-mac");
         Ok(info)
     });
     assert_eq!(code(peer), "question.not_local");
-    let unrouted = decide_over(&q, &answer(), "sess_mux", &sockets, None, |_, _| {
+    let unrouted = decide_over(&q, &answer(), "sess_mux", &sockets, None, soon(), |_, _, _| {
         Ok(json!({"sessionId": "sess_mux", "pending": [entry("perm_1")]}))
     });
     assert_eq!(unrouted.unwrap()["permission"], "perm_1");
@@ -233,4 +239,50 @@ fn the_unsigned_session_is_the_raw_local_id() {
         q.session = bad.to_owned();
         assert_eq!(code(decide_from(&q, &answer(), &info)), "question.not_local", "{bad}");
     }
+}
+
+/// One deadline covers every socket: with less than a connect's bound left no socket is tried at
+/// all, and the shared deadline is what each read is handed.
+#[test]
+fn no_socket_is_tried_past_the_shared_budget() {
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+    let q = question(Some("perm_1"));
+    let sockets = [PathBuf::from("/a"), PathBuf::from("/b")];
+    let spent = Instant::now();
+    let refused = decide_over(&q, &answer(), "sess_mux", &sockets, None, spent, |_, _, _| {
+        panic!("a socket was tried past the budget")
+    });
+    assert_eq!(code(refused), "question.agent_busy");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut seen = Vec::new();
+    let refused =
+        decide_over(&q, &answer(), "sess_mux", &sockets, None, deadline, |_, _, until| {
+            seen.push(until);
+            Err("question.agent_gone")
+        });
+    assert_eq!(code(refused), "question.agent_gone");
+    assert_eq!(seen, [deadline, deadline]);
+}
+
+/// A real acpmux that never answers holds the exchange to its deadline, not past it.
+#[cfg(unix)]
+#[test]
+fn a_silent_acpmux_is_held_to_the_deadline() {
+    use std::os::unix::net::UnixListener;
+    use std::time::{Duration, Instant};
+    let dir = cmux_unix_socket::short_test_dir("qdecide");
+    let socket = dir.path().join("acpmux.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let held = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        std::thread::sleep(Duration::from_secs(3));
+        drop(stream);
+    });
+    let started = Instant::now();
+    let error = super::read_info(&socket, "sess_mux", started + Duration::from_millis(300))
+        .expect_err("a silent acpmux gives no info");
+    assert_eq!(error, "question.agent_busy");
+    assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+    held.join().unwrap();
 }
