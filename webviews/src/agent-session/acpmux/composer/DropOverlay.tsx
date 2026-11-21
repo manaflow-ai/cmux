@@ -86,7 +86,7 @@ export function DropOverlay({
         <div className="acpmux-drop-ring" />
       </div>
       {refused && (
-        <div className="acpmux-drop-refusal ui-glass ui-glass-floats ui-glass-transient">
+        <div className="acpmux-drop-refusal">
           <span className="acpmux-drop-mark">
             <RefusedMark />
           </span>
