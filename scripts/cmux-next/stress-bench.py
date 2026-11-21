@@ -488,8 +488,10 @@ class Memory(Angle):
         want = int(ram * opts.memory_fraction)
         stat = os.statvfs("/")
         free_disk = stat.f_bavail * stat.f_frsize // (1 << 20)
-        cap = opts.memory_cap_mb or max(1024, free_disk - 20480)  # swap needs disk: keep 20 GB free
+        cap = opts.memory_cap_mb or max(1024, free_disk - 8192)  # swap needs disk: keep 8 GB free
         mb = min(want, cap)
+        if mb < ram:
+            self.notes.append(f"memory: {mb} MB of {ram} MB RAM (free disk {free_disk} MB bounds it); may not reach swap")
         seconds = opts.window + 240
         child = stress_load.start_memory(mb, seconds)
         self.children.append(child)
@@ -506,7 +508,7 @@ class Memory(Angle):
             allocated = step.get("allocated_mb", allocated)
             if step.get("done"):
                 break
-        self.load.update(ram_mb=ram, requested_mb=mb, allocated_mb=allocated, ramp_s=round(time.monotonic() - t0, 1),
+        self.load.update(ram_mb=ram, free_disk_mb=free_disk, requested_mb=mb, allocated_mb=allocated, ramp_s=round(time.monotonic() - t0, 1),
                          swap_used_mb_at_start=swap_used_mb(), vm_pressure_level_at_start=memory_pressure_level())
         threading.Thread(target=lambda: [None for _ in child.stdout], daemon=True).start()  # drain its progress
 

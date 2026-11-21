@@ -181,11 +181,14 @@ trying to bench stuff and thereby having specific speed related jobs pick them t
 existing fleet routing already does this; `stress` uses it, and any bench can:
 
 - `--label bench` (`fleet_step`'s default `labels`): only workers advertising `bench` take the step. Today that is
-  the dedicated bench Mac, which advertises nothing else, so it takes no CI step and no build: a bench there runs
-  on a quiet machine.
+  the dedicated bench Mac (cmux20-bench: 12 cores, 16 GB). It advertises `bench`, `measure` and `gui-session-v1`
+  but no `ci-steps` and no builder label, so it takes no CI step and no app build of another job: a bench there
+  runs on a quiet machine.
 - `--class exclusive`: the step runs alone on an idle worker; nothing else is scheduled beside it.
-- `--measurement`: marks the step a measurement, so it is kept apart from CI work and recorded as such.
-- `--display` (`display=True`): the step needs the worker's console GUI session.
+- `--measurement`: marks the step a measurement; the controller queues measurements by priority, then age, apart
+  from CI work.
+- `--display` (`display=True`): the step needs the worker's console GUI session; the controller adds the
+  `measure` and `gui-session-v1` labels, so the step asks for `[bench gui-session-v1 measure]`.
 
 `.github/workflows/cmux-next-stress-bench.yml` (workflow_dispatch: `base`, `head`, `angles`) runs `stress` at both
 shas this way and posts the before/after table to the run summary.
