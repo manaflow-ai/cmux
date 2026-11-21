@@ -179,7 +179,12 @@ APP_KEY_MARKER = re.compile(r"create-github-app-token@|^\s*private-key:", re.MUL
 # when it names one of these Blacksmith Linux sizes (.github/runners.json), else 4 vCPU.
 # So a 4 vCPU stall can move these jobs (the overflow switch or a person sets LINUX_RUNNER),
 # and no value reaches a reused machine. The bound is in the expression, not the variable.
-BOUNDED_LINUX_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
+# GitHub-hosted ubuntu-24.04 is the one hosted label a variable-bounded pick may list (Leo, 2026-11-17, on
+# hosted runners: "Allow until it recovers"): a one-job VM like a Blacksmith one, chosen only when the overflow
+# switch or a person sets LINUX_RUNNER / CI_TRUSTED_RUNNER to it. No literal fallback may name it.
+HOSTED_FALLBACK_LABEL = "ubuntu-24.04"
+HOSTED_FALLBACK_VARIABLES = frozenset({"vars.LINUX_RUNNER"})
+BOUNDED_LINUX_LABELS = (HOSTED_FALLBACK_LABEL, "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
                         "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404")
 BOUNDED_LINUX_SELECTOR = (
     "contains(fromJSON('" + json.dumps(list(BOUNDED_LINUX_LABELS), separators=(",", ":"))
@@ -398,7 +403,9 @@ def runner_label_errors(runs_on: str) -> list[str]:
                 and HOSTED_LITERAL_LABEL.fullmatch(label) and _is_fork_branch(chain[0])):
             continue
         picked = _bounded_pick(conditions, result) if label is None else []
-        if picked and all(blacksmith.fullmatch(item) for item in picked):
+        hosted_ok = result[0] == "ref" and set(_refs(result)) <= HOSTED_FALLBACK_VARIABLES
+        if picked and all(blacksmith.fullmatch(item) or (hosted_ok and item == HOSTED_FALLBACK_LABEL)
+                          for item in picked):
             continue
         errors.append(f"{runs_on!r}: operand {index + 1} can yield something other than a Blacksmith label it names")
     if not errors and _string(chain[-1]) is None:
@@ -1732,6 +1739,10 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 if key == ("sdk-release-cut.yml", "cut-tags"):
                     # The SDK release security contract pins the pre-BS8 selector.
                     expected = expected.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
+                if key == ("ci-hosted-queue-rescue.yml", "rescue"):
+                    # The hosted-queue rescue reruns jobs a hosted outage cancelled, so it must not
+                    # queue behind that outage itself: no hosted ubuntu-24.04 in its selector.
+                    expected = expected.replace('"ubuntu-24.04",', '')
                 self.assertIn(expected + " }}", runs_on[key])
 
     def test_the_bounded_selector_yields_only_its_labels_for_any_value(self) -> None:
@@ -1753,7 +1764,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         declared = (ROOT / ".github/runners.json").read_text(encoding="utf-8") + \
             (ROOT / ".github/actionlint.yaml").read_text(encoding="utf-8")
         for label in BOUNDED_LINUX_LABELS:
-            self.assertIn(label, declared)
+            if label != HOSTED_FALLBACK_LABEL:
+                self.assertIn(label, declared)
 
     def test_the_app_key_runner_rule_refuses_a_variable(self) -> None:
         fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
