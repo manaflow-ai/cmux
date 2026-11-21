@@ -705,6 +705,29 @@ test("a picked model keeps the chat's Fast where it runs Fast", async () => {
   expect(calls.efforts).toEqual([]);
 });
 
+// Review of #48444: Fast switched off on a model only shown landed that model and left Fast on.
+test("Fast off on a model only shown lands nothing, and its pick lands it with the chat's Fast off", async () => {
+  const sonnet = model("claude", "Sonnet", { efforts: ["low", "medium", "high"], canFast: true });
+  const calls = await openMenu(
+    [{ ...claude, models: [...claude.models, sonnet] }, codex, gemini],
+    "medium",
+    undefined,
+    { fastOn: true },
+  );
+  await press("ArrowDown");
+  await press("ArrowDown");
+  expect(row("Sonnet").hasAttribute("data-hl")).toBe(true);
+  expect(fastSwitch().getAttribute("aria-checked")).toBe("true");
+  await click(fastSwitch());
+  expect(fastSwitch().getAttribute("aria-checked")).toBe("false");
+  expect(calls.picks).toHaveLength(0);
+  expect(calls.fast).toEqual([]);
+  await click(row("Sonnet"));
+  expect(calls.picks).toHaveLength(1);
+  expect(calls.picks[0]!.fast).toBeFalsy();
+  expect(calls.fast).toEqual([false]);
+});
+
 test("a chat on Ultracode carries Extra High to a model that has it", async () => {
   const nova = model("codex", "Nova", { efforts: ["low", "high", "xhigh"], defaultEffort: "low" });
   const calls = await openMenu([claude, { ...codex, models: [...codex.models, nova] }, gemini], "ultracode");

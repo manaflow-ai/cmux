@@ -312,6 +312,9 @@ function Columns({
   };
   // The query a level or Fast was picked by hand under: that pick, not the query's named level, shows.
   const [handPickedUnder, setHandPickedUnder] = useState<string>();
+  // A model shown but not picked whose Fast the person switched off here: it lands without Fast, and a
+  // click on the switch lands nothing (#48444: one click changed the model and left Fast on).
+  const [fastOffFor, setFastOffFor] = useState<string>();
   const [seen, setSeen] = useState({ effort: effort?.current, fast: fast?.checked });
   if (seen.effort !== effort?.current || seen.fast !== fast?.checked) {
     setSeen({ effort: effort?.current, fast: fast?.checked });
@@ -582,6 +585,7 @@ function Columns({
       setHeld(undefined);
       setPending(undefined);
       setHandPickedUnder(undefined);
+      setFastOffFor(undefined);
     }
   }
 
@@ -637,8 +641,8 @@ function Columns({
   /// The level another model carries (Opus 5.5 on Extra High to Sonnet 5.5 on Extra High): the
   /// chat's, when that model has it, else the nearest one it has (#48444: Medium onto a Low/High model
   /// keeps a level next to Medium, never the model's own default far from it), else the model's
-  /// recommended one. Ultracode carries as Extra High, the level it rides; a model with Ultracode itself
-  /// keeps it. None when the model has no levels.
+  /// recommended one. Ultracode carries as Extra High, the level it rides. None when the model has no
+  /// levels.
   const carriedLevel = (model: QuickModel) => {
     const choices = levelsOf(model);
     if (!choices.length) return undefined;
@@ -648,7 +652,9 @@ function Columns({
   };
   /// Fast as another model lands it: its own (a search's "fast"), else the chat's where that model runs
   /// Fast (#48444: a model pick never turns Fast off).
-  const carriedFast = (model: QuickModel) => !!model.fast || (!!(held?.fast ?? fast?.checked) && !!model.canFast);
+  const carriedFast = (model: QuickModel) =>
+    !!model.fast ||
+    (fastOffFor !== `${model.family}\u0000${model.id}` && !!(held?.fast ?? fast?.checked) && !!model.canFast);
   // Lowest first, top to bottom: Low up to Max, then Ultracode (Lucas 2026-11-12).
   const ladder = focus ? levelsOf(focus) : [];
   // The key holds the names' font too, so a density, Text Size or font change measures again on the
@@ -925,7 +931,11 @@ function Columns({
       if (heldFor) menu.families.onPick(model);
       return "landed";
     }
-    return outcome(hold(model, { effort: model.effort ?? inheritedLevel(model), fast: carriedFast(model) }));
+    const result = outcome(hold(model, { effort: model.effort ?? inheritedLevel(model), fast: carriedFast(model) }));
+    // Fast switched off on this row before its pick: the chat's own Fast goes off with it.
+    if (fastOffFor === keyOf(model) && !model.fast && model.family === families.current && fast?.checked)
+      fast.onChange(false);
+    return result;
   };
   const pickLevel = (value: string): Outcome => {
     if (!focus || focusOff || !canLandEffort) return "none";
@@ -951,7 +961,13 @@ function Columns({
         const { fast: _fast, ...rest } = picked;
         setPending({ ...pending, model: rest });
       }
-    } else hold(picked ?? focus, { ...(picked?.effort ? { effort: picked.effort } : {}), fast: on });
+    } else if (!picked && !on) {
+      // Off on a model only shown: nothing lands yet; its pick lands it without Fast.
+      setFastOffFor(focusKey);
+    } else {
+      if (!picked) setFastOffFor(undefined);
+      hold(picked ?? focus, { ...(picked?.effort ? { effort: picked.effort } : {}), fast: on });
+    }
     return "none";
   };
   /// A provider of the shown model: it keeps the level and Fast already picked here.
