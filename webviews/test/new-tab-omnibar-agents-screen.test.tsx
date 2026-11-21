@@ -159,13 +159,14 @@ test.each(["omnibar", "release", "cmux", "notes"])('a chat\'s title or folder fi
   expect(options().map(label)).not.toEqual(expect.arrayContaining(["Release notes"]));
 });
 
-test("commands omit their group while Ask keeps its model and pages their host", async () => {
+test("commands omit their group and pages their host; the prompt's own Ask has no row", async () => {
   await render([]);
   await type("omnibar");
   const row = (type: string) => options().find((option) => option.dataset.type === type)!;
   expect(row("action").querySelector(".nt-row-title")?.textContent).toBe("Split Right");
   expect(row("action").querySelector(".nt-row-detail")).toBeNull();
-  expect(row("ask").querySelector(".nt-row-detail")?.textContent).toBe("Opus 5.5");
+  // Return asks the agent and model the chip names, with no row of its own (David Beyer 2026-11-20).
+  expect(options().some((option) => option.dataset.type === "ask")).toBe(false);
   expect(row("tab").querySelector(".nt-row-detail")?.textContent).toBe("docs.example.com");
 });
 
