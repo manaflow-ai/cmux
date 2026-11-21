@@ -72,10 +72,10 @@ RELEASE_NEXT_JOBS = {
 CEF_WRITE_SECRET = re.compile(r"secrets\.CMUX_CEF_R2_WRITE_[A-Z_]+")
 CEF_WRITE_ENVIRONMENT = "cef-publish"
 # The gate is the whole condition, or its first term joined by && only. A job
-# whose own `if` calls always(), cancelled() or failure() runs after a skipped
-# need, so it breaks the chain from the gate.
+# whose own `if` calls always(), cancelled() or failure(), or negates success(),
+# runs after a skipped need, so it breaks the chain from the gate.
 MAIN_GATE = re.compile(r"^github\.ref == 'refs/heads/main'( && [^|]*)?$")
-RUNS_AFTER_SKIP = re.compile(r"\b(always|cancelled|failure)\(")
+RUNS_AFTER_SKIP = re.compile(r"\b(always|cancelled|failure)\(|!\s*success\(")
 
 
 def _condition(definition):
@@ -119,7 +119,25 @@ def _check(cond, msg):
         print(f"ok: {msg}")
 
 
+def _gate_cases():
+    """_main_gated on hand-made jobs: a status condition that runs after a skipped gate breaks the chain."""
+    gate = {"if": "github.ref == 'refs/heads/main'"}
+    for condition, expected in (
+        ("", True),
+        ("success()", True),
+        ("always()", False),
+        ("!cancelled()", False),
+        ("failure()", False),
+        ("!success()", False),
+        ("${{ ! success() }}", False),
+    ):
+        jobs = {"resolve": gate, "publish": {"needs": "resolve", "if": condition}}
+        _check(_main_gated(jobs, "publish") is expected,
+               f"publish with if {condition!r} after a main gate: main-gated is {expected}")
+
+
 def main():
+    _gate_cases()
     for name, jobs in RELEASE_JOBS.items():
         document = yaml.load(open(os.path.join(WORKFLOWS, name), encoding="utf-8"), Loader=yaml.BaseLoader)
         for job in jobs:
