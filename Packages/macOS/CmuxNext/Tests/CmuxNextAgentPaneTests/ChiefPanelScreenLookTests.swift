@@ -36,8 +36,10 @@ struct ChiefPanelScreenLookTests {
     }
 
     @Test(arguments: [
-        (#"{}"#, 0, "Computer Use is off by default"),
-        (#"{"computerUse": {"enabled": false}}"#, 0, "Computer Use off"),
+        // computerUse.mode defaults to fullAccess since #37003: Computer Use is on unless the person turns it off.
+        (#"{}"#, 1, "Computer Use is on by default and so is the eye"),
+        (#"{"computerUse": {"mode": "off"}}"#, 0, "Computer Use off"),
+        (#"{"computerUse": {"enabled": false}}"#, 0, "Computer Use off by the old switch"),
         (#"{"computerUse": {"enabled": true}, "home": {"chiefPanel": {"seesScreen": false}}}"#, 0, "the eye off"),
         (#"{"computerUse": {"enabled": true}}"#, 1, "Computer Use on and the eye on by default"),
     ])
