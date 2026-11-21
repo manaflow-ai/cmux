@@ -96,6 +96,12 @@ def server_env() -> dict[str, str]:
         "SCCACHE_IDLE_TIMEOUT": "0",
         # A store that does not answer is an error to report, not a hang per compile.
         "SCCACHE_STARTUP_TIMEOUT_MS": "15000",
+        # No SCCACHE_BASEDIRS: 0.19 applies it to C and C++ only (a Rust crate built under two roots misses; tried
+        # 2026-11-21). The GCP pool's runner instances have HOME /home/runner and /home/runner2, about half each,
+        # so the pool holds two key spaces; GITHUB_WORKSPACE under one HOME for every instance would make it one.
+        # The server's warnings (a refused or throttled store call) for `report` to name.
+        "SCCACHE_ERROR_LOG": str(Path(os.environ.get("RUNNER_TEMP", tempfile.gettempdir())) / "sccache-server.log"),
+        "SCCACHE_LOG": "warn",
     }
 
 
@@ -174,6 +180,21 @@ def report(job: str) -> int:
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
             f.write(f"rust compile cache: `{line}`\n")
+    log = Path(server_env()["SCCACHE_ERROR_LOG"])
+    seen: list[str] = []
+    if log.is_file():
+        for text in log.read_text(errors="replace").splitlines():
+            text = text.split("]", 1)[-1].strip()[:240]
+            if text and text not in seen:
+                seen.append(text)
+            if len(seen) == 5:
+                break
+    for text in seen:
+        print(f"sccache: {text}")
+    looked = row["hits"] + row["misses"]
+    if not row["store_down"] and looked and row["store_errors"] > looked // 10:
+        print(f"::warning title=rust compile cache degraded::{job}: {row['store_errors']} store calls failed against "
+              f"{looked} lookups; entries that failed to write are compiled again next time")
     if row["store_down"]:
         print(f"::error title=rust compile cache down::{job}: {row['store_errors']} store errors and no hit: "
               "the Actions cache did not answer, so this job compiled cold")
