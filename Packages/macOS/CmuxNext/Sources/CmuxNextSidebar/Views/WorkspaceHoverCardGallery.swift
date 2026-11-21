@@ -85,7 +85,36 @@ public struct WorkspaceHoverCardGallery {
             if expanded { card.detailsToggle.performClick(nil) }
             return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
         }
-        return tabCards + tabRowCards(now: now) + [cloudCard(now: now)] + closeAndSpinnerCards(now: now) + workCards(now: now) + richCards
+        return layoutCards(now: now) + tabCards + tabRowCards(now: now) + [cloudCard(now: now)] + closeAndSpinnerCards(now: now)
+            + workCards(now: now) + richCards
+    }
+
+    /// One workspace with a long history, as the Timeline layout (the default until 2026-11-20) and as
+    /// Compact, the default since (Lawrence 2026-11-20: "drastically simplify all parts of the UI"):
+    /// both through `WorkspaceHoverCardContent.make(options:)`, the path a hovered row takes.
+    @MainActor static func layoutCards(now: Date) -> [(name: String, view: NSView)] {
+        var workspace = SidebarWorkspace(id: WorkspaceID("layouts"), machineID: .local, title: "Simplify the UI")
+        workspace.tabs = [SidebarTab(id: TabID("chat"), title: "Claude Code", kind: .agentChat, folder: "~/Projects/cmux", state: .success)]
+        let moments: [(SidebarTimelineEntry.Kind, TimeInterval, String?)] = [
+            (.finished, 60, nil), (.prompt, 420, "Take the before and after shots"), (.finished, 900, nil),
+            (.prompt, 1_500, "Make the hover card compact"), (.waiting, 2_100, nil), (.prompt, 2_700, "Cut the tip card"),
+            (.finished, 3_300, nil), (.prompt, 3_900, "Hide the sidebar search button"), (.finished, 4_500, nil),
+            (.prompt, 5_100, "Map every surface"),
+        ]
+        let timeline = moments.map { kind, ago, text in
+            SidebarTimelineEntry(kind: kind, date: now.addingTimeInterval(-ago), text: text, agent: "Claude Code")
+        }
+        let local = SidebarMachine(id: .local, name: "studio", kind: .local)
+        return [(WorkspaceHoverCardOptions.Layout.timeline, "Layout · Timeline (before 2026-11-20)"),
+                (.compact, "Layout · Compact · chosen")].map { layout, name in
+            var options = WorkspaceHoverCardOptions()
+            options.layout = layout
+            let content = WorkspaceHoverCardContent.make(workspace, machine: local, now: now, options: options, timeline: timeline)
+            let card = WorkspaceHoverCardView()
+            card.configure(content, now: now)
+            card.configureTabs(title: workspace.title, tabs: workspace.tabs, now: now, machine: local)
+            return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
+        }
     }
 
     /// A Cloud workspace with one terminal (Leo 2026-11-02, on a card that said Cloud four times: "isn't this
