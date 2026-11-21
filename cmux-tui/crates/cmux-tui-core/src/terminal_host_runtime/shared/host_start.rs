@@ -113,6 +113,7 @@ pub(crate) fn start_host_runtime(
         stream_progress: TerminalStreamProgress::default(),
         writer: Mutex::new(pty_writer),
         master: Mutex::new(master),
+        paste_pacer: Mutex::default(),
         killer: Mutex::new(killer),
         pid,
         command: launch.command.clone(),
