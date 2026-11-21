@@ -46,7 +46,7 @@ public nonisolated struct AgentPageOps {
             "externalAccess.openSettings",
             "dictation.toggle", "dictation.handoff", "dictation.sources", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio", "dictation.recording.upload", "dictation.recording.cancel",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
-            "chat.missing", "uiPointer.report", "acpmux.restart", "acpmux.restartStuck", "sandbox.run", "sandbox.state", "cloud.signIn", "cloud.signInCancel", "cloud.setUp", "cloud.startChat", "cloud.repickChat", "cloud.answerStart", "cloud.handoffTurn",
+            "chat.missing", "uiPointer.report", "designSelection.released", "acpmux.restart", "acpmux.restartStuck", "sandbox.run", "sandbox.state", "cloud.signIn", "cloud.signInCancel", "cloud.setUp", "cloud.startChat", "cloud.repickChat", "cloud.answerStart", "cloud.handoffTurn",
             // The pricing card's Subscribe (cloud.plan.subscribe {plan}: pro or max), which opens that plan's checkout.
             "cloud.plan.subscribe",
             // The composer streams every upload (cloudUploads.ts); without these the page fell back to one frame, which refuses a file over 24 MiB (#28647).
@@ -149,6 +149,9 @@ public final class AgentPageProvider: PageProvider {
     /// The debug UI pointer report from an app-owned page. The native picker
     /// owns the crop and composer delivery; the page only supplies metadata.
     public var onUiPointerReport: @MainActor (JSONValue) -> Void = { _ in }
+    /// The ids of browser picks that left the composer (`designSelection.released {ids}`): removed
+    /// or sent. ``AgentPaneView`` passes them to the browser, which takes their pins off the page.
+    public var onDesignSelectionReleased: @MainActor ([String]) -> Void = { _ in }
     /// The page's flicker events (`diag.flicker`, `{events}`), for the pane's ring file
     /// (``AgentPageFlickerLog/recordPage(_:page:pid:)``). ``AgentPaneView`` sets it; until then they are dropped.
     public var onFlicker: @MainActor (JSONValue) -> Void = { _ in }
@@ -411,6 +414,13 @@ public final class AgentPageProvider: PageProvider {
         if method == "chat.asks.pending" { return try await pendingAsks.reply(params, op: op, socket: pendingAsksSocket()) }
         if method == "uiPointer.report" {
             onUiPointerReport(params)
+            return .object(["ok": .bool(true)])
+        }
+        if method == "designSelection.released" {
+            // Bounded: a composer holds at most a few dozen chips; only design pick ids pass.
+            let ids = (params["ids"]?.arrayValue ?? []).compactMap(\.stringValue)
+                .filter { $0.hasPrefix("design-") && $0.count <= 64 }.prefix(64)
+            if !ids.isEmpty { onDesignSelectionReleased(Array(ids)) }
             return .object(["ok": .bool(true)])
         }
         if method.hasPrefix("chat.draftAttachments") { return try await Self.draftAttachments(method, params: params, op: op) }
