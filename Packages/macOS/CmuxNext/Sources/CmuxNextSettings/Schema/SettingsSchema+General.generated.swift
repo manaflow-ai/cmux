@@ -60,9 +60,9 @@ extension CmuxConfigSnapshot {
     /// `app.startAgentGlobalHotKey`: Off when unset or invalid.
     public nonisolated static let startAgentGlobalHotKeyPath = ["app", "startAgentGlobalHotKey"]
     public nonisolated static let startAgentGlobalHotKeyDefault = false
-    /// `app.hideDockIconWithoutWindows`: On when unset or invalid.
+    /// `app.hideDockIconWithoutWindows`: Off when unset or invalid.
     public nonisolated static let hideDockIconWithoutWindowsPath = ["app", "hideDockIconWithoutWindows"]
-    public nonisolated static let hideDockIconWithoutWindowsDefault = true
+    public nonisolated static let hideDockIconWithoutWindowsDefault = false
     /// `app.showMenuBarIcon`: On when unset or invalid.
     public nonisolated static let showMenuBarIconPath = ["app", "showMenuBarIcon"]
     public nonisolated static let showMenuBarIconDefault = true
@@ -217,7 +217,7 @@ extension PaletteRankingSetting {
 extension ContextMenusSetting {
     /// `contextMenus.showCustomizeItem`.
     public nonisolated static let showCustomizeItemPath = ["contextMenus", "showCustomizeItem"]
-    public nonisolated static let showCustomizeItemDefault = true
+    public nonisolated static let showCustomizeItemDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).

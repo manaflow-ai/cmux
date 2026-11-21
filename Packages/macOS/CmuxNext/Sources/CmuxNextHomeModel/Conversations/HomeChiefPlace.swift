@@ -1,3 +1,4 @@
+import CmuxChiefList
 import Foundation
 
 /// Where a Chief's brain runs, as the Home list and the Chief's card name it
@@ -17,6 +18,24 @@ public nonisolated enum HomeChiefPlace: Hashable, Sendable, Codable {
         case .thisMac: HomeModelStrings.placeThisMac
         case .cloud: HomeModelStrings.placeCloud
         case .server(let name): name
+        }
+    }
+
+    /// The shared list's place (CmuxChiefList's ``ChiefPlace``, the iPhone's too): the same cases.
+    var shared: ChiefPlace {
+        switch self {
+        case .thisMac: .thisMac
+        case .cloud: .cloud
+        case .server(let name): .server(name)
+        }
+    }
+
+    /// The place the shared list names; a server with no name yet is `unnamedServer`.
+    init(_ shared: ChiefPlace, unnamedServer: String) {
+        switch shared {
+        case .thisMac: self = .thisMac
+        case .cloud: self = .cloud
+        case .server(let name): self = .server(name.isEmpty ? unnamedServer : name)
         }
     }
 }
