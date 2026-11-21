@@ -3585,6 +3585,22 @@ async fn dispatch_request_with_identity(
             // Who answered, when a person other than the owner did (`author.rs`): a label only.
             let author = crate::author::author(&params)?;
             answerer.author = author.as_ref();
+            // A notification's one-tap choice (`hub/ask_choices.rs`): the option and answers it
+            // stands for, then the same answer and checks.
+            // One that is not a string is refused, never read as no choice (a cancel).
+            if let Some(choice) = params.get("choiceId").filter(|v| !v.is_null()) {
+                let choice = choice
+                    .as_str()
+                    .ok_or_else(|| RpcError::invalid_params("choiceId must be a string"))?;
+                let answered = answers.as_ref().is_some_and(|a| !a.is_null());
+                if option.is_some() || answered || annotations.is_some() {
+                    return Err(RpcError::invalid_params(
+                        "choiceId goes alone: no optionId, answers or annotations beside it",
+                    ));
+                }
+                hub.respond_choice(&s, pid, choice, answered_by, answerer, control).await?;
+                return Ok(json!({}));
+            }
             // The paired machine that answers, for D13 (`Hub::local_claude_refusal`).
             let device = super::remote_guard::sending_device(conn, &params);
             answerer.device = device.as_deref();
