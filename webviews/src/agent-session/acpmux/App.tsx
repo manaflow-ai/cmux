@@ -2289,11 +2289,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   // Each prompt's own turn, for the Fork under its bubble; rebuilt only when the turns change.
   // Tracked across snapshots: a streamed row reads the rows after it, not the whole chat (cmux#48711).
-  const lastPromptTurns = useRef<PromptTurns | undefined>(undefined);
+  // A cache the memo below carries forward. A render React replays or drops only re-derives it
+  // from the same rows, so it lives in a state-held box, not a ref written during render.
+  const [promptTurnsCache] = useState<{ last?: PromptTurns }>(() => ({}));
   const rowsForPromptTurns = turnForkable ? snapshot.rows : NO_ROWS;
   const stablePromptSeqs = useMemo(
-    () => (lastPromptTurns.current = trackPromptTurns(rowsForPromptTurns, lastPromptTurns.current)).seqs,
-    [rowsForPromptTurns],
+    () => (promptTurnsCache.last = trackPromptTurns(rowsForPromptTurns, promptTurnsCache.last)).seqs,
+    [rowsForPromptTurns, promptTurnsCache],
   );
   // Retry with another model (cx-ncc.62): the models the composer's picker lists for the chat's
   // harness (user-hidden ones left out, aliases folded, the session's own choices added) that it can
