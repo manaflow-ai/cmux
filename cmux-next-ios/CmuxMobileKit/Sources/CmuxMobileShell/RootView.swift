@@ -634,7 +634,7 @@ struct ShellView: View {
                         }
                         .onAppear {
                             service.open(deviceID: item.link.device, name: item.link.name,
-                                         scope: item.link.control ? .full : .view)
+                                         scope: item.link.control ? .full : .view, display: item.link.display)
                         }
                 }
             }

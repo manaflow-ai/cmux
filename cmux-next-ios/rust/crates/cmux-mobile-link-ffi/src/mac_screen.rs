@@ -23,7 +23,8 @@ use std::time::Instant;
 use cmux_rd_ffi::{Carrier, InputChannel, Session};
 use cmux_rd_link::net::{Candidate, Net, NetConfig, NetEvent, TurnServer};
 use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
-use cmux_rd_proto::{Control, InputEvent, flags};
+use cmux_rd_proto::control::Control;
+use cmux_rd_proto::{InputEvent, flags};
 use serde_json::Value;
 
 use crate::CmuxMobileError;
@@ -106,6 +107,8 @@ pub struct MacScreenRd {
     receiver: Mutex<Option<mpsc::Receiver<Command>>>,
     wake: Arc<Pipe>,
     stats: Arc<Mutex<BrowserStats>>,
+    /// The stream's size in pixels, from the host's `welcome` (input maps to it).
+    size: Arc<Mutex<Option<(u32, u32)>>>,
     epoch: Instant,
 }
 
@@ -127,6 +130,7 @@ impl MacScreenRd {
             receiver: Mutex::new(Some(receiver)),
             wake: Arc::new(wake),
             stats: Arc::new(Mutex::new(BrowserStats::default())),
+            size: Arc::new(Mutex::new(None)),
             epoch: Instant::now(),
         }))
     }
@@ -199,6 +203,7 @@ impl MacScreenRd {
             commands,
             wake: Arc::clone(&self.wake),
             stats: Arc::clone(&self.stats),
+            size: Arc::clone(&self.size),
             epoch: self.epoch,
         };
         thread::Builder::new()
@@ -235,6 +240,21 @@ impl MacScreenRd {
 
     pub fn text(&self, text: String) {
         self.input(InputEvent::Text(text));
+    }
+
+    /// One input event in the phone's streamed-surface wire (`cmux.rb/1` JSON: a
+    /// `pointer` at 0...1 of the picture, `key` by DOM code, `ime_commit`, `wheel`),
+    /// as rd input on the welcome's pixels. The phone's touch surface speaks it for
+    /// simulators and browsers too, so the same view drives a Mac. Nothing in a view
+    /// session, or before the welcome named the size.
+    pub fn rb_input(&self, json: String) {
+        if !self.control {
+            return;
+        }
+        let size = *self.size.lock().unwrap_or_else(PoisonError::into_inner);
+        for event in rb_input_events(&json, size) {
+            self.send(Command::Input(event));
+        }
     }
 
     /// Asks the host for a keyframe (the decoder lost its reference).
@@ -441,6 +461,7 @@ struct Run {
     commands: mpsc::Receiver<Command>,
     wake: Arc<Pipe>,
     stats: Arc<Mutex<BrowserStats>>,
+    size: Arc<Mutex<Option<(u32, u32)>>>,
     epoch: Instant,
 }
 
@@ -585,6 +606,13 @@ impl Run {
         let json: Value = serde_json::from_slice(record).ok()?;
         self.observer.on_message(json.to_string());
         match json.get("t").and_then(Value::as_str) {
+            Some("welcome") => {
+                let side = |name| json.get(name).and_then(Value::as_u64).and_then(|v| u32::try_from(v).ok());
+                if let (Some(w), Some(h)) = (side("width"), side("height")) {
+                    *self.size.lock().unwrap_or_else(PoisonError::into_inner) = Some((w, h));
+                }
+                None
+            }
             Some("ended") => Some(("ended".into(), text(&json, "reason"))),
             Some("refused") => {
                 let reason = text(&json, "reason");
@@ -627,6 +655,83 @@ impl Run {
             });
         }
     }
+}
+
+/// rd input for one `cmux.rb/1` input event on a `width` x `height` stream
+/// (see ``MacScreenRd::rb_input``); empty for anything else.
+fn rb_input_events(json: &str, size: Option<(u32, u32)>) -> Vec<InputEvent> {
+    let Ok(event) = serde_json::from_str::<Value>(json) else { return Vec::new() };
+    let number = |name| event.get(name).and_then(Value::as_f64).filter(|v| v.is_finite());
+    match event.get("e").and_then(Value::as_str) {
+        Some("pointer") => {
+            let (Some((w, h)), Some(x), Some(y)) = (size, number("x"), number("y")) else {
+                return Vec::new();
+            };
+            let pixel =
+                |v: f64, side: u32| (v.clamp(0.0, 1.0) * f64::from(side.saturating_sub(1))).round() as i32;
+            let at = InputEvent::Pointer { x: pixel(x, w), y: pixel(y, h) };
+            match event.get("kind").and_then(Value::as_str) {
+                Some("down") => vec![at, InputEvent::Button { button: 0, down: true }],
+                Some("up") => vec![at, InputEvent::Button { button: 0, down: false }],
+                Some("move") => vec![at],
+                _ => Vec::new(),
+            }
+        }
+        Some("wheel") => {
+            let hundredths = |v: Option<f64>| (v.unwrap_or(0.0) * 100.0).clamp(-1e9, 1e9) as i32;
+            let (dx, dy) = (hundredths(number("dx")), hundredths(number("dy")));
+            if dx == 0 && dy == 0 { Vec::new() } else { vec![InputEvent::Scroll { dx, dy, precise: true }] }
+        }
+        Some("ime_commit") => {
+            let typed = text(&event, "text");
+            if typed.is_empty() { Vec::new() } else { vec![InputEvent::Text(typed)] }
+        }
+        Some("key") => {
+            let down = event.get("down").and_then(Value::as_bool).unwrap_or(false);
+            match hid_usage(&text(&event, "code")) {
+                Some(usage) => vec![InputEvent::Key { usage, down }],
+                None => {
+                    let typed = text(&event, "text");
+                    if down && !typed.is_empty() { vec![InputEvent::Text(typed)] } else { Vec::new() }
+                }
+            }
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// The HID usage (page 7) of a DOM `KeyboardEvent.code`, for the keys the
+/// phone's keyboard sends as keys (the rest arrive as text).
+fn hid_usage(code: &str) -> Option<u32> {
+    if let Some(letter) = code.strip_prefix("Key").filter(|l| l.len() == 1) {
+        let c = letter.as_bytes()[0];
+        return c.is_ascii_uppercase().then(|| 0x04 + u32::from(c - b'A'));
+    }
+    if let Some(digit) = code.strip_prefix("Digit").filter(|d| d.len() == 1) {
+        let c = digit.as_bytes()[0];
+        return match c {
+            b'1'..=b'9' => Some(0x1E + u32::from(c - b'1')),
+            b'0' => Some(0x27),
+            _ => None,
+        };
+    }
+    Some(match code {
+        "Enter" | "NumpadEnter" => 0x28,
+        "Escape" => 0x29,
+        "Backspace" => 0x2A,
+        "Tab" => 0x2B,
+        "Space" => 0x2C,
+        "Delete" => 0x4C,
+        "Home" => 0x4A,
+        "PageUp" => 0x4B,
+        "End" => 0x4D,
+        "PageDown" => 0x4E,
+        "ArrowRight" => 0x4F,
+        "ArrowLeft" => 0x50,
+        "ArrowDown" => 0x51,
+        "ArrowUp" => 0x52,
+        _ => return None,
+    })
 }
 
 fn text(json: &Value, field: &str) -> String {
@@ -750,6 +855,77 @@ mod tests {
         let (_, start) = opening(true, "k".into());
         assert!(matches!(serde_json::from_slice::<Control>(&start).unwrap(),
             Control::Start { mode, .. } if mode == "control"));
+    }
+
+    #[test]
+    fn touches_become_pointer_and_button_on_the_welcome_pixels() {
+        let size = Some((1920, 1080));
+        let touch = |kind: &str, x: f64, y: f64| {
+            format!(r#"{{"e":"pointer","kind":"{kind}","x":{x},"y":{y},"buttons":1,"surface":0}}"#)
+        };
+        assert_eq!(
+            rb_input_events(&touch("down", 0.5, 0.5), size),
+            vec![InputEvent::Pointer { x: 960, y: 540 }, InputEvent::Button { button: 0, down: true }]
+        );
+        assert_eq!(
+            rb_input_events(&touch("move", 1.5, -1.0), size),
+            vec![InputEvent::Pointer { x: 1919, y: 0 }]
+        );
+        assert_eq!(
+            rb_input_events(&touch("up", 0.0, 1.0), size),
+            vec![InputEvent::Pointer { x: 0, y: 1079 }, InputEvent::Button { button: 0, down: false }]
+        );
+        // Before the welcome there is no picture to point at.
+        assert!(rb_input_events(&touch("down", 0.5, 0.5), None).is_empty());
+    }
+
+    #[test]
+    fn keys_and_text_become_hid_keys_and_text() {
+        let key = |code: &str, down: bool| {
+            format!(r#"{{"e":"key","code":"{code}","key":"{code}","text":"","down":{down}}}"#)
+        };
+        assert_eq!(
+            rb_input_events(&key("Enter", true), None),
+            vec![InputEvent::Key { usage: 0x28, down: true }]
+        );
+        assert_eq!(
+            rb_input_events(&key("Backspace", false), None),
+            vec![InputEvent::Key { usage: 0x2A, down: false }]
+        );
+        assert_eq!(
+            rb_input_events(&key("KeyZ", true), None),
+            vec![InputEvent::Key { usage: 0x1D, down: true }]
+        );
+        assert_eq!(
+            rb_input_events(&key("Digit0", true), None),
+            vec![InputEvent::Key { usage: 0x27, down: true }]
+        );
+        assert_eq!(
+            rb_input_events(r#"{"e":"ime_commit","text":"héllo","replacement":null}"#, None),
+            vec![InputEvent::Text("héllo".into())]
+        );
+        assert_eq!(
+            rb_input_events(r#"{"e":"wheel","dx":0,"dy":-2.5,"precise":true}"#, None),
+            vec![InputEvent::Scroll { dx: 0, dy: -250, precise: true }]
+        );
+        assert!(rb_input_events(r#"{"e":"button","button":"home"}"#, None).is_empty());
+        assert!(rb_input_events("not json", None).is_empty());
+    }
+
+    #[test]
+    fn a_view_session_sends_no_input() {
+        let rd = MacScreenRd::new(false).unwrap();
+        *rd.size.lock().unwrap() = Some((100, 100));
+        rd.rb_input(r#"{"e":"pointer","kind":"down","x":0.5,"y":0.5}"#.into());
+        rd.pointer(1, 1);
+        let receiver = rd.receiver.lock().unwrap().take().unwrap();
+        assert!(receiver.try_recv().is_err());
+
+        let rd = MacScreenRd::new(true).unwrap();
+        *rd.size.lock().unwrap() = Some((100, 100));
+        rd.rb_input(r#"{"e":"pointer","kind":"down","x":0.5,"y":0.5}"#.into());
+        let receiver = rd.receiver.lock().unwrap().take().unwrap();
+        assert_eq!(receiver.try_iter().filter(|c| matches!(c, Command::Input(_))).count(), 2);
     }
 
     #[test]
