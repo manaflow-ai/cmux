@@ -144,6 +144,25 @@ test("a kept sentence is never asked again, and a failure shows as failed", asyn
   stop();
 });
 
+test("a hunk over 256 KiB is asked about by its first 4 KiB of whole lines, never refused", async () => {
+  const { ask, asked, pending } = controlledAsk();
+  const store = new SummaryStore(ask);
+  const body = Array.from({ length: 30_000 }, (_, i) => `+line ${i} of a generated file`).join("\n");
+  const patch = `@@ -0,0 +1,30000 @@\n${body}`;
+  expect(new TextEncoder().encode(patch).length).toBeGreaterThan(256 * 1024);
+  const big: HunkRef = { ...refs(1)[0]!, patch, key: contentKey("f.ts", patch) };
+  store.want([big]);
+  await settle();
+  expect(asked.length).toBe(1);
+  const sent = asked[0]!;
+  expect(new TextEncoder().encode(sent).length).toBeLessThanOrEqual(4 * 1024);
+  expect(patch.startsWith(sent)).toBe(true);
+  expect(sent.endsWith(" of a generated file")).toBe(true);
+  pending.get(sent)!.resolve("Adds a generated file.");
+  await settle();
+  expect(store.get(big.key)).toEqual({ kind: "ready", text: "Adds a generated file." });
+});
+
 test("a closed store drops late answers", async () => {
   const { ask, pending } = controlledAsk();
   const store = new SummaryStore(ask);

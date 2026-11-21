@@ -70,15 +70,22 @@ struct DiffHunkSummariesTests {
         #expect(answer["text"]?.stringValue == "Retries the upload.")
         #expect(sentences.asked == ["a.rs:@@ -1 +1 @@\n-a\n+b"])
 
-        // No patch, or one past acpmux's limit, asks nothing.
+        // No patch asks nothing.
         await #expect(throws: PageError.self) {
             _ = try await provider.call("cmux.diff.summary", params: ["path": "a.rs"], context: page)
         }
-        let huge = String(repeating: "+x\n", count: 100_000)
-        await #expect(throws: PageError.self) {
-            _ = try await provider.call("cmux.diff.summary", params: ["path": "a.rs", "patch": .string(huge)], context: page)
-        }
         #expect(sentences.asked.count == 1)
+
+        // A patch of any size gets its sentence: the relay sends its first 4 KiB of whole lines,
+        // the part acpmux's prompt reads.
+        let huge = "@@ -0,0 +1,100000 @@\n" + String(repeating: "+x\n", count: 100_000)
+        let big = try await provider.call("cmux.diff.summary", params: ["path": "a.rs", "patch": .string(huge)], context: page)
+        #expect(big["text"]?.stringValue == "Retries the upload.")
+        #expect(sentences.asked.count == 2)
+        let relayed = String(try #require(sentences.asked.last).dropFirst("a.rs:".count))
+        #expect(relayed.utf8.count <= 4 * 1024)
+        #expect(huge.hasPrefix(relayed))
+        #expect(relayed.hasSuffix("+x"))
     }
 
     @Test func aRefusalIsTheCheckReason() async throws {

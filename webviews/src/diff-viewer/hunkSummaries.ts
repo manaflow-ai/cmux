@@ -14,8 +14,36 @@ export const DIFF_PAGE_SUMMARY_CHECK_OP = "cmux.diff.summaryCheck";
 export const MAX_IN_FLIGHT = 2;
 /** Sentences this page keeps (each about 100 bytes). */
 export const PAGE_CACHE_CAP = 4000;
-/** The longest patch asked about: acpmux's own limit (`hunk_summary.rs`). */
-export const MAX_PATCH_BYTES = 256 * 1024;
+/** The part of a hunk a sentence is asked about: acpmux's prompt reads no more (`hunk_summary.rs`). */
+export const SUMMARY_PATCH_BYTES = 4 * 1024;
+
+/**
+ * `patch` cut to its first `SUMMARY_PATCH_BYTES` of UTF-8 as whole lines, or as whole characters
+ * when its first line alone is longer. Every hunk is asked about; a long one by its start.
+ */
+export function summaryPatch(patch: string): string {
+  const encoder = new TextEncoder();
+  if (encoder.encode(patch).length <= SUMMARY_PATCH_BYTES) return patch;
+  const kept: string[] = [];
+  let bytes = 0;
+  for (const line of patch.split("\n")) {
+    const cost = encoder.encode(line).length + (kept.length > 0 ? 1 : 0);
+    if (bytes + cost > SUMMARY_PATCH_BYTES) break;
+    kept.push(line);
+    bytes += cost;
+  }
+  const whole = kept.join("\n");
+  if (whole.trim()) return whole;
+  let head = "";
+  bytes = 0;
+  for (const char of patch) {
+    const cost = encoder.encode(char).length;
+    if (bytes + cost > SUMMARY_PATCH_BYTES) break;
+    head += char;
+    bytes += cost;
+  }
+  return head;
+}
 
 type HunkContent =
   | { type: "context"; lines: number; additionLineIndex: number; deletionLineIndex: number }
@@ -202,12 +230,7 @@ export class SummaryStore {
       this.wanted = this.wanted.filter((wanted) => wanted.key !== ref.key);
       this.pump();
     };
-    const tooBig = new TextEncoder().encode(ref.patch).length > MAX_PATCH_BYTES;
-    if (tooBig) {
-      queueMicrotask(() => finish({ kind: "failed" }));
-      return;
-    }
-    this.ask(ref.path, ref.patch).then(
+    this.ask(ref.path, summaryPatch(ref.patch)).then(
       (text) => finish(text.trim() ? { kind: "ready", text: text.trim() } : { kind: "failed" }),
       () => finish({ kind: "failed" }),
     );
