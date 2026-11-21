@@ -170,6 +170,7 @@ jobs:
             CI_FFI_RELEASE_POOL=${{ vars.CI_FFI_RELEASE_POOL }}
             CI_GATE_SKIP_FLEET=${{ vars.CI_GATE_SKIP_FLEET }}
             CI_IOS_INTERNAL_RUNNER=${{ vars.CI_IOS_INTERNAL_RUNNER }}
+            CI_JIT_SKIP_FLEET=${{ vars.CI_JIT_SKIP_FLEET }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
             CI_LINUX_GATE_OWNED_RUNNER=${{ vars.CI_LINUX_GATE_OWNED_RUNNER }}
             CI_NEXT_DAEMON_POOL=${{ vars.CI_NEXT_DAEMON_POOL }}
