@@ -2,11 +2,18 @@
   "cmuxSetup": 1,
   "id": "manaflow-ai/claude-code-cloud",
   "name": "Claude Code cloud controls",
-  "description": "Choose the computer for a cmux chat or pick a Claude cloud session to resume in a new CLI tab.",
-  "version": "1.0.0",
+  "description": "Open the latest local CLI session in Claude Desktop for cloud handoff, resume a Claude cloud session locally, or choose a cmux chat’s computer.",
+  "version": "1.1.0",
   "license": "MIT",
   "cmuxProfile": 1,
   "actions": {
+    "claude-code-desktop-continue": {
+      "type": "agent",
+      "agent": "claude",
+      "title": "Open Latest Local CLI Session in Claude Desktop",
+      "target": "newTabInCurrentPane",
+      "args": "--desktop --continue"
+    },
     "claude-code-teleport": {
       "type": "agent",
       "agent": "claude",
