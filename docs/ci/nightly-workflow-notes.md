@@ -218,3 +218,199 @@ This seeder runs on our nightly-only minis, never Blacksmith (a fork on hosted m
 runner-preflight:
 
 Fails the run in minutes when a label its jobs would wait on has no online runner, instead of every job sitting queued for hours (2026-11-10: CI_NIGHTLY_MINI named cmux-lawrence-2-light, whose runners went offline at 00:45Z; the nightly sat queued for 3+ h). It takes decide's own route, so it never waits longer than decide would, and in one-mini mode it stays on vars.CI_NIGHTLY_MINI with the rest of the run (never split across Macs); there a dead mini holds it like every other job. It was on GitHub-hosted Ubuntu until 2026-11-18, when the org-wide hosted queue held it 1h25m+ (run 44207617943) and with it every nightly, while the nightly Macs were idle. It holds no secret and reads only vars.CI_RUNNER_STATE (scripts/ci/nightly_runner_preflight.py). It never cancels anything; an unreadable or stale census lets the run go on. A failure files the nightly's failure incident with the job's token (report-nightly-failure never runs then). hq docs/handbook/runner-var-points-at-dead-host.md.
+
+## note-35
+
+Above `run-name: >-` in `.github/workflows/nightly.yml`.
+
+A promotion request's title names its commit, so the promote guard can find
+requests GitHub cancelled in its queue (REQUEST_TITLE in
+scripts/ci/promote-nightly-next.mjs). An unsigned resume's title names the run
+and attempt it resumes, so main's feed watch counts its resumes of each failed
+run (scripts/ci/nightly_next_unsigned_resume.py on main dispatches nothing
+until this title is here). A sign stage (nightly_next_sign_stage) has its own title, so the watch never
+counts it as a resume. Every other run keeps the default title.
+Unsigned-resume titles stay anchored.
+
+## note-43
+
+Above `NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next` in `.github/workflows/nightly.yml`.
+
+The cmux-next track (branch `nightly-next`). The feed base must never be
+main's nightly or RC feed; scripts/ci/nightly-next-guard.py refuses it.
+The track's one feed: each build is signed once, as cmux NIGHTLY
+(com.cmuxterm.app.nightly), the app the team runs (hq#7156; Leo,
+2026-11-05: "THERE SHOULDN'T BE 2"). It keeps "/nightly-next/" in its
+path: UpdateFeedResolver classifies the track by it. Release notes sit
+beside it.
+
+## note-42
+
+Above `promote-nightly-next:` in `.github/workflows/nightly.yml`.
+
+Moves the protected branch `nightly-next` to a feat-cmux-next commit whose cmux-next.yml
+push run passed its Release compile. Runs only on main, in `release`, with the release App
+(the ruleset's only bypass actor). Guard: scripts/ci/promote-nightly-next.mjs, from this
+main checkout. One concurrency group keeps a single writer; decideNewest() also decides the
+newest request GitHub evicted (checks: read) whose commit contains this one's.
+
+## note-41
+
+Above `if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && vars.CI_PR_POOL_OW` in `.github/workflows/nightly.yml`.
+
+The schedule skips this cloud warmer while owned pools serve pull
+requests (CI_PR_POOL_OWNED is 1). build-nightly-app saves the same key on
+every published main push, so the remaining cloud readers (main's
+full-suite dispatch, nightly's hosted fallback) restore at worst an
+older entry by prefix. It runs on Blacksmith macOS, never a hosted Mac
+(tests/test_ci_nightly_no_hosted_mac.py). A seed_only dispatch still warms it on demand.
+
+## note-44
+
+Above `needs: [decide, resolve-nightly-cmux-tui-client, pick-nightly-build-runner]` in `.github/workflows/nightly.yml`.
+
+Pure Go (CGO_ENABLED=0), manifests and uploads do not need the app builder, so it
+builds beside build-nightly-app (its `if`), on the Ghostty helper's owned Mac pick,
+else the owned nightly-only Mac pool (the all-nightly reservation on NEXT's first attempt; run
+41683652930 took blacksmith-32vcpu-ubuntu-2404), else the nightly-only pool: never Blacksmith. Resume already retained these exact assets in build-nightly-app.
+
+## note-37
+
+Above `check-nightly-webviews:` in `.github/workflows/nightly.yml`.
+
+No nightly from a tree whose webview checks are red (2026-11-02: #32056's TS2448 in SessionInfo.tsx broke every
+agent pane and was published). The pieces of webviews' `bun run check` that gate feat-cmux-next pushes
+(scripts/ci/fast_gate_webviews_checks.py, the type check included; style guards stay warn-only there, Leo
+2026-10-19) on the exact build commit, beside the app build: about 1-2 minutes against a build of tens, so off
+the critical path. publish-nightly's final gate refuses a build without it green (nightly_publish_guard.py).
+
+## note-33
+
+Above `- &prove-the-browser-data-import` in `.github/workflows/nightly.yml`.
+
+The cx-f58x browser-data scan (browser-data-proof-start.sh) normally runs in
+build-nightly-app, beside the unsigned-app upload, on the same bundle this job
+restores; it runs here only when that job did not prove this app (an unsigned
+resume, or a build_sha without the step). It scans file contents, so the strip
+before transfer does not hide anything from it, and it covers what
+build-nightly-app adds after the compile (cmux-symbols.bin). The password-reader proof reads symbols with nm, which the
+strip removes, so it stays right after the compile in build-nightly-app.
+
+## note-32
+
+Above `- name: Pick a drained owned Mac for the signing jobs` in `.github/workflows/nightly.yml`.
+
+Leo, 2026-10-28: the release signing jobs may run on owned Macs ("we can just read the code"). A mini
+that runs no job now is offered, pinned by its runner label, else an idle nightly slot on the least busy
+mini, which glaeda drains for the job (no new job starts there while it waits, 3600 s at most, then the
+Blacksmith twin signs); glaeda gives a signing job the whole mini (the exclusive class) and the job's
+first step checks that claim (scripts/ci/signing-runner-claim.sh).
+Off unless vars.CI_SIGN_OWNED is 1; any failure leaves it empty and the signing jobs take Blacksmith.
+
+## note-46
+
+Above `needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, pic` in `.github/workflows/nightly.yml`.
+
+The final-DMG half of verify-signed-nightly, on its own runner so the two
+halves run at the same time (each statically verifies an artifact with the same bundle
+id, so they cannot share one runner). No environment and no secrets:
+this job statically verifies the final DMG (#21024). publish-nightly
+publishes this run's build only when both jobs passed, and only the DMG
+bytes this job verified.
+
+## note-38
+
+Above `republish-nightly-next:` in `.github/workflows/nightly.yml`.
+
+nightly_next_republish_run: no secrets and no build. Fetches that completed nightly-next push run's
+verified build (scripts/ci/republish-verified-nightly.py: its signing and both verify jobs passed in
+the attempt, every artifact from its producer with GitHub's digest, every DMG one its verify job
+tested) and hands it over in the recovered layout. publish-nightly publishes it as a recovered build
+with this run's workflow and .publish-tooling, so a publication fix needs no rebuild (run 41815641855).
+
+## note-48
+
+Above `refused: ${{ steps.gate.outputs.refused == 'true' || steps.recheck.outputs.superseded == 'true' || s` in `.github/workflows/nightly.yml`.
+
+The final gate refused: a recovered build failed its lineage check, or
+this pipeline is not the nightly-next writer (NIGHTLY_NEXT_WRITER read
+live is not mac, or is unreadable).
+A superseded build (recheck or feed CAS) publishes nothing and is no failure: every job that would
+republish it reads refused, and report-nightly-failure reads refusal_reason, which it leaves empty.
+
+## note-34
+
+Above `- *checkout-publication-tooling-a` in `.github/workflows/nightly.yml`.
+
+The steps below pass this workflow's arguments, so the publication
+tooling must come from the workflow's own commit, not from the
+published build's checkout. A recovered build can be days older: run
+38855116561 recovered 0664bd9847b5, whose nightly_version.py predates
+--already-published-ok (#20986), and the recheck failed. Scripts that
+read the build's own source tree still run from the publish ref:
+verify_remote_daemon_release.py, fetch-release-notes-span.sh,
+release-notes.py, check_ghostty_vt_notices.py, ghostty_source_archive.py.
+
+## note-40
+
+Above `- &x81` in `.github/workflows/nightly.yml`.
+
+One nightly-next feed writer at a time across runs (publish-lease.sh), from the first
+feed read to the read-back. TTL 15 minutes, renewed every minute by a heartbeat that
+dies with the job, so a dead holder blocks the feed one TTL, inside its 30-minute
+freshness bound; publish-release-notes passes the same TTL, since a waiter judges
+expiry by its own. Max hold: this job's 180-minute timeout. The wait (60 minutes) is
+added to the timeout.
+
+## note-31
+
+Above `- name: Take the recovered build's source archive` in `.github/workflows/nightly.yml`.
+
+Gated by vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE (the coordinator sets it), through
+publish-nightly's source_archive, which is also false for a republished build whose
+source made no archive (republish-verified-nightly.py).
+Tags the build commit cmux-next-src-<11 characters> and attaches
+cmux-next-source-<build>.tar.gz to the nightly-next release. The prune
+step removes it only together with the app assets of <build>, whose
+source offer names it (prune_nightly_release_assets.py), never by age.
+A recovered build carries its source archive in the recovered variant.
+
+## note-47
+
+Above `- name: Take the release names lease` in `.github/workflows/nightly.yml`.
+
+The mutable state, only for the live feed's newest build. A failed write here leaves the immutable
+assets above published and the job green (continue-on-error); the next build's run writes them.
+One names writer at a time across runs, push or dispatch (the names job's group did this): its own
+R2 lease (publish-lease.sh), which never cancels a waiter. Each write runs still-newest inside it.
+
+## note-36
+
+Above `- name: Build nightly app (Release)` in `.github/workflows/nightly.yml`.
+
+Bounded here, not on the anchor (build-nightly-app keeps its own job timeout for a cold compile):
+this job's bound is 300 min for the notary and publish-lease waits, so a stalled compile held the push slot and
+the next nightly for hours. Run 43673773157's build on ultra1 ran 80+ min against the 6-19 min one-job builds on
+cmux15 and ultra1's 7.8 min p50 (hq build-fleet/mini-fleet.json _sizing). 60 min is two cold builds (the script
+retries once on a cache failure); past it the step fails, the job ends red and the loop retry builds again.
+
+## note-45
+
+Above `- *wait-through-github-api-rate-l` in `.github/workflows/nightly.yml`.
+
+Only the published span: a full fetch of every branch and tag did not
+finish inside this job's timeout (run 37526646874).
+The span starts at the newest build whose signed notes were published (its "head"), not at
+the last published app: a build whose notes failed to publish then loses no highlight to
+the next one (2026-10-12: 3821558930001 had no notes and its highlights were never shown).
+
+## note-39
+
+Above `if: always() && needs.published-build.result == 'success' && needs.published-build.outputs.run_tail ` in `.github/workflows/nightly.yml`.
+
+always(): a skipped notes job must not skip this job silently; the
+conditions below decide. nightly-next closes only with its notes published,
+unless it published a recovered build, which has none (cx-urd.69). A
+recovered build can follow this run's own failed build, which reports.
+It closes in the run that ran the notes and deltas (run_tail): on nightly-next, the dispatched one. There
+it cannot see the run that published, so push_clean says none of that run's jobs failed.
