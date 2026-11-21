@@ -79,13 +79,6 @@ ALLOWED = {
     # `superseded`); a cancel would read as a red run. The batch job is never
     # cancelled. See OWN_SUPERSESSION in test_ci_required_checks_are_bounded.py.
     "cmux-next-batch.yml": "debounce runs supersede themselves; the batch is never cancelled",
-    # Serialised per pull request so two signature events never write the CLA
-    # ledger from different snapshots (comment on the CLAAssistant job).
-    "cla.yml": "one ledger writer at a time per pull request",
-    # A required check that also runs on metadata edits; a cancelled run would
-    # leave a cancelled required verdict (test_cla_guard_metadata_routing.py
-    # asserts it has no concurrency).
-    "cla-policy-guard.yml": "metadata events must not cancel required verdicts",
     # The apply jobs migrate the staging and production databases; a cancel
     # could stop one between applying a migration and recording it.
     "backend-migrations.yml": "applies database migrations; never cancelled mid-apply",
@@ -508,8 +501,6 @@ DESCRIPTION_READS = ("pull_request.body", "pull_request.title", "changes.body", 
 # Workflows that run on every title or body edit although their own text never reads it, and why.
 READS_DESCRIPTION = {
     "risk-tier.yml": "scripts/ci/risk_tier.py reads the body's author footer and `Takes back #N` lines over the API",
-    "cla-policy-guard.yml": "`CLA policy guard` is required on main: it publishes a verdict on every edit (#13871); "
-    "pull_request_target into main only, so it runs main's copy",
 }
 
 
@@ -687,8 +678,11 @@ def self_check() -> list[str]:
         verdict = problem(concurrency, on, "pull_request") is None
         if verdict != ok:
             failures.append(f"self-check {name!r}: expected {'pass' if ok else 'fail'}")
+    # A pull request into feat-cmux-next and a push to it both get `w-feat-cmux-next` (#47604's first fixture,
+    # `number || 'deploy'`, gave w-101 and w-deploy: no shared group, so it never failed).
     shared = {"on": {"pull_request": None, "push": None},
-              "concurrency": {"group": "w-${{ github.event.pull_request.number || 'deploy' }}", "cancel-in-progress": True}}
+              "concurrency": {"group": "w-${{ github.event.pull_request.base.ref || github.ref_name }}",
+                              "cancel-in-progress": True}}
     if workflow_problem(shared) is None:
         failures.append("self-check: a pull request group that equals the push group must fail")
     split = {**shared, "concurrency": {"group": "w-${{ github.event.pull_request.number || github.ref }}",

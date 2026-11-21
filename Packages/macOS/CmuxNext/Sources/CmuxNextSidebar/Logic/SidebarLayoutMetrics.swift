@@ -173,6 +173,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var chatHistory: SidebarChatHistoryState?
     /// The Done fold: workspaces marked Done fold into a "Done (N)" row at the end of their list.
     public var foldsDone = false
+    /// Settled chats (`sidebar.settleFinished`, `SidebarSettlePlanner`): these rows fold into a "Settled (N)" row at the
+    /// end of their list, before the Done row. Empty (the setting off, the default) draws every row in place.
+    public var settled: Set<WorkspaceID> = []
     /// Archived workspaces fold into an "Archived (N)" row at the end of their list, after the Done row; on by default
     /// (Lawrence 18470, gallery pick V2). Off, they draw dimmed in place.
     public var foldsArchived = true
@@ -233,6 +236,11 @@ nonisolated extension SidebarLayoutOptions {
         } else if content.detail != nil, let step = ws.agentStep {
             // Ordinary agent activity uses a detail line only when the row already has one.
             (content.now, content.detail) = (step, step)
+        }
+        // Steps left in the agent's task list: a quiet "3/7" where a one-line status would sit, never
+        // over a status or an expanded row's age, and never a line of its own.
+        if let tasks = ws.taskProgress, content.trailingStatus == nil, content.time == nil {
+            (content.tasks, content.trailingStatus) = (tasks, tasks.countText)
         }
         return content
     }

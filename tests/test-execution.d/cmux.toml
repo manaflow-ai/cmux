@@ -45,7 +45,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_bench_cli_calls.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_bench_cli_calls.py"
 
 [[test]]
 path = "tests/test_cmux_next_checkout_retry.py"
@@ -133,6 +134,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_generated_fold.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_git_batch_prefetch.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. git_batch.cat_file runs only in the local pre-push hook and guardrails; run python3 -I tests/test_cmux_next_git_batch_prefetch.py yourself after changing scripts/cmux-next/git_batch.py (a few seconds, git over file:// only, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_guardrails.py"
@@ -250,6 +256,16 @@ lane = "linux-guard"
 path = "tests/test_cmux_next_prepush_workflow_yaml.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. It pushes a workflow that does not parse through the real pre-push hook in a throwaway repository; CI's Lint every workflow step (actionlint) is the backstop. Run python3 tests/test_cmux_next_prepush_workflow_yaml.py yourself after changing the workflow YAML layer of scripts/cmux-next/prepush-gate.py."
+
+[[test]]
+path = "tests/test_cmux_next_push_roots_on_nightly_jit.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_cmux_next_push_roots_on_nightly_jit.py yourself after changing the workflow or script it reads."
+
+[[test]]
+path = "tests/test_cmux_next_pr_control_on_jit.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins that a same-repo pull request's cmux-next control hops (push-head-preflight, portable-placement, path_route, app-compile-placement, macos-placement) take cmux-linux, the persistent pool, on attempt 1, after the fork and push arms, that no other job's pull request arm names it, and that no pull request arm names cmux-gcp-pr-control-jit-x64; run python3 tests/test_cmux_next_pr_control_on_jit.py yourself after changing those jobs' runs-on (about 2 s, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_reel.py"
