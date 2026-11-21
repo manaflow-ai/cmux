@@ -5339,18 +5339,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
     const environment = cloudEnvironment.forSend(start.environment);
-    const reservationKey = cloudReservation.handoff(environment);
     const team = cloudSwitchTeam.forSend();
-    const request: CloudStart = {
+    const unreserved: CloudStart = {
       task: text,
       attachments,
       ...start,
       ...(environment ? { environment } : {}),
-      ...(reservationKey ? { reservationKey } : {}),
       ...(team ? { team } : {}),
       // The empty chat this start replaces: the host closes this tab with it once the Cloud chat opens.
       ...(emptyLocalChat && snapshot.sessionId ? { replacesChat: snapshot.sessionId } : {}),
     };
+    // The compose's warm machine goes only with the Send it first went with (or that Send's retry,
+    // the same start key): after a refused start, another prompt from this page would be refused
+    // by the platform as `409 reservation.bound` (cloudComposeReservation.ts `handoff`).
+    const reservationKey = cloudReservation.handoff(environment, cloudStartKeys.keyFor(unreserved));
+    const request: CloudStart = { ...unreserved, ...(reservationKey ? { reservationKey } : {}) };
     // A page's send leaves the page: its draft comes back in the chat composer, compared there.
     const preserved = fromPage || heldStillShown === false ? undefined : composerHandle.current?.draft();
     const started = beginCloudSend(request, false, preserved, fromPage);
@@ -7234,6 +7237,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     )
       releaseCalls();
   }, []);
+  /// The oldest row the followed transcript draws: the client sheds no held record above it (direct.ts `setKeepFrom`).
+  const onTranscriptKeepFrom = useCallback(
+    (rowId: string | null, at?: number) => directClient.current?.setKeepFrom(rowId, at),
+    [],
+  );
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;
     if (handle && pendingWake.current) {
@@ -12229,6 +12237,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                               undefined,
                                                                               fill,
                                                                               rising,
+                                                                              true,
                                                                             ) ?? Promise.resolve()
                                                                         : undefined
                                                                   }
@@ -12252,6 +12261,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   sends={childRows ? undefined : sends}
                                                                   onFollowingChange={
                                                                     childRows ? undefined : onTranscriptFollowingChange
+                                                                  }
+                                                                  onKeepFrom={
+                                                                    childRows ? undefined : onTranscriptKeepFrom
                                                                   }
                                                                   onAnchor={
                                                                     quick || childRows || !shownSessionId
