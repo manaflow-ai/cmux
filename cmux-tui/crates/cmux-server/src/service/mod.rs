@@ -12,6 +12,7 @@ mod systemd;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use cmux_server_core::InstallMode;
 use cmux_server_core::layout::{Layout, ServiceKind};
 use sha2::{Digest, Sha256};
 
@@ -234,8 +235,19 @@ impl Services<'_> {
         Ok(foreign)
     }
 
+    /// The folder of the ownership record: one only the account that runs
+    /// install and uninstall can write. User mode: the state folder (yours).
+    /// System mode: the store root (root's); the state folder there belongs
+    /// to the service account `cmux`, which must not be able to forge it.
+    fn record_dir(&self) -> PathBuf {
+        match self.layout.mode {
+            InstallMode::System => crate::fsx::local(&self.layout.root),
+            InstallMode::User => crate::fsx::local(&self.layout.state),
+        }
+    }
+
     fn record_path(&self) -> PathBuf {
-        crate::fsx::local(&self.layout.state).join(RECORD)
+        self.record_dir().join(RECORD)
     }
 
     /// The ownership record; empty when there is none or it cannot be read
@@ -247,7 +259,7 @@ impl Services<'_> {
     fn read_record(&self) -> Result<BTreeMap<String, String>> {
         use std::io::Read as _;
         let path = self.record_path();
-        check_private_dir(&crate::fsx::local(&self.layout.state), "the cmux state directory")?;
+        check_private_dir(&self.record_dir(), "the folder of cmux's service unit record")?;
         let mut options = std::fs::OpenOptions::new();
         options.read(true);
         #[cfg(unix)]
@@ -324,12 +336,11 @@ impl Services<'_> {
                 path.display()
             )));
         }
-        for (path, _) in self.unit_files()? {
-            if let Some(dir) = path.parent() {
-                check_private_dir(dir, "the service directory")?;
-            }
+        self.check_unit_dirs()?;
+        check_private_dir(&self.record_dir(), "the folder of cmux's service unit record")?;
+        if self.layout.mode == InstallMode::User {
+            check_private_dir(&crate::fsx::local(&self.layout.state), "the cmux state directory")?;
         }
-        check_private_dir(&crate::fsx::local(&self.layout.state), "the cmux state directory")?;
         if matches!(self.layout.service, ServiceKind::LaunchAgent { .. }) {
             let logs = crate::fsx::local(&self.layout.logs());
             if std::fs::symlink_metadata(&logs).is_ok_and(|m| !m.is_dir()) {
@@ -347,6 +358,19 @@ impl Services<'_> {
     /// Stops, disables and removes every unit this crate writes. Returns
     /// the removed paths.
     pub fn uninstall(&self) -> Result<Vec<PathBuf>> {
+        // The caller checked ownership before its own steps (a final backup
+        // can take minutes). Check again right before anything stops: a unit
+        // edited since, or one the service manager now loads from another
+        // file, is left alone.
+        if let Some(path) = self.foreign_units()?.first() {
+            return Err(Error::rejected(format!(
+                "{} changed since cmux checked it and is no longer the file cmux wrote, so cmux leaves it, and everything it may use, alone; nothing was changed",
+                path.display()
+            )));
+        }
+        // Uninstall removes the unit files by name: a folder another account
+        // can write would let it swap one between the check and the removal.
+        self.check_unit_dirs()?;
         let removed = match &self.layout.service {
             ServiceKind::SystemdUser { .. } | ServiceKind::SystemdSystem { .. } => {
                 systemd::uninstall(self)
@@ -355,6 +379,36 @@ impl Services<'_> {
             other => Err(unsupported(other)),
         }?;
         self.forget_written(&removed)?;
+        Ok(removed)
+    }
+
+    /// The folders the unit or plist files are in: not writable by another
+    /// account (it could swap a file cmux writes or removes there).
+    fn check_unit_dirs(&self) -> Result<()> {
+        for (path, _) in self.unit_files()? {
+            if let Some(dir) = path.parent() {
+                check_private_dir(dir, "the service directory")?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Removes every unit or plist file of the layout that is, as it goes,
+    /// still the file cmux wrote ([`crate::fsx::remove_if_unchanged`]): a
+    /// file edited after the ownership check (while the service stopped) is
+    /// left in place and uninstall fails. Returns the removed paths.
+    pub(crate) fn remove_unit_files(&self) -> Result<Vec<PathBuf>> {
+        let record = self.read_record()?;
+        let mut removed = Vec::new();
+        for (path, rendered) in self.unit_files()? {
+            let key = path.display().to_string();
+            let ours = |bytes: &[u8]| {
+                bytes == rendered.as_bytes() || record.get(&key) == Some(&sha256_hex(bytes))
+            };
+            if crate::fsx::remove_if_unchanged(&path, ours)? {
+                removed.push(path);
+            }
+        }
         Ok(removed)
     }
 
