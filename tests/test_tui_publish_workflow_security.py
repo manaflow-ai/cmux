@@ -2771,7 +2771,7 @@ def test_pending_red_names_the_word_base_red_watch_skips():
     assert others and not any(word in line for line in others)
 
 
-def sweep_world(run_status: str, *, adopts: bool = True, manifest: int = 404, attempt: int = 1):
+def sweep_world(run_status: str, *, adopts: bool = True, manifest: int = 404, attempt: int = 1, coalesced: bool = False):
     import cmux_tui_manifest_sweep as sweeper
 
     rev = "a" * 40
@@ -2780,8 +2780,35 @@ def sweep_world(run_status: str, *, adopts: bool = True, manifest: int = 404, at
     result = sweeper.sweep(
         [rev], adopts=lambda r: adopts, status=lambda url: statuses.get(url, 404),
         find_run=lambda r: {"id": 77, "status": run_status, "run_attempt": attempt},
-        rerun=lambda run_id: reruns.append(run_id) or True)
+        rerun=lambda run_id: reruns.append(run_id) or True, coalesced=lambda run_id: coalesced)
     return result, reruns
+
+
+def test_sweep_skips_a_coalesced_run():
+    # A later push of a coalesce window built no tree by design: a re-run of it is wasted.
+    import cmux_tui_manifest_sweep as sweeper
+
+    (rerun_commits, problems), reruns = sweep_world("completed", coalesced=True)
+    assert (rerun_commits, problems, reruns) == ([], [], [])
+    skipped = [{"name": "coalesce / coalesce", "conclusion": "success"}, {"name": "cmux-tui tree preflight", "conclusion": "skipped"}]
+    assert sweeper.is_coalesced(skipped)
+    assert not sweeper.is_coalesced([{"name": "coalesce / coalesce", "conclusion": "success"}, {"name": "cmux-tui tree preflight", "conclusion": "success"}])
+    assert not sweeper.is_coalesced([{"name": "cmux-tui tree preflight", "conclusion": "skipped"}])  # no coalesce job: not coalesced
+
+
+def test_coalesce_saves_records_only_on_a_first_attempt():
+    # A re-run whose -t-SHA record was lost must not claim the current wall-clock window.
+    text = (ROOT / ".github/workflows/base-coalesce.yml").read_text()
+    for step in ("Claim this window", "Record this tip as tested"):
+        block = text.split(f"- name: {step}\n", 1)[1].split("\n      - name:", 1)[0]
+        assert "steps.decide.outputs.save == 'true' && github.run_attempt == '1'" in block, step
+
+
+def test_cmux_next_base_tier_run_falls_back_to_the_newest_published_tree():
+    # The base tier probes a tip a coalesced push never built: it takes the newest published tree.
+    text = workflow("cmux-next.yml")
+    fallbacks = [line for line in text.splitlines() if line.strip().startswith("CMUX_TUI_TREE_BASE_FALLBACK:") and "own_tui" in line]
+    assert len(fallbacks) == 2 and all("inputs.base_tier == true" in line for line in fallbacks), fallbacks
 
 
 def test_sweep_reruns_a_deferred_run_that_was_in_progress_at_publish():
