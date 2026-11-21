@@ -4,13 +4,12 @@
     "CmuxNextAgentPane/AcpmuxEnvironment+BuildHomeAdoption.swift": 1,
     "CmuxNextAgentPane/AgentPaneFilePut.swift": 1,
     "CmuxNextApp/SessionTransfer/SessionTransferService+Chats.swift": 1,
+    "CmuxNextBrowserImport/Import/ProtectedProfileUpload.swift": 1,
     "CmuxNextChromiumRuntime/SecCodeChromiumRuntimeSignatureChecker.swift": 1,
     "CmuxNextChromiumRuntime/TarChromiumRuntimeUnpacker.swift": 1,
     "CmuxNextDaemon/Conversations/AttachmentTransfer.swift": 2,
-    "CmuxNextDaemon/Launch/ProcessRunner.swift": 1,
     "CmuxNextErrorJournal/LogFileErrorSource.swift": 1,
-    "CmuxNextRemote/SSH/SSHRunner.swift": 2,
-    "CmuxNextRemoteBrowser/LocalHost/LocalRemoteBrowserHost.swift": 2,
+    "CmuxNextRemoteBrowser/LocalHost/LocalRemoteBrowserHost.swift": 1,
     "CmuxNextServerHelper/ServerHelperDeadline.swift": 1,
     "CmuxNextVSCodeServer/VSCodeServeWebProcessLauncher.swift": 1
   }
