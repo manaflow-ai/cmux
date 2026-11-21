@@ -4,8 +4,9 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DEVBOX_DNS_PATH, DEVBOX_DNS_UNITS, devboxDnsCheckCommand } from "../scripts/devbox-image-common";
+import { freestyleEdgeAddresses } from "../services/vms/drivers/freestyleNetworkPolicy";
 
-// cmux issue 26640: the platform resolver (10.32.0.28) answers SERVFAIL or
+// https://github.com/manaflow-ai/cmux/issues/26640: the platform resolver (10.32.0.28) answers SERVFAIL or
 // nothing for every name at once, and the platform intercepts every port-53
 // packet, so the guest stub must route around it without breaking the names
 // only the platform answers.
@@ -166,7 +167,7 @@ def exchange(server, query, timeout, tcp):
 def doh(host, path, query, timeout):
     now[0] += timeout
     calls.append((host, round(timeout, 2)))
-r = dns.Resolver(steering=lambda: False, upstreams=lambda: ["10.32.0.28"], clock=lambda: now[0], exchange=exchange, doh_exchange=doh)
+r = dns.Resolver(steering=lambda: False, upstreams=lambda: ["8.8.8.8"], clock=lambda: now[0], exchange=exchange, doh_exchange=doh)
 r.resolve(q("github.com"))
 print(calls, now[0] <= dns.QUERY_BUDGET)
 `)).toEqual(["[1.0, 1.0, ('1.1.1.1', 1.5)] True"]);
@@ -388,12 +389,13 @@ describe("cmux-dns guard", () => {
     expect(await python(String.raw`
 print(dns.guard(sys.argv[2]), dns.guard(sys.argv[2]))
 print(dns.upstreams_from(open(sys.argv[2]).read()))
-`, conf)).toEqual(["True False", "['10.32.0.28']"]);
+`, conf)).toEqual(["True False", "['10.32.0.28', '2602:f470:1::28']"]);
     expect(readFileSync(conf, "utf8").split("\n").filter((line) => !line.startsWith("# ") || line.startsWith("# cmux-dns"))).toEqual([
       "# cmux-dns",
       "# cmux-dns upstream 10.32.0.28",
       "nameserver 127.0.0.2",
       "nameserver 10.32.0.28",
+      "nameserver 2602:f470:1::28",
       "options timeout:4 attempts:1",
       "",
     ]);
@@ -426,6 +428,76 @@ print([line for line in text.splitlines() if line.startswith(("search", "options
     writeFileSync(conf, "options timeout:1\n");
     expect(await python("print(dns.guard(sys.argv[2]))", conf)).toEqual(["False"]);
     expect(readFileSync(conf, "utf8")).toBe("options timeout:1\n");
+  });
+});
+
+// The 2026-11-20 fleet sweep: on machines with a TLS rule the platform names
+// only its edge resolver's IPv4 address (resolv.conf `nameserver 10.32.0.28`),
+// and IPv4 port 53 to it (and to every other IPv4 resolver, which the platform
+// intercepts) went unanswered over UDP and TCP, while the same resolver's IPv6
+// listener answered, steered names included. The stub must reach that
+// listener on its own.
+describe("cmux-dns edge resolver IPv6 fallback", () => {
+  test("a dead IPv4 edge resolver falls back to its IPv6 listener, which keeps steered answers", async () => {
+    const marker = path.join(fixture(), "tls-dns-servers");
+    writeFileSync(marker, "10.32.0.28");
+    expect(await python(String.raw`
+def exchange(server, query, timeout, tcp):
+    calls.append(server)
+    return None if ":" not in server else reply(query, 0, 1)
+r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=exchange, doh_exchange=lambda *a: calls.append("doh"), steering=lambda: dns.platform_steering(sys.argv[2]))
+out = r.resolve(q("coderouter.cmux.internal"))
+print(dns.rcode(out), out[-4:].hex(), calls)
+`, marker)).toEqual(["0 0a20001c ['10.32.0.28', '2602:f470:1::28']"]);
+  });
+
+  test("once the IPv6 listener answers, later queries ask it first", async () => {
+    expect(await python(String.raw`
+def exchange(server, query, timeout, tcp):
+    calls.append(server)
+    return None if ":" not in server else reply(query, 0, 1)
+r = dns.Resolver(steering=lambda: True, upstreams=lambda: ["10.32.0.28"], exchange=exchange, doh_exchange=lambda *a: None)
+r.resolve(q("github.com"))
+del calls[:]
+print(dns.rcode(r.resolve(q("pypi.org"))), calls)
+`)).toEqual(["0 ['2602:f470:1::28']"]);
+  });
+
+  test("the IPv6 listener gets time for its measured ~1.5 s latency inside the query budget", async () => {
+    expect(await python(String.raw`
+now = [0.0]
+def exchange(server, query, timeout, tcp):
+    calls.append((server, round(timeout, 2)))
+    now[0] += timeout
+r = dns.Resolver(steering=lambda: True, upstreams=lambda: ["10.32.0.28"], clock=lambda: now[0], exchange=exchange, doh_exchange=lambda *a: None)
+print(dns.rcode(r.resolve(q("github.com"))), calls, now[0] <= dns.QUERY_BUDGET)
+`)).toEqual(["2 [('10.32.0.28', 1.0), ('2602:f470:1::28', 2.0)] True"]);
+  });
+
+  test("resolvers that are not the platform edge get no companion", async () => {
+    expect(await python(String.raw`
+print(dns.with_edge_companions(["8.8.8.8", "8.8.4.4"]))
+print(dns.with_edge_companions(["10.32.0.28", "2602:f470:1::28"]))
+print(dns.with_edge_companions(["10.32.0.28"]))
+`)).toEqual(["['8.8.8.8', '8.8.4.4']", "['10.32.0.28', '2602:f470:1::28']", "['10.32.0.28', '2602:f470:1::28']"]);
+  });
+
+  test("the guard keeps the IPv6 listener as libc's fallback when the platform names only IPv4", async () => {
+    const conf = path.join(fixture(), "resolv.conf");
+    writeFileSync(conf, "options timeout:1 attempts:2\nnameserver 10.32.0.28\n");
+    expect(await python(String.raw`
+dns.guard(sys.argv[2])
+text = open(sys.argv[2]).read()
+print(dns.nameservers(text))
+print(dns.upstreams_from(text))
+`, conf)).toEqual(["['127.0.0.2', '10.32.0.28', '2602:f470:1::28']", "['10.32.0.28', '2602:f470:1::28']"]);
+  });
+
+  test("the stub's edge pair is the firewall's default edge addresses", async () => {
+    const edges = freestyleEdgeAddresses({}).map((cidr) => cidr.replace(/\/(32|128)$/, ""));
+    expect(await python(String.raw`
+print(sorted([*dns.EDGE_RESOLVER_IPV6.keys(), *dns.EDGE_RESOLVER_IPV6.values()]))
+`)).toEqual([`[${[...edges].sort().map((edge) => `'${edge}'`).join(", ")}]`]);
   });
 });
 
