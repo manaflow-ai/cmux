@@ -14,7 +14,10 @@ use std::sync::Weak;
 
 mod committed_snapshot;
 #[cfg(test)]
-pub(crate) use committed_snapshot::undecorated_snapshot_values_for_test;
+pub(crate) use committed_snapshot::{
+    decorated_snapshot_values_for_test, retained_public_bytes_for_test,
+    undecorated_snapshot_values_for_test,
+};
 mod machines;
 pub(crate) mod scoped_get;
 mod terminal_extra;
@@ -743,21 +746,26 @@ fn session_snapshot_with_journal_head(
 
         // The rows built for this request move in; `json!` would copy each of
         // them (a deep copy of every terminal, notification and agent value).
-        // The committed parts are copied: the cached snapshot keeps them. A
-        // map's keys serialize sorted, so the reply bytes do not change.
+        // The committed parts are parsed from the compact text the cached
+        // snapshot keeps. A map's keys serialize sorted, so the reply bytes do
+        // not change.
         let mut snapshot = json!({
             "machine": machine_snapshot(&context, false),
             "session": session_snapshot(&context),
-            "workspaces": committed.workspaces,
-            "screens": committed.screens,
-            "panes": committed.panes,
-            "tabs": committed.tabs,
             "clients": [],
             "cursor": {
                 "generation": topology.generation,
                 "revision": topology.revision.to_string(),
             },
         });
+        for (name, part) in [
+            ("workspaces", &committed.workspaces),
+            ("screens", &committed.screens),
+            ("panes", &committed.panes),
+            ("tabs", &committed.tabs),
+        ] {
+            snapshot.set(name, part.value()?);
+        }
         for (name, rows) in [
             ("terminals", terminals),
             ("browsers", browsers),
@@ -768,7 +776,8 @@ fn session_snapshot_with_journal_head(
         ] {
             snapshot.set(name, Value::Array(rows));
         }
-        snapshot.set("extra", json!({"state": committed.state}));
+        let state = committed.state.value()?;
+        snapshot.set("extra", Value::Object(Map::from_iter([("state".into(), state)])));
         Ok((snapshot, journal_head))
     })()
     .map_err(operation_failed)

@@ -12,7 +12,7 @@
 // follows `agentPane.images.remote` like a web image: a placeholder with its site and Load
 // (click, the default), its link only (never), or at once (always). The host fetches it under
 // its network rules and plays a checked copy.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Dialog } from "../../../ui/Dialog";
 
 import { belowTabRowStyle, useTabRow } from "../header/tabRow";
@@ -270,10 +270,15 @@ export function VideoViewer({
   onClose,
   onPlay,
   videoRef,
+  size,
 }: {
   src: string;
   name: string;
   autoPlay?: boolean;
+  /// The video's own size when the host already read it (a composer attachment's `video`): the
+  /// player takes its final box from its first frame, instead of WebKit's 300 × 150 until the
+  /// metadata loads and then the video's size (one jump of the whole player as it opens).
+  size?: { width: number; height: number };
   onError(): void;
   onClose(): void;
   onPlay?(element: HTMLVideoElement): number | undefined;
@@ -313,7 +318,16 @@ export function VideoViewer({
             "I need to be able to, like, click outside of the video and have that exit as well"); a scrub
             dragged off the video does not (ui/scrimClose.ts). Escape and Close are its keys. */}
         {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
-        <div className="cv-media-stage" {...scrim.props}>
+        <div
+          className="cv-media-stage"
+          {...scrim.props}
+          {...(size && size.width > 0 && size.height > 0
+            ? {
+                "data-sized": "",
+                style: { "--cv-media-w": size.width, "--cv-media-h": size.height } as CSSProperties,
+              }
+            : {})}
+        >
           {/* Never autoplay on its own: only Play (or the ▶ that opened it) starts it with sound. */}
           <VideoThumbnail
             src={src}
