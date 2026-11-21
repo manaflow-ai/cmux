@@ -221,8 +221,10 @@ final class HostView: NSView {
         placeTopFadeView()
         updateTopFadeScrollEdge()
         controller?.placeSendButton(animated: false)
-        fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
-                          emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
+        // A narrow pane drops the emoji button, then the "+" button, so the draft keeps its line (ComposeChromeLayout).
+        let chrome = ComposeChromeLayout(width: demo.compose.bounds.width)
+        fieldChrome.place(field: demo.compose.fieldRect, plus: chrome.showsPlus ? demo.compose.plusRect : nil,
+                          emoji: chrome.showsEmoji ? CGRect(x: chrome.emojiX, y: demo.compose.plusRect.minY, width: 31, height: 30) : nil)
         placeQuoteCard(above: demo.compose.fieldRect)
         placeSlashMenu(above: demo.compose.fieldRect)
     }

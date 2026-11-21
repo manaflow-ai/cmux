@@ -7,7 +7,9 @@ later key) gives no echo, and the first key the app wrote toward the pty (socket
 """
 from __future__ import annotations
 
+import plistlib
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -16,14 +18,38 @@ import launch_tti_check as tti  # noqa: E402
 
 
 class PlanTests(unittest.TestCase):
-    def test_default_plan_has_cold_warm_and_warm60_for_both_fronts(self):
+    def test_default_plan_has_install_update_warm_and_warm60_for_both_fronts(self):
         plan = tti.parse_plan(tti.DEFAULT_PLAN)
         self.assertEqual({(k, f) for k in tti.KINDS for f in tti.FRONTS}, set(plan))
 
     def test_unknown_kind_or_front_is_refused(self):
-        for bad in ("hot:chat", "cold:home", "", "cold"):
+        for bad in ("hot:chat", "cold_install:home", "", "cold"):
             with self.assertRaises(ValueError, msg=bad):
                 tti.parse_plan(bad)
+
+    def test_staged_prewarm_plan_matches_the_updater_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp) / "cmux.app"
+            contents = app / "Contents"
+            (contents / "MacOS").mkdir(parents=True)
+            (contents / "Resources" / "bin").mkdir(parents=True)
+            (contents / "Frameworks" / "cmux Helper (GPU).app" / "Contents" / "MacOS").mkdir(parents=True)
+            (contents / "Frameworks" / "cmux Helper (Renderer).app" / "Contents" / "MacOS").mkdir(parents=True)
+            with open(contents / "Info.plist", "wb") as handle:
+                plistlib.dump({"CFBundleExecutable": "cmux"}, handle)
+            paths = [contents / "MacOS" / "cmux", contents / "Resources" / "bin" / "cmux",
+                     contents / "Resources" / "bin" / "cmux-tui",
+                     contents / "Frameworks" / "cmux Helper (GPU).app" / "Contents" / "MacOS" / "cmux Helper (GPU)",
+                     contents / "Frameworks" / "cmux Helper (Renderer).app" / "Contents" / "MacOS" / "cmux Helper (Renderer)"]
+            for path in paths:
+                path.write_bytes(b"x")
+                path.chmod(0o755)
+            plan = tti.staged_prewarm_plan(app)
+            self.assertEqual([(path.name, args) for path, args in plan], [
+                ("cmux", ["--cmux-prewarm-launch"]), ("cmux", ["--version"]), ("cmux-tui", ["--version"]),
+                ("cmux Helper (GPU)", ["--version"]), ("cmux Helper (Renderer)", ["--version"]),
+                ("cmux", ["--cmux-prewarm-chromium"]),
+            ])
 
 
 class TerminalReadingTests(unittest.TestCase):
