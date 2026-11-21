@@ -32,6 +32,19 @@ export type AppleSubscriptionState = {
   readonly revocationReason: number | null;
   /** Apple `signedDate` of the newest data this state was built from. */
   readonly stateSignedAt: Date;
+  /**
+   * Built from Apple's current status (App Store Server API
+   * `lastTransactions`), so it describes the subscription's current
+   * transaction even when that transaction's `purchaseDate` is earlier than
+   * the stored one's: an upgrade bought after Apple already charged the next
+   * period (dated from that period's start). Not persisted.
+   */
+  readonly fromAppleStatus?: boolean;
+  /**
+   * Apple marked the transaction `isUpgraded`: the subscriber upgraded away
+   * from it, so it never replaces a different stored transaction. Not persisted.
+   */
+  readonly upgraded?: boolean;
 };
 
 export type AppleStateInput = {
@@ -44,6 +57,8 @@ export type AppleStateInput = {
   /** Signed date of the envelope (notification) when newer than the parts. */
   readonly signedAt?: Date | null;
   readonly now?: Date;
+  /** The transaction and renewal came from Apple's current status (see AppleSubscriptionState). */
+  readonly fromAppleStatus?: boolean;
 };
 
 export class AppleStateError extends Error {
@@ -157,6 +172,8 @@ export function appleSubscriptionStateFrom(input: AppleStateInput): AppleSubscri
     revokedAt: date(transaction.revocationDate),
     revocationReason: typeof transaction.revocationReason === "number" ? transaction.revocationReason : null,
     stateSignedAt: stateSignedAt(input, now),
+    ...(input.fromAppleStatus ? { fromAppleStatus: true } : {}),
+    ...(transaction.isUpgraded === true ? { upgraded: true } : {}),
   };
 }
 
@@ -177,6 +194,16 @@ export type AppleTransactionRow = {
   readonly revokedAt: Date | null;
   readonly payload: Record<string, unknown>;
 };
+
+/**
+ * A Family Sharing copy of someone else's purchase. Only the purchaser gets
+ * the plan: such a transaction never grants, claims or changes a
+ * subscription (Family Sharing must stay off in App Store Connect; this is
+ * the server's guard if it is ever turned on).
+ */
+export function isFamilySharedAppleTransaction(transaction: Pick<JWSTransactionDecodedPayload, "inAppOwnershipType">): boolean {
+  return String(transaction.inAppOwnershipType ?? "") === "FAMILY_SHARED";
+}
 
 /** `type` is Apple's `transactionReason` (`PURCHASE` or `RENEWAL`). */
 export function appleTransactionRowFrom(
