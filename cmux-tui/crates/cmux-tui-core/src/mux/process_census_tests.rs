@@ -229,6 +229,11 @@ fn a_free_root_host_is_a_candidate_only_past_its_grace() {
     let unknown = classify(&facts(RootOwner::Free, None), grace);
     assert_eq!(unknown.state, HostState::Orphaned);
     assert!(!unknown.gc.candidate);
+    assert_eq!(
+        unknown.gc.refusal.as_deref(),
+        Some("first seen unowned now: its grace of 600 s starts now")
+    );
+    assert_eq!(unknown.gc.unowned_for_ms, Some(0));
 
     let due =
         classify(&HostFacts { unowned_for: Some(GRACE), ..facts(RootOwner::Free, None) }, grace);
@@ -304,7 +309,7 @@ fn the_answering_daemons_root_is_listed_once_as_its_own() {
     let listed = list_roots(&dir, Some(&view));
     let own_entries = listed.iter().filter(|entry| entry.1 == own).collect::<Vec<_>>();
     assert_eq!(own_entries.len(), 1, "{listed:?}");
-    assert!(own_entries[0].3, "kept the entry that is not the daemon's: {listed:?}");
+    assert!(own_entries[0].3, "the root's entry must be the daemon's own: {listed:?}");
     assert_eq!(listed.len(), 2, "{listed:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -573,16 +578,19 @@ fn a_long_quiet_session_is_no_head_start_its_grace_counts_from_the_first_sightin
     let first = gc_with(&dir, true, &ops);
     assert!(first.candidates.is_empty(), "{first:?}");
     assert_eq!(first.refused.len(), 1, "{first:?}");
-    assert!(first.refused[0].refusal.starts_with("in its grace"), "{first:?}");
+    assert!(first.refused[0].refusal.starts_with("first seen unowned now"), "{first:?}");
     assert_eq!(ended.get(), 0);
 
-    // The census saw it first: `cmux ps` starts the same clock.
+    // The census reads the clock gc started.
     let census = census_with(&dir, None, &ops);
     assert_eq!(census.hosts.len(), 1);
     assert!(!census.hosts[0].gc.candidate);
+    assert!(
+        census.hosts[0].gc.refusal.as_deref().is_some_and(|why| why.starts_with("in its grace"))
+    );
     assert!(census.errors.is_empty(), "{:?}", census.errors);
 
-    // Seen unowned for longer than the grace (as saved by an earlier census):
+    // Seen unowned for longer than the grace (as saved by an earlier gc):
     // now it is a candidate.
     let path = dir.join(super::super::unowned_hosts::SIGHTINGS_FILE);
     let mut saved: serde_json::Value =
@@ -691,5 +699,150 @@ fn a_census_of_this_daemon_with_an_unreadable_registry_reports_unknown() {
     assert_eq!(census.hosts.len(), 1, "{census:?}");
     assert_eq!(census.hosts[0].state, HostState::Unknown);
     assert!(census.hosts[0].reason.contains("database is locked"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn session_files(session: &Path) -> Vec<String> {
+    let mut names = std::fs::read_dir(session)
+        .unwrap()
+        .flatten()
+        .map(|entry| {
+            let meta = entry.metadata().unwrap();
+            format!(
+                "{} {} {:?}",
+                entry.file_name().to_string_lossy(),
+                meta.len(),
+                meta.modified().ok()
+            )
+        })
+        .collect::<Vec<_>>();
+    names.sort();
+    names
+}
+
+#[test]
+fn reading_a_wal_registry_leaves_the_owner_mark_and_the_gc_clock_alone() {
+    // The registry is in WAL mode: a read-only open leaves `-shm` and an
+    // empty `-wal` behind and writes `-shm` on each read. None of that is an
+    // owner run, so the grace must keep counting across reads.
+    let (dir, root, component) = free_state("gc-wal");
+    let session = dir.join(&component);
+    std::fs::create_dir_all(&session).unwrap();
+    {
+        let db = rusqlite::Connection::open(session.join("workspace-registry.sqlite3")).unwrap();
+        db.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             CREATE TABLE terminal_hosts(terminal_id TEXT, lifecycle TEXT);
+             INSERT INTO terminal_hosts VALUES ('t0', 'running');",
+        )
+        .unwrap();
+    }
+    let load = |at: &Path| -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
+        Ok(if at == root { vec![host_record(at, "t1")] } else { Vec::new() })
+    };
+    let ended = std::cell::Cell::new(0);
+    let end = |_: &TerminalHostRecord, _: &Path| {
+        ended.set(ended.get() + 1);
+        HostEnd::Done(true)
+    };
+    let fixed = |_: bool| GRACE;
+    let ops = CensusOps { load: &load, liveness: &live, end: &end, grace: &fixed };
+
+    let before = session_owner_mark(&dir, &component);
+    for _ in 0..2 {
+        let census = census_with(&dir, None, &ops);
+        assert_eq!(census.hosts.len(), 1, "{census:?}");
+        assert!(census.errors.is_empty(), "{:?}", census.errors);
+    }
+    assert_eq!(
+        session_owner_mark(&dir, &component),
+        before,
+        "reading the registry changed the owner mark: {:?}",
+        session_files(&session)
+    );
+
+    // gc starts the clock, then (as if the grace passed) finds it due.
+    let first = gc_with(&dir, false, &ops);
+    assert!(first.candidates.is_empty(), "{first:?}");
+    let path = dir.join(super::super::unowned_hosts::SIGHTINGS_FILE);
+    let mut saved: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let key = sighting_key(&root, "t1", "i1");
+    let seen = &mut saved["hosts"][key.as_str()];
+    let at = seen["first_seen_ms"].as_u64().unwrap();
+    seen["first_seen_ms"] = serde_json::json!(at - millis(GRACE * 2));
+    std::fs::write(&path, saved.to_string()).unwrap();
+    let due = gc_with(&dir, true, &ops);
+    assert_eq!(due.candidates.len(), 1, "{due:?} {:?}", session_files(&session));
+    assert_eq!(due.ended, 1, "{due:?}");
+    assert_eq!(ended.get(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_census_records_no_sightings() {
+    let (dir, root, _) = free_state("census-no-write");
+    let load = |at: &Path| -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
+        Ok(if at == root { vec![host_record(at, "t1")] } else { Vec::new() })
+    };
+    let fixed = |_: bool| GRACE;
+    let ops =
+        CensusOps { load: &load, liveness: &live, end: &|_, _| HostEnd::Done(true), grace: &fixed };
+    let census = census_with(&dir, None, &ops);
+    assert_eq!(census.hosts.len(), 1, "{census:?}");
+    assert!(!dir.join(super::super::unowned_hosts::SIGHTINGS_FILE).exists());
+    assert!(!dir.join("unowned-terminal-host-sightings.lock").exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_unwritable_intent_log_never_ends_the_host() {
+    let (dir, root, _) = free_state("gc-no-log");
+    // A directory where the gc log goes: no line can be appended.
+    std::fs::create_dir_all(dir.join(crate::terminal_loss_log::GC_LOG_FILE)).unwrap();
+    let load = |at: &Path| -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
+        Ok(if at == root { vec![host_record(at, "t1")] } else { Vec::new() })
+    };
+    let ended = std::cell::Cell::new(0);
+    let end = |_: &TerminalHostRecord, _: &Path| {
+        ended.set(ended.get() + 1);
+        HostEnd::Done(true)
+    };
+    let ops = CensusOps { load: &load, liveness: &live, end: &end, grace: &no_grace };
+    let report = gc_with(&dir, true, &ops);
+    assert_eq!(ended.get(), 0, "{report:?}");
+    assert_eq!(report.ended, 0);
+    assert_eq!(report.candidates.len(), 1, "{report:?}");
+    assert!(
+        report.candidates[0]
+            .outcome
+            .as_deref()
+            .is_some_and(|outcome| outcome.starts_with("skipped: its gc log cannot be written")),
+        "{report:?}"
+    );
+    assert!(report.errors.iter().any(|error| error.starts_with("gc log for t1")), "{report:?}");
+    assert!(report.logs.is_empty(), "{report:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_sightings_file_that_cannot_be_saved_is_reported() {
+    let (dir, root, _) = free_state("gc-no-save");
+    // A directory where the temporary sightings file goes: the save fails.
+    std::fs::create_dir_all(
+        dir.join(super::super::unowned_hosts::SIGHTINGS_FILE).with_extension("json.tmp"),
+    )
+    .unwrap();
+    let load = |at: &Path| -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
+        Ok(if at == root { vec![host_record(at, "t1")] } else { Vec::new() })
+    };
+    let fixed = |_: bool| GRACE;
+    let ops =
+        CensusOps { load: &load, liveness: &live, end: &|_, _| HostEnd::Done(true), grace: &fixed };
+    let report = gc_with(&dir, false, &ops);
+    assert!(
+        report.errors.iter().any(|error| error.starts_with("saving the unowned-host sightings")),
+        "{report:?}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -1083,6 +1083,63 @@ mod tests {
         Timing { live_grace: Duration::ZERO, ended_grace: Duration::ZERO, ..Timing::STANDARD };
 
     #[test]
+    fn only_this_reapers_own_sighting_starts_its_grace() {
+        // `cmux gc` and another session's reaper saw the host unowned twice
+        // the grace ago; this reaper never did. Their times are not its clock:
+        // it sees the host now, and its grace starts now.
+        let (dir, own, roots) = state_with_sessions("own-clock", &["cmux-app-quiet"]);
+        let root = roots[0].clone();
+        let component = crate::workspace_registry::session_guard_component("cmux-app-quiet");
+        let mark = crate::workspace_registry::session_owner_mark(&dir, &component);
+        let (_, record) = fake_record(&root, 0);
+        let key = sighting_key(&root, &record.terminal_id, &record.incarnation);
+        let now_ms = 30 * 24 * 60 * 60 * 1000;
+        let long_ago = Seen {
+            first_seen_ms: now_ms - 2 * u64::try_from(LIVE_SHELL_GRACE.as_millis()).unwrap(),
+            owner_mark: mark,
+            failed_ms: None,
+        };
+        let mut old = Store::default();
+        old.hosts.insert(key.clone(), long_ago);
+        std::fs::write(dir.join(SIGHTINGS_FILE), serde_json::to_vec(&old).unwrap()).unwrap();
+        let other_session = dir.join("other-session");
+        std::fs::create_dir_all(&other_session).unwrap();
+        std::fs::write(other_session.join(STORE_FILE), serde_json::to_vec(&old).unwrap()).unwrap();
+
+        let records = |at: &Path| -> LoadedRecords {
+            Ok(if at == root { vec![fake_record(at, 0)] } else { Vec::new() })
+        };
+        let ended = std::cell::Cell::new(0);
+        let end = |_: &crate::terminal_host_runtime::TerminalHostRecord, _: &Path| {
+            ended.set(ended.get() + 1);
+            HostEnd::Done(true)
+        };
+        let hosts = HostOps {
+            load: &records,
+            liveness: &|_, _| TerminalHostLiveness::Live,
+            end: &end,
+            remove: &|_, _| true,
+        };
+        let never = || false;
+        let store_path = dir.join(STORE_FILE);
+        let report = reap_pass_with(&hosts, &own, &store_path, now_ms, Timing::STANDARD, &never);
+        assert_eq!(ended.get(), 0, "{report:?}");
+        assert_eq!(report.in_grace, 1, "{report:?}");
+        assert_eq!(
+            load_store(&store_path).hosts.get(&key).map(|seen| seen.first_seen_ms),
+            Some(now_ms),
+            "its own clock starts at its own first sighting"
+        );
+
+        // Its own sighting past the grace ends the host.
+        std::fs::write(&store_path, serde_json::to_vec(&old).unwrap()).unwrap();
+        let report = reap_pass_with(&hosts, &own, &store_path, now_ms, Timing::STANDARD, &never);
+        assert_eq!(ended.get(), 1, "{report:?}");
+        assert_eq!(report.reaped, 1, "{report:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn hosts_that_fail_to_end_do_not_keep_later_hosts_and_roots_from_their_turn() {
         // The first root's 6 live hosts never end; the second root's host does.
         let (dir, own, roots) = state_with_sessions("failing", &["cmux-app-a", "cmux-app-b"]);
