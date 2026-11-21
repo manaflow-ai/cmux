@@ -8,8 +8,10 @@ touched.ts places a changed file on the entries that import it; a routed file it
 would otherwise render nothing and pass with no verdict. A webviews/src/ source file (.ts, .tsx,
 .js, .mjs, .css) no entry reaches renders nothing, as before: no gallery state shows it. Any other
 webviews/src/ file an entry does not place renders every entry: an asset touched.ts did not trace
-(an image a page loads some other way) or a string catalog gen-strings.mjs compiles into the pages'
-strings.json (Localizable.xcstrings), which no import reaches.
+(an image a page loads some other way). A string catalog (Localizable.xcstrings) is placed key by key
+(touched.ts --base, webviews/scripts/gallery/catalogs.ts): on the entries that import the page tables its
+changed keys go into, or, listed `inert`, on none when no rendered table takes them. A catalog no page
+lists, or a run without --base, still renders every entry.
 
     python3 scripts/gallery-matrix/unplaced.py WORKFLOW CHANGED_TXT TOUCHED_JSON   # prints true or false
 """
@@ -74,7 +76,9 @@ SOURCE_SUFFIXES = (".ts", ".tsx", ".js", ".mjs", ".css")
 
 def unplaced(patterns: list[str], changed: list[str], touched: dict) -> list[str]:
     """Routed changed files no touched entry names, except webviews/src/ source files."""
-    placed = {file for files in touched.get("reasons", {}).values() for file in files}
+    # `inert`: a string catalog touched.ts routed key by key (catalogs.ts) whose changed keys no rendered
+    # page table takes. It is placed: no render shows it.
+    placed = {file for files in touched.get("reasons", {}).values() for file in files} | set(touched.get("inert", []))
     return [
         path for path in changed
         if routed(path, patterns)
