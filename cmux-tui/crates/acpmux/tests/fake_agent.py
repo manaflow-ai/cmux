@@ -53,7 +53,8 @@ FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts, before any promp
 FAKE_DIE_AT_START=<text>: on `initialize` the agent prints <text> to stderr and
 exits 1 without answering, as a harness wrapper that refuses to start does.
 
-FAKE_CODEX_STORE=1 (with CODEX_HOME): Codex's own store, as codex-acp keeps it:
+FAKE_CODEX_STORE=1 (with CODEX_HOME): Codex's own store, as codex-acp keeps it ("hold" runs
+its turn until session/cancel; "hold-unstored" too, with nothing of it written):
 each session is <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl,
 a session_meta line, then per prompt task_started, the user message and
 task_complete, written a moment after the turn answers. session/load finds a rollout by the id in its file name (an
@@ -286,13 +287,35 @@ def codex_visible_text(payload):
                    if isinstance(item, dict) and not guidance_text(item.get("text", "")))
 
 
+# FAKE_CODEX_STORE: set once a session's last turn wrote its delayed task_complete.
+codex_flushed = {}
+
+
 def codex_store_prompt(rid, params):
     sid = params["sessionId"]
     text = prompt_text(params)
-    codex_write(sid, "event_msg", {"type": "task_started"})
-    codex_write(sid, "response_item", {"type": "message", "role": "user", "content": codex_transcript_content(params)})
+    # The rollout writer is one per thread: a turn's records follow the last turn's.
+    flushed = codex_flushed.get(sid)
+    if flushed is not None:
+        flushed.wait(5)
+    # "hold-unstored": as "hold", before Codex has written any of the turn (its first moments).
+    unstored = text.strip() == "hold-unstored"
+    if not unstored:
+        codex_write(sid, "event_msg", {"type": "task_started"})
+        codex_write(sid, "response_item", {"type": "message", "role": "user", "content": codex_transcript_content(params)})
     # A turn takes time: it never ends in the millisecond it started.
     time.sleep(0.02)
+    # "hold": the turn runs until session/cancel (at most 30 s), its rollout holding its start
+    # and its prompt only, as Codex's does mid-turn.
+    if text.strip() == "hold" or unstored:
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "holding"}})
+        for _ in range(600):
+            if sid in cancelled:
+                break
+            time.sleep(0.05)
+        cancelled.discard(sid)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+        return
     reply = "ok: " + text
     if text.strip() == "history-probe":
         with open(rollouts[sid]) as f:
@@ -306,11 +329,13 @@ def codex_store_prompt(rid, params):
     # Native rollouts retain the assistant reply as well as the user's prompt.
     codex_write(sid, "response_item", {"type": "message", "role": "assistant", "phase": "final_answer", "content": [{"type": "output_text", "text": reply}]})
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
+    flushed = codex_flushed[sid] = threading.Event()
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
     # Codex's rollout writer flushes a turn's last records after the turn
     # answers, so they can be stamped after acpmux logs the turn's end.
     time.sleep(0.05)
     codex_write(sid, "event_msg", {"type": "task_complete"})
+    flushed.set()
 
 
 def update(sid, upd):
@@ -1488,6 +1513,22 @@ def handle_prompt(rid, params):
     # then redelivers the answer under a new messageId. "codex-retry-after-tool"
     # finishes the message with a tool call before the retry notice;
     # "codex-retry-after-subagent" has a subagent end there instead.
+    # "codex-signed-out": Codex whose model API refuses its sign-in: it reconnects with no bound
+    # ("Reconnecting... N", a 403 that says the login needs renewing) until session/cancel (at
+    # most 30 s), then answers cancelled.
+    if text == "codex-signed-out":
+        detail = ("unexpected status 403 Forbidden: subrouter: pinned account \"a@example.com\" is unusable: "
+                  "its credential needs re-login (refresh token invalid or expired); re-add it with 'sr add codex'.")
+        for n in range(1, 601):
+            if sid in cancelled:
+                break
+            update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {
+                "message": f"Reconnecting... {n}", "willRetry": True, "additionalDetails": detail,
+                "codexErrorInfo": {"responseStreamDisconnected": {"httpStatusCode": 403}}}}}})
+            time.sleep(0.05)
+        cancelled.discard(sid)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+        return
     if text.startswith("codex-retry"):
         after_tool = text == "codex-retry-after-tool"
         after_subagent = text == "codex-retry-after-subagent"

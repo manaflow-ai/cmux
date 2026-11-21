@@ -325,6 +325,39 @@ async fn hidden_todo_calls_keep_the_reply_segment_across_pages() {
     }
 }
 
+/// Codex whose model API refuses its sign-in reconnects with no bound (cmux#44987: 9055 retries of
+/// a subrouter 403 "credential needs re-login" over hours). Its turn ran on, silent, and the pane
+/// said "Agent may be stuck" instead of the sign-in error. acpmux ends it at the second refused
+/// retry: the prompt fails with the refusal, typed signed out, and the chat stops working.
+#[tokio::test]
+async fn a_codex_turn_whose_sign_in_is_refused_fails_signed_out_instead_of_retrying_on() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "signed-out").await;
+    let started = std::time::Instant::now();
+    let err = tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        c.request(method::SESSION_PROMPT, prompt(&id, "codex-signed-out", None)),
+    )
+    .await
+    .expect("the turn ends instead of retrying on")
+    .expect_err("the turn fails");
+    assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
+    assert!(err.contains("needs re-login"), "Codex's own refusal is shown: {err}");
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    let result = find(&events, "turn_result")[0];
+    assert_eq!(result.msg["status"], "failed", "{}", result.msg);
+    assert!(
+        find(&events, "turn_retrying").len() < 10,
+        "the turn ended at the second refused retry, not after Codex's own"
+    );
+    let meta = hub.resolve(&id).unwrap().meta();
+    assert!(
+        !matches!(meta.status, acpmux::store::SessionStatus::Running),
+        "the chat is not left working: {:?}",
+        meta.status
+    );
+}
+
 #[tokio::test]
 async fn codex_retry_records_message_superseded_before_the_redelivery() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
