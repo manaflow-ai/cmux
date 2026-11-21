@@ -133,11 +133,11 @@ final class HomeQuestionRowProvider: TranscriptCustomRowProvider {
                 y += optionHeight + gap
             }
         }
-        var status: TextLayout?
+        var statusLayout: TextLayout?
         let statusY = y
-        if let text = status(p) {
+        if let text = Self.status(p) {
             let layout = TextLayout.make(HomeApprovalRowProvider.visible(text), runs: [], maxWidth: inner)
-            status = layout
+            statusLayout = layout
             y += layout.textHeight(hard: Fixture.lineHeight) + gap
         }
         var send = CGRect(x: pad, y: y, width: inner, height: 0)
@@ -145,7 +145,7 @@ final class HomeQuestionRowProvider: TranscriptCustomRowProvider {
             send.size.height = optionHeight
             y += optionHeight + gap
         }
-        return Layout(rows: rows, status: status, statusY: statusY, send: send,
+        return Layout(rows: rows, status: statusLayout, statusY: statusY, send: send,
                       size: CGSize(width: width, height: y - gap + Fixture.bubblePadY))
     }
 
