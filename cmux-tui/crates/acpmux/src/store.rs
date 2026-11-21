@@ -482,7 +482,7 @@ pub struct SessionMeta {
     /// The journal seq the agent's own session ends at, when the journal went past it without
     /// the agent: records its owner kept went back in (`hub/journal_restore.rs`, a session moved
     /// to a fresh machine from an older disk). The agent resumes its own older session, so its
-    /// next prompt carries the turns after this seq (`hub/transcript.rs` `catch_up`), and the
+    /// next prompt carries the turns after this seq (`hub/transcript.rs` `missed_turns`), and the
     /// mark goes. Saved with the meta: the agent's file and this mark are on one disk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_behind_seq: Option<u64>,

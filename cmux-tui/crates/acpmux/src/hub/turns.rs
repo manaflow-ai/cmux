@@ -1200,7 +1200,7 @@ impl Hub {
             // The whole transcript covers what an older agent session lacked too.
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_behind_seq = None;
             blocks.insert(0, restored_transcript(session, &transcript));
-        } else if let Some(block) = self.catch_up(session, REPLAY_CHARS) {
+        } else if let Some(block) = self.missed_turns(session, REPLAY_CHARS) {
             // The agent resumed an older copy of its own session (`journal_restore.rs`): only
             // the turns after it.
             blocks.insert(0, block);

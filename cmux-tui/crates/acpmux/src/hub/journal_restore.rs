@@ -14,7 +14,7 @@
 //! and continued, and a prompt it had queued waits in this queue again, under its own id, so a
 //! resend of that id joins it instead of running it twice. The agent resumes its own session
 //! from that older disk too, so its next prompt carries the turns after where the journal ended
-//! (`SessionMeta::agent_behind_seq`, `transcript.rs` `catch_up`).
+//! (`SessionMeta::agent_behind_seq`, `transcript.rs` `missed_turns`).
 //!
 //! Design (sixth and seventh reviews of #37284): a restore is one exclusive operation on its
 //! chat, from the owner's first try until every record it holds is in and flushed, or the

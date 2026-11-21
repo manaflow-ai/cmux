@@ -42,7 +42,7 @@ impl Hub {
     /// its next prompt starts with, and the mark goes: the transcript of the records past that
     /// seq, within `max_chars` as [`Self::transcript`]. None when there is no mark, or nothing
     /// past it to tell.
-    pub(super) fn catch_up(&self, session: &Session, max_chars: usize) -> Option<Value> {
+    pub(super) fn missed_turns(&self, session: &Session, max_chars: usize) -> Option<Value> {
         let after =
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_behind_seq.take()?;
         self.save_meta(session);
