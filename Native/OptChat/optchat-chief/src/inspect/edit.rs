@@ -132,6 +132,8 @@ struct Book {
     queue: VecDeque<(u64, NodeId)>,
     /// The rebuild running now, if any.
     running: Option<(u64, NodeId)>,
+    /// Times the worker woke and found nothing to build.
+    idle_wakes: u64,
 }
 
 impl Book {
@@ -202,6 +204,12 @@ impl Editor {
         self.book
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// How many times the worker woke and found nothing to build: 0 while
+    /// nothing changes (row 9 of plans/cmux-next/perf-lead.md, idle cost).
+    pub fn idle_wakes(&self) -> u64 {
+        self.lock().idle_wakes
     }
 
     /// The summaries waiting to be built again.
@@ -560,10 +568,13 @@ fn rebuild_loop(editor: std::sync::Weak<Editor>) {
                     Some(job)
                 }
                 None => {
-                    let _ = ed
+                    let (mut book, _) = ed
                         .work
                         .wait_timeout(book, std::time::Duration::from_millis(500))
                         .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if book.queue.is_empty() {
+                        book.idle_wakes += 1;
+                    }
                     None
                 }
             }
