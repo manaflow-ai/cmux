@@ -45,7 +45,7 @@ mod tests {
     #[test]
     fn the_documents_are_the_links() {
         // One definition: the hub's names are the link crate's types.
-        let doc: cmux_rd_link::doc::RdDocument =
+        let doc: RdDocument =
             RdDocument { key: KEY.into(), max_width: Some(1280), ..RdDocument::default() };
         assert_eq!(RdDocument::parse(&doc.text()), Some(doc));
     }
