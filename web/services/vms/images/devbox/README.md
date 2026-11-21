@@ -348,7 +348,8 @@ query:
    lone one twice; 1 s each), so steered names keep resolving to the edge and
    NXDOMAIN stays the platform's. When the platform names the edge resolver's
    IPv4 address (`10.32.0.28`), the second try goes to the same resolver's
-   IPv6 listener (`2602:f470:1::28`, given 2 s for its ~1.5 s latency), and
+   IPv6 listener (`2602:f470:1::28`, given 2 s for its ~1.5 s latency), a
+   third try returns to IPv4 for a machine without an IPv6 route, and
    whichever address answered last is asked first next time. A 2026-11-20
    sweep found machines whose IPv4 port 53 went unanswered, to the edge and
    to every other IPv4 resolver, over UDP and TCP, while the IPv6 listener

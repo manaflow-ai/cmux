@@ -67,7 +67,7 @@ state["down"] = True
 calls.clear()
 out = r.resolve(q("api.anthropic.com", ident=7))
 print(dns.rcode(out), struct.unpack("!H", out[:2])[0], out[-4:].hex(), calls)
-`)).toEqual(["0 7 0a20001c ['platform', 'platform']"]);
+`)).toEqual(["0 7 0a20001c ['platform', 'platform', 'platform']"]);
   });
 
   test("a name the platform never answered falls back to DNS-over-HTTPS", async () => {
@@ -471,7 +471,25 @@ def exchange(server, query, timeout, tcp):
     now[0] += timeout
 r = dns.Resolver(steering=lambda: True, upstreams=lambda: ["10.32.0.28"], clock=lambda: now[0], exchange=exchange, doh_exchange=lambda *a: None)
 print(dns.rcode(r.resolve(q("github.com"))), calls, now[0] <= dns.QUERY_BUDGET)
-`)).toEqual(["2 [('10.32.0.28', 1.0), ('2602:f470:1::28', 2.0)] True"]);
+`)).toEqual(["2 [('10.32.0.28', 1.0), ('2602:f470:1::28', 2.0), ('10.32.0.28', 0.5)] True"]);
+  });
+
+  test("a machine without an IPv6 route keeps a second IPv4 try", async () => {
+    // An unroutable IPv6 send fails at once; a single lost IPv4 packet must
+    // still be retried, as it was before the edge fallback.
+    expect(await python(String.raw`
+state = {"lost": 1}
+def exchange(server, query, timeout, tcp):
+    calls.append(server)
+    if ":" in server:
+        return None
+    if state["lost"]:
+        state["lost"] -= 1
+        return None
+    return reply(query, 0, 1)
+r = dns.Resolver(steering=lambda: True, upstreams=lambda: ["10.32.0.28"], exchange=exchange, doh_exchange=lambda *a: None)
+print(dns.rcode(r.resolve(q("github.com"))), calls)
+`)).toEqual(["0 ['10.32.0.28', '2602:f470:1::28', '10.32.0.28']"]);
   });
 
   test("resolvers that are not the platform edge get no companion", async () => {

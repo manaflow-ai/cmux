@@ -60,6 +60,9 @@ DOH_ENDPOINTS = [("1.1.1.1", "/dns-query"), ("8.8.8.8", "/dns-query")]
 # 1.5 s and gets EDGE_IPV6_TIMEOUT (steering is then active, so DoH is unused).
 QUERY_BUDGET = 3.5
 UPSTREAM_TRIES = 2
+# With the edge pair: IPv4, IPv6, then IPv4 again in what is left, so a
+# machine without an IPv6 route keeps a second IPv4 try.
+EDGE_TRIES = 3
 UPSTREAM_TIMEOUT = 1.0
 EDGE_IPV6_TIMEOUT = 2.0
 DOH_TIMEOUT = 1.5
@@ -265,7 +268,10 @@ def platform_steering(path=TLS_DNS_SERVERS):
         return True
 
 
-_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=64)
+# Every query asks the platform first and may hold a worker for the IPv6
+# listener's ~1.5 s, so a burst (a package install, a browser start) needs
+# room: a queued exchange that waits out its own timeout falls to SERVFAIL.
+_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=256)
 
 
 def bounded(function, timeout, *args):
@@ -323,7 +329,7 @@ class Resolver:
         return generation == (stamp, tuple(servers))
 
     def _attempts(self, servers):
-        """UPSTREAM_TRIES platform exchanges: the last resolver that answered, then libc's order."""
+        """The platform exchanges to try: the last resolver that answered, then libc's order."""
         # Match libc's fallback order: not every machine routes IPv6. The
         # edge's IPv6 listener is the second try after its IPv4 address.
         servers = with_edge_companions(servers)
@@ -333,7 +339,8 @@ class Resolver:
         preferred = self._preferred
         if preferred in ordered:
             ordered = [preferred] + [server for server in ordered if server != preferred]
-        return (ordered * UPSTREAM_TRIES)[:UPSTREAM_TRIES]
+        tries = EDGE_TRIES if edge else UPSTREAM_TRIES
+        return (ordered * tries)[:tries]
 
     def resolve(self, query, tcp=False):
         key = question_key(query)
