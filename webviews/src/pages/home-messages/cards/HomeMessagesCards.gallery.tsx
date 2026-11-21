@@ -469,15 +469,6 @@ export default componentEntry<Props>({
         enabled: true,
       },
     },
-    "header-sharing": {
-      note: "Sharing the screen with Chief: lit; the other toggles off by the Debug switch.",
-      props: {
-        card: "header",
-        context: { isChief: true },
-        states: [{ id: "screenShare", isOn: true }],
-        enabled: false,
-      },
-    },
     "header-person": {
       note: "A chat with a person: only the right sidebar.",
       props: { card: "header", context: { isChief: false }, states: [], enabled: true },

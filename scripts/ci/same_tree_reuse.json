@@ -223,18 +223,12 @@
    "web-head": "its outputs feed later jobs; a skipped run leaves them empty; needed by size-budget: a skip would skip them or read as no verdict",
    "size-budget": "reads pull request metadata or the base (github.event.pull_request.body), not only the tree"
   },
-  "cmux-next-tab-switch.yml": {
-   "scope": "its outputs feed later jobs; a skipped run leaves them empty; needed by frames, verdict: a skip would skip them or read as no verdict",
-   "frames": "needed by verdict: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.draft, github.event.pull_request.head.sha, github.event.pull_request.number), not only the tree",
-   "verdict": "reads pull request metadata or the base (github.event.pull_request.draft, github.event.pull_request.number), not only the tree; judges other jobs (if: always() or failure())"
-  },
   "cmux-next-terminal.yml": {
    "rust-terminal-linux": "new on feat-cmux-next after this map's 52-PR replay: no runs measured yet, so a receipt write is not shown to pay; wire it in a later slice once its pull-request minutes are known",
    "swift-terminal-linux": "new on feat-cmux-next after this map's 52-PR replay: no runs measured yet, so a receipt write is not shown to pay; wire it in a later slice once its pull-request minutes are known",
    "rust-terminal": "new on feat-cmux-next after this map's 52-PR replay: no runs measured yet, so a receipt write is not shown to pay; wire it in a later slice once its pull-request minutes are known"
   },
   "cmux-next.yml": {
-   "pr-quiet-period": "needed by macos-placement: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.labels), not only the tree",
    "push-head-preflight": "its outputs feed later jobs; a skipped run leaves them empty; needed by app-compile-fleet, app-compile-placement, cmux-scheme-compile, compile-status, daemon-test, dev-daily-place, fast-tier, fast-tier-cargo, fast-tier-fleet, fast-tier-rerun-placement, generated-files, macos-placement, release-compile, release-compile-fast, same-tree-cmux-tui, swift-canary, swift-canary-fleet, swift-test: a skip would skip them or read as no verdict; writes to GitHub (a write permission): a side effect, not a verdict on the tree",
    "path_route": "its outputs feed later jobs; a skipped run leaves them empty; needed by app-compile-fleet, app-compile-placement, cmux-scheme-compile, compile-status, daemon-test, dev-daily-place, dev-daily-tree-wait, fast-tier, fast-tier-fleet, fast-tier-rerun-placement, generated-files, generated-verdict, macos-placement, release-compile, release-compile-fast, same-tree-cmux-tui, swift-canary, swift-canary-fleet, swift-exports-cache, swift-test, web-bundles: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.base_ref, github.event.pull_request.base.ref, github.event.pull_request.head.ref), not only the tree; judges other jobs (if: always() or failure())",
    "dev-daily-tree-wait": "its outputs feed later jobs; a skipped run leaves them empty; needed by cmux-scheme-compile, dev-daily-place: a skip would skip them or read as no verdict",
@@ -361,7 +355,6 @@
    "cmux-next-hot-verify": "calls a reusable workflow: no step here can record its pass",
    "cmux-next-pr-autofix": "calls a reusable workflow: no step here can record its pass",
    "cmux-next-size-budget": "calls a reusable workflow: no step here can record its pass",
-   "cmux-next-tab-switch": "calls a reusable workflow: no step here can record its pass",
    "pr-checks": "calls a reusable workflow: no step here can record its pass",
    "rust-workspaces": "calls a reusable workflow: no step here can record its pass",
    "web-validation": "calls a reusable workflow: no step here can record its pass"

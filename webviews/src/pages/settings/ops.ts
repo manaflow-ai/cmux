@@ -1830,6 +1830,7 @@ export const settingsPageActions = [
   "browserProfile.new",
   "server.addServer",
   "device.add",
+  "remote.newGroup",
   "browserProfile.rename",
   "browserProfile.setColor",
   "browserProfile.clearColor",
