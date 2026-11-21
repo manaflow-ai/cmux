@@ -4,6 +4,44 @@
 public import CmuxNextDesign
 
 extension AppearanceSettingsSchema {
+    static var tuning: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
+        return [
+            SettingDescriptor(
+                AppearanceTuningSetting.glassTransparencyPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
+                help: SettingsText.keyed("settings.appearance.glassTransparency.help", "How much of the desktop or wallpaper shows through the glass."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.glassTransparencyRange, step: 0.05, unit: .fraction)),
+                default: .number(AppearanceTuningSetting.glassTransparencyDefault),
+                keywords: ["glass", "transparency", "alpha", "clear"]
+            ).hiddenFromSettingsPage("duplicates appearance.backgroundOpacity; the key still loads"),
+            SettingDescriptor(
+                AppearanceTuningSetting.huePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.hue", "Hue"),
+                help: SettingsText.keyed("settings.appearance.hue.help", "Shift the tint color around the hue wheel."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.hueRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.huePlaceholder)),
+                default: .number(AppearanceTuningSetting.hueDefault),
+                keywords: ["tint", "color", "colour"]
+            ),
+            SettingDescriptor(
+                AppearanceTuningSetting.saturationPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.saturation", "Saturation"),
+                help: SettingsText.keyed("settings.appearance.saturation.help", "Increase or reduce the tint color intensity."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.saturationRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.saturationPlaceholder)),
+                default: .number(AppearanceTuningSetting.saturationDefault),
+                keywords: ["tint", "color", "colour", "intensity"]
+            ),
+        ]
+    }
+}
+
+extension AppearanceSettingsSchema {
     static var look: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.densityMotion", "Density and Motion")
         return [
@@ -56,11 +94,11 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.textSize", "Text Size"),
-                help: SettingsText.keyed("settings.appearance.textSize.help", "Text size of tabs, the sidebar and chat. Terminals have their own size."),
+                help: SettingsText.keyed("settings.appearance.textSize.help", "Text size of the sidebar, tabs, menus and chat. Terminals have their own size."),
                 kind: .number(SettingNumber(InterfaceSizeSetting.range, step: 1, unit: .points, placeholder: InterfaceSizeSetting.placeholder)),
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize"]
+                keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize", "sidebar font size", "menu", "interface font", "bigger", "larger", "readable", "accessibility"]
             ),
             SettingDescriptor(
                 FontSmoothingSetting.configPath,

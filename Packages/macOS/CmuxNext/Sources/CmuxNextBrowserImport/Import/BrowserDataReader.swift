@@ -111,10 +111,18 @@ public struct BrowserDataReader: Sendable {
         }
     }
 
-    /// A Chromium profile's Web Store extensions.
+    /// A Chromium profile's Web Store and unpacked extensions.
     @concurrent public func extensions(_ profile: BrowserSourceProfile) async throws -> [ImportedExtension] {
         guard profile.browser.family == .chromium else { return [] }
         return try await protected.profile(profile.path, over: transport) { try await list(Request(reader: "chromium.extensions", profile: $0)) }
+    }
+
+    /// What importing `extensions` does in the cmux Chromium profile in `folder` (no privacy
+    /// protection guards it), with unpacked copies under `copyRoot`.
+    @concurrent public func extensionInstallPlan(_ extensions: [ImportedExtension], profile folder: URL,
+                                                 copyRoot: URL) async throws -> ExtensionInstallPlan {
+        let request = Request(reader: "chromium.extension_install_plan", profile: folder.path, extensions: extensions, copyRoot: copyRoot.path)
+        return try await call(request, as: ExtensionInstallPlan.self) ?? ExtensionInstallPlan()
     }
 
     /// The `browser.searchEngine` setting for `engine`: the built-in engine (`builtIn`: id to
@@ -199,6 +207,8 @@ public struct BrowserDataReader: Sendable {
         var services: SafariServices?
         var engine: ImportedSearchEngine?
         var builtIn: [String: String]?
+        var extensions: [ImportedExtension]?
+        var copyRoot: String?
         /// The upload `path` and `profile` name a file or folder in (``ProtectedProfileUpload``).
         var upload: String?
     }
