@@ -1,0 +1,69 @@
+{
+ "name": "Skill documentation tests",
+ "steps": [
+  {
+   "name": "Set up job",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 1,
+   "started_at": "2026-11-19T01:23:08Z",
+   "completed_at": "2026-11-19T01:23:08Z"
+  },
+  {
+   "name": "Set up runner",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 2,
+   "started_at": "2026-11-19T01:23:09Z",
+   "completed_at": "2026-11-19T01:23:09Z"
+  },
+  {
+   "name": "Checkout the summary script",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 3,
+   "started_at": "2026-11-19T01:23:09Z",
+   "completed_at": "2026-11-19T01:23:10Z"
+  },
+  {
+   "name": "All parallel skill shards passed",
+   "status": "completed",
+   "conclusion": "failure",
+   "number": 4,
+   "started_at": "2026-11-19T01:23:10Z",
+   "completed_at": "2026-11-19T01:23:10Z"
+  },
+  {
+   "name": "Every shard's steps stay within 25% of the measured step table",
+   "status": "completed",
+   "conclusion": "failure",
+   "number": 5,
+   "started_at": "2026-11-19T01:23:10Z",
+   "completed_at": "2026-11-19T01:23:11Z"
+  },
+  {
+   "name": "Upload the step-table drift record",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 6,
+   "started_at": "2026-11-19T01:23:11Z",
+   "completed_at": "2026-11-19T01:23:14Z"
+  },
+  {
+   "name": "Post Checkout the summary script",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 12,
+   "started_at": "2026-11-19T01:23:14Z",
+   "completed_at": "2026-11-19T01:23:14Z"
+  },
+  {
+   "name": "Complete job",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 13,
+   "started_at": "2026-11-19T01:23:14Z",
+   "completed_at": "2026-11-19T01:23:14Z"
+  }
+ ]
+}
