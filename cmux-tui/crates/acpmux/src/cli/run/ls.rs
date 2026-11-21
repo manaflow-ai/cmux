@@ -535,7 +535,10 @@ pub(crate) fn scope_line(rows: &[Value]) -> Option<String> {
 fn outbox_line(status: &Value) -> Option<String> {
     let n = status.get("outboxPending").and_then(Value::as_u64).filter(|n| *n > 0)?;
     let s = if n == 1 { "" } else { "s" };
-    Some(format!("{n} message{s} queued here, not delivered yet (acpmux send --status)"))
+    Some(format!(
+        "{n} message{s} queued here, not delivered yet ({} send --status)",
+        crate::cli::entry::program()
+    ))
 }
 
 #[cfg(test)]
