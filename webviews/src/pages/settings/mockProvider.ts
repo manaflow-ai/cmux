@@ -948,7 +948,7 @@ export class MockSettingsProvider {
     for (const ctx of this.devicesChanged) ctx.emit(devices);
   }
 
-  /** What `cmux customize library` lists (Personalization > Customization Library). */
+  /** What `cmux customize library` lists (Appearance > Customization Library). */
   library: LibraryListing = mockLibrary();
   /** The CLI's refusal of every library change (a preview is open); null: changes run. */
   libraryRefusal: string | null = null;

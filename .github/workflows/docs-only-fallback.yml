@@ -13,7 +13,7 @@ name: docs-only fallback
 # and media publishing stay inside the protected environments of the workflows that own them.
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review, closed]
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
 
 permissions: {}
 
@@ -54,7 +54,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          CALLS: '{"ci.yml":{"branches":null,"types":["opened","synchronize","reopened","labeled","unlabeled"]},"cmux-next-guards.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened"]},"cmux-next-hot-verify.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","ready_for_review","closed"]},"cmux-next-pr-autofix.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened"]},"cmux-next-size-budget.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","edited","ready_for_review"]},"pr-checks.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","edited","ready_for_review"]},"rust-workspaces.yml":{"branches":null,"types":["opened","synchronize","reopened"]},"web-validation.yml":{"branches":null,"types":["opened","synchronize","reopened","ready_for_review"]}}'
+          CALLS: '{"ci.yml":{"branches":null,"types":["opened","synchronize","reopened","labeled","unlabeled"]},"cmux-next-guards.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened"]},"cmux-next-pr-autofix.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened"]},"cmux-next-size-budget.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","edited","ready_for_review"]},"pr-checks.yml":{"branches":["feat-cmux-next"],"types":["opened","synchronize","reopened","edited","ready_for_review"]},"rust-workspaces.yml":{"branches":null,"types":["opened","synchronize","reopened"]},"web-validation.yml":{"branches":null,"types":["opened","synchronize","reopened","ready_for_review"]}}'
         run: python3 scripts/ci/docs_only_paths.py --fallback-plan
 
   ci:
@@ -79,17 +79,6 @@ jobs:
       actions: read
       checks: read
       contents: read
-      pull-requests: write
-
-  cmux-next-hot-verify:
-    name: cmux-next-hot-verify (fallback)
-    needs: gate
-    if: ${{ contains(fromJSON(needs.gate.outputs.missing || '[]'), 'cmux-next-hot-verify.yml') }}
-    uses: ./.github/workflows/cmux-next-hot-verify.yml
-    permissions:
-      actions: write
-      contents: write
-      issues: read
       pull-requests: write
 
   cmux-next-pr-autofix:
