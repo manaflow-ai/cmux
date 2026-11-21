@@ -116,7 +116,7 @@ clear_state() {
     "$HOME/.cmux/chief/$bundle" "$HOME/.cmux/chief/$bundle@"* "$HOME/Library/Preferences/$bundle.plist" \
     "$HOME/Library/Caches/$bundle" "$HOME/Library/HTTPStorages/$bundle" "$HOME/Library/WebKit/$bundle" \
     "$HOME/Library/Saved Application State/$bundle.savedState" "$HOME/Library/Application Support/$bundle" \
-    "$HOME/Library/Application Support/cmux-next/$bundle"; do
+    "$HOME/Library/Application Support/cmux-next/$bundle" "$HOME/Library/Application Support/cmux/$bundle"; do
     if [[ -e "$path" ]]; then rm -rf "$path"; fi
   done
 }
