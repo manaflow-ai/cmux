@@ -141,6 +141,52 @@ struct CrashDiagnosticSessionPolicyTests {
     }
 
     @Test
+    func pruningKeepsAGroupWhoseSavedAnchorIsMissingFromCallingAMemberGenerated() throws {
+        let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
+            .path
+        let groupId = UUID()
+        let childId = UUID()
+        var child = emptyWorkspaceSnapshot(currentDirectory: "/tmp/cmux-project")
+        child.workspaceId = childId
+        child.groupId = groupId
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [
+                SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: SessionTabManagerSnapshot(
+                        selectedWorkspaceIndex: 0,
+                        workspaces: [emptyWorkspaceSnapshot(currentDirectory: crashDirectory), child],
+                        workspaceGroups: [
+                            // What a save writes when the generated anchor is
+                            // outside the kept workspaces.
+                            SessionWorkspaceGroupSnapshot(
+                                id: groupId,
+                                name: "Group",
+                                isCollapsed: false,
+                                anchorWorkspaceId: UUID(),
+                                anchorMemberIndex: nil,
+                                anchorWorkspaceProvenance: WorkspaceGroupAnchorProvenance.generated.rawValue
+                            ),
+                        ]
+                    ),
+                    sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+                ),
+            ]
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+
+        #expect(pruned.removedAny)
+        let group = try #require(pruned.snapshot?.windows.first?.tabManager.workspaceGroups?.first)
+        #expect(group.anchorWorkspaceId == childId)
+        #expect(group.anchorWorkspaceProvenance == WorkspaceGroupAnchorProvenance.unknown.rawValue)
+    }
+
+    @Test
     func sessionSnapshotDropsPhantomWindowsButKeepsDockOnlyWindows() {
         let projectDirectory = "/tmp/cmux-project"
         func window(workspaces: [SessionWorkspaceSnapshot], dock: SessionSplitContainerSnapshot? = nil) -> SessionWindowSnapshot {

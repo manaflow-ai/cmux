@@ -6758,7 +6758,7 @@ extension TabManager {
             hasher.combine(group.externalID ?? "")
             hasher.combine(group.anchorWorkspaceProvenance.rawValue)
         }
-        for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
+        for workspace in sessionSnapshotWorkspaces() {
             hasher.combine(workspace.id)
             hasher.combine(workspace.groupId)
             hasher.combine(workspace.focusedPanelId)
@@ -7032,9 +7032,7 @@ extension TabManager {
         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool = false
     ) -> SessionTabManagerSnapshot {
         panelTitleUpdateCoalescer.flushNow()
-        let restorableTabs = tabs
-            .filter(\.isRestorableInSessionSnapshot)
-            .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        let restorableTabs = sessionSnapshotWorkspaces()
         let workspaceSnapshots = restorableTabs
             .map {
                 $0.sessionSnapshot(
@@ -7095,12 +7093,21 @@ extension TabManager {
     }
 
     func sessionSnapshotWorkspaceIds() -> [UUID] {
-        Array(
-            tabs
-                .filter(\.isRestorableInSessionSnapshot)
-                .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
-                .map(\.id)
-        )
+        sessionSnapshotWorkspaces().map(\.id)
+    }
+
+    /// The workspaces one session snapshot holds, in tab order. Past the limit
+    /// the selected workspace takes the last slot, so a relaunch opens on it.
+    private func sessionSnapshotWorkspaces() -> [Workspace] {
+        let limit = SessionPersistencePolicy.maxWorkspacesPerWindow
+        let restorable = tabs.filter(\.isRestorableInSessionSnapshot)
+        let kept = restorable.prefix(limit)
+        guard restorable.count > limit,
+              let selected = restorable.dropFirst(limit).first(where: { $0.id == selectedTabId })
+        else {
+            return Array(kept)
+        }
+        return Array(kept.dropLast()) + [selected]
     }
 
     private func releaseRestoredAwayWorkspace(_ workspace: Workspace, clearNotifications: Bool = true) {
@@ -7345,7 +7352,7 @@ extension TabManager {
                 // persisted UUID hint. The UUID hint matches on ordinary
                 // session restore, but duplicate/corrupt snapshots can still
                 // mint fresh workspace ids.
-                let anchorId: UUID = {
+                let savedAnchorId: UUID? = {
                     if let index = groupSnapshot.anchorMemberIndex,
                        members.indices.contains(index) {
                         return members[index]
@@ -7353,20 +7360,26 @@ extension TabManager {
                     if let stored = groupSnapshot.anchorWorkspaceId, members.contains(stored) {
                         return stored
                     }
-                    return members[0]
+                    return nil
                 }()
+                // A member standing in for an anchor the save left out is not
+                // what the saved provenance describes, and "generated" would
+                // let group cleanup close it.
+                let anchorProvenance = savedAnchorId == nil
+                    ? WorkspaceGroupAnchorProvenance.unknown
+                    : WorkspaceGroupAnchorProvenance(
+                        rawValue: groupSnapshot.anchorWorkspaceProvenance ?? ""
+                    ) ?? .unknown
                 return WorkspaceGroup(
                     id: groupSnapshot.id,
                     name: groupSnapshot.name,
                     isCollapsed: groupSnapshot.isCollapsed,
                     isPinned: groupSnapshot.isPinned ?? false,
-                    anchor: .workspace(anchorId),
+                    anchor: .workspace(savedAnchorId ?? members[0]),
                     customColor: groupSnapshot.customColor,
                     iconSymbol: groupSnapshot.iconSymbol,
                     externalID: groupSnapshot.externalID,
-                    anchorWorkspaceProvenance: WorkspaceGroupAnchorProvenance(
-                        rawValue: groupSnapshot.anchorWorkspaceProvenance ?? ""
-                    ) ?? .unknown
+                    anchorWorkspaceProvenance: anchorProvenance
                 )
             }
         }()
