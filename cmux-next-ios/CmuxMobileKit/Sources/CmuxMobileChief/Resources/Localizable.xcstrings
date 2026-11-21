@@ -602,6 +602,34 @@
         "ko": {"stringUnit": {"state": "translated", "value": "진단"}},
         "ja": {"stringUnit": {"state": "translated", "value": "診断"}}
       }
+    },
+    "mobile.chief.github.reconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Reconnect needed"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Erneut verbinden"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Reconnexion requise"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مطلوب إعادة الاتصال"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Reconexión necesaria"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "需要重新連接"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "需要重新连接"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "다시 연결 필요"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "再接続が必要"}}
+      }
+    },
+    "mobile.chief.github.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "GitHub error"}},
+        "de": {"stringUnit": {"state": "translated", "value": "GitHub-Fehler"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Erreur GitHub"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "خطأ في GitHub"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Error de GitHub"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "GitHub 錯誤"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "GitHub 错误"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "GitHub 오류"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "GitHub エラー"}}
+      }
     }
   },
   "version": "1.0"

@@ -34,6 +34,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case chiefPet
         /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
         case density
+        /// General's first card (David Beyer, 2026-11-20: Settings was overwhelming and had no sidebar font size he could find): one Text Size for the sidebar, tabs, menus and chat (appearance.metrics.chromeFontSize) and the density beside it (appearance.density), in the picker the Set Up cmux card draws too (webviews ui/TextSizePicker).
+        case textSize
         /// What this Mac has that cmux can bring over (CmuxNextImportCards), every card found.
         case importSuggestions
         /// Every release channel's recent builds, with the one this Mac runs (Settings > Updates).
