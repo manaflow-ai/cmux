@@ -10,9 +10,17 @@ final class TerminalComposerLookUITests: XCTestCase {
         continueAfterFailure = true
     }
 
+    @MainActor func testV0regular() throws { try run("regular") }
+    @MainActor func testV1tint() throws { try run("tint") }
+    @MainActor func testV2clear() throws { try run("clear") }
+    @MainActor func testV3nocontainer() throws { try run("nocontainer") }
+    @MainActor func testV4interactive() throws { try run("interactive") }
+    @MainActor func testV5material() throws { try run("material") }
+
     @MainActor
-    func testTerminalComposerLookIsConstantAcrossLineCounts() throws {
+    func run(_ variant: String) throws {
         let app = XCUIApplication()
+        app.launchEnvironment["CMUX_EXP_GLASS"] = variant
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "ws-terminal-idle"]
         app.launch()
@@ -31,12 +39,12 @@ final class TerminalComposerLookUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.8)
             let shot = app.screenshot()
             let attachment = XCTAttachment(screenshot: shot)
-            attachment.name = "terminal-composer-\(count)-lines"
+            attachment.name = "\(variant)-\(count)-lines"
             attachment.lifetime = .keepAlways
             add(attachment)
             let luma = try Self.meanLuma(shot.image, in: Self.emptyGlass(field.frame))
             lumas[count] = luma
-            print("composer-look lines=\(count) frame=\(field.frame) luma=\(String(format: "%.2f", luma))")
+            print("composer-look variant=\(variant) lines=\(count) frame=\(field.frame) luma=\(String(format: "%.2f", luma))")
         }
         let one = try XCTUnwrap(lumas[1])
         for count in [3, 4, 8] {

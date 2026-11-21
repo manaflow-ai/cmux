@@ -59,12 +59,20 @@ struct TerminalComposer: View {
                 AttachmentStrip(model: model)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+            if ProcessInfo.processInfo.environment["CMUX_EXP_GLASS"] == "nocontainer" {
+                HStack(alignment: .bottom, spacing: 8) {
+                    if model.attachmentsAvailable { attachMenu }
+                    if let source = model.voiceSource, source.voiceAvailable, voice.isAvailable { voiceButton(source) }
+                    fieldContainer
+                }
+            } else {
             GlassEffectContainer(spacing: 0) {
                 HStack(alignment: .bottom, spacing: 8) {
                     if model.attachmentsAvailable { attachMenu }
                     if let source = model.voiceSource, source.voiceAvailable, voice.isAvailable { voiceButton(source) }
                     fieldContainer
                 }
+            }
             }
         }
         .padding(.horizontal, TerminalDockMetrics.horizontalInset)
@@ -188,7 +196,7 @@ struct TerminalComposer: View {
         // rounded shape clips the cut lines at the corners too.
         .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
         .clipShape(.rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
-        .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous), interactive: false)
+        .modifier(ExpFieldGlass())
     }
 
     private var sendButton: some View {
@@ -359,6 +367,19 @@ extension View {
     /// 2026-11-21: "the composer brightening up when you have >3 lines").
     func glassSurface(in shape: some Shape, interactive: Bool = true) -> some View {
         glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+    }
+}
+
+struct ExpFieldGlass: ViewModifier {
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous)
+        switch ProcessInfo.processInfo.environment["CMUX_EXP_GLASS"] ?? "" {
+        case "tint": content.glassEffect(.regular.tint(.black.opacity(0.4)), in: shape)
+        case "clear": content.glassEffect(.clear, in: shape)
+        case "interactive": content.glassEffect(.regular.interactive(), in: shape)
+        case "material": content.background(.ultraThinMaterial, in: shape)
+        default: content.glassEffect(.regular, in: shape)
+        }
     }
 }
 
