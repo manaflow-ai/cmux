@@ -318,11 +318,18 @@ public struct HomePalette: Hashable, Sendable {
     /// - Parameters:
     ///   - fill: the colour the scene paints under the transcript.
     ///   - window: the opaque colour under `fill`.
+    ///   - placeholderOverGlass: the composer's placeholder when `fill` is see-through (the host's
+    ///     secondary text token); nil keeps the field-tier placeholder.
     /// - Returns: the palette with `fill` as its background.
-    public func onBackground(_ fill: HomeColor, over window: HomeColor) -> HomePalette {
+    public func onBackground(_ fill: HomeColor, over window: HomeColor, placeholderOverGlass: HomeColor? = nil) -> HomePalette {
         var p = self
         p.background = fill
         p.secondaryText = secondaryText.readable(on: window.with(alpha: 1).mixed(with: fill.with(alpha: 1), fill.alpha))
+        // A see-through fill: the field is clear glass over art or the desktop, where the field-tier
+        // placeholder fell to 1.8:1 (text-inputs-glass, chief-art). It takes the host's secondary text
+        // token, the ink every web field's placeholder takes over a see-through window
+        // (--cmux-text-secondary, ui/controls.css), so native and web draw the same pixels.
+        if fill.alpha < 1, let placeholderOverGlass { p.placeholder = placeholderOverGlass }
         return p
     }
 

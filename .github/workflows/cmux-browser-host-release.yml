@@ -41,6 +41,7 @@ jobs:
   version:
     name: version
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -170,7 +171,8 @@ jobs:
     name: publish
     if: github.ref_type == 'tag'
     needs: [version, build]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 30
     permissions:
       contents: write
       id-token: write

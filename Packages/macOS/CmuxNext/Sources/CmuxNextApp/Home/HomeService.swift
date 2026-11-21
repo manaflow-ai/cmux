@@ -84,6 +84,8 @@ final class HomeService {
     @ObservationIgnored let ensureOwner = HomeEnsureOwnerWait() // the ensure whose Chief tab step is on the owner
     /// The last step the home workspace setup reached, for `debug.home`.
     @ObservationIgnored var homeWorkspaceStep = "not started"
+    /// The last step the Chief tab's setup reached, beside the home workspace's (``HomeChiefTabStep``).
+    @ObservationIgnored var chiefTabStep = HomeChiefTabStep.notStarted
     /// The chief tab creation's idempotency key (one per creation).
     @ObservationIgnored let chiefTabKey = HomeChiefTabKey()
     @ObservationIgnored let chiefHomes = HomeChiefHomes() // each Home's turn actions; Start now on a queued agent
@@ -132,7 +134,7 @@ final class HomeService {
     /// (`markdown-viewer/ondine.min.js`); one renderer (one JavaScriptCore context) for every pane.
     /// nil when the bundle lacks the script: fences stay text.
     @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? = OndineMermaidRenderer.bundled()
-    @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser), startedAgents: { AgentLaneStore.chief.chiefSubagentPeers })
+    @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser), startedAgents: { HomeAgentStarts(peers: AgentLaneStore.chief.chiefSubagentPeers, startedAt: AgentLaneStore.chief.chiefSubagentStarts) })
     /// Cloud conversations through the daemon's proxy (home-cloud-proxy.md),
     /// merged with the local ones into the one store.
     @ObservationIgnored let cloudSource = CloudHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))

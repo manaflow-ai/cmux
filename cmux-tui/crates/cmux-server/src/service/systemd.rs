@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use cmux_server_core::layout::{SYSTEMD_UNIT, ServiceKind};
 use cmux_server_core::pg::SOCKET_GROUP;
 use cmux_server_core::units::{
-    SERVICE_USER, UnitError, systemd_app_server_template, systemd_system_unit,
-    systemd_update_path_unit, systemd_update_service_unit, systemd_user_unit,
+    SERVICE_USER, UnitError, systemd_app_server_template, systemd_session_unit,
+    systemd_system_unit, systemd_update_path_unit, systemd_update_service_unit, systemd_user_unit,
 };
 
 use super::{ServiceReport, ServiceState, Services};
@@ -40,6 +40,13 @@ fn unit_dir(s: &Services<'_>) -> Result<PathBuf> {
 pub fn files(s: &Services<'_>) -> Result<Vec<(PathBuf, String)>> {
     let dir = unit_dir(s)?;
     let layout = s.layout;
+    if let Some(host) = &s.session {
+        if system(s) {
+            return Err(Error::rejected("the session service runs as your own user, not --system"));
+        }
+        let unit = systemd_session_unit(layout, &host.binary, &host.session).map_err(unit_error)?;
+        return Ok(vec![(dir.join(SYSTEMD_UNIT), unit)]);
+    }
     if !system(s) {
         return Ok(vec![(dir.join(SYSTEMD_UNIT), systemd_user_unit(layout).map_err(unit_error)?)]);
     }
@@ -62,6 +69,307 @@ fn systemctl(s: &Services<'_>) -> Cmd {
         cmd = cmd.env("XDG_RUNTIME_DIR", format!("/run/user/{}", s.uid));
     }
     cmd
+}
+
+/// Asks systemd, for each unit file of the layout, where it loads that unit
+/// from. Fine: systemd does not know the unit, or loads it from the file
+/// cmux writes. An error (nothing changes) for anything else: another file
+/// (a package's, `/etc`, a mask), a transient or generated unit, or no
+/// answer, since cmux cannot tell then whose unit it would stop or replace.
+/// Templates (`@.service`) cannot be asked and are checked as files only.
+pub fn check_sources(s: &Services<'_>) -> Result<()> {
+    for (path, _) in files(s)? {
+        check_unit(s, &path)?;
+    }
+    if system(s) {
+        app_instances(s)?;
+    }
+    Ok(())
+}
+
+/// [`check_sources`] for the one unit file `path`.
+fn check_unit(s: &Services<'_>, path: &Path) -> Result<()> {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else { return Ok(()) };
+    if name.contains("@.") {
+        return Ok(());
+    }
+    let cmd = systemctl(s).args([
+        "show",
+        "--property=LoadState,FragmentPath,Transient,DropInPaths",
+        name,
+    ]);
+    let cannot = |why: String| {
+        Error::rejected(format!(
+            "cmux cannot tell where systemd loads {name} from ({why}), so it changes nothing. Make sure `{}` works in this shell (a login session, or XDG_RUNTIME_DIR=/run/user/{}), then run the command again",
+            cmd.display(),
+            s.uid
+        ))
+    };
+    let out = s.runner.run(&cmd).map_err(|e| cannot(e.to_string()))?;
+    if !out.ok() {
+        return Err(cannot(format!(
+            "it exited {}",
+            out.code.map_or("by a signal".to_owned(), |c| c.to_string())
+        )));
+    }
+    let text = out.stdout_text();
+    let field = |key: &str| {
+        text.lines()
+            .find_map(|l| l.strip_prefix(key).and_then(|v| v.strip_prefix('=')))
+            .map(str::trim)
+    };
+    let Some(state) = field("LoadState") else {
+        return Err(cannot("it did not say whether it knows the unit".to_owned()));
+    };
+    if state == "not-found" {
+        return Ok(());
+    }
+    let fragment = field("FragmentPath").unwrap_or("");
+    let refuse = |from: String| {
+        Error::rejected(format!(
+            "systemd {from}, not from {} (the file cmux writes), so cmux leaves {name}, and everything it may use, alone. Remove or disable that unit yourself, then run the command again",
+            path.display()
+        ))
+    };
+    if field("Transient") == Some("yes") || fragment.is_empty() {
+        return Err(refuse(format!(
+            "runs {name} as a transient or generated unit with no unit file (load state {state})"
+        )));
+    }
+    if Path::new(fragment) != path {
+        return Err(refuse(format!("loads {name} from {fragment} (load state {state})")));
+    }
+    // A drop-in changes what systemd runs and stops for the unit as much as
+    // the unit file does: each one, and its folder, must be writable by no
+    // other account.
+    for drop_in in field("DropInPaths").unwrap_or("").split_whitespace().map(Path::new) {
+        let what = format!("a drop-in for {name}");
+        super::check_not_shared(drop_in, &what)?;
+        if let Some(dir) = drop_in.parent() {
+            super::check_not_shared(dir, &format!("the folder of {what}"))?;
+        }
+    }
+    Ok(())
+}
+
+/// The app server instances (`cmux-app-server@*.service`) systemd knows,
+/// each checked to come from the template cmux writes: uninstall stops
+/// these, by name. A list systemd cannot give changes nothing.
+fn app_instances(s: &Services<'_>) -> Result<Vec<String>> {
+    let template = unit_dir(s)?.join(APP_TEMPLATE);
+    let list = systemctl(s).args([
+        "list-units",
+        "--all",
+        "--plain",
+        "--no-legend",
+        "--full",
+        APP_INSTANCES,
+    ]);
+    let out = s.runner.run(&list).map_err(|e| Error::io(list.display(), e))?;
+    if !out.ok() {
+        return Err(Error::rejected(format!(
+            "cmux cannot list the app server units (`{}` failed), so it changes nothing",
+            list.display()
+        )));
+    }
+    let mut units = Vec::new();
+    for unit in out.stdout_text().lines().filter_map(|l| l.split_whitespace().next()) {
+        if !unit.starts_with("cmux-app-server@")
+            || !unit.ends_with(".service")
+            || unit.contains('*')
+        {
+            continue;
+        }
+        check_instance(s, unit, &template)?;
+        units.push(unit.to_owned());
+    }
+    Ok(units)
+}
+
+/// Refuses the app server instance `unit` unless systemd loads it from
+/// `template`, the template cmux writes.
+fn check_instance(s: &Services<'_>, unit: &str, template: &Path) -> Result<()> {
+    let show = systemctl(s).args(["show", "--property=FragmentPath", "--value", unit]);
+    let out = s.runner.run(&show).map_err(|e| Error::io(show.display(), e))?;
+    let fragment = out.stdout_text();
+    if !out.ok() || Path::new(fragment.trim()) != template {
+        return Err(Error::rejected(format!(
+            "systemd runs {unit} from {}, not from {} (the template cmux writes), so cmux leaves it, and everything it may use, alone",
+            if fragment.trim().is_empty() { "no unit file" } else { fragment.trim() },
+            template.display()
+        )));
+    }
+    Ok(())
+}
+
+/// What uninstall says when a check before a stop refuses: the units
+/// checked before were stopped, nothing was removed.
+const STOPPED_ONLY_CHECKED: &str =
+    "cmux stopped only the units it had checked before this one, and removed nothing";
+
+/// Runs `stop`, a command that stops `unit` by name, right between two
+/// checks that systemd loads `unit` from the file cmux writes (`check`),
+/// so no earlier answer stands in for the unit it stops (Codex R-005).
+/// With `stopped`, the unit must also be stopped after it (an
+/// `ActiveState` of inactive or failed): a stop that failed must not let
+/// uninstall remove what the unit still uses.
+///
+/// systemd has no stop bound to a unit file (D-Bus `StopUnit` takes a name
+/// only), so a gap of one command remains between the check and the stop.
+/// Only root or this same account can change what a name loads in it, and
+/// the check after the stop finds such a change only when it is still in
+/// place then. When it finds one, uninstall removes nothing and says what
+/// cmux may have stopped.
+fn stop_checked(
+    s: &Services<'_>,
+    unit: &str,
+    check: &dyn Fn() -> Result<()>,
+    stop: &Cmd,
+    stopped: bool,
+) -> Result<()> {
+    check().map_err(|e| super::outcome(e, STOPPED_ONLY_CHECKED))?;
+    let _ = s.runner.run(stop);
+    check().map_err(|e| {
+        super::outcome(
+            e,
+            &format!(
+                "that changed while cmux stopped {unit} by name, so cmux may have stopped that unit: start it again if it should run (`{}`). cmux removed nothing",
+                systemctl(s).args(["start", unit]).display()
+            ),
+        )
+    })?;
+    if stopped {
+        check_stopped(s, unit)?;
+    }
+    Ok(())
+}
+
+/// How long [`check_stopped`] waits for the processes a kill signalled to
+/// end: 50 polls of 100 ms.
+const PROCESS_WAIT_POLLS: u32 = 50;
+const PROCESS_WAIT_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// Refuses unless systemd says `unit` is stopped (inactive or failed; a
+/// unit systemd does not know is inactive). Any other state, or no answer,
+/// means its processes may still run.
+fn check_stopped(s: &Services<'_>, unit: &str) -> Result<()> {
+    let cmd = systemctl(s).args(["show", "--property=ActiveState", "--value", unit]);
+    let out = s.runner.run(&cmd).map_err(|e| Error::io(cmd.display(), e))?;
+    let state = out.stdout_text();
+    let state = state.trim();
+    if !(out.ok() && matches!(state, "inactive" | "failed")) {
+        return Err(Error::rejected(format!(
+            "{unit} did not stop (`{}` says {}), so cmux removed nothing it may still use. Stop it (`{}`), then run the command again",
+            cmd.display(),
+            if state.is_empty() { "nothing" } else { state },
+            systemctl(s).args(["stop", unit]).display()
+        )));
+    }
+    // An inactive unit can keep processes: `KillMode=process` stops only
+    // the main one, and the kill that ends the rest may have failed. That
+    // kill does not wait, so give the processes it signalled a moment to
+    // end (systemd 255: the group empties within milliseconds).
+    let mut left = processes_left(s, unit)?;
+    for _ in 0..PROCESS_WAIT_POLLS {
+        if left.is_none() {
+            break;
+        }
+        std::thread::sleep(PROCESS_WAIT_POLL);
+        left = processes_left(s, unit)?;
+    }
+    if let Some(left) = left {
+        return Err(Error::rejected(format!(
+            "{left} of {unit} still run after it stopped, so cmux removed nothing they may use. End them (`{}`), then run the command again",
+            systemctl(s).args(["kill", "--kill-whom=all", unit]).display()
+        )));
+    }
+    Ok(())
+}
+
+/// How many processes are left in `unit`'s control group (`Some("3
+/// processes")`), or None when there are none. systemd's own count
+/// (`TasksCurrent`) when it keeps one; else the group's `cgroup.procs`
+/// (the unified cgroup v2 mount, else the v1 `systemd` hierarchy), where a
+/// group that is gone from a mounted hierarchy has none. Anything cmux
+/// cannot read is an error, never "none": uninstall must not remove what
+/// running processes may use.
+fn processes_left(s: &Services<'_>, unit: &str) -> Result<Option<String>> {
+    let cmd = systemctl(s).args(["show", "--property=ControlGroup,TasksCurrent", unit]);
+    let cannot = |why: String| {
+        Error::rejected(format!(
+            "cmux cannot tell whether processes of {unit} still run ({why}), so it removed nothing they may use. Check `{}`, then run the command again",
+            systemctl(s).args(["status", unit]).display()
+        ))
+    };
+    let out = s.runner.run(&cmd).map_err(|e| cannot(e.to_string()))?;
+    if !out.ok() {
+        return Err(cannot(format!(
+            "`{}` exited {}",
+            cmd.display(),
+            out.code.map_or("by a signal".to_owned(), |c| c.to_string())
+        )));
+    }
+    let text = out.stdout_text();
+    let field = |key: &str| {
+        text.lines()
+            .find_map(|l| l.strip_prefix(key).and_then(|v| v.strip_prefix('=')))
+            .map(str::trim)
+    };
+    let Some(group) = field("ControlGroup") else {
+        return Err(cannot(format!("`{}` did not name its control group", cmd.display())));
+    };
+    if group.is_empty() {
+        return Ok(None);
+    }
+    // u64::MAX or `[not set]`: systemd keeps no count for this unit.
+    if let Some(Ok(tasks)) = field("TasksCurrent").map(str::parse::<u64>)
+        && tasks != u64::MAX
+    {
+        return Ok((tasks > 0).then(|| format!("{tasks} processes")));
+    }
+    let roots = CGROUP_ROOTS.map(|(root, marker)| (Path::new(root), marker));
+    match procs_in(&roots, group) {
+        Ok(Some(n)) => Ok(Some(format!("{n} processes"))),
+        Ok(None) => Ok(None),
+        Err(why) => Err(cannot(why)),
+    }
+}
+
+/// Where cgroup hierarchies are mounted, each with a file only that
+/// hierarchy's root has: the unified v2 mount, the hybrid layout's v2
+/// mount, and the v1 `name=systemd` hierarchy that tracks units there.
+const CGROUP_ROOTS: [(&str, &str); 3] = [
+    ("/sys/fs/cgroup", "cgroup.controllers"),
+    ("/sys/fs/cgroup/unified", "cgroup.controllers"),
+    ("/sys/fs/cgroup/systemd", "cgroup.procs"),
+];
+
+/// The processes in the control group `group` under every mounted
+/// hierarchy of `roots` (`(root, marker)`), the most any one lists: a
+/// hybrid layout tracks units in v1 while v2 may list none. None only when
+/// every mounted hierarchy has the group gone or empty. An error (why)
+/// when none is mounted or a list cannot be read.
+fn procs_in(roots: &[(&Path, &str)], group: &str) -> std::result::Result<Option<usize>, String> {
+    let relative = group.trim_start_matches('/');
+    let (mut mounted, mut most) = (false, 0);
+    for (root, marker) in roots {
+        if !root.join(marker).exists() {
+            continue;
+        }
+        mounted = true;
+        let procs = root.join(relative).join("cgroup.procs");
+        match std::fs::read_to_string(&procs) {
+            Ok(list) => most = most.max(list.lines().filter(|l| !l.trim().is_empty()).count()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("{}: {e}", procs.display())),
+        }
+    }
+    if !mounted {
+        return Err(format!(
+            "systemd keeps no count for {group} and no cgroup hierarchy is mounted"
+        ));
+    }
+    Ok((most > 0).then_some(most))
 }
 
 /// `loginctl show-user <user> -p Linger --value`: `Some(true)` for `yes`,
@@ -133,8 +441,14 @@ pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
         }
         report.changed |= fsx::write_if_changed(path, text.as_bytes(), 0o644)?;
     }
+    s.wrote(&files)?;
     if !system(s) {
-        ensure_linger(s, &mut report);
+        if s.linger {
+            ensure_linger(s, &mut report);
+        } else {
+            // `install --user`: linger stays as it is.
+            report.linger = linger_state(s.runner, &s.user);
+        }
     }
     let ctl = systemctl(s);
     if report.changed {
@@ -179,31 +493,40 @@ pub fn stop(s: &Services<'_>) -> Result<()> {
 
 pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
     let ctl = systemctl(s);
+    let dir = unit_dir(s)?;
+    let unit_check = |unit: &'static str| {
+        let path = dir.join(unit);
+        move || check_unit(s, &path)
+    };
     // KillMode=process leaves terminal hosts after a stop by design;
     // uninstall ends every process of the unit first.
-    let _ = s.runner.run(&ctl.clone().args(["kill", "--kill-whom=all", SYSTEMD_UNIT]));
+    // (The unit may restart after a kill: `disable --now` below stops it.)
+    let kill = ctl.clone().args(["kill", "--kill-whom=all", SYSTEMD_UNIT]);
+    stop_checked(s, SYSTEMD_UNIT, &unit_check(SYSTEMD_UNIT), &kill, false)?;
     let mut units = vec![SYSTEMD_UNIT];
     if system(s) {
         units.extend([UPDATE_PATH, UPDATE_SERVICE]);
     }
     // One unit per call: systemctl aborts the whole call on a missing unit.
     for unit in units {
-        let _ = s.runner.run(&ctl.clone().args(["disable", "--now", unit]));
+        let disable = ctl.clone().args(["disable", "--now", unit]);
+        stop_checked(s, unit, &unit_check(unit), &disable, true)?;
     }
     if system(s) {
-        // Every app server instance stops before its template is removed;
-        // systemctl expands the pattern itself (literal argv, no shell).
-        let _ = s.runner.run(&ctl.clone().args(["stop", APP_INSTANCES]));
-    }
-    let mut removed = Vec::new();
-    for (path, _) in files(s)? {
-        if fsx::exists_no_follow(&path) {
-            fsx::remove_tree(&path)?;
-            removed.push(path);
+        // Every app server instance stops before its template is removed.
+        // Listed once the supervisor is down (so one it started meanwhile
+        // is in the list), then each checked again right before and after
+        // its own stop, by name, never by a pattern.
+        let template = dir.join(APP_TEMPLATE);
+        let instances = app_instances(s).map_err(|e| super::outcome(e, STOPPED_ONLY_CHECKED))?;
+        for unit in instances {
+            let check = || check_instance(s, &unit, &template);
+            stop_checked(s, &unit, &check, &ctl.clone().args(["stop", unit.as_str()]), true)?;
         }
     }
+    let removed = s.remove_unit_files();
     let _ = s.runner.run(&ctl.arg("daemon-reload"));
-    Ok(removed)
+    removed
 }
 
 pub fn state(s: &Services<'_>) -> ServiceState {
@@ -216,5 +539,52 @@ pub fn state(s: &Services<'_>) -> ServiceState {
         installed,
         active: query("is-active", "active"),
         enabled: query("is-enabled", "enabled"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::procs_in;
+
+    /// `root` as a mounted hierarchy (its marker file) with `group`'s
+    /// `cgroup.procs` listing `pids` (no file when None).
+    fn hierarchy(root: &Path, marker: &str, group: &str, pids: Option<&str>) {
+        std::fs::create_dir_all(root).unwrap();
+        std::fs::write(root.join(marker), "").unwrap();
+        if let Some(pids) = pids {
+            let dir = root.join(group);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("cgroup.procs"), pids).unwrap();
+        }
+    }
+
+    /// Hybrid layout: the v2 mount has no processes of the unit, the v1
+    /// `systemd` hierarchy (where systemd tracks them) has two. They count.
+    #[test]
+    fn every_mounted_hierarchy_is_read() {
+        let tmp = tempfile::tempdir().unwrap();
+        let group = "user.slice/app.slice/cmux-server.service";
+        let (unified, systemd) = (tmp.path().join("unified"), tmp.path().join("systemd"));
+        hierarchy(&unified, "cgroup.controllers", group, Some(""));
+        hierarchy(&systemd, "cgroup.procs", group, Some("41\n42\n"));
+        let roots =
+            [(unified.as_path(), "cgroup.controllers"), (systemd.as_path(), "cgroup.procs")];
+        assert_eq!(procs_in(&roots, group), Ok(Some(2)));
+        // Gone from one hierarchy, still listed in the other.
+        std::fs::remove_dir_all(unified.join(group)).unwrap();
+        assert_eq!(procs_in(&roots, group), Ok(Some(2)));
+        // Gone from both: none left.
+        std::fs::remove_dir_all(systemd.join(group)).unwrap();
+        assert_eq!(procs_in(&roots, group), Ok(None));
+    }
+
+    /// No hierarchy mounted: cmux cannot tell, which is never "none".
+    #[test]
+    fn no_mounted_hierarchy_is_an_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let roots = [(tmp.path(), "cgroup.controllers")];
+        assert!(procs_in(&roots, "/a.service").is_err());
     }
 }
