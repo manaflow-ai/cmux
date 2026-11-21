@@ -22,4 +22,10 @@ struct CEFPageGestureTests {
         tracker.record(.keyDown, on: 7, button: 0, flags: [], timestamp: 3, byPerson: false)
         #expect(gestures == [7, 7, 7])
     }
+
+    @Test func aMiddleMouseUpRecordsTheMiddleLinkGesture() {
+        let tracker = CEFLinkClickTracker()
+        tracker.record(.otherMouseUp, on: 7, button: 2, flags: [], timestamp: 1, byPerson: false)
+        #expect(tracker.clicks[7]?.gesture == .middle)
+    }
 }

@@ -32,6 +32,8 @@ enum AgentPanePageHost {
         // The composer menu's edits run as the page view's own responder actions.
         provider.onEdit = { [weak page] command in page?.performEdit(command.selector) }
         if let page { chatRows.watch(page) }
+        // App health names a stuck chat by its tab's title and workspace.
+        page?.healthTabKey = { [weak provider] in provider?.tabKey() }
         return page
     }
 
@@ -47,6 +49,7 @@ enum AgentPanePageHost {
         }
         events.append(.shortcuts(view.shortcuts))
         events.append(.preview(view.previewFeatures))
+        events.append(.liveTree(view.liveTree))
         events.append(.sessionStatus(view.sessionStatus))
         events.append(AgentPaneSuggestedTasks.shared.event(for: view))
         events.append(view.model.remoteControl?.event(for: view) ?? AgentPaneRemoteControl.event(nil))

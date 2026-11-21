@@ -19,6 +19,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var rowColor: GroupColor?
     /// How `rowColor` draws: `.leftRail` or `.fill` (`.dot` draws it as the icon instead).
     public var colorStyle: WorkspaceColorIndicatorStyle = .dot
+    /// How a `.leftRail` row draws `rowColor`: its bar, wash and title tint (``WorkspaceRailLook/standard`` in the app).
+    public var railLook = WorkspaceRailLook.standard
     /// The second line: the shown second-line elements in order, joined.
     public var detail: String?
     /// The tab count, when that element is on.

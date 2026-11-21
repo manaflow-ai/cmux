@@ -34,7 +34,11 @@
 //               reopen          the page is built in the warm renderer (one renderer per site, another chat page open
 //                               in it, as the app's other chats are), served the copy its hide wrote and the kept tail;
 //               reopen-no-copy  the same with no copy and no tail: a page built from nothing.
-//             Not in MODE=all: MODE=reopen (or reopen-no-copy) runs them; the rounds' p50 and p95 are printed too.
+//               reopen-spare    the prewarmed spare page (a connected New Tab page in the warm renderer) takes the
+//                               chat (AgentPaneView.adoptSession's `acpmux-session-adopt`, carrying the kept tail and
+//                               the place); timed from that event, not from the spare's own load.
+//             Not in MODE=all: MODE=reopen (or reopen-no-copy, reopen-spare) runs one; MODE=reopen-both runs reopen
+//             and reopen-no-copy, MODE=reopen-all all three; the rounds' p50 and p95 are printed too.
 //             refused and refused-no-copy are not in MODE=all either: MODE=refused, refused-no-copy or nightly.
 // What a NIGHTLY restart has that the default rounds do not (Leo, 2026-11-16, cosmic-gray: "the chat appeared
 // in 3 seconds and then it said something went wrong with a retry button just above the composer ... and then
@@ -79,21 +83,30 @@ import { perfRow } from "./perfRow";
 import { newestPage } from "./daemonPage";
 
 const MODES_ALL = ["down", "slow-init", "native-ready", "native-ready-tail"] as const;
-const REOPEN_MODES = ["reopen", "reopen-no-copy"] as const;
+const REOPEN_MODES = ["reopen", "reopen-no-copy", "reopen-spare"] as const;
 const REFUSED_MODES = ["refused", "refused-no-copy"] as const;
 type Mode = (typeof MODES_ALL)[number] | (typeof REOPEN_MODES)[number] | (typeof REFUSED_MODES)[number];
 const MODE = process.env.MODE ?? "all";
 const NIGHTLY_MODES: readonly Mode[] = ["down", ...REFUSED_MODES];
-const NAMED: readonly string[] = [...MODES_ALL, ...REOPEN_MODES, ...REFUSED_MODES, "reopen-both", "nightly"];
+const NAMED: readonly string[] = [
+  ...MODES_ALL,
+  ...REOPEN_MODES,
+  ...REFUSED_MODES,
+  "reopen-both",
+  "reopen-all",
+  "nightly",
+];
 if (MODE !== "all" && !NAMED.includes(MODE)) throw new Error(`MODE must be all, ${NAMED.join(" or ")}`);
 const MODES: readonly Mode[] =
   MODE === "all"
     ? MODES_ALL
     : MODE === "reopen-both"
-      ? REOPEN_MODES
-      : MODE === "nightly"
-        ? NIGHTLY_MODES
-        : [MODE as Mode];
+      ? ["reopen", "reopen-no-copy"]
+      : MODE === "reopen-all"
+        ? REOPEN_MODES
+        : MODE === "nightly"
+          ? NIGHTLY_MODES
+          : [MODE as Mode];
 const isRefused = (mode: Mode) => (REFUSED_MODES as readonly string[]).includes(mode);
 const isReopen = (mode: Mode) => (REOPEN_MODES as readonly string[]).includes(mode);
 const ROUNDS = Number(process.env.ROUNDS ?? 3);
@@ -503,7 +516,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
   };
   window.cmuxAfterPaint(() => {
     if (stopped) return false;
-    if (performance.now() > windowMs) {
+    if (performance.now() > ((window as unknown as { __firstLoadUntil?: number }).__firstLoadUntil ?? windowMs)) {
       recording.stop();
       return false;
     }
@@ -563,6 +576,9 @@ try {
   let downUntil = 0;
   /// This relaunch's socket timeline (epoch ms).
   let load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0 };
+  /// TRACE: the daemon calls a spare page made before its adopt event.
+  const spareCalls: string[] = [];
+  let servingSpare = false;
   const delayedReplies = new Set<ReturnType<typeof setTimeout>>();
   const daemon = Bun.serve({
     port: 0,
@@ -582,6 +598,10 @@ try {
       message(ws, raw) {
         const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
         if (message.id === undefined) return;
+        if (servingSpare)
+          spareCalls.push(
+            `${message.method}${message.params?.sessionId ? ` ${String(message.params.sessionId)}` : ""}`,
+          );
         const result = answer(message.method, message.params);
         const reply = () => {
           if (message.method === "initialize") load.initializeAnsweredAt ||= Date.now();
@@ -722,6 +742,8 @@ try {
       if (pathname === "/" || pathname === "/index.html")
         return new Response(index, { headers: { "Content-Type": "text/html", "Cache-Control": "no-store" } });
       // As the page host answers it (AgentPageResources.swift): the globals, then the boot if it ran first.
+      if (pathname === "/__snapshot/chat.js" && servingSpare)
+        return script(`self.${SNAPSHOT_GLOBAL}=null;self.${SNAPSHOT_THEME_GLOBAL}=${JSON.stringify(THEME)};`);
       if (pathname === "/__snapshot/chat.js")
         return script(
           `self.${SNAPSHOT_GLOBAL}=${JSON.stringify(servedCopy)};self.${SNAPSHOT_THEME_GLOBAL}=${JSON.stringify(THEME)};self.__cmuxRestoredChat=${JSON.stringify(PAPERCUT_CHAT)};self.dispatchEvent(new Event('cmux-restored-chat'));self.${SNAPSHOT_BOOT_GLOBAL}?.();`,
@@ -733,6 +755,8 @@ try {
   });
   releases.push(["static server", () => statics.stop(true)]);
   const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
+  /// The prewarmed spare: a New Tab page with no chat yet (dev-host `newtab`; `new`: a new chat, not the latest one).
+  const spareUrl = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&newtab&new`;
   const browser: Browser =
     ENGINE === "webkit"
       ? await webkit.launch({ headless: true })
@@ -868,7 +892,115 @@ try {
 
   /// The load after the restart: a cold context, the copy and the kept tail served, acpmux unavailable
   /// for DOWN_MS from navigation in `mode`.
-  const relaunch = async (mode: Mode, copy: ChatSnapshot): Promise<Round> => {
+  const relaunch = async (mode: Mode, copy: ChatSnapshot): Promise<Round> =>
+    mode === "reopen-spare" ? adoptSpare() : openPage(mode, copy);
+
+  /// MODE=reopen-spare: a spare New Tab page loads and settles in the warm renderer (as the app keeps one
+  /// prewarmed), then takes the chat with the event the host sends (AgentPaneView.adoptSession), carrying the
+  /// kept tail and the place (none kept: the newest message). Every number is ms from that event.
+  const adoptSpare = async (): Promise<Round> => {
+    if (!warmContext) throw new Error("reopen-spare needs the warm renderer");
+    const page = await warmContext.newPage();
+    servingSpare = true;
+    try {
+      if (CPU > 1) await (await warmContext.newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: CPU });
+      await page.setViewportSize(RELAUNCH_VIEWPORT);
+      await prepare(page, null, 600_000);
+      await page.goto(spareUrl);
+      await page.waitForFunction(
+        (quietMs) => {
+          const recording = (window as unknown as BenchWindow).__firstLoad;
+          // Settled once it told the host it drew (`pane.painted`, as the app's spare does before it parks) and
+          // nothing in view changed since.
+          const painted = (window as { cmuxDevPaintedAt?: number }).cmuxDevPaintedAt;
+          return painted !== undefined && performance.now() - Math.max(painted, recording.changedAt) > quietMs;
+        },
+        SETTLE_QUIET_MS,
+        { timeout: 120_000, polling: 100 },
+      );
+      if (TRACE) console.log(`reopen-spare daemon calls before its adopt event: ${spareCalls.splice(0).join(", ")}`);
+      if (TRACE)
+        console.log(
+          `reopen-spare before its adopt event: ${JSON.stringify(
+            await page.evaluate(() => ({
+              rows: document.querySelectorAll(".acpmux-row[data-row-id]").length,
+              liveLatestAt: (window as unknown as BenchWindow).__firstLoad.liveLatestAt,
+              now: performance.now(),
+              text: (document.getElementById("root")?.textContent ?? "").replace(/\s+/g, " ").slice(0, 160),
+            })),
+          )}`,
+        );
+      const start = await page.evaluate(
+        ({ session, tail, recordMs }) => {
+          const w = window as unknown as BenchWindow & { __firstLoadUntil?: number };
+          const at = performance.now();
+          const shift = w.__firstLoad.layoutShift;
+          w.__firstLoadUntil = at + recordMs;
+          window.dispatchEvent(
+            new CustomEvent("acpmux-session-adopt", { detail: { sessionId: session, tail, scrollAnchor: null } }),
+          );
+          return { at, shift };
+        },
+        { session: PAPERCUT_CHAT, tail: keptTail, recordMs: RECORD_MS },
+      );
+      await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
+        timeout: RECORD_MS + 60_000,
+        polling: 250,
+      });
+      const got = await page.evaluate(() => {
+        const w = window as unknown as BenchWindow;
+        return {
+          frames: w.__firstLoad.frames,
+          layoutShift: w.__firstLoad.layoutShift,
+          layoutShifts: w.__firstLoad.shifts,
+          live: w.__firstLoad.liveLatestAt,
+        };
+      });
+      if (TRACE)
+        console.log(
+          `reopen-spare rows in view at the end:\n  ${(
+            await page.evaluate(() =>
+              Array.from(document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))
+                .slice(-14)
+                .map(
+                  (row) =>
+                    `${row.dataset.rowId} ${row.getBoundingClientRect().top.toFixed(0)}+${row.getBoundingClientRect().height.toFixed(0)} "${(row.textContent ?? "").trim().slice(0, 60)}"`,
+                ),
+            )
+          ).join("\n  ")}`,
+        );
+      const frames = got.frames
+        .filter((frame) => frame.t >= start.at)
+        .map((frame) => ({ ...frame, t: frame.t - start.at }));
+      return {
+        mode: "reopen-spare",
+        metrics: classifyFrames(frames),
+        frames,
+        liveLatestMs: got.live > start.at ? got.live - start.at : null,
+        layoutShift: got.layoutShift - start.shift,
+        layoutShifts: got.layoutShifts
+          .filter((shift) => shift.at >= start.at)
+          .map((shift) => ({ ...shift, at: shift.at - start.at })),
+        copyShownMs: null,
+        swapMs: null,
+        copyMiss: "none: the spare draws the carried tail",
+        tailAskedMs: null,
+        readyAnsweredMs: null,
+        acpmuxUpMs: 0,
+        refused: 0,
+        socketOpenedMs: null,
+        initializeAnsweredMs: null,
+        attachAnsweredMs: null,
+        asks: 0,
+        lastAskMs: null,
+      };
+    } finally {
+      servingSpare = false;
+      await page.close();
+    }
+  };
+
+  const openPage = async (mode: Mode, copy: ChatSnapshot): Promise<Round> => {
     servedCopy = ["native-ready-tail", "reopen-no-copy", "refused-no-copy"].includes(mode) ? null : copy;
     // A reopen builds its page in the warm renderer; a relaunch in a cold context.
     const context =
