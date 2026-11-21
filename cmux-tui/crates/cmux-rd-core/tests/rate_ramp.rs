@@ -289,7 +289,8 @@ fn send_stage_at_budget_and_over_budget() {
     for (fps, fill) in [(60, 1.0), (60, 2.0), (30, 1.0), (30, 0.3)] {
         let mut sim = Sim::new(PathKind::DirectLan, 500, fps);
         sim.run(WIRED, Scene::Motion { fill }, 6_000_000);
-        let (_, _, send) = report(&format!("send, {fps} fps, frame {fill}x budget"), &sim, 2_000_000);
+        let (_, _, send) =
+            report(&format!("send, {fps} fps, frame {fill}x budget"), &sim, 2_000_000);
         rows.push((fps, fill, send.0));
     }
     // Printed for the record; the 60 fps at-budget row is the goal's case.
