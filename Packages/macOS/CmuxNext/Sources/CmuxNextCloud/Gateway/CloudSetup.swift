@@ -6,6 +6,7 @@ import os
 /// A personal one (`_acpmux/connections` on this Mac, served straight to the machine) or the
 /// organization's shared key serving the picker's family starts the chat with no prompt; none shows
 /// the chat's Set up Cloud card, which starts the chat by itself once one appears (``waitUntilServed(family:)``).
+/// With none of those, a team in inference gateway mode whose gateway is online (``gateway``) serves the chat too.
 ///
 /// What it reads and how it connects are seams the App fills (``read``, ``run``): the Settings >
 /// Models ops own the connections; this holds only the rule and the wait. Every change to the
@@ -68,7 +69,7 @@ public final class CloudSetup {
         /// Whether a connection serves `family`; nil when this Mac's connections were not read.
         public func serves(_ family: String) -> Bool? {
             switch choice(family: family, model: nil, account: nil) {
-            case .connection, .organization: true
+            case .connection, .organization, .gateway: true
             case .setup: false
             case .fallback: nil
             }
@@ -82,6 +83,9 @@ public final class CloudSetup {
         case connection(id: String, family: String)
         /// The organization's shared key for `family`, which the platform edge serves; nothing to send.
         case organization(family: String)
+        /// The active team's inference gateway, in gateway mode and online, serves `family` (``gateway``): the machine's
+        /// agent reaches it through the edge, so nothing is sent (hq#15762).
+        case gateway(family: String)
         /// Nothing serves `family`: the chat shows Set up Cloud naming `model`, and nothing starts.
         case setup(family: String, model: String?)
         /// Nothing to choose (an agent Cloud does not serve, or connections that could not be read):
@@ -137,6 +141,9 @@ public final class CloudSetup {
 
     /// Reads what serves Cloud now; nil leaves every start as it was.
     public var read: (@MainActor () async -> Snapshot)?
+    /// The families the active team's inference gateway serves now (`cmux inference gateway status`'s `serves`), nil
+    /// when unread. Read only when nothing else serves the chat, so a start that has a connection pays nothing for it.
+    public var gateway: (@MainActor () async -> Set<String>?)?
     /// Runs one of the card's ways in (Settings > Models' `cmux.settings.models.run` actions
     /// `connectChatGPT`, `claudeSetupToken`; `addKey` and `openSettings` open Settings > Models).
     public var run: (@MainActor (Action) async -> Void)?
@@ -177,7 +184,14 @@ public final class CloudSetup {
     /// sends it with the agent launch; ``Choice/setup(family:model:)`` shows the card instead.
     public func choose(harness: String?, model: String?, account: String?) async -> Choice {
         guard let family = Self.family(of: harness), let read else { return .fallback }
-        return await routed(read()).choice(family: family, model: model, account: account)
+        let choice = await routed(read()).choice(family: family, model: model, account: account)
+        guard case .setup = choice, await gatewayServes(family) else { return choice }
+        return .gateway(family: family)
+    }
+
+    /// Whether the active team's gateway serves `family` now (``gateway``); false when it is unread.
+    private func gatewayServes(_ family: String) async -> Bool {
+        await gateway?()?.contains(family) == true
     }
 
     /// The families whose organization shared key a start found unrouted (``organizationUnrouted(_:)``).
@@ -231,6 +245,7 @@ public final class CloudSetup {
         guard !Task.isCancelled else { return false }
         let seen = changes
         if await routed(read()).serves(family) != false { return true }
+        if await gatewayServes(family) { return true }
         if changes == seen { await nextChange() } // else it changed while it read: read again now
         return await waitUntilServed(family: family)
     }
