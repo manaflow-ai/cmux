@@ -112,6 +112,8 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
 }
 #endif
 struct ClaudeHookSessionRecord: Codable {
+    /// Native daemon viewers admitted by their acknowledged attach connections.
+    var claudeAttachedViewers: [ClaudeAttachedViewer]? = nil
     /// Restart-stable panel identity carried by the managed terminal environment.
     /// Runtime surface IDs are re-minted when a session is restored.
     var stableSurfaceId: String? = nil
@@ -306,6 +308,26 @@ struct ClaudeHookSessionRecord: Codable {
     /// correlation remains disabled for this session; re-enabling it after
     /// eviction would let an old delayed callback consume a newer approval.
     var cursorShellCommandOnlyCorrelationDisabled: Bool? = nil
+    /// The worker's own route before the first viewer admission. Restored when
+    /// the last viewer detaches so the worker's hooks keep a live pane.
+    var claudeViewerOriginalRoute: ClaudeViewerOriginalRoute? = nil
+    /// The earliest pane slots seen before any viewer admission, keyed by
+    /// surface/workspace. A later admission on the same pane stores the
+    /// worker's own slot, so only the first snapshot may be restored.
+    var claudeViewerOriginalSurfaceSlots: [String: ClaudeViewerActiveSessionSnapshot]? = nil
+    var claudeViewerOriginalWorkspaceSlots: [String: ClaudeViewerActiveSessionSnapshot]? = nil
+    /// The viewer surface currently written into this record's route. A
+    /// detach restores the original route only while this still matches.
+    var claudeViewerRouteSurfaceId: String? = nil
+}
+
+/// A worker session's route and process generation before viewer admission.
+struct ClaudeViewerOriginalRoute: Codable, Equatable {
+    var workspaceId: String
+    var surfaceId: String
+    var pid: Int?
+    var pidStartSeconds: Int64?
+    var pidStartMicroseconds: Int64?
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {
@@ -2943,10 +2965,21 @@ final class ClaudeHookSessionStore {
             // misroutes from older builds could register a session as active for an
             // unrelated tab or pane, stealing its notifications (isCurrent trusts the
             // surface slot first) and suppressing that pane's own session.
-            return normalizeOptional(record.workspaceId) == workspaceId
+            if normalizeOptional(record.workspaceId) == workspaceId { return true }
+            // A worker can be attached from several panes. The record route
+            // names the newest viewer, but each live lease still owns its pane;
+            // pruning the older pane's slot would prevent detach from restoring
+            // the pre-attach owner. Only leases of this same session qualify.
+            return (record.claudeAttachedViewers ?? []).contains {
+                $0.workspaceID == workspaceId && $0.worker.isAlive && $0.viewer.isAlive
+            }
         }
         state.activeSessionsBySurface = state.activeSessionsBySurface.filter { surfaceId, active in
-            active.updatedAt >= cutoff && normalizeOptional(state.sessions[active.sessionId]?.surfaceId) == surfaceId
+            guard active.updatedAt >= cutoff, let record = state.sessions[active.sessionId] else { return false }
+            if normalizeOptional(record.surfaceId) == surfaceId { return true }
+            return (record.claudeAttachedViewers ?? []).contains {
+                $0.surfaceID == surfaceId && $0.worker.isAlive && $0.viewer.isAlive
+            }
         }
     }
 
@@ -6459,6 +6492,16 @@ struct CMUXCLI {
             idFormatArg = parsedIDFormat
         }
         let commandArgs = presentationOptions.remaining
+        if command == "__process-generation" {
+            // Producer-side helper: never resolve or connect a socket. Spooled
+            // hooks must keep a verifiable identity while the app is offline.
+            guard let rawPID = commandArgs.first, let pid = Int(rawPID),
+                  pid > 1, let identity = ClaudeViewerProcessIdentity(pid: pid) else {
+                exit(1)
+            }
+            print("\(identity.seconds) \(identity.microseconds)")
+            return
+        }
         if try runGuideCommand(command: command, commandArgs: commandArgs, jsonOutput: jsonOutput) {
             return
         }
@@ -9799,6 +9842,9 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 windowOverride: windowId
             )
+        case "__claude-viewer":
+            guard try runClaudeViewerHook(commandArgs: commandArgs, client: client) else { exit(1) }
+
         case "claude-hook":
             cliTelemetry.breadcrumb("claude-hook.dispatch")
             do {
@@ -31323,7 +31369,8 @@ struct CMUXCLI {
         commandArgs: [String],
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry,
-        socketPassword: String? = nil
+        socketPassword: String? = nil,
+        rawInputOverride: String? = nil
     ) throws {
         let env = ProcessInfo.processInfo.environment
         let subcommand = commandArgs.first?.lowercased() ?? "help"
@@ -31332,21 +31379,19 @@ struct CMUXCLI {
         let hookSurfaceFlag = optionValue(hookArgs, name: "--surface")
         let preferCallerTTYRouting = hookWsFlag == nil && hookSurfaceFlag == nil
         let relayOrigin = env[agentHookRelayOriginEnvironmentKey] == "1"
+        let routeSnapshotValue = env[Self.agentHookRouteSnapshotEnvironmentKey]
         let routeWasSnapshotted =
-            env[Self.agentHookRouteSnapshotEnvironmentKey] == "1"
+            routeSnapshotValue == "1" || AgentHookDeliveryPolicy.isViewerSnapshot(routeSnapshotValue)
+        let viewerSnapshot = AgentHookDeliveryPolicy.isViewerSnapshot(routeSnapshotValue)
         let snapshottedRoute = routeWasSnapshotted
             ? admittedAgentHookRouteSnapshot(
                 environment: env,
                 client: client
             )
             : nil
-        let workspaceArg = hookWsFlag
-            ?? snapshottedRoute?.workspaceId
-            ?? env["CMUX_WORKSPACE_ID"]
-        let surfaceArg = hookSurfaceFlag
-            ?? (hookWsFlag == nil
-                ? snapshottedRoute?.surfaceId ?? env["CMUX_SURFACE_ID"]
-                : nil)
+        let rawInput = rawInputOverride
+            ?? String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         // Queued replay may run after the admitted process exits and its PID is
         // recycled. The immutable surface snapshot remains valid across that
         // delay; process/TTY identity does not. Keep the observed PID for
@@ -31355,6 +31400,36 @@ struct CMUXCLI {
         let liveProcessIdentityAllowed = !relayOrigin && !routeWasSnapshotted
         let observedHookAgentPID = claudeAgentPID(from: env)
         let liveHookAgentPID = liveProcessIdentityAllowed ? observedHookAgentPID : nil
+        // Direct hooks can inherit a dead exported PID from a detached worker.
+        // Resolve the live invoking agent before the viewer lookup, while the
+        // exported identity still drives caller-TTY routing below.
+        let viewerLookupPID = liveProcessIdentityAllowed
+            ? AgentHookDeliveryPolicy().hookAgentPID(
+                environmentPID: observedHookAgentPID,
+                invocationAgentPID: inferredAgentPID(),
+                controllingTerminal: controllingTerminalDevice(of:),
+                processIsAlive: { ClaudeViewerProcessIdentity(pid: $0) != nil }
+            )
+            : nil
+        // A validated viewer target is authoritative for this direct
+        // invocation. Carrying it explicitly avoids the mapped record
+        // workspace winning over the viewer's current workspace.
+        let viewerTarget: AgentHookDeliveryTarget? = {
+            guard preferCallerTTYRouting, liveProcessIdentityAllowed,
+                  let sessionID = parsedInput.sessionId,
+                  let workerPID = viewerLookupPID else { return nil }
+            return try? liveClaudeViewerTarget(
+                sessionID: sessionID, workerPID: workerPID, client: client)
+        }()
+        let workspaceArg = viewerTarget?.workspaceId
+            ?? hookWsFlag
+            ?? snapshottedRoute?.workspaceId
+            ?? env["CMUX_WORKSPACE_ID"]
+        let surfaceArg = viewerTarget?.surfaceId
+            ?? hookSurfaceFlag
+            ?? (hookWsFlag == nil
+                ? snapshottedRoute?.surfaceId ?? env["CMUX_SURFACE_ID"]
+                : nil)
         var callerTTYBindingCache: CallerTerminalBinding?
         var didResolveCallerTTYBinding = false
         func callerTTYBinding() -> CallerTerminalBinding? {
@@ -31396,11 +31471,13 @@ struct CMUXCLI {
             surfaceFlagIsExplicit: hookSurfaceFlag != nil,
             preferCallerTTYRouting: preferCallerTTYRouting,
             callerTerminalBinding: callerTTYBindingProvider,
-            agentPid: liveHookAgentPID
+            agentPid: liveHookAgentPID,
+            viewerSnapshot: viewerSnapshot,
+            trustedViewerTarget: viewerTarget.map {
+                CallerTerminalBinding(workspaceId: $0.workspaceId, surfaceId: $0.surfaceId)
+            }
         )
         hookRouting.allowsPidProbe = liveProcessIdentityAllowed
-        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let hookCwd = relayOrigin ? nil : parsedInput.cwd
         let hookTranscriptPath = relayOrigin ? nil : parsedInput.transcriptPath
         let sessionStore = ClaudeHookSessionStore()
