@@ -118,6 +118,75 @@ struct TerminalLocalImageTransferFileLifetimeTests {
         #expect(try Data(contentsOf: imageURL) == png)
     }
 
+    @Test(
+        "A promised Finder folder takes precedence over its icon preview",
+        arguments: [TerminalImageTransferMode.paste, .drop]
+    )
+    func promisedFinderFolderKeepsOriginal(mode: TerminalImageTransferMode) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-promised-folder-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let folder = directory.appendingPathComponent("Folder with spaces", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        let pasteboard = NSPasteboard(name: .init("cmux-promised-folder-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        let item = NSPasteboardItem()
+        #expect(item.setString(
+            folder.absoluteString,
+            forType: PasteboardFileURLReader.promisedFileURLPasteboardType
+        ))
+        // Finder publishes the folder icon as a secondary image representation.
+        let iconURL = try #require(Bundle(path: "/System/Library/CoreServices/CoreTypes.bundle")?
+            .url(forResource: "GenericFolderIcon", withExtension: "icns"))
+        #expect(item.setData(try Data(contentsOf: iconURL), forType: .init("com.apple.icns")))
+        #expect(pasteboard.writeObjects([item]))
+        let service = TerminalPasteboardService(temporaryDirectory: directory)
+        let prepared = TerminalImageTransferPlanner.prepareSynchronously(
+            pasteboard: pasteboard,
+            mode: mode,
+            pasteboardService: service
+        )
+        #expect(prepared == .fileURLs([folder.standardizedFileURL]))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == ["Folder with spaces"])
+    }
+
+    @Test(
+        "A promise for another file does not promote an auxiliary folder URL",
+        arguments: [TerminalImageTransferMode.paste, .drop]
+    )
+    func unrelatedPromiseKeepsImagePriority(mode: TerminalImageTransferMode) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-mixed-promise-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("promised.txt")
+        try Data("file".utf8).write(to: source)
+        let png = try #require(Data(base64Encoded: Self.onePixelPNGBase64))
+        let pasteboard = NSPasteboard(name: .init("cmux-mixed-promise-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        let item = NSPasteboardItem()
+        #expect(item.setString(directory.absoluteString, forType: .fileURL))
+        #expect(item.setString(source.absoluteString, forType: PasteboardFileURLReader.promisedFileURLPasteboardType))
+        #expect(item.setData(png, forType: .png))
+        #expect(pasteboard.writeObjects([item]))
+        let service = TerminalPasteboardService(temporaryDirectory: directory)
+        let prepared = TerminalImageTransferPlanner.prepareSynchronously(
+            pasteboard: pasteboard,
+            mode: mode,
+            pasteboardService: service
+        )
+        guard case .fileURLs(let urls) = prepared else {
+            Issue.record("Expected an image attachment, got \(prepared)")
+            return
+        }
+        let imageURL = try #require(urls.first)
+        #expect(urls.count == 1)
+        #expect(service.isOwnedTemporaryImageFile(imageURL))
+        #expect(imageURL.pathExtension == "png")
+        #expect(try Data(contentsOf: imageURL) == png)
+    }
+
     @Test("Finder file and folder pastes preserve their URL identity", arguments: [false, true])
     func fileOnlyPasteKeepsURLs(isDirectory: Bool) throws {
         let directory = FileManager.default.temporaryDirectory
