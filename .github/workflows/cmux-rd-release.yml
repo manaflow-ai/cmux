@@ -165,6 +165,7 @@ jobs:
     name: publish
     needs: build
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 30
     permissions:
       contents: write
       id-token: write
