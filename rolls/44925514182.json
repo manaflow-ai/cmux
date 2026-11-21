@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44925514182",
+  "recorded_at": "2026-11-21T18:10:19Z",
+  "reason": "cmux-tui e46c4779df3b changes the image's cmux-tui (pinned ea3680dc49c3)",
+  "dry_run": false,
+  "cmux_tui": "e46c4779df3bbbfd6bee03c096c13425b3214593",
+  "fixes": [
+    {
+      "sha": "c047b07f8a506d744244e0c4d1a0016060ae43da",
+      "mergedAt": "2026-11-21T08:48:05-07:00",
+      "subject": "fix(next): a missing idleMinutes holds the update for 15 minutes, not 1 (#47862)"
+    },
+    {
+      "sha": "1fc49eaf732208ff9da54ce42ac3c5787c9ecaff",
+      "mergedAt": "2026-11-21T07:47:29-08:00",
+      "subject": "Cloud: a Worker machine's client session stays in daemon memory, so an exec doesn't mint first (#47889)"
+    },
+    {
+      "sha": "b92925c2afccc02bb628dc1ebb6b8d69f611432e",
+      "mergedAt": "2026-11-21T15:42:09Z",
+      "subject": "Extension hot reload proof: rows, pane, command and shortcut cases in edit-repaint, and a NIGHTLY read-back (#47244)"
+    },
+    {
+      "sha": "40796497ac48197177dd17c42a0a5e358fe5a1e0",
+      "mergedAt": "2026-11-21T15:36:24Z",
+      "subject": "chat-size-ratio.py: one chat at 1 MB to 4 GB, five axes, each over the 1 MB chat's (#48916)"
+    },
+    {
+      "sha": "9f98ec6d98973932905ababd3025e9695fcd0327",
+      "mergedAt": "2026-11-21T07:31:38-08:00",
+      "subject": "Merge remote-tracking branch 'origin/feat-cmux-next' into oss-brains-envroute"
+    },
+    {
+      "sha": "6f2b4cce6c7138539249adef7eb91f32cbde1bf1",
+      "mergedAt": "2026-11-21T07:01:38-08:00",
+      "subject": "acpmux: a Hermes session's MCP servers carry the session's routing env inline; the brain proof needs the real workspace count (cx-uflfch)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T18:10:19Z",
+    "snapshot_id": "sh-dd8121e8bb0f4b458fd74e0830df9af2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44925514182): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "229690498cfd46f2f487b16a2cc83c7a58b1b00b",
+    "image": "cloud-native-auto-e46c4779-44925514182-1",
+    "revision": "ci-44925514182-1",
+    "at": "2026-11-21T18:10:19Z"
+  },
+  "rolled_back": false
+}
