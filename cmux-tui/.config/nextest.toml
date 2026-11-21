@@ -279,3 +279,11 @@ slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
 filter = 'binary_id(cmux-tui::automation_live_journey)'
 success-output = "final"
 slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
+
+# DRILL, NOT FOR A MERGE: step 2 of the rollback drill (tests/rollback_drill.rs) prints each
+# part's result (its `rollback drill` lines), and its sets of 800 real sessions take many
+# minutes; a test that the runner ends does not delete the older build's copy.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui::rollback_drill)'
+success-output = "final"
+slow-timeout = { period = "300s", terminate-after = 12, grace-period = "5s" }
