@@ -1072,7 +1072,32 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("scripts/cmux-next/regenerate-action-contracts.sh", fail["run"])
         self.assertNotIn("scripts/cmux-next/ci-target-graph.py", fail["run"])
         self.assertIn("exit 1", fail["run"])
-        self.assertNotIn("autofix", fail["run"])
+        # No autofix of its own: only the "autofixed" verdict of what the PR autofix repairs (next test).
+        self.assertNotIn("autofix", fail["run"].replace("generated-autofixable", "").replace("autofixed", ""))
+
+    def test_stale_generated_files_the_pr_autofix_repairs_report_autofixed(self):
+        """Stale files the PR autofix regenerates from the pull request's own changes and pushes as a commit
+        pass as autofixed (cmux #48531's clippy pattern), only on a same-repo feat-cmux-next pull request while
+        the autofix push is on; an autofixed run records no pass, and the shared-build verdict says the same."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        gate = ("github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && "
+                "github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_PR_AUTOFIX_PUSH == '1'")
+        fail = next(step for step in jobs["generated-files"]["steps"]
+                    if step.get("name") == "Fail on stale generated files")
+        self.assertIn(gate, fail["env"]["AUTOFIXED_OK"])
+        self.assertIn('[[ "$AUTOFIXED_OK" == true ]] && why="$(scripts/cmux-next/generated-autofixable.sh)"', fail["run"])
+        # The catalog failure (fresh exports fail too) stays red before the autofixed branch.
+        self.assertLess(fail["run"].index("a catalog failure"), fail["run"].index("AUTOFIXED_OK"))
+        for name in ("Record this pass for the same inputs", "Save the pass"):
+            step = next(s for s in jobs["generated-files"]["steps"] if s.get("name") == name)
+            self.assertIn("steps.stale.outputs.autofixed != 'true'", step["if"])
+        for host in ("swift-test", "daemon-test"):
+            verdict = next(s for s in jobs[host]["steps"] if s.get("id") == "generated-files-verdict")
+            self.assertIn(gate, verdict["env"]["AUTOFIXED_OK"])
+            self.assertIn("verdict=autofixed", verdict["run"])
+        shared = jobs["generated-verdict"]["steps"][0]["run"]
+        self.assertIn("autofixed)", shared)
+        self.assertIn("(autofixed)", shared)
 
     def test_red_push_runs_name_their_pull_requests(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
