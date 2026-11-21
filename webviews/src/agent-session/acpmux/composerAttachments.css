@@ -1077,8 +1077,9 @@ button.acpmux-attachment-pasted-open:hover {
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: var(--cmux-accent, var(--agent-accent, #0a84ff));
-  color: #fff;
+  /* The accent and the text the theme draws on it: the accent is the text color by default, white in dark. */
+  background: var(--agent-accent, #0a84ff);
+  color: var(--agent-on-accent, var(--agent-page-bg, #fff));
   font-size: 10px;
   font-weight: var(--weight-emphasis);
   line-height: 16px;
