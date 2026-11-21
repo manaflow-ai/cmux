@@ -22,6 +22,46 @@ const STATUS: Record<AcpmuxPlanEntry["status"], StringKey> = {
   pending: "plan.status.pending",
 };
 
+/// Each entry's key: its content, and for a repeated content its count so far (entries have no ids).
+/// A step keeps its row when the list reorders or a step is added before it.
+function planKeys(entries: readonly AcpmuxPlanEntry[]): string[] {
+  const seen = new Map<string, number>();
+  return entries.map((entry) => {
+    const count = seen.get(entry.content) ?? 0;
+    seen.set(entry.content, count + 1);
+    return count === 0 ? entry.content : `${entry.content}\u0000${count}`;
+  });
+}
+
+/// One step: its own memo boundary, so a change to another step's status never redraws it.
+const PlanItem = memo(function PlanItem({
+  content,
+  status,
+  spinning,
+  heard,
+}: {
+  content: string;
+  status: AcpmuxPlanEntry["status"];
+  /// The step at work in a running turn's own list.
+  spinning: boolean;
+  /// Its state in words, for a screen reader (the list's strings, read once per list render).
+  heard: string;
+}) {
+  return (
+    <li className="cv-plan__item" data-status={status}>
+      <span className="cv-plan__mark" aria-hidden="true">
+        {/* icon-scale-allow: the check sits inside the 12 px plan mark */}
+        {status === "completed" && <Check size={10} />}
+        {/* The step at work turns the one shared spinner (icons.tsx), never a ring of its own. */}
+        {spinning && <Spinner size={12} />}
+      </span>
+      <span className="cv-plan__text">{content}</span>
+      {/* The marks are drawn only; a screen reader hears the state. */}
+      <span className="cv-plan__state">{heard}</span>
+    </li>
+  );
+});
+
 export const PlanList = memo(function PlanList({
   entries,
   ended = false,
@@ -74,21 +114,18 @@ export const PlanList = memo(function PlanList({
       )}
       {!folded && (
         <ul className="cv-plan__items">
-          {entries.map((entry, index) => (
-            // Items have no ids, and a list only grows or changes status in place.
-            // oxlint-disable-next-line react/no-array-index-key -- the plan's order is its identity.
-            <li key={index} className="cv-plan__item" data-status={entry.status}>
-              <span className="cv-plan__mark" aria-hidden="true">
-                {/* icon-scale-allow: the check sits inside the 12 px plan mark */}
-                {entry.status === "completed" && <Check size={10} />}
-                {/* The step at work turns the one shared spinner (icons.tsx), never a ring of its own. */}
-                {entry.status === "in_progress" && !ended && !earlier && <Spinner size={12} />}
-              </span>
-              <span className="cv-plan__text">{entry.content}</span>
-              {/* The marks are drawn only; a screen reader hears the state. */}
-              <span className="cv-plan__state">{t(STATUS[entry.status])}</span>
-            </li>
-          ))}
+          {planKeys(entries).map((key, index) => {
+            const entry = entries[index]!;
+            return (
+              <PlanItem
+                key={key}
+                content={entry.content}
+                status={entry.status}
+                spinning={entry.status === "in_progress" && !ended && !earlier}
+                heard={t(STATUS[entry.status])}
+              />
+            );
+          })}
         </ul>
       )}
     </div>

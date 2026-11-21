@@ -5,13 +5,14 @@
 // sits right under it, moved in (`nestAgents`). A click on an agent opens
 // it: its pane, or its view in this pane (App.tsx `showSubagent`). The pill is a part of the
 // bottom stack (bottomStack.css), not laid over the transcript, so it never hides the latest row.
-import { memo, useId } from "react";
+import { memo, useCallback, useId } from "react";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { usePopover } from "../summary/usePopover";
 import { subagentStatus, subagentStatusLabel } from "../summary/subagentStatusListModel";
-import { elapsed, running, useNow } from "./subagentGroupModel";
+import { elapsed, running, ticking, useNow } from "./subagentGroupModel";
+import { sameAgentRowProps } from "./subagentLook";
 import type { Subagent } from "./subagentFold";
 import { AgentIdentity } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
@@ -36,7 +37,15 @@ export const AgentsPill = memo(function AgentsPill({
   const { open, setOpen, button, popover, toggle } = usePopover();
   const listId = useId();
   const live = agents.filter(running);
-  const now = useNow(open && live.length > 0);
+  // A row picked: focus goes back to the pill, not to the page, as the row goes.
+  const pick = useCallback(
+    (id: string) => {
+      setOpen(false);
+      button.current?.focus();
+      onOpen(id);
+    },
+    [setOpen, button, onOpen],
+  );
   if (live.length === 0) return null;
   const byStart = (a: Subagent, b: Subagent) => a.startedAt - b.startedAt || a.id.localeCompare(b.id);
   const sections = [
@@ -71,45 +80,16 @@ export const AgentsPill = memo(function AgentsPill({
             <section key={section.key} className="acpmux-agents-list__section">
               <h3 className="acpmux-agents-list__heading">{section.title}</h3>
               <ul>
-                {nestAgents(section.agents).map(({ agent, depth }) => {
-                  const status = subagentStatus(agent, waiting);
-                  const state =
-                    (status === "running" && namedAction(t, agent.action, agent.actionShell)) ||
-                    t(subagentStatusLabel(agent, waiting));
-                  return (
-                    <li key={agent.id}>
-                      <button
-                        type="button"
-                        className="acpmux-agents-list__row"
-                        // Past three levels the rows stop moving in, so a name keeps its room.
-                        data-depth={depth > 0 ? Math.min(depth, 3) : undefined}
-                        data-agent-tone={tones.get(agent.id)}
-                        data-status={status}
-                        onClick={() => {
-                          // Focus goes back to the pill, not to the page, as the row goes.
-                          setOpen(false);
-                          button.current?.focus();
-                          onOpen(agent.id);
-                        }}
-                      >
-                        {/* The harness's mark when it has one, else the agent's dot in its own tone. */}
-                        <AgentIdentity
-                          className="acpmux-agents-list__mark"
-                          harness={agent.harness}
-                          tone={tones.get(agent.id) ?? agentTone(agent.id)}
-                          size={9}
-                          fallbackNode={<span className="acpmux-agents-list__dot" />}
-                        />
-                        <span className="acpmux-agents-list__text">
-                          <span className="acpmux-agents-list__name">{subagentDisplayName(t, agent)}</span>
-                          <span className="acpmux-agents-list__state">{state}</span>
-                        </span>
-                        <span className="acpmux-agents-list__time">{formatDuration(elapsed(agent, now))}</span>
-                        <Icon name="disclosure.collapsed" size={12} />
-                      </button>
-                    </li>
-                  );
-                })}
+                {nestAgents(section.agents).map(({ agent, depth }) => (
+                  <AgentsPillRow
+                    key={agent.id}
+                    agent={agent}
+                    depth={depth}
+                    waits={waiting.has(agent.id)}
+                    tone={tones.get(agent.id)}
+                    onPick={pick}
+                  />
+                ))}
               </ul>
             </section>
           ))}
@@ -118,3 +98,64 @@ export const AgentsPill = memo(function AgentsPill({
     </div>
   );
 });
+
+const NO_WAITING: ReadonlySet<string> = new Set();
+
+/// One agent of the open list. Memoized on the fields of its agent it draws and its plain values
+/// (subagentLook.ts), so a snapshot that only brings new objects draws no row; its time is a leaf
+/// that keeps its own clock (PillElapsed), so a tick draws no row.
+const AgentsPillRow = memo(function AgentsPillRow({
+  agent,
+  depth,
+  waits,
+  tone,
+  onPick,
+}: {
+  agent: Subagent;
+  depth: number;
+  /// It waits on the user (the pill's `waiting` holds it).
+  waits: boolean;
+  tone?: number;
+  onPick: (id: string) => void;
+}) {
+  const t = useT();
+  const waiting = waits ? new Set([agent.id]) : NO_WAITING;
+  const status = subagentStatus(agent, waiting);
+  const state =
+    (status === "running" && namedAction(t, agent.action, agent.actionShell)) || t(subagentStatusLabel(agent, waiting));
+  return (
+    <li>
+      <button
+        type="button"
+        className="acpmux-agents-list__row"
+        // Past three levels the rows stop moving in, so a name keeps its room.
+        data-depth={depth > 0 ? Math.min(depth, 3) : undefined}
+        data-agent-tone={tone}
+        data-status={status}
+        onClick={() => onPick(agent.id)}
+      >
+        {/* The harness's mark when it has one, else the agent's dot in its own tone. */}
+        <AgentIdentity
+          className="acpmux-agents-list__mark"
+          harness={agent.harness}
+          tone={tone ?? agentTone(agent.id)}
+          size={9}
+          fallbackNode={<span className="acpmux-agents-list__dot" />}
+        />
+        <span className="acpmux-agents-list__text">
+          <span className="acpmux-agents-list__name">{subagentDisplayName(t, agent)}</span>
+          <span className="acpmux-agents-list__state">{state}</span>
+        </span>
+        <PillElapsed agent={agent} />
+        <Icon name="disclosure.collapsed" size={12} />
+      </button>
+    </li>
+  );
+}, sameAgentRowProps);
+
+/// A row's time, on its own clock: it ticks while its time still moves (`elapsed`: running, or ended
+/// with background work of its own still going), and nothing else draws for it.
+function PillElapsed({ agent }: { agent: Subagent }) {
+  const now = useNow(ticking(agent));
+  return <span className="acpmux-agents-list__time">{formatDuration(elapsed(agent, now))}</span>;
+}

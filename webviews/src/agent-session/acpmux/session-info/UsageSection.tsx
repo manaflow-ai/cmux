@@ -29,6 +29,7 @@ import "./UsageSection.css";
 import { USAGE_SHOWN } from "./usageSectionModel";
 import { cacheUsageRows } from "../usageStats";
 import { WindowedRows } from "./WindowedRows";
+import { sameValue } from "./sameValue";
 
 const ROW_ICON = rowIconSize(12);
 /// Gallery arms for the own-metrics leading column. The shared slot is the shipped treatment:
@@ -237,51 +238,16 @@ export const UsageSection = memo(function UsageSection({
           <ul className="acpmux-session-info-list" data-sort={sort}>
             <WindowedRows
               items={shown}
-              render={(entry) => {
-                const stats = entry.usageStats!;
-                const place = entry.peer ?? entry.host;
-                // A peer's chat is named `<peer>/<name>` (acpmux hub/peers.rs); the row names the peer
-                // after the title, so the title drops it.
-                const named = entry.displayTitle || entry.title || entry.name || entry.sessionId;
-                const title =
-                  entry.peer && named.startsWith(`${entry.peer}/`) ? named.slice(entry.peer.length + 1) : named;
-                const mark = (
-                  <span className="acpmux-lineage__icon">
-                    <SenderIcon
-                      harness={entry.harness}
-                      tone={agentTone(entry.sessionId)}
-                      size={ROW_ICON}
-                      fallback="agent.chat"
-                    />
-                  </span>
-                );
-                const body = (
-                  <>
-                    {mark}
-                    <span className="acpmux-session-info-row__name">{title}</span>
-                    {place && <span className="acpmux-session-info-row__detail">{place}</span>}
-                    <span className="acpmux-session-info-row__end acpmux-session-info-usage__value">
-                      {sortValue(stats, sort, locale)}
-                    </span>
-                  </>
-                );
-                const current = entry.sessionId === chatId || undefined;
-                return (
-                  <li key={entry.sessionId} data-current={current}>
-                    {onOpen && !current ? (
-                      <button
-                        type="button"
-                        className="acpmux-session-info-row acpmux-session-info-row--button"
-                        onClick={() => onOpen(entry.sessionId)}
-                      >
-                        {body}
-                      </button>
-                    ) : (
-                      <div className="acpmux-session-info-row">{body}</div>
-                    )}
-                  </li>
-                );
-              }}
+              render={(entry) => (
+                <UsageSessionRow
+                  key={entry.sessionId}
+                  entry={entry}
+                  sort={sort}
+                  locale={locale}
+                  current={entry.sessionId === chatId}
+                  onOpen={onOpen}
+                />
+              )}
             />
           </ul>
           {folds && (
@@ -299,3 +265,54 @@ export const UsageSection = memo(function UsageSection({
     </div>
   );
 });
+
+/// One chat's row in All chats: its own memo boundary, so a change to another chat's numbers, a
+/// scroll or the section drawing again with the same chats draws it again not at all.
+const UsageSessionRow = memo(function UsageSessionRow({
+  entry,
+  sort,
+  locale,
+  current,
+  onOpen,
+}: {
+  entry: UsageEntry;
+  sort: UsageSort;
+  locale?: string;
+  /// The chat this pane shows: its row is not a link.
+  current: boolean;
+  onOpen?: (sessionId: string) => void;
+}) {
+  const stats = entry.usageStats!;
+  const place = entry.peer ?? entry.host;
+  // A peer's chat is named `<peer>/<name>` (acpmux hub/peers.rs); the row names the peer after the
+  // title, so the title drops it.
+  const named = entry.displayTitle || entry.title || entry.name || entry.sessionId;
+  const title = entry.peer && named.startsWith(`${entry.peer}/`) ? named.slice(entry.peer.length + 1) : named;
+  const body = (
+    <>
+      <span className="acpmux-lineage__icon">
+        <SenderIcon harness={entry.harness} tone={agentTone(entry.sessionId)} size={ROW_ICON} fallback="agent.chat" />
+      </span>
+      <span className="acpmux-session-info-row__name">{title}</span>
+      {place && <span className="acpmux-session-info-row__detail">{place}</span>}
+      <span className="acpmux-session-info-row__end acpmux-session-info-usage__value">
+        {sortValue(stats, sort, locale)}
+      </span>
+    </>
+  );
+  return (
+    <li data-current={current || undefined}>
+      {onOpen && !current ? (
+        <button
+          type="button"
+          className="acpmux-session-info-row acpmux-session-info-row--button"
+          onClick={() => onOpen(entry.sessionId)}
+        >
+          {body}
+        </button>
+      ) : (
+        <div className="acpmux-session-info-row">{body}</div>
+      )}
+    </li>
+  );
+}, sameValue);
