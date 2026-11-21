@@ -151,7 +151,9 @@ async function mount(environments: boolean, extra: Record<string, unknown> = {})
     peerConnected: peerConnectedFromStatus(relayedStatus),
     onRefreshMachines: () => refreshes++,
     localName: "cosmic-gray",
-    projectChoices: [{ cwd: "/Users/you/src/cmux", label: "cmux" }],
+    projectChoices: [
+      { cwd: "/Users/you/src/cmux", label: "cmux", repo: { root: "/Users/you/src/cmux", name: "cmux" } },
+    ],
     onProject: (cwd: string, peer?: string) => calls.push(["project", cwd, peer]),
     onConnect: (kind: string) => calls.push(["connect", kind]),
     // The picker's own behaviour (its rows, ⌥⌘1–9, search, moves) is the combined control's; the
@@ -835,11 +837,19 @@ const newWorktreeFromMenu = async () => {
   );
   expect(folder, "no folder control").toBeTruthy();
   await act(async () => folder!.click());
-  const action = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-action")].find(
-    (item) => item.textContent?.trim() === t("worktree.new"),
-  );
-  expect(action, "no New Worktree in the folder menu").toBeTruthy();
-  await act(async () => action!.click());
+  // cmux#48299: New worktree is the repository's, under its row's chevron; no action under the list.
+  expect(
+    [...doc().querySelectorAll<HTMLElement>(".acpmux-location-action")].some(
+      (item) => item.textContent?.trim() === t("worktree.new"),
+    ),
+    "a New Worktree action pinned under the folders",
+  ).toBe(false);
+  const chevron = doc().querySelector<HTMLElement>(".acpmux-folder-popover .acpmux-location-worktrees");
+  expect(chevron, "no chevron on the repository's row").toBeTruthy();
+  await act(async () => chevron!.click());
+  const row = doc().querySelector<HTMLElement>(".acpmux-folder-popover [data-new-worktree]");
+  expect(row, "no New Worktree under the repository").toBeTruthy();
+  await act(async () => row!.closest<HTMLElement>("[role=option]")!.click());
 };
 
 test("previews on: New Worktree is in the folder menu, not a control beside the folder", async () => {
@@ -875,6 +885,7 @@ async function mountNewTab(onNewWorktree: (cwd: string) => Promise<string | unde
         lastAgent="claude"
         cwd="/Users/you/src/app"
         startCwd="/Users/you/src/app"
+        projects={[{ cwd: "/Users/you/src/app", label: "app", repo: { root: "/Users/you/src/app", name: "app" } }]}
         environments
         onConnect={noop}
         onNewWorktree={onNewWorktree}

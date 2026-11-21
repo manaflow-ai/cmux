@@ -1810,25 +1810,6 @@ export function NewTabScreen(props: Props) {
     };
   }, []);
   const [browseError, setBrowseError] = useState<string>();
-  const chooseNewProject = () => {
-    placePicked.current = true;
-    // A new folder is this Mac's: the next new chat starts on This Mac too (lastNewChatPlace.ts).
-    if (machine) rememberNewChatPlace({ kind: "local" });
-    projectChoice.current += 1;
-    setBrowseError(undefined);
-    setNewProjectError(undefined);
-    props.onCloudMachinePicked?.(undefined);
-    saved.pick(undefined);
-    setMachine(undefined);
-    touch();
-    setNone(false);
-    // A new folder is this Mac's: a Cloud or Sandboxed pick goes back to this Mac.
-    if (props.runMode && props.runMode.mode !== "persistent") pickRunMode("persistent");
-    // A folder kept from a failed start belongs to that choice; a new choice makes its own.
-    newProjectMade.current = undefined;
-    setNewProject((before) => before ?? {});
-    requestAnimationFrame(() => field.current?.focus());
-  };
   const pickProject = (cwd?: string) => {
     placePicked.current = true;
     // A folder here moves the chat off another machine onto This Mac, for the next new chat too.
@@ -2091,7 +2072,6 @@ export function NewTabScreen(props: Props) {
         noProject={none && !newProject}
         {...(props.onNewProject
           ? {
-              onNewProject: chooseNewProject,
               newProject: !!newProject,
               newProjectName: newProject && (
                 <NewProjectName

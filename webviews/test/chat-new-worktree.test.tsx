@@ -80,6 +80,12 @@ test("a new chat's folder menu offers New Worktree for its folder", async () => 
   const root = await renderTray({ onNewWorktree: (cwd: string) => asked.push(cwd) });
   try {
     await openFolderMenu();
+    // cmux#48299: under the folder's chevron, never pinned under the list.
+    expect(menuItem("New Worktree")).toBeUndefined();
+    const chevron = dom.window.document.querySelector<HTMLElement>(".acpmux-location-worktrees");
+    expect(chevron).not.toBeNull();
+    await act(async () => chevron!.click());
+    await settle();
     const item = menuItem("New Worktree");
     expect(item).toBeDefined();
     await act(async () => item!.click());

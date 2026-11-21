@@ -149,18 +149,6 @@ const openFolderMenu: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-extra-folders"));
 };
 
-/// An experiment arm's wording for the extra-folder row, drawn over the shipped menu.
-const openFolderMenuWithExtraWords =
-  (words: string): Play =>
-  async (ctx) => {
-    await openFolderMenu(ctx);
-    const row = [...ctx.document.querySelectorAll(".acpmux-folder-popover .acpmux-location-action")].find(
-      (node) => node.textContent === "Add another folder…",
-    );
-    const label = row?.querySelector(".acpmux-menu-label");
-    if (label) label.textContent = words;
-  };
-
 const openFolder: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Folder" });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
@@ -1584,41 +1572,60 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       }),
       play: openFolderMenu,
     },
+    // cmux#48299 ("why do we have so many buttons stuck to the bottom of this menu?"): a folder the chat
+    // also sees is added from its own row, not from a second Add folder row under the list.
     "extra-folders-adding": {
-      note: "Add another folder… turns the menu into a pick of one more folder: its search says Add a folder, the project and the folders already added are not offered, Add folder… opens this Mac's panel.",
+      note: "A folder row hovered: its + adds it as a folder the chat also sees (Shift-Return does the same from the keyboard); the chat's own folder and the ones already added have none.",
       props: extraProps("local", ["/Users/you/src/relay"], {
         summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
       }),
       play: async (ctx) => {
         await openFolderMenu(ctx);
-        await ctx.click({ role: "option", name: "Add another folder…" });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-folder-popover input[placeholder="Add a folder"]'));
+        await ctx.hover({ role: "option", name: /^cmux/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-folder-popover [data-also-see]"));
       },
     },
     // Leo, 2026-11-06, on the old menu's Do not work in a project, Add project, Choose folder… and
     // Add folder…: "what even is the deal with add project? what is that? and add folder? why not
-    // just add fodler? what's special about project?". One concept: a folder. These arms differ only
-    // in how the one row that is not about the chat's own folder reads.
+    // just add fodler? what's special about project?". One concept: a folder. cmux#48299 then trimmed
+    // the actions under the list to the two that choose where the chat starts.
     "folder-one-concept": {
-      note: "Shipped (Leo: \"it's just folder\"): search, the recent folders with their icons and the current one checked, then Add folder… (this Mac's folder panel), Add another folder… (one more folder the chat also sees) and No folder, each with its glyph.",
+      note: "Shipped (cmux#48299): search, the recent folders with their icons and the current one checked, then only Add folder… (this Mac's folder panel) and No folder, each with its glyph; the chat's extra folders under Also sees.",
       props: extraProps("local", ["/Users/you/notes"], {
         summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
       }),
       play: openFolderMenu,
     },
-    "folder-one-concept-also-show": {
-      note: "Experiment arm: the extra row as Also show a folder…; rejected, it reads as a view filter, not a folder the agent can read and edit.",
-      props: extraProps("local", ["/Users/you/notes"], {
-        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+    "folder-repo-new-worktree": {
+      note: "A repository's chevron open (cmux#48299): its worktrees, then New worktree, which makes one of that repository; no New Worktree under the list.",
+      props: extraProps("local", [], {
+        summary: { sessionId: "", harness: "claude", cwd: "/Users/you/src/cmux", host: "This Mac", hostKind: "local" },
+        projectChoices: [
+          {
+            cwd: "/Users/you/src/cmux",
+            label: "cmux",
+            repo: { root: "/Users/you/src/cmux", name: "cmux", branch: "main" },
+          },
+          {
+            cwd: "/Users/you/src/cmux-worktrees/sidebar-fix",
+            label: "sidebar-fix",
+            repo: {
+              root: "/Users/you/src/cmux",
+              top: "/Users/you/src/cmux-worktrees/sidebar-fix",
+              name: "cmux",
+              branch: "sidebar-fix",
+            },
+          },
+          { cwd: "/Users/you/notes", label: "notes" },
+        ],
+        onNewWorktree: () => undefined,
       }),
-      play: openFolderMenuWithExtraWords("Also show a folder…"),
-    },
-    "folder-one-concept-let-see": {
-      note: "Experiment arm: the extra row as Let it see another folder…; rejected, the longest row in the menu, and nothing in the menu names the 'it'.",
-      props: extraProps("local", ["/Users/you/notes"], {
-        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
-      }),
-      play: openFolderMenuWithExtraWords("Let it see another folder…"),
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Folder/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-folder-popover .acpmux-location-worktrees"));
+        await ctx.click({ selector: ".acpmux-folder-popover .acpmux-location-worktrees" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-folder-popover [data-new-worktree]"));
+      },
     },
     "extra-folders-peer": {
       note: "A new chat on an SSH machine: its folders are that machine's (its own folder list or a typed path, never this Mac's panel); two of them sit beside its project.",
