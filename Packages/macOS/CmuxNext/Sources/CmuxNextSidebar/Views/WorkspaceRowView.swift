@@ -105,6 +105,8 @@ final class WorkspaceRowView: SidebarRowView {
     var iconKind: WorkspaceIcon?
     /// The workspace color as a leading rail or a full fill (`WorkspaceRowView+Color`).
     var rowColor: (color: GroupColor, style: WorkspaceColorIndicatorStyle)?, colorRail = NSView()
+    /// How a `leftRail` row draws its color (`WorkspaceRowContent.railLook`).
+    var railLook = WorkspaceRailLook.standard
     /// Selected but not active (the active row paints the selection fill).
     var isSecondarySelected = false {
         didSet {

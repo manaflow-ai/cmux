@@ -151,11 +151,11 @@ fn kind_schema(row: &Row) -> Value {
         Validation::Domain(DomainKind::BackdropSelection) => {
             let Kind::Choice(choices) = &row.kind else { return json!({ "type": "string" }) };
             // `system:<absolute path>` (a macOS wallpaper), `file:<absolute path>`
-            // or `folder:<absolute path>` (not `/` alone).
+            // or `folder:<absolute path>` (not `/` alone), or a `youtube:` video.
             let path = json!({ "type": "string", "pattern": "^((system|file):/|folder:/.)" });
             // `live:<id>` or `live:<extension>/<id>` (a live wallpaper).
             let live = json!({ "type": "string", "pattern": super::backdrop::LIVE_PATTERN });
-            return json!({ "anyOf": [choice(choices), path, live] });
+            return json!({ "anyOf": [choice(choices), path, live, youtube()] });
         }
         Validation::Domain(DomainKind::BackdropPicture) => return picture(),
         Validation::Domain(DomainKind::BackdropSchedule) => {
@@ -167,6 +167,16 @@ fn kind_schema(row: &Row) -> Value {
         }
         Validation::Domain(DomainKind::BackdropLocation) => {
             return json!({ "type": "string", "pattern": super::backdrop::LOCATION_PATTERN });
+        }
+        Validation::Domain(DomainKind::BackdropMemory) => {
+            let folder = json!({ "type": "string", "pattern": "^folder:/." });
+            let rotate = json!({ "anyOf": [{ "const": "daily" }, folder] });
+            let off = json!({ "anyOf": [{ "const": "none" }, picture()] });
+            return json!({
+                "type": "object",
+                "properties": { "rotate": rotate, "folder": folder, "off": off },
+                "additionalProperties": false,
+            });
         }
         Validation::Domain(DomainKind::ChatRoots) => {
             return json!({ "type": "array", "items": { "type": "string", "pattern": "^/" } });
@@ -293,10 +303,18 @@ fn kind_schema(row: &Row) -> Value {
     }
 }
 
-/// A fixed background: a listed one or a `system:` / `file:` absolute path.
+/// A fixed background: a listed one, a `system:` / `file:` absolute path or a
+/// `youtube:` video.
 fn picture() -> Value {
     let listed = json!({ "type": "string", "enum": super::backdrop::picture_choices() });
-    json!({ "anyOf": [listed, { "type": "string", "pattern": super::backdrop::PATH_PATTERN }] })
+    let path = json!({ "type": "string", "pattern": super::backdrop::PATH_PATTERN });
+    json!({ "anyOf": [listed, path, youtube()] })
+}
+
+/// A canonical `youtube:` video id (crate::youtube; a settings write turns a
+/// pasted YouTube address into one).
+fn youtube() -> Value {
+    json!({ "type": "string", "pattern": crate::youtube::ID_PATTERN })
 }
 
 fn choice(choices: &[Choice]) -> Value {
