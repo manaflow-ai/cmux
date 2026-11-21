@@ -1,0 +1,97 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44937892926",
+  "recorded_at": "2026-11-21T19:26:04Z",
+  "reason": "cmux-tui 229690498cfd changes the image's cmux-tui (pinned ebb2780705e3)",
+  "dry_run": false,
+  "cmux_tui": "229690498cfd46f2f487b16a2cc83c7a58b1b00b",
+  "fixes": [
+    {
+      "sha": "68601b100ac37ac1aa8ad6856aeccd892b0ab4d9",
+      "mergedAt": "2026-11-21T09:59:43-08:00",
+      "subject": "acpmux: a standing-rules preamble never titles a chat (#48212)"
+    },
+    {
+      "sha": "42fd16f64ce2a405af62d616d14bd30b253434f9",
+      "mergedAt": "2026-11-21T09:50:58-08:00",
+      "subject": "SDK: drag rows inside Reorderable app lists (#48826)"
+    },
+    {
+      "sha": "6b3728c10f685ea9eb7d0b96fc6e860725ef9447",
+      "mergedAt": "2026-11-21T09:43:52-08:00",
+      "subject": "Sidebar looks: sidebar.look draws the sidebar like Claude, Codex or a studio (carries #46805) (#47522)"
+    },
+    {
+      "sha": "f6d6fdbd6ade14db654ef944e6970864518d2dca",
+      "mergedAt": "2026-11-21T17:41:01+00:00",
+      "subject": "Screen sharing: a follow camera (cmux-follow-cam) for a portrait Follow mode and vertical cuts (#45052)"
+    },
+    {
+      "sha": "85fda35256ae804b2514e4e9f63f008ae3e7fbd9",
+      "mergedAt": "2026-11-21T17:37:18+00:00",
+      "subject": "cmux-remote, acpmux: a mint outage reads credential-unavailable, a down link names why it is offline, every wait takes one Deadline (#44578)"
+    },
+    {
+      "sha": "3e09fb44701605f23f5e1b7d5903eed9cab8733d",
+      "mergedAt": "2026-11-21T09:00:48-08:00",
+      "subject": "acpmux: a Claude start that no person asked for asks for no next-prompt suggestions"
+    },
+    {
+      "sha": "16eb4d23ae3bfa057fb55aea48759f1fbe85395c",
+      "mergedAt": "2026-11-21T16:44:50+00:00",
+      "subject": "acpmux: leave joined Linux machines chat-ready (#44347)"
+    },
+    {
+      "sha": "816b1e6ddc4c3e5b34e4c9c2e3099b2607ec6f81",
+      "mergedAt": "2026-11-21T16:42:39+00:00",
+      "subject": "cmux-next: Computer Use on by default, run in cmux's Screen Sharing helper (no cmux Remote needed) (#48865)"
+    },
+    {
+      "sha": "0d61cb51041e4f3a12d8c016aea143da373c8df8",
+      "mergedAt": "2026-11-21T16:36:43+00:00",
+      "subject": "acpmux: a desktop chat the rate limit stopped holds its messages until the reset (#47274)"
+    },
+    {
+      "sha": "2fbe1b3bdec03e134823d736ab7fe6eaa1a24b1d",
+      "mergedAt": "2026-11-21T08:29:22-08:00",
+      "subject": "cmux server uninstall: list app server instances after the supervisor stops (Codex round-3 validation)"
+    },
+    {
+      "sha": "c4736440a47d390c559db7e97e6e418b43ccb3c3",
+      "mergedAt": "2026-11-21T08:25:58-08:00",
+      "subject": "feat(chief): Meet Chief in the palette shows the card again"
+    },
+    {
+      "sha": "5e5ac05845d43dcce0f6fe1a5d2e6bcb3b5720e9",
+      "mergedAt": "2026-11-21T08:25:58-08:00",
+      "subject": "test(chief): Meet Chief reopens from the palette, also in a chat with messages (red)"
+    },
+    {
+      "sha": "a161779ae87a26eff5b7e696119fbe6c6333fe26",
+      "mergedAt": "2026-11-21T08:15:32-08:00",
+      "subject": "cmux server uninstall: never remove or stop what changed since the check; Codex round-3 fixes"
+    },
+    {
+      "sha": "207521c2a05e6aaca38333c4903b401ee534d04e",
+      "mergedAt": "2026-11-21T16:13:33+00:00",
+      "subject": "Public glass: .glass(level) for customize views, kit Glass, and a guide (#46118)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T19:26:04Z",
+    "snapshot_id": "sh-722871e6badd4989835667f4c392e8d1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44937892926): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8e302b6f352d2126b1d58a8e4732fb0423ba1f0c",
+    "image": "cloud-native-auto-22969049-44937892926-1",
+    "revision": "ci-44937892926-1",
+    "at": "2026-11-21T19:26:04Z"
+  },
+  "rolled_back": false
+}
