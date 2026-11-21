@@ -606,8 +606,21 @@ def router_affects(root: Path, workflow: str) -> list[str] | None:
     return list(callee["affects"]) if callee and "affects" in callee else None
 
 
+def post_merge_batch_paths(root: Path, workflow: str) -> list[str] | None:
+    """The paths of the post-merge batch suite that calls WORKFLOW (.github/post-merge-batch.json; empty: every
+    batch run calls it), or None when no suite does."""
+    path = root / ".github/post-merge-batch.json"
+    if not path.exists():
+        return None
+    for suite in json.loads(path.read_text(encoding="utf-8")).get("suites", {}).values():
+        if suite.get("workflow") == Path(workflow).name:
+            return list(suite.get("paths") or [])
+    return None
+
+
 def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[str, str]] = frozenset()) -> list[str]:
-    """Each pull_request_skip job: its `if:` carries PR_SKIP_IF; its workflow starts on a feat-cmux-next push, on every
+    """Each pull_request_skip job: its `if:` carries PR_SKIP_IF; its workflow is a post-merge batch suite (on every
+    path its pull_request trigger starts on) or starts on a feat-cmux-next push, on every
     path its pull_request trigger starts on (the push is the safety net that runs it), or, for a job the crate graph
     routes too (ROUTED), on every input of the job, which `check` already holds the push paths to, or, for a job
     that runs only when its change touches the push paths (PUSH_PATHS_GATE), on those; and every job of
@@ -629,7 +642,19 @@ def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[
         if PR_SKIP_IF not in if_line:
             problems.append(f"{workflow}: job {job_id}'s `if:` does not carry {PR_SKIP_IF}, so a pull request still "
                             f"runs it ({MAP} pull_request_skip)")
-        if not pushes_feat(text):
+        batch_paths = post_merge_batch_paths(root, workflow)
+        if batch_paths is not None:
+            # The post-merge batch tier calls it after merges into feat-cmux-next: that is its safety net. A suite
+            # with no paths runs on every batch; one with paths must start on every path its pull request does.
+            pulled = workflow_paths(text, "pull_request")
+            if pulled is None:
+                pulled = router_affects(root, workflow)
+            if batch_paths and (pulled is None or uncovered_by_push(pulled, batch_paths)) \
+                    and (workflow, job_id) not in routed:
+                problems.append(f"{workflow}: its post-merge batch suite's paths (.github/post-merge-batch.json) start "
+                                f"on fewer paths than its pull_request paths, so a change the batch skips would run "
+                                f"{job_id} nowhere ({MAP} pull_request_skip)")
+        elif not pushes_feat(text):
             problems.append(f"{workflow}: no push to feat-cmux-next starts it, so nothing would run {job_id} once "
                             f"a pull request skips it ({MAP} pull_request_skip)")
         else:
