@@ -839,7 +839,7 @@ pub(crate) fn test_hold(var: &str) {
 /// A turn a log started and never settled (`Hub::open_turn`): its `turn_started` seq, turn id,
 /// prompt id, whether a trigger ran it, and whether a prompt with a hidden context went into it.
 #[derive(Debug, Clone)]
-struct OpenTurn {
+pub(super) struct OpenTurn {
     seq: u64,
     turn_id: Value,
     prompt_id: Value,
