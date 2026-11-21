@@ -344,9 +344,15 @@ rule change and on resume anyway.
 `CAP_NET_BIND_SERVICE`) listens on `127.0.0.2:53`, UDP and TCP, and per
 query:
 
-1. asks the platform's resolvers (two tries of 1 s: the first two, IPv4 first,
-   or a lone one twice), so steered names keep resolving to the edge and
-   NXDOMAIN stays the platform's;
+1. asks the platform's resolvers (two tries: the first two, IPv4 first, or a
+   lone one twice; 1 s each), so steered names keep resolving to the edge and
+   NXDOMAIN stays the platform's. When the platform names the edge resolver's
+   IPv4 address (`10.32.0.28`), the second try goes to the same resolver's
+   IPv6 listener (`2602:f470:1::28`, given 2 s for its ~1.5 s latency), and
+   whichever address answered last is asked first next time. A 2026-11-20
+   sweep found machines whose IPv4 port 53 went unanswered, to the edge and
+   to every other IPv4 resolver, over UDP and TCP, while the IPv6 listener
+   answered every name, steered ones included;
 2. on SERVFAIL, REFUSED or silence, answers with the platform's last good
    answer for that exact question, at most a day old. The cache starts over
    whenever resolv.conf is written (a TLS rule, a resume, a clone's first
@@ -370,7 +376,8 @@ dropped; UDP replies over the client's size (512, or its EDNS size up to
 `cmux-dns guard` (`cmux-dns-guard.path` on `PathChanged=/etc/resolv.conf`,
 plus once at boot) rewrites a resolv.conf the platform wrote to
 `nameserver 127.0.0.2` followed by two of the platform's resolvers (IPv4
-first), keeps its `search` line and options other than `timeout`/`attempts`
+first; the edge's IPv4 address and its IPv6 listener when the platform names
+the edge), keeps its `search` line and options other than `timeout`/`attempts`
 (set to `timeout:4 attempts:1`; the stub retries itself), and records every
 resolver on a `# cmux-dns upstream` line the stub reads. A stopped stub
 therefore costs one refused packet before libc asks the platform directly.

@@ -10,7 +10,10 @@ resolv.conf does not route around it. Freestyle also rewrites resolv.conf on
 every TLS rule change and on resume.
 
 `serve` is a stub on 127.0.0.2:53 that asks the platform's resolvers first, so
-names the platform steers to its edge keep resolving to the edge. When they
+names the platform steers to its edge keep resolving to the edge. The edge
+resolver also listens on IPv6, which the platform does not name; the stub asks
+it when the IPv4 address is silent (on 2026-11-20 IPv4 port 53 was dead on
+part of the fleet while the IPv6 listener answered). When they
 fail it answers from the last good platform answer for the question (at most
 a day old, and only since the platform last wrote resolv.conf), then over
 DNS-over-HTTPS to resolvers addressed by IP on 443 when TLS steering is
@@ -40,15 +43,25 @@ RESOLV_CONF = "/etc/resolv.conf"
 TLS_DNS_SERVERS = "/run/freestyle/tls-dns-servers"
 MARKER = "# cmux-dns"
 UPSTREAM_PREFIX = "# cmux-dns upstream "
+# The platform edge resolver's IPv4 address and its IPv6 listener: one
+# resolver (the same steered answers) on two addresses. On machines with a TLS
+# rule the platform names only the IPv4 one, and on 2026-11-20 IPv4 port 53 to
+# it went unanswered (UDP and TCP) on part of the fleet while the IPv6 listener
+# answered. Keep equal to DEFAULT_EDGE_ADDRESSES in
+# web/services/vms/drivers/freestyleNetworkPolicy.ts (tests pin it).
+EDGE_RESOLVER_IPV6 = {"10.32.0.28": "2602:f470:1::28"}
 # Freestyle's base resolvers (/etc/systemd/resolved.conf.d/60-freestyle-vms.conf).
 DEFAULT_UPSTREAMS = ["2606:4700:4700::1111", "2001:4860:4860::8888", "8.8.8.8", "8.8.4.4"]
 DOH_ENDPOINTS = [("1.1.1.1", "/dns-query"), ("8.8.8.8", "/dns-query")]
 # One query's whole budget stays under resolv.conf's timeout for the stub, so
 # libc never gives up on a question the stub is still answering. Two platform
-# tries leave DoH at least 1.5 s however many resolvers the platform lists.
+# tries leave DoH at least 1.5 s however many resolvers the platform lists,
+# except when one of them is the edge's IPv6 listener, which answers in about
+# 1.5 s and gets EDGE_IPV6_TIMEOUT (steering is then active, so DoH is unused).
 QUERY_BUDGET = 3.5
 UPSTREAM_TRIES = 2
 UPSTREAM_TIMEOUT = 1.0
+EDGE_IPV6_TIMEOUT = 2.0
 DOH_TIMEOUT = 1.5
 RESOLV_OPTIONS = "timeout:4 attempts:1"
 CACHE_ENTRIES = 8192
@@ -147,15 +160,25 @@ def nameservers(text):
     return found_servers
 
 
+def with_edge_companions(servers):
+    """`servers` plus the edge resolver's IPv6 listener after its IPv4 address, when missing."""
+    result = list(servers)
+    for server in servers:
+        companion = EDGE_RESOLVER_IPV6.get(server)
+        if companion and companion not in result:
+            result.insert(result.index(server) + 1, companion)
+    return result
+
+
 def upstreams_from(text):
-    """The platform's resolvers: the guard's record of them, else the file's own servers."""
+    """The platform's resolvers (the guard's record of them, else the file's own servers) and edge companions."""
     for line in text.splitlines():
         if line.startswith(UPSTREAM_PREFIX):
             servers = line[len(UPSTREAM_PREFIX):].split()
             if servers:
-                return servers
+                return with_edge_companions(servers)
     servers = [server for server in nameservers(text) if server != LISTEN]
-    return servers or list(DEFAULT_UPSTREAMS)
+    return with_edge_companions(servers) if servers else list(DEFAULT_UPSTREAMS)
 
 
 def guarded(text):
@@ -173,7 +196,12 @@ def guarded(text):
     ]
     # libc reads at most three nameservers: the stub plus two upstreams, IPv4
     # first because every machine routes IPv4 and not every one routes IPv6.
-    fallback = sorted(servers, key=lambda server: ":" in server)[:2]
+    # The edge's IPv6 listener follows its IPv4 address, so libc still reaches
+    # the edge resolver when the stub is down and IPv4 port 53 is dead.
+    candidates = with_edge_companions(servers)
+    edge = [server for server in candidates if server in EDGE_RESOLVER_IPV6 or server in EDGE_RESOLVER_IPV6.values()]
+    others = sorted((server for server in candidates if server not in edge), key=lambda server: ":" in server)
+    fallback = (edge + others)[:2] if edge else others[:2]
     lines = [
         MARKER,
         "# The platform's resolvers follow the stub; cmux-dns rewrites this file",
@@ -265,6 +293,10 @@ class Resolver:
         self._cache = collections.OrderedDict()
         self._cache_for = None
         self._lock = threading.Lock()
+        # The last resolver that answered. The platform's addresses are one
+        # resolver, so a machine whose IPv4 port 53 is dead asks the IPv6
+        # listener first instead of paying an IPv4 timeout on every query.
+        self._preferred = None
 
     def _cached(self, generation, key, answer=None):
         with self._lock:
@@ -290,6 +322,19 @@ class Resolver:
         stamp, servers = self._source()
         return generation == (stamp, tuple(servers))
 
+    def _attempts(self, servers):
+        """UPSTREAM_TRIES platform exchanges: the last resolver that answered, then libc's order."""
+        # Match libc's fallback order: not every machine routes IPv6. The
+        # edge's IPv6 listener is the second try after its IPv4 address.
+        servers = with_edge_companions(servers)
+        edge = [server for server in servers if server in EDGE_RESOLVER_IPV6 or server in EDGE_RESOLVER_IPV6.values()]
+        others = sorted((server for server in servers if server not in edge), key=lambda server: ":" in server)
+        ordered = edge + others if edge else others
+        preferred = self._preferred
+        if preferred in ordered:
+            ordered = [preferred] + [server for server in ordered if server != preferred]
+        return (ordered * UPSTREAM_TRIES)[:UPSTREAM_TRIES]
+
     def resolve(self, query, tcp=False):
         key = question_key(query)
         if key is None:
@@ -297,16 +342,15 @@ class Resolver:
         deadline = self._clock() + QUERY_BUDGET
         stamp, servers = self._source()
         generation = (stamp, tuple(servers))
-        # Match libc's fallback order: not every machine routes IPv6.
-        ordered = sorted(servers, key=lambda server: ":" in server)
-        attempts = (ordered * UPSTREAM_TRIES)[:UPSTREAM_TRIES]
-        for server in attempts:
+        for server in self._attempts(servers):
             remaining = deadline - self._clock()
             if remaining <= 0:
                 break
-            timeout = min(UPSTREAM_TIMEOUT, remaining)
+            limit = EDGE_IPV6_TIMEOUT if server in EDGE_RESOLVER_IPV6.values() else UPSTREAM_TIMEOUT
+            timeout = min(limit, remaining)
             reply = bounded(self._exchange, timeout, server, query, timeout, tcp)
             if usable(reply) and answers(reply, query):
+                self._preferred = server
                 if not self._current(generation):
                     return failure(query)
                 if reply[2] & 0x02 == 0:
