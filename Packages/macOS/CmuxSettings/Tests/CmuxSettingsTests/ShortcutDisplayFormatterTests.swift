@@ -16,4 +16,17 @@ struct ShortcutDisplayFormatterTests {
             control: false
         ) == "⇧Tab")
     }
+
+    @Test func displaysEscapeAsTheEscapeGlyph() {
+        let formatter = ShortcutDisplayFormatter()
+
+        #expect(formatter.keyDisplayString("escape") == "⎋")
+        #expect(formatter.strokeDisplayString(
+            key: "escape",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        ) == "⌘⎋")
+    }
 }

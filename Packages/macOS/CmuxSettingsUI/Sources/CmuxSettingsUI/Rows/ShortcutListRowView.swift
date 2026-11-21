@@ -45,6 +45,7 @@ struct ShortcutListRowView: View, Equatable {
                         chordsEnabled: snapshot.chordsEnabled,
                         hasPendingRejection: snapshot.hasPendingRejection,
                         firstStrokeRequiresModifier: snapshot.firstStrokeRequiresModifier,
+                        recordsSystemWideHotkey: snapshot.action == .showHideAllWindows,
                         onStroke: actions.onStroke,
                         onChord: actions.onChord,
                         onBareKeyRejected: actions.onBareKeyRejected
