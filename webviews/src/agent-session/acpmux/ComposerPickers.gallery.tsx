@@ -214,9 +214,9 @@ const openCloudMode: Play = async (ctx) => {
   const label = (item: Element | null) => item?.querySelector(".acpmux-menu-label")?.textContent?.trim();
   const checked = label(ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]'));
   if (checked !== "Auto") throw new Error(`the Cloud Mode menu checks ${checked}, not Auto`);
-  const labels = [...ctx.document.querySelectorAll('[role="menuitemradio"]')].map(label).sort();
+  const labels = [...ctx.document.querySelectorAll('[role="menuitemradio"]')].map(label);
   const expected = ["Auto", "Bypass permissions", "Manual"];
-  if (labels.join("|") !== expected.join("|"))
+  if (labels.length !== expected.length || expected.some((name) => !labels.includes(name)))
     throw new Error(`the Cloud Mode menu lists ${labels.join(" | ")}, not ${expected.join(" | ")}`);
 };
 
