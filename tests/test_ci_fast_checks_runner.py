@@ -25,10 +25,9 @@ from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
-SPEC = importlib.util.spec_from_file_location("fast_checks_runner", ROOT / "scripts/ci/fast_checks_runner.py")
-assert SPEC and SPEC.loader
-picker = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(picker)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+import fast_checks_runner as picker  # noqa: E402
 
 
 class _DripHandler(http.server.BaseHTTPRequestHandler):

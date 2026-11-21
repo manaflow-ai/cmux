@@ -81,7 +81,7 @@ public final class PageSwipeForwarder {
     /// Made once by the app's history service, which owns it and runs the Back / Forward it asks for.
     public init(availability: @escaping @MainActor () -> (back: Bool, forward: Bool)) {
         self.availability = availability
-        // AppKit calls a local monitor on the main thread (this type's isolation), as CEFSwipeNavigation's.
+        // AppKit calls a local monitor on the main thread (this type's isolation).
         monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             self?.forward(event)
             return event

@@ -5,8 +5,8 @@
 // shifted its position sure but it itself and its text shouldn't be affected by the session info if it
 // would need to be then session info should be an overlay". Opening and closing Session Info may move
 // the transcript's column, never resize it: on every painted frame of the open and the close, at every
-// stage (pushing 1100px, 1200px, 1420px and 1600px, the column centered beside the panel; over the chat
-// 740px), each transcript
+// stage (floating in the gutter at 1600px, pushing 1200px and 1420px by only what the gutter lacks; over
+// the chat 740px and 1100px), each transcript
 // row keeps its width and its height, and a long reply keeps its line count (SessionInfo.tsx
 // pushKeepsColumn, sessionInfo.css --acpmux-session-info-column).
 //
@@ -17,6 +17,11 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
+import {
+  SESSION_INFO,
+  SESSION_INFO_SHOWN,
+  SESSION_INFO_TOGGLE,
+} from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("session-info-no-rewrap.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -130,11 +135,12 @@ await requireBrowserLane("session-info-no-rewrap.test.ts", async () => {
     for (const [width, stage] of [
       [740, "overlay"],
       [1100, "overlay"],
-      // Wherever the pinned column fits beside the whole panel it pushes, a wide pane too (Lucas,
-      // 2026-11-06: the chat centered beside Session Info), and still rewraps no line.
+      // Where the gutter lacks room and the pinned column fits beside the panel it pushes, and still
+      // rewraps no line; where the gutter holds it, it floats and moves nothing (Leo, 2026-11-09: "if it
+      // has enough space, then don't push the layout").
       [1200, "push"],
       [1420, "push"],
-      [1600, "push"],
+      [1600, "overlay"],
     ] as const)
       test(`${name}: in a ${width}px pane, opening and closing Session Info rewraps no line`, async () => {
         current = browsers.get(name)!;
@@ -145,9 +151,9 @@ await requireBrowserLane("session-info-no-rewrap.test.ts", async () => {
               window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
             ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
           );
-          const toggle = page.locator("button.acpmux-session-info-toggle");
+          const toggle = page.locator(SESSION_INFO_TOGGLE);
           await toggle.waitFor({ timeout: 10_000 });
-          const panel = page.locator("aside.acpmux-session-info");
+          const panel = page.locator(SESSION_INFO);
           if ((await toggle.getAttribute("aria-pressed")) === "true") {
             await toggle.click();
             await panel.waitFor({ state: "detached", timeout: 10_000 });
@@ -155,7 +161,7 @@ await requireBrowserLane("session-info-no-rewrap.test.ts", async () => {
           await settle(page);
           await startSampling(page);
           await toggle.click();
-          await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
+          await page.locator(SESSION_INFO_SHOWN).waitFor({ timeout: 10_000 });
           await settle(page);
           const placement = await panel.getAttribute("data-placement");
           await toggle.click();

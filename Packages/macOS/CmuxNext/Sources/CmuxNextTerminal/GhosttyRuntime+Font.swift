@@ -17,14 +17,33 @@ extension GhosttyRuntime {
 
     public static var fontOverride = FontOverride()
 
+    /// Optional faces used after the person's chosen face. Ghostty ignores a
+    /// family that is not installed, so these keep a config portable while
+    /// giving Nerd Font private-use and CJK glyphs a monospace fallback when
+    /// the face is available.
+    public nonisolated static let knownFallbackFamilies = [
+        "Symbols Nerd Font Mono",
+        "Noto Sans Mono CJK JP",
+    ]
+
     /// Config lines for `font`. `font-family` is a list in Ghostty, so an
-    /// empty value clears the config's families first. Values that could
-    /// inject another line are dropped.
-    public nonisolated static func fontOverrideLines(_ font: FontOverride) -> [String] {
+    /// empty value clears the config's families first. The selected family is
+    /// first, then the loaded config's fallback chain and known optional faces.
+    /// Values are quoted and escaped so valid family names containing `#`, `=` or quotes stay
+    /// in the fallback chain; control characters that could inject another line are dropped.
+    public nonisolated static func fontOverrideLines(_ font: FontOverride,
+                                                     fallbackFamilies: [String] = []) -> [String] {
         var lines: [String] = []
-        if let family = font.family?.trimmingCharacters(in: .whitespaces), !family.isEmpty, family.count <= 120,
-           family.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) && $0 != "#" && $0 != "=" && $0 != "\"" }) {
-            lines += ["font-family = \"\"", "font-family = \"\(family)\""]
+        if let family = quotedFamily(font.family) {
+            var families = [family] + fallbackFamilies + knownFallbackFamilies
+            var seen = Set<String>()
+            families = families.compactMap { value in
+                guard let value = quotedFamily(value) else { return nil }
+                let key = value.lowercased()
+                return seen.insert(key).inserted ? value : nil
+            }
+            lines.append("font-family = \"\"")
+            lines += families.map { "font-family = \"\(escapedFamily($0))\"" }
         }
         if let size = font.size, size.isFinite, (4...96).contains(size) {
             // Ghostty takes fractional points; at most two decimals.
@@ -32,5 +51,15 @@ extension GhosttyRuntime {
             lines.append(points == points.rounded() ? "font-size = \(Int(points))" : "font-size = \(points)")
         }
         return lines
+    }
+
+    private nonisolated static func quotedFamily(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespaces), !value.isEmpty, value.count <= 120,
+              value.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) else { return nil }
+        return value
+    }
+
+    private nonisolated static func escapedFamily(_ value: String) -> String {
+        value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
     }
 }

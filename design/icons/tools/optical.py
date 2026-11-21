@@ -1,7 +1,7 @@
 """Optical pass: centers each icon's ink and lifts small open glyphs to a common size.
 
 Usage: python3 optical.py ink.json   (measurements from measure.py)
-Rewrites icons/*.json in place. Geometry is transformed (not wrapped in a <g transform>), so
+Rewrites source/*.json in place. Geometry is transformed (not wrapped in a <g transform>), so
 stroke widths stay 1.5 and the pack builder still sees absolute coordinates. Line, Solid and
 Cat share the Line measurement; each alt uses its own Line measurement.
 """
@@ -181,7 +181,7 @@ def plan(name, box):
 def main():
     ink = json.loads(Path(sys.argv[1]).read_text())
     changes = []
-    for path in sorted((ROOT / "icons").glob("*.json")):
+    for path in sorted((ROOT / "source").glob("*.json")):
         data = json.loads(path.read_text())
         for icon in data["icons"]:
             name = icon["name"]

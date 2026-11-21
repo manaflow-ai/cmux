@@ -32,7 +32,9 @@ struct SidebarCollapseMotionTests {
         }
     }
 
-    @Test func workspaceTitleArrivalIsInstantByDefault() throws {
+    /// Leo, 2026-11-08: "when workspaces get renamed (esp by agents) it should have that same fade
+    /// in animation that the tool call situation has".
+    @Test func aWorkspaceRenameRollsByDefault() throws {
         let store = TunableStore.shared
         store.activate(file: nil)
         store.register(SidebarTunables.all)
@@ -40,6 +42,6 @@ struct SidebarCollapseMotionTests {
         let previous = store.override(key)
         defer { store.set(key, previous) }
         store.set(key, nil)
-        #expect(SidebarTunables.workspaceTitleMotion.value == .instant)
+        #expect(SidebarTunables.workspaceTitleMotion.value == .roll)
     }
 }

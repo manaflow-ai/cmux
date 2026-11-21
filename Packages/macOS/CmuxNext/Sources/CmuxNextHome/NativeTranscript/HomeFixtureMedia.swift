@@ -1,5 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AVFoundation
+import CmuxNextCompat
+import CryptoKit
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -22,7 +24,47 @@ nonisolated enum HomeFixtureMedia {
         return [photo, video, pdf]
     }
 
+    /// The Chief's media message of 2026-11-16 (msg 36844) and my wide picture: a 1760 x 880 PNG, two 1280 x 720
+    /// MP4s and a 2256 x 454 PNG, in a fresh temporary folder.
+    static func chiefMedia() async throws -> (shot: URL, videos: [URL], wide: URL) {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "cmux-home-media-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.checked.createDirectory(at: dir, withIntermediateDirectories: true)
+        let shot = dir.appending(path: "compare-exit-frames.png", directoryHint: .notDirectory)
+        try writePNG(width: 1760, height: 880, to: shot, hue: 0.02)
+        let videos = [dir.appending(path: "before-slow4x.mp4", directoryHint: .notDirectory),
+                      dir.appending(path: "after-slow4x.mp4", directoryHint: .notDirectory)]
+        for (index, video) in videos.enumerated() { try await writeVideo(to: video, width: 1280, height: 720, frames: 30 + 15 * index) }
+        let wide = dir.appending(path: "CleanShot 2026-11-16 at 8.19.10 PM@2x.png", directoryHint: .notDirectory)
+        try writePNG(width: 2256, height: 454, to: wide, hue: 0.12)
+        return (shot, videos, wide)
+    }
+
+    /// A file's SHA-256 (hex) and byte count, read off the main actor.
+    @concurrent static func digest(_ url: URL) async -> (String, Int)? {
+        guard let data = try? Data(blockingContentsOf: url) else { return nil }
+        return (SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), data.count)
+    }
+
     static func writePNG(width: Int, height: Int, to url: URL, hue: CGFloat) throws {
+        let image = try photo(width: width, height: height, hue: hue)
+        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)
+        else { throw CocoaError(.fileWriteUnknown) }
+        CGImageDestinationAddImage(dest, image, nil)
+        guard CGImageDestinationFinalize(dest) else { throw CocoaError(.fileWriteUnknown) }
+    }
+
+    /// The same photo as PNG bytes, with no file.
+    static func pngData(width: Int, height: Int, hue: CGFloat) throws -> Data {
+        let image = try photo(width: width, height: height, hue: hue)
+        let bytes = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(bytes as CFMutableData, UTType.png.identifier as CFString, 1, nil)
+        else { throw CocoaError(.fileWriteUnknown) }
+        CGImageDestinationAddImage(dest, image, nil)
+        guard CGImageDestinationFinalize(dest) else { throw CocoaError(.fileWriteUnknown) }
+        return bytes as Data
+    }
+
+    private static func photo(width: Int, height: Int, hue: CGFloat) throws -> CGImage {
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { throw CocoaError(.fileWriteUnknown) }
@@ -34,11 +76,8 @@ nonisolated enum HomeFixtureMedia {
         ctx.fillEllipse(in: CGRect(x: CGFloat(width) * 0.6, y: CGFloat(height) * 0.45, width: CGFloat(width) * 0.16, height: CGFloat(width) * 0.16))
         ctx.setFillColor(CGColor(srgbRed: 0.08, green: 0.1, blue: 0.18, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height) * 0.3))
-        guard let image = ctx.makeImage(),
-              let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)
-        else { throw CocoaError(.fileWriteUnknown) }
-        CGImageDestinationAddImage(dest, image, nil)
-        guard CGImageDestinationFinalize(dest) else { throw CocoaError(.fileWriteUnknown) }
+        guard let image = ctx.makeImage() else { throw CocoaError(.fileWriteUnknown) }
+        return image
     }
 
     static func writePDF(to url: URL) throws {

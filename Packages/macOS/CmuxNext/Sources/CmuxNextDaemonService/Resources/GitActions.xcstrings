@@ -1,0 +1,1458 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "git.noFolder": {
+      "comment": "Palette git worktree and checkpoint results and refusals; keep paths and commands exactly",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يحتوي علامة التبويب هذه على مجلد على هذا الجهاز. ركّز على طرفية داخل المستودع، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova kartica nema mapu na ovom računaru. Fokusirajte terminal u repozitoriju, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fane har ingen mappe på denne maskine. Fokusér en terminal i repositoriet, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Tab hat keinen Ordner auf diesem Gerät. Fokussiere ein Terminal im Repository und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tab has no folder on this machine. Focus a terminal in the repository, then try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta pestaña no tiene carpeta en esta máquina. Enfoca una terminal del repositorio y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet onglet n’a aucun dossier sur cette machine. Activez un terminal dans le dépôt, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa scheda non ha una cartella su questa macchina. Metti a fuoco un terminale nel repository, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このタブにはこのマシン上のフォルダがありません。リポジトリ内のターミナルにフォーカスしてから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងនេះគ្មានថតនៅលើម៉ាស៊ីននេះទេ។ ផ្តោតលើ terminal មួយក្នុង repository រួចសាកល្បងម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 탭에는 이 기기의 폴더가 없습니다. 저장소 안의 터미널에 포커스를 둔 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fanen har ingen mappe på denne maskinen. Fokuser en terminal i repositoriet, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta karta nie ma folderu na tym komputerze. Ustaw fokus na terminalu w repozytorium i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta aba não tem pasta nesta máquina. Foque um terminal no repositório e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У этой вкладки нет папки на этом компьютере. Перейдите в терминал внутри репозитория и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บนี้ไม่มีโฟลเดอร์บนเครื่องนี้ โฟกัสเทอร์มินัลในรีโพสิทอรี แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sekmenin bu makinede klasörü yok. Depodaki bir terminale odaklanın ve yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця вкладка не має теки на цьому комп’ютері. Перейдіть у термінал у репозиторії й спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ này không có thư mục trên máy này. Hãy chọn một terminal trong kho mã rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此标签页在这台机器上没有文件夹。请聚焦仓库中的终端，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此分頁在這台機器上沒有資料夾。請聚焦儲存庫中的終端機，然後再試一次。"
+          }
+        }
+      }
+    },
+    "git.thisMacOnly": {
+      "comment": "Palette git worktree and checkpoint results and refusals; keep paths and commands exactly",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تُنشأ أشجار عمل Git وتُزال على هذا الـ Mac فقط، وهذه العلامة على جهاز آخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git radna stabla se prave i uklanjaju samo na ovom Macu, a ova kartica je na drugom računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git-arbejdstræer oprettes og fjernes kun på denne Mac, og denne fane er på en anden maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git-Worktrees werden nur auf diesem Mac erstellt und entfernt, und dieser Tab ist auf einem anderen Gerät."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git worktrees are made and removed only on this Mac, and this tab is on another machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los worktrees de Git solo se crean y quitan en este Mac, y esta pestaña está en otra máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les worktrees Git ne sont créés et supprimés que sur ce Mac, et cet onglet est sur une autre machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I worktree Git si creano e rimuovono solo su questo Mac, e questa scheda è su un’altra macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git ワークツリーはこの Mac でのみ作成・削除できますが、このタブは別のマシンにあります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git worktree ត្រូវបានបង្កើត និងលុបតែនៅលើ Mac នេះប៉ុណ្ណោះ ហើយផ្ទាំងនេះនៅលើម៉ាស៊ីនផ្សេង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git 워크트리는 이 Mac에서만 만들고 제거할 수 있는데, 이 탭은 다른 기기에 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git-arbeidstrær opprettes og fjernes bare på denne Macen, og denne fanen er på en annen maskin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Drzewa robocze Git są tworzone i usuwane tylko na tym Macu, a ta karta jest na innym komputerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Worktrees do Git são criadas e removidas só neste Mac, e esta aba está em outra máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рабочие деревья Git создаются и удаляются только на этом Mac, а эта вкладка на другом компьютере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git worktree สร้างและลบได้เฉพาะบน Mac เครื่องนี้ และแท็บนี้อยู่บนเครื่องอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git çalışma ağaçları yalnızca bu Mac’te oluşturulup kaldırılır ve bu sekme başka bir makinede."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Робочі дерева Git створюються й видаляються лише на цьому Mac, а ця вкладка на іншому комп’ютері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Worktree Git chỉ được tạo và xóa trên máy Mac này, còn thẻ này nằm trên máy khác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git 工作树只能在这台 Mac 上创建和移除，而此标签页位于另一台机器上。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git 工作樹只能在這台 Mac 上建立和移除，而此分頁位於另一台機器上。"
+          }
+        }
+      }
+    },
+    "git.folderChanged": {
+      "comment": "Palette git worktree and checkpoint results and refusals; keep paths and commands exactly",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انتقلت علامة التبويب هذه إلى مجلد آخر أثناء سؤالك. لم تتم إزالة أي شيء؛ شغّله مرة أخرى من شجرة العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova kartica je prešla u drugu mapu dok ste bili pitani. Ništa nije uklonjeno; pokrenite ponovo iz radnog stabla."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fane skiftede til en anden mappe, mens du blev spurgt. Intet blev fjernet; kør det igen fra worktree'en."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Tab ist in einen anderen Ordner gewechselt, während du gefragt wurdest. Es wurde nichts entfernt; führe es erneut im Worktree aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tab moved to another folder while you were asked. Nothing was removed; run it again from the worktree."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta pestaña cambió a otra carpeta mientras se te preguntaba. No se eliminó nada; vuelve a ejecutarlo desde el worktree."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet onglet est passé dans un autre dossier pendant la question. Rien n’a été supprimé ; relancez depuis le worktree."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa scheda è passata a un’altra cartella mentre ti veniva chiesto. Non è stato rimosso nulla; eseguilo di nuovo dal worktree."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "確認中にこのタブが別のフォルダに移動しました。何も削除されていません。worktree からもう一度実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងនេះបានផ្លាស់ទៅថតផ្សេងខណៈពេលដែលអ្នកត្រូវបានសួរ។ គ្មានអ្វីត្រូវបានលុបទេ; សូមដំណើរការម្តងទៀតពី worktree។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "확인하는 동안 이 탭이 다른 폴더로 이동했습니다. 아무것도 제거되지 않았습니다. worktree에서 다시 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fanen byttet til en annen mappe mens du ble spurt. Ingenting ble fjernet; kjør det igjen fra worktreeen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta karta przeszła do innego folderu, gdy pojawiło się pytanie. Nic nie zostało usunięte; uruchom ponownie z worktree."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta aba mudou para outra pasta enquanto você era perguntado. Nada foi removido; execute de novo a partir do worktree."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пока вы отвечали, эта вкладка перешла в другую папку. Ничего не удалено; запустите снова из рабочего дерева."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บนี้ย้ายไปยังโฟลเดอร์อื่นระหว่างที่ระบบถามคุณ ไม่มีสิ่งใดถูกลบ เรียกใช้อีกครั้งจาก worktree"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Size sorulurken bu sekme başka bir klasöre geçti. Hiçbir şey kaldırılmadı; worktree içinden yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поки вас питали, ця вкладка перейшла до іншої папки. Нічого не видалено; запустіть знову з робочого дерева."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ này đã chuyển sang thư mục khác trong lúc bạn được hỏi. Không có gì bị xóa; hãy chạy lại từ worktree."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在询问期间此标签页切换到了另一个文件夹。未删除任何内容；请在该 worktree 中重新运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在詢問期間此分頁切換到了另一個資料夾。未移除任何內容；請在該 worktree 中重新執行。"
+          }
+        }
+      }
+    },
+    "git.worktreeCreated": {
+      "comment": "Palette git worktree and checkpoint results and refusals; keep paths and commands exactly",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شجرة عمل جديدة في %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novo radno stablo u %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nyt arbejdstræ i %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neuer Worktree in %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New worktree at %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuevo worktree en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nouveau worktree dans %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuovo worktree in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しいワークツリー: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "worktree ថ្មីនៅ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 워크트리: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nytt arbeidstre i %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowe drzewo robocze w %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova worktree em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новое рабочее дерево: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "worktree ใหม่ที่ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni çalışma ağacı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нове робоче дерево: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Worktree mới tại %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新工作树位于 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新工作樹位於 %@"
+          }
+        }
+      }
+    },
+    "git.worktreeApplied": {
+      "comment": "Palette git worktree and checkpoint results and refusals; keep paths and commands exactly",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم تطبيق عمل شجرة العمل على %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rad iz radnog stabla primijenjen je na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbejdstræets arbejde er anvendt på %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Arbeit des Worktrees wurde auf %@ angewendet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applied the worktree's work to %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se aplicó el trabajo del worktree a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le travail du worktree a été appliqué à %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il lavoro del worktree è stato applicato a %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークツリーの作業を %@ に適用しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានអនុវត្តការងាររបស់ worktree ទៅ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크트리의 작업을 %@에 적용했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeidstreets arbeid er brukt på %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zastosowano pracę z drzewa roboczego do %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O trabalho da worktree foi aplicado a %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Работа из рабочего дерева применена к %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นำงานของ worktree ไปใช้กับ %@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma ağacındaki iş %@ konumuna uygulandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Роботу з робочого дерева застосовано до %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã áp dụng công việc của worktree vào %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已将工作树的工作应用到 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已將工作樹的工作套用到 %@"
+          }
+        }
+      }
+    },
+    "git.worktreeRemoved": {
+      "comment": "Palette git worktree and checkpoint results and refusals; keep paths and commands exactly",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تمت إزالة شجرة العمل وفرعها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radno stablo i njegova grana su uklonjeni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbejdstræet og dets gren er fjernet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Worktree und Branch wurden entfernt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed the worktree and its branch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se quitaron el worktree y su rama"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le worktree et sa branche ont été supprimés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il worktree e il suo branch sono stati rimossi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークツリーとそのブランチを削除しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានលុប worktree និង branch របស់វា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크트리와 브랜치를 제거했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeidstreet og grenen er fjernet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usunięto drzewo robocze i jego gałąź"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A worktree e seu branch foram removidos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рабочее дерево и его ветка удалены"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบ worktree และ branch ของมันแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma ağacı ve dalı kaldırıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Робоче дерево та його гілку видалено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã xóa worktree và nhánh của nó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已移除工作树及其分支"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已移除工作樹及其分支"
+          }
+        }
+      }
+    },
+    "git.checkpointCreated": {
+      "comment": "Palette git worktree and checkpoint results and refusals; keep paths and commands exactly",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم إنشاء نقطة تحقق git"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Napravljena je git kontrolna tačka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et git-checkpoint er oprettet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Git-Checkpoint wurde erstellt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Created a git checkpoint"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se creó un punto de control de git"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un point de contrôle git a été créé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Checkpoint git creato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git チェックポイントを作成しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបង្កើត git checkpoint"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git 체크포인트를 만들었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et git-sjekkpunkt er opprettet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utworzono punkt kontrolny git"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Checkpoint do git criado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Контрольная точка git создана"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สร้าง git checkpoint แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Git denetim noktası oluşturuldu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Контрольну точку git створено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã tạo checkpoint git"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已创建 git 检查点"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已建立 git 檢查點"
+          }
+        }
+      }
+    },
+    "git.removeTitle": {
+      "comment": "Remove Git Worktree's confirmation; .env and git stay as written",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد إزالة شجرة العمل هذه؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukloniti ovo radno stablo?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern dette worktree?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diesen Worktree entfernen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove this worktree?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Eliminar este worktree?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer ce worktree ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rimuovere questo worktree?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このワークツリーを削除しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុប worktree នេះ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 워크트리를 제거할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjerne dette worktreet?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usunąć to drzewo robocze?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remover este worktree?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить это рабочее дерево?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบ worktree นี้หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu çalışma ağacı kaldırılsın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видалити це робоче дерево?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa worktree này?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除此工作树？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除此工作樹？"
+          }
+        }
+      }
+    },
+    "git.removeBody": {
+      "comment": "Remove Git Worktree's confirmation; .env and git stay as written",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يؤدي هذا إلى حذف مجلد شجرة العمل وفرعها، مع الملفات التي يتجاهلها git مثل .env. لا يمكن التراجع عن ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo briše mapu radnog stabla i njegovu granu, zajedno s datotekama koje git zanemaruje, poput .env. Ovo se ne može poništiti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette sletter worktreets mappe og dets branch, med de filer git ignorerer, såsom .env. Det kan ikke fortrydes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dadurch werden der Ordner des Worktrees und sein Branch gelöscht, samt der Dateien, die git ignoriert, etwa .env. Das kann nicht rückgängig gemacht werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This deletes the worktree's folder and its branch, with the files git ignores, such as .env. This can't be undone."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esto elimina la carpeta del worktree y su rama, con los archivos que git ignora, como .env. No se puede deshacer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cela supprime le dossier du worktree et sa branche, avec les fichiers que git ignore, comme .env. Cette action est irréversible."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo elimina la cartella del worktree e il suo branch, con i file che git ignora, come .env. Non si può annullare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークツリーのフォルダーとそのブランチを、.env など git が無視するファイルごと削除します。元に戻せません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វាលុបថតរបស់ worktree និង branch របស់វា រួមទាំងឯកសារដែល git មិនអើពើ ដូចជា .env។ មិនអាចមិនធ្វើវិញបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크트리 폴더와 브랜치를 .env 같은 git이 무시하는 파일까지 함께 삭제합니다. 되돌릴 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette sletter worktreets mappe og grenen, med filene git ignorerer, som .env. Dette kan ikke angres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spowoduje to usunięcie folderu drzewa roboczego i jego gałęzi wraz z plikami ignorowanymi przez git, takimi jak .env. Tej operacji nie można cofnąć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isso exclui a pasta do worktree e seu branch, com os arquivos que o git ignora, como .env. Não é possível desfazer."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Папка рабочего дерева и его ветка будут удалены вместе с файлами, которые git игнорирует, например .env. Это нельзя отменить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การดำเนินการนี้จะลบโฟลเดอร์ของ worktree และ branch ของมัน รวมถึงไฟล์ที่ git ละเว้น เช่น .env และไม่สามารถเลิกทำได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu, çalışma ağacının klasörünü ve dalını, .env gibi git'in yok saydığı dosyalarla birlikte siler. Bu işlem geri alınamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Буде видалено теку робочого дерева та його гілку разом із файлами, які git ігнорує, як-от .env. Це не можна скасувати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thao tác này xóa thư mục của worktree và nhánh của nó, cùng các tệp git bỏ qua như .env. Không thể hoàn tác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这会删除该工作树的文件夹及其分支，包括 git 忽略的文件（如 .env）。此操作无法撤销。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這會刪除該工作樹的資料夾及其分支，包括 git 忽略的檔案（例如 .env）。此操作無法復原。"
+          }
+        }
+      }
+    },
+    "git.removeDiscardBody": {
+      "comment": "Remove Git Worktree's confirmation; .env and git stay as written",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يؤدي هذا إلى حذف مجلد شجرة العمل وفرعها، مع تغييراتها غير المؤكدة والملفات التي يتجاهلها git مثل .env. لا يمكن التراجع عن ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo briše mapu radnog stabla i njegovu granu, zajedno s nepotvrđenim promjenama i datotekama koje git zanemaruje, poput .env. Ovo se ne može poništiti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette sletter worktreets mappe og dets branch, med ucommittede ændringer og de filer git ignorerer, såsom .env. Det kan ikke fortrydes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dadurch werden der Ordner des Worktrees und sein Branch gelöscht, samt nicht committeter Änderungen und der Dateien, die git ignoriert, etwa .env. Das kann nicht rückgängig gemacht werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This deletes the worktree's folder and its branch, with its uncommitted changes and the files git ignores, such as .env. This can't be undone."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esto elimina la carpeta del worktree y su rama, con sus cambios sin confirmar y los archivos que git ignora, como .env. No se puede deshacer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cela supprime le dossier du worktree et sa branche, avec ses modifications non validées et les fichiers que git ignore, comme .env. Cette action est irréversible."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo elimina la cartella del worktree e il suo branch, con le modifiche non salvate in commit e i file che git ignora, come .env. Non si può annullare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークツリーのフォルダーとそのブランチを、コミットしていない変更と .env など git が無視するファイルごと削除します。元に戻せません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វាលុបថតរបស់ worktree និង branch របស់វា រួមទាំងការផ្លាស់ប្ដូរដែលមិនទាន់ commit និងឯកសារដែល git មិនអើពើ ដូចជា .env។ មិនអាចមិនធ្វើវិញបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크트리 폴더와 브랜치를 커밋하지 않은 변경 사항, .env 같은 git이 무시하는 파일까지 함께 삭제합니다. 되돌릴 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette sletter worktreets mappe og grenen, med endringer som ikke er committet og filene git ignorerer, som .env. Dette kan ikke angres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spowoduje to usunięcie folderu drzewa roboczego i jego gałęzi wraz z niezatwierdzonymi zmianami i plikami ignorowanymi przez git, takimi jak .env. Tej operacji nie można cofnąć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isso exclui a pasta do worktree e seu branch, com as alterações não confirmadas e os arquivos que o git ignora, como .env. Não é possível desfazer."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Папка рабочего дерева и его ветка будут удалены вместе с незафиксированными изменениями и файлами, которые git игнорирует, например .env. Это нельзя отменить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การดำเนินการนี้จะลบโฟลเดอร์ของ worktree และ branch ของมัน รวมถึงการเปลี่ยนแปลงที่ยังไม่ได้ commit และไฟล์ที่ git ละเว้น เช่น .env และไม่สามารถเลิกทำได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu, çalışma ağacının klasörünü ve dalını, kaydedilmemiş değişiklikleri ve .env gibi git'in yok saydığı dosyalarla birlikte siler. Bu işlem geri alınamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Буде видалено теку робочого дерева та його гілку разом із незафіксованими змінами й файлами, які git ігнорує, як-от .env. Це не можна скасувати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thao tác này xóa thư mục của worktree và nhánh của nó, cùng các thay đổi chưa commit và các tệp git bỏ qua như .env. Không thể hoàn tác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这会删除该工作树的文件夹及其分支，包括未提交的更改和 git 忽略的文件（如 .env）。此操作无法撤销。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這會刪除該工作樹的資料夾及其分支，包括未提交的變更和 git 忽略的檔案（例如 .env）。此操作無法復原。"
+          }
+        }
+      }
+    },
+    "git.removeButton": {
+      "comment": "Remove Git Worktree's confirmation; .env and git stay as written",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إزالة شجرة العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukloni radno stablo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern worktree"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Worktree entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Worktree"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eliminar worktree"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer le worktree"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rimuovi worktree"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークツリーを削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុប Worktree"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크트리 제거"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjern worktree"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuń drzewo robocze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remover worktree"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить рабочее дерево"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบ Worktree"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma ağacını kaldır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видалити робоче дерево"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa worktree"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除工作树"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移除工作樹"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

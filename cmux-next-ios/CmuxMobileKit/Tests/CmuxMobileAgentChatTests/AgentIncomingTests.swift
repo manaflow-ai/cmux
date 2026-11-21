@@ -261,4 +261,38 @@ import Testing
         let provenance = try json(#"{"kind":"inbox_notice","threads":[{"threadId":"pr:1","from":["lane-b"]}]}"#)
         #expect(AgentIncoming.parse(text: notice, provenance: provenance)?.messages == [.init(sender: "lane-b", text: "Merged #36125")])
     }
+
+    /// CMUX-51: a message a Chief's turn sent (acpmux `stamp_chief` puts `fromChief` on an
+    /// `agent_message` or `session_message`) keeps the Chief as its sender and is marked as the
+    /// Chief's, so the transcript draws its blue bubble, never the person's.
+    @Test func chiefStampMarksTheChiefsMessage() throws {
+        let session = try json(#"{"kind":"session_message","from":"optchat-home-12","fromName":"Ops Chief","fromChief":"agent_ops"}"#)
+        let incoming = AgentIncoming.parse(text: "Rebase #36125.", provenance: session)
+        #expect(incoming?.chief == "agent_ops")
+        #expect(incoming?.messages == [.init(sender: "Ops Chief", text: "Rebase #36125.")])
+        let message = try json(#"{"kind":"agent_message","from":"acp:s-9","fromName":"Codex Chief","fromChief":"agent_codex","msgId":"m1"}"#)
+        #expect(AgentIncoming.parse(text: "Post the build.", provenance: message)?.chief == "agent_codex")
+    }
+
+    @Test func noChiefWithoutAValidStampOrOnOtherKinds() throws {
+        // Another agent's message: no Chief.
+        let plain = try json(#"{"kind":"session_message","from":"lane-a","fromName":"lane-a"}"#)
+        #expect(AgentIncoming.parse(text: "Merged.", provenance: plain)?.chief == nil)
+        // An id not in a Chief's shape is not one.
+        let forged = try json(#"{"kind":"session_message","from":"lane-a","fromChief":"me"}"#)
+        #expect(AgentIncoming.parse(text: "Merged.", provenance: forged)?.chief == nil)
+        // acpmux stamps only two kinds; an unverified sender claiming it is never the Chief's.
+        let unverified = try json(#"{"kind":"unverified","fromChief":"agent_ops"}"#)
+        #expect(AgentIncoming.parse(text: "Merged.", provenance: unverified)?.chief == nil)
+        // The person's own prompt stays theirs (no card at all).
+        let person = try json(#"{"kind":"person_message","fromChief":"agent_ops"}"#)
+        #expect(AgentIncoming.parse(text: "Hi", provenance: person) == nil)
+    }
+
+    /// A payload written before the field (the transcript's disk cache) still decodes, with no Chief.
+    @Test func olderPayloadDecodesWithNoChief() throws {
+        let old = #"{"messages":[{"sender":"lane-a","text":"hi"}],"raw":"hi","unverified":false,"edited":false}"#
+        let incoming = try JSONDecoder().decode(AgentIncoming.self, from: Data(old.utf8))
+        #expect(incoming.chief == nil)
+    }
 }

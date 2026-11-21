@@ -875,7 +875,7 @@ impl ServiceStream {
         }
     }
 
-    pub(crate) async fn wait_for_failure(&self) -> ServiceError {
+    pub async fn wait_for_failure(&self) -> ServiceError {
         let mut failure = self.failure.subscribe();
         loop {
             if let Some(failure) = failure.borrow().clone() {
@@ -1463,7 +1463,7 @@ fn default_lane(service: Service) -> Lane {
         | Service::TerminalBytes
         | Service::ComputerUse => Lane::Interactive,
         Service::WorkspaceRpc => Lane::Control,
-        Service::TcpTunnel | Service::LocalSocket => Lane::Tunnel,
+        Service::TcpTunnel | Service::LocalSocket | Service::Acpmux => Lane::Tunnel,
     }
 }
 
@@ -1503,9 +1503,10 @@ fn rejected_open_tombstone_lane_mask(service: Service, open_lane: Lane) -> u8 {
 }
 
 /// A raw byte stream on the Tunnel lane, bound to its generation and never
-/// replayed: [`Service::TcpTunnel`] and [`Service::LocalSocket`].
+/// replayed: [`Service::TcpTunnel`], [`Service::LocalSocket`] and
+/// [`Service::Acpmux`].
 fn is_tunnel(service: Service) -> bool {
-    matches!(service, Service::TcpTunnel | Service::LocalSocket)
+    matches!(service, Service::TcpTunnel | Service::LocalSocket | Service::Acpmux)
 }
 
 fn open_lane(service: Service) -> Lane {

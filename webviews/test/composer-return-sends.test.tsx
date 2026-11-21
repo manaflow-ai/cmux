@@ -15,6 +15,7 @@ import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import { cmuxCommandRefusal, type CmuxCommand, type CmuxCommandResult } from "../src/agent-session/acpmux/cmuxCommands";
 import { translate } from "../src/agent-session/acpmux/i18n";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -93,12 +94,8 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {
@@ -136,7 +133,7 @@ const PNG = Uint8Array.from([
 ]);
 
 /** A file still being read: its loading tile at its place in the prompt (inline, the default view). */
-const LOADING = '.acpmux-md-inline-chip[data-state="loading"]';
+const LOADING = '.acpmux-md-inline-chip[aria-busy="true"], .acpmux-md-inline-chip [aria-busy="true"]';
 
 /** Renders the composer over `snapshot`, types `typed` into it and returns its field and sends. */
 async function composer(
@@ -382,6 +379,33 @@ test("an attachment-only Return waits for a pending image and sends it when read
   expect(page.sentAttachments).toEqual([["pending.png"]]);
 });
 
+test("a screenshot sent as a path loads in a file chip at the caret", async () => {
+  const snapshot = chat();
+  snapshot.summary = { ...snapshot.summary!, promptCapabilities: { image: false } };
+  let resolve!: (result: { paths: string[] }) => void;
+  const upload = new Promise<{ paths: string[] }>((done) => {
+    resolve = done;
+  });
+  const page = await composer(snapshot, "", undefined, false, undefined, () => upload);
+  const file = new File([PNG], "screenshot.png", { type: "image/png" });
+  const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: { files: [file], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => page.field.dispatchEvent(paste));
+  try {
+    const loading = page.field.querySelector('.acpmux-attachment-file[aria-busy="true"]');
+    expect(loading).not.toBeNull();
+    expect(loading!.textContent).toContain("screenshot.png");
+    expect(loading!.querySelector("img")).toBeNull();
+  } finally {
+    await act(async () => resolve({ paths: ["/tmp/screenshot.png"] }));
+  }
+  expect(page.field.querySelector(".acpmux-attachment-link[data-saved]")).not.toBeNull();
+  await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
+  expect(page.sentAttachments).toEqual([["screenshot.png"]]);
+});
+
 test("a terminal-only spelling waits for its pending image and sends as an attachment prompt", async () => {
   const page = await composer(chat(), "/logout");
   const file = new File([PNG], "pending.png", { type: "image/png" });
@@ -580,6 +604,36 @@ test("Shift-Return right after an input method's commit Return adds a line and s
   expect({ sent, lines: lines(field) }).toEqual({ sent: [], lines: 2 });
 });
 
+for (const inputType of ["insertParagraph", "insertLineBreak"]) {
+  for (const [reportsComposing, started] of [
+    [true, true],
+    [false, true],
+    [true, false],
+  ]) {
+    test(`${inputType} during composition never sends (event flag ${reportsComposing}, lifecycle ${started})`, async () => {
+      const { field, sent } = await composer(chat(), "日本語");
+      if (started) await dispatch(field, new window.CompositionEvent("compositionstart", { bubbles: true }), 1_000);
+      const proceeded = await dispatch(
+        field,
+        new window.InputEvent("beforeinput", {
+          inputType,
+          isComposing: reportsComposing,
+          bubbles: true,
+          cancelable: true,
+        }),
+        1_500,
+      );
+      expect(proceeded).toBe(false);
+      expect(sent).toEqual([]);
+      expect(field.textContent).toBe("日本語");
+      await dispatch(field, new window.CompositionEvent("compositionend", { bubbles: true }), 2_000);
+      await dispatch(field, key({ key: "Enter", keyCode: 229 }), 2_010);
+      await dispatch(field, key({ key: "Enter", keyCode: 13 }), 2_100);
+      expect(sent).toEqual([{ text: "日本語", steer: false }]);
+    });
+  }
+}
+
 test("a paragraph the input method inserts on its own sends instead", async () => {
   const { field, sent } = await composer(working(), "What is Spotlight?");
   const inserted = await dispatch(
@@ -603,4 +657,36 @@ test("Shift-Return adds a line and sends nothing", async () => {
   expect(lines(field)).toBe(1);
   await dispatch(field, key({ key: "Enter", keyCode: 13, shiftKey: true }));
   expect({ sent, lines: lines(field) }).toEqual({ sent: [], lines: 2 });
+});
+
+// A turn can start a moment before the pane hears of it (another agent's message, a trigger, an
+// automatic retry). A Return sent then went without steer, so acpmux queued it behind that turn
+// (Leo, 2026-11-05: "hey what the is my thing auto queuing rn?"). To an agent that steers it goes as
+// a steer, which acpmux runs as a turn of its own when none runs.
+function steeringIdle(fields: Partial<AcpmuxSnapshot> = {}): AcpmuxSnapshot {
+  const snapshot = chat(fields);
+  return { ...snapshot, summary: { ...snapshot.summary!, steering: true } };
+}
+
+test("Return to an agent that steers goes as a steer even while the chat shows no turn", async () => {
+  const { field, sent } = await composer(steeringIdle(), "Use the cache dir");
+  await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect(sent).toEqual([{ text: "Use the cache dir", steer: true }]);
+});
+
+test("Send to an agent that steers goes as a steer even while the chat shows no turn", async () => {
+  const { sent } = await composer(steeringIdle(), "Use the cache dir");
+  const button = host.querySelector<HTMLButtonElement>("button[type=submit], .acpmux-send");
+  expect(button).not.toBeNull();
+  await act(async () => button!.click());
+  expect(sent).toEqual([{ text: "Use the cache dir", steer: true }]);
+});
+
+test("one of the agent's own commands still waits for the turn while the chat shows none", async () => {
+  const { field, sent } = await composer(
+    steeringIdle({ commands: [{ name: "compact", description: "Compact" }] }),
+    "/compact",
+  );
+  await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect(sent).toEqual([{ text: "/compact", steer: false }]);
 });

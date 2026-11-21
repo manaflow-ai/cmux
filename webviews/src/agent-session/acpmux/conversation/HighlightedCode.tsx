@@ -53,7 +53,7 @@ export function HighlightedCode({
       />
     );
   return (
-    <div className={`cv-codeblock${codeHeaderClass(look)}`} ref={menuPartRef({ code })}>
+    <div className={`cv-codeblock${codeHeaderClass(look)}`} ref={menuPartRef({ code, codeLanguage: lang })}>
       <CodeHeader look={look} lang={lang} label={label}>
         <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />
         <button

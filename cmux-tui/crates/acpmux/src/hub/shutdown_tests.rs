@@ -432,6 +432,7 @@ async fn a_trust_check_with_no_answer_during_a_restart_answers_that_the_daemon_r
         record: dir.join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     let req = NewRequest { cwd: Some(folder.clone()), ..NewRequest::default() };
     let s = hub.new_session(req).await.unwrap();
@@ -489,6 +490,7 @@ async fn the_shutdown_cannot_begin_between_the_trust_check_and_its_refusal() {
         record: dir.join("trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     }));
     let req = NewRequest { cwd: Some(folder.clone()), ..NewRequest::default() };
     let s = hub.new_session(req).await.unwrap();
@@ -525,5 +527,244 @@ async fn the_shutdown_cannot_begin_between_the_trust_check_and_its_refusal() {
         records(&hub, &s, "prompt_refused").into_iter().filter(|m| m["promptId"] == "p").collect();
     assert_eq!(refused.len(), 1, "{refused:?}");
     hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A stop while a peer cache write does not finish (a disk that does not answer) waits for the
+/// notice loop's final save at most its bound (2 s, `wait_peer_notice_loop`), so an update's
+/// handoff, which waits for this daemon to stop, is not held by it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stop_during_a_cache_write_that_does_not_finish_ends_within_its_bound() {
+    let dir = std::env::temp_dir().join(format!("acpmux-shutdown-slow-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(&dir);
+    let peer =
+        crate::peer::Peer::new("builder", "ws://127.0.0.1:9", None, None, hub.peer_notices.clone());
+    hub.peers.lock().unwrap().insert(peer.name.clone(), peer.clone());
+    peer.cache_dirty_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    hub.cache_test_write_started.store(false, std::sync::atomic::Ordering::SeqCst);
+    hub.cache_test_write_delay_ms.store(8_000, std::sync::atomic::Ordering::SeqCst);
+    let started = tokio::time::Instant::now();
+    let shutting = {
+        let hub = hub.clone();
+        tokio::spawn(async move { hub.shutdown_all().await })
+    };
+    until("the final peer cache write started", || {
+        hub.cache_test_write_started.load(std::sync::atomic::Ordering::Acquire)
+    })
+    .await;
+    tokio::time::timeout(Duration::from_secs(6), shutting)
+        .await
+        .expect("the stop waited on a cache write that does not finish")
+        .unwrap();
+    let took = started.elapsed();
+    assert!(took < Duration::from_secs(6), "the stop took {took:?}");
+    hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Twenty-two hub tasks once ignored cancellation and serialized Restart to Update behind their
+/// remote work. The owner aborts all of them at one absolute one-second deadline, so a peer count
+/// cannot turn the handoff into one wait per task.
+#[tokio::test(start_paused = true)]
+async fn hub_tasks_that_ignore_cancellation_are_cut_at_one_shared_deadline() {
+    let dir = std::env::temp_dir().join(format!("acpmux-shutdown-bound-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(&dir);
+    for _ in 0..22 {
+        hub.scope.spawn_named("shutdown-stubborn", std::future::pending::<()>());
+    }
+    hub.begin_shutdown();
+    let started = tokio::time::Instant::now();
+    let reports = hub.close_owned_tasks().await;
+    assert!(started.elapsed() <= super::shutdown::OWNED_TASKS_CLOSE);
+    let report = reports.iter().find(|report| report.owner == "acpmux hub").expect("hub report");
+    assert_eq!(report.still_running.len(), 22, "{report}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A blocking store seal must not prevent the runtime from enforcing the handoff deadline;
+/// the worker still fences late writes and drains the audit once its disk is released.
+#[tokio::test]
+async fn handoff_persistence_does_not_block_the_runtime_and_still_seals_the_store() {
+    use crate::store::{EventRecord, SessionMeta, Store};
+
+    struct HeldSeal {
+        inner: Box<dyn Store>,
+        entered: Arc<Notify>,
+        release: StdMutex<std::sync::mpsc::Receiver<()>>,
+    }
+    impl Store for HeldSeal {
+        fn list(&self) -> anyhow::Result<Vec<SessionMeta>> {
+            self.inner.list()
+        }
+        fn load(&self, id: &str) -> anyhow::Result<Option<SessionMeta>> {
+            self.inner.load(id)
+        }
+        fn save(&self, meta: &SessionMeta) -> anyhow::Result<()> {
+            self.inner.save(meta)
+        }
+        fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
+            self.inner.append(id, record)
+        }
+        fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+            self.inner.events(id, after, limit)
+        }
+        fn delete(&self, id: &str) -> anyhow::Result<()> {
+            self.inner.delete(id)
+        }
+        fn seal(&self) {
+            self.entered.notify_one();
+            let _ = self.release.lock().unwrap().recv_timeout(Duration::from_secs(2));
+            self.inner.seal();
+        }
+        fn flush(&self) -> anyhow::Result<()> {
+            self.inner.flush()
+        }
+        fn audit_dir(&self) -> Option<PathBuf> {
+            self.inner.audit_dir()
+        }
+        fn peer_cache_dir(&self) -> Option<PathBuf> {
+            self.inner.peer_cache_dir()
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let config = Config::default();
+    let store = crate::store::open(&config.store, dir.path()).unwrap();
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "kept", "name": "kept",
+        "harness": "fake", "family": "fake", "cwd": "/tmp", "status": "idle",
+        "createdAt": 1, "updatedAt": 1, "lastSeq": 0
+    }))
+    .unwrap();
+    store.save(&meta).unwrap();
+    let record = EventRecord {
+        seq: 1,
+        at: 1,
+        dir: "mux".into(),
+        kind: "queued".into(),
+        msg: json!({"text": "kept across shutdown"}),
+        host_seq: None,
+    };
+    store.append("kept", &record).unwrap();
+    let entered = Arc::new(Notify::new());
+    let (release, released) = std::sync::mpsc::channel();
+    let hub = Hub::new(
+        config,
+        Box::new(HeldSeal {
+            inner: store,
+            entered: entered.clone(),
+            release: StdMutex::new(released),
+        }),
+    );
+    hub.audit.record(json!({"at": 1, "sessionId": "kept", "kind": "approval",
+        "decision": {"kind": "allow"}, "answeredBy": {"person": true}}));
+    // An async loader was cancelled while its blocking worker still owned a chat's
+    // restore. Its recovered record must land before persistence seals the store.
+    let (restoring, restore_started) = tokio::sync::oneshot::channel();
+    let (finish_restore, restore_released) = std::sync::mpsc::channel();
+    let restored = {
+        let hub = hub.clone();
+        let mut recovered = record.clone();
+        recovered.seq = 2;
+        tokio::task::spawn_blocking(move || {
+            let session = hub.sessions().into_iter().find(|s| s.id == "kept").unwrap();
+            let _loading = session.log_load.lock().unwrap();
+            let _ = restoring.send(());
+            restore_released.recv_timeout(Duration::from_secs(2)).unwrap();
+            hub.store.append("kept", &recovered).unwrap();
+        })
+    };
+    restore_started.await.unwrap();
+    hub.begin_shutdown();
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(100);
+    let mut persistence = tokio::spawn(hub.clone().persist_for_handoff(deadline));
+    let sealed_early =
+        tokio::time::timeout(Duration::from_millis(30), entered.notified()).await.is_ok();
+    let _ = finish_restore.send(());
+    restored.await.unwrap();
+    assert!(!sealed_early, "the store sealed ahead of an in-flight log restore");
+    tokio::time::timeout(Duration::from_secs(3), entered.notified()).await.unwrap();
+    let started = std::time::Instant::now();
+    let timed_out = tokio::time::timeout_at(deadline, &mut persistence).await.is_err();
+    let elapsed = started.elapsed();
+    let _ = release.send(());
+    assert!(timed_out, "the held seal should still be running");
+    assert!(elapsed < Duration::from_secs(1), "the seal blocked the runtime for {elapsed:?}");
+    tokio::time::timeout(Duration::from_secs(5), persistence).await.unwrap().unwrap();
+    assert!(hub.store.append("kept", &record).is_err(), "late writes were not fenced");
+    assert_eq!(hub.audit.all().unwrap().len(), 1, "shutdown lost the pending approval");
+    let reopened = crate::store::open(&Default::default(), dir.path()).unwrap();
+    assert_eq!(reopened.events("kept", 0, 10).unwrap().len(), 2);
+    reopened.seal();
+}
+
+/// The daemon cuts its session cleanup at its deadline, which can drop an agent's terminate
+/// inside its grace, after the SIGTERM and before the SIGKILL (Codex review of #42296). An agent
+/// that ignores SIGTERM still gets its SIGKILL then, not a life past the daemon.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_cut_terminate_still_kills_an_agent_that_ignores_sigterm() {
+    let dir = std::env::temp_dir().join(format!("acpmux-cut-kill-{}", uuid::Uuid::now_v7()));
+    let hub = queue_hub_in(&dir, json!({"FAKE_IGNORE_TERM": "1"}));
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    hub.prompt_with(&s, blocks, "test", false, PromptOptions::default()).await.unwrap();
+    let child = s.child.lock().await.clone().expect("the chat's agent");
+    let grace = super::shutdown::SHUTDOWN_GRACE;
+    let cut = tokio::time::timeout(Duration::from_millis(300), child.terminate(grace)).await;
+    assert!(cut.is_err(), "the agent that ignores SIGTERM ended inside the cut");
+    let group = child.pid.expect("a direct agent's pid") as i32;
+    until_group_gone(group, "the agent's group outlived its cut terminate").await;
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Waits up to a second for every process of the agent's group `group` to be gone (no
+/// signal reaches the group): the agent's own process, and any it started under it.
+#[cfg(unix)]
+async fn until_group_gone(group: i32, what: &str) {
+    let by = tokio::time::Instant::now() + Duration::from_secs(1);
+    loop {
+        let gone = unsafe { libc::killpg(group, 0) } != 0
+            && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+        if gone {
+            return;
+        }
+        assert!(tokio::time::Instant::now() < by, "{what}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// Quit Everything's ends do not wait behind the peer notice loop's last cache write, which may
+/// take its whole bound (`OWNED_TASKS_CLOSE`), longer than the daemon's 750 ms restart cutoff:
+/// a cleanup cut there sent no agent its end (Codex review of #42296). On the daemon's
+/// multi-thread runtime, as the cache write blocks its thread.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn quit_everything_ends_its_agents_beside_a_slow_peer_cache_write() {
+    let dir = std::env::temp_dir().join(format!("acpmux-quit-peer-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(&dir);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    hub.prompt_with(&s, blocks, "test", false, PromptOptions::default()).await.unwrap();
+    let child = s.child.lock().await.clone().expect("the chat's agent");
+    let peer =
+        crate::peer::Peer::new("builder", "ws://127.0.0.1:9", None, None, hub.peer_notices.clone());
+    hub.peers.lock().unwrap().insert(peer.name.clone(), peer.clone());
+    peer.cache_dirty_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    hub.cache_test_write_delay_ms.store(1_500, std::sync::atomic::Ordering::SeqCst);
+    hub.end_agents_at_shutdown(Default::default()).unwrap();
+    // The daemon's restart cutoff: SHUTDOWN_BUDGET less the writers' 250 ms.
+    let _ = tokio::time::timeout(Duration::from_millis(750), hub.shutdown_for_handoff(false)).await;
+    let group = child.pid.expect("a direct agent's pid") as i32;
+    until_group_gone(group, "Quit Everything left its agent running").await;
+    hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
     let _ = std::fs::remove_dir_all(&dir);
 }

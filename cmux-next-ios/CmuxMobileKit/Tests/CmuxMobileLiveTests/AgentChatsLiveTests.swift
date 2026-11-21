@@ -84,7 +84,7 @@ import Testing
             case "_acpmux/sessions":
                 return [reply(#"""
                 {"sessions":[
-                  {"sessionId":"sess-a","title":"Fix the build","harness":"claude","cwd":"/Users/me/src/app","status":"running","updatedAt":1700000000000,"startedBy":null,"tags":{}},
+                  {"sessionId":"sess-a","title":"Fix the build","harness":"claude","cwd":"/Users/me/src/app","status":"running","updatedAt":1700000000000,"startedBy":null,"tags":{},"rollingSummary":{"text":"Parser fixed, CI running.","next":"Merge the PR","source":"model","turn":3,"at":1}},
                   {"sessionId":"sess-b","title":null,"lastPrompt":"Why is CI red?","harness":"codex","cwd":"/Users/me/src/web","status":"idle","tags":{"archived":"1699"}},
                   {"sessionId":"sess-p","title":"On the other Mac","harness":"claude","cwd":"/x","status":"idle","peer":"huge-blue","tags":{}},
                   {"sessionId":"sess-s","title":"Side","harness":"claude","cwd":"/x","status":"idle","tags":{"side":"sess-a"}},
@@ -133,6 +133,9 @@ import Testing
         #expect(page.chats[0].displayTitle == "Fix the build")
         #expect(page.chats[0].archived == false)
         #expect(page.chats[1].archived == true)
+        // The Mac's rolling summary and next action reach the row; a chat with none has no line.
+        #expect(page.chats[0].summaryLine == "Parser fixed, CI running. → Merge the PR")
+        #expect(page.chats[1].summaryLine == nil)
         // No title: the first prompt names it, as acpmux's lists do.
         #expect(page.chats[1].displayTitle == "Why is CI red?")
         let request = try #require(seen.acpmuxCalls.last { $0.0 == "_acpmux/sessions" })
@@ -225,6 +228,8 @@ import Testing
         let seen = Seen()
         let (backend, _) = try await connected(seen)
         #expect(try await backend.markAllNotificationsRead(on: "m") == 1)
+        // The reads go in the background (StickyRead), so a silent Mac never holds another's.
+        for _ in 0..<500 where !seen.mutations.contains(where: { $0["cmd"] as? String == "ack-tab-notifications" }) { await Task.yield() }
         let acks = seen.mutations.filter { $0["cmd"] as? String == "ack-tab-notifications" }
         #expect(acks.map { $0["surface"] as? Int } == [12])
     }

@@ -72,9 +72,9 @@
   user-select: text;
   -webkit-user-select: text;
 }
-.cv-subagent-report__body > .cv-md > :first-child {
+.cv-subagent-report__body > * > .cv-md > :first-child {
   margin-top: 0;
 }
-.cv-subagent-report__body > .cv-md > :last-child {
+.cv-subagent-report__body > * > .cv-md > :last-child {
   margin-bottom: 0;
 }

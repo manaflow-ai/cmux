@@ -1,5 +1,6 @@
 //! `cmux-tui agent session-context`: the `SessionStart` hook the `claude`
-//! shim adds to every Claude Code it starts in a cmux terminal. It prints
+//! shim adds to every Claude Code it starts in a cmux terminal, and the
+//! pane's Claude Code plugin to every other one (claude_plugin.rs). It prints
 //! the session context (cmux-tui-hook session_context.rs) as the hook's
 //! `additionalContext`, so the model knows it runs in cmux, its ids and
 //! where the guide is. It runs this binary, the build that spawned the pane,
@@ -31,6 +32,12 @@ pub(crate) fn run() -> i32 {
     // Drain the payload so Claude Code's write never fails on a closed pipe.
     let _ = std::io::stdin().lock().take(MAX_PAYLOAD_BYTES).read_to_end(&mut Vec::new());
     let env = |key: &str| std::env::var(key).ok().filter(|value| !value.trim().is_empty());
+    // The plugin's copy of this hook (claude_plugin.rs) runs without the
+    // wrapper, which is what otherwise honors the switch.
+    if env("CMUX_TUI_CLAUDE_HOOKS_DISABLED").as_deref() == Some("1") {
+        println!("{{}}");
+        return 0;
+    }
     match env("CMUX_TUI_SOCKET").or_else(|| env("CMUX_MUX_SOCKET")) {
         Some(socket) => crate::hook_helper::session_context::print(
             &PathBuf::from(socket),
@@ -42,16 +49,5 @@ pub(crate) fn run() -> i32 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_verb_and_its_hook_command_agree() {
-        let args = |words: &[&str]| words.iter().map(OsString::from).collect::<Vec<_>>();
-        assert!(invocation(&args(&["agent", "session-context"])));
-        assert!(!invocation(&args(&["agent", "session-context", "x"])));
-        assert!(!invocation(&args(&["agent", "list"])));
-        let command = hook_command(Path::new("/opt/cmux tui/cmux-tui")).unwrap();
-        assert_eq!(command, "'/opt/cmux tui/cmux-tui' agent session-context");
-    }
-}
+#[path = "agent_session_context_tests.rs"]
+mod tests;

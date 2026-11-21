@@ -12,6 +12,7 @@ import type { Root } from "react-dom/client";
 import type { IncomingRelation } from "../src/agent-session/acpmux/conversation/incomingMessage";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -51,11 +52,8 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
 });
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const { createRoot } = await import("react-dom/client");
@@ -98,7 +96,7 @@ async function line(
     // identifier like it was before and you can click it to go to that session"); no Open chat.
     open: host.querySelector<HTMLButtonElement>("button.cv-received__from--open"),
     from: host.querySelector<HTMLElement>(".cv-received__from"),
-    toggle: host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!,
+    toggle: host.querySelector<HTMLButtonElement>("button.cv-agentmsg__toggle")!,
     opened,
   };
 }
@@ -109,7 +107,7 @@ test("a peer lane, found by its bare name, opens from its name; no Open chat, th
   expect(host.textContent).not.toContain(t("subsession.openChat"));
   expect(from?.textContent).toBe("chief-ui");
   expect(from).toBe(open);
-  expect(from?.closest("button.cv-disclosure__toggle")).toBeNull();
+  expect(from?.closest("button.cv-agentmsg__toggle")).toBeNull();
   await act(async () => open!.click());
   expect(opened).toEqual(["mux-chief-ui"]);
   // The name leaves the message closed.

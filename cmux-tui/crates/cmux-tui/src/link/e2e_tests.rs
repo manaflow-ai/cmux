@@ -174,7 +174,8 @@ async fn paired_server_link_enrolled_key_exchanges_bytes_over_two_meshes() {
             server_identity: Some(identity.clone()),
         })
         .unwrap();
-    let private = *state.private_key().unwrap();
+    let holder = cmux_link::key_holder::KeyHolder::acquire(home.path()).unwrap();
+    let private = *state.private_key(&holder).unwrap();
     let public = super::state::public_key(&private);
     assert_eq!(STANDARD.encode(public), api.0.lock().unwrap().as_deref().unwrap());
     let socket = UdpSocket::bind(SocketAddr::from((Ipv6Addr::LOCALHOST, 0))).await.unwrap();

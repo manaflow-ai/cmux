@@ -16,11 +16,9 @@
 // Usage: node tests/stale_daemon_bench.mjs URL KEY [TRIALS] [STALE_AGE_MS]
 // Prints one JSON line per trial and a summary line.
 
-import { createHmac, randomBytes } from "node:crypto";
-import { createRequire } from "node:module";
+import { randomBytes } from "node:crypto";
 
-const require = createRequire(import.meta.url);
-const WebSocket = require("ws");
+import { PROTOCOL, relay, send, sleep } from "./relay_harness.mjs";
 
 const [, , baseUrl, key, trialsArg = "10", staleAgeArg = "20000"] = process.argv;
 if (!baseUrl || !key) {
@@ -33,113 +31,19 @@ const FRESH_DELAY_MS = 1_000;
 const JOIN_TIMEOUT_MS = 15_000;
 const BACKOFF_MS = 1_000;
 const GIVE_UP_MS = 60_000;
-const PROTOCOL = 5;
-const ISSUER = "cmux-relay";
 
-const b64 = (bytes) => Buffer.from(bytes).toString("base64url");
-
-function ticket(permission, role, slot, extra = {}) {
-  const now = Math.floor(Date.now() / 1000);
-  const claims = {
-    version: 2,
-    issuer: ISSUER,
-    permission,
-    role,
-    slot,
-    circuit: extra.circuit ?? null,
-    lane: extra.lane ?? null,
-    generation: extra.generation ?? null,
-    issued_at_unix: now,
-    expires_at_unix: now + 240,
-  };
-  const payload = [
-    "cmux-relay-ticket-v2",
-    claims.version,
-    claims.issuer,
-    permission,
-    role,
-    slot,
-    claims.circuit ?? "",
-    claims.lane ?? "",
-    claims.generation ?? "",
-    claims.issued_at_unix,
-    claims.expires_at_unix,
-  ].join("\n");
-  const signature = createHmac("sha256", key).update(payload).digest();
-  return `v2.${b64(JSON.stringify(claims))}.${b64(signature)}`;
-}
-
-function open(path, bearer) {
-  const url = baseUrl.replace(/^http/, "ws") + path;
-  return new Promise((resolve, reject) => {
-    const socket = new WebSocket(url, { headers: { Authorization: `Bearer ${bearer}` } });
-    socket.once("open", () => resolve(socket));
-    socket.once("error", reject);
-    socket.once("unexpected-response", (_, response) =>
-      reject(new Error(`${path}: HTTP ${response.statusCode}`)),
-    );
-  });
-}
-
-const send = (socket, message) => socket.send(JSON.stringify(message));
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function next(socket, accept, timeoutMs) {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => done(null), timeoutMs);
-    const onMessage = (data) => {
-      const message = JSON.parse(data.toString());
-      if (accept(message)) done(message);
-    };
-    const onClose = () => done(null);
-    function done(value) {
-      clearTimeout(timer);
-      socket.off("message", onMessage);
-      socket.off("close", onClose);
-      resolve(value);
-    }
-    socket.on("message", onMessage);
-    socket.on("close", onClose);
-  });
-}
-
-async function register(slot) {
-  const bearer = ticket("register", "daemon", slot);
-  const socket = await open(`/v1/slots/${slot}/control`, bearer);
-  const registered = next(socket, (m) => m.type === "registered" || m.type === "error", 10_000);
-  send(socket, { type: "register", protocol: PROTOCOL, slot, ticket: bearer });
-  const answer = await registered;
-  if (answer?.type !== "registered") throw new Error(`register: ${JSON.stringify(answer)}`);
-  return socket;
-}
-
-async function join(slot, role, incoming) {
-  const socket = await open(`/v1/circuits/${incoming.circuit}`, incoming.join_ticket);
-  const ready = next(socket, (m) => m.type === "ready" || m.type === "error", JOIN_TIMEOUT_MS);
-  send(socket, {
-    type: "join",
-    protocol: PROTOCOL,
-    slot,
-    circuit: incoming.circuit,
-    lane: incoming.lane,
-    generation: incoming.generation,
-    ticket: incoming.join_ticket,
-    role,
-  });
-  return { socket, ready };
-}
+const { ticket, open, next, register, join: joinCircuit } = relay(baseUrl, key);
+const join = (slot, role, incoming) => joinCircuit(slot, role, incoming, JOIN_TIMEOUT_MS);
 
 async function freshDaemon(slot, sockets) {
-  const control = await register(slot);
-  sockets.push(control);
-  control.on("message", (data) => {
-    const message = JSON.parse(data.toString());
+  const control = await register(slot, (socket, message) => {
     if (message.type === "incoming") {
-      join(slot, "daemon", message).then(({ socket }) => sockets.push(socket), () => {});
+      join(slot, "daemon", message).then(({ socket: circuit }) => sockets.push(circuit), () => {});
     } else if (message.type === "ping") {
-      send(control, { type: "pong", nonce: message.nonce });
+      send(socket, { type: "pong", nonce: message.nonce });
     }
   });
+  sockets.push(control);
 }
 
 async function trial(index, stale) {

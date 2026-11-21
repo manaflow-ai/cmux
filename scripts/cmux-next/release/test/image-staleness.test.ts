@@ -119,6 +119,17 @@ describe("image staleness guard", () => {
     expect(tip.always).not.toContain("agent-inventory-v1")
   })
 
+  it("follows a constant whose value is another constant's path (`const DIFF_COMMENTS_CAPABILITY: &str = diff_comments::CAPABILITY;`)", () => {
+    const files = {
+      "cmux-tui/crates/cmux-tui-core/src/git_ops.rs": `mod diff_comments;\npub(crate) const DIFF_COMMENTS_CAPABILITY: &str = diff_comments::CAPABILITY;\n`,
+      "cmux-tui/crates/cmux-tui-core/src/git_ops/diff_comments.rs": `pub(crate) const CAPABILITY: &str = "diff-comments-v1";\n`,
+      "cmux-tui/crates/cmux-tui-core/src/other.rs": `pub(crate) const CAPABILITY: &str = "other-v1";\n`,
+    }
+    const tip = tipCapabilities(treeReader(repo({ files, extraSource: ["crate::git_ops::DIFF_COMMENTS_CAPABILITY"] })))
+    expect(tip.always).toContain("diff-comments-v1")
+    expect(tip.always).not.toContain("other-v1")
+  })
+
   it("reads a relative re-export with no such child module from the crate root, never a same-named constant elsewhere", () => {
     const files = {
       "cmux-tui/crates/cmux-tui-core/src/router.rs": `pub(crate) use links::OPEN as ROUTER_OPEN;\n`,

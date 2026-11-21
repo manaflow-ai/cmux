@@ -69,6 +69,7 @@ enum ScreenCommands {
     /// close in one `layout.bulk` request (`BulkClosePlan`): one closed group,
     /// so one Reopen Closed brings every one of them back.
     static func close(_ screens: [ScreenModel], in workspace: WorkspaceModel, daemon: DaemonService, services: AppServices) {
+        services.keyRouter.creationInputCoordinator.drop(closing: screens.flatMap(\.panes)) // a pane of them still starting takes its keys with it
         let plan = BulkClosePlan(screens, servesBulk: daemon.servesBulkClose, id: \.resourceID,
                                  hasTabs: { $0.panes.contains { !$0.tabs.isEmpty } })
         if !plan.bulk.isEmpty {

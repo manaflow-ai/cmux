@@ -18,7 +18,7 @@
 import { useContext, useState } from "react";
 import { useArrivals } from "../../../ui/presence";
 import { OpenBackgroundTasks } from "../backgroundTasks/openBackgroundTasks";
-import { formatDuration } from "../conversation/turns";
+import { formatDuration, spanDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -32,6 +32,7 @@ import { TASK_ICONS } from "./taskIcons";
 import { useFoldMotion } from "./foldMotion";
 import { COMMAND_STATE } from "./tasksSectionModel";
 import { WindowedRows } from "./WindowedRows";
+import { Clock } from "../../../ui/Typography";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -105,7 +106,7 @@ export function TasksSection({
         >
           <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
           <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
-          {time !== undefined && <span className="acpmux-session-info-task__time">{time}</span>}
+          {time !== undefined && <Clock className="acpmux-session-info-task__time" text={time} />}
           {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
         </button>
         {command.state === "running" && command.processId && onStop && (
@@ -193,7 +194,7 @@ export function TasksSection({
                       ? row(
                           entry.command,
                           entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
-                            ? formatDuration(Math.max(0, entry.command.endedAt - entry.command.startedAt))
+                            ? spanDuration(t, entry.command.endedAt - entry.command.startedAt)
                             : undefined,
                           t(COMMAND_STATE[entry.command.state]),
                         )

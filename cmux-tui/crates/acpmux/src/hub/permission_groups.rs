@@ -1,6 +1,7 @@
 //! Session-local permission batches. One lock owns membership, chat grants,
 //! callbacks and receipts, so a decision cannot approve an unseen member.
 use super::mac_approvers::MacProof;
+use super::review_queue::Settled;
 use super::*;
 use cmux_json::JsonSet as _;
 use std::collections::{HashSet, VecDeque};
@@ -255,6 +256,16 @@ impl PermissionState {
         Ok((g.id.clone(), fresh))
     }
 
+    /// Tests: opens collecting group `id` for answers, as its timer does
+    /// (`start_permission_group_timer`); its revision then.
+    #[cfg(test)]
+    pub(super) fn open_group(&mut self, id: &str) -> Option<u64> {
+        let g = self.groups.iter_mut().find(|g| g.id == id)?;
+        g.state = "pending";
+        g.revision += 1;
+        Some(g.revision)
+    }
+
     fn prune(&mut self) {
         while self.groups.iter().filter(|g| g.terminal()).count() > MAX_GROUPS {
             if let Some(i) = self.groups.iter().position(Group::terminal) {
@@ -473,12 +484,13 @@ impl Hub {
         params: Value,
         control: Control,
         person: bool,
+        device: Option<&str>,
     ) -> Result<Value, RpcError> {
         // The Web's asking rule, at the answer: a deny only narrows
         // (`Hub::web_answer_check`). A group allow carries no proof of the person's; an
         // approver's signature (below) is held to the Web's control rule like none.
         let narrows = params["decision"].as_str() == Some("deny");
-        self.web_answer_check(session, control, narrows, false)?;
+        self.web_answer_check(session, control, narrows, false, device)?;
         let text = |key: &str| -> Result<String, RpcError> {
             params[key]
                 .as_str()
@@ -609,6 +621,15 @@ impl Hub {
         g.receipt = Some((body, result.clone()));
         self.append(session, "mux", "permission_group", json!({"group":result["group"]}));
         state.prune();
+        // A member a group deny dismissed (it has no single-use reject option): the caller
+        // dismissed it, as a one-ask dismissal is (`respond_permission`), so the audit trail logs
+        // a cancel instead of taking it for a withdrawal. Marked before the asking task wakes
+        // and logs the decision.
+        for (id, _, outcome) in &replies {
+            if outcome["outcome"] == "cancelled" {
+                self.review_index.mark_settled(&session.id, id, Settled::Caller);
+            }
+        }
         // All callbacks were removed and the receipt saved before any wake.
         for (_, reply, outcome) in replies {
             let _ = reply.send(outcome);

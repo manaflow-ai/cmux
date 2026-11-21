@@ -120,6 +120,16 @@ pub(crate) fn ensure_pane_column_not_agent_chat(
     if refused { Err(refusal(operation)) } else { Ok(()) }
 }
 
+/// Whether `pane` is the top pane of an agent chat column anywhere in `state`.
+pub(crate) fn pane_is_agent_chat_top(state: &State, pane: PaneId) -> bool {
+    state
+        .workspaces
+        .iter()
+        .flat_map(|workspace| workspace.screens.iter())
+        .flat_map(|screen| screen.layout_columns.iter())
+        .any(|column| is_agent_chat_top(column, pane))
+}
+
 /// Whether `pane` is the top pane of an agent chat column: the chat itself.
 pub(crate) fn is_agent_chat_top(column: &LayoutColumn, pane: PaneId) -> bool {
     column.dock.is_some_and(|flag| flag.role == Some(DockRole::AgentChat))

@@ -4,6 +4,7 @@
 // The page prices nothing and computes no limit; "See plans" links the public plans page. Get opens
 // the create sheet on that size, the host confirms the create natively (a money op), and the new
 // machine opens in a workspace once it runs (store `openWhenRunning`).
+import { useLoadingShown } from "../../ui/lasting";
 import type { Strings } from "../shared/i18n";
 import { AccountPanel } from "./AccountPanel";
 import { formatMegabytes, memoryChoices } from "./model";
@@ -30,8 +31,11 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
   const signedIn = !!state.auth?.signedIn;
   const plan = state.plan;
   const choices = memoryChoices(plan);
+  // Every machine the plan runs at once is running. Get stays open: a create there makes room by pausing a
+  // machine (the platform pauses an idle one of the person's, else the host asks which to pause).
   const full = !!plan && plan.limits.max_active > 0 && plan.usage.active >= plan.limits.max_active;
   const firstAllowed = choices.find((choice) => choice.allowed)?.mb;
+  const planLoadingShown = useLoadingShown(signedIn && !plan && !state.planFailed);
   const cta = () => {
     if (!signedIn)
       return state.unavailable.includes(AccountOps.signIn) ? (
@@ -43,7 +47,7 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
       );
     // The plan is still loading, or its read failed: no offer until the backend answers one.
     if (!plan) return null;
-    if (firstAllowed !== undefined && !full)
+    if (firstAllowed !== undefined)
       return (
         <button
           type="button"
@@ -96,7 +100,8 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
               </button>
             </p>
           ) : !plan ? (
-            <p className="cloud-muted cloud-store-no-plan">{t(L.loading)}</p>
+            // The plan read says nothing while it is quick, as the page's first read (ui/lasting.ts).
+            <p className="cloud-muted cloud-store-no-plan">{planLoadingShown ? t(L.loading) : null}</p>
           ) : choices.length === 0 ? (
             <p className="cloud-muted cloud-store-no-plan">{t(L.storeNoPlan)}</p>
           ) : (
@@ -112,7 +117,6 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
                       <button
                         type="button"
                         className="cloud-button primary cloud-store-get"
-                        disabled={full}
                         aria-label={format(t(L.storeGetSize), { size: formatMegabytes(mb, t, strings.language) })}
                         onClick={() => store.openCreate(mb, true)}
                       >
@@ -145,7 +149,7 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
   );
 }
 
-/** Live availability from the plan: machines active of the plan's limit, and when the limit is reached. */
+/** Live availability from the plan: machines running of the most it runs at once; at that limit, what a new one does. */
 function Availability({ plan, full, strings }: { plan: CloudPlan; full: boolean; strings: Strings }) {
   const { t } = strings;
   if (plan.limits.max_active <= 0) return null;

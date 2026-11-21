@@ -604,6 +604,7 @@ impl Shared {
                     .map_err(|error| anyhow::anyhow!("peer address: {error:?}"))?,
             ],
             route: Some(shim.into()),
+            candidates: Vec::new(),
             persistent_keepalive: Some(KEEPALIVE_SECONDS),
         };
         let mesh_for_add = mesh.clone();

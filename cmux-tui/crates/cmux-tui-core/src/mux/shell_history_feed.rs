@@ -22,4 +22,9 @@ impl Mux {
     pub(crate) fn subscribe_conversations(&self) -> MuxEventReceiver {
         self.subscribers.subscribe_conversations()
     }
+
+    /// A receiver of the events `accepts` takes (`MuxEventBroadcaster::subscribe_matching`).
+    pub(crate) fn subscribe_matching(&self, accepts: fn(&MuxEvent) -> bool) -> MuxEventReceiver {
+        self.subscribers.subscribe_matching(accepts)
+    }
 }

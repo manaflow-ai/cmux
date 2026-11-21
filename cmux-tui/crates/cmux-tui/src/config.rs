@@ -210,6 +210,7 @@ use ghostty_theme_mode::*;
 use keys::*;
 pub use keys::{Chord, Keys};
 pub use load::load;
+pub(crate) use load::load_raw_agents;
 #[cfg(test)]
 use load::*;
 #[cfg(test)]
