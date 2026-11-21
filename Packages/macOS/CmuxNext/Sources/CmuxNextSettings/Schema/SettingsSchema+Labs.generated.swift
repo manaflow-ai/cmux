@@ -26,6 +26,9 @@ extension CmuxConfigSnapshot {
     /// `labs.agentCustomization`: Opt-in Claude Code and Codex customization (cmux-agent-customize, `cmux agent-config`), each agent's own setup read and changed in the agent's own files: Settings > MCP Servers shows and edits the MCP servers the person gave Claude Code (~/.claude.json, .mcp.json) and Codex (~/.codex/config.toml, .codex/config.toml, plugins); Settings > Agents > Claude Code & Codex lists, edits and turns on or off their skills and slash commands. Off by default; off hides the card and shows only cmux own servers, as before. Leo 2026-11-19: "when I say Claude Code, when I say Codex [...] I need you guys to be, like, doing the thing."
     public nonisolated static let agentCustomizationPath = ["labs", "agentCustomization"]
     public nonisolated static let agentCustomizationDefault = false
+    /// `labs.mobileDeviceRevoke`: Local phone approvals in Mobile Pairing. Off by default; uses the existing host pairing store and targeted disconnect.
+    public nonisolated static let mobileDeviceRevokePath = ["labs", "mobileDeviceRevoke"]
+    public nonisolated static let mobileDeviceRevokeDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -113,6 +116,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.agentCustomizationDefault),
                 keywords: ["labs", "claude", "codex", "mcp", "servers", "skills", "commands", "slash", "customize", "agent", "agents", "config"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.mobileDeviceRevokePath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.mobileDeviceRevoke", "Revoke iPhone Access"),
+                help: SettingsText.keyed("settings.labs.mobileDeviceRevoke.help", "Show locally approved iPhones and revoke their access from Mobile Pairing."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.mobileDeviceRevokeDefault),
+                keywords: ["labs", "iphone", "mobile", "pairing", "revoke", "device"]
             ),
         ]
     }
