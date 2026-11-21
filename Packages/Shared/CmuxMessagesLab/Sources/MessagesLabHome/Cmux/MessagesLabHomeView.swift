@@ -661,6 +661,12 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onDraftTextChange }
         set { projection.onDraftTextChange = newValue }
     }
+    /// The content hashes of the field's attachments, in order, each time they change: a chip
+    /// added or removed, or the draft sent.
+    public var onDraftAttachmentsChange: ([String]) -> Void {
+        get { projection.onDraftAttachmentsChange }
+        set { projection.onDraftAttachmentsChange = newValue }
+    }
     /// Cancel Upload in a bubble's menu (`HomeStoreBinding.cancelSend`).
     public var onCancelSend: (IdempotencyKey) -> Bool {
         get { projection.onCancelSend }
