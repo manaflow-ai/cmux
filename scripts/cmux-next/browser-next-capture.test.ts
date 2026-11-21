@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { CaptureOracle } from "./browser-next-capture-oracle.ts"
-import { validateConfig } from "./browser-next-capture.ts"
+import { boundedCleanup, validateConfig } from "./browser-next-capture.ts"
 
 const target = "machine/chat"
 const nonce = "browser-nonce"
@@ -43,6 +43,20 @@ test("a user echo, another chat, and history before sending cannot satisfy the r
   expect(o.replySeen).toBe(true)
 })
 
+test("eventStream records count only incoming assistant chunks for the prompted socket and chat", () => {
+  const o = new CaptureOracle(target, nonce)
+  const a = wire(o), b = wire(o, 2)
+  a.attach(); b.attach(); a.prompt()
+  const event = { method: "_acpmux/event", params: { sessionId: target, seq: 10, dir: "in", kind: "agent_message_chunk",
+    msg: { method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: nonce } } } } } }
+  b.received(event)
+  a.received({ ...event, params: { ...event.params, dir: "out" } })
+  a.received({ ...event, params: { ...event.params, sessionId: "other/chat" } })
+  expect(o.replySeen).toBe(false)
+  a.received(event)
+  expect(o.replySeen).toBe(true)
+})
+
 test("a listener token or refused hello does not prove web-device access", () => {
   for (const answer of [{ result: { auth: "listenerToken" } }, { error: { code: -32003 } }]) {
     const o = new CaptureOracle(target, nonce)
@@ -70,6 +84,12 @@ test("a bounded wait reports its stage and removes its observer", async () => {
   const o = new CaptureOracle(target, nonce)
   await expect(o.wait(() => false, 1, "device-attach")).rejects.toThrow("device-attach")
   expect(o.listenerCount("change")).toBe(0)
+})
+
+test("hung video or browser cleanup returns failure so the receipt can be persisted", async () => {
+  expect(await boundedCleanup(() => new Promise<void>(() => {}), 5)).toBe(false)
+  expect(await boundedCleanup(async () => { throw new Error("closed") }, 1000)).toBe(false)
+  expect(await boundedCleanup(async () => {}, 1000)).toBe(true)
 })
 
 test("config rejects stand-in agents and identities without exact artifact heads", () => {

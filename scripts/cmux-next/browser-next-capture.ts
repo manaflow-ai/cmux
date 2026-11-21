@@ -33,6 +33,16 @@ export function validateConfig(c: CaptureConfig): void {
   if (!["claude", "codex"].includes(c.agent)) throw new Error("agent")
 }
 
+export async function boundedCleanup(operation: () => Promise<void>, timeoutMs: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      operation().then(() => true, () => false),
+      new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), timeoutMs) }),
+    ])
+  } catch { return false } finally { clearTimeout(timer) }
+}
+
 export async function capture(c: CaptureConfig, output: string) {
   validateConfig(c)
   // Fresh directory: a failed attempt cannot leave a prior passing result/video beside it.
@@ -113,7 +123,7 @@ export async function capture(c: CaptureConfig, output: string) {
     if (page) await page.screenshot({ path: join(output, "failure.png"), timeout: 5_000 }).catch(() => {})
   } finally {
     clearTimeout(timer)
-    try {
+    const finalized = await boundedCleanup(async () => {
       await context?.close()
       if (video) {
         const destination = join(output, "demo.webm")
@@ -122,8 +132,11 @@ export async function capture(c: CaptureConfig, output: string) {
         if (statSync(destination).size === 0) throw new Error("empty-video")
         result.videoSha256 = createHash("sha256").update(readFileSync(destination)).digest("hex")
       } else if (result.status === "pass") throw new Error("missing-video")
-    } catch { result.status = "fail"; result.stage = "finalize-video" }
-    await browser?.close().catch(() => {})
+    }, 20_000)
+    if (!finalized) { result.status = "fail"; result.stage = "finalize-video" }
+    if (!await boundedCleanup(async () => { await browser?.close() }, 10_000)) {
+      result.status = "fail"; result.stage = "close-browser"
+    }
     Object.assign(result, oracle.summary(), { elapsedMs: Date.now() - started })
     writeFileSync(join(output, "result.json"), JSON.stringify(result, null, 2) + "\n", { mode: 0o600 })
   }
