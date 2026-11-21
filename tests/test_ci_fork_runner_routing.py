@@ -215,7 +215,9 @@ def without_fleet_first(runs_on: str) -> str:
 # per job (no service account, no ingress, deleted after the job), and no persistent runner registers it
 # (cmuxterm-hq build-fleet/swift-linux-builder/gha-runners/README.md). The nightly's App-key control jobs take it on
 # attempt 1, ahead of the PR queue (Leo, 2026-11-19: "why isn't nightly getting priority then? on the linux things").
-OWNED_EPHEMERAL_LABELS = frozenset({"cmux-gcp-nightly-jit-x64"})
+# The repair label is the same kind of one-job VM: the key-holding CI control and ops jobs take it first, behind the
+# CI_JIT_SKIP_FLEET switch, and keep their bounded Blacksmith pick as the overflow.
+OWNED_EPHEMERAL_LABELS = frozenset({"cmux-gcp-nightly-jit-x64", "cmux-gcp-repair-jit-x64"})
 # Values the selector test tries for LINUX_RUNNER: owned and hosted labels, case and list forms.
 ADVERSARIAL_VARIABLE_VALUES = (
     "", "glaeda-std-xcode-26.6", "glaeda-gui-xcode-26.6", "self-hosted", "cmux-lawrence", "ubuntu-24.04",
