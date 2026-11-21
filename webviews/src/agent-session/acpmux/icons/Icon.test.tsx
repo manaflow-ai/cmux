@@ -77,7 +77,7 @@ test("normalization preserves knockout clearance and the animated spinner", () =
   expect(html).toContain('stroke="black" stroke-width="3.75"');
   expect(html.match(/stroke-width="1.875"/g)).toHaveLength(2);
   const spinner = renderToStaticMarkup(<Spinner />);
-  expect(spinner).toContain('stroke-width="1.5"');
+  expect(spinner).toContain('stroke-width="1.25"');
   expect(spinner).toContain('class="cv-spinner__arc"');
 });
 

@@ -95,6 +95,17 @@ test("a running background turn is the compact line with the working spinner", (
   );
 });
 
+test("a finished task's line, while its turn still answers, leads with the clock, never a spinner", () => {
+  const cause = { kind: "shell", status: "completed", weight: "result" as const };
+  const answering = line("bg", { running: true, trigger: "task_notification" });
+  answering.background = { ...answering.background!, cause };
+  const html = renderToStaticMarkup(<BackgroundTurnLine row={answering} expanded={false} onToggle={() => {}} />);
+  expect(html).toContain("Background task finished");
+  expect(html).not.toContain("cv-spinner");
+  expect(html).toContain('data-icon="time.waiting"');
+  expect(html).toContain("cv-row-shimmer");
+});
+
 test("rows with no background turn come back as they were", () => {
   at = 0;
   const rows = [row("prompt", "user", { text: "hi" }), row("reply", "assistant", { text: "hello" })];
