@@ -400,9 +400,10 @@ fn shared_shim_of_a_gone_build_starts_claude_through_the_terminals_own_cmux() {
 }
 
 /// What a shared shim a new daemon rewrote runs: the terminal's
-/// `CMUX_TUI_CLI`, else the app's bundled CLI when a `cmux-tui` sits beside
-/// it (a classic app's `cmux` has none), else the agent itself with the
-/// shared folder left out of its PATH.
+/// `CMUX_TUI_CLI`, else the app's bundled CLI when it is a cmux-next bundle
+/// (its `cmux-tui` is the same file as its `cmux`; a classic app ships two
+/// different binaries), else the agent itself with the shared folder left
+/// out of its PATH.
 #[test]
 fn shared_shims_follow_the_terminals_own_cmux() {
     let root = unique_root();
@@ -433,12 +434,14 @@ fn shared_shims_follow_the_terminals_own_cmux() {
     for (path, label) in [
         (&tui_cli, "tui"),
         (&bundle_cli, "bundle"),
-        (&root.join("bundle/cmux-tui"), "bundle-tui"),
         (&classic_cli, "classic"),
+        (&root.join("classic/cmux-tui"), "classic-tui"),
     ] {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         write_executable(path, &echo(label));
     }
+    // A cmux-next bundle: `cmux-tui` is a link to `cmux`.
+    std::os::unix::fs::symlink("cmux", root.join("bundle/cmux-tui")).unwrap();
     let real = root.join("real");
     fs::create_dir_all(&real).unwrap();
     for name in ["claude", "codex"] {
