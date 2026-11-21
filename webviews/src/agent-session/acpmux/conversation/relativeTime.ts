@@ -56,25 +56,44 @@ const EXACT: Intl.DateTimeFormatOptions = {
 
 /// `at` as Claude's hover tooltip writes it, in `locale`.
 export function exactTime(at: number, locale?: string): string {
+  return dateWords(at, locale, "exact", EXACT);
+}
+
+/// The date formatters every mounted row writes with, one per wording ("exact", a reply's, a week-old
+/// message's date), each for the pane's last language. `Date.toLocale*String` builds an
+/// Intl.DateTimeFormat on every call: a chat switch that mounts a long chat's rows built two per row,
+/// about 2.6 ms of its render (bench/settled-page.bench.ts, chat_switch). The same words: a
+/// DateTimeFormat with the same options is what those calls construct. A language tag Intl does not
+/// take falls back to the system's, uncached, as before.
+const dateFormatters = new Map<string, { locale: string; format: Intl.DateTimeFormat }>();
+function dateWords(
+  at: number,
+  locale: string | undefined,
+  wording: string,
+  fields: Intl.DateTimeFormatOptions,
+): string {
+  // Intl's format throws on a time that is no date, where toLocaleString writes "Invalid Date".
+  if (!Number.isFinite(at)) return new Date(at).toLocaleString(undefined, fields);
+  const kept = locale === undefined ? undefined : dateFormatters.get(wording);
+  if (kept && kept.locale === locale) return kept.format.format(at);
+  let format: Intl.DateTimeFormat;
   try {
-    return new Date(at).toLocaleString(locale, EXACT);
+    format = new Intl.DateTimeFormat(locale, fields);
   } catch {
     // A language tag Intl does not take: the system's.
-    return new Date(at).toLocaleString(undefined, EXACT);
+    return new Intl.DateTimeFormat(undefined, fields).format(at);
   }
+  if (locale !== undefined) dateFormatters.set(wording, { locale, format });
+  return format.format(at);
 }
 
 /// A reply's time in its action row, as ChatGPT writes it there on hover: "Oct 18, 5:41 AM", the
 /// year added only when it is not `now`'s ("Oct 18, 2025, 5:41 AM"), in `locale`'s order and words.
 export function replyTime(at: number, now: number, locale?: string): string {
   const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
-  const fields: Intl.DateTimeFormatOptions = sameYear ? { ...EXACT, year: undefined } : EXACT;
-  try {
-    return new Date(at).toLocaleString(locale, fields);
-  } catch {
-    return new Date(at).toLocaleString(undefined, fields);
-  }
+  return sameYear ? dateWords(at, locale, "reply", REPLY_THIS_YEAR) : dateWords(at, locale, "exact", EXACT);
 }
+const REPLY_THIS_YEAR: Intl.DateTimeFormatOptions = { ...EXACT, year: undefined };
 
 /// The reply menu's quiet header, as ChatGPT writes it: today's or yesterday's time,
 /// otherwise the exact date. Format on opening only; no clock or idle work is needed.
@@ -124,13 +143,10 @@ export function messageAge(at: number, now: number, locale?: string): string {
 /// A message's date once it is a week old: "Oct 18", or "Oct 18, 2025" in another year.
 function messageDate(at: number, now: number, locale?: string): string {
   const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
-  const fields: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: sameYear ? undefined : "numeric" };
-  try {
-    return new Date(at).toLocaleDateString(locale, fields);
-  } catch {
-    return new Date(at).toLocaleDateString(undefined, fields);
-  }
+  return sameYear ? dateWords(at, locale, "date", DATE_THIS_YEAR) : dateWords(at, locale, "dated", DATE_OTHER_YEAR);
 }
+const DATE_THIS_YEAR: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+const DATE_OTHER_YEAR: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: "numeric" };
 
 /// Every wording a prompt's age takes in its first hour in `locale`, one per line ("just now",
 /// "1 minute ago", "59 minutes ago"; Polish adds "22 minuty temu", wider than "59 minut temu"): the row
