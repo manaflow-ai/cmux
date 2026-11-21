@@ -6,11 +6,11 @@ CmuxDialogButtonView cancel | disabled | 2.39
 CmuxDialogButtonView cancel | enabled | 3.91
 CmuxDialogButtonView normal | disabled | 2.39
 CmuxDialogButtonView normal | enabled | 3.91
-OverflowButton | disabled | 1.39
+OverflowButton | disabled | 2.17
 SwiftUI Button (cmuxPressFill) | enabled | 2.30
-ThemedBezelButton | disabled | 2.39
-ThemedBezelButton | enabled | 1.81
-ThemedCheckbox | enabled | 2.30
-ThemedDefaultButton | enabled | 1.81
+ThemedBezelButton | disabled | 2.42
+ThemedBezelButton | enabled | 3.91
+ThemedDefaultButton | disabled | 2.42
+ThemedDefaultButton | enabled | 3.91
 ThemedPopUpButton | disabled | 2.39
-ThemedPopUpButton | enabled | 1.89
+ThemedPopUpButton | enabled | 3.91
