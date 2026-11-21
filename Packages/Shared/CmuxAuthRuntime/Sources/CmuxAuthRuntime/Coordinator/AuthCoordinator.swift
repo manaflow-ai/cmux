@@ -84,7 +84,6 @@ public final class AuthCoordinator {
     let onSessionWillTransition: @MainActor @Sendable () -> Void
     let onSignedIn: @Sendable () async -> Void
     let log = AuthDebugLog()
-    let phaseTimeoutRegistry = AuthPhaseTimeoutRegistry()
     /// Reports sign-in service 429s of the sign-in and session-check flows.
     @ObservationIgnored public let rateLimitTelemetry: StackRateLimitTelemetry
 
@@ -122,7 +121,6 @@ public final class AuthCoordinator {
     @ObservationIgnored var requestedSignOut: PendingSignOut?
     @ObservationIgnored var pendingSignOuts: [UInt64: PendingSignOut] = [:]
     @ObservationIgnored var answeringSignOutEpoch: UInt64?
-    @ObservationIgnored var phaseDampersCleared: Task<Void, Never>?
     @ObservationIgnored var tokenReadFailure: AuthError?
     @ObservationIgnored var tokenReadTriesDevAuth = false
 
@@ -132,12 +130,11 @@ public final class AuthCoordinator {
     @ObservationIgnored var authenticatedTeamScopeContinuations: [
         UUID: AsyncStream<AuthenticatedTeamScope?>.Continuation
     ] = [:]
-    @ObservationIgnored var activeSignInExchanges: [UInt64: AuthTrackedSignInExchange] = [:]
-    @ObservationIgnored var activeSessionValidations: [UUID: AuthTrackedTokenWork] = [:]
-    @ObservationIgnored var activePostSignInHooks: [UUID: AuthTrackedTokenWork] = [:]
-    @ObservationIgnored var activeTokenTouchingPhases: [UUID: AuthTrackedTokenWork] = [:]
-    @ObservationIgnored var timedOutTokenTouchingPhaseStates: [AuthPhase: AuthPhaseTimedOutState] = [:]
-    @ObservationIgnored var tokenTouchingTimedOutResetNanoseconds: UInt64 = 30_000_000_000
+    // Phase runs: each live run's task by its reducer id, and the reducer's
+    // answers for the run being started or settled.
+    @ObservationIgnored var phaseWork: [UInt64: AuthTrackedTokenWork] = [:]
+    @ObservationIgnored var phaseStart: AuthPhaseStart?
+    @ObservationIgnored var phaseSteps: [UInt64: String] = [:]
     /// Bumped by a team switch or create: a team-list read that started
     /// before one must not put the old selection back.
     @ObservationIgnored var teamMutationGeneration: UInt64 = 0 {
@@ -259,8 +256,7 @@ public final class AuthCoordinator {
     /// not fail the next user action for 30s. Live operations keep their
     /// exclusivity.
     public func supersedeTimedOutAuthPhases() async {
-        await phaseTimeoutRegistry.supersedeTimedOutPhases()
-        timedOutTokenTouchingPhaseStates.removeAll()
+        feed("supersedeTimedOutPhases")
     }
 
     /// Starts (or joins) a session restore and returns once it finishes.
@@ -495,6 +491,6 @@ struct PendingSignOut {
     let onSignedOut: @Sendable (_ accessToken: String?, _ refreshToken: String?) async -> Void
     let teardownTimeout: Duration
     let continuation: CheckedContinuation<Void, Never>
-    var waitsForPostSignInHooks = false
+    var postSignInHooks: [UInt64] = []
     var capturedTokens: (accessToken: String?, refreshToken: String?) = (nil, nil)
 }

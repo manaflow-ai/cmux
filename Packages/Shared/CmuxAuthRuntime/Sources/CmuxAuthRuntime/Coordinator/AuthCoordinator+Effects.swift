@@ -185,7 +185,9 @@ extension AuthCoordinator {
         case "runPostSignInHook":
             let onSignedIn = self.onSignedIn
             Task {
-                await runPostSignInHook(timeout: timeouts.network) { await onSignedIn() }
+                // A hook past its deadline is cancelled; sign-out still owns
+                // its task handle to cancel and join it.
+                _ = try? await runPhase(.postSignIn, timeout: timeouts.network) { await onSignedIn() }
                 feed(["postSignInHookFinished": ["ticket": payload]])
             }
         case "sessionCheckRateLimited":
@@ -204,24 +206,23 @@ extension AuthCoordinator {
 
         // Sign-out and token reads.
         case "cancelInFlightWork":
-            // Cancel in-flight exchanges first: the SDK's token-write chokepoint
-            // refuses to store after cancellation, so a parked exchange cannot
-            // re-store credentials behind this sign-out's local clear.
-            for exchange in activeSignInExchanges.values { exchange.task.cancel() }
-            for validation in activeSessionValidations.values { validation.cancel() }
-            cancelPostSignInHooksForSignOut()
-            for phase in activeTokenTouchingPhases.values { phase.cancel() }
-        case "clearPhaseDampers":
-            let phases = payload.array.compactMap { $0.string.flatMap(AuthPhase.init(rawValue:)) }
-            let registry = phaseTimeoutRegistry
-            phaseDampersCleared = Task { await registry.clear(phases) }
+            // The SDK's token-write chokepoint refuses to store after
+            // cancellation, so a parked exchange cannot re-store credentials
+            // behind this sign-out's local clear.
+            for id in payload["runs"].array { phaseWork[id.uint]?.cancel() }
         case "captureTeardownCredentialsAndClearLocalSession": captureTeardownCredentials(payload)
         case "endSignOutCredentialCapture": finishSignOutCredentialCapture()
         case "waitForPostSignInHooks":
-            if let epoch = answeringSignOutEpoch { pendingSignOuts[epoch]?.waitsForPostSignInHooks = true }
+            if let epoch = answeringSignOutEpoch { pendingSignOuts[epoch]?.postSignInHooks = payload["runs"].array.map(\.uint) }
         case "serverTeardown": serverTeardown()
         case "failTokenRead": tokenReadFailure = Self.authError(payload)
         case "tryDevAuthAccessToken": tokenReadTriesDevAuth = true
+
+        // Phase runs.
+        case "phaseStarted": phaseStart = .started(payload["id"].uint)
+        case "phaseRefused": phaseStart = .refused
+        case "phaseResultStands", "phaseResultDropped", "awaitSignOutCapture", "compareStaleRefreshToken":
+            phaseSteps[payload["id"].uint] = tag
         default:
             assertionFailure("Unknown auth effect \(tag)")
         }
@@ -372,7 +373,9 @@ extension AuthCoordinator {
 
     // MARK: - Sign-in
 
-    private func quiesceTokenWork(_ flow: AuthWire) {
+    private func quiesceTokenWork(_ payload: AuthWire) {
+        let flow = payload["flow"]
+        let runs = payload["runs"].array.map(\.uint)
         let attempt = flow["attempt"].uint
         if let requested = requestedSignIn {
             requestedSignIn = nil
@@ -381,7 +384,10 @@ extension AuthCoordinator {
         Task {
             let result: AuthWire
             do {
-                try await waitForSessionTokenWorkToQuiesceBeforeSignIn()
+                guard await cancelAndJoinPhaseWork(runs, within: timeouts.network) else {
+                    log.log("auth.sign_in_preflight token work did not quiesce before \(timeouts.network)")
+                    throw AuthError.timedOut
+                }
                 result = .ok()
             } catch {
                 signInErrors[attempt] = error
@@ -404,10 +410,26 @@ extension AuthCoordinator {
         case "sessionRestore": timeouts.sessionRestore
         default: timeouts.network
         }
+        let client = self.client
+        // A late or cancelled exchange may still have stored its tokens:
+        // once sign-out has captured its credentials, clear only those.
+        let clearStale: @MainActor @Sendable (String?) async -> Void = { token in
+            guard let token else { return }
+            await self.waitForSignOutCredentialCapture()
+            await client.clearLocalSession(ifRefreshTokenMatches: token)
+        }
         Task {
             let result: AuthWire
             do {
-                try await runExchange(phase, attempt: attempt, timeout: timeout, operation)
+                latestSignInRefreshToken = try await runPhase(phase, timeout: timeout, discardLate: clearStale) {
+                    try await operation()
+                    let token = await client.refreshToken()
+                    if Task.isCancelled {
+                        await clearStale(token)
+                        throw CancellationError()
+                    }
+                    return token
+                }
                 exchangeRecordedRefreshToken = true
                 result = .ok()
             } catch {
@@ -517,9 +539,7 @@ extension AuthCoordinator {
             pendingSignOuts[key] = requested
         }
         let client = self.client
-        let dampers = phaseDampersCleared
         Task {
-            await dampers?.value
             // Raw stored reads (no refresh, no network) before the clear.
             let accessToken = await client.storedAccessToken()
             let refreshToken = await client.refreshToken()
@@ -541,8 +561,8 @@ extension AuthCoordinator {
     private func serverTeardown() {
         guard let epoch = answeringSignOutEpoch, let signOut = pendingSignOuts.removeValue(forKey: epoch) else { return }
         Task {
-            if signOut.waitsForPostSignInHooks {
-                await waitForPostSignInHooksAfterSignOut(timeout: signOut.teardownTimeout)
+            if !(await cancelAndJoinPhaseWork(signOut.postSignInHooks, within: signOut.teardownTimeout)) {
+                log.log("auth.phase=\(AuthPhase.postSignIn.rawValue) sign-out join timed out after \(signOut.teardownTimeout)")
             }
             await runServerTeardown(signOut)
             signOut.continuation.resume()
