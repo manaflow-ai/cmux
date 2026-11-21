@@ -77,6 +77,30 @@ struct FeedEventClassifier {
         return wireMapping(for: semantic, source: source, toolName: toolName)
     }
 
+    /// Whether a Claude permission request comes from a mode in which the
+    /// hook never asks the user: `auto` lets its classifier decide (or show
+    /// Claude's own prompt), `dontAsk` denies anything not already allowed,
+    /// and `bypassPermissions` allows everything. Nobody can answer a Feed
+    /// card there, so the bridge answers at once and pushes nothing; the
+    /// call's own PreToolUse hook already reports it (#40375).
+    /// AskUserQuestion and ExitPlanMode still go to the user in every mode.
+    static func skipsUnpromptedPermissionRequest(
+        source: String,
+        event: String,
+        toolName: String,
+        permissionMode: String?
+    ) -> Bool {
+        guard source == "claude",
+              feedEventSemantic(source: source, event: event) == .approvalRequest,
+              dedicatedApprovalEvent(for: toolName) == nil,
+              let permissionMode else { return false }
+        return unpromptedClaudePermissionModes.contains(permissionMode)
+    }
+
+    private static let unpromptedClaudePermissionModes: Set<String> = [
+        "auto", "dontAsk", "bypassPermissions",
+    ]
+
     /// Whether any of `source`'s registered events carry the
     /// ``FeedEventSemantic/nativeApprovalPrompt`` semantic.
     private static func sourceRaisesNativeApprovalPrompts(_ source: String) -> Bool {

@@ -44629,6 +44629,16 @@ export default {
             ?? toolCall.flatMap { firstString(in: $0, keys: ["name"]) }
             ?? ""
 
+        if FeedEventClassifier.skipsUnpromptedPermissionRequest(
+            source: source,
+            event: rawEvent,
+            toolName: toolName,
+            permissionMode: firstString(in: stdinObj, keys: ["permission_mode", "permissionMode"])
+        ) {
+            print("{}")
+            return
+        }
+
         // Decide whether this event is Feed-actionable. Non-actionable
         // events are forwarded as telemetry (non-blocking) and exit `{}`
         // so the agent proceeds without a decision.
