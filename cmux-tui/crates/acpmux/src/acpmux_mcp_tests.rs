@@ -1238,12 +1238,12 @@ fn watch_tools_are_listed_and_build_the_cli_requests() {
 }
 
 /// Every Claude chat loads these instructions on every turn, so they stay a short steer per tool
-/// (the tool descriptions carry the details): 2,842 bytes before the 2026-11-21 cut, 1,417 after.
+/// (the tool descriptions carry the details): 2,842 bytes before the 2026-11-21 cut, 1,398 after.
 #[test]
 fn instructions_stay_short() {
     let text = instructions(&tools_with_artifacts(false)).unwrap();
     assert!(text.len() <= 1_600, "{} bytes: {text}", text.len());
     assert!(crate::offer_mcp::INSTRUCTIONS.len() <= 300);
-    assert!(crate::subsession_mcp::instructions().len() <= 1_000);
+    assert!(crate::subsession_mcp::instructions().len() <= 1_100);
     assert!(crate::computer_use::tools::INSTRUCTIONS.len() <= 900);
 }

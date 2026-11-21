@@ -44,9 +44,9 @@ const STATUS_WAIT: Duration = Duration::from_secs(5);
 /// What every chat with this server is told about background work: the Codex steer (its
 /// unified exec background terminals end when the agent hibernates, and only the whole feature
 /// can be turned off), and Claude Code's, behind the PreToolUse hook (`bg_hook.rs`).
-const BG_STEER: &str = "Long-running commands (dev server, watcher, long build or test): start \
-them with bg_start, not a background shell of your own, which ends when this chat's agent \
-hibernates after 2 idle minutes; bg_list and bg_output read the task later.";
+const BG_STEER: &str = "Start long-running commands (dev servers, watchers, long builds or tests) \
+with bg_start, not a background shell of your own, which ends when this chat's agent hibernates \
+after 2 idle minutes; bg_output reads it later.";
 /// How every chat with the background tools is asked to pace its work: the reads and searches a
 /// task already needs go out as one batch, and a bg_start task runs while the agent goes on.
 /// Some chats did read early and concurrently and others went one call at a time on the same

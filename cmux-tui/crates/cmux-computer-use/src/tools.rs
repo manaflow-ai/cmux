@@ -371,15 +371,15 @@ pub fn mcp_list() -> Value {
 }
 
 /// The instructions an agent gets with the server (MCP `instructions`).
-pub const INSTRUCTIONS: &str = "cmux Computer Use is built in (nothing to install, no other \
-driver; `machine` reaches your other machines). For a task about this computer, look before you \
-answer: list_windows (or list_apps), then screenshot or get_ui_tree a window, and act on element \
-ids or pixels. Menu commands are in the tree's menu bar: click the menu's id, then the item. Each \
-action returns what changed and a screenshot; \"No change\" means it did nothing, so try another \
-way before saying it worked. batch runs a fixed sequence of steps on one window in one call. Act \
-in the background; use delivery foreground only when status says the person allowed it, and only \
-for a system-wide shortcut or to bring a window to them. If a call is refused, call status and \
-tell the person which Settings > Computer Use setting would allow it; never change those settings \
+pub const INSTRUCTIONS: &str = "cmux Computer Use is built in (nothing to install; `machine` \
+reaches your other machines). For a task about this computer, look before you answer: \
+list_windows (or list_apps), then screenshot or get_ui_tree a window, and act on element ids or \
+pixels. Menu commands are in the tree's menu bar: click the menu's id, then the item. Each action \
+returns what changed and a screenshot; \"No change\" means it did nothing, so try another way \
+before saying it worked. batch runs a fixed sequence of steps on one window in one call. Act in \
+the background; use delivery foreground only when status says the person allowed it, and only for \
+a system-wide shortcut or to bring a window to them. If a call is refused, call status and tell \
+the person which Settings > Computer Use setting would allow it; never change those settings \
 yourself.";
 
 #[cfg(test)]
