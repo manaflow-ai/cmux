@@ -567,6 +567,6 @@ enum AgentHandlers {
         } catch {
             throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
         }
-        context.services.editorApps.open(opening, line: invocation["line"]?.intValue)
+        context.services.editorApps.open(opening, line: invocation.editorLine)
     }
 }

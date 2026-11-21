@@ -161,12 +161,11 @@ extension ActionRegistry {
     /// editor that fails after it starts opening is not reported back.
     @discardableResult
     public func openAgentFile(path: String, target: AgentPaneFileTarget, pane: String, machineID: String? = nil, line: Int? = nil) -> Bool {
-        var arguments: [String: ActionValue] = ["path": .string(path), "where": .string(target.rawValue)]
-        if let line { arguments["line"] = .int(line) }
-        let invocation = ActionInvocation(
+        var invocation = ActionInvocation(
             target: ActionTargetRef(kind: .pane, id: pane),
-            arguments: arguments
+            arguments: ["path": .string(path), "where": .string(target.rawValue)]
         ).onMachine(machineID)
+        invocation.editorLine = line
         var performed = false
         let refusal = reportingRefusal { performed = perform(.fileOpen, invocation: invocation) }
         return performed && refusal == nil

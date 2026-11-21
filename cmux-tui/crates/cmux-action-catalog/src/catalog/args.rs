@@ -187,8 +187,6 @@ pub const PATH: Argument = Argument { name: "path", title: t("Localizable", "arg
 #[rustfmt::skip]
 pub const WHERE: Argument = Argument { name: "where", title: t("Localizable", "argument.where", "Open In"), kind: ArgKind::Enumeration(CASES_TAB_EDITOR), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
-pub const LINE: Argument = Argument { name: "line", title: t("ActionCatalog", "argument.line", "Line"), kind: ArgKind::Int(Some((1, 10_000_000))), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
-
 pub const AS_TEXT: Argument = Argument { name: "asText", title: t("ActionCatalog", "argument.asText", "As Text"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const TEXT_2: Argument = Argument { name: "text", title: t("NewTabActions", "argument.newTab.text", "Text"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };

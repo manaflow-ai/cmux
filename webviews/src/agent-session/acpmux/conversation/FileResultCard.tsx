@@ -80,7 +80,7 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
     <div id={id} className="cv-edit-diff cv-filepeek">
       <div className="cv-edit-diff__header">
         <FileButton path={read.path} line={read.start} className="cv-filepeek__name" label={read.path}>
-          <FileKindIcon path={read.path} line={read.start} className="cv-filepeek__icon" />
+          <FileKindIcon path={read.path} className="cv-filepeek__icon" />
           <span className="cv-edit-diff__name">{pathName(read.path)}</span>
         </FileButton>
         <span className="cv-filepeek__range" data-find-skip>
