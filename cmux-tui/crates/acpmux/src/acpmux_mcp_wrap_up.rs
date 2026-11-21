@@ -15,14 +15,14 @@ use serde_json::{Value, json};
 pub(super) const NAME: &str = "wrap_up";
 /// What every chat with the tool is told: when to call it and how.
 pub(super) const STEER: &str = "When you end a turn that did work, call wrap_up as your last \
-step: recap says in two or three plain sentences what changed and where things stand, including \
-what is not done or not verified. When the turn leaves the person a decision (a choice of \
-approach, a go-ahead), add ask, one short question, and actions, one or two answers with your \
-pick first; their click comes back as their next message. Leave ask out when nothing waits on \
-them. When the person corrected you this turn, or a command failed and a later one worked, add \
-learned: at most three short facts about this project worth keeping in its instructions file \
-(\"Use pnpm, not npm.\", \"Tests need DATABASE_URL set.\"); the person accepts or dismisses each. \
-Leave learned out otherwise. Then end the turn without repeating the recap.";
+step: recap says in two or three plain sentences, at most 600 characters, what changed and where \
+things stand, including what is not done or not verified. When the turn leaves the person a \
+decision (a choice of approach, a go-ahead), add ask, one short question, and actions, one or two \
+answers with your pick first; their click comes back as their next message. Leave ask out when \
+nothing waits on them. When the person corrected you this turn, or a command failed and a later \
+one worked, add learned: at most three short facts about this project worth keeping in its \
+instructions file (\"Use pnpm, not npm.\", \"Tests need DATABASE_URL set.\"); the person accepts \
+or dismisses each. Leave learned out otherwise. Then end the turn without repeating the recap.";
 /// The most answers the box draws.
 const MAX_ACTIONS: usize = 2;
 /// The longest answer a button takes.
@@ -52,19 +52,25 @@ pub(super) fn tool() -> Value {
     })
 }
 
+/// A length refusal a retry can act on: what it is, the limit it is past, and how much to cut.
+/// Before this, `wrap_up` enforced `MAX_RECAP` without ever naming it, and a recap written to the
+/// "two or three sentences" steer was refused over and over (59 times in 7 sessions in 36 hours).
+fn over(what: &str, limit: usize, len: usize) -> String {
+    format!("{what} characters, over the {limit} limit: cut about {}", len - limit)
+}
+
 /// The call's input checked: a recap, and an ask with its answers when there is one.
 pub(super) fn check(args: &Value) -> Result<Value, String> {
     let text =
         |key: &str| args.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
     let recap = text("recap").ok_or("recap is required: two or three sentences on what changed")?;
-    if recap.chars().count() > MAX_RECAP {
-        return Err(format!(
-            "recap is over {MAX_RECAP} characters; keep it to two or three sentences"
-        ));
+    let recap_len = recap.chars().count();
+    if recap_len > MAX_RECAP {
+        return Err(over(&format!("recap is {recap_len}"), MAX_RECAP, recap_len));
     }
     let ask = text("ask");
-    if ask.is_some_and(|a| a.chars().count() > MAX_ASK) {
-        return Err(format!("ask is over {MAX_ASK} characters; ask one short question"));
+    if let Some(ask_len) = ask.map(|a| a.chars().count()).filter(|n| *n > MAX_ASK) {
+        return Err(over(&format!("ask is {ask_len}"), MAX_ASK, ask_len));
     }
     let actions: Vec<&str> = match args.get("actions") {
         None | Some(Value::Null) => Vec::new(),
@@ -194,6 +200,26 @@ mod tests {
         let at = "x".repeat(MAX_RECAP);
         assert_eq!(check(&json!({"recap": at})).unwrap()["recap"], at);
         assert!(check(&json!({"recap": "x".repeat(MAX_RECAP + 1)})).is_err());
+        // And the steer every chat is told names the recap's limit, so it is written to it once.
+        assert!(STEER.contains(&format!("at most {MAX_RECAP} characters")), "{STEER}");
+    }
+
+    /// A refused recap or ask says its own length, the limit and how much to cut, so the retry
+    /// lands first try instead of guessing at "keep it to two or three sentences".
+    #[test]
+    fn a_length_refusal_names_the_length_the_limit_and_the_cut() {
+        let long = MAX_RECAP + 212;
+        let said = check(&json!({"recap": "x".repeat(long)})).unwrap_err();
+        assert_eq!(
+            said,
+            format!("recap is {long} characters, over the {MAX_RECAP} limit: cut about 212")
+        );
+        let long_ask = MAX_ASK + 7;
+        let said = check(&json!({"recap": "Done.", "ask": "y".repeat(long_ask)})).unwrap_err();
+        assert_eq!(
+            said,
+            format!("ask is {long_ask} characters, over the {MAX_ASK} limit: cut about 7")
+        );
     }
 
     #[test]
