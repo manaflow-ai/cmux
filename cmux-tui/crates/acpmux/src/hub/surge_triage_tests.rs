@@ -10,6 +10,7 @@ async fn chat(answer: Option<&'static str>) -> (Arc<Hub>, Arc<Session>) {
     cfg.store.mode = StoreMode::Memory;
     let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
+    hub.set_surge_inbox(Some(true));
     let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
     let session = hub.new_session(req).await.unwrap();
     hub.set_surge_triager(Some(Arc::new(move |_| answer.map(str::to_owned))));
