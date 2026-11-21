@@ -995,6 +995,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_route_quota_reserve.py
 
+      - name: Validate a job reads the pool snapshot from the API once
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pool_snapshot_job_cache.py
+
       - name: Validate simple live macOS pool choice
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_simple_pool_picker.py
