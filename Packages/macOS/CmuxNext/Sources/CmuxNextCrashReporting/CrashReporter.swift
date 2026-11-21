@@ -9,10 +9,8 @@ import os
 /// exceptions, app hangs) to Sentry, under ``CrashReportingPolicy``.
 ///
 /// Same options as the main app (`AppDelegate`): no default PII, no
-/// automatic performance tracing (its root transaction cannot be scrubbed), 8 s app
+/// performance tracing (its root transaction cannot be scrubbed), 8 s app
 /// hangs, every event, breadcrumb and span through `SentryEventScrubber`.
-/// The one transaction sent is a sampled launch's timing (``LaunchTiming``):
-/// the sampler takes only it, and `beforeSend` cuts it to its fixed fields.
 /// No structured logs: cmux-next has no log bridge, so it sends nothing the
 /// main app does not.
 ///
@@ -84,16 +82,6 @@ public final class CrashReporter: Sendable {
         options.debug = false
         options.sendDefaultPii = false
         options.tracesSampleRate = 0.0
-        // Only the launch timing transaction is traced; the launch decided its own sample (LaunchTiming.sampleRate).
-        options.tracesSampler = { context in
-            context.transactionContext.name == LaunchTiming.transactionName ? 1.0 : 0.0
-        }
-        // No automatic spans or trace headers: the sampler only exists for the launch timing.
-        options.enableAutoPerformanceTracing = false
-        options.enableNetworkTracking = false
-        options.enableFileIOTracing = false
-        options.enableCoreDataTracing = false
-        options.tracePropagationTargets = []
         options.appHangTimeoutInterval = 8.0
         options.attachStacktrace = true
         options.enableCaptureFailedRequests = false
@@ -106,8 +94,6 @@ public final class CrashReporter: Sendable {
         let scrubber = SentryEventScrubber()
         let labels = CrashEventLabels(policy: policy)
         options.beforeSend = { [self] event in
-            // The launch timing carries its fixed fields only: no scrubbed context, no install or member tags.
-            if LaunchTiming.isLaunchTiming(event) { return LaunchTiming.strip(event) }
             let scrubbed = scrubber.scrub(event)
             labels.apply(to: scrubbed, identity: identity)
             return scrubbed

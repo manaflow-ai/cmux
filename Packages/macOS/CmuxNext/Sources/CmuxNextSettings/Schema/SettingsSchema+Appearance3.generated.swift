@@ -94,11 +94,11 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.textSize", "Text Size"),
-                help: SettingsText.keyed("settings.appearance.textSize.help", "Text size of tabs, the sidebar and chat. Terminals have their own size."),
+                help: SettingsText.keyed("settings.appearance.textSize.help", "Text size of the sidebar, tabs, menus and chat. Terminals have their own size."),
                 kind: .number(SettingNumber(InterfaceSizeSetting.range, step: 1, unit: .points, placeholder: InterfaceSizeSetting.placeholder)),
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize"]
+                keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize", "sidebar font size", "menu", "interface font", "bigger", "larger", "readable", "accessibility"]
             ),
             SettingDescriptor(
                 FontSmoothingSetting.configPath,

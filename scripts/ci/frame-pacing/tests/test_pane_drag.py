@@ -80,6 +80,20 @@ class Judge(unittest.TestCase):
         self.assertEqual(got["gesture"], "pane")
         self.assertEqual(pd.summarize([got])["drops"], 1)
 
+    def test_a_pane_swap_lands_on_the_strips_change(self):
+        rest, swapped = [["t1", 0, 100, 1], ["t2", 800, 100, 1]], [["t2", 0, 100, 1], ["t1", 800, 100, 1]]
+        frames = [(BEFORE, [], rest)] * 21 + [(BEFORE, [], swapped)] * 20
+        got = pd.judge_drop(drop(frames, gesture="pane"))
+        self.assertTrue(got["landed"])
+        self.assertEqual(got["jumps"], 0)
+
+    def test_stall_stacks_keep_the_apps_frames_longest_first(self):
+        hangs = {"records": [{"duration_ms": 40, "kind": "stall", "frames": ["libsystem x", "CmuxNextApp a"]},
+                             {"duration_ms": 120.04, "kind": "stall", "frames": ["AppKit y", "CmuxNextBridge b"]}]}
+        got = pd.stall_stacks(hangs)
+        self.assertEqual([g["ms"] for g in got], [120.0, 40])
+        self.assertEqual(got[0]["frames"], ["CmuxNextBridge b"])
+
     def test_no_layout_change_is_not_landed(self):
         got = pd.judge_drop(drop([(BEFORE, [], [])] * 40))
         self.assertFalse(got["landed"])

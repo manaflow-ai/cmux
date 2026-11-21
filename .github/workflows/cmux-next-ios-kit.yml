@@ -30,19 +30,27 @@ on:
     branches: [feat-cmux-next]
     paths:
       - "cmux-next-ios/**"
-      # The local packages CmuxMobileKit depends on (Package.swift).
-      - "Packages/Shared/CmuxGhosttyKit/**"
-      - "Packages/Shared/CmuxAgentQuestion/**"
-      - "Packages/Shared/CmuxAuthRuntime/**"
+      # The local packages CmuxMobileKit depends on, transitively (scripts/ci/ios_app_package_paths.py --check keeps this list exact).
       - "Packages/Shared/CMUXAuthCore/**"
       - "Packages/Shared/CMUXMobileCore/**"
       - "Packages/Shared/CmuxAgentBrands/**"
-      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxAgentQuestion/**"
+      - "Packages/Shared/CmuxAuthRuntime/**"
       - "Packages/Shared/CmuxChiefList/**"
       - "Packages/Shared/CmuxChiefVoiceCore/**"
-      - "Packages/iOS/CmuxTabsKit/**"
+      - "Packages/Shared/CmuxConnectivityTelemetry/**"
+      - "Packages/Shared/CmuxDeviceHub/**"
+      - "Packages/Shared/CmuxGhosttyKit/**"
+      - "Packages/Shared/CmuxHomeCore/**"
+      - "Packages/Shared/CmuxScreenKit/**"
+      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxTheme/**"
+      - "Packages/Shared/CmuxVNC/**"
+      - "Packages/Shared/CmuxVNCWebRTC/**"
       - "Packages/iOS/CmuxConversation/**"
+      - "Packages/iOS/CmuxMobileBilling/**"
       - "Packages/iOS/CmuxMobileSupport/**"
+      - "Packages/iOS/CmuxTabsKit/**"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -52,6 +60,7 @@ on:
       - "scripts/ci/xcode-pins.txt"
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
+      - "scripts/ci/ios_app_package_paths.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
       - "cmux-next-ios/CmuxMobileKit/**/Resources/**"
@@ -61,19 +70,27 @@ on:
     branches: [feat-cmux-next]
     paths:
       - "cmux-next-ios/**"
-      # The local packages CmuxMobileKit depends on (Package.swift).
-      - "Packages/Shared/CmuxGhosttyKit/**"
-      - "Packages/Shared/CmuxAgentQuestion/**"
-      - "Packages/Shared/CmuxAuthRuntime/**"
+      # The local packages CmuxMobileKit depends on, transitively (scripts/ci/ios_app_package_paths.py --check keeps this list exact).
       - "Packages/Shared/CMUXAuthCore/**"
       - "Packages/Shared/CMUXMobileCore/**"
       - "Packages/Shared/CmuxAgentBrands/**"
-      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxAgentQuestion/**"
+      - "Packages/Shared/CmuxAuthRuntime/**"
       - "Packages/Shared/CmuxChiefList/**"
       - "Packages/Shared/CmuxChiefVoiceCore/**"
-      - "Packages/iOS/CmuxTabsKit/**"
+      - "Packages/Shared/CmuxConnectivityTelemetry/**"
+      - "Packages/Shared/CmuxDeviceHub/**"
+      - "Packages/Shared/CmuxGhosttyKit/**"
+      - "Packages/Shared/CmuxHomeCore/**"
+      - "Packages/Shared/CmuxScreenKit/**"
+      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxTheme/**"
+      - "Packages/Shared/CmuxVNC/**"
+      - "Packages/Shared/CmuxVNCWebRTC/**"
       - "Packages/iOS/CmuxConversation/**"
+      - "Packages/iOS/CmuxMobileBilling/**"
       - "Packages/iOS/CmuxMobileSupport/**"
+      - "Packages/iOS/CmuxTabsKit/**"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -83,6 +100,7 @@ on:
       - "scripts/ci/xcode-pins.txt"
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
+      - "scripts/ci/ios_app_package_paths.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
       - "cmux-next-ios/CmuxMobileKit/**/Resources/**"
@@ -255,8 +273,10 @@ jobs:
   kit-tests:
     needs: [runner]
     name: CmuxMobileKit tests (macOS swift test, iOS simulator)
-    # Skipped before it takes a Mac when it already passed on this tree (the runner job's same-tree decision).
-    if: ${{ !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
+    # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it, and its few misses are fixed forward.
+    # Also skipped before it takes a Mac when it already passed on this tree (the runner job's same-tree decision).
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     timeout-minutes: 60
     env:
