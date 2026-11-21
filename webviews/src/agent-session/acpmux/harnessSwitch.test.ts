@@ -370,6 +370,75 @@ test("pickSession gives up on a start that never answers, and answers none for a
   expect(await trust.pickSession(1000)).toBeUndefined();
 });
 
+// cmux#46434: New Tab, Codex picked into Full access and High, then Claude Code, then Codex again.
+test("a start left for another agent before it opened gets its mode and options back on the way back", () => {
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(startingPort());
+  const tickets: string[] = [];
+  harnessSwitch.setHandlers({
+    gesture: async (intent) => {
+      tickets.push(intent.method === "session/set_mode" ? `mode:${intent.params.modeId}` : intent.method);
+      return "ticket";
+    },
+  });
+  void harnessSwitch.switchTo("codex", "/work", { deferred: true });
+  harnessSwitch.pickMode("agent-full-access");
+  harnessSwitch.pickConfig("effort", "high");
+  void harnessSwitch.switchTo("claude", "/work", { deferred: true, model: "opus" });
+  // Another agent's picks never carry to this one.
+  expect(harnessSwitch.view().intent?.config).toEqual({ model: "opus", options: {} });
+  tickets.length = 0;
+  void harnessSwitch.switchTo("codex", "/work", { deferred: true, model: "gpt-6.1-sol" });
+  expect(harnessSwitch.view().intent?.config).toEqual({
+    model: "gpt-6.1-sol",
+    mode: "agent-full-access",
+    options: { effort: "high" },
+  });
+  // Each comes back with the ticket the person's own pick took: the way back spends no gesture of its
+  // own on them (the host grants one ticket per gesture, and the start may need it).
+  expect(tickets).toEqual([]);
+  // In another folder, or after a cancel, the option picks stay behind (the mode is the agent's own,
+  // in any folder: the pane's last mode on it).
+  void harnessSwitch.switchTo("claude", "/work", { deferred: true });
+  void harnessSwitch.switchTo("codex", "/elsewhere", { deferred: true });
+  expect(harnessSwitch.view().intent?.config.options).toEqual({});
+  harnessSwitch.cancel();
+  void harnessSwitch.switchTo("codex", "/work", { deferred: true });
+  expect(harnessSwitch.view().intent?.config.options).toEqual({});
+});
+
+test("a mode brought back from a left start goes out with the ticket the person's own pick took", async () => {
+  const calls: string[] = [];
+  let open = false;
+  let created = 0;
+  const port: SwitchPort = {
+    ...trustRefusingPort(),
+    shown: () =>
+      open ? { sessionId: "codex-2", harness: "codex", model: "gpt-6.1-sol", modeId: "agent", empty: true } : undefined,
+    // The first Codex start and the Claude start never answer: the person moved on before they opened.
+    create: (harness) =>
+      harness === "codex" && ++created === 2 ? Promise.resolve("codex-2") : new Promise<string | undefined>(() => {}),
+    open: async (sessionId) => {
+      open = true;
+      return sessionId;
+    },
+    send: async (text) => void calls.push(`send ${text}`),
+    setMode: async (mode, ticket) => void calls.push(`mode ${mode} ${ticket}`),
+  };
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(port);
+  let gestures = 0;
+  harnessSwitch.setHandlers({ gesture: async () => `gesture-${++gestures}` });
+  void harnessSwitch.switchTo("codex", "/work");
+  harnessSwitch.pickMode("agent-full-access");
+  void harnessSwitch.switchTo("claude", "/work");
+  const back = harnessSwitch.switchTo("codex", "/work");
+  const sent = harnessSwitch.send("add retry");
+  expect(await back).toBe("codex-2");
+  await sent;
+  expect(calls).toEqual(["mode agent-full-access gesture-1", "send add retry"]);
+});
+
 test("a mode picked on a harness comes back when the pane switches away and back to it", async () => {
   // agent-pane-picks-hold (real acpmux): Full access on Codex, Claude Code, back to Codex read "Mode".
   const calls: string[] = [];
