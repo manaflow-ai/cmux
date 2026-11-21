@@ -292,6 +292,17 @@ describe("no breathing or blinking dots", () => {
     ).toEqual([]);
   });
 
+  test("Jump to latest dots stop under reduced agent motion", () => {
+    const jumpDots = shipped.find((sheet) => sheet.file === "agent-session/acpmux/conversation/JumpDots.css")?.css;
+    expect(jumpDots).toBeDefined();
+    expect(jumpDots?.match(/:root:not\(([\s\S]*?)\)\s+\.acpmux-jump-latest/g)).toHaveLength(3);
+    expect(
+      jumpDots
+        ?.match(/:root:not\(([\s\S]*?)\)\s+\.acpmux-jump-latest/g)
+        ?.every((selector) => selector.includes('[data-agent-motion="reduced"]')),
+    ).toBe(true);
+  });
+
   test("no stylesheet fades, blinks or pulses a dot forever", () => {
     const offenders = loops
       .filter((loop) => !allowed(loop))
