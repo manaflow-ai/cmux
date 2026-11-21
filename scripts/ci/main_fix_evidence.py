@@ -202,7 +202,11 @@ def validate(repo: str, number: int, github: GitHub) -> str:
     head, base = pr["head"]["sha"], pr["base"]["sha"]
     if pr["base"]["ref"] != "feat-cmux-next":
         raise Refused("--main-fix compile evidence is defined for feat-cmux-next only; use normal green merging for other bases")
-    checks = latest_checks(repo, head, github)
+    at_head = check_runs_at(repo, head, github)
+    # The newest of each name for the build and web-validation reads below; the sweep over every failed check at the
+    # end reads at_head itself, since a red whose same-named sibling in another workflow is newer and green must not
+    # go unexplained -- this caller's whole job (hq#17005's class, in the one reader that grants the exception).
+    checks = {name: found[0] for name, found in at_head.items()}
     jobs = {}
     audit = [f"--main-fix evidence for head `{head}`, base `{base}`:"]
     for name, build in BUILDS.items():
@@ -271,13 +275,14 @@ def validate(repo: str, number: int, github: GitHub) -> str:
         matched = True
     # A completed ci-status failure may aggregate the proven Swift test red;
     # unrelated failures still refuse the exception.
-    for name, check in checks.items():
-        if check.get("conclusion") in {"failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"}:
-            if name == SWIFT and matched:
-                continue
-            if name == "ci-status" and matched and check.get("conclusion") == "failure":
-                continue
-            raise Refused(f"{name}: failed check has no same-base test match")
+    for name, found in at_head.items():
+        for check in found:
+            if check.get("conclusion") in {"failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"}:
+                if name == SWIFT and matched:
+                    continue
+                if name == "ci-status" and matched and check.get("conclusion") == "failure":
+                    continue
+                raise Refused(f"{name}: failed check has no same-base test match")
     status = checks.get("ci-status", {})
     if not completed_success(status) and not (matched and status.get("status") == "completed" and status.get("conclusion") == "failure"):
         raise Refused("ci-status must complete on the exact head")
