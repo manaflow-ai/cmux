@@ -138,9 +138,9 @@ pub(super) fn focus_pane_plan(
         }
         sync_layout_column_projection(&mut focused_layout);
     }
-    focused_layout.active_pane = pane;
-    // `floating-panes-v1`: the focus brings a floating pane to the front, in the same commit.
-    focused_layout.raise_floating_pane(pane);
+    // `floating-panes-v1`: the focus brings a floating pane to the front, in the same commit; the quick terminal
+    // shows and its mark names the pane that had the focus (`quick-terminal-v1`).
+    focused_layout.set_active_pane(pane);
     let durable_screen = registry_screen_from_layout(
         state,
         workspace_index,
@@ -183,6 +183,14 @@ pub(super) fn apply_focus_path(mux: &Mux, state: &mut State, pane: PaneId) {
     state.workspaces[workspace].active_screen = screen;
     let current = &mut state.workspaces[workspace].screens[screen];
     let previous = current.active_pane;
+    expand_focus_stacks(current, previous, pane);
+    current.set_active_pane(pane);
+    stamp_pane_focus(mux, state, pane);
+}
+
+/// Expands the stacks of `previous` and of `pane` on `current`, as a focus
+/// that goes from the one to the other shows both.
+pub(super) fn expand_focus_stacks(current: &mut Screen, previous: PaneId, pane: PaneId) {
     if current.layout_columns_active() {
         let mut expanded = false;
         for column in &mut current.layout_columns {
@@ -196,9 +204,6 @@ pub(super) fn apply_focus_path(mux: &Mux, state: &mut State, pane: PaneId) {
         current.root.expand_stack_pane(previous);
         current.root.expand_stack_pane(pane);
     }
-    current.active_pane = pane;
-    current.raise_floating_pane(pane);
-    stamp_pane_focus(mux, state, pane);
 }
 
 /// Assign target-pane positions in one pass over the topology tabs.

@@ -148,6 +148,12 @@
     "web / Web status": {
       "job": "web-status",
       "under": {
+        "agent-pane-real-acpmux": {
+          "exact": [
+            "web / Agent pane on real acpmux"
+          ],
+          "prefixes": []
+        },
         "diff-sidecar-check": {
           "exact": [
             "web / diff-sidecar-check"
@@ -157,13 +163,6 @@
         "react-apps-base-check": {
           "exact": [
             "web / react-apps-base-check"
-          ],
-          "prefixes": []
-        },
-        "react-apps-base-early": {
-          "exact": [
-            "web / react-apps-base-early (1)",
-            "web / react-apps-base-early (2)"
           ],
           "prefixes": []
         },

@@ -147,10 +147,6 @@ path = "tests/test_compose_stable_appcast.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_computer_use_helper_icon_depth.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_crash_class_fast_gate.py"
 lane = "linux-guard"
 
@@ -220,6 +216,11 @@ path = "tests/test_fetch_run_artifact.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_files_host_dev_only.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Proves cmux Files (dev) never reaches a shipped build (docs/cmux-files-host.md, Production): runs the real embed-files-host-dev.sh for every Release configuration and shipped bundle id against a stub asset, and checks FilesHost's #if DEBUG gate. Run python3 tests/test_files_host_dev_only.py on a fleet Mac after changing the embed phase, FilesHost or the pin (seconds; macOS ditto and codesign, no build)."
+
+[[test]]
 path = "tests/test_format_post_edit.py"
 lane = "linux-guard"
 
@@ -272,6 +273,11 @@ lane = "linux-guard"
 path = "tests/test_guard_logs_survive_closed_pipe.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). Checks that a shell guard's message before its kill never skips the kill when nobody reads its output (SIGPIPE), and scans scripts/ for a message before a kill not in the safe form; run python3 -I tests/test_guard_logs_survive_closed_pipe.py yourself after adding or changing a shell guard that logs before it kills (about 30 s; bash, curl and procps)."
+
+[[test]]
+path = "tests/test_guard_step_inputs.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/guard_step_inputs.py, run_ci_guards.py --affected's per-diff guard step selection (imports, run scripts, named and walked folders, whole-tree reasons); run python3 tests/test_guard_step_inputs.py yourself after changing either, and guard_step_inputs.py --verify for the traced check over every real step (about 5 min)."
 
 [[test]]
 path = "tests/test_guards_new_reds.py"
@@ -344,6 +350,11 @@ path = "tests/test_language_boundaries.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_launch_tti_check.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_launch_tti_check.py"
+
+[[test]]
 path = "tests/test_layout_grid.py"
 lane = "linux-guard"
 
@@ -404,6 +415,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_localize_changes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_mac_live_delivery.py"
 lane = "linux-guard"
 
 [[test]]
@@ -479,10 +494,6 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_normalize_pbxproj.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_notarize_computer_use_helper.py"
-lane = "legacy"
 
 [[test]]
 path = "tests/test_notary_submit_retry.py"
@@ -700,6 +711,11 @@ lane = "manual"
 reason = "Run by the lane that changes rust-live.py (no new CI tests): python3 tests/test_rust_live_app_handoff.py; needs only python3 and sleep."
 
 [[test]]
+path = "tests/test_same_tree_reuse.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23, AGENTS.md:214). Checks that every pull-request job in scripts/ci/same_tree_reuse.json reuses a same-tree pass or is denied with a reason, and that scripts/ci/same_tree_reuse.py keys, decides and writes receipts as the workflows call it; run python3 tests/test_same_tree_reuse.py yourself after changing same_tree_reuse.py, its map or a workflow it covers (a few seconds, no build)."
+
+[[test]]
 path = "tests/test_script_module_loads.py"
 lane = "manual"
 reason = "No new CI tests: run python3 tests/test_script_module_loads.py after a test loads a scripts/ module by path or imports a new one by name (static scan plus two subprocess import orders; needs pytest for the route pair)."
@@ -749,6 +765,11 @@ reason = "Run by the lane that changes side-instance.sh (no new CI tests): pytho
 path = "tests/test_side_instance_remake_clears_old_identity.py"
 lane = "manual"
 reason = "Run by the lane that changes side-instance.sh (no new CI tests): python3 tests/test_side_instance_remake_clears_old_identity.py; needs only bash and python3."
+
+[[test]]
+path = "tests/test_side_instance_stale_default.py"
+lane = "manual"
+reason = "Run by the lane that changes side-instance.sh (no new CI tests): python3 tests/test_side_instance_stale_default.py; needs only bash and python3."
 
 [[test]]
 path = "tests/test_sidebar_row_oracle.py"
@@ -871,6 +892,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ui_review_advisory.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_unittest_shard.py"
+lane = "manual"
+reason = "Run by the lane that changes tests/unittest_shard.py (no new CI tests): python3 -I tests/test_unittest_shard.py; needs only python3."
 
 [[test]]
 path = "tests/test_update_release_tag.py"

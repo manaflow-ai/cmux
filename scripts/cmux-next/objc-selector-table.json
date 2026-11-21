@@ -136,6 +136,14 @@
    "26.5.1": true,
    "26.6": true
   },
+  "NSButton call:hitTest/1": {
+   "26.5.2": true,
+   "26.7": true,
+   "27.0": true,
+   "27.0.1": true,
+   "26.5.1": true,
+   "26.6": true
+  },
   "NSButton call:accessibilityPerformPress/0": {
    "26.5.2": true,
    "26.7": true,
@@ -158,6 +166,14 @@
    "26.7": true,
    "26.5.1": true,
    "27.0": true,
+   "26.6": true
+  },
+  "NSButton call:hitTest/1": {
+   "26.5.2": true,
+   "26.7": true,
+   "27.0": true,
+   "27.0.1": true,
+   "26.5.1": true,
    "26.6": true
   },
   "NSButton call:keyDown/1": {
@@ -346,6 +362,9 @@
    "26.5.1": true,
    "26.6": true
   },
+  "NSButtonCell call:drawTitle/3:withFrame,in": {
+   "27.0": true
+  },
   "NSClipView call:setBoundsOrigin/1": {
    "27.0.1": true,
    "26.5.2": true,
@@ -496,10 +515,12 @@
    "26.6": true
   },
   "NSImageView call:setFrameSize/1": {
-   "26.6": true
+   "26.6": true,
+   "27.0": true
   },
   "NSImageView call:viewDidChangeBackingProperties/0": {
-   "26.6": true
+   "26.6": true,
+   "27.0": true
   },
   "NSImageView call:viewDidChangeEffectiveAppearance/0": {
    "26.5.2": true,
@@ -534,6 +555,14 @@
    "26.6": true
   },
   "NSImageView get:firstBaselineOffsetFromTop/0": {
+   "26.5.2": true,
+   "26.7": true,
+   "27.0": true,
+   "27.0.1": true,
+   "26.5.1": true,
+   "26.6": true
+  },
+  "NSPanel call:addChildWindow/2:ordered": {
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
