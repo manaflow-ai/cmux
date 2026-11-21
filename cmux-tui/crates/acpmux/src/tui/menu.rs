@@ -227,7 +227,7 @@ impl App {
         }
         // Transcript rows.
         if let Some((row, col)) = self.transcript_cell_lenient(x, y) {
-            let text = self.rows_cache.get(row).cloned().unwrap_or_default();
+            let text = self.transcript_cache.text(row).to_owned();
             let mut items = Vec::new();
             if let Some(link) =
                 links::find(&text).into_iter().find(|l| col >= l.start && col < l.end)
@@ -243,7 +243,7 @@ impl App {
                     MenuAction::Transcript(TranscriptOp::CopySelection),
                 ));
             }
-            if let Some(&(item_idx, toggle)) = self.row_meta.get(row) {
+            if let Some((item_idx, toggle)) = self.transcript_cache.meta(row) {
                 if let Some(t) = toggle {
                     let open = self.is_open(t);
                     let what = match t {
@@ -338,12 +338,12 @@ impl App {
             MenuAction::Transcript(op) => match op {
                 TranscriptOp::CopySelection => {
                     if let Some(sel) = self.selection.clone() {
-                        let text = sel.text(&self.rows_cache);
+                        let text = self.selection_text(&sel);
                         self.copy_to_clipboard(&text);
                     }
                 }
                 TranscriptOp::CopyRow(row) => {
-                    let text = self.rows_cache.get(row).cloned().unwrap_or_default();
+                    let text = self.transcript_cache.text(row).to_owned();
                     self.copy_to_clipboard(text.trim_start());
                 }
                 TranscriptOp::CopyItem(idx) => {

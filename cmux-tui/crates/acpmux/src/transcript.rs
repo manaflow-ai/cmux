@@ -63,6 +63,12 @@ pub struct Transcript {
     /// Earliest item whose layout may have changed since the TUI consumed it.
     /// Streaming invalidates the mutable tail, not the entire conversation.
     pub(crate) layout_dirty_from: usize,
+    /// Items whose layout changed in place since the TUI consumed them, before
+    /// `layout_dirty_from`: an older tool call's status, a permission's answer.
+    pub(crate) layout_dirty_items: Vec<usize>,
+    /// Items an older page put in front since the TUI consumed them; every kept
+    /// item moved this many places.
+    pub(crate) layout_shift: usize,
     pub last_seq: u64,
     pub status: String,
     pub mode: Option<String>,
@@ -224,6 +230,20 @@ impl Transcript {
         self.layout_dirty_from = self.layout_dirty_from.min(from);
     }
 
+    /// Item `i` changed in place (nothing moved): only its own layout is stale.
+    fn invalidate_item(&mut self, i: usize) {
+        if i >= self.items.len() {
+            self.invalidate_layout(i);
+        } else if i < self.layout_dirty_from {
+            if self.layout_dirty_items.len() >= 64 {
+                let first = self.layout_dirty_items.drain(..).fold(i, usize::min);
+                self.invalidate_layout(first);
+            } else {
+                self.layout_dirty_items.push(i);
+            }
+        }
+    }
+
     /// Removes user item `pos`, keeping the per-item indices after it in step.
     fn remove_user_item(&mut self, pos: usize) -> Item {
         self.invalidate_layout(pos);
@@ -301,7 +321,12 @@ impl Transcript {
                 .unwrap_or(self.items.len()),
             _ => self.items.len(),
         };
-        self.invalidate_layout(from);
+        // A known tool call changes in place; an unknown one is appended.
+        if matches!(kind, "tool_call" | "tool_call_update") {
+            self.invalidate_item(from);
+        } else {
+            self.invalidate_layout(from);
+        }
         match kind {
             "user_message_chunk" => {
                 let t = text_of(update.get("content").unwrap_or(&Value::Null));
@@ -575,7 +600,12 @@ impl Transcript {
             }
             _ => self.items.len().saturating_sub(1),
         };
-        self.invalidate_layout(from);
+        // A permission's answer changes its row in place (an unknown one is appended).
+        if matches!(kind, "permission_decision" | "permission_auto") {
+            self.invalidate_item(from);
+        } else {
+            self.invalidate_layout(from);
+        }
         self.pending_user_chunk = false;
         match kind {
             "queued" => self.items.push(Item::User {
@@ -890,6 +920,8 @@ impl Transcript {
         // removals the replay made along the way.
         rebuilt.removed_items.clear();
         rebuilt.layout_dirty_from = 0;
+        rebuilt.layout_shift =
+            self.layout_shift + rebuilt.items.len().saturating_sub(previous_items);
         *self = rebuilt;
         self.items.len().saturating_sub(previous_items)
     }
