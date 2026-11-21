@@ -1,0 +1,40 @@
+{
+  "schema": "cmux.perf.sim/1",
+  "profiles": {
+    "cosmic-gray": {
+      "description": "The captured working day (captures/cosmic-gray-2026-11-21.json): its workspaces and panes, its streaming chats as fake agent terminals, its pages; steady layout churn.",
+      "capture": "cosmic-gray-2026-11-21",
+      "max_panes_per_workspace": 4,
+      "busy_terminals": 0,
+      "busy_sleep_s": 0.02,
+      "agents": 0,
+      "agent_sleep_s": 0.08,
+      "browsers": 0,
+      "burst_lines": 10000,
+      "burst_every_s": 20,
+      "churn_interval_ms": 400,
+      "churn": ["tab", "tab", "workspace", "sidebar", "sidebar", "split", "equalize", "resize", "tab", "workspace"],
+      "busy_command": "while :; do echo \"$RANDOM $RANDOM $RANDOM stress output line $(date +%s)\"; sleep {sleep}; done\r",
+      "agent_command": "i=0; while :; do i=$((i+1)); printf '\\033]0;{name} working %s\\007' \"$i\"; printf '\\033[1;36m*\\033[0m {name}: reading src/module_%d.rs\\n' \"$i\"; printf '  \\033[2m-> read %d lines, editing hunk %d\\033[0m\\n' $((i*7%400)) $((i%9)); printf '\\033[32m+ let value_%d = compute(%d);\\033[0m\\n\\033[31m- let value_%d = old(%d);\\033[0m\\n' \"$i\" \"$i\" \"$i\" \"$i\"; sleep {sleep}; done\r",
+      "burst_command": "seq 1 {lines} | sed 's/^/burst event /'\r"
+    },
+    "unreasonable": {
+      "description": "The captured working day four times over, every count multiplied, plus 32 busy output loops, a 10,000-event burst every 5 s and churn as fast as the app takes it.",
+      "capture": "cosmic-gray-2026-11-21",
+      "scale": 4,
+      "max_panes_per_workspace": 10,
+      "busy_terminals": 8,
+      "busy_sleep_s": 0.005,
+      "agents": 0,
+      "agent_sleep_s": 0.02,
+      "browsers": 0,
+      "burst_lines": 10000,
+      "burst_every_s": 5,
+      "churn_interval_ms": 120,
+      "churn": ["tab", "workspace", "sidebar", "split", "resize", "tab", "equalize", "workspace", "sidebar", "resize"],
+      "busy_command": "while :; do echo \"$RANDOM $RANDOM $RANDOM stress output line $(date +%s)\"; sleep {sleep}; done\r",
+      "agent_command": "i=0; while :; do i=$((i+1)); printf '\\033]0;{name} working %s\\007' \"$i\"; printf '\\033[1;36m*\\033[0m {name}: reading src/module_%d.rs\\n' \"$i\"; printf '  \\033[2m-> read %d lines, editing hunk %d\\033[0m\\n' $((i*7%400)) $((i%9)); printf '\\033[32m+ let value_%d = compute(%d);\\033[0m\\n\\033[31m- let value_%d = old(%d);\\033[0m\\n' \"$i\" \"$i\" \"$i\" \"$i\"; sleep {sleep}; done\r",
+      "burst_command": "seq 1 {lines} | sed 's/^/burst event /'\r"
+    }
+  }
+}

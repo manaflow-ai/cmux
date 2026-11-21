@@ -97,6 +97,7 @@ fn scope_text(args: &[String]) -> Option<String> {
         ["settings" | "config", ..] => return Some(format!("{}\n", messages.settings_usage)),
         ["live", ..] => return Some(format!("{}\n", messages.live.usage)),
         ["nightly", ..] => return Some(format!("{}\n", messages.nightly.usage)),
+        ["perf", ..] => return Some(format!("{}\n", messages.perf.usage)),
         ["app", "try", ..] => return Some(format!("{}\n", messages.app_try.usage)),
         [scope, ..] if super::super::app::APP_SCOPES.contains(scope) => app_usage(scope, messages)?,
         _ => return None,
