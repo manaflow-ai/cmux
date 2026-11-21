@@ -132,3 +132,30 @@ fn an_unsigned_decision_binds_the_live_prompt_and_the_exact_answers() {
         Err(WireError::NoRequest)
     );
 }
+
+#[test]
+fn a_native_approval_card_is_told_from_a_question() {
+    let card = |id: &str, options: &[&str], allows_other: bool| -> Question {
+        let options: Vec<Value> = options.iter().map(|id| json!({"id": id, "label": id})).collect();
+        serde_json::from_value(json!({
+            "harness": "chief", "session": "sess_mux", "permission": "perm_1",
+            "items": [{"id": id, "prompt": "Run it?", "multi_select": false,
+                       "allows_other": allows_other, "options": options}]
+        }))
+        .unwrap()
+    };
+    let digest = format!("approval:{}", "0f".repeat(32));
+    assert!(is_native_approval(&card(&digest, &["deny", "allow"], false)));
+    assert!(!is_native_approval(&card(&digest, &["allow", "deny"], true)));
+    assert!(!is_native_approval(&card(&digest, &["allow", "maybe"], false)));
+    assert!(!is_native_approval(&card("approval:short", &["allow", "deny"], false)));
+    assert!(!is_native_approval(&card(
+        &format!("approval:{}", "0F".repeat(32)),
+        &["allow", "deny"],
+        false
+    )));
+    assert!(!is_native_approval(&question("chief", false)));
+    let mut codex = card(&digest, &["allow", "deny"], false);
+    codex.harness = crate::QuestionHarness::Codex;
+    assert!(!is_native_approval(&codex));
+}

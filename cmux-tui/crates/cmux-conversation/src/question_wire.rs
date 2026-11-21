@@ -134,6 +134,24 @@ pub fn acpmux_answers(question: &Question, answer: &QuestionAnswer) -> Result<Va
     Ok(Value::Object(answers))
 }
 
+/// Home's tool-permission card (Swift `HomeApprovalRowProvider.digest`): one Chief item
+/// `approval:<request sha256>` offering only `allow` and `deny`. The app answers its acpmux prompt
+/// itself, natively, on its person-proven connection, before it records the card; the record
+/// sends nothing to acpmux and needs no decision (by then the prompt and its nonce are gone).
+pub fn is_native_approval(question: &Question) -> bool {
+    let [item] = question.items.as_slice() else { return false };
+    let digest = item.id.strip_prefix("approval:").unwrap_or_default();
+    let mut ids: Vec<&str> = item.options.iter().map(|option| option.id.as_str()).collect();
+    ids.sort_unstable();
+    question.harness == QuestionHarness::Chief
+        && question.permission.is_some()
+        && !item.multi_select
+        && !item.allows_other
+        && ids == ["allow", "deny"]
+        && digest.len() == 64
+        && digest.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
 /// What the person signs for one Home answer, before any key touches it: the live request's
 /// identity and the exact `answers` the daemon will send. The app checks `instance`,
 /// `decision_nonce` and `digest` against its own person-proven read of the same prompt before it

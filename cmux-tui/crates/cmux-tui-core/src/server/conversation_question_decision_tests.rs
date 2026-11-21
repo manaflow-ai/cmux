@@ -44,6 +44,8 @@ fn the_decision_is_the_live_prompts_with_its_request() {
     assert_eq!(decided["decision_nonce"], "b".repeat(64));
     assert_eq!(decided["answers"], json!({"Ship it?": "Yes"}));
     assert_eq!(decided["request"], entry("perm_1")["request"]);
+    assert_eq!(decided["question"], serde_json::to_value(question(Some("perm_1"))).unwrap());
+    assert_eq!(decided["digest"], super::request_digest(&entry("perm_1")["request"]));
 }
 
 #[test]
@@ -85,4 +87,24 @@ fn only_a_trusted_local_connection_asks_and_a_missing_part_is_not_found() {
     let remote = mux.control_clients.register(ClientTransport::Remote, writer());
     let error = run(remote).expect_err("a remote peer is refused");
     assert!(error.to_string().contains("trusted local connection"), "{error}");
+}
+
+#[test]
+fn the_digest_sorts_keys_at_every_depth_and_an_approval_card_is_refused() {
+    use sha2::{Digest, Sha256};
+    let request = json!({"b": {"y": 1, "x": [{"d": 2, "c": "é"}]}, "a": null});
+    let expected = format!(
+        "{:x}",
+        Sha256::digest(r#"{"a":null,"b":{"x":[{"c":"é","d":2}],"y":1}}"#.as_bytes())
+    );
+    assert_eq!(super::request_digest(&request), expected);
+    let card: Question = serde_json::from_value(json!({
+        "harness": "chief", "session": "sess_mux", "permission": "perm_1",
+        "items": [{"id": format!("approval:{}", "a".repeat(64)), "prompt": "Run it?",
+                   "multi_select": false, "allows_other": false,
+                   "options": [{"id": "allow", "label": "Allow"}, {"id": "deny", "label": "Deny"}]}]
+    }))
+    .unwrap();
+    let info = json!({"pending": [entry("perm_1")]});
+    assert_eq!(code(decide_from(&card, &answer(), &info)), "question.native_approval");
 }
