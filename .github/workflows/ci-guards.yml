@@ -1165,7 +1165,7 @@ jobs:
 
       # Every vars.NAME a runs-on reads should declare its fallback in .github/single-host-fallbacks.json, which the
       # build-fleet runner label policy reads from here (cmux#40221 merged two undeclared names unseen). Advisory
-      # only (no new CI gate, Lawrence 2026-10-23): --advisory warns and exits 0; the pre-push hook enforces it.
+      # only (no new CI gate, Lawrence 2026-10-23, lifted 2026-11-18): --advisory warns and exits 0; the pre-push hook enforces it.
       - name: Validate no runs-on waits on one machine through a variable's value
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: |

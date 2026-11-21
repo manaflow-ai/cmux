@@ -403,6 +403,20 @@ class PullRequestSkip(unittest.TestCase):
                 self.assertEqual(len(problems), 1, problems)
                 self.assertIn("no push to feat-cmux-next", problems[0])
 
+    def test_a_post_merge_batch_suite_is_the_net(self):
+        import tempfile
+        text = SKIP_WORKFLOW.replace("  push:\n    branches: [feat-cmux-next]\n", "  workflow_call:\n")
+        key = (".github/workflows/s.yml", "heavy")
+        for paths, count in (([], 0), (["a/**"], 1)):
+            with self.subTest(paths=paths), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / ".github/workflows").mkdir(parents=True)
+                (root / ".github/workflows/s.yml").write_text(text)
+                (root / ".github/post-merge-batch.json").write_text(json.dumps(
+                    {"suites": {"s": {"workflow": "s.yml", "paths": paths, "jobs": {"heavy": "heavy"}}}}))
+                problems = jobs.check_pr_skip(root, [key])
+                self.assertEqual(len(problems), count, problems)
+
     def test_a_push_that_starts_on_fewer_paths_is_named(self):
         text = SKIP_WORKFLOW.replace("    branches: [feat-cmux-next]\n  push:\n    branches: [feat-cmux-next]\n",
                                      "    branches: [feat-cmux-next]\n    paths:\n      - a/**\n      - b/**\n"

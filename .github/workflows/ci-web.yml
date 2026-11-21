@@ -80,10 +80,25 @@ jobs:
           key: webviews-test-durations-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: webviews-test-durations-
 
+      # The base's webview test history from the Actions cache (webviews-test-history saves it there beside its
+      # artifact): no REST request. The artifact list below answered 403 on 25 of 33 sampled pull request runs
+      # (2026-11-21 07:21-08:55Z, the repository's shared token quota), and each then retried every red file
+      # alone: 17 of a shard's 51 min of tests. Unique keys a push, so the prefix restores the newest.
+      - name: Restore the base's webview test history
+        id: base-history-cache
+        if: ${{ steps.scope.outputs.react_apps == 'true' && github.event_name == 'pull_request' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .webviews-test-history-cache/history.json
+          key: webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}
+          restore-keys: webviews-test-history-${{ github.base_ref }}-
+
       # A pull request's shards also get the names red on the base's newest recorded push (base-reds.json): a head
       # file whose every first-run red is one of them skips its alone retry (run-webviews-tests.sh,
       # CMUX_WEB_TEST_BASE_REDS) and react-apps-base-check judges it as before. Read once here for the whole run (the
-      # history's list and download, two requests), and best effort: without the file every red file is retried.
+      # cached history above, else the artifact's list and download, two requests), and best effort: without the file
+      # every red file is retried.
       - name: Hand the duration manifest to the shards
         if: ${{ steps.scope.outputs.react_apps == 'true' }}
         env:
@@ -96,7 +111,9 @@ jobs:
           echo "duration manifest: $(grep -c '": ' "$manifest" || true) files"
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             history="$RUNNER_TEMP/webviews-base-history.json"
-            { timeout 90 python3 scripts/ci/webviews_test_history.py fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BASE_REF" --need-read &&
+            cached=.webviews-test-history-cache/history.json
+            { if [ -s "$cached" ]; then cp "$cached" "$history" && echo "webview test history: the Actions cache's copy"
+              else timeout 90 python3 scripts/ci/webviews_test_history.py fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BASE_REF" --need-read; fi &&
               python3 scripts/ci/webviews_test_history.py known-reds "$history" --before "$(git log -1 --format=%ct HEAD^1)" \
                 --out "$RUNNER_TEMP/webviews-durations/base-reds.json"; } ||
               { rm -f "$RUNNER_TEMP/webviews-durations/base-reds.json"; echo "the base's webview reds are unread: every red file is retried"; }
@@ -1425,7 +1442,8 @@ jobs:
   # A feat-cmux-next push only. This scan reports and never fails on a finding
   # (`--fail-on none`); on a pull request `React Doctor (changed React projects)`
   # (cmux-next-react-doctor.yml) scans the same webviews project with the same
-  # pinned tool and gates it: a new error or a failed scan is red there. Running
+  # pinned tool and reports a new error or a failed scan as a warning (lint never
+  # stops a merge, Leo 2026-11-20). Running
   # it here too was 786 runs and about 178 hours of 16 vCPU a day (p50 13.6 min,
   # 2026-11-16T08:27Z..11-17T08:27Z) for a verdict nobody read, and its timeouts
   # held PRs (#44127).
@@ -1608,8 +1626,20 @@ jobs:
           pattern: webviews-test-history-shard*
           path: ${{ runner.temp }}/history-results
 
+      # The cached copy (Save the history to the cache, below): the history when the artifact list answers no.
+      - name: Restore the cached history
+        id: history-cache
+        if: ${{ steps.history-download.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .webviews-test-history-cache/history.json
+          key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: webviews-test-history-${{ github.ref_name }}-
+
       # A history it cannot read (a missing one is fine) fails this step, and the push saves none: saving its own run
-      # alone would replace the whole accumulated history with one run.
+      # alone would replace the whole accumulated history with one run. The artifact first; when its list or download
+      # answers no (a 403 from the repository's spent token quota), the cached copy.
       - name: Restore the history
         id: history-restore
         if: ${{ steps.history-download.outcome == 'success' }}
@@ -1619,8 +1649,10 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.ref_name }}
         run: |
-          python3 scripts/ci/webviews_test_history.py fetch "$RUNNER_TEMP/webviews-test-history/history.json" \
-            --repo "$GITHUB_REPOSITORY" --branch "$BRANCH" --need-read
+          history="$RUNNER_TEMP/webviews-test-history/history.json"
+          cached=.webviews-test-history-cache/history.json
+          python3 scripts/ci/webviews_test_history.py fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BRANCH" --need-read ||
+            { [ -s "$cached" ] && cp "$cached" "$history" && echo "webview test history: the Actions cache's copy"; }
 
       - name: Add this push to the history
         id: history-record
@@ -1649,6 +1681,25 @@ jobs:
           path: ${{ runner.temp }}/webviews-test-history/history.json
           if-no-files-found: ignore
           retention-days: 3
+
+      # The same history in the Actions cache, which a pull request's web-subarea-scope restores with no REST
+      # request. A key a run: a cache entry is immutable, so one fixed key was never replaced (2026-11-08), and the
+      # restore-keys prefix takes the newest. A path relative to the workspace in every save and restore: the cache
+      # version hashes the path as written, and runner.temp differs between a VM's runners (runner, runner2).
+      - name: Stage the history for the cache
+        id: history-stage
+        if: ${{ steps.history-record.outcome == 'success' }}
+        continue-on-error: true
+        run: mkdir -p .webviews-test-history-cache && cp "$RUNNER_TEMP/webviews-test-history/history.json" .webviews-test-history-cache/history.json
+
+      - name: Save the history to the cache
+        if: ${{ steps.history-stage.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .webviews-test-history-cache/history.json
+          key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       # A base red is excused on every pull request, so nothing made it anyone's: react-apps-check was red on every
       # completed push run from 2026-11-11 16:59 UTC to 2026-11-13 and model-picker-scaling on 62 recorded pushes in
