@@ -184,6 +184,12 @@ struct AppHealthStrings {
     }
 
     static var receipts: String { String(localized: "appHealth.receipts", defaultValue: "Recent repairs", table: "AppHealth", bundle: .module) }
+    /// The liveness part: the renderer every open agent chat shares.
+    static var agentChatsLabel: String { String(localized: "appHealth.part.agentChats", defaultValue: "Agent chats", table: "AppHealth", bundle: .module) }
+    /// The one line a chat pane shows after the watchdog ended its hung renderer and it loaded again.
+    static var chatRestarted: String {
+        String(localized: "appHealth.chatRestarted", defaultValue: "This chat stopped responding, so cmux restarted it.", table: "AppHealth", bundle: .module)
+    }
 
     /// "Agent chat: Slow".
     static func partLine(_ label: String, _ state: String) -> String {
