@@ -574,9 +574,7 @@ function ChatHeaderToolsView({
         {(!native || !nativeNeedsYouMenu) && inbox}
         {webButtons && singles.map(renderTool)}
         {webButtons && grouped.length > 0 && (
-          <div className="acpmux-header-tool-group acpmux-glass-capsule ui-glass" role="group">
-            {grouped.map(renderTool)}
-          </div>
+          <div className="acpmux-header-tool-group acpmux-glass-capsule ui-glass">{grouped.map(renderTool)}</div>
         )}
         {chatMenuButton}
         {!native && onSearch && (
