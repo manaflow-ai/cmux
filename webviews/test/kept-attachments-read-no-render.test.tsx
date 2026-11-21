@@ -28,23 +28,34 @@ Object.assign(scope, replacements);
 
 const { act, createElement, useState } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { useKeptAttachments, KEPT_ATTACHMENTS_SETTLE_MS } =
-  await import("../src/agent-session/acpmux/composer/keptAttachments");
+const { useKeptAttachments } = await import("../src/agent-session/acpmux/composer/keptAttachments");
+const { webSwapHold } = await import("../src/pages/shared/webSwap");
 
 afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
 });
 
 const chip = (id: string): ComposerAttachment => ({ id, name: `${id}.png` }) as ComposerAttachment;
-const wait = (ms: number) =>
+/// Yields one task at a time until `ready` holds, so a test waits for the value it asserts on next (a
+/// kept write rests KEPT_ATTACHMENTS_SETTLE_MS first, so the bound is wall time, not turns).
+const until = (ready: () => boolean, what: string) =>
   act(async () => {
-    await new Promise((done) => setTimeout(done, ms));
+    for (const deadline = Date.now() + 5_000; !ready();) {
+      if (Date.now() > deadline) throw new Error(`${what} never came`);
+      await new Promise((done) => setTimeout(done, 0));
+    }
+    // One task more, so what follows the awaited read or write (its render) has run.
+    await new Promise((done) => setTimeout(done, 0));
   });
 
 async function page(kept: Record<string, ComposerAttachment[]>, held: ComposerAttachment[], carrying: boolean) {
   const writes: { sessionId: string; ids: string[] }[] = [];
+  const reads: string[] = [];
   const store = {
-    read: async (sessionId: string) => kept[sessionId] ?? [],
+    read: async (sessionId: string) => {
+      reads.push(sessionId);
+      return kept[sessionId] ?? [];
+    },
     write: async (sessionId: string, attachments: ComposerAttachment[]) => {
       writes.push({ sessionId, ids: attachments.map((a) => a.id) });
       return { held: attachments.map((a) => a.id) };
@@ -68,13 +79,13 @@ async function page(kept: Record<string, ComposerAttachment[]>, held: ComposerAt
   dom.window.document.body.append(host);
   const root = createRoot(host);
   await act(async () => root.render(createElement(Pane)));
-  await wait(0);
+  await until(() => reads.includes("chat-a"), "the read of chat-a");
   return {
     renders,
     writes,
     switchTo: async (sessionId: string) => {
       await act(async () => show(sessionId));
-      await wait(0);
+      await until(() => reads.includes(sessionId), `the read of ${sessionId}`);
     },
     close: async () => {
       await act(async () => root.unmount());
@@ -88,7 +99,8 @@ test("a switch to a chat with no kept chips renders the composer once", async ()
   const before = p.renders.length;
   await p.switchTo("chat-b");
   expect(p.renders.slice(before)).toEqual([{ sessionId: "chat-b", ids: [] }]);
-  await wait(KEPT_ATTACHMENTS_SETTLE_MS + 20);
+  // No write rests or is out (the composer's hold on a web update says so), so none comes.
+  expect(webSwapHold(dom.window.document)).toBeNull();
   expect(p.writes).toEqual([]);
   await p.close();
 });
@@ -105,7 +117,7 @@ test("chips a harness switch carries are kept for the new session with no extra 
   const before = p.renders.length;
   await p.switchTo("chat-b");
   expect(p.renders.slice(before)).toEqual([{ sessionId: "chat-b", ids: ["held"] }]);
-  await wait(KEPT_ATTACHMENTS_SETTLE_MS + 20);
+  await until(() => p.writes.some((w) => w.sessionId === "chat-b"), "the write of chat-b's carried chips");
   expect(p.writes.filter((w) => w.sessionId === "chat-b")).toEqual([{ sessionId: "chat-b", ids: ["held"] }]);
   await p.close();
 });
