@@ -265,6 +265,33 @@ mod tests {
         assert!(rect.x + rect.w >= 2950.0 && rect.x <= 2950.0, "pointer in view: {rect:?}");
     }
 
+    /// One redraw on the Mac is several damage rects with one `t_us`. They
+    /// reach the phone a little apart, yet stay one instant: two rects of a
+    /// quarter of the screen each are a half-screen redraw, which says
+    /// nothing about where to look, so the crop stays put.
+    #[test]
+    fn one_mac_instant_stays_one_instant_on_the_phone() {
+        let camera = camera();
+        let mut now = 0;
+        let start = camera.advance(now);
+        let quarter = W / 4.0;
+        for (i, at) in [(0.0, 0), (1.0, 3 * MS)] {
+            let x = i * quarter;
+            camera
+                .push_json(
+                    format!(r#"{{"t_us":555000,"kind":"damage","x":{x},"y":0,"w":{quarter},"h":{H}}}"#),
+                    now + at,
+                )
+                .unwrap();
+        }
+        let mut rect = start;
+        for _ in 0..120 {
+            now += 16 * MS;
+            rect = camera.advance(now);
+        }
+        assert_eq!(rect, start, "a half-screen redraw moves nothing: {start:?} -> {rect:?}");
+    }
+
     #[test]
     fn a_source_event_resizes_and_reports_the_screen() {
         let camera = camera();
