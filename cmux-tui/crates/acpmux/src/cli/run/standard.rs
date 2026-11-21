@@ -412,7 +412,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // Any other create resends its create key (`hub/create_key.rs`) to a daemon that
             // keeps keys, when the one that closed kept them too: the next daemon answers
             // with the session the first made, or makes it. A restart while it waits (a
-            // self-update under a benchmark's `new -d`, gcp-agent-lane-13 2026-11-21) then
+            // self-update under a benchmark's `new -d`, a lane VM 2026-11-21) then
             // never fails the create, and never makes two. Only to this daemon's own
             // sessions: one on a peer may run a daemon that ignores the key. Without a key
             // a retry could make a duplicate: no retry, except after the daemon's shutdown

@@ -275,7 +275,7 @@ async fn ensure_whose_daemon_restarts_mid_create_finds_the_session_it_made() {
     assert_eq!(printed["name"], "lane", "{}", text(&out));
 }
 
-/// gcp-agent-lane-13, 2026-11-21 09:58:45Z: `acpmux machine self-update` restarted the daemon
+/// A Linux lane VM, 2026-11-21 09:58:45Z: `acpmux machine self-update` restarted the daemon
 /// while a packing benchmark's unnamed `acpmux new -d --json` waited for its reply, and the
 /// benchmark died on `daemon_closed`. A daemon that keeps create keys gets the create again,
 /// with the same key: the launch succeeds with the one session the first create made.

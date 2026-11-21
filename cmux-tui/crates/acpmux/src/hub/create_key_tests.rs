@@ -54,7 +54,7 @@ async fn concurrent_creates_with_one_key_make_one_session() {
     hub.shutdown_all().await;
 }
 
-/// gcp-agent-lane-13, 2026-11-21 09:58:45Z: a self-update restarted the daemon while
+/// A Linux lane VM, 2026-11-21 09:58:45Z: a self-update restarted the daemon while
 /// `acpmux new -d --json` waited for its reply. The CLI sends the create again, with its key,
 /// to the next daemon: that one finds the session in the store and makes no second one.
 #[tokio::test]

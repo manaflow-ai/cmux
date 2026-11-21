@@ -2,7 +2,7 @@
 //!
 //! An automatic restart (a self-update, `machine update`, a crash-restart under systemd) closes
 //! every connection, and a `session/new` in flight then ends with no reply (`daemon_closed`):
-//! the create may have happened or not, and its caller cannot tell. On gcp-agent-lane-13
+//! the create may have happened or not, and its caller cannot tell. On a Linux lane VM
 //! (2026-11-21 09:58:45Z) `acpmux machine self-update` restarted the daemon under a packing
 //! benchmark's `acpmux new -d --json`, and the benchmark died on it.
 //!
