@@ -52,7 +52,7 @@ function Step({ step }: { step: WalkthroughStep }) {
           <span className="cv-walk__blank" />
         )}
       </span>
-      <span className="cv-walk__caption" title={step.error ? `${step.line}\n${step.error}` : step.line}>
+      <span className="cv-walk__caption" aria-description={step.error ? `${step.line}\n${step.error}` : step.line}>
         <Mark step={step} />
         <span className="cv-walk__line">
           <span className="cv-walk__visually-hidden">{verdict}: </span>
