@@ -96,6 +96,7 @@ import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDat
 import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.experiment";
 import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
+import { askLedger } from "../agent-session/acpmux/askLedger/askLedger.experiment";
 import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
 import { composerV2Look } from "../agent-session/acpmux/composerV2.experiment";
 import { composerShellLook } from "../agent-session/acpmux/composer/shellLook.experiment";
@@ -203,6 +204,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   fieldGrowthMotion,
   composerDockMotion,
   teamAudit,
+  askLedger,
   jumpPairLook,
   glassToolbarLook,
   composerV2Look,

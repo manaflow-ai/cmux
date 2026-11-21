@@ -8,6 +8,7 @@ import type { WatchedAsk } from "../needsYou/model";
 import { answerAnotherChat } from "../needsYou/useNeedsYou";
 import type { LedgerScreen } from "../ledger/LedgerScreen";
 import type { TeamAuditScreen } from "../teamAudit/TeamAuditScreen";
+import type { AskLedgerScreen } from "../askLedger/AskLedgerScreen";
 import type { QueueScreen } from "./QueueScreen";
 import { auditEntries, needsYouItem, QUEUE_LIMIT, verdictParams, type QueueItem } from "./queueModel";
 import type { AcpmuxSessionEntry } from "../sessionList";
@@ -17,6 +18,7 @@ type CallNative = <T>(method: string, params?: Record<string, unknown>) => Promi
 
 /// The pane's connection calls these pages use (AcpmuxDirectClient).
 export type HistoryPagesClient = {
+  askLedger?(): Promise<unknown>;
   ledger(params: Record<string, unknown>): Promise<unknown>;
   teamAudit(params: Record<string, unknown>): Promise<unknown>;
   reviewQueue(params?: Record<string, unknown>): Promise<unknown>;
@@ -98,6 +100,7 @@ export function historyPages({
   queue: ComponentProps<typeof QueueScreen>;
   ledger: ComponentProps<typeof LedgerScreen>;
   team: ComponentProps<typeof TeamAuditScreen>;
+  asks: ComponentProps<typeof AskLedgerScreen>;
 } {
   const connected = () => {
     const current = client();
@@ -171,5 +174,13 @@ export function historyPages({
     },
     // History shows it only while the `team-audit` experiment is on (newtab/HistoryScreen.tsx).
     team: { load: async (params) => connected().teamAudit(params) },
+    asks: {
+      load: async () => {
+        const current = connected();
+        // l10n-allow: a wire failure; the page renders its localized unavailable message.
+        if (!current.askLedger) throw new Error("ask ledger unavailable");
+        return current.askLedger();
+      },
+    },
   };
 }

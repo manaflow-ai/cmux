@@ -52,6 +52,7 @@ pub(crate) mod subagent_retry;
 pub(crate) use crate::turn_errors;
 pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
 pub(crate) use policy_mode::SetRequest;
+pub(crate) mod ask_ledger;
 mod audit_entries;
 pub(crate) mod audit_log;
 mod bookmarks;
@@ -950,6 +951,8 @@ pub struct Hub {
     pub(crate) review_index: review_queue::Index,
     /// The approvals audit trail (`audit_log.rs`).
     pub(crate) audit: audit_log::AuditLog,
+    /// The opt-in first ask-ledger experiment: accepted human prompts, bounded in memory.
+    pub(crate) ask_ledger: ask_ledger::AskLedger,
     pub shutdown: Notify,
     /// The owner of the hub's own tasks (`cmux_scope`). Every task that lives off the hub (the
     /// idle reaper, each chat's inbound loop, pool starts, carried turns, retries, message
@@ -1495,6 +1498,7 @@ impl Hub {
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             review_index: Default::default(),
             audit,
+            ask_ledger: ask_ledger::AskLedger::default(),
             shutdown: Notify::new(),
             scope: cmux_scope::Scope::new("acpmux hub"),
             ws_shutdown: Default::default(),
