@@ -53,11 +53,12 @@ Before:
    without scrolling. The line reads the task from acpmux (`_acpmux/bg/output`) on its first open.
    If acpmux no longer has the task (another machine, a restart), it shows the command the line
    cites and its end, and no invented output.
-7. **A row closes with its content shown until the last few pixels.** Every fold closes its height
-   on the settle curve, and its content stays at full opacity until the last 28 px, then fades out
-   with them. When the fade followed the height's share instead, a tall card sat nearly invisible
-   in a 30 px band under the closed row for most of the fold: the "ghost band" at 0:42 in Leo's
-   05:30Z video (`fold.ts` `closeKeyframes`, `test/command-close-no-ghost-band.test.ts`).
+7. **A row's text is gone before its band shuts.** Every fold closes the way design/chat-fold-motion.md
+   says (exit before move, `exitLead.ts` `exitThenClose`): the leaving text goes to 0 while the height
+   holds, then the height shuts with nothing drawn in it. That also ends the "ghost band" at 0:42 in
+   Leo's 05:30Z video, where a faint "Shell 0.0s" stayed on a 30 px band under the closed row while
+   it shut, because height and opacity used to share one curve. `test/command-close-no-ghost-band.test.ts`
+   fails on the close before exit before move (32 px at 0.28, 17 px at 0.14) and passes on it.
 
 ## The panel
 

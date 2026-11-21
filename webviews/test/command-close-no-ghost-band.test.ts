@@ -1,10 +1,12 @@
 // l10n-allow-file: the gallery fixture supplies the transcript's rows.
 // Closing a command row leaves no ghost band (Leo's 05:30Z video, 0:42: after a click on "Check
-// whether lw#7020 ...", a near-blank band with a faint "Shell 0.0s" stayed under the closed row).
-// The fold played height and opacity on one curve, so opacity tracked the share of height left: a
-// 300 px card was down to 10% opacity with 30 px still to close, and the settle curve's long tail
-// held that empty band for most of the fold's length. The fade now plays only over the band's last
-// few pixels (fold.ts `CLOSE_FADE_PX`): while the box still takes room, what is in it shows.
+// whether lw#7020 ...", a band with a faint "Shell 0.0s" stayed under the closed row while it shut).
+// The fold used to play height and opacity on one curve, so the leaving text tracked the share of
+// height left: faint but visible on a band that took most of the fold to shut. Exit before move
+// (exitLead.ts `exitThenClose`, design/chat-fold-motion.md) takes the ink to 0 while the height
+// holds, then shuts the height. Leo, 2026-11-21: "we must hide text faster and sooner". The bar is
+// what he objected to: once the height moves, no frame draws leaving text faint but visible on a
+// band 12 px or taller. A fully transparent band shutting is the fold's own motion.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -90,14 +92,16 @@ await requireBrowserLane("command-close-no-ghost-band.test.ts", async () => {
       const frames = await page.evaluate(
         () => (window as unknown as { closeFrames: { h: number; o: number }[] }).closeFrames,
       );
+      if (process.env.GHOST_BAND_FRAMES)
+        console.log(colorScheme, JSON.stringify(frames.map((one) => [Math.round(one.h), +one.o.toFixed(2)])));
       const full = frames[0]!.h;
       // A card worth checking, and a close that played (frames between open and shut).
       expect(full).toBeGreaterThan(60);
       expect(frames.filter((one) => one.h > 0.5 && one.h < full - 0.5).length).toBeGreaterThan(2);
-      // It still fades out at the end (Leo, 2026-10-24: "Fade out, yes").
+      // It fades out (Leo, 2026-10-24: "Fade out, yes").
       expect(frames.some((one) => one.h > 0.5 && one.o < 0.99)).toBe(true);
-      // No frame draws a band of room with almost nothing in it.
-      const ghosts = frames.filter((one) => one.h >= 12 && one.o < 0.35);
+      // Once the height moves (after the exit lead), no frame draws faint leftover text on a band.
+      const ghosts = frames.filter((one) => one.h < full - 0.5 && one.h >= 12 && one.o > 0.02 && one.o < 0.35);
       expect(ghosts.map((one) => `${one.h.toFixed(0)}px at ${one.o.toFixed(2)}`)).toEqual([]);
       await page.close();
     });
