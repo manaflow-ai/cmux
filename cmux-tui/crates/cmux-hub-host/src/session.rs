@@ -446,6 +446,9 @@ pub fn setup_line(ticket: &Ticket, offer: &RdDocument, view_only: bool) -> Value
         },
         "max_fps": offer.max_fps.map(|f| f.min(120)),
         "max_width": offer.max_width,
+        // The viewer's Customize wishes; a host that does not know them streams as before.
+        "max_kbps": offer.max_kbps,
+        "cursor": offer.cursor,
     })
 }
 
@@ -538,6 +541,23 @@ mod tests {
         let by_id = RdDocument { display: Some(1), display_id: Some(17), ..RdDocument::default() };
         assert_eq!(setup_line(&ticket, &by_id, true)["display"], "id:17");
         assert_eq!(setup_line(&ticket, &RdDocument::default(), false)["scope"], "control");
+    }
+
+    #[test]
+    fn setup_line_carries_the_customize_wishes() {
+        let ticket = Ticket::from_push(&push("host", "s1", "KEY")).unwrap();
+        let offer = RdDocument {
+            key: "ab".repeat(32),
+            max_kbps: Some(10_000),
+            cursor: Some(false),
+            ..RdDocument::default()
+        };
+        let line = setup_line(&ticket, &offer, false);
+        assert_eq!(line["max_kbps"], 10_000);
+        assert_eq!(line["cursor"], false);
+        // No wish: null, which `cmux-rd serve` reads as its own defaults.
+        let plain = setup_line(&ticket, &RdDocument::default(), false);
+        assert!(plain["max_kbps"].is_null() && plain["cursor"].is_null());
     }
 
     #[test]
