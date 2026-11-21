@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesignTokens
 
 /// A table row whose selection is the theme's selection fill, never the system accent (cx-wqn5):
 /// selected rows in dialogs and lists read like the sidebar's and the palette's. Never emphasized,
@@ -17,15 +18,20 @@ public final class ThemedTableRowView: NSTableRowView {
     }
 }
 
-/// A button whose bezel is a theme color instead of the system accent (cx-wqn5), re-resolved in
-/// its view's scope when it moves into a window and on every theme change. Its title draws in the
-/// theme's ink, never AppKit's: primary text, which holds 4.5:1 on the selection fill in every theme
-/// (AppKit's own pick over a tinted bezel fell to 2.8:1 on Hot Dog Stand), and the tertiary text
-/// while disabled, which holds the legible floor where AppKit's faded label fell under 2:1
-/// (NativeControlContrastAuditTests).
+/// A button in the theme's colors instead of the system accent (cx-wqn5), re-resolved in its view's
+/// scope when it moves into a window and on every theme change. It draws as a cmux `normal` dialog
+/// button (``CmuxDialogButtonLook``): the selection fill as its own bezel (``ThemedBezelButtonCell``),
+/// and a title in the theme's primary ink moved toward its pole until it reads at 4.5:1 on that fill over
+/// what is under the button (``NSView/buttonGround(_:)``: a see-through window over the worst desktop
+/// too). Disabled, both dim and the title holds 3:1. AppKit's own pick over its tinted push bezel fell
+/// to 2.8:1 on Hot Dog Stand, its faded disabled label under 2:1, and the theme's ink on its bezel over a
+/// see-through window to 1.86:1 (NativeControlContrastAuditTests).
 public class ThemedBezelButton: ClickableButton {
-    /// The bezel; runs inside `performWithTheme`. theme-scoped
+    /// The bezel color AppKit is given; runs inside `performWithTheme`. theme-scoped
     var themeBezel: NSColor { Palette.selectionFill }
+
+    /// Whether the button draws its own fill (``ThemedBezelButtonCell``); a checkbox keeps AppKit's box.
+    var drawsOwnBezel: Bool { true }
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -34,6 +40,12 @@ public class ThemedBezelButton: ClickableButton {
 
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// Draws the button's own fill and its disabled title in the ink ``applyTitle()`` sets, not AppKit's faded label.
+    public override class var cellClass: AnyClass? {
+        get { ThemedBezelButtonCell.self }
+        set {}
+    }
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -82,13 +94,30 @@ public class ThemedBezelButton: ClickableButton {
     }
 
     private func applyTitle() {
+        let (ink, hint) = performWithTheme { () -> (NSColor, NSColor) in
+            let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+            let ground = buttonGround(tokens)
+            let cell = cell as? ThemedBezelButtonCell
+            guard drawsOwnBezel else {
+                // A checkbox's title stands on the ground itself.
+                cell?.fills = nil
+                let base = (isEnabled ? tokens.textPrimary : tokens.textTertiary).composited(over: ground[0])
+                let minimum = isEnabled ? CmuxDialogButtonLook.minimumContrast : CmuxDialogButtonLook.disabledMinimumContrast
+                let ink = CmuxDialogButtonLook.readable(base, over: ground, minimum: minimum).nsColor
+                return (ink, ink)
+            }
+            let rest = CmuxDialogButtonLook(role: .normal, tokens: tokens, isEnabled: isEnabled, card: ground)
+            // AppKit keeps the title's ink while the button is held, so the press is the look's small hover step:
+            // fit to the deeper pressed fill as well, the title flipped to black on Grass's green (4.30:1 at rest).
+            let pressed = CmuxDialogButtonLook(role: .normal, tokens: tokens, state: .hover, isEnabled: isEnabled, card: ground)
+            cell?.fills = (rest.fill.nsColor, pressed.fill.nsColor)
+            return (rest.title.nsColor, rest.keyHint.nsColor)
+        }
+        needsDisplay = true
         guard !plainTitle.isEmpty || keyHint != nil else { return super.title = plainTitle }
         let font = self.font ?? Typography.body
-        attributedTitle = performWithTheme {
-            let ink = isEnabled ? Palette.textPrimary : Palette.textTertiary
-            return keyHint?.attributedTitle(plainTitle, font: font, color: ink)
-                ?? NSAttributedString(string: plainTitle, attributes: [.foregroundColor: ink, .font: font])
-        }
+        attributedTitle = keyHint?.attributedTitle(plainTitle, font: font, color: ink, hintColor: hint)
+            ?? NSAttributedString(string: plainTitle, attributes: [.foregroundColor: ink, .font: font])
         setAccessibilityLabel(plainTitle)
     }
 }
@@ -100,4 +129,5 @@ public final class ThemedDefaultButton: ThemedBezelButton {}
 /// onboarding's are.
 public final class ThemedCheckbox: ThemedBezelButton {
     override var themeBezel: NSColor { Palette.textPrimary }
+    override var drawsOwnBezel: Bool { false }
 }

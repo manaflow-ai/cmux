@@ -90,6 +90,10 @@
       "kind": "publish",
       "why": "a probe of upstream security advisories that keeps one issue open, not a verdict about the change"
     },
+    "cmux-next-tab-switch.yml": {
+      "kind": "check",
+      "why": "advisory tab-switch timing on display Macs runs once per in-scope merge, not per pull request (#48493)"
+    },
     "cmux-next-tip-test-compile.yml": {
       "kind": "check",
       "why": "compiles the Swift test targets at the tip; the pull request compile is a separate advisory job"
@@ -125,6 +129,10 @@
     "fresh-chief-eval.yml": {
       "kind": "publish",
       "why": "a scheduled eval of the live Chief, a score and not a verdict on a change"
+    },
+    "gallery-health.yml": {
+      "kind": "check",
+      "why": "renders gallery states per merge; a display check no ruleset requires (#48553)"
     },
     "gateway-e2e.yml": {
       "kind": "check",
