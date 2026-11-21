@@ -8,16 +8,36 @@
 // object at the same moment). Nothing else changes: the same chunks under the same names, loaded
 // the same way, offline as before; the bytes on disk are about a fifth.
 //
-// A module of either package that neither holds that one document nor re-exports another
+// Pierre's diff themes (`@pierre/theme`, the same shape in a single-quoted string) are packed the
+// same way, and so is the Oniguruma engine's WebAssembly (`shiki-wasm`, 466 KB of bytes in base64,
+// inflated by unpackBytes beside unpackJson). The agent pane and the pages (esbuild) pack the
+// same modules with packModule (scripts/agent-pane/packedShikiPlugin.mjs).
+//
+// A module of these packages that neither holds that one document nor re-exports another
 // (`export { default } from './x.mjs'`, the aliases) fails the build, so a Shiki that changes
 // its module format is noticed here, not as a grammar that is silently missing.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { deflateRawSync } from "node:zlib";
 
-const PACKED_MODULE = /\/@shikijs\/(langs|themes)\/dist\/([^/]+)\.mjs$/;
-const DOCUMENT = /^(const lang = |export default )Object\.freeze\(JSON\.parse\(("(?:[^"\\\n]|\\.)*")\)\)$/m;
+const DATA_MODULE = /\/(?:@shikijs\/(?:langs|themes)|@pierre\/theme)\/dist\/[^/]+\.mjs$/;
+const WASM_MODULE = /\/@shikijs\/engine-oniguruma\/dist\/wasm-inlined\.mjs$/;
+/** Every module packModule rewrites (or refuses, when its shape changed). */
+export const PACKED_MODULE =
+  /\/(?:(?:@shikijs\/(?:langs|themes)|@pierre\/theme)\/dist\/[^/]+|@shikijs\/engine-oniguruma\/dist\/wasm-inlined)\.mjs$/;
+const WASM = /^var binary = Uint8Array\.from\(atob\("([A-Za-z0-9+/=]+)"\), c => c\.charCodeAt\(0\)\);$/m;
+const DOCUMENT =
+  /^(const lang = |export default )Object\.freeze\(JSON\.parse\(("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')\)\)$/m;
 const ALIAS = /^export \{ default \} from '\.\/[^']+\.mjs'$/m;
+
+/** The value of a JavaScript string literal in either quote; an escape JSON lacks fails the build. */
+function stringLiteral(literal) {
+  if (literal.startsWith('"')) return JSON.parse(literal);
+  const body = literal
+    .slice(1, -1)
+    .replace(/\\(.)|"/g, (match, escaped) => (escaped === undefined ? '\\"' : escaped === "'" ? "'" : match));
+  return JSON.parse(`"${body}"`);
+}
 
 /** The runtime half; its module id, imported by every rewritten chunk. */
 export const UNPACK_MODULE = fileURLToPath(new URL("../src/shiki-packed/unpackJson.ts", import.meta.url));
@@ -32,7 +52,7 @@ export function packShikiModule(source, id) {
     if (ALIAS.test(source) || id.endsWith("/index.mjs")) return null;
     throw new Error(`cmux-packed-shiki-data: ${id} holds no Object.freeze(JSON.parse(...)); update the pattern`);
   }
-  const text = JSON.parse(document[2]);
+  const text = stringLiteral(document[2]);
   JSON.parse(text); // a document that is not JSON fails the build, not the page
   const packed = deflateRawSync(Buffer.from(text, "utf8"), { level: 9 }).toString("base64");
   const replaced = source.replace(
@@ -44,6 +64,25 @@ export function packShikiModule(source, id) {
   return out.length < source.length ? out : null;
 }
 
+/**
+ * The Oniguruma engine's module with its WebAssembly bytes deflated (`unpackBytes` returns the
+ * same Uint8Array the module's `atob` loop built). Exported for the test.
+ */
+export function packWasmModule(source, id) {
+  const binary = source.match(WASM);
+  if (!binary) throw new Error(`cmux-packed-shiki-data: ${id} holds no inlined WebAssembly; update the pattern`);
+  const packed = deflateRawSync(Buffer.from(binary[1], "base64"), { level: 9 }).toString("base64");
+  const replaced = source.replace(binary[0], () => `var binary = unpackBytes(${JSON.stringify(packed)});`);
+  return `import { unpackBytes } from ${JSON.stringify(UNPACK_MODULE)};\n${replaced}`;
+}
+
+/** Any module PACKED_MODULE names, packed; null when it stays as it is. */
+export function packModule(source, id) {
+  if (WASM_MODULE.test(id)) return packWasmModule(source, id);
+  if (DATA_MODULE.test(id)) return packShikiModule(source, id);
+  return null;
+}
+
 export function packedShikiData() {
   return {
     name: "cmux-packed-shiki-data",
@@ -52,7 +91,7 @@ export function packedShikiData() {
     load(id) {
       const path = id.split("?")[0];
       if (!PACKED_MODULE.test(path)) return null;
-      const code = packShikiModule(readFileSync(path, "utf8"), path);
+      const code = packModule(readFileSync(path, "utf8"), path);
       return code == null ? null : { code, map: null };
     },
   };
