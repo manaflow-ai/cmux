@@ -34,6 +34,6 @@ describe("high contrast chat experiment", () => {
 
   test("the high arm holds no literal colors, so it follows the theme in light and dark", () => {
     for (const value of Object.values(HIGH_CONTRAST_CHAT_VARIABLES))
-      expect(value).not.toMatch(/#[0-9a-f]{3,8}\b|rgb|hsl/i);
+      expect(value).not.toMatch(/#[0-9a-f]{3,8}\b|\b(?:rgb|hsl)a?\(/i);
   });
 });
