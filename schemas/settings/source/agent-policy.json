@@ -62,6 +62,7 @@
         "sidebar.textSize",
         "sidebar.detailedStatusIcons",
         "sidebar.showTimestamps",
+        "sidebar.settleFinished",
         "sidebar.showColors",
         "sidebar.showLocalMachine",
         "workspaceColors.indicatorStyle"
@@ -257,7 +258,8 @@
         "appearance.backgroundDark",
         "appearance.backgroundSchedule",
         "appearance.backgroundDynamic",
-        "appearance.backgroundLocation"
+        "appearance.backgroundLocation",
+        "appearance.backgroundMemory"
       ]
     },
     {
@@ -454,6 +456,20 @@
       "agent": "settable",
       "keys": [
         "labs.previewFeatures"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "The live-tree preview changes how the person's shared editing workflow is presented; only the person turns it on.",
+      "keys": [
+        "labs.liveTree"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
+      "keys": [
+        "experiments.glassToolbarGroups"
       ]
     },
     {
@@ -1261,7 +1277,7 @@
     },
     {
       "agent": "userOnly",
-      "why": "On, Settings edits the MCP servers in Claude Code's and Codex's own config files: only the person turns that on.",
+      "why": "On, Settings edits the MCP servers, skills and commands in Claude Code's and Codex's own config files: only the person turns that on.",
       "keys": [
         "labs.agentCustomization"
       ]

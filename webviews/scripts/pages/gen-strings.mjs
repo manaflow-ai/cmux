@@ -69,10 +69,6 @@ export function schemaKeys(schemaFile) {
 
 // Page -> output and catalogs. `keys(catalogKeys)` picks the keys the page uses (all by default).
 export const PAGES = {
-  "import-history": {
-    out: "webviews/src/pages/import-history/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/import-history/Localizable.xcstrings" }],
-  },
   // The onboarding tool window (Agents, Import from Browsers, Computer Use): the page's own table,
   // its keys and translations the Swift steps' (CmuxNextOnboarding) it replaces.
   onboarding: {
