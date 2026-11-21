@@ -54,6 +54,8 @@ final class TerminalLaunchFrameKeeper {
     private(set) var checks = 0
     /// Runs on the files lane after each write or removal of a key's file (tests).
     var onWritten: (@Sendable (String) -> Void)?
+    /// The keeper's jobs on the files lane and their thread CPU time (the keeper bench).
+    let filesLane = LaneCostMeter()
 
     private struct Kept {
         weak var session: TerminalSession?
@@ -199,11 +201,13 @@ final class TerminalLaunchFrameKeeper {
         kept[key]?.onDisk = true
         kept[key]?.savedSize = size
         // Posted, not awaited: nothing waits for it, so it stays at best effort (BackgroundWork, priority inversion).
-        let written = onWritten, stopped = stopFlag
+        let written = onWritten, stopped = stopFlag, meter = filesLane
         work.post(.bestEffort, mayBlock: .files) {
             guard stopped.generation == 0 else { return } // the quit saves every frame itself
-            TerminalLaunchFrames.writeOne(frame, key: key, scale: scale, to: directory, keeping: prune,
-                                          stillWanted: { stopped.generation == 0 })
+            meter.measure {
+                TerminalLaunchFrames.writeOne(frame, key: key, scale: scale, to: directory, keeping: prune,
+                                              stillWanted: { stopped.generation == 0 })
+            }
             written?(key)
         }
     }
