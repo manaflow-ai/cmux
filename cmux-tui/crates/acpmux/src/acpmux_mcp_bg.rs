@@ -72,7 +72,7 @@ pub(super) fn tools() -> Vec<Value> {
 /// What a Claude Code subagent's start (`callerSubagent`) adds to its answer: when its end comes.
 const SUBAGENT_END: &str = "You get its end after your next Bash or acpmux tool call; if you end first, it goes to your lead. bg_output reads it now.";
 
-pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: &Value) -> Value {
+pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: &Value) -> Value {
     let by_subagent = args.get("callerSubagent").is_some_and(Value::is_object);
     let mut params = match args {
         Value::Object(_) => args.clone(),

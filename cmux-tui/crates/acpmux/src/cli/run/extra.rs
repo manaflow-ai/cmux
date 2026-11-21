@@ -77,6 +77,10 @@ fn moved_line(host: &str) -> String {
 
 pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> Result<()> {
     match cmd {
+        Command::Open { args } => crate::cli::app_open::run("open", args, json_out).await,
+        Command::OpenTab { args } => crate::cli::app_open::run("open-tab", args, json_out).await,
+        Command::Bg(command) => crate::cli::bg::run(command, json_out).await,
+        Command::Notices(args) => crate::cli::notices::run(args, json_out).await,
         Command::ClearPeerSnapshots => crate::daemon::clear_peer_snapshots().await,
         Command::Session(control) => crate::cli::mesh_control::run(control, json_out).await,
         Command::Retention(args) => {
