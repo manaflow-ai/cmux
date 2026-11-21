@@ -3,8 +3,8 @@
 
 /**
  * The page's thin row store (rows/store.ts) on a god chat against a small one, for the design
- * doc's row 6 gates. Model-only: the host client and the store, fed change strings of the shapes
- * the client core gives; no React, DOM or frame claim.
+ * doc's row 6 gates. Model-only: the host client, the receiver and the store, fed change strings
+ * of the shapes the client core gives; no React, DOM or frame claim.
  *
  * - v2.pr06.page_store_apply: p95 to take one batch holding one settled row op (decode, apply,
  *   the new snapshot, `taken`), the store opened on a chat of 100,000 rows against one of 100. Each
@@ -17,12 +17,26 @@
  * - v2.pr06.page_store_text: p95 to take one batch holding one text op on an open row whose body
  *   is 200 KB against one of 1 KB. Pass: within 1.2x.
  *
+ * - v2.frame_paced (reported, not judged): the document's receiver (`window.cmuxChatRows`, the
+ *   acpmux.v2 chat's path) against a host that sends the next 64 KiB batch only after `taken`, with
+ *   frames run by this bench on the real clock. "before" applies in the receiving task, "after" in
+ *   the frame lane: apply ms per batch, batches taken per frame, the longest task, and the apply
+ *   time of one 256 KiB change (PACED_BATCHES, BIG_SAMPLES).
+ *
  *   bun bench/page-row-store.bench.ts
  *   ROUNDS=40 SAMPLES=250 bun bench/page-row-store.bench.ts
  */
-import { ChatRowsHost } from "../src/agent-session/acpmux/rows/host";
+import { ChatRowsHost, type ChatRowsPost } from "../src/agent-session/acpmux/rows/host";
+import {
+  addChatRowsHost,
+  listenForChatRows,
+  receiveChatRows,
+  resetChatRowsReceiver,
+} from "../src/agent-session/acpmux/rows/receiver";
+import { createLanes, type LanesEnv } from "../src/agent-session/acpmux/schedule";
 import { STORE_MAX_BYTES, STORE_MAX_ROWS } from "../src/agent-session/acpmux/rows/store";
-import type { ChatRow } from "../src/agent-session/acpmux/rows/wire";
+import { changeSid, parseChange, type ChatChange, type ChatRow } from "../src/agent-session/acpmux/rows/wire";
+import { syncLanes } from "../test/support/chatRowsFeed";
 import { perfRow } from "./perfRow";
 
 const ROUNDS = Number(process.env.ROUNDS ?? 20);
@@ -48,19 +62,33 @@ function row(id: number): ChatRow {
 }
 const rows = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, index) => row(from + index));
 
-type Side = { name: "god" | "small"; host: ChatRowsHost; next: number; batch: number; ms: number[] };
+/// The document's receiver (rows/receiver.ts) holding `host` alone, as the host feeds a page, on
+/// lanes that apply each batch in the receiving task: each side's batches go through it and its
+/// `taken` to that side's post. Set before a sample's clock. v2.frame_paced below runs its own
+/// frame lanes.
+function feedOnly(host: ChatRowsHost, post: ChatRowsPost): void {
+  resetChatRowsReceiver();
+  listenForChatRows(syncLanes());
+  addChatRowsHost(host, post);
+}
+
+type Side = {
+  name: "god" | "small";
+  host: ChatRowsHost;
+  post: ChatRowsPost;
+  next: number;
+  batch: number;
+  ms: number[];
+};
 
 async function openSide(name: Side["name"], chatRows: number): Promise<Side> {
   let taken = 0;
-  const host = new ChatRowsHost(
-    async (method, params) => {
-      if (method === "chat.rows.open") return { sid: params.sid };
-      if (method === "chat.rows.taken") taken += 1;
-      return {};
-    },
-    undefined,
-    () => name,
-  );
+  const post: ChatRowsPost = async (method, params) => {
+    if (method === "chat.rows.open") return { sid: params.sid };
+    if (method === "chat.rows.taken") taken += 1;
+    return {};
+  };
+  const host = new ChatRowsHost(post, undefined, () => name);
   const opened = await host.open(`chat-${name}`);
   if (!("sid" in opened)) throw new Error(`${name}: open fell to v1`);
   const first = Math.max(1, chatRows - 99);
@@ -77,10 +105,11 @@ async function openSide(name: Side["name"], chatRows: number): Promise<Side> {
       queue: { entries: [], count: 0 },
     },
   };
-  host.receive({ batch: 1, changes: [JSON.stringify(window)] });
+  feedOnly(host, post);
+  receiveChatRows({ batch: 1, changes: [JSON.stringify(window)] });
   let drawn = 0;
   host.store.subscribe(name, () => (drawn += 1));
-  const side: Side = { name, host, next: chatRows + 1, batch: 1, ms: [] };
+  const side: Side = { name, host, post, next: chatRows + 1, batch: 1, ms: [] };
   // Warm the path before timing it, on both sides alike.
   for (let index = 0; index < 50; index += 1) take(side);
   if (drawn !== 50 || taken !== 51) throw new Error(`${name}: ${drawn} draws and ${taken} taken for 50 ops`);
@@ -96,8 +125,9 @@ function take(side: Side): void {
     replay: false,
     op: { op: "row", seq: id, row: row(id) },
   });
+  feedOnly(side.host, side.post);
   const start = performance.now();
-  side.host.receive({ batch: ++side.batch, changes: [change] });
+  receiveChatRows({ batch: ++side.batch, changes: [change] });
   side.ms.push(performance.now() - start);
 }
 
@@ -119,16 +149,14 @@ const applyRatio = godP95 / Math.max(smallP95, Number.EPSILON);
 
 async function pageThrough(name: string, chatRows: number) {
   let taken = 0;
-  const host = new ChatRowsHost(
-    async (method, params) => {
-      if (method === "chat.rows.open") return { sid: params.sid };
-      if (method === "chat.rows.taken") taken += 1;
-      return {};
-    },
-    undefined,
-    () => name,
-  );
+  const post: ChatRowsPost = async (method, params) => {
+    if (method === "chat.rows.open") return { sid: params.sid };
+    if (method === "chat.rows.taken") taken += 1;
+    return {};
+  };
+  const host = new ChatRowsHost(post, undefined, () => name);
   await host.open(`chat-${name}`);
+  feedOnly(host, post);
   const first = Math.max(1, chatRows - 99);
   const window = {
     sid: name,
@@ -139,7 +167,7 @@ async function pageThrough(name: string, chatRows: number) {
     hasAfter: false,
   };
   let batch = 0;
-  host.receive({ batch: ++batch, changes: [JSON.stringify({ kind: "chatWindow", replaces: true, window })] });
+  receiveChatRows({ batch: ++batch, changes: [JSON.stringify({ kind: "chatWindow", replaces: true, window })] });
   let pages = 0;
   let peak = { rows: 0, bytes: 0 };
   while (host.store.snapshot(name)!.hasBefore) {
@@ -147,7 +175,7 @@ async function pageThrough(name: string, chatRows: number) {
     if (!host.page(name, "before")) throw new Error(`${name}: a page was refused`);
     const from = Math.max(1, edge - 400);
     const page = { sid: name, edition: 1, rows: rows(from, edge - 1), hasBefore: from > 1, hasAfter: true };
-    host.receive({ batch: ++batch, changes: [JSON.stringify({ kind: "chatPage", page })] });
+    receiveChatRows({ batch: ++batch, changes: [JSON.stringify({ kind: "chatPage", page })] });
     const held = host.store.held(name)!;
     peak = { rows: Math.max(peak.rows, held.rows), bytes: Math.max(peak.bytes, held.bytes) };
     pages += 1;
@@ -165,14 +193,11 @@ const applyOk = applyRatio <= LIMIT;
 
 // v2.pr06.page_store_text: one text op on an open row of 200 KB against one of 1 KB. The store
 // keeps each row's bytes and adds the piece's, so the op does not measure the row again.
-type TextSide = { name: "big" | "little"; host: ChatRowsHost; batch: number; ms: number[] };
+type TextSide = { name: "big" | "little"; host: ChatRowsHost; post: ChatRowsPost; batch: number; ms: number[] };
 
 async function openText(name: TextSide["name"], bodyBytes: number): Promise<TextSide> {
-  const host = new ChatRowsHost(
-    async (method, params) => (method === "chat.rows.open" ? { sid: params.sid } : {}),
-    undefined,
-    () => name,
-  );
+  const post: ChatRowsPost = async (method, params) => (method === "chat.rows.open" ? { sid: params.sid } : {});
+  const host = new ChatRowsHost(post, undefined, () => name);
   await host.open(`chat-${name}`);
   const open = { ...row(101), open: true, body: { text: "x".repeat(bodyBytes) } };
   const window = {
@@ -184,8 +209,9 @@ async function openText(name: TextSide["name"], bodyBytes: number): Promise<Text
     hasBefore: false,
     hasAfter: false,
   };
-  host.receive({ batch: 1, changes: [JSON.stringify({ kind: "chatWindow", replaces: true, window })] });
-  const side: TextSide = { name, host, batch: 1, ms: [] };
+  feedOnly(host, post);
+  receiveChatRows({ batch: 1, changes: [JSON.stringify({ kind: "chatWindow", replaces: true, window })] });
+  const side: TextSide = { name, host, post, batch: 1, ms: [] };
   for (let index = 0; index < 50; index += 1) appendText(side);
   side.ms = [];
   return side;
@@ -198,8 +224,9 @@ function appendText(side: TextSide): void {
     replay: false,
     op: { op: "text", seq: side.batch, rowId: 101, text: "a piece " },
   });
+  feedOnly(side.host, side.post);
   const start = performance.now();
-  side.host.receive({ batch: ++side.batch, changes: [change] });
+  receiveChatRows({ batch: ++side.batch, changes: [change] });
   side.ms.push(performance.now() - start);
 }
 
@@ -213,7 +240,200 @@ const bigP95 = percentile(big.ms, 0.95);
 const littleP95 = percentile(little.ms, 0.95);
 const textRatio = bigP95 / Math.max(littleP95, Number.EPSILON);
 const textOk = textRatio <= LIMIT;
+// v2.frame_paced: the document's receiver (rows/receiver.ts, the path `window.cmuxChatRows`
+// takes), fed as the v2 row host feeds it: one batch of at most 64 KiB, the next only after
+// `taken`, which the host reads in a later task. Frames are a loop run here on the real clock:
+// each frame runs its rAF callbacks, then every task they and the host post. "before" is the
+// receiver as it was before frame pacing (`receiveInTask`, a copy of its body: decode the batch,
+// one applyBatch, taken, all in the receiving task); "after" is rows/receiver.ts in the frame lane
+// (schedule/lanes.ts on this engine). Reports apply ms per batch, batches taken per frame, the
+// stream ms of the busiest frame, the longest task, and the apply time of one 256 KiB change.
+function receiveInTask(host: ChatRowsHost, post: ChatRowsPost, event: { batch: number; changes: readonly string[] }) {
+  const changes: ChatChange[] = [];
+  for (const line of event.changes) {
+    const change = parseChange(line);
+    if (change && changeSid(change) !== null && host.store.has(changeSid(change)!)) changes.push(change);
+  }
+  try {
+    host.store.applyBatch(changes);
+  } finally {
+    void post("chat.rows.taken", { batch: event.batch }).catch(() => {});
+  }
+}
+
+function frameLoopEngine() {
+  let frames: (() => void)[] = [];
+  const tasks: (() => void)[] = [];
+  let longest = 0;
+  /// Main-thread ms spent in tasks so far, and the start of the one running now.
+  let spent = 0;
+  let runningSince: number | null = null;
+  const timed = (cb: () => void) => {
+    const start = performance.now();
+    runningSince = start;
+    cb();
+    runningSince = null;
+    const took = performance.now() - start;
+    spent += took;
+    longest = Math.max(longest, took);
+  };
+  const env: LanesEnv = {
+    now: () => performance.now(),
+    requestFrame: (cb) => frames.push(cb),
+    postTask: (cb) => tasks.push(cb),
+    setTimer: () => () => {},
+    hidden: () => false,
+    listen: () => () => {},
+    reportError: (error) => {
+      throw error;
+    },
+  };
+  return {
+    env,
+    post: (cb: () => void) => tasks.push(cb),
+    /** Main-thread ms in tasks so far, the running one's included. */
+    busy: () => spent + (runningSince === null ? 0 : performance.now() - runningSince),
+    /** One frame: its rAF callbacks, then every task until none is left. */
+    async frame() {
+      const run = frames;
+      frames = [];
+      for (const cb of run) timed(cb);
+      await Promise.resolve();
+      for (let guard = 0; tasks.length && guard < 100_000; guard += 1) {
+        timed(tasks.shift()!);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    },
+    get longest() {
+      return longest;
+    },
+    resetLongest() {
+      longest = 0;
+    },
+  };
+}
+
+/// Batches of row ops of about `batchBytes` each, `count` of them, for sid `sid`.
+function rowBatches(sid: string, firstId: number, count: number, batchBytes: number): string[][] {
+  const out: string[][] = [];
+  let id = firstId;
+  for (let index = 0; index < count; index += 1) {
+    const changes: string[] = [];
+    let bytes = 0;
+    while (bytes < batchBytes - 400) {
+      const change = JSON.stringify({ kind: "chatOp", sid, replay: false, op: { op: "row", seq: id, row: row(id) } });
+      id += 1;
+      bytes += change.length;
+      changes.push(change);
+    }
+    out.push(changes);
+  }
+  return out;
+}
+
+async function framePaced(mode: "before" | "after", batchCount: number) {
+  resetChatRowsReceiver();
+  const engine = frameLoopEngine();
+  const lanes = mode === "before" ? null : createLanes(engine.env);
+  const sid = `paced-${mode}`;
+  const batches = rowBatches(sid, 101, batchCount, 64 * 1024);
+  let sent = 0;
+  let takenThisFrame = 0;
+  const applyMs: number[] = [];
+  let sentAt = 0;
+  const post: ChatRowsPost = async (method, params) => {
+    if (method === "chat.rows.open") return { sid: params.sid };
+    if (method === "chat.rows.taken") {
+      takenThisFrame += 1;
+      applyMs.push(engine.busy() - sentAt);
+      // The host reads `taken` in a later task and sends the next batch then.
+      engine.post(send);
+    }
+    return {};
+  };
+  const host = new ChatRowsHost(post, undefined, () => sid);
+  addChatRowsHost(host, post);
+  await host.open(`chat-${sid}`);
+  const window = { sid, cursor: 100, edition: 1, rows: rows(1, 100), hasBefore: false, hasAfter: false };
+  host.store.applyBatch([{ kind: "chatWindow", replaces: true, window } as never]);
+  function send() {
+    if (sent >= batches.length) return;
+    sentAt = engine.busy();
+    const event = { batch: ++sent, changes: batches[sent - 1]! };
+    if (lanes) receiveChatRows(event, lanes);
+    else receiveInTask(host, post, event);
+  }
+  const perFrame: number[] = [];
+  /// Main-thread ms of stream work between one frame and the next.
+  const frameMs: number[] = [];
+  engine.resetLongest();
+  engine.post(send);
+  for (let frame = 0; frame < batchCount * 4 && applyMs.length < batchCount; frame += 1) {
+    takenThisFrame = 0;
+    const busyBefore = engine.busy();
+    await engine.frame();
+    perFrame.push(takenThisFrame);
+    frameMs.push(engine.busy() - busyBefore);
+  }
+  if (applyMs.length !== batchCount) throw new Error(`${mode}: ${applyMs.length} of ${batchCount} batches taken`);
+  lanes?.dispose();
+  const framesWithWork = perFrame.filter((count) => count > 0);
+  return {
+    batches: batchCount,
+    changesPerBatch: batches[0]!.length,
+    applyP50Ms: round4(percentile(applyMs, 0.5)),
+    applyP95Ms: round4(percentile(applyMs, 0.95)),
+    maxTakenPerFrame: Math.max(...perFrame),
+    framesUsed: framesWithWork.length,
+    busiestFrameMs: round4(Math.max(...frameMs)),
+    longestTaskMs: round4(engine.longest),
+  };
+}
+
+/// One change of 256 KiB (a settled row whose body is that big), applied whole in one frame slice:
+/// parse, apply, commit, `taken`. Each sample is its own batch.
+async function bigChange(samples: number) {
+  resetChatRowsReceiver();
+  const engine = frameLoopEngine();
+  const lanes = createLanes(engine.env);
+  const sid = "paced-big";
+  const host = new ChatRowsHost(
+    async (method, params) => (method === "chat.rows.open" ? { sid: params.sid } : {}),
+    undefined,
+    () => sid,
+  );
+  addChatRowsHost(host, async () => ({}));
+  await host.open(`chat-${sid}`);
+  const window = { sid, cursor: 100, edition: 1, rows: rows(1, 100), hasBefore: false, hasAfter: false };
+  host.store.applyBatch([{ kind: "chatWindow", replaces: true, window } as never]);
+  const ms: number[] = [];
+  let id = 101;
+  for (let sample = 0; sample < samples + 5; sample += 1) {
+    const base = row(id);
+    const big = { ...base, body: { text: "x".repeat(256 * 1024 - 300) } };
+    const change = JSON.stringify({ kind: "chatOp", sid, replay: false, op: { op: "row", seq: id, row: big } });
+    id += 1;
+    receiveChatRows({ batch: sample + 1, changes: [change] }, lanes);
+    engine.resetLongest();
+    await engine.frame();
+    if (sample >= 5) ms.push(engine.longest);
+  }
+  lanes.dispose();
+  resetChatRowsReceiver();
+  return {
+    changeBytes: 256 * 1024,
+    p50Ms: round4(percentile(ms, 0.5)),
+    p95Ms: round4(percentile(ms, 0.95)),
+    maxMs: round4(Math.max(...ms)),
+  };
+}
+
 const round4 = (value: number) => Number(value.toFixed(4));
+const PACED_BATCHES = Number(process.env.PACED_BATCHES ?? 60);
+const pacedBefore = await framePaced("before", PACED_BATCHES);
+const pacedAfter = await framePaced("after", PACED_BATCHES);
+const big256 = await bigChange(Number(process.env.BIG_SAMPLES ?? 40));
+resetChatRowsReceiver();
 console.log(
   JSON.stringify(
     {
@@ -247,6 +467,12 @@ console.log(
         god: heldGod,
         small: heldSmall,
         pass: heldOk,
+      },
+      "v2.frame_paced": {
+        scope: "the document receiver against a host that sends the next 64 KiB batch after taken; frames run here",
+        before: pacedBefore,
+        after: pacedAfter,
+        change256KiB: big256,
       },
     },
     null,

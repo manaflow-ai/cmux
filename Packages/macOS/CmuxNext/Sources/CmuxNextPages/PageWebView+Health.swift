@@ -46,7 +46,7 @@ extension PageWebView {
     /// the Dock) and under no hidden ancestor. A page that cannot be seen stops its heartbeat (the
     /// document is hidden), so health never times it.
     public var isShownForHealth: Bool {
-        guard let window, !isHiddenOrHasHiddenAncestor, !isParkedSpare else { return false }
+        guard let window, !isHiddenOrHasHiddenAncestor, !isParkedSpare, !isDrawnAway else { return false }
         return window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
     }
 
@@ -89,6 +89,8 @@ extension PageWebView {
         guard loaded else { return reloadAfterCrashes() }
         rendererRestartPending = true
         if let chromiumPage {
+            // At once, not through the bridge's navigate (which waits on the renderer to turn the
+            // Runtime domain on): the new document gets the binding with its commit.
             chromiumPage.restartRenderer()
             return
         }

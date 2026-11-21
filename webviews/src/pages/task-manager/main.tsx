@@ -3,6 +3,7 @@
 // (CmuxNextApp TaskManagerPageService); in the browser dev loop (`/task-manager/?mock`) the mock
 // host stands in. DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";

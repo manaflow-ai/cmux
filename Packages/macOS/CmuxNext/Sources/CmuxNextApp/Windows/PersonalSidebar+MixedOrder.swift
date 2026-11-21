@@ -29,7 +29,7 @@ extension PersonalSidebar {
     nonisolated struct MixedDrop: Hashable, Sendable {
         /// The personal index for the first moved workspace when the slot
         /// is right before a group; nil: the slot's next loose workspace
-        /// decides (`SidebarMembership.personalPlacements`).
+        /// decides (`SidebarRowSection.personalPlacements`).
         var index: Int?
         /// The groups right before the slot: each gets the first moved
         /// workspace's new index as its `top_index`, so it stays before it.

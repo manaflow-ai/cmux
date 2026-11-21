@@ -18,6 +18,7 @@ import { NeedsYouButton } from "../src/agent-session/acpmux/needsYou/NeedsYou";
 import { SummaryButton } from "../src/agent-session/acpmux/summary/SummaryButton";
 import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
 import { settleReact } from "./support/domTeardown";
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -150,7 +151,7 @@ function fingerprint(container: HTMLElement, calls: string[]): string {
     states,
     lit,
     popups,
-    sessionInfo: !!document.querySelector("aside.acpmux-session-info"),
+    sessionInfo: !!document.querySelector(SESSION_INFO),
   });
 }
 

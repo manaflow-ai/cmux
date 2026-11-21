@@ -80,6 +80,8 @@ use cmux_remote::provider::{
     spawn_relay_daemon_registration,
 };
 use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
+
+use crate::protocol::peer_state::OfflineReason;
 use serde::Deserialize;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use url::Url;
@@ -265,7 +267,21 @@ pub trait Tickets: Send + Sync + 'static {
     async fn register(&self) -> Result<CarrierAnswer, String>;
     /// A Connect ticket for the slot of the machine whose hub `daemonId` is `peer`.
     async fn connect(&self, peer: &str) -> Result<CarrierAnswer, String>;
+    /// What a log may say of where the tickets come from: the hub's origin, never a token.
+    fn shown(&self) -> String {
+        "the hub".into()
+    }
 }
+
+/// The longest wait between two register asks; the wait doubles from 1 s up to it.
+const REGISTER_WAIT_MAX: Duration = Duration::from_secs(60);
+
+/// How often the register loop says at info that the hub still refuses, after its first warn.
+/// By time, not by attempt count: one ask can take from milliseconds (a refusal) to the hub
+/// client's 30 s call bound (a hub that does not answer), so a count would say nothing of when
+/// the next line comes. At the 60 s backoff cap this is about one line per 8 to 10 asks, six an
+/// hour, which keeps a day of refusals readable and the current state never older than 10 min.
+const REFUSAL_SAID_EVERY: Duration = Duration::from_secs(600);
 
 /// The carrier's timings.
 #[derive(Debug, Clone, Copy)]
@@ -322,6 +338,9 @@ pub struct HubCarrier {
     cmux_tui: RwLock<Option<Arc<dyn CmuxTuiGate>>>,
     /// Whether a circuit may reach this machine's own cmux-tui session daemon; none refuses it.
     session: RwLock<Option<Arc<dyn SessionGate>>>,
+    /// Why this machine's own registration cannot heal by retrying alone, while it cannot
+    /// (`credential-unavailable`: no Register ticket comes). [`Self::serve_reason`].
+    serve_reason: RwLock<Option<OfflineReason>>,
 }
 
 impl std::fmt::Debug for HubCarrier {
@@ -348,6 +367,7 @@ impl HubCarrier {
             key_check: None,
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            serve_reason: RwLock::new(None),
         })
     }
 
@@ -372,6 +392,7 @@ impl HubCarrier {
             key_check: Some(check),
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            serve_reason: RwLock::new(None),
         })
     }
 
@@ -470,7 +491,10 @@ impl HubCarrier {
         if !self.key_current() {
             return Err("the node key was replaced; this carrier is stopped".into());
         }
-        let answer = self.tickets.connect(daemon).await?;
+        // No ticket is `credential-unavailable` on the peer's link (`peer_carrier::reason`).
+        let answer = self.tickets.connect(daemon).await.map_err(|e| {
+            format!("{} no relay ticket: {e}", crate::protocol::peer_state::CREDENTIAL_UNAVAILABLE)
+        })?;
         let pinned = key_bytes(answer.peer_key.as_deref().ok_or("the hub named no key to pin")?)
             .ok_or("the hub's peer key is not 32 bytes of base64")?;
         if pinned != key_bytes(daemon).unwrap_or(pinned) {
@@ -589,26 +613,53 @@ impl HubCarrier {
         let allowed = self.allowed.clone();
         allowed.write().unwrap_or_else(|e| e.into_inner()).clear();
         let mut wait = Duration::from_secs(1);
+        let mut attempts: u64 = 0;
+        let mut last_said: Option<tokio::time::Instant> = None;
+        // Said before the first ask: one ask may take up to the hub client's call bound
+        // (`mesh_http.rs` `CALL_WAIT`, 30 s), and a start's log must show the carrier is asking.
+        tracing::info!("hub carrier: asking {} for a register ticket", self.tickets.shown());
         // The first answer names the relay and the slot; each later authentication asks again,
         // which also refreshes the keys let in (a revoked machine is out by the next one).
         let answer = loop {
             if !self.key_current() {
+                tracing::warn!(
+                    "hub carrier off: the node key is no longer this machine's; not registering"
+                );
                 return;
             }
+            attempts += 1;
             match self.tickets.register().await {
                 Ok(answer) => break answer,
                 Err(e) => {
-                    // The first refusal is the start's answer; the retries after it stay quiet.
-                    if wait == Duration::from_secs(1) {
-                        tracing::warn!("hub carrier: no register ticket yet, retrying: {e}");
+                    self.set_serve_reason(Some(OfflineReason::CredentialUnavailable));
+                    // The first refusal is the start's answer, a warn. The later ones say at info
+                    // where the asking stands, at most once per `REFUSAL_SAID_EVERY`.
+                    let now = tokio::time::Instant::now();
+                    if attempts == 1 {
+                        tracing::warn!(
+                            "hub carrier: no register ticket yet, retrying in {}s: {e}",
+                            wait.as_secs()
+                        );
+                        last_said = Some(now);
+                    } else if last_said
+                        .is_none_or(|said| now.duration_since(said) >= REFUSAL_SAID_EVERY)
+                    {
+                        tracing::info!(
+                            "hub carrier: still no register ticket after {attempts} attempts, next try in {}s: {e}",
+                            wait.as_secs()
+                        );
+                        last_said = Some(now);
                     } else {
                         tracing::debug!("hub carrier: no register ticket yet: {e}");
                     }
                     tokio::time::sleep(wait).await;
-                    wait = (wait * 2).min(Duration::from_secs(60));
+                    wait = (wait * 2).min(REGISTER_WAIT_MAX);
                 }
             }
         };
+        if attempts > 1 {
+            tracing::info!("hub carrier: a register ticket came after {attempts} attempts");
+        }
         let endpoint = match relay_url(&answer.relay) {
             Ok(endpoint) => endpoint,
             Err(e) => {
@@ -658,13 +709,23 @@ impl HubCarrier {
         tracing::info!("hub carrier: serving on the relay as {}", self.identity().fingerprint());
         // Held until this task is aborted ([`HubServe`]'s drop) or the key is replaced, which
         // drops it and unregisters.
+        let mut state = registration.state();
         let _registration = registration;
         let mut every = tokio::time::interval(self.timings.key_check);
         every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // False once the registration's task ended (only at shutdown, which the drop does).
+        let mut reporting = true;
         loop {
+            let reason =
+                state.borrow_and_update().reason().map(|_| OfflineReason::CredentialUnavailable);
+            self.set_serve_reason(reason);
             tokio::select! {
                 _ = every.tick() => {}
                 () = self.rekeyed.notified() => {}
+                changed = state.changed(), if reporting => {
+                    reporting = changed.is_ok();
+                    continue;
+                }
             }
             if self.generation.load(Ordering::SeqCst) != generation {
                 return;
@@ -1017,6 +1078,8 @@ fn random_16() -> Result<[u8; 16], String> {
 /// The platform's tickets, by this machine's `cmm_` credential, through the mesh hub's client.
 pub(crate) struct PlatformTickets {
     hub: crate::mesh_http::HttpHub,
+    /// The hub's scheme, host and port (`MeshRelayConfig::shown`), for the log.
+    shown: String,
 }
 
 #[async_trait]
@@ -1027,6 +1090,10 @@ impl Tickets for PlatformTickets {
 
     async fn connect(&self, peer: &str) -> Result<CarrierAnswer, String> {
         self.hub.carrier(Some(peer)).await
+    }
+
+    fn shown(&self) -> String {
+        self.shown.clone()
     }
 }
 
@@ -1211,7 +1278,7 @@ pub async fn start_configured(
             && crate::cli::mesh_node_key::public_key_at(&home).is_some_and(|now| now == *public)
     });
     let carrier = HubCarrier::with_key_check(
-        Arc::new(PlatformTickets { hub: client }),
+        Arc::new(PlatformTickets { hub: client, shown: config.shown() }),
         *private,
         Timings::default(),
         check,
@@ -1259,102 +1326,13 @@ pub fn stop_kept(hub: &crate::hub::Hub) -> bool {
     carrier.is_some() || serving.is_some()
 }
 
+#[path = "hub_carrier_serve_reason.rs"]
+mod serve_reason;
+
 #[cfg(test)]
-mod key_lock_tests {
-    use super::*;
-    use cmux_link::key_holder::KeyHolder;
+#[path = "hub_carrier_register_log_tests.rs"]
+mod register_log_tests;
 
-    fn joined_hub(home: &std::path::Path) -> Arc<crate::hub::Hub> {
-        let mut config = crate::config::Config::default();
-        config.store.mode = crate::config::StoreMode::Memory;
-        config.mesh_relay = Some(crate::mesh_http::MeshRelayConfig {
-            url: "http://127.0.0.1:9".into(),
-            token_command: vec!["must-not-run".into()],
-            team_messaging: true,
-            credential: Some("join".into()),
-            control_from: Vec::new(),
-        });
-        let store = crate::store::open(&config.store, home).unwrap();
-        crate::hub::Hub::new(config, store)
-    }
-
-    /// The carrier needs only the node key: with transport.wireguard off (no static endpoints, no
-    /// Labs switch) and no cmux link serving the key, a joined daemon's carrier takes the key lock
-    /// itself and comes up, and stopping it frees the lock.
-    #[tokio::test]
-    async fn with_only_the_node_key_the_carrier_comes_up() {
-        let home = tempfile::tempdir().unwrap();
-        let hub = joined_hub(home.path());
-        let websocket = Some("127.0.0.1:1".parse().unwrap());
-        let serving = start_configured(&hub, home.path(), websocket, None).await;
-        assert!(serving.is_some(), "the carrier stayed off with only the node key");
-        let carrier = hub.hub_carrier.get().expect("the carrier is on the hub");
-        let public = crate::cli::mesh_node_key::public_key_at(home.path()).expect("a node key");
-        assert_eq!(
-            carrier.public_key(),
-            base64::engine::general_purpose::STANDARD.encode(public),
-            "the carrier runs on the node key"
-        );
-        assert!(carrier.key_current());
-        assert!(KeyHolder::acquire(home.path()).is_err(), "the carrier runs without the key lock");
-        drop(serving);
-        assert!(KeyHolder::acquire(home.path()).is_ok(), "a stopped carrier kept the lock");
-    }
-
-    /// A carrier on its own lock hands it to the cmux link once the link serves this home's node
-    /// key (`cmux link ensure` records the home first), and from then its key check fails.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_carriers_own_lock_goes_to_the_link_once_it_serves_the_key() {
-        let home = tempfile::tempdir().unwrap();
-        let link_dir = tempfile::tempdir().unwrap();
-        let hub = joined_hub(home.path());
-        let websocket = Some("127.0.0.1:1".parse().unwrap());
-        let serving = start_configured(&hub, home.path(), websocket, None).await.expect("on");
-        let carrier = hub.hub_carrier.get().unwrap();
-        std::fs::write(link_dir.path().join("config.json"), "{}").unwrap();
-        crate::cli::mesh_node_key::record_link_home(link_dir.path(), Some(home.path())).unwrap();
-        let deadline = Instant::now() + LINK_HANDOFF_EVERY * 5;
-        while KeyHolder::acquire(home.path()).is_err() {
-            assert!(Instant::now() < deadline, "the carrier kept the lock from the link");
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        assert!(!carrier.key_current(), "the carrier still serves without the lock");
-        drop(serving);
-    }
-
-    /// Where the cmux link serves this home's node key, the carrier steps down: it takes no lock
-    /// and reads no key, so the link holds the key while the daemon runs.
-    #[tokio::test]
-    async fn where_the_link_serves_the_node_key_the_carrier_takes_none() {
-        let home = tempfile::tempdir().unwrap();
-        let link_dir = tempfile::tempdir().unwrap();
-        std::fs::write(link_dir.path().join("config.json"), "{}").unwrap();
-        crate::cli::mesh_node_key::record_link_home(link_dir.path(), Some(home.path())).unwrap();
-        let hub = joined_hub(home.path());
-        let websocket = Some("127.0.0.1:1".parse().unwrap());
-        assert!(start_configured(&hub, home.path(), websocket, None).await.is_none());
-        let link = KeyHolder::acquire(home.path());
-        assert!(link.is_ok(), "the carrier kept the lock: {:?}", link.err());
-        assert!(
-            !home.path().join(cmux_link::key_holder::KeyFile::Node.file_name()).exists(),
-            "a key was read"
-        );
-    }
-
-    /// Given the transport's holder, the carrier reads the key under that same lock, and the lock
-    /// is free once both drop.
-    #[test]
-    fn with_the_transports_lock_the_carrier_reads_the_key() {
-        let home = tempfile::tempdir().unwrap();
-        let shared = Arc::new(KeyHolder::acquire(home.path()).unwrap());
-        let (holder, private) = node_key(home.path(), shared.clone()).unwrap();
-        assert!(Arc::ptr_eq(&holder, &shared));
-        let public = crate::cli::mesh_node_key::public_key_at(home.path()).unwrap();
-        assert_eq!(
-            public,
-            x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(*private)).to_bytes()
-        );
-        drop((holder, shared));
-        assert!(KeyHolder::acquire(home.path()).is_ok(), "the lock outlived its holders");
-    }
-}
+#[cfg(test)]
+#[path = "hub_carrier_key_lock_tests.rs"]
+mod key_lock_tests;

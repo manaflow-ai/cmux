@@ -314,6 +314,60 @@ async fn each_caller_runs_its_v1_path_on_a_daemon_without_the_list() {
 }
 
 /// `--limit 2`, then `--cursor` with what it printed: no row twice and none skipped.
+/// `ls` lists every machine's sessions: with a peer's row in the list it has a stderr line that
+/// says so and names `--machine local`; with this machine's rows only it has none. Its stdout
+/// is the same bytes either way, and stays parseable JSON (2026-11-20: a boot hook read a
+/// fleet-wide `ls --json` as its own sessions).
+#[tokio::test]
+async fn ls_says_on_stderr_when_its_rows_span_machines_and_stdout_is_unchanged() {
+    let daemon = serve(Serves::List, fixture).await;
+    let now = crate::store::now_ms();
+    for v2 in [false, true] {
+        let via = || if v2 { Via::List(daemon.path.clone()) } else { Via::V1 };
+        for (argv, json_out, spans) in [
+            (&[][..], true, true),
+            (&["--live"][..], true, true),
+            (&["--fields", "name,status"][..], false, true),
+            (&[][..], false, true),
+            (&["--machine", "local"][..], true, false),
+            (&["--machine", "local", "--fields", "name"][..], false, false),
+            (&["far/*"][..], true, true),
+        ] {
+            let (out, scope) =
+                super::ls::scoped_output(ls_args(argv), json_out, &daemon.client, via(), now)
+                    .await
+                    .unwrap();
+            let plain = super::ls::output(ls_args(argv), json_out, &daemon.client, via(), now)
+                .await
+                .unwrap();
+            assert_eq!(out, plain, "stdout of ls {argv:?} is the same with the notice");
+            assert!(!out.contains("--machine local lists"), "the notice never reaches stdout");
+            if json_out {
+                serde_json::from_str::<Value>(&out).expect("stdout stays JSON");
+            }
+            match scope {
+                Some(line) if spans => {
+                    assert!(line.starts_with("ls: "), "{line}");
+                    assert!(line.ends_with("--machine local lists only this one"), "{line}");
+                }
+                None if !spans => {}
+                other => panic!("ls {argv:?} (v2 {v2}): scope {other:?}, spans {spans}"),
+            }
+        }
+    }
+    let (_, scope) =
+        super::ls::scoped_output(ls_args(&[]), true, &daemon.client, Via::V1, now).await.unwrap();
+    // Every row of the fixture's: this machine's and the peer `far`'s.
+    let rows: Value = serde_json::from_str(&ls(&daemon, &["--json"], false, now).await).unwrap();
+    let n = rows["sessions"].as_array().unwrap().len();
+    assert_eq!(
+        scope.as_deref(),
+        Some(
+            format!("ls: {n} sessions on 2 machines; --machine local lists only this one").as_str()
+        )
+    );
+}
+
 #[tokio::test]
 async fn a_limit_then_its_cursor_read_every_row_once() {
     let daemon = serve(Serves::List, fixture).await;
@@ -363,25 +417,33 @@ async fn gate_run(caller: &str, proxy: &Counted) -> (u128, u128) {
     let via = || Via::List(proxy.path.clone());
     let before = proxy.bytes.load(Ordering::Relaxed);
     let started = Instant::now();
-    match caller {
+    // The MCP `ls` answers a refusal as a value, never an error: kept, and checked past the clock.
+    let mcp_reply = match caller {
         "ls" => {
             super::ls::output(ls_args(&[]), false, &client, via(), crate::store::now_ms())
                 .await
                 .unwrap();
+            None
         }
         "pending" => {
             super::standard::pending_output(&client, via(), false).await.unwrap();
+            None
         }
         "send_tag_dry_run" => {
             super::fanout::targets_via(&client, via(), "area=acpmux", None).await.unwrap();
+            None
         }
-        "mcp_ls" => {
-            crate::acpmux_mcp::ls_via(&client, &json!({}), via()).await;
-        }
+        "mcp_ls" => Some(crate::acpmux_mcp::ls_via(&client, &json!({}), via()).await),
         _ => unreachable!(),
-    }
+    };
     let wall = started.elapsed().as_nanos();
     drop(client);
+    // A timed sample proves it did the work (decision 271): a refused `ls` is no fast `ls`.
+    if let Some(reply) = mcp_reply {
+        assert_eq!(reply["isError"], json!(false), "the gate's MCP ls was refused: {reply}");
+        let sessions = reply["structuredContent"]["sessions"].as_array().map(Vec::len);
+        assert_eq!(sessions, Some(20), "the gate's MCP ls lists its 20 live chats");
+    }
     proxy.settled().await.unwrap();
     // The client's initialize reply is counted too, alike on both sides.
     (wall, u128::from(proxy.bytes.load(Ordering::Relaxed) - before))
@@ -503,11 +565,8 @@ async fn v2_pr07b_usage_first_read() {
     let rebuilt =
         [small.hub.list_order_rebuilds_for_test(), god.hub.list_order_rebuilds_for_test()];
     assert_eq!(rebuilt, built, "a timed pass sorted every chat again");
-    acpmux_book::gate_rounds::report(
-        "v2.pr07b.usage_first_read",
-        &[("small", &small_wall), ("god", &god_wall)],
-    );
-    // The row's line last, with no assert after it: the home judges the ratio.
+    // The row's rounds and line last (`emit` prints both), with no assert after it: the home
+    // judges the ratio.
     emit("v2.pr07b.usage_first_read", &small_wall, &god_wall, "ns");
 }
 

@@ -13,6 +13,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-image-paste-41016.test.ts", async () => {
   /// From the paste to the loading tile: it is drawn in the paste's own task.
@@ -63,7 +64,7 @@ await requireBrowserLane("agent-pane-image-paste-41016.test.ts", async () => {
     });
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
+    await page.locator(COMPOSER_EDITOR).click();
     return page;
   }
 
