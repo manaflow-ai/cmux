@@ -1613,7 +1613,7 @@ jobs:
           fi
       # Only a feat-cmux-next push job that read the API saves a new entry, keyed by when it read (pr_runner_pool
       # writes the marker then); pull requests and lane branches restore the base branch's newest one.
-      # The trusted base's switch; a base without the script grants nothing.
+      # The trusted base branch's switch; a base without the script grants nothing.
       - name: Scheduler grants for named Mac jobs
         id: grant
         if: ${{ !cancelled() }}
@@ -1622,7 +1622,17 @@ jobs:
         env:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-        run: if [ -f scripts/ci/mac_grants.py ] && [ -f scripts/ci/mac-grants.json ]; then python3 scripts/ci/mac_grants.py; fi
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          # The switch is read at the base branch tip: a PR's base.sha is fixed when it opens or syncs, so a
+          # flip would otherwise reach only PRs updated after it. A failed fetch falls back to the base.sha copy.
+          set +e
+          tip="$RUNNER_TEMP/grant-tip/scripts/ci"; mkdir -p "$tip"; src=scripts/ci
+          for f in mac_grants.py mac-grants.json; do
+            curl -fsS --max-time 10 -o "$tip/$f" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$BASE_REF/scripts/ci/$f" || rm -f "$tip/$f"
+          done
+          [ -f "$tip/mac_grants.py" ] && [ -f "$tip/mac-grants.json" ] && src="$tip"
+          if [ -f "$src/mac_grants.py" ] && [ -f "$src/mac-grants.json" ]; then python3 "$src/mac_grants.py"; fi
       - name: Check whether this job read the pool snapshot
         id: pool-snapshot-fetched
         if: ${{ !cancelled() }}
