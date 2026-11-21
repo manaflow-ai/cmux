@@ -59,23 +59,55 @@ struct Answer {
     stderr: String,
 }
 
+/// A file the child writes its stderr to, so a full pipe never holds it and no reader thread
+/// runs beside it; read (bounded) once the child exits, then removed.
+struct StderrFile {
+    path: PathBuf,
+    file: std::fs::File,
+}
+
+impl StderrFile {
+    fn new() -> Option<Self> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let path = std::env::temp_dir()
+            .join(format!("cmux-machine-join-{}-{nanos}.stderr", std::process::id()));
+        let file =
+            std::fs::OpenOptions::new().read(true).write(true).create_new(true).open(&path).ok()?;
+        Some(Self { path, file })
+    }
+
+    fn stdio(&self) -> Stdio {
+        self.file.try_clone().map_or_else(|_| Stdio::null(), Stdio::from)
+    }
+
+    fn read(mut self) -> String {
+        use std::io::Seek as _;
+        let mut text = Vec::new();
+        if self.file.rewind().is_ok() {
+            let _ = self.file.by_ref().take(STDERR_MAX).read_to_end(&mut text);
+        }
+        String::from_utf8_lossy(&text).into_owned()
+    }
+}
+
+impl Drop for StderrFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
 fn run(args: &[&str], stdin: Option<&str>) -> Result<Answer, &'static str> {
+    let stderr = StderrFile::new();
     let mut child = Command::new(acpmux())
         .args(args)
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(stderr.as_ref().map_or_else(Stdio::null, StderrFile::stdio))
         .spawn()
         .map_err(|_| "server.pair.machine_join_no_acpmux")?;
-    // Read while the child runs, so a full pipe never holds it; bounded, the rest drained.
-    let stderr = child.stderr.take().map(|mut pipe| {
-        std::thread::spawn(move || {
-            let mut text = Vec::new();
-            let _ = pipe.by_ref().take(STDERR_MAX).read_to_end(&mut text);
-            let _ = std::io::copy(&mut pipe, &mut std::io::sink());
-            String::from_utf8_lossy(&text).into_owned()
-        })
-    });
     if let Some(text) = stdin {
         let mut pipe = child.stdin.take().ok_or("server.pair.machine_join_failed")?;
         let written = pipe.write_all(text.as_bytes()).and_then(|()| pipe.write_all(b"\n"));
@@ -106,7 +138,7 @@ fn run(args: &[&str], stdin: Option<&str>) -> Result<Answer, &'static str> {
         let _ = stdout.by_ref().take(64 * 1024).read_to_end(&mut out);
     }
     let value: Value = serde_json::from_slice(&out).unwrap_or(Value::Null);
-    let stderr = stderr.and_then(|reader| reader.join().ok()).unwrap_or_default();
+    let stderr = stderr.map(StderrFile::read).unwrap_or_default();
     if status.success() {
         Ok(Answer { value, stderr })
     } else {
