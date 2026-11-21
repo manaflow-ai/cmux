@@ -663,9 +663,11 @@ function ComposerFrame({
   const [doneWhen, setDoneWhen] = useState("");
   const outcomeFieldId = useId();
   const doneWhenRef = useRef(doneWhen);
-  doneWhenRef.current = doneWhen;
   const outcomeAskEnabled = experimentArm(outcomeAsk) === "on";
-  useEffect(() => setDoneWhen(""), [sessionId]);
+  useEffect(() => {
+    doneWhenRef.current = "";
+    setDoneWhen("");
+  }, [sessionId]);
   /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
   /// prompt stays mounted under it, keeping its own draft.
   const [shell, setShell] = useState(false);
@@ -2868,7 +2870,10 @@ function ComposerFrame({
             value={doneWhen}
             aria-label={t("composer.outcomeAskLabel")}
             placeholder={t("composer.outcomeAskPlaceholder")}
-            onChange={(event) => setDoneWhen(event.target.value)}
+            onChange={(event) => {
+              doneWhenRef.current = event.target.value;
+              setDoneWhen(event.target.value);
+            }}
           />
         </div>
       )}
