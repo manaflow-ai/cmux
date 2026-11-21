@@ -17,6 +17,7 @@ pub mod dial;
 pub mod frame;
 pub mod hybrid;
 pub mod keepalive;
+pub mod lan;
 pub mod link;
 pub mod media;
 mod send_queue;
