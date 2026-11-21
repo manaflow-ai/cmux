@@ -15,7 +15,7 @@ export interface Approved {
   readonly account: { readonly key: string; readonly name: string; readonly url?: string }
   readonly scopes_granted: ReadonlyArray<string>
   readonly credential: Credential
-  readonly resources?: { readonly repos: ReadonlyArray<string> | null }
+  readonly resources?: { readonly repos: ReadonlyArray<string> | null; readonly linked_by_github_id?: number }
 }
 
 /** The parts of the team integration policy a provider needs while linking. */
