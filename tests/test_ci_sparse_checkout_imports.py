@@ -25,7 +25,7 @@ later "dir/" include, as git matches the file itself before its parents).
 
 Optional imports are skipped: an import inside a `try:` body whose handlers catch ImportError,
 ModuleNotFoundError (or a bare `except:`/`except Exception`/`BaseException`) is not followed, since
-the script runs without it. There is no allowlist.
+the script runs without it. Imports have no allowlist.
 
 The same lists must also hold the repo files their tests read. #41164 at af61f28e added a test to
 tests/test_risk_tier.py that reads `ROOT / ".github/workflows/risk-tier.yml"`; risk-tier-tests.yml
@@ -34,8 +34,15 @@ checked out only the test and its script, so CI died with FileNotFoundError. For
 it builds statically (`ROOT / "a/b"`, `ROOT / "a" / "b"`, `ROOT.joinpath(...)`, `.parents[n]`,
 `os.path.join(HERE, ...)`, `open("a/b")`, `Path("a/b")`) that is a file in the repo must be
 checked out, by the same git oracle. A name counts only when every assignment to it gives the same
-repo path, so tmp fixtures never count. Scripts are not checked this way: a subcommand may never
-reach a read, while a test file runs all of its tests.
+repo path, so tmp fixtures never count.
+
+Plain scripts the job runs are checked the same way: perf-cron.py reads perf-budgets.json, and the
+measure job of cmux-next-perf-budgets.yml checks out perf-cron.py alone. A script's subcommand may
+never reach a read, so a script read the job provably never reaches is listed in READ_ALLOWLIST with
+the reason and a `reach` pattern: the invocation (subcommand or flag) that would reach the read. The
+entry fails when that pattern shows up in the job's `run:` steps, when its reason is blank, and when
+the read is no longer flagged (a stale entry), so the list cannot rot. When in doubt, add the path to
+the sparse list instead.
 
 Run: python3 tests/test_ci_sparse_checkout_imports.py
 """
@@ -321,11 +328,11 @@ def is_test_file(rel: str) -> bool:
     return name.startswith("test_") or name.endswith("_test.py")
 
 
-def listed_run_scripts(entries: list[str], run_text: str, root: Path, tests_only: bool = True) -> list[str]:
+def listed_run_scripts(entries: list[str], run_text: str, root: Path, tests_only: bool = False) -> list[str]:
     """.py files the entries name by exact path that the job's `run:` steps also name.
 
-    By default only test files: a script's run may take a subcommand that never reaches a read,
-    while a test file runs all of its tests.
+    Test files and plain scripts alike; `tests_only` keeps only test files (the scan before scripts
+    were covered).
     """
     out = []
     for entry in entries:
@@ -504,9 +511,9 @@ def _job_run_text(root: Path, workflow: str, job: str) -> str:
     return "\n".join(str(step.get("run") or "") for step in steps if isinstance(step, dict))
 
 
-def find_read_misses(root: Path, tests_only: bool = True) -> list[str]:
-    """One line per (step, run test file, repo file it reads that the sparse list leaves out)."""
-    misses = []
+def read_miss_records(root: Path, tests_only: bool = False) -> list[tuple[str, str, str, str, str]]:
+    """(workflow, job, step, run file, repo file it reads that the sparse list leaves out)."""
+    records = []
     for workflow, job, step, entries in non_cone_sparse_steps(root):
         scripts = listed_run_scripts(entries, _job_run_text(root, workflow, job), root, tests_only)
         reads = {script: read_paths(script, root) for script in scripts}
@@ -516,8 +523,101 @@ def find_read_misses(root: Path, tests_only: bool = True) -> list[str]:
             if script not in present:
                 continue
             for rel in sorted(reads[script] - present):
-                misses.append(f"{workflow} {job} {step}: {script} reads {rel}, not in its sparse checkout")
-    return misses
+                records.append((workflow, job, step, script, rel))
+    return records
+
+
+def _read_miss_line(record: tuple[str, str, str, str, str]) -> str:
+    workflow, job, step, script, rel = record
+    return f"{workflow} {job} {step}: {script} reads {rel}, not in its sparse checkout"
+
+
+def find_read_misses(root: Path, tests_only: bool = False) -> list[str]:
+    """One line per (step, run file, repo file it reads that the sparse list leaves out)."""
+    return [_read_miss_line(record) for record in read_miss_records(root, tests_only)]
+
+
+# A script read the job never reaches: (workflow, job, script, path, reach, reason). `reach` is a regex
+# for the invocation that would reach the read (the subcommand or flag); the entry is void when the
+# job's `run:` steps match it. The reason names the condition. Checked against the tree at 2026-11-11.
+READ_ALLOWLIST: list[tuple[str, str, str, str, str, str]] = [
+    ("ci-web.yml", "webviews-test-history", "scripts/ci/webviews_test_history.py", "scripts/cmux-next/web-bundle-key.py",
+     r"webviews_test_history\.py\s+inputs\b",
+     "run only by inputs(), the `inputs` subcommand; this job runs `fetch` and `record` and takes the key the "
+     "shards' full checkouts computed"),
+    ("cmux-next-frame-pacing.yml", "bench", "scripts/cmux-next/instant-new-surfaces-bench.py",
+     "scripts/cmux-next/new-pane-start-state-bench.py", r"--bench=new-pane-start-state",
+     "exec'd only when argv holds `--bench=new-pane-start-state` (scripts/measure/instant-new-surfaces.sh's "
+     "fleet route); no step of this job passes it"),
+    ("cmux-next-frame-pacing.yml", "bench", "scripts/cmux-next/bench-startup.py", "scripts/cmux-next/perf-stress-session.py",
+     r"--profile[ =]stress",
+     "loaded only by seed_stress(), under `--profile stress`; this job passes `--profile empty` and "
+     "`--profile realistic`"),
+    ("cmux-next-media.yml", "route", "scripts/cmux-next/media/whats-new-clips.py", "scripts/pr-media.py",
+     r"whats-new-clips\.py\s+publish",
+     "loaded only by pr_media_module(), from the `publish` and `publish-auto` subcommands; this job runs `plan`"),
+    ("cmux-next-perf-budgets.yml", "measure", "scripts/cmux-next/perf-cron.py", "scripts/ci/cmux_tui_tree_key.py",
+     r"perf-cron\.py\s+plan\b",
+     "run only by tree_published(), reached only from the `plan` subcommand; this job runs `fleet-check`, "
+     "`run-part` and `part-cleanup`"),
+    ("cmux-next-perf-budgets.yml", "measure", "scripts/cmux-next/perf-cron.py", "scripts/cmux-next/perf-budgets.json",
+     r"perf-cron\.py\s+report\b",
+     "read only by cmd_report (the `report` subcommand) when a measurement finishes; this job runs `fleet-check`, "
+     "`run-part` and `part-cleanup` (the report job checks it out)"),
+    ("cmux-next-perf-budgets.yml", "measure", "scripts/cmux-next/perf-cron.py", "scripts/cmux-next/perf-budgets.py",
+     r"perf-cron\.py\s+report\b",
+     "loaded only by load_budgets_module(), from cmd_report (the `report` subcommand); this job runs "
+     "`fleet-check`, `run-part` and `part-cleanup` (the report job checks it out)"),
+    ("cmux-next-perf-budgets.yml", "report", "scripts/cmux-next/perf-cron.py", "scripts/ci/cmux_tui_tree_key.py",
+     r"perf-cron\.py\s+plan\b",
+     "run only by tree_published(), reached only from the `plan` subcommand; this job runs `fetch-result`, "
+     "`report` and `dispatch-next`"),
+    ("cmux-next-quality-report.yml", "report", "scripts/cmux-next/perf-cron.py", "scripts/ci/cmux_tui_tree_key.py",
+     r"perf-cron\.py\s+plan\b",
+     "run only by tree_published(), reached only from the `plan` subcommand; this job runs `fetch-state`"),
+    ("stable-next.yml", "tick", "scripts/ci/stable_next.py", "scripts/ci/publish-nightly-next-r2.py",
+     r"stable_next\.py\s+write-feed",
+     "loaded only by _r2_module(), from the `write-feed` subcommand (stable-next-rollback.yml); this job runs "
+     "`window` and `published-tonight`"),
+    ("stable-next.yml", "crash-class", "scripts/ci/stable_next.py", "scripts/ci/publish-nightly-next-r2.py",
+     r"stable_next\.py\s+write-feed",
+     "loaded only by _r2_module(), from the `write-feed` subcommand (stable-next-rollback.yml); this job runs "
+     "`crash-delta`"),
+    ("stable-next.yml", "soak", "scripts/ci/stable_next.py", "scripts/ci/publish-nightly-next-r2.py",
+     r"stable_next\.py\s+write-feed",
+     "loaded only by _r2_module(), from the `write-feed` subcommand (stable-next-rollback.yml); this job runs "
+     "`soak` and `sentry-new-crashes`"),
+]
+
+
+def unhandled_read_misses(root: Path, allowlist=READ_ALLOWLIST, records=None) -> list[str]:
+    """Every read miss no valid allowlist entry covers, then every allowlist entry that is invalid.
+
+    An entry is invalid with a blank reason, when the job's `run:` steps match its `reach` pattern
+    (the job now takes the path to the read), or when no read it names is flagged (stale).
+    """
+    if records is None:
+        records = read_miss_records(root)
+    problems = []
+    covered: set[tuple[str, str, str, str]] = set()
+    for workflow, job, script, rel, reach, reason in allowlist:
+        entry = f"READ_ALLOWLIST entry ({workflow}, {job}, {script}, {rel})"
+        if not str(reason or "").strip():
+            problems.append(f"{entry} has no reason: name the condition the job never hits")
+            continue
+        if not str(reach or "").strip():
+            problems.append(f"{entry} has no reach pattern: the invocation that would reach the read")
+            continue
+        if not any(r[:2] == (workflow, job) and r[3:] == (script, rel) for r in records):
+            problems.append(f"{entry} is stale: the read is no longer flagged; remove the entry")
+            continue
+        run_text = _job_run_text(root, workflow, job).replace("\\\n", " ")
+        if re.search(reach, run_text):
+            problems.append(f"{entry} no longer holds: the job's run steps match {reach!r}; add the path to its sparse list")
+            continue
+        covered.add((workflow, job, script, rel))
+    unhandled = [_read_miss_line(r) for r in records if (r[0], r[1], r[3], r[4]) not in covered]
+    return unhandled + problems
 
 
 # --- tests ------------------------------------------------------------------------------------
@@ -530,8 +630,8 @@ class SparseCheckoutImportTests(unittest.TestCase):
         misses = find_misses(ROOT)
         self.assertEqual(misses, [], "\n" + "\n".join(misses))
 
-    def test_workflows_list_every_repo_file_their_tests_read(self) -> None:
-        misses = find_read_misses(ROOT)
+    def test_workflows_list_every_repo_file_their_tests_and_scripts_read(self) -> None:
+        misses = unhandled_read_misses(ROOT)
         self.assertEqual(misses, [], "\n" + "\n".join(misses))
 
     def _fixture(self, tmp: Path, sparse: str) -> Path:
@@ -704,7 +804,7 @@ def test_a_held_takeback_names_the_line_to_paste_in_its_error():
 
 
 class SparseCheckoutReadTests(unittest.TestCase):
-    def _misses(self, files: dict[str, str], extra: str = "", tests_only: bool = True) -> list[str]:
+    def _misses(self, files: dict[str, str], extra: str = "", tests_only: bool = False) -> list[str]:
         base = {
             "scripts/ci/risk_tier.py": "",
             "tests/git_fixture_env.py": "",
@@ -776,15 +876,199 @@ class SparseCheckoutReadTests(unittest.TestCase):
         )
         self.assertEqual(self._misses({"tests/test_risk_tier.py": body, "docs/x.md": ""}), [])
 
-    def test_scripts_are_skipped_unless_asked(self) -> None:
-        # A script's subcommand may never reach a read; a test file runs every test.
+    def test_scripts_are_scanned_unless_tests_only(self) -> None:
+        # A plain script the job runs is scanned too; tests_only is the scan before it was.
         workflow = RISK_TIER_TESTS_YML.replace("tests/test_risk_tier.py", "tools/run_me.py").replace("EXTRA", "")
         files = {
             ".github/workflows/risk-tier-tests.yml": workflow,
             "tools/run_me.py": TEST_RISK_TIER_PY,
         }
-        self.assertEqual(self._misses(files), [])
-        self.assertEqual(len(self._misses(files, tests_only=False)), 1)
+        self.assertEqual(len(self._misses(files)), 1)
+        self.assertEqual(self._misses(files, tests_only=True), [])
+
+
+# cmux-next-perf-budgets.yml's measure job at feat-cmux-next a8227e44, cut to what the check reads: it
+# checks out perf-cron.py alone and runs three of its subcommands.
+PERF_BUDGETS_YML = """\
+on: workflow_dispatch
+jobs:
+  measure:
+    name: perf cron part (fleet, background)
+    runs-on: ${{ vars.CI_PERF_CRON_GATEWAY }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+          sparse-checkout: scripts/cmux-next/perf-cron.pyEXTRA
+          sparse-checkout-cone-mode: false
+
+      - name: Run one part on its host when the fleet is idle
+        id: part
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/perf-cron-part"
+          python3 -I scripts/cmux-next/perf-cron.py fleet-check --client "$client" --worker "${WORKER:-cmux20-bench}" --yield-mode "$YIELD_MODE" \\
+            --not-started "$out/not-started.json" --output "$RUNNER_TEMP/fleet.out" | tee "$RUNNER_TEMP/fleet.log"
+          python3 -I scripts/cmux-next/perf-cron.py run-part --client "$client" --sha "$SHA" --args "$PART_ARGS" \\
+            --out "$out" | tee "$RUNNER_TEMP/part.log"
+
+      - name: Cancel a step left running and record the attempt
+        if: always()
+        run: |
+          python3 -I scripts/cmux-next/perf-cron.py part-cleanup --out "$RUNNER_TEMP/perf-cron-part" \\
+            --client "$client" --why "run step ${WHY:-not run}"
+"""
+
+# scripts/cmux-next/perf-cron.py at feat-cmux-next a8227e44, cut to its three repo reads (same lines).
+PERF_CRON_PY = """\
+import importlib.util
+import json
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+
+
+def load_budgets_module():
+    spec = importlib.util.spec_from_file_location("perf_budgets", os.path.join(HERE, "perf-budgets.py"))
+    return spec
+
+
+def tree_published(sha):
+    return subprocess.run([sys.executable, os.path.join(ROOT, "scripts/ci/cmux_tui_tree_key.py"), "--version", "1", sha])
+
+
+def cmd_report(o):
+    mod = load_budgets_module()
+    budgets = json.load(open(os.path.join(HERE, "perf-budgets.json")))
+"""
+
+MEASURE = "cmux-next-perf-budgets.yml measure step 0: scripts/cmux-next/perf-cron.py reads "
+
+
+class PerfCronScriptReadTests(unittest.TestCase):
+    def _root(self, tmp: Path, extra: str = "", run: str = "") -> Path:
+        workflow = PERF_BUDGETS_YML.replace("EXTRA", extra)
+        if run:
+            workflow += f"      - run: {run}\n"
+        files = {
+            ".github/workflows/cmux-next-perf-budgets.yml": workflow,
+            "scripts/cmux-next/perf-cron.py": PERF_CRON_PY,
+            "scripts/cmux-next/perf-budgets.json": "{}\n",
+            "scripts/cmux-next/perf-budgets.py": "",
+            "scripts/ci/cmux_tui_tree_key.py": "",
+        }
+        for rel, body in files.items():
+            (tmp / rel).parent.mkdir(parents=True, exist_ok=True)
+            (tmp / rel).write_text(body, encoding="utf-8")
+        return tmp
+
+    def _measure_allowlist(self, **change):
+        out = []
+        for entry in READ_ALLOWLIST:
+            if entry[:2] == ("cmux-next-perf-budgets.yml", "measure"):
+                out.append(tuple(change.get(entry[3], entry)))
+        self.assertEqual(len(out), 3, out)
+        return out
+
+    def test_feat_cmux_next_a8227e44_perf_cron_reads_perf_budgets_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._root(Path(tmp))
+            self.assertEqual(
+                find_read_misses(root),
+                [
+                    MEASURE + "scripts/ci/cmux_tui_tree_key.py, not in its sparse checkout",
+                    MEASURE + "scripts/cmux-next/perf-budgets.json, not in its sparse checkout",
+                    MEASURE + "scripts/cmux-next/perf-budgets.py, not in its sparse checkout",
+                ],
+            )
+            # The scan before scripts were covered saw none of it.
+            self.assertEqual(find_read_misses(root, tests_only=True), [])
+
+    def test_listing_the_file_clears_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._root(Path(tmp), extra="\n          # perf-budgets.json\n")
+            self.assertIn(MEASURE + "scripts/cmux-next/perf-budgets.json, not in its sparse checkout", find_read_misses(root))
+        with tempfile.TemporaryDirectory() as tmp:
+            # A one-line list becomes a block with the file added.
+            workflow_root = self._root(Path(tmp))
+            path = workflow_root / ".github/workflows/cmux-next-perf-budgets.yml"
+            path.write_text(
+                path.read_text().replace(
+                    "sparse-checkout: scripts/cmux-next/perf-cron.py\n",
+                    "sparse-checkout: |\n            scripts/cmux-next/perf-cron.py\n"
+                    "            scripts/cmux-next/perf-budgets.json\n",
+                )
+            )
+            misses = find_read_misses(workflow_root)
+            self.assertEqual(len(misses), 2, misses)
+            self.assertFalse(any("perf-budgets.json" in m for m in misses), misses)
+
+    def test_allowlist_covers_reads_the_job_never_reaches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._root(Path(tmp))
+            self.assertEqual(unhandled_read_misses(root, self._measure_allowlist()), [])
+            # Without an entry the read is unhandled.
+            partial = [e for e in self._measure_allowlist() if e[3] != "scripts/cmux-next/perf-budgets.json"]
+            self.assertEqual(
+                unhandled_read_misses(root, partial),
+                [MEASURE + "scripts/cmux-next/perf-budgets.json, not in its sparse checkout"],
+            )
+
+    def test_allowlist_entry_needs_a_reason(self) -> None:
+        json_path = "scripts/cmux-next/perf-budgets.json"
+        for reason in ("", "   "):
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as tmp:
+                root = self._root(Path(tmp))
+                old = next(e for e in self._measure_allowlist() if e[3] == json_path)
+                allow = self._measure_allowlist(**{json_path: (*old[:5], reason)})
+                problems = unhandled_read_misses(root, allow)
+                self.assertIn(MEASURE + json_path + ", not in its sparse checkout", problems)
+                self.assertTrue(any("has no reason" in p for p in problems), problems)
+
+    def test_stale_allowlist_entry_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._root(Path(tmp))
+            path = root / ".github/workflows/cmux-next-perf-budgets.yml"
+            path.write_text(
+                path.read_text().replace(
+                    "sparse-checkout: scripts/cmux-next/perf-cron.py\n",
+                    "sparse-checkout: |\n            scripts/cmux-next/perf-cron.py\n"
+                    "            scripts/cmux-next/perf-budgets.json\n",
+                )
+            )
+            self.assertEqual(
+                unhandled_read_misses(root, self._measure_allowlist()),
+                [
+                    "READ_ALLOWLIST entry (cmux-next-perf-budgets.yml, measure, scripts/cmux-next/perf-cron.py, "
+                    "scripts/cmux-next/perf-budgets.json) is stale: the read is no longer flagged; remove the entry"
+                ],
+            )
+
+    def test_allowlist_entry_voids_once_the_job_reaches_the_read(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = 'python3 -I scripts/cmux-next/perf-cron.py report --repo "$GITHUB_REPOSITORY" --dir "$dir"'
+            root = self._root(Path(tmp), run=run)
+            problems = unhandled_read_misses(root, self._measure_allowlist())
+            self.assertIn(MEASURE + "scripts/cmux-next/perf-budgets.json, not in its sparse checkout", problems)
+            self.assertIn(MEASURE + "scripts/cmux-next/perf-budgets.py, not in its sparse checkout", problems)
+            self.assertEqual(sum("no longer holds" in p for p in problems), 2, problems)
+            self.assertNotIn(MEASURE + "scripts/ci/cmux_tui_tree_key.py, not in its sparse checkout", problems)
+
+    def test_real_allowlist_entries_are_well_formed(self) -> None:
+        seen = set()
+        for workflow, job, script, rel, reach, reason in READ_ALLOWLIST:
+            key = (workflow, job, script, rel)
+            self.assertNotIn(key, seen, f"duplicate READ_ALLOWLIST entry {key}")
+            seen.add(key)
+            self.assertTrue(reason.strip() and reach.strip(), key)
+            re.compile(reach)
+            self.assertTrue((ROOT / ".github/workflows" / workflow).is_file(), key)
+            self.assertTrue((ROOT / script).is_file() and (ROOT / rel).is_file(), key)
 
 
 if __name__ == "__main__":
