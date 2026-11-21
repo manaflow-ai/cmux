@@ -255,7 +255,7 @@ fn transport(
             break;
         }
         let Ok(link) = AcpmuxLink::connect(&socket, |_| {}) else { continue };
-        let mut call = |method: &str, params: Value| {
+        let call = |method: &str, params: Value| {
             use super::super::super::agent_session_attach::agent_session_link::LinkError;
             let remaining = deadline.saturating_duration_since(Instant::now()).min(TIMEOUT);
             if remaining.is_zero() {
@@ -347,10 +347,10 @@ fn exchange(
         if let Err(error) = sent {
             // Explicit rejection before delivery is safe to retain. Transport loss after
             // submission is never evidence that the agent is gone or the answer failed.
-            if let Some(refusal) = error.downcast_ref::<Refusal>() {
-                if refusal.0 != "question.delivery_unknown" {
-                    return Ok(DeliveryResult::Refused(refusal.0.clone()));
-                }
+            if let Some(refusal) = error.downcast_ref::<Refusal>()
+                && refusal.0 != "question.delivery_unknown"
+            {
+                return Ok(DeliveryResult::Refused(refusal.0.clone()));
             }
             if !submitted {
                 return Ok(DeliveryResult::Refused("question.agent_unavailable".into()));

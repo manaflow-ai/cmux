@@ -86,8 +86,8 @@ fn the_stored_question_must_be_the_live_pending_request() {
     assert_eq!(check_request(&q, &request("codex", false)), Err(WireError::Stale));
     let tool = json!({"toolCall": {"title": "Run ls"}, "options": []});
     assert_eq!(check_request(&q, &tool), Err(WireError::NotQuestion));
-    let mut answered = q.clone();
-    answered.state = crate::QuestionState::Cancelled;
+    let mut answered = q;
+    answered.state = QuestionState::Cancelled;
     assert_eq!(check_request(&answered, &request("claude", false)), Err(WireError::Stale));
 }
 
@@ -125,7 +125,7 @@ fn an_unsigned_decision_binds_the_live_prompt_and_the_exact_answers() {
     let mut no_nonce = pending("chief", false);
     no_nonce["decisionNonce"] = json!("");
     assert_eq!(unsigned_decision(&q, &answer(&["keys"], None), &no_nonce), Err(WireError::Stale));
-    let mut unbound = q.clone();
+    let mut unbound = q;
     unbound.permission = None;
     assert_eq!(
         unsigned_decision(&unbound, &answer(&["keys"], None), &pending("chief", false)),
@@ -156,7 +156,7 @@ fn a_native_approval_card_is_told_from_a_question() {
     )));
     assert!(!is_native_approval(&question("chief", false)));
     let mut codex = card(&digest, &["allow", "deny"], false);
-    codex.harness = crate::QuestionHarness::Codex;
+    codex.harness = QuestionHarness::Codex;
     assert!(!is_native_approval(&codex));
 }
 

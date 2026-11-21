@@ -45,10 +45,10 @@ fn the_decision_is_the_live_prompts_with_its_request() {
     assert_eq!(decided["answers"], json!({"Ship it?": "Yes"}));
     assert_eq!(decided["request"], entry("perm_1")["request"]);
     assert_eq!(decided["question"], serde_json::to_value(question(Some("perm_1"))).unwrap());
-    assert_eq!(decided["digest"], super::request_digest(&entry("perm_1")["request"]));
+    assert_eq!(decided["digest"], request_digest(&entry("perm_1")["request"]));
     let text = decided["request_json"].as_str().unwrap();
     assert_eq!(serde_json::from_str::<Value>(text).unwrap(), entry("perm_1")["request"]);
-    assert_eq!(decided["digest"], super::request_digest(&serde_json::from_str(text).unwrap()));
+    assert_eq!(decided["digest"], request_digest(&serde_json::from_str(text).unwrap()));
 }
 
 #[test]
@@ -101,7 +101,7 @@ fn the_digest_sorts_keys_at_every_depth_and_an_approval_card_is_refused() {
         "{:x}",
         Sha256::digest(r#"{"a":null,"b":{"x":[{"c":"é","d":2}],"y":1}}"#.as_bytes())
     );
-    assert_eq!(super::request_digest(&request), expected);
+    assert_eq!(request_digest(&request), expected);
     let card: Question = serde_json::from_value(json!({
         "harness": "chief", "session": "sess_mux", "permission": "perm_1",
         "items": [{"id": format!("approval:{}", "a".repeat(64)), "prompt": "Run it?",
