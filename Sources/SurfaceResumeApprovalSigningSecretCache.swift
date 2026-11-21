@@ -165,8 +165,16 @@ extension SurfaceResumeApprovalStore {
         fileManager: FileManager = .default,
         signingSecret: Data
     ) -> [SurfaceResumeApprovalRecord] {
-        loadRecords(fileURL: fileURL, fileManager: fileManager)
-            .filter { $0.hasValidSignature(secret: signingSecret) }
+        let load = { loadRecords(fileURL: fileURL, fileManager: fileManager) }
+        guard fileManager === FileManager.default else {
+            return load().filter { $0.hasValidSignature(secret: signingSecret) }
+        }
+        return SurfaceResumeApprovalRecordsCache.shared.validRecords(
+            fileURL: fileURL,
+            dependencies: recordDependencies(for: fileURL),
+            secret: signingSecret,
+            load: load
+        )
     }
 
     static func validRecordsLookup(
