@@ -107,9 +107,13 @@ public actor RemoteDecodePipeline {
                 pixelBuffer: image, frame: frame, tCaptureMicros: unit.tCaptureMicros,
                 decodedAtNanos: decodedAt, releasedAtNanos: releasedAt,
                 onPresented: { atMicros in
-                    source.notePresented(frame: frame, presentedAtMicros: atMicros)
+                    // 0: the presenter could not say when it reached the glass. The host hears
+                    // nothing then; the viewer's stages take the handler's time, so a static
+                    // screen's one frame still gives Decode, Present and their sum a value.
+                    if atMicros > 0 { source.notePresented(frame: frame, presentedAtMicros: atMicros) }
+                    let presentedAt = atMicros > 0 ? atMicros &* 1_000 : DispatchTime.now().uptimeNanoseconds
                     presented?(RemoteViewerFrameTimes(frame: frame, releasedAtNanos: releasedAt, decodedAtNanos: decodedAt,
-                                                      presentedAtNanos: atMicros &* 1_000))
+                                                      presentedAtNanos: presentedAt))
                 }))
             return .decoded
         } catch {
