@@ -646,6 +646,11 @@ pub enum Command {
     /// MCP stdio server for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     AcpmuxMcp,
+    /// The inbox relay for the Claude Code session that starts it, as an MCP stdio server with no
+    /// tools (`claude_inbox_relay.rs`): acpmux's messages into that session come from its own
+    /// child, so the session does not hold them (not for people).
+    #[command(hide = true)]
+    InboxRelay,
     /// acpmux's own agent tool servers (secrets, offers, sub-sessions, forum, acpmux) in one
     /// MCP stdio process for one agent session: `cmux mcp serve` runs it once per chat
     /// (tools_mcp.rs; not for people).

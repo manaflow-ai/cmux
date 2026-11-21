@@ -5,6 +5,8 @@
 #
 #   no-app      nothing in the app changes: says so and stops
 #   web-live    patches the PR's web UI in: web-overlay.sh follow PR, no build
+#   strings     string catalogs only: as web-live (the web pages' strings come from the catalogs);
+#               Swift shows its source strings and its translations wait for the next build
 #   daemon      swaps the PR's daemon into the app, terminals kept (hot-apply.py apply --branch):
 #               the cmux binary CI published for the PR head's cmux-tui tree, else the one in the
 #               PR's fleet dev build; its web UI, if any, is patched in as for web-live
@@ -125,7 +127,7 @@ for reason, paths in sorted(json.load(sys.stdin)["reasons"].items()):
 # older than the PR's base; anything but web UI from there means the PR's Swift side is not in that
 # build, and the live apply is refused for the dev build. An APP at or after the PR's base has all
 # the Swift the PR was written against.
-if [[ "$verdict" == web-live && -f "$from/Contents/Info.plist" ]]; then
+if [[ ( "$verdict" == web-live || "$verdict" == strings ) && -f "$from/Contents/Info.plist" ]]; then
   recorded="$("$buddy" -c 'Print :CMUXCommit' "$from/Contents/Info.plist" 2>/dev/null || true)"
   # Only a hex commit id is looked up: an empty or other value never resolves as a ref name.
   app_commit=""
@@ -136,28 +138,28 @@ if [[ "$verdict" == web-live && -f "$from/Contents/Info.plist" ]]; then
   # commit and may change or remove Swift the PR leans on, so no sort from the commit vouches for it.
   dirty="$("$buddy" -c 'Print :CMUXCommitDirty' "$from/Contents/Info.plist" 2>/dev/null || true)"
   if [[ -n "$app_commit" && "$dirty" == true ]]; then
-    echo "web-live, but $from was built at ${app_commit:0:12} with local edits, so whether it has the PR's Swift side is unknown: the dev build instead (rebuild it from a clean checkout to apply web PRs live)"
+    echo "$verdict, but $from was built at ${app_commit:0:12} with local edits, so whether it has the PR's Swift side is unknown: the dev build instead (rebuild it from a clean checkout to apply web PRs live)"
     verdict=rebuild
   elif [[ -z "$app_commit" ]]; then
-    echo "web-live, but $from's commit '${recorded}' is not in this checkout, so whether it has the PR's Swift side is unknown: the dev build instead (git fetch first, or --from another app)"
+    echo "$verdict, but $from's commit '${recorded}' is not in this checkout, so whether it has the PR's Swift side is unknown: the dev build instead (git fetch first, or --from another app)"
     verdict=rebuild
   elif git -C "$ROOT" merge-base --is-ancestor "$base" "$app_commit"; then
     :
   elif git -C "$ROOT" merge-base --is-ancestor "$app_commit" "$base"; then
     against="$(python3 "$ROOT/scripts/cmux-next/live_apply.py" --repo "$ROOT" --json "$app_commit" "$head")"
     again="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["verdict"])' <<<"$against")"
-    if [[ "$again" != web-live && "$again" != no-app ]]; then
-      echo "web-live against its base, but $from was built at ${app_commit:0:12}, before it: from there the change is $again, so the PR's Swift side is not in that build. No live apply: the dev build instead"
+    if [[ "$again" != web-live && "$again" != strings && "$again" != no-app ]]; then
+      echo "$verdict against its base, but $from was built at ${app_commit:0:12}, before it: from there the change is $again, so the PR's Swift side is not in that build. No live apply: the dev build instead"
       python3 -c '
 import json, sys
 for kind, paths in sorted(json.load(sys.stdin)["files"].items()):
-    if kind not in ("web-live", "no-app"):
+    if kind not in ("web-live", "strings", "no-app"):
         print("  " + kind + ": " + ", ".join(paths[:5]) + (" …" if len(paths) > 5 else ""))
 ' <<<"$against"
       verdict=rebuild
     fi
   else
-    echo "web-live, but $from was built at ${app_commit:0:12}, on another line than the PR's base: whether it has the PR's Swift side is unknown, so the dev build instead"
+    echo "$verdict, but $from was built at ${app_commit:0:12}, on another line than the PR's base: whether it has the PR's Swift side is unknown, so the dev build instead"
     verdict=rebuild
   fi
 fi
@@ -380,6 +382,10 @@ case "$verdict" in
     ;;
   web-live)
     echo "web only: no build, the PR's web UI is patched in and hot-reloads"
+    web_live
+    ;;
+  strings)
+    echo "string catalogs only: no build, the copy serves the PR's web pages (their strings come from the catalogs) and Swift shows its source strings; Swift's translations wait for the next build"
     web_live
     ;;
   daemon|swift-live|rebuild)
