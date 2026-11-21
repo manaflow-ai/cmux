@@ -3839,10 +3839,13 @@ printf %s "$code"
             return result, output.read_text(), calls, summary.read_text() if summary.exists() else ""
 
     def test_a_fleet_pass_is_green_and_reads_the_head(self):
-        result, output, calls, summary = self.run_check(["404", "200"], {**self.OK, "state": "pass"})
+        # An edge timeout (524) is a read that ran out, not the service down: it reads again.
+        result, output, calls, summary = self.run_check(["404", "524", "524", "524", "200"], {**self.OK, "state": "pass"})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("verdict=pass", output)
         self.assertIn(f"/compile-checks/v1/{'d' * 40}?repo=manaflow-ai%2Fcmux&pr=12&wait=", calls)
+        # No read blocks past the edge's 100 s.
+        self.assertTrue(all(int(w) <= 80 for w in re.findall(r"&wait=(\\d+)", calls)), calls)
         self.assertIn("Build fleet app compile: pass", summary)
 
     def test_a_fleet_compile_failure_is_the_prs_red(self):
@@ -3860,6 +3863,8 @@ printf %s "$code"
                                   ("mismatch", ["200"], {**self.OK, "state": "pass", "sha": "e" * 40}),
                                   ("mismatch", ["200"], {**self.OK, "state": "pass", "recipe_version": 1}),
                                   ("HTTP 530", ["530", "530", "530"], None),
+                                  # Edge timeouts alone never end the wait early; the deadline does.
+                                  ("no result", ["524"] * 5, None),
                                   ("running", ["200"] * 40, {**self.OK, "state": "running"}),
                                   ("no result", [], None)):
             with self.subTest(why=why, reply=reply):
