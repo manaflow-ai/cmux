@@ -1,3 +1,4 @@
+import type { ChatTaskList } from "./chatTaskList";
 import { experimentArm } from "../../experiments/experiment";
 import { permissionCardHeight } from "./permissions/cardHeight";
 import { freshMeasureContext } from "./measureContext";
@@ -14,6 +15,7 @@ import {
   MARK_STATUS,
   MARK_STEP,
   MARK_OPENS_TURN,
+  MARK_HEADS_TURN,
   MARK_WORKED,
   rowMark,
   gridScale,
@@ -23,7 +25,7 @@ import {
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_INNER_GAP,
   TRANSCRIPT_LINE_ROW,
-  TRANSCRIPT_LIVE_STEP_HEIGHT,
+  liveStepHeight,
   transcriptGap,
 } from "./transcriptGrid";
 import type { MachineResources } from "./machineResources";
@@ -87,7 +89,7 @@ import { sentPasteJoin } from "./conversation/sentPasteJoin.experiment";
 import { attachmentOnlyPrompt, bubbleLayout } from "./conversation/bubbleParts";
 import { isPromptMarkdown } from "./conversation/promptMarkdown";
 import { sentUIPick, sentUIPickSegments, type SentPromptSegment } from "./conversation/sentUIPickModel";
-import { SENT_IMAGE_HEIGHT, sentImageSize, sentImageWidth } from "./conversation/userBubbleModel";
+import { SENT_IMAGE_HEIGHT, SENT_IMAGE_MAX_WIDTH, sentImageSize, sentImageWidth } from "./conversation/userBubbleModel";
 import { sentVideoOf, sentVideosOf } from "./conversation/sentVideos";
 import { fileSizeLabel } from "./fileAttachmentModel";
 import { mcpCall } from "./conversation/mcpCalls";
@@ -819,6 +821,9 @@ export type AcpmuxRow = {
   /// `P~resume-n`): its card says it failed again, so a Retry that failed as fast as the first
   /// (a gateway outage) is not read as a click that did nothing (cmux#34369).
   failedAgain?: true;
+  /// A failed turn a later turn of the chat finished after (conversation/turns.ts `markRecovered`):
+  /// the chat went on (Continue, a fork, a new message), so its error card no longer draws (cmux#48434).
+  recovered?: true;
   /// The latest stopped turn with no successor: the empty composer can offer Resume.
   /// Kept as eligibility metadata; it adds no footer control or height.
   resumable?: boolean;
@@ -1331,6 +1336,9 @@ export type AcpmuxSnapshot = {
     name?: string;
     /** Codex's persisted thread goal, when the harness reported one. */
     goal?: TaskGoal;
+    /// The chat's task list across its turns (acpmux `taskList`, chatTaskList.ts): the harness's
+    /// latest plan, else the one its agent or Chief keeps. Unset until one is written.
+    taskList?: ChatTaskList;
     harness?: string;
     /// The harness family acpmux files the session under (`codex`, `opencode`, ...), when it says.
     family?: string;
@@ -1399,6 +1407,9 @@ export type AcpmuxSnapshot = {
     /// The chat's tools (acpmux `tools`, cx-thur3) and whether `_acpmux/set_tools` can change them.
     tools?: ChatTool[];
     toolsMutable?: boolean;
+    /// Where the chat stands and its next action (acpmux `rollingSummary`, kept after each turn a
+    /// person started); the header draws it beside the title (header/ChatSummaryLine.tsx).
+    rollingSummary?: { text: string; next?: string };
   };
   connection: string;
   /** The first request that crossed its progress threshold while the socket stayed open. */
@@ -1714,7 +1725,17 @@ export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
 /// A live line under a step is MARK_LIVE_STEP, not another step, which would sit flush.
 export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
   (wokenUnderFooter(row, prev) && wokenGapLook() === "tail" ? MARK_STATUS : rowGridMark(row, prev)) |
-  (opensBackgroundTurn(row, prev) ? MARK_OPENS_TURN : 0);
+  (opensBackgroundTurn(row, prev) ? MARK_OPENS_TURN : 0) |
+  (headsIncomingTurn(row, prev) ? MARK_HEADS_TURN : 0);
+/// Whether `row` heads a turn another agent's line opened (transcriptGrid.ts MARK_HEADS_TURN): the
+/// running turn's live line right under that notice or message, or the notice or message itself right
+/// under the "Worked for" line of a turn that ended on work (its footer draws nothing), where it stood
+/// flush as that turn's last step. O(1).
+const headsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
+  prev !== undefined &&
+  (prev.kind === "user"
+    ? isLiveLine(row) && isStatusRow(prev)
+    : prev.kind === "worked" && row.kind === "user" && isStatusRow(row));
 /// Whether `row` is the first tool row of a turn the agent ran on its own, right under the footer
 /// row of the turn before it: a background task's end woke the agent after that turn ended, and the
 /// task's line between them draws nothing (backgroundTurns.ts `drawsBackgroundLine`). O(1).
@@ -2597,11 +2618,11 @@ function fallbackRowHeight(
     (!row.text?.trim() || attachmentOnlyPrompt(row)) &&
     (row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"))
   ) {
-    // Sent thumbnails wrap at the 70% user column. Use the widest thumbnail (320px, plus its 6px
-    // gap; userBubbleModel.ts SENT_IMAGE_MAX_WIDTH) when estimating columns so a wide image never
-    // lets a second attachment row overlap the next row.
+    // Sent thumbnails wrap at the 70% user column. Use the widest thumbnail (userBubbleModel.ts
+    // SENT_IMAGE_MAX_WIDTH, plus its 8px gap) when estimating columns so a wide image never lets a
+    // second attachment row overlap the next row.
     const inlineParts = row.inlineParts ?? [];
-    // A video sent with its frames draws as a 120px tile in the thumbnail row (UserBubble.tsx
+    // A video sent with its frames draws as a SENT_IMAGE_HEIGHT tile in the thumbnail row (UserBubble.tsx
     // SentVideoTiles), not as a file chip.
     const videoCount = sentVideosOf(row).length;
     const imageCount =
@@ -2610,7 +2631,7 @@ function fallbackRowHeight(
         inlineParts.filter((part) => part.kind === "image").length,
         row.retryAttachments?.filter((part) => part.kind === "image").length ?? 0,
       ) + videoCount;
-    const columns = Math.max(1, Math.floor((width * 0.7 + 6) / 326));
+    const columns = Math.max(1, Math.floor((width * USER_BUBBLE_SHARE + 8) / (SENT_IMAGE_MAX_WIDTH + 8)));
     const imageRows = imageCount ? Math.ceil(imageCount / columns) : 0;
     const otherAttachments = Math.max(
       0,
@@ -2619,7 +2640,11 @@ function fallbackRowHeight(
         inlineParts.filter((part) => part.kind !== "text" && part.kind !== "image").length,
       ) - videoCount,
     );
-    const attachmentHeight = imageRows * 128 + otherAttachments * 36;
+    // Each thumbnail row and the gap under it (conversation.css .cv-user__images, its 8px row gap
+    // and its ATTACHMENT_BAND_BELOW margin under the last row).
+    const attachmentHeight = imageRows
+      ? imageRows * SENT_IMAGE_HEIGHT + (imageRows - 1) * 8 + ATTACHMENT_BAND_BELOW + otherAttachments * 36
+      : otherAttachments * 36;
     // Its pending state is its footer's time slot (PromptDelivery.tsx), taking no line of its own,
     // so the row keeps its height when the send lands.
     return finish(attachmentHeight + messageBelow(beforeFooter) + chromeHeight(row, actions));
@@ -3288,7 +3313,14 @@ function measuredRowHeight(
     contentHeight = promptOpen
       ? contentHeight + (contentHeight > COLLAPSED_PROMPT_LINES * metrics().lineHeight + 1 ? PROMPT_MORE_HEIGHT : 0)
       : collapsedPromptHeight(contentHeight, metrics().lineHeight);
-  const band = layout?.band.length ? attachmentBandHeight(row, layout.band, width, entry.prepared, usedPrepared) : 0;
+  // The band's tiles span the bubble's column (conversation.css `.cv-user__inline-strip`: 70% and
+  // its tiles' side margins), with its gap to the bubble under it.
+  const bandWidth = USER_BUBBLE_SHARE * width + 2 * INLINE_ATTACHMENT_MARGIN.x;
+  const band = layout?.band.length
+    ? attachmentBandHeight(row, layout.band, bandWidth, entry.prepared, usedPrepared) +
+      ATTACHMENT_BAND_BELOW -
+      INLINE_ATTACHMENT_MARGIN.y
+    : 0;
   // A strip prompt with nothing to read beside its attachments draws no bubble (UserBubble.tsx).
   if (layout && !layout.parts.some((part) => part.kind !== "text" || part.text.trim()))
     return finish(messageBelow(beforeFooter) + chromeHeight(row, actions) - userBubblePadding() + band);
@@ -3296,6 +3328,9 @@ function measuredRowHeight(
   return finish(height);
 }
 
+/// The gap from a prompt's attachments to its bubble (conversation.css --cv-user-attachment-gap): the
+/// legacy image band's margin under it, and the strip's with its tiles' 2px margin.
+export const ATTACHMENT_BAND_BELOW = 6;
 /// A sent attachment in a bubble's text (`.cv-user__inline-image`, `.cv-user__inline-file`):
 /// an inline block 4px from its neighbors and 2px above and below, on the text's line.
 export const INLINE_ATTACHMENT_MARGIN = { x: 4, y: 2 };
@@ -3641,7 +3676,11 @@ export function layoutConversation(
   let prevDrawn = prevDrawnRow(rows, start);
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
-    marks[index] = gridMark(row, prevDrawn);
+    // The mark is taken against the row the gap is taken from (`previousContent`, the last row with
+    // height), not the last row that is not bookkeeping: a run that draws 0 px (only a thought, a call
+    // the live line names, a run split by a steer) between a steer and "Thinking" marked the line a
+    // live step while its gap came from the steer, the turn gap (32) where 24 is due.
+    marks[index] = gridMark(row, previousContent >= 0 ? rows[previousContent] : prevDrawn);
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
@@ -3687,7 +3726,7 @@ export function layoutConversation(
           height = custom
             ? customHeight
             : edge === LIVE_STEP_EDGE
-              ? TRANSCRIPT_LIVE_STEP_HEIGHT * chromeScale
+              ? liveStepHeight() * chromeScale
               : measuredRowHeight(
                   row,
                   width,

@@ -12,8 +12,6 @@ name: cmux-next chromium staleness
 # updates"), never a change here.
 
 on:
-  schedule:
-    - cron: "17 9 * * *"
   push:
     branches: [feat-cmux-next]
     paths:
