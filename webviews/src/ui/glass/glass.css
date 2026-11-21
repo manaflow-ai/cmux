@@ -461,6 +461,9 @@
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
       box-shadow: var(--host-glass-edge, none);
+      /* The App's surface draws the rim (a tooltip's separator ring included): no felt liner of the
+         page's own on it (Leo, 2026-11-19: "you throw on a felt liner overtop of the glass"). */
+      border-color: transparent;
     }
   }
 }
