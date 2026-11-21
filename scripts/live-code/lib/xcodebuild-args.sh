@@ -19,10 +19,29 @@
 live_code_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Every CmuxNext target Package.swift names (products and tests too; a name no target has is
-# never read).
+# never read), and the shared modules it links that a patch may edit as well:
+# CMUX_LIVE_CODE_SHARED_MODULES, by default MessagesLabHome (the Home transcript, vendored in
+# Packages/Shared/CmuxMessagesLab), named only while Package.swift links it. Set it empty to build
+# them optimized again. live_apply.py LIVE_MODULE sorts their Swift as patchable.
+live_code_shared_modules() {
+  local package="$live_code_lib_dir/../../../Packages/macOS/CmuxNext/Package.swift" module
+  for module in ${CMUX_LIVE_CODE_SHARED_MODULES-MessagesLabHome}; do
+    grep -q "product(name: \"$module\"" "$package" && printf '%s\n' "$module"
+  done
+  return 0
+}
+
 live_code_targets() {
-  grep -oE 'name: "CmuxNext[A-Za-z0-9_]*"' "$live_code_lib_dir/../../../Packages/macOS/CmuxNext/Package.swift" \
-    | sed -E 's/.*"(.*)"/\1/' | sort -u
+  { grep -oE 'name: "CmuxNext[A-Za-z0-9_]*"' "$live_code_lib_dir/../../../Packages/macOS/CmuxNext/Package.swift" \
+      | sed -E 's/.*"(.*)"/\1/'
+    live_code_shared_modules; } | sort -u
+}
+
+# A grep -E pattern for the module names a patch may edit, as Swift mangles them (length, then name).
+live_code_module_pattern() {
+  local shared
+  shared="$(live_code_shared_modules | paste -sd '|' -)"
+  printf '%s\n' "[0-9](CmuxNext${shared:+|$shared})"
 }
 
 live_code_xcodebuild_args() { # CONFIG [LIST]
