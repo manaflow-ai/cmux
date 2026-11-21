@@ -27,7 +27,7 @@ final class RemoteTmuxMirrorRenameHarness {
         let manager = try #require(appDelegate.tabManagerFor(windowId: windowID))
         controller = appDelegate.remoteTmuxController
         host = RemoteTmuxHost(destination: "issue-8380-\(UUID().uuidString)@host")
-        sessionName = "dogfood-issue-8380"
+        sessionName = "test-issue-8380"
         connection = RemoteTmuxControlConnection(host: host, sessionName: sessionName)
         pipe = Pipe()
         writer = RemoteTmuxControlPipeWriter(

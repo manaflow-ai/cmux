@@ -39,6 +39,16 @@ protocol RemoteTmuxControlPaneMutationOwner: AnyObject {
         workingDirectory: String?
     ) -> Bool
     func requestKillPane(_ tmuxPaneID: Int) -> Bool
+    /// Enqueues a pane-title change and reports its eventual tmux acknowledgement.
+    ///
+    /// Returns `false` when no command was queued; in that case `completion` is
+    /// not called. After a `true` return, `completion` fires once for tmux's
+    /// acknowledgement, rejection, or a stream reset.
+    func requestRenamePane(
+        _ tmuxPaneID: Int,
+        title: String,
+        completion: @escaping (Bool) -> Void
+    ) -> Bool
 }
 
 @MainActor

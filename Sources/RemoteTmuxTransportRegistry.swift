@@ -115,19 +115,19 @@ enum RemoteTmuxControlAttachMode: Sendable, Equatable, Hashable {
         createIfMissing ? .attachOrCreate : .attach
     }
 
-    /// The tmux arguments for this mode, including the `-CC` client flag.
+    /// The tmux arguments for this mode, including the UTF-8 and `-CC` client flags.
     ///
     /// One list for every transport: ssh wraps it in the PATH resolver, et quotes it into a login
     /// shell, and both then agree on what a mode means.
     func tmuxArguments(sessionName: String) -> [String] {
         switch self {
         case .attach:
-            return ["-CC", "attach-session", "-t", sessionName]
+            return ["-u", "-CC", "attach-session", "-t", sessionName]
         case .attachOrCreate:
-            return ["-CC", "new-session", "-A", "-s", sessionName]
+            return ["-u", "-CC", "new-session", "-A", "-s", sessionName]
         case let .attachOrCreateSized(columns, rows):
             return [
-                "-CC", "new-session", "-A", "-s", sessionName,
+                "-u", "-CC", "new-session", "-A", "-s", sessionName,
                 "-x", String(columns), "-y", String(rows),
             ]
         }

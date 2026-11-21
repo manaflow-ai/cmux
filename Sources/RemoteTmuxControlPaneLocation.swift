@@ -88,4 +88,9 @@ struct RemoteTmuxControlPaneLocation {
     func requestKill() -> Bool {
         owner.requestKillPane(pane.tmuxPaneID)
     }
+
+    /// Starts a pane-title mutation and reports its asynchronous tmux acknowledgement.
+    func requestRename(title: String, completion: @escaping (Bool) -> Void) -> Bool {
+        owner.requestRenamePane(pane.tmuxPaneID, title: title, completion: completion)
+    }
 }

@@ -65,6 +65,8 @@ import Testing
                 reply(connection, lines: ["%0 0 0 80 24 1 off :0 \"ejc3-mac\""])
             case .other:
                 reply(connection, lines: [])
+            case .paneTitleSubscription:
+                reply(connection, lines: [])
             default:
                 break loop
             }
@@ -90,6 +92,8 @@ import Testing
             guardCount += 1
             switch kind {
             case .other:
+                reply(connection, lines: [])
+            case .paneTitleSubscription:
                 reply(connection, lines: [])
             case let .paneRects(windowId, _):
                 // Reply with the pane id belonging to the requested window (the
@@ -135,6 +139,8 @@ import Testing
             case let .paneRects(windowId, _):
                 reply(connection, lines: ["%\(windowId * 10) 0 0 80 24 1 off :zsh"])
             case .other:
+                reply(connection, lines: [])
+            case .paneTitleSubscription:
                 reply(connection, lines: [])
             default:
                 // Never blind-reply to a correlated command (see drainPendingSetupCommands).

@@ -743,7 +743,9 @@ final class RemoteTmuxController {
         guard let target = mirror.connection.sessionId.map({ "$\($0)" })
             ?? RemoteTmuxHost.controlModeLineSafeName(oldName).map(RemoteTmuxHost.shellSingleQuoted)
         else { return }
-        _ = mirror.connection.send("rename-session -t \(target) \(RemoteTmuxHost.shellSingleQuoted(name))")
+        _ = mirror.connection.send(
+            "rename-session -t \(target) \(RemoteTmuxHost.shellSingleQuoted(RemoteTmuxHost.tmuxFormatLiteral(name)))"
+        )
         // Do not re-key local state here. tmux can reject a rename (for example
         // duplicate session name); `%session-changed` is the confirmation point.
         // Multiplexed mirrors never receive `%session-changed` (the shared stream's
@@ -859,12 +861,17 @@ final class RemoteTmuxController {
     }
 
     /// A mirrored window's tab was renamed → `rename-window` on the remote.
-    func handleMirrorWindowRenamed(workspaceId: UUID, panelId: UUID, title: String?) {
+    @discardableResult
+    func handleMirrorWindowRenamed(
+        workspaceId: UUID, panelId: UUID, title: String?, completion: ((Bool) -> Void)? = nil
+    ) -> Bool {
         guard let name = RemoteTmuxHost.controlModeCommandName(title),
               let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
               mirror.connection.connectionState == .connected,
-              let windowId = mirror.windowId(forPanel: panelId) else { return }
-        _ = mirror.connection.send("rename-window -t @\(windowId) \(RemoteTmuxHost.shellSingleQuoted(name))")
+              let windowId = mirror.windowId(forPanel: panelId) else { return false }
+        let command = "rename-window -t @\(windowId) \(RemoteTmuxHost.shellSingleQuoted(RemoteTmuxHost.tmuxFormatLiteral(name)))"
+        if let completion { return mirror.connection.sendTracked(command, completion: completion) }
+        return mirror.connection.send(command)
     }
 
     /// The live session mirror + tmux window id behind a mirrored window-tab, or
