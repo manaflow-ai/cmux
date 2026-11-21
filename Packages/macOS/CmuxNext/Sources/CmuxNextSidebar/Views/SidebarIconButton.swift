@@ -20,6 +20,8 @@ final class SidebarIconButton: ClickableButton {
 
     /// Replacing the icon or label redraws the button (a disclosure's chevron).
     var icon: IconName { didSet { if icon != oldValue { renderedSize = 0; renderIcon() } } }
+    /// The icon's form: the outline (default) or the filled one, as a row's hover pin draws Pin and Unpin.
+    var iconStyle: IconStyle = .line { didSet { if iconStyle != oldValue { renderedSize = 0; renderIcon() } } }
     var label: String {
         didSet {
             guard label != oldValue else { return }
@@ -165,7 +167,7 @@ final class SidebarIconButton: ClickableButton {
         let side = CGFloat.iconRowSize(forLabelPointSize: size)
         // The + look draws the +: the button keeps a clear image of the icon's side, so it sizes as every icon button.
         let image = plusLook != nil ? NSImage(size: NSSize(width: side, height: side))
-            : symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(icon, size: side)
+            : symbol.map { NSImage.icon(symbol: $0, size: side, style: iconStyle) } ?? NSImage.icon(icon, size: side, style: iconStyle)
         image.accessibilityDescription = label
         self.image = image
     }
