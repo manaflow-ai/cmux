@@ -467,6 +467,13 @@
     },
     {
       "agent": "settable",
+      "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
+      "keys": [
+        "experiments.glassToolbarGroups"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).",
       "keys": [
         "home.channelsEnabled"
@@ -1273,7 +1280,7 @@
     },
     {
       "agent": "userOnly",
-      "why": "On, Settings edits the MCP servers in Claude Code's and Codex's own config files: only the person turns that on.",
+      "why": "On, Settings edits the MCP servers, skills and commands in Claude Code's and Codex's own config files: only the person turns that on.",
       "keys": [
         "labs.agentCustomization"
       ]
