@@ -357,6 +357,9 @@
   "NSButtonCell call:drawTitle/3:withFrame,in": {
    "27.0": true
   },
+  "NSPopUpButtonCell call:drawTitle/3:withFrame,in": {
+   "27.0": true
+  },
   "NSClipView call:setBoundsOrigin/1": {
    "27.0.1": true,
    "26.5.2": true,
