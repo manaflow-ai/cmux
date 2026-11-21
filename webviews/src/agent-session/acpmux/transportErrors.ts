@@ -58,7 +58,12 @@ const DAEMON_REASON_TEXT: Record<string, StringKey> = {
 // what the app refused). Any other method keeps the generic text.
 const INTENT_INVALID_TEXT: Record<string, StringKey> = {
   // Only the chat's own open: `_acpmux/watch` (the session list) and `_acpmux/events` (an older
-  // page) are no chat the person opened, and keep the generic line.
+  // page) are no chat the person opened, and keep the generic line (its method and the host's
+  // reason stay behind Details, hostLine.ts `refusalDetail`).
+  // `initialize`: the pane's handshake, without which no chat opens. Leo, 2026-11-21, on a line that
+  // read "Something went wrong, so that didn't go through." while the app refused every handshake
+  // (`unknown param "_meta"`, #49148): "am seeing a lot of these in the ui".
+  initialize: "transport.intentInvalidOpen",
   "_acpmux/attach": "transport.intentInvalidOpen",
   "session/new": "transport.intentInvalidStart",
   "session/load": "transport.intentInvalidStart",
@@ -86,9 +91,12 @@ export function errorMessage(error: unknown): string {
 /// The pane's own words for a refusal it knows (a transport code, an acpmux reason it words), else
 /// undefined: the text a notice may say after "Couldn't …". Any other failure's message is the
 /// daemon's, the bridge's or the browser's ("Failed to fetch"), for the log or Details, never the line.
+/// `log`: false for a caller that only reads the text again (a render of the host line), so one
+/// refusal is logged once, not on every render (2,791 page log lines for 737 refusals, 2026-11-21).
 export function knownRefusalText(
   error: unknown,
   intentInvalid: StringKey = "transport.intentInvalid",
+  log = true,
 ): string | undefined {
   const reason = typeof error === "object" && error !== null ? (error as { reason?: unknown }).reason : undefined;
   const reasonKey = typeof reason === "string" ? DAEMON_REASON_TEXT[reason] : undefined;
@@ -101,7 +109,7 @@ export function knownRefusalText(
   if (key) {
     // A malformed request is the pane's bug, not the user's: log it, show the generic text.
     if (code === "transport.intent_invalid") {
-      console.error("agent pane: the host refused a request", error);
+      if (log) console.error("agent pane: the host refused a request", error);
       return translate(intentInvalidKey(error, intentInvalid));
     }
     return translate(key);
