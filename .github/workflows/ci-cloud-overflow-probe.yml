@@ -293,7 +293,7 @@ jobs:
       # 44476854382 queued on 16 vCPU from 07:04Z), so any label no pool and no raw runner variable
       # names counts too, after MOVED_MINUTES (cloud_overflow_switch.stranded_labels).
       - name: Re-run runs stranded on a dead label
-        if: always() && steps.switch.outcome != 'skipped' && steps.pools.outcome == 'success'
+        if: always() && steps.switch.outcome != 'skipped' && steps.pools.outcome == 'success' && steps.app-spend.outputs.low != 'true'
         continue-on-error: true
         timeout-minutes: 5
         env:

@@ -70,7 +70,7 @@ jobs:
           permission-actions: write
           permission-contents: read
 
-      # The App's hour before the tick spends any of it (GET /rate_limit is free), as the
+      # The glaeda-route App's hour (not cmux-bot's, whose cmux callers stop at 2,500) before the tick spends any of it (GET /rate_limit is free), as the
       # `app-spend-pool:` line HQ's spend publisher sums (scripts/ci/app_spend_mark.py's format;
       # this job has no checkout, so it is read here). This tick dispatches builds, so its floor
       # is the low one, HQ's NOW reserve (app_spend_mark.APP_BUDGET_NOW_RESERVE, 1,500): below it
