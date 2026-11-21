@@ -23,6 +23,8 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
     // task-owner: the page's `following`, started when it joins a window and cancelled when it leaves.
     private var following: Task<Void, Never>?
     private var followingFavicons: Task<Void, Never>?
+    /// Decoded favicon images by data URL, owned by this page (not a global).
+    private let faviconImages = NSCache<NSString, NSImage>()
 
     /// The field's height.
     static let fieldHeight: CGFloat = 44
@@ -157,7 +159,7 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
             }
             let row = rows[index]
             view.isHidden = false
-            view.show(NativeNewTabRowContent(row, strings: strings, home: model.page.home), selected: index == selected)
+            view.show(NativeNewTabRowContent(row, strings: strings, home: model.page.home), selected: index == selected, images: faviconImages)
             view.activate = { [weak model] in model?.activate(row) }
         }
         divider.isHidden = rows.isEmpty
