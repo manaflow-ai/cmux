@@ -84,6 +84,7 @@ VISIBLE_GRACE_S = 1.5
 # agent tab is on the shared page host (AgentPageProvider) since AgentPaneTunables.chromium went on (69a51bf63bed), so
 # the seeded chat "never loaded" and --profile realistic measured terminals only.
 AGENT_MARK = "agent_pane.painted"
+SETTLED_AGENT_MARK = "agent_pane.settled_painted"
 # A seeding launch may build its state once the daemon's first tree is in: a fresh profile (after reset_state) shows
 # the first-run page, which draws no terminal and no agent page, so neither content mark ever comes there.
 SEED_READY = [FINAL_MARK, AGENT_MARK, "daemon.first_tree_applied"]
@@ -152,6 +153,7 @@ MARKS = [
     ("agent_pane.handshake_start", "agent page asked for its handshake"),
     ("agent_pane.handshake_end", "agent pane handshake answered (pane's own host only)"),
     (AGENT_MARK, "agent chat drew its first frame"),
+    (SETTLED_AGENT_MARK, "agent chat drew its settled live state"),
     # The last quit's pane images, read off the main thread from main() (slice c): a `missed` row means a pane
     # asked before its read ended and showed its placeholder.
     ("agent_pane.launch_images_read", "saved agent pages read and decoded"),
@@ -469,6 +471,8 @@ class Launch:
             **({"CMUX_NEXT_HANG_THRESHOLD_MS": str(HANG_THRESHOLD_MS)} if HANG_THRESHOLD_MS else {}),
             **(extra_env or {}),
         }
+        if CHAT_FIXTURE:
+            env.update(CHAT_FIXTURE.environment(tag))
         if active:
             fifo = os.path.join(scratch, f"launch-marks-{time.monotonic_ns()}.fifo")
             os.mkfifo(fifo, 0o600)
@@ -635,6 +639,7 @@ NEW_SESSION_EACH_RUN = False
 # --activation: "active" launches the measured app through LaunchServices, frontmost and active as a person's launch;
 # "inactive" spawns it with no activation (behind, not key).
 ACTIVATION = "inactive"
+CHAT_FIXTURE = None
 
 
 def app_support_tag(tag):
@@ -1044,15 +1049,13 @@ def seed_realistic(tag, scratch, timeout):
         agent = True
         for action, target in steps:
             target = target() if callable(target) else target
-            reply = app.call("action.run", {"action": action, **({"target": target} if target else {})})
+            reply = app.call("action.run", {"action": action, **({"target": target} if target else {}),
+                                            **({"focus": True} if CHAT_FIXTURE else {})})
             if not reply.get("ok"):
                 print(f"  {tag}: seeding without an agent chat ({action}: {reply.get('error')})", file=sys.stderr)
                 agent = False
                 break
         app.close()
-        if agent and not prime.wait_for(AGENT_MARK, timeout):
-            print(f"  {tag}: the seeded agent chat never loaded", file=sys.stderr)
-            agent = False
         if agent:
             # A chat made through the control socket opens unselected; select
             # it so it is the visible tab at quit and a restore shows it.
@@ -1063,6 +1066,21 @@ def seed_realistic(tag, scratch, timeout):
             if not reply.get("ok"):
                 print(f"  {tag}: the seeded agent chat could not be selected ({reply.get('error')})", file=sys.stderr)
                 agent = False
+        # A fresh agent tab paints its chooser before the fixture creates a
+        # conversation. Only setup may accept that frame; measured restoration
+        # still requires real chat paint and its settled live state.
+        setup_marks = [AGENT_MARK, "agent_pane.newtab_painted"] if CHAT_FIXTURE else AGENT_MARK
+        if agent and not prime.wait_for(setup_marks, timeout, any_of=True):
+            print(f"  {tag}: the seeded agent chat never loaded", file=sys.stderr)
+            agent = False
+        if agent and CHAT_FIXTURE:
+            # Opening a tab settles before its native view is necessarily shown.
+            # Select it and await its first page frame before sending chat RPCs.
+            app = app_client(tag)
+            try:
+                CHAT_FIXTURE.seed(tag, app, timeout)
+            finally:
+                app.close()
         if HIDDEN_SCREENS:
             seed_hidden_screens(tag, timeout)
         if agent and SEED_FOCUS == "terminal":
@@ -1194,10 +1212,14 @@ def one_run(tag, mode, timeout, profile=None):
         if NEW_SESSION_EACH_RUN or not seeded_stress(tag):
             seed_stress(tag, scratch, timeout)
         final = [FINAL_MARK]
-    elif profile == "realistic" and seeded_focus(tag) != seed_layout():
+    elif profile == "realistic" and (seeded_focus(tag) != seed_layout() or
+                                    (CHAT_FIXTURE and tag not in CHAT_FIXTURE.expected)):
         seed_realistic(tag, scratch, timeout)
     if profile == "realistic" and not seeded_agent(tag):
         final = [FINAL_MARK]
+    if CHAT_FIXTURE:
+        final = [FINAL_MARK, AGENT_MARK, SETTLED_AGENT_MARK]
+        any_of = False
     if mode == "cold":
         # Builds of one tag (a before and an after copy) share its daemon.
         for other in RUN_TAGS or [tag]:
@@ -1246,6 +1268,14 @@ def one_run(tag, mode, timeout, profile=None):
         # The measured point: is the app the active, frontmost app? After the stalls are read: its debug.focus runs
         # on the app's main thread and would show as a stall itself.
         launch.front = front_app(launch)
+        if CHAT_FIXTURE:
+            if not launch.front.get("front") or launch.front.get("app_active") is not True:
+                raise RuntimeError("startup chat comparison requires the measured app to be active and frontmost")
+            app = app_client(tag)
+            try:
+                launch.chat_fixture = CHAT_FIXTURE.verify(tag, app, launch.marks)
+            finally:
+                app.close()
     finally:
         if recorder is not None:
             recorder.interrupt()
@@ -1260,6 +1290,8 @@ def one_run(tag, mode, timeout, profile=None):
     marks = dict(launch.marks)
     marks["launch_terminals"] = getattr(launch, "terminals", None)
     marks["front_at_measure"] = getattr(launch, "front", None)
+    if CHAT_FIXTURE:
+        marks["chat_fixture"] = launch.chat_fixture
     marks["activation"] = "active" if launch.active else "inactive"
     marks["quit_marks"] = getattr(launch, "quit_marks", {})
     marks["frames_before_quit"] = getattr(launch, "frames_before_quit", None)
@@ -1451,6 +1483,10 @@ def main():
     parser.add_argument("--mode", action="append", choices=["cold", "restart", "warm", "daemon"])
     parser.add_argument("--timeout", type=float, default=30.0, help="seconds per launch to reach the first frame")
     parser.add_argument("--json", help="write every run's marks here")
+    parser.add_argument("--chat-fixture", metavar="NEW_DIRECTORY",
+                        help="seed one completed fake-agent exchange and require exact chat restoration; "
+                             "ad-hoc bench builds only; writes isolated harness configuration and receipts "
+                             "in a new directory")
     parser.add_argument("--budget", action="append", default=[], metavar="MARK=MS",
                         help="exit 1 when a mark's median (any tag, mode) is over MS or never arrives")
     parser.add_argument("--order", action="append", default=[], metavar="FIRST<SECOND",
@@ -1502,6 +1538,20 @@ def main():
         parser.error("give at least one --tag or --app")
     RUN_TAGS.extend(args.tag)
     modes = args.mode or ["cold", "warm"]
+    global CHAT_FIXTURE
+    if args.chat_fixture:
+        if args.profile != "realistic" or args.focus != "agent" or modes != ["warm"] or args.time_profile or ACTIVATION != "active":
+            parser.error("--chat-fixture requires realistic, agent focus, warm mode, active activation and no profiler")
+        for tag in args.tag:
+            if tag_pids(tag) or tag_daemon_pids(tag) or other_copy_apps(tag):
+                parser.error(f"--chat-fixture refuses pre-existing processes for {tag}")
+            signature = subprocess.run(["/usr/bin/codesign", "-dv", "--verbose=4", bundle_path(tag)],
+                                       capture_output=True, text=True, timeout=10)
+            if signature.returncode or "Signature=adhoc" not in signature.stderr.splitlines():
+                parser.error("--chat-fixture needs ad-hoc bench builds; signed builds deliberately "
+                             "exclude its isolated harness configuration")
+        from startup_chat_fixture import ChatFixture
+        CHAT_FIXTURE = ChatFixture(args.chat_fixture)
     if "daemon" in modes:
         modes.remove("daemon")
         for tag in args.tag:
@@ -1527,6 +1577,8 @@ def main():
     finally:
         for tag in args.tag:
             stop(tag_pids(tag))
+        if CHAT_FIXTURE:
+            CHAT_FIXTURE.close()
     print(f"load average: {' '.join(f'{x:.0f}' for x in os.getloadavg())}")
     counted = {tag: {mode: [r for r in runs if counts(r)] for mode, runs in modes_.items()}
                for tag, modes_ in results.items()}
