@@ -4,7 +4,7 @@
 public import CmuxNextDesign
 
 extension NekoIconThemeSetting {
-    /// `appearance.iconTheme`: Reserved for the optional Neko icon family; neko resolves to the default artwork until a reviewed set ships.
+    /// `appearance.iconTheme`: The optional Neko icon family (cat drawings of the action icons, design/icons/neko-evaluation.md round 4); off by default.
     public nonisolated static let configPath = ["appearance", "iconTheme"]
     public nonisolated static let fallback: NekoIconTheme = .default
 }
@@ -347,14 +347,14 @@ nonisolated enum AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.iconTheme", "Icon Theme"),
-                help: SettingsText.keyed("settings.appearance.iconTheme.help", "The icon drawings used by cmux."),
+                help: SettingsText.keyed("settings.appearance.iconTheme.help", "The icon drawings used by cmux. Neko draws the action icons as cats. Native icons change after a relaunch."),
                 kind: .choice([
                     SettingChoice(NekoIconTheme.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
                     SettingChoice(NekoIconTheme.neko.rawValue, SettingsText.keyed("settings.choice.neko", "Neko")),
                 ]),
                 default: .string(NekoIconThemeSetting.fallback.rawValue),
                 keywords: ["icons", "icon", "theme", "neko", "cat"]
-            ).hiddenFromSettingsPage("reserved until the Neko artwork passes light/dark 1x/2x review"),
+            ),
         ]
     }
 }
