@@ -200,7 +200,7 @@ pub(super) fn resolve_attach_terminal(
             .exit
             .as_ref()
             .and_then(|exit| exit.get("code"))
-            .and_then(serde_json::Value::as_i64);
+            .and_then(Value::as_i64);
         match code {
             Some(code) => anyhow::bail!("terminal_exited exit_code={code}"),
             None => anyhow::bail!("terminal_exited"),
