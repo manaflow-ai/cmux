@@ -626,7 +626,7 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          sudo apt-get install -y clang cmake libclang-dev pkg-config
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6

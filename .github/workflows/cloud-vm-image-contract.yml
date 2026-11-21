@@ -76,11 +76,7 @@ jobs:
     # succeeded (runs 44239242817, 41957177478, 41951010847). The promote job
     # runs the same checks against the manifest it wrote instead.
     if: inputs.promote != true
-    # The bubblewrap probe creates an unprivileged user namespace as nobody.
-    # The persistent cmux-linux hosts refuse that ("bwrap: setting up uid map:
-    # Permission denied", run 44852142306), so this job takes a fresh VM like
-    # promote below. It holds no secret.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     defaults:
       run:
         working-directory: web
