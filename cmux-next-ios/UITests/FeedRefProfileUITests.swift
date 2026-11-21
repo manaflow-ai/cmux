@@ -6,7 +6,7 @@ import XCTest
 /// trace of it. The launch environment is listperf's for that case (CMUX_MOBILE_LIST_* and
 /// CMUX_MOBILE_FEED_STRESS, mock auth, exit when done), plus `CMUX_MOBILE_FEED_CELL_TIMING=1`
 /// (FeedCellTiming's FEEDCELL lines). The test holds the app through the first pass down
-/// (`feed-down-0`, about 53 s after a 4 s settle), then ends it at 85 s, so the trace stays small enough
+/// (`feed-down-0`, about 53 s after a 4 s settle), then ends it at 80 s, so the trace stays small enough
 /// for xctrace to save (a whole run, four 53 s windows, recorded 1.7 GB on a busy host).
 ///
 /// The step keeps no app log for a UI test's simulator, so after the run the test copies the app's
@@ -33,11 +33,13 @@ final class FeedRefProfileUITests: XCTestCase {
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore"]
         app.launch()
         defer { if app.state != .notRunning { app.terminate() } }
-        let choose = app.scrollViews["setup.teams.choose"]
-        if choose.waitForExistence(timeout: 5) { app.buttons["Manaflow"].tap() }
-        // feed-down-0 is all this profile reads; the rig's later passes only grow the trace.
-        let exited = app.wait(for: .notRunning, timeout: 85)
-        print("FEEDREFPROFILE exited=\(exited) state=\(app.state.rawValue)")
+        // Nothing touches the app's accessibility tree while the rig runs: a query (an element's
+        // `waitForExistence`, `app.wait(for:)`) makes XCTest snapshot it on the app's main thread,
+        // 100-300 ms each on this list, which would land in the frames this profile reads. So the
+        // test only waits, a fixed 80 s: feed-down-0 starts about 4 s after the Feed opens and lasts
+        // about 53 s; the rig's later passes are not needed and only grow the trace.
+        _ = XCTWaiter.wait(for: [XCTestExpectation(description: "the rig's first pass down")], timeout: 80)
+        print("FEEDREFPROFILE after 80 s: state=\(app.state.rawValue)")
         collectAppLog(since: launched)
     }
 
