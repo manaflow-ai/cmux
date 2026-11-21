@@ -1141,7 +1141,7 @@ jobs:
 
       - name: Validate no job takes one runner size
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_linux_single_size.py && python3 tests/test_ci_no_single_size_pins.py
+        run: python3 tests/test_ci_linux_single_size.py && python3 tests/test_ci_overflow_switch_routes.py && python3 tests/test_ci_no_single_size_pins.py
 
       - name: Validate stalled CI paths use the runner set
         if: ${{ !cancelled() && matrix.group == 'ci' }}
