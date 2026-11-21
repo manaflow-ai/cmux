@@ -170,6 +170,9 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
   // Swift `SettingsPageLayout.sidebarSections` exports; the lead run (General, Updates) has none.
   return (
     <nav ref={stripRef} className="section-list" aria-label={t("settingsPage.sections")}>
+      <h3 className="sidebar-section-title" data-hot-swap-e2e="web">
+        HOT SWAP E2E web 2026-11-21
+      </h3>
       {shownSidebarSections(state.host?.dev_build === true).map(({ section, categories }) =>
         section.collapsed ? (
           <CollapsedSection
