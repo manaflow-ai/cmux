@@ -11,8 +11,11 @@ import CmuxNextDesignTokens
 /// themes/modes". The native half of the control contrast audit (the web half is
 /// webviews/test/control-contrast-N.test.ts): every shared button look cmux draws in AppKit and
 /// SwiftUI is rendered for real in an offscreen window, in a spread of light, dark and
-/// terminal-tinted themes, on the three grounds a control sits on (the window, a popover's card over
-/// the worst desktop, and a see-through window over the worst desktop), enabled and disabled. Each
+/// terminal-tinted themes, on the three grounds a control sits on (the window, a popover's surface,
+/// and a see-through window over the worst desktop), enabled and disabled. The popover is a real
+/// ``OverlaySurfaceView`` on its opaque popup surface (Reduce Transparency; the glass does not render
+/// offscreen), so each control fits its inks to the ground it finds in the view tree, as in the app.
+/// It was the ``CardMaterial`` fill over the worst desktop, which no native overlay draws. Each
 /// control's label is read from the painted pixels: its ink against its own fill must reach 4.5:1
 /// for text (3:1 for an icon), and a disabled control's 2.5:1, the legible floor.
 ///
@@ -28,7 +31,7 @@ import CmuxNextDesignTokens
 ///
 /// With `CONTRAST_AUDIT_OUT` set the suite writes every reading as a Markdown table
 /// (`native-control-contrast.md`) there; with `CMUX_CONTRAST_ALL_THEMES=1` it reads every bundled
-/// theme instead of the spread.
+/// theme instead of the spread. Each run prints the three worst readings of every failing control.
 @MainActor @Suite(.serialized, .closesItsWindows) struct NativeControlContrastAuditTests {
     /// The spread: the default pair, the high-chroma and mid-tone themes that broke chrome before
     /// (Hot Dog Stand, Grass, Blue Dolphin), and common light and dark terminal themes.
@@ -112,6 +115,12 @@ import CmuxNextDesignTokens
         for key in Set(known.keys).subtracting(worst.keys).sorted() where !all {
             print("native-control-contrast: baseline line no longer found, drop it: \(key)")
         }
+        // The three worst readings of each failing control and state, to show where a fix is owed.
+        for (_, group) in Dictionary(grouping: failing, by: \.key).sorted(by: { $0.key < $1.key }) {
+            for reading in group.sorted(by: { $0.ratio < $1.ratio }).prefix(3) {
+                print("native-control-contrast failing: " + Self.line(reading))
+            }
+        }
         let failures = failing.filter { $0.ratio + 0.005 < (known[$0.key] ?? .infinity) }
         #expect(readings.count > themes.count * 6 * 10, "too few controls were read: \(readings.count)")
         var perControl: [String: Int] = [:]
@@ -135,13 +144,11 @@ import CmuxNextDesignTokens
         let scope = ThemeScope(level: .room)
         scope.setOverride(try #require(ThemeSpec("Audit \(theme.name)")), input: input, animated: false)
         let tokens = scope.tokens
-        // What is behind the controls: the worst desktop for the theme under a card or a see-through window.
+        // What is behind a see-through window: the worst desktop for the theme.
         let desktop: ThemeRGB = tokens.isDark ? .white : .black
         let groundColor: ThemeRGB = switch ground {
         case .window: tokens.windowBackground.withAlpha(1)
-        case .popover:
-            CardMaterial(tokens, lift: ChromeTunables.opaqueOverlayLift.value, minimumOpacity: ChromeTunables.cardOpacity.value)
-                .tint.composited(over: desktop)
+        case .popover: tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)
         case .seeThrough: tokens.windowBackground.composited(over: desktop)
         }
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 760, height: 360))
@@ -149,13 +156,21 @@ import CmuxNextDesignTokens
         container.layer?.backgroundColor = groundColor.nsColor.cgColor
         let window = NSWindow(contentRect: container.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        // The capture is read as sRGB: a window in the screen's (or a headless Mac's generic) space
-        // painted the danger fill #d93b31 as #d84d3c, which misread white on it as 4.16:1.
+        // The capture is read as sRGB: a window in the screen's space shifts the danger fill
+        // #d93b31, which misread white on it as 4.16:1.
         window.colorSpace = .sRGB
         window.contentView = container
         defer { window.close() }
         scope.adopt(window)
         scope.root(container)
+        // On a popover the controls sit in a real overlay surface, which paints the ground itself.
+        var host: NSView = container
+        if ground == .popover {
+            let surface = OverlaySurfaceView(material: .opaque, interactive: true, cornerRadius: 0)
+            surface.frame = container.bounds
+            container.addSubview(surface)
+            host = surface.contentView
+        }
         // A swatch of a known color: the capture must give it back, or no reading of it can be trusted.
         let swatchColor = ThemeRGB(red: 0xd9 / 255.0, green: 0x3b / 255.0, blue: 0x31 / 255.0)
         let swatch = NSView(frame: NSRect(x: 0, y: 0, width: 8, height: 8))
@@ -164,10 +179,12 @@ import CmuxNextDesignTokens
         container.addSubview(swatch)
         let samples = catalog(scope: scope, disabled: disabled)
         // The most any ink reaches on a see-through ground: the theme's own primary text there.
-        let ceiling = ground == .seeThrough ? tokens.textPrimary.withAlpha(1).contrast(with: groundColor) : .infinity
+        // Read as the capture holds them, 8 bits a channel: Rose Pine Dawn's text is 2.363:1 on its exact ground and
+        // 2.354:1 on the 8-bit one, so the theme's own ink failed its own ceiling.
+        let ceiling = ground == .seeThrough ? tokens.textPrimary.withAlpha(1).eightBit.contrast(with: groundColor.eightBit) : .infinity
         var x: CGFloat = 16, y: CGFloat = 16, rowHeight: CGFloat = 0
         for sample in samples {
-            container.addSubview(sample.view)
+            host.addSubview(sample.view)
             let size = sample.view.fittingSize
             let width = max(size.width, 24), height = max(size.height, 22)
             if x + width > container.bounds.width - 16 { x = 16; y += rowHeight + 16; rowHeight = 0 }
@@ -182,21 +199,31 @@ import CmuxNextDesignTokens
         let rep = try #require(container.bitmapImageRepForCachingDisplay(in: container.bounds))
         container.cacheDisplay(in: container.bounds, to: rep)
         let scale = CGFloat(rep.pixelsWide) / container.bounds.width
-        let painted = try #require(rep.colorAt(x: Int(4 * scale), y: rep.pixelsHigh - Int(4 * scale))?.usingColorSpace(.sRGB))
-        let drift = max(abs(painted.redComponent - swatchColor.red), abs(painted.greenComponent - swatchColor.green),
-                        abs(painted.blueComponent - swatchColor.blue))
-        #expect(drift < 2.5 / 255, "the capture shifts colors: #d93b31 read back as \(painted)")
+        // A headless Mac tags the capture with a generic RGB profile while its bytes hold the sRGB
+        // values (#d93b31 then converts to #e3523f, as if gamma 1.8): read each pixel both through
+        // the tag and as raw sRGB samples, and keep the read that gives the swatch back.
+        let swatchAt = (x: Int(4 * scale), y: rep.pixelsHigh - Int(4 * scale))
+        let reads = PixelRead.allCases.compactMap { read in
+            read.color(rep, x: swatchAt.x, y: swatchAt.y).map { (read: read, drift: $0.drift(from: swatchColor)) }
+        }
+        let best = try #require(reads.min { $0.drift < $1.drift })
+        let read = best.read
+        #expect(best.drift < 2.5 / 255, Comment(rawValue: "the capture shifts colors: #d93b31 read back as "
+            + reads.map { "\($0.read): \($0.read.color(rep, x: swatchAt.x, y: swatchAt.y)?.auditHex ?? "-")" }.joined(separator: ", ")
+            + " (rep \(rep.colorSpace.localizedName ?? rep.colorSpaceName.rawValue), \(rep.bitsPerSample) bits, format \(rep.bitmapFormat.rawValue))"))
         return samples.compactMap { sample in
             // The label sits in the middle of the control: its edges are the bezel's border and the ground.
             let frame = sample.view.frame
             let inset = frame.insetBy(dx: min(10, frame.width * 0.2), dy: frame.height * 0.22)
             let top = container.bounds.height - inset.maxY
             // A glyph's few core pixels are its color (WCAG reads a graphic's color, not its antialiased edge).
-            guard let patch = Patch(rep, x: inset.minX * scale, y: top * scale, width: inset.width * scale, height: inset.height * scale,
+            guard let patch = Patch(rep, read: read, x: inset.minX * scale, y: top * scale, width: inset.width * scale, height: inset.height * scale,
                                     percentile: sample.isIcon ? 0.99 : 0.95)
             else { return nil }
             let standard = disabled ? disabledMinimum : sample.isIcon ? iconMinimum : textMinimum
-            let minimum = min(standard, ceiling * standard / textMinimum)
+            // Under a see-through ceiling the theme's own text is the best any ink can do; its antialiased edge pulls the
+            // patch's percentile a hair under the ink itself (Dracula's text read 3.73:1 against a 3.75:1 ceiling).
+            let minimum = min(standard, ceiling * standard / textMinimum - (ceiling < textMinimum ? 0.05 : 0))
             return Reading(theme: theme.label, ground: ground, control: sample.name, disabled: disabled,
                            ratio: patch.ratio, minimum: minimum, ink: patch.ink, fill: patch.fill,
                            isReference: sample.isReference)
@@ -279,7 +306,7 @@ private struct Patch {
     let ink: ThemeRGB
     let ratio: Double
 
-    init?(_ rep: NSBitmapImageRep, x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat, percentile: Double) {
+    init?(_ rep: NSBitmapImageRep, read: PixelRead, x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat, percentile: Double) {
         let x0 = max(0, Int(x)), y0 = max(0, Int(y))
         let x1 = min(rep.pixelsWide, Int(x + width)), y1 = min(rep.pixelsHigh, Int(y + height))
         guard x1 > x0, y1 > y0 else { return nil }
@@ -287,8 +314,7 @@ private struct Patch {
         var buckets: [Int: (count: Int, sum: (Double, Double, Double))] = [:]
         for py in y0..<y1 {
             for px in x0..<x1 {
-                guard let color = rep.colorAt(x: px, y: py)?.usingColorSpace(.sRGB) else { continue }
-                let rgb = ThemeRGB(red: color.redComponent, green: color.greenComponent, blue: color.blueComponent)
+                guard let rgb = read.color(rep, x: px, y: py) else { continue }
                 pixels.append(rgb)
                 let key = Int(rgb.red * 31) << 10 | Int(rgb.green * 31) << 5 | Int(rgb.blue * 31)
                 let old = buckets[key] ?? (0, (0, 0, 0))
@@ -307,9 +333,45 @@ private struct Patch {
     }
 }
 
+/// How a captured pixel is read as sRGB: through the capture's color space tag, or as its raw samples.
+private enum PixelRead: CaseIterable, CustomStringConvertible {
+    case tagged
+    case rawSamples
+
+    var description: String { self == .tagged ? "tagged" : "raw" }
+
+    func color(_ rep: NSBitmapImageRep, x: Int, y: Int) -> ThemeRGB? {
+        switch self {
+        case .tagged:
+            guard let color = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return nil }
+            return ThemeRGB(red: color.redComponent, green: color.greenComponent, blue: color.blueComponent)
+        case .rawSamples:
+            guard rep.bitsPerSample == 8, rep.samplesPerPixel >= 3, !rep.bitmapFormat.contains(.floatingPointSamples) else { return nil }
+            var samples = [Int](repeating: 0, count: rep.samplesPerPixel)
+            rep.getPixel(&samples, atX: x, y: y)
+            let first = rep.hasAlpha && rep.bitmapFormat.contains(.alphaFirst) ? 1 : 0
+            return ThemeRGB(red: Double(samples[first]) / 255, green: Double(samples[first + 1]) / 255,
+                            blue: Double(samples[first + 2]) / 255)
+        }
+    }
+}
+
 private extension ThemeRGB {
+    /// The largest channel difference from `other`.
+    func drift(from other: ThemeRGB) -> Double {
+        max(abs(red - other.red), abs(green - other.green), abs(blue - other.blue))
+    }
+
     /// `#rrggbb`, for the report.
     var auditHex: String {
         String(format: "#%02x%02x%02x", Int((red * 255).rounded()), Int((green * 255).rounded()), Int((blue * 255).rounded()))
+    }
+}
+
+private extension ThemeRGB {
+    /// The color as an 8-bit capture holds it.
+    var eightBit: ThemeRGB {
+        func channel(_ value: Double) -> Double { (value * 255).rounded() / 255 }
+        return ThemeRGB(red: channel(red), green: channel(green), blue: channel(blue), alpha: alpha)
     }
 }

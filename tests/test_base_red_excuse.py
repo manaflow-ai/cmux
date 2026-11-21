@@ -3254,6 +3254,161 @@ def web_job(job_id, run_id, sha, name, conclusion="failure"):
                 *({"name": step, "status": "completed", "conclusion": conclusion} for step in steps)]}
 
 
+BATCH_JOB = "seven-language live conformance"
+BATCH_SUITES = {"drill": {"workflow": "post-merge-drill.yml", "paths": [], "jobs": {"drill": "drill"}},
+                "sdks": {"workflow": "cmux-tui-sdks.yml", "paths": [], "jobs": {"conformance": BATCH_JOB}}}
+
+
+def batch_manifest(case, suites=None):
+    """Point base_red_excuse at a post-merge batch manifest of SUITES (BATCH_SUITES) for CASE's test."""
+    folder = tempfile.mkdtemp()
+    case.addCleanup(shutil.rmtree, folder, True)
+    path = Path(folder) / "post-merge-batch.json"
+    path.write_text(json.dumps({"suites": BATCH_SUITES if suites is None else suites}))
+    patch = unittest.mock.patch.object(excuse, "POST_MERGE_MANIFEST_FILE", path)
+    patch.start()
+    case.addCleanup(patch.stop)
+
+
+class BatchSuiteBaseGitHub(FakeGitHub):
+    """A suite moved onto the post-merge batch tier (2026-11-21): the head's run 10 of cmux-tui-sdks.yml (workflow 7)
+    failed BATCH_JOB. That workflow no longer runs on feat-cmux-next pushes: its one base run, 20, is an old push at
+    BASE_SHA, behind the PR's merge-base NEW_BASE_SHA. cmux-next-post-merge.yml calls it as suite `sdks`, so the base's
+    check is 'sdks / <job>': batch run 50, the newest, skipped the suite (its paths did not change); batch run 49 at
+    PUSHED_BASE_SHA ran it and failed the same way; probe run 51 (a bisect testing one job of an older commit) passed
+    it and is no base verdict."""
+
+    def __init__(self, base_conclusion="failure"):
+        super().__init__()
+        self.jobs[1]["name"] = self.jobs[2]["name"] = BATCH_JOB
+        self.jobs[2]["conclusion"] = "success"
+        check = f"sdks / {BATCH_JOB}"
+        self.jobs[4] = dict(failed_job(4, 49, PUSHED_BASE_SHA, check), conclusion=base_conclusion)
+        if base_conclusion != "failure":
+            self.jobs[4]["steps"] = [{"name": TEST_STEP, "status": "completed", "conclusion": base_conclusion}]
+        self.logs[4] = self.logs[2]
+        self.jobs[5] = dict(failed_job(5, 50, PUSHED_BASE_SHA, check), conclusion="skipped", steps=[])
+        self.jobs[6] = dict(failed_job(6, 51, PUSHED_BASE_SHA, check), conclusion="success",
+                            steps=[{"name": TEST_STEP, "status": "completed", "conclusion": "success"}])
+        self.base_runs = [{"id": 20, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                           "conclusion": "success", "head_sha": BASE_SHA, "created_at": "2026-11-20T10:00:00Z"}]
+        batch = {"event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
+                 "head_sha": PUSHED_BASE_SHA, "path": f".github/workflows/{excuse.POST_MERGE_WORKFLOW}"}
+        self.batch_runs = [
+            dict(batch, id=51, conclusion="success", display_title=f"probe sdks conformance at {BASE_SHA}",
+                 created_at="2026-11-21T13:00:00Z"),
+            dict(batch, id=50, conclusion="success", display_title="batch tick", created_at="2026-11-21T12:00:00Z"),
+            dict(batch, id=49, conclusion="failure", display_title="batch tick", created_at="2026-11-21T10:00:00Z")]
+
+    def json(self, route, *, paginate=False):
+        self.routes.append(route)
+        if f"/compare/feat-cmux-next...{HEAD}" in route:
+            return {"merge_base_commit": {"sha": NEW_BASE_SHA}, "files": []}
+        if f"/compare/{NEW_BASE_SHA}...{BASE_SHA}" in route:
+            return {"status": "behind"}
+        if f"/compare/{NEW_BASE_SHA}...{PUSHED_BASE_SHA}" in route:
+            return {"status": "ahead"}
+        if f"/actions/workflows/{excuse.POST_MERGE_WORKFLOW}/runs?" in route:
+            assert "branch=feat-cmux-next" in route and "status=" not in route, route
+            return {"workflow_runs": copy.deepcopy(self.batch_runs)}
+        if route.endswith("/actions/runs/10"):
+            return {"id": 10, "workflow_id": 7, "name": "cmux-tui SDKs", "path": ".github/workflows/cmux-tui-sdks.yml"}
+        self.routes.pop()
+        return super().json(route, paginate=paginate)
+
+
+class BatchSuiteBaseVerdict(unittest.TestCase):
+    """A red job of a workflow that runs on the base only inside a post-merge batch suite is judged against the newest
+    batch runs where the suite ran it, under the batch's '<suite> / <job>' check name, driven by the manifest alone."""
+
+    def setUp(self):
+        batch_manifest(self)
+
+    def judge(self, gh, base="feat-cmux-next"):
+        return "\n".join(excuse.judge(REPO, base, HEAD, [10], gh))
+
+    def test_a_batch_suite_base_red_excuses_the_same_red(self):
+        text = self.judge(BatchSuiteBaseGitHub())
+        self.assertIn(f"excused '{BATCH_JOB}'", text)
+        self.assertIn("run 49", text)
+
+    def test_a_batch_suite_base_green_leaves_the_red_the_prs_own(self):
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 49"):
+            self.judge(BatchSuiteBaseGitHub(base_conclusion="success"))
+
+    def test_a_suite_skipped_in_the_newest_batch_run_reads_the_previous_one_where_it_ran(self):
+        gh = BatchSuiteBaseGitHub()
+        text = self.judge(gh)
+        self.assertIn("run 49", text)
+        self.assertNotIn("run 50", text)
+        # Run 50's jobs were read and its skipped check passed over, not taken as a verdict.
+        self.assertTrue([route for route in gh.routes if "/actions/runs/50/jobs" in route], gh.routes)
+
+    def test_a_probe_run_is_no_base_verdict(self):
+        gh = BatchSuiteBaseGitHub()
+        text = self.judge(gh)
+        self.assertNotIn("run 51", text)
+        self.assertFalse([route for route in gh.routes if "/actions/runs/51/" in route], gh.routes)
+        self.assertTrue(excuse.post_merge_probe(gh.batch_runs[0]))
+        self.assertFalse(excuse.post_merge_probe(gh.batch_runs[1]))
+
+    def test_a_job_no_suite_runs_reads_only_its_own_workflow(self):
+        batch_manifest(self, {"drill": BATCH_SUITES["drill"]})
+        gh = BatchSuiteBaseGitHub()
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next verdict at or after this PR's merge-base yet"):
+            self.judge(gh)
+        self.assertFalse([route for route in gh.routes if excuse.POST_MERGE_WORKFLOW in route], gh.routes)
+
+    def test_a_pr_into_main_never_reads_the_batch_runs(self):
+        self.assertIsNone(excuse.base_caller(REPO, "main", {"path": ".github/workflows/cmux-tui-sdks.yml"}, BATCH_JOB))
+        self.assertIsNone(excuse.base_caller("manaflow-ai/cmuxterm-hq", "feat-cmux-next",
+                                             {"path": ".github/workflows/cmux-tui-sdks.yml"}, BATCH_JOB))
+
+    def test_a_pull_request_caller_of_a_suite_workflow_maps_to_the_suites_check(self):
+        # ci.yml's `web` job calls ci-web.yml on pull requests; the batch calls it as suite `web` (cmux#48846), so the
+        # check names match; under another suite key the check is renamed to it.
+        ci = {"path": ".github/workflows/ci.yml"}
+        for key in ("web", "web-batch"):
+            batch_manifest(self, {key: {"workflow": "ci-web.yml", "paths": [], "jobs": {}}})
+            self.assertEqual(excuse.base_caller(REPO, "feat-cmux-next", ci, WEB_SHARD),
+                             (excuse.POST_MERGE_WORKFLOW, WEB_SHARD.replace("web / ", f"{key} / ", 1)))
+        # A ci.yml job outside the caller job is not the suite's.
+        self.assertIsNone(excuse.base_caller(REPO, "feat-cmux-next", ci, SWIFT))
+
+    def test_with_no_web_suite_yet_a_web_shard_reads_the_push_caller(self):
+        ci = {"path": ".github/workflows/ci.yml"}
+        batch_manifest(self, {"drill": BATCH_SUITES["drill"]})
+        self.assertEqual(excuse.base_caller(REPO, "feat-cmux-next", ci, WEB_SHARD),
+                         (excuse.BASE_WORKFLOW_FOR[("feat-cmux-next", "ci.yml", "web")], WEB_SHARD))
+
+    def test_a_web_shard_reads_the_web_suites_batch_runs_once_its_entry_lands(self):
+        # cmux#48846's web suite: ci.yml's 'web / ...' shard is judged against the batch runs' 'web / ...' checks,
+        # as it was against cmux-next-web.yml's push runs (the same fixture, served as batch runs).
+        batch_manifest(self, {"web": {"workflow": "ci-web.yml", "paths": [], "jobs": {}}})
+        gh = WebShardBaseGitHub()
+        json_of = gh.json
+        gh.json = lambda route, **kw: json_of(route.replace(f"/{excuse.POST_MERGE_WORKFLOW}/", "/cmux-next-web.yml/"),
+                                              **kw)
+        text = self.judge(gh)
+        self.assertIn(f"excused '{WEB_SHARD}'", text)
+        self.assertIn("run 40", text)
+        self.assertIn(f"/actions/workflows/cmux-next-web.yml/runs?branch=feat-cmux-next", "".join(gh.routes))
+
+
+class CheckedInBatchManifest(unittest.TestCase):
+    def test_every_suite_of_the_checked_in_manifest_is_covered_by_its_entry(self):
+        # No code names a suite: each entry of .github/post-merge-batch.json maps its workflow's jobs to the batch's
+        # '<suite> / <job>' checks, and cmux-next-post-merge.yml has the caller job named by the suite key.
+        manifest = json.loads((excuse.WORKFLOWS.parent / "post-merge-batch.json").read_text())["suites"]
+        batch = excuse.yaml_module().safe_load((excuse.WORKFLOWS / excuse.POST_MERGE_WORKFLOW).read_text())["jobs"]
+        self.assertTrue(manifest)
+        for key, suite in manifest.items():
+            self.assertEqual(batch[key]["uses"], f"./.github/workflows/{suite['workflow']}", key)
+            run = {"path": f".github/workflows/{suite['workflow']}"}
+            for display in suite["jobs"].values():
+                self.assertEqual(excuse.base_caller(REPO, "feat-cmux-next", run, display),
+                                 (excuse.POST_MERGE_WORKFLOW, f"{key} / {display}"), key)
+
 class WebReplayGitHub(WebShardBaseGitHub):
     """cmux#34111 at 64617d70 (2026-11-08): the head's ci.yml run 10 failed REPLAY, its merge-parent replay, which
     charged CAPSULES > CAPSULE_TEST to the change; its head shard (4), job 3, passed and printed the test's error. No
@@ -3777,6 +3932,21 @@ class RollupsFromNeeds(unittest.TestCase):
         for why, (files, said) in cases.items():
             with self.subTest(why), self.assertRaisesRegex(excuse.Refused, said):
                 self.derive(**files)
+
+    def test_a_matrix_name_over_a_computed_include_matches_its_rendered_names_by_prefix(self):
+        # ci-web.yml react-apps-check-shard (#48561): a pull request runs only the shards its tests reach, so
+        # the include is computed. Actions still names each job 'react-apps-check (<shard>)'.
+        job = {"name": "react-apps-check (${{ matrix.shard }})", "runs-on": "x", "steps": [],
+               "strategy": {"matrix": {"include": "${{ fromJSON(needs.scope.outputs.react_shards) }}"}}}
+        self.assertEqual(excuse._check_matcher("react-apps-check-shard", job, "ci-web.yml"),
+                         {"exact": [], "prefixes": ["react-apps-check ("]})
+        for why, bad in {
+            "a called workflow": dict(job, uses="./.github/workflows/x.yml"),
+            "a computed matrix that is not an include": dict(job, strategy={"matrix": "${{ fromJSON(x) }}"}),
+            "an include of fixed rows without the key": dict(job, strategy={"matrix": {"include": [{"part": 1}]}}),
+        }.items():
+            with self.subTest(why), self.assertRaisesRegex(excuse.Refused, "not one matrix key over fixed values"):
+                excuse._check_matcher("react-apps-check-shard", bad, "ci-web.yml")
 
     def test_a_missing_or_malformed_contract_refuses_every_rollup(self):
         for text in (None, "{", "[]", '{"run": {}, "routed": {}}',
@@ -11930,7 +12100,7 @@ def clippy_dead_variant(at, line, column=5, variant="RootEntries", path="crates/
         "")]
 
 
-def clippy_log(job, step, *blocks, summary=("lib",), scope="acpmux", base_red=(), base="c9fd1c9ebd40"):
+def clippy_log(job, step, *blocks, summary=("lib",), scope="acpmux", base_red=(), base="c9fd1c9ebd40", new_scope=False):
     """A clippy step's log: its errors (BLOCKS, from clippy_dead_variant), cargo's summaries, then what
     .github/scripts/cmux-tui-clippy-changed.py prints after them (its scope and each red file outside the diff)."""
     lines = [f"2026-11-12T11:38:{n:02d}.0000000Z     Checking crate-{n} v0.1.0 "
@@ -11939,9 +12109,14 @@ def clippy_log(job, step, *blocks, summary=("lib",), scope="acpmux", base_red=()
         lines += block
     lines += [f"2026-11-12T11:44:0{n}.7339343Z error: could not compile `acpmux` ({kind}) due to {len(blocks)} "
               f"previous error{'s' if len(blocks) > 1 else ''}" for n, kind in enumerate(summary)]
-    lines.append(f"2026-11-12T11:44:10.0000000Z ##[error]clippy -D warnings failed for {scope}; run `cargo clippy "
-                 f"--locked --keep-going -p {scope} --all-targets -- -D warnings` in cmux-tui and fix each lint (an "
-                 "allow needs a comment saying why)")
+    if new_scope:
+        lines.append(f"2026-11-20T11:44:10.0000000Z ##[error]clippy found compile errors in {scope}; run `cargo clippy "
+                     f"--locked --keep-going -p {scope} --all-targets --message-format=json -- --cap-lints warn` in "
+                     "cmux-tui and fix each error (lints alone never fail this check)")
+    else:
+        lines.append(f"2026-11-12T11:44:10.0000000Z ##[error]clippy -D warnings failed for {scope}; run `cargo clippy "
+                     f"--locked --keep-going -p {scope} --all-targets -- -D warnings` in cmux-tui and fix each lint (an "
+                     "allow needs a comment saying why)")
     lines += [f"2026-11-12T11:44:11.0000000Z ##[error]cmux-tui/{path} is red and this change does not touch it: most "
               f"likely the base {base} already fails here (last changed on the base by {base[:8]} some commit). Then "
               "fix it on the base branch in its own pull request and update this one once that lands" for path in base_red]
@@ -12018,6 +12193,12 @@ class CompileErrorsAreComparedBySignature(unittest.TestCase):
         coded = excuse.compile_errors(["error[E0425]: cannot find value `x` in this scope",
                                        "  --> crates/a/src/lib.rs:3:9"], job)
         self.assertEqual(coded.located, {("E0425", "crates/a/src/lib.rs", "cannot find value `x` in this scope")})
+        # The wrapper's scope line since lints stopped failing it (2026-11-20) is read like the old one: never an error.
+        new = excuse.compile_errors(excuse.test_reds.lines_of(clippy_log("j", "s", clippy_dead_variant(1, 61),
+                                                                         new_scope=True)), job)
+        self.assertEqual(new.other, ())
+        self.assertEqual(new.located, excuse.compile_errors(excuse.test_reds.lines_of(clippy_log(
+            "j", "s", clippy_dead_variant(1, 61))), job).located)
 
     def test_an_error_only_the_pr_prints_is_its_own(self):
         mine = [clippy_dead_variant(45, 61), clippy_dead_variant(50, 12, variant="Fresh",
@@ -15736,13 +15917,13 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-tui-windows-check.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vm.yml", "cmux-vnc.yml",
             "coderouter-ci.yml", "fleet-test-compile.yml", "fleet-rd-host-macos.yml", "gallery-advisory.yml",
             "gallery-health.yml",
-            "indexnow-tests.yml", "ios-e2e.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
+            "ios-e2e.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
             "nightly-next-canary.yml", "nightly-next-launch-smoke.yml",
-            "r2-upload-tests.yml", "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",
+            "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",
             "swift-acpmux-protocol.yml", "swift-linux-packages.yml",
-            "terminal-hang-diagnostics.yml", "test-ios.yml", "vendored-agent-cursor.yml", "web-complexity.yml",
+            "terminal-hang-diagnostics.yml", "test-ios.yml", "web-complexity.yml",
             "web-complexity-trusted.yml", "web-validation.yml", "cmux-next-ios-kit.yml", "cmux-actions.yml",
-            "cmux-skill-contract.yml", "agent-brands.yml",
+            "agent-brands.yml",
             # React Doctor (da29cd0a): a ratchet over the React projects' own code.
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
@@ -15761,12 +15942,12 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             # (scripts/ci/pr_router.json), whose check names carry the `pr router / ` prefix, as the fallback's do.
             "pr-router.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
-            "cla-policy-guard.yml", "cla.yml", "classic-frozen-guard.yml", "contributor-welcome.yml", "labels-sync.yml",
-            "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
+            "classic-frozen-guard.yml", "labels-sync.yml",
+            "merge-freeze.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
             "thunderdome-label.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
             "cmux-next-pr-closed-cancel.yml", "ci-pr-closed-cancel.yml", "language-boundaries.yml",
             "required-checks-drift.yml",
-            "cmux-next-chromium-currency.yml", "ci-cache-receipts.yml",
+            "cmux-next-chromium-currency.yml",
             # Dispatch-only secrets seal; on a pull request that edits it every job is skipped.
             "cmux-vm-secrets-seal.yml"),
         "guard checks of their own whose reds are judged as any job's: no guard test declares its reads yet": (
@@ -16905,6 +17086,98 @@ class CutSearchConsumers(unittest.TestCase):
         self.assert_incomplete(str(cut.exception))
         with self.assertRaisesRegex(excuse.Refused, "has no completed run of this workflow"):
             excuse.stacked_parent_verdicts(SWIFT, "lane/x", parent, iter(()))
+
+
+# A repo whose base pushes run no job of the workflow and whose verdict of record is a sibling repo's runs
+# (BASE_VERDICT_REPO, teamleaderleo/glaeda's main verified in manaflow-ai/glaeda). The mapping is patched here, so
+# these tests read the mechanism, not the one live entry (asserted on its own below).
+SIBLING = "manaflow-ai/cmux-verifier"
+
+
+class SiblingVerdictGitHub(FakeGitHub):
+    """FakeGitHub where every base read must name SIBLING, and must name the workflow by its file (`ci.yml`): a
+    workflow's id is per repo, so the id 7 of this repo means nothing there. A base read that names REPO, or the
+    sibling's workflow by id, is an error, which is what the excuse used to do for every red of such a repo."""
+
+    FILE = ".github/workflows/ci.yml"
+
+    def __init__(self):
+        super().__init__()
+        self.asked: list[str] = []  # as asked, before a sibling route is rewritten to this fixture's own
+
+    def json(self, route, *, paginate=False):
+        self.asked.append(route)
+        if route.startswith(f"repos/{SIBLING}/"):
+            own = route.replace(f"repos/{SIBLING}/", f"repos/{REPO}/", 1)
+            assert "/actions/workflows/7/" not in own, route  # named by id in the sibling: its ids are its own
+            return super().json(own.replace("/actions/workflows/ci.yml/", "/actions/workflows/7/", 1),
+                                paginate=paginate)
+        assert f"/actions/workflows/7/runs?branch=" not in route, route  # a base-run list in the PR's repo
+        assert "/actions/runs/20/" not in route and not route.endswith("/actions/jobs/2"), route  # a base job there
+        if re.fullmatch(rf"repos/{re.escape(REPO)}/actions/runs/\d+", route):
+            # The head run's record, with the workflow path the sibling's runs are named by (workflow_file).
+            return {**super().json(route, paginate=paginate), "path": self.FILE}
+        return super().json(route, paginate=paginate)
+
+    def log(self, repo, job):
+        assert repo == (REPO if job["id"] == 1 else SIBLING), (repo, job["id"])
+        return super().log(repo, job)
+
+
+class NoSiblingVerdictGitHub(SiblingVerdictGitHub):
+    """SiblingVerdictGitHub where the sibling has no run of the workflow either: the refusal stands, and says where
+    it looked."""
+
+    def json(self, route, *, paginate=False):
+        if route.startswith(f"repos/{SIBLING}/actions/workflows/"):
+            return {"workflow_runs": []}
+        return super().json(route, paginate=paginate)
+
+
+class BaseVerdictInASiblingRepo(unittest.TestCase):
+    def test_glaedas_main_is_verified_in_the_fleet_fork(self):
+        # ci.yml gates every job on `pull_request || repository == manaflow-ai/glaeda`, so a push to main in the
+        # personal repo runs nothing and only the fork holds that commit's verdict (its own comment says so).
+        self.assertEqual(excuse.BASE_VERDICT_REPO.get("teamleaderleo/glaeda"), "manaflow-ai/glaeda")
+
+    def test_a_red_is_excused_by_the_sibling_repos_base_verdict(self):
+        github = SiblingVerdictGitHub()
+        with unittest.mock.patch.dict(excuse.BASE_VERDICT_REPO, {REPO: SIBLING}, clear=True):
+            lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertIn("run 20", "\n".join(lines))
+        self.assertTrue([route for route in github.asked
+                         if f"repos/{SIBLING}/actions/workflows/ci.yml/runs?" in route], github.asked)
+        # The head's own reads stay the PR's repo, and the base's runs, job lists and logs are all the sibling's.
+        self.assertEqual([route for route in github.asked if "/actions/runs/20" in route or route.endswith("/jobs/2")],
+                         [route for route in github.asked
+                          if route.startswith(f"repos/{SIBLING}/") and ("/actions/runs/20" in route
+                                                                        or route.endswith("/jobs/2"))])
+
+    def test_no_verdict_in_the_sibling_says_where_it_looked(self):
+        github = NoSiblingVerdictGitHub()
+        with unittest.mock.patch.dict(excuse.BASE_VERDICT_REPO, {REPO: SIBLING}, clear=True):
+            with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict for it "
+                                                        f"to compare with in {re.escape(SIBLING)}, where "
+                                                        f"{re.escape(REPO)}'s feat-cmux-next is verified"):
+                excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_a_repo_the_mapping_does_not_name_reads_its_own_base(self):
+        github = FakeGitHub()
+        with unittest.mock.patch.dict(excuse.BASE_VERDICT_REPO, {"other/repo": SIBLING}, clear=True):
+            lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertIn("run 20", "\n".join(lines))
+        self.assertEqual([route for route in github.routes if SIBLING in route], [])
+
+    def test_the_refusal_of_a_repo_the_mapping_does_not_name_is_unchanged(self):
+        github = StrBaseRunsGitHub()
+        said = []
+        for mapping in ({}, {"other/repo": SIBLING}):
+            with unittest.mock.patch.dict(excuse.BASE_VERDICT_REPO, mapping, clear=True):
+                with self.assertRaises(excuse.Refused) as refused:
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+            said.append(str(refused.exception))
+        self.assertEqual(said[0], said[1])
+        self.assertNotIn("BASE_VERDICT_REPO", said[0])
 
 
 if __name__ == "__main__":

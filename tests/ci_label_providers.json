@@ -32,6 +32,12 @@
       "what": "Persistent ghrun runners on the owned GCP lane VMs (cmuxterm-hq build-fleet/swift-linux-builder/lane-build-runners).",
       "runs_on": ["owned GCP lane VMs: systemd runner units under ghrun"]
     },
+    "ci-controller-mac-grants": {
+      "kind": "reconciler",
+      "serves": ["cmux-mac", "cmux-*-*-mac"],
+      "what": "The CI controller's Mac asker (CI v2 step 9, scripts/ci/mac_grants.py): a Mac with free capacity asks the controller and registers a one-job JIT runner carrying the granted job's labels, plain cmux-mac or the per-run cmux-<run_id>-<attempt>-mac, beside xcode-<version>.",
+      "runs_on": ["owned Macs: the CI controller's asker on each Mac"]
+    },
     "gha-runners": {
       "kind": "reconciler",
       "serves": ["cmux-fleet-linux-x64", "cmux-gcp-*-jit-x64", "cmux-linux"],
