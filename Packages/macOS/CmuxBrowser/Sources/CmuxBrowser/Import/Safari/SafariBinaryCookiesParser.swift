@@ -8,8 +8,9 @@ public import Foundation
 /// Secure (`0x1`), HttpOnly (`0x4`) and SameSite (`0x8` alone for Lax, `0x8`
 /// with `0x10` for Strict); its other bits are ignored. Every read is bounds
 /// checked, so a damaged or hostile file produces a ``ParseError`` instead of a
-/// crash, and the bytes decoded from cookie records are capped so a page whose
-/// offset table points at one record thousands of times cannot exhaust memory.
+/// crash. The bytes decoded from cookie records and the number of cookies
+/// returned are both capped, so a page whose offset table points at one small
+/// record many times cannot exhaust memory.
 /// Bytes after the last page (Safari's checksum, trailer and policy plist) and
 /// bytes inside a record that the fixed header does not address are ignored,
 /// so newer Safari versions that append fields still decode.
@@ -41,6 +42,8 @@ public struct SafariBinaryCookiesParser: Sendable {
         case cookieOutOfBounds(pageIndex: Int, cookieIndex: Int)
         /// Decoding the records would exceed the parser's byte limit.
         case decodedSizeExceeded(limit: Int)
+        /// The store holds more records than the parser's cookie limit.
+        case cookieCountExceeded(limit: Int)
     }
 
     private static let magic: [UInt8] = Array("cook".utf8)
@@ -58,13 +61,24 @@ public struct SafariBinaryCookiesParser: Sendable {
     /// names the same record many times counts it each time.
     public let maximumDecodedBytes: Int
 
+    /// Upper bound on the cookies one `parse` call returns.
+    ///
+    /// The smallest record is 60 bytes, so the byte limit alone admits over a
+    /// million cookies from a page that repeats one record's offset.
+    public let maximumCookieCount: Int
+
     /// Creates a parser. It holds no mutable state, so one instance can decode many stores.
     ///
-    /// - Parameter maximumDecodedBytes: Record bytes a single store may decode
-    ///   before ``ParseError/decodedSizeExceeded(limit:)`` is thrown. The default
-    ///   of 64 MiB is far above any real Safari store, which is a few megabytes.
-    public init(maximumDecodedBytes: Int = 64 << 20) {
+    /// - Parameters:
+    ///   - maximumDecodedBytes: Record bytes a single store may decode before
+    ///     ``ParseError/decodedSizeExceeded(limit:)`` is thrown. The default of
+    ///     64 MiB is far above any real Safari store, which is a few megabytes.
+    ///   - maximumCookieCount: Cookies a single store may hold before
+    ///     ``ParseError/cookieCountExceeded(limit:)`` is thrown. The default of
+    ///     100,000 is far above any real Safari store, which holds a few thousand.
+    public init(maximumDecodedBytes: Int = 64 << 20, maximumCookieCount: Int = 100_000) {
         self.maximumDecodedBytes = maximumDecodedBytes
+        self.maximumCookieCount = maximumCookieCount
     }
 
     /// Decodes a whole `Cookies.binarycookies` file.
@@ -73,7 +87,7 @@ public struct SafariBinaryCookiesParser: Sendable {
     /// - Returns: Every cookie in page order. Cookies with an empty name are
     ///   returned as stored; the caller decides whether to keep them.
     /// - Throws: ``ParseError`` when the file's structure is inconsistent or
-    ///   decoding would exceed ``maximumDecodedBytes``.
+    ///   decoding would exceed ``maximumDecodedBytes`` or ``maximumCookieCount``.
     public func parse(_ data: Data) throws -> [SafariBinaryCookie] {
         let file = ByteReader(bytes: [UInt8](data))
         guard file.count >= 8 else { throw ParseError.tooShort }
@@ -93,14 +107,20 @@ public struct SafariBinaryCookiesParser: Sendable {
                 throw ParseError.pageOutOfBounds(pageIndex: pageIndex)
             }
             let page = file.slice(at: pageStart, count: pageSize)
-            cookies.append(contentsOf: try parsePage(page, pageIndex: pageIndex, decodedBytes: &decodedBytes))
+            try parsePage(page, pageIndex: pageIndex, into: &cookies, decodedBytes: &decodedBytes)
             pageStart += pageSize
         }
         return cookies
     }
 
-    /// Decodes one page's cookies, adding the record bytes it reads to `decodedBytes` so the limit spans the whole store.
-    private func parsePage(_ page: ByteReader, pageIndex: Int, decodedBytes: inout Int) throws -> [SafariBinaryCookie] {
+    /// Appends one page's cookies to `cookies`, adding the record bytes it reads
+    /// to `decodedBytes`, so both limits span the whole store.
+    private func parsePage(
+        _ page: ByteReader,
+        pageIndex: Int,
+        into cookies: inout [SafariBinaryCookie],
+        decodedBytes: inout Int
+    ) throws {
         // Header, cookie count and footer are the minimum a page carries.
         guard page.count >= 12, page.bytes(at: 0, count: 4) == Self.pageHeader else {
             throw ParseError.invalidPageHeader(pageIndex: pageIndex)
@@ -111,8 +131,7 @@ public struct SafariBinaryCookiesParser: Sendable {
         }
 
         // No capacity is reserved from `cookieCount`: it comes from the file, and
-        // the result grows only with records that pass the decode budget.
-        var cookies: [SafariBinaryCookie] = []
+        // the result grows only with records that pass both limits.
         for cookieIndex in 0..<cookieCount {
             let offset = Int(page.littleEndianUInt32(at: 8 + cookieIndex * 4) ?? 0)
             guard offset <= page.count - Self.cookieFixedHeaderSize,
@@ -125,12 +144,14 @@ public struct SafariBinaryCookiesParser: Sendable {
                 throw ParseError.decodedSizeExceeded(limit: maximumDecodedBytes)
             }
             decodedBytes += size
+            guard cookies.count < maximumCookieCount else {
+                throw ParseError.cookieCountExceeded(limit: maximumCookieCount)
+            }
             guard let cookie = parseCookie(page.slice(at: offset, count: size)) else {
                 throw ParseError.cookieOutOfBounds(pageIndex: pageIndex, cookieIndex: cookieIndex)
             }
             cookies.append(cookie)
         }
-        return cookies
     }
 
     /// Decodes one record whose size has already been checked against its page.

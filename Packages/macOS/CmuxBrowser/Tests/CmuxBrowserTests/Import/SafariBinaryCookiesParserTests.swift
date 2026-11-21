@@ -454,8 +454,20 @@ private struct BinaryCookiesFixture {
         // The byte limit alone does not stop this store.
         #expect(recordSize * times < parser.maximumDecodedBytes)
         // The result is discarded so a failure does not print every cookie.
-        #expect(throws: SafariBinaryCookiesParser.ParseError.self) {
+        #expect(throws: SafariBinaryCookiesParser.ParseError.cookieCountExceeded(limit: parser.maximumCookieCount)) {
             _ = try parser.parse(data)
+        }
+    }
+
+    /// Applies the cookie limit across the whole store, not per page, and admits a store exactly at it.
+    @Test func appliesTheCookieLimitAcrossPagesNotPerPage() throws {
+        let bounded = SafariBinaryCookiesParser(maximumCookieCount: 2)
+        let atLimit = BinaryCookiesFixture.file(pages: [[sessionCookie], [themeCookie]])
+        let overLimit = BinaryCookiesFixture.file(pages: [[sessionCookie], [themeCookie, sessionCookie]])
+
+        #expect(try bounded.parse(atLimit).count == 2)
+        #expect(throws: SafariBinaryCookiesParser.ParseError.cookieCountExceeded(limit: 2)) {
+            _ = try bounded.parse(overLimit)
         }
     }
 
