@@ -36,6 +36,7 @@ import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.expe
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
 import { threadMinimapWave } from "../agent-session/acpmux/threadMinimap/wave.experiment";
 import { threadMinimapIncoming } from "../agent-session/acpmux/threadMinimap/incoming.experiment";
+import { threadMinimapReplies } from "../agent-session/acpmux/threadMinimap/replies.experiment";
 import { threadMinimapCard } from "../agent-session/acpmux/threadMinimap/card.experiment";
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
 import { codeActionsLook } from "../agent-session/acpmux/conversation/codeActions.experiment";
@@ -138,6 +139,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapMark,
   threadMinimapWave,
   threadMinimapIncoming,
+  threadMinimapReplies,
   threadMinimapCard,
   chatMinimapPlaceholder,
   codeActionsLook,
