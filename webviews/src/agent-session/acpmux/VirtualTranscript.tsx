@@ -1,3 +1,4 @@
+import type { PromptHeads } from "./promptHeads";
 import { PendingEntrances } from "./conversation/pendingEntrances";
 import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP, transcriptLiveVars } from "./transcriptGrid";
 import React, {
@@ -1781,7 +1782,7 @@ function TranscriptView({
   streams?: boolean;
   /// The chat's prompts older than `rows` (the snapshot's `earlierPrompts`): the thread rail lays
   /// them out from the first frame, so it never grows or shifts as history pages in.
-  earlier?: readonly AcpmuxRow[];
+  earlier?: PromptHeads;
   /// The chat's prompt count while it does not hold every prompt yet (the snapshot's `promptCount`):
   /// the rail starts at the height that many prompts take, with the held ones at their final rows.
   promptCount?: number;
