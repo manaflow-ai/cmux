@@ -12,8 +12,11 @@ public nonisolated enum AgentPaneComputerUseState: String, Sendable, Equatable {
     case ready
     /// The helper is starting or has not answered yet: not working yet, so the page holds the send.
     case starting
-    /// Off, missing a grant, failed or of another version: Set Up Computer Use fixes it.
+    /// Off, missing a grant or failed: Set Up Computer Use fixes it (its page has Restart).
     case needsSetup = "needs_setup"
+    /// This build has no cmux Remote, or its cmux Remote answers in another version's shape: no setup
+    /// can fix it, only another build (#48541).
+    case unavailable
     /// The organization turned computer use off: no setup can help.
     case disabled
 
@@ -24,6 +27,7 @@ public nonisolated enum AgentPaneComputerUseState: String, Sendable, Equatable {
         case "ready": self = granted ? .ready : .needsSetup
         case "starting": self = .starting
         case "disabled_by_policy": self = .disabled
+        case "unavailable", "version_mismatch": self = .unavailable
         default: self = .needsSetup
         }
     }

@@ -1,17 +1,34 @@
 // Whether Computer Use is set up on this Mac, for the composer's `@computer-use` (toolMentions.ts,
 // CMUX-682). The app pushes it to every page at load and on every change of its one Computer Use
 // Setup (AgentPaneComputerUseState.swift, `computerUseState` event): `ready` (the helper holds both
-// grants), `starting` (no answer yet), `needs_setup` (off, a grant missing, failed) or `disabled` (the
+// grants), `starting` (no answer yet), `needs_setup` (off, a grant missing, failed), `unavailable`
+// (this build has no cmux Remote, or one of another version: no setup can fix it) or `disabled` (the
 // organization turned it off). The page never asks and never waits: a send reads the state as it is
 // now. An app too old to push it leaves it unknown, and nothing is held.
 import { useSyncExternalStore } from "react";
+import type { StringKey } from "../i18n";
 import { toolMentionsIn } from "../toolMentions";
 
-export type ComputerUseState = "ready" | "starting" | "needs_setup" | "disabled";
+export type ComputerUseState = "ready" | "starting" | "needs_setup" | "unavailable" | "disabled";
 
-/// The app's answer, or undefined for anything else (an older app, null while unknown).
+/// Where the chat a send goes to runs: this Mac, a Cloud machine (a Cloud VM chat, a Sandboxed run)
+/// or another machine (a peer, an SSH host). Only a chat on this Mac gets cmux's Computer Use tools:
+/// acpmux gives a remote-origin session no cmux tools, and nothing routes a VM back to this Mac (#48541).
+export type ComputerUsePlace = "here" | "cloud" | "machine";
+
+/// Why a send that names `@computer-use` is held, and what the notice says: `setup` (off, a grant
+/// missing, still starting: the setup page fixes it), `unavailable` (this build cannot run it),
+/// `disabled` (the organization turned it off), `cloud` / `machine` (the chat does not run on this Mac).
+export type ComputerUseHold = "setup" | "unavailable" | "disabled" | "cloud" | "machine";
+
+/// The app's answer, or undefined for anything else (an older app, null while unknown, a newer
+/// app's state this page does not know: those send, as before).
 export function readComputerUseState(value: unknown): ComputerUseState | undefined {
-  return value === "ready" || value === "starting" || value === "needs_setup" || value === "disabled"
+  return value === "ready" ||
+    value === "starting" ||
+    value === "needs_setup" ||
+    value === "unavailable" ||
+    value === "disabled"
     ? value
     : undefined;
 }
@@ -21,17 +38,48 @@ export function readComputerUseState(value: unknown): ComputerUseState | undefin
 /// answer (unknown) sends, since nothing here can tell; the agent's own tool then says what is wrong.
 export function holdsForComputerUse(
   state: ComputerUseState | undefined,
-): state is "needs_setup" | "disabled" | "starting" {
+): state is Exclude<ComputerUseState, "ready"> {
   return state !== undefined && state !== "ready";
 }
 
-/// What a send of `text` does about Computer Use (`state`, the app's latest push): `free` (it names no
-/// `@computer-use`, or Computer Use is ready, or an app too old to answer), `setup` (hold it and open
-/// the setup page: off, a grant missing, still starting) or `notice` (hold it and say why: turned off
-/// by the organization, which no setup can change).
-export function computerUseGate(text: string, state: ComputerUseState | undefined): "free" | "setup" | "notice" {
-  if (!toolMentionsIn(text).includes("computer-use") || !holdsForComputerUse(state)) return "free";
-  return state === "disabled" ? "notice" : "setup";
+/// Why a send naming `@computer-use` to a chat in `place` waits, with this Mac's `state`; undefined:
+/// it goes. A chat off this Mac waits whatever the state, since it has no Computer Use tools at all.
+export function computerUseHold(
+  state: ComputerUseState | undefined,
+  place: ComputerUsePlace = "here",
+): ComputerUseHold | undefined {
+  if (place !== "here") return place;
+  if (!holdsForComputerUse(state)) return undefined;
+  return state === "disabled" || state === "unavailable" ? state : "setup";
+}
+
+/// What a send of `text` does about Computer Use (`state`, the app's latest push; `place`, where the
+/// chat runs): `free` (it names no `@computer-use`, or Computer Use is ready on this Mac, or an app
+/// too old to answer), `setup` (hold it and open the setup page) or another hold (hold it and say why:
+/// no setup can change it).
+export function computerUseGate(
+  text: string,
+  state: ComputerUseState | undefined,
+  place: ComputerUsePlace = "here",
+): "free" | ComputerUseHold {
+  if (!toolMentionsIn(text).includes("computer-use")) return "free";
+  return computerUseHold(state, place) ?? "free";
+}
+
+/// The notice's words for `hold` (ComputerUseSetupNotice.tsx; New Tab's toast is the title alone).
+export function computerUseHoldText(hold: ComputerUseHold): { title: StringKey; detail?: StringKey } {
+  switch (hold) {
+    case "setup":
+      return { title: "computerUseSetup.title", detail: "computerUseSetup.detail" };
+    case "disabled":
+      return { title: "computerUseSetup.disabledTitle" };
+    case "unavailable":
+      return { title: "computerUseSetup.unavailableTitle", detail: "computerUseSetup.unavailableDetail" };
+    case "cloud":
+      return { title: "computerUseSetup.remoteTitle", detail: "computerUseSetup.cloudDetail" };
+    case "machine":
+      return { title: "computerUseSetup.remoteTitle", detail: "computerUseSetup.machineDetail" };
+  }
 }
 
 let current: ComputerUseState | undefined;

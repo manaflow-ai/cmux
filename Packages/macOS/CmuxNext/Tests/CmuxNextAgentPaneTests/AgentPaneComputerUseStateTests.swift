@@ -15,8 +15,13 @@ struct AgentPaneComputerUseStateTests {
         #expect(AgentPaneComputerUseState(phase: "ready", granted: false) == .needsSetup, "a grant is missing")
         #expect(AgentPaneComputerUseState(phase: "starting", granted: false) == .starting)
         #expect(AgentPaneComputerUseState(phase: "disabled_by_policy", granted: false) == .disabled)
-        for phase in ["off", "unavailable", "failed", "version_mismatch"] {
+        // Setup can turn it on or restart it.
+        for phase in ["off", "failed"] {
             #expect(AgentPaneComputerUseState(phase: phase, granted: false) == .needsSetup, "\(phase)")
+        }
+        // No cmux Remote in this build, or one of another version: setup cannot fix it (#48541).
+        for phase in ["unavailable", "version_mismatch"] {
+            #expect(AgentPaneComputerUseState(phase: phase, granted: false) == .unavailable, "\(phase)")
         }
     }
 
@@ -24,6 +29,7 @@ struct AgentPaneComputerUseStateTests {
         #expect(AgentPageEvent.computerUseState(.needsSetup).kind == "computerUseState")
         #expect(AgentPageEvent.computerUseState(.needsSetup).value == .string("needs_setup"))
         #expect(AgentPageEvent.computerUseState(.ready).value == .string("ready"))
+        #expect(AgentPageEvent.computerUseState(.unavailable).value == .string("unavailable"))
         #expect(AgentPageEvent.computerUseState(nil).value == .null)
     }
 

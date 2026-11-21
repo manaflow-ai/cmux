@@ -115,13 +115,49 @@ test("a send held for Computer Use starts nothing and keeps the prompt", async (
     selectSession: () => {},
     showAllChats: () => {},
     runShell: () => {},
-    holdsSend: (text) => {
-      asked.push(text);
+    holdsSend: (text, here) => {
+      asked.push(`${here ? "here" : "elsewhere"}: ${text}`);
       return true;
     },
   });
   const sent = actions.onAsk("claude", "open the settings app with @computer-use", undefined, undefined, true);
   await expect(sent).rejects.toBeDefined();
-  expect(asked).toEqual(["open the settings app with @computer-use"]);
+  expect(asked).toEqual(["here: open the settings app with @computer-use"]);
+  expect(calls).toEqual([]);
+});
+
+test("a send to a chat on another machine is asked about too, as not here (#48541)", async () => {
+  const calls: string[] = [];
+  const asked: string[] = [];
+  const deps = {
+    callNative: async (method: string) => {
+      calls.push(method);
+      return { sessionId: "s1" };
+    },
+    leave: () => calls.push("leave"),
+    selectSession: () => {},
+    showAllChats: () => {},
+    runShell: () => {},
+    holdsSend: (text: string, here: boolean) => {
+      asked.push(`${here ? "here" : "elsewhere"}: ${text}`);
+      return !here;
+    },
+  };
+  const text = "open the settings app with @computer-use";
+  // A saved environment on a peer.
+  const onPeer = newTabScreenActions(deps).onAsk("claude", text, undefined, undefined, true, undefined, {
+    peer: "studio",
+  });
+  await expect(onPeer).rejects.toBeDefined();
+  // The page's chats run on another machine.
+  const elsewhere = newTabScreenActions({ ...deps, startsHere: () => false }).onAsk(
+    "claude",
+    text,
+    undefined,
+    undefined,
+    true,
+  );
+  await expect(elsewhere).rejects.toBeDefined();
+  expect(asked).toEqual([`elsewhere: ${text}`, `elsewhere: ${text}`]);
   expect(calls).toEqual([]);
 });

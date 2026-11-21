@@ -36,9 +36,10 @@ export function newTabScreenActions(deps: {
   requestFolder?(cwd: string, start: (folder: string) => void, cancel?: (refusal?: unknown) => void): void;
   /// false: the page's chats run on another machine, whose folders are never this Mac's default.
   startsHere?(): boolean;
-  /// true: a chat of this Mac may not take `text` now (`@computer-use` while Computer Use is not ready,
-  /// toolMentions.ts); the pane opened its setup or said why, and the page keeps the prompt.
-  holdsSend?(text: string): boolean;
+  /// true: the chat may not take `text` now (`@computer-use` while Computer Use is not ready on this
+  /// Mac, toolMentions.ts, or for a chat on another machine, `here` false, which has no Computer Use
+  /// tools, #48541); the pane opened its setup or said why, and the page keeps the prompt.
+  holdsSend?(text: string, here: boolean): boolean;
   /// Captures the page/selection owning this attempt, before any asynchronous work.
   startScope?(allowReconnect: boolean): () => boolean;
   clearError?(): void;
@@ -53,8 +54,8 @@ export function newTabScreenActions(deps: {
   return {
     onAsk(harness, text, picked, model, noProject, attachments, saved) {
       const peer = saved?.peer;
-      // Held for this Mac's Computer Use (decided at once): the page keeps the prompt, nothing starts.
-      if (!peer && deps.startsHere?.() !== false && deps.holdsSend?.(text)) return Promise.reject(startCancelled());
+      // Held for Computer Use (decided at once): the page keeps the prompt, nothing starts.
+      if (deps.holdsSend?.(text, !peer && deps.startsHere?.() !== false)) return Promise.reject(startCancelled());
       const queuedStart = !!harness && !peer && !noProject;
       const current = deps.startScope?.(queuedStart) ?? (() => true);
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
