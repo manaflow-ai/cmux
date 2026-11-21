@@ -380,6 +380,13 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         RemoteTmuxCommandBuilder(arguments: arguments).remoteShellCommand
     }
 
+    /// Like ``tmuxRemoteCommand(arguments:)`` for the `tmux -CC` control stream: the
+    /// wrapper first kills the server's orphaned control clients (issue #24388), so
+    /// every attach and reconnect sweeps up what earlier dead ssh sessions left.
+    static func tmuxControlClientRemoteCommand(arguments: [String]) -> String {
+        RemoteTmuxCommandBuilder(arguments: arguments, prunesOrphanedControlClients: true).remoteShellCommand
+    }
+
     /// Stable stderr marker the resolver emits with exit 127 when no tmux binary is usable.
     static let tmuxNotFoundSentinel = RemoteTmuxCommandBuilder.notFoundSentinel
 
@@ -425,7 +432,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
             controlPersistSeconds: controlPersistSeconds,
             batchMode: true
         ))
-        let remoteCommand = Self.tmuxRemoteCommand(
+        let remoteCommand = Self.tmuxControlClientRemoteCommand(
             arguments: mode.tmuxArguments(sessionName: sessionName))
         args.append(contentsOf: ["--", destination, remoteCommand])
         return args
