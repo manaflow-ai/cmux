@@ -831,7 +831,8 @@
       "palette": "openSettings"
     },
     {
-      "verb": "customize library reset"
+      "verb": "customize library reset",
+      "palette": "customize.library.reset"
     },
     {
       "verb": "customize library status",
@@ -1497,7 +1498,8 @@
       "palette": "space.delete"
     },
     {
-      "verb": "room follow"
+      "verb": "room follow",
+      "palette": "space.followSession"
     },
     {
       "verb": "room list",
@@ -2070,7 +2072,8 @@
       "reason": "keep: blocks a script until the process exits; a wait has no palette form"
     },
     {
-      "verb": "terminal project"
+      "verb": "terminal project",
+      "palette": "terminal.project"
     },
     {
       "verb": "terminal resume",
@@ -2193,7 +2196,8 @@
       "reason": "keep: a read for scripts and agents (VM secrets); the app shows the same state on screen"
     },
     {
-      "verb": "vm secret rm"
+      "verb": "vm secret rm",
+      "palette": "cloud.secret.remove"
     },
     {
       "verb": "vm secret set",
