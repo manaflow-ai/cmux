@@ -5,19 +5,19 @@ import Testing
 @MainActor struct ChiefWelcomeRegistryTests {
     @Test func unboundActionsLeaveNoEmptyShortcutAndReboundKeysShow() throws {
         let registry = ActionRegistry.standard()
-        registry.setShortcutOverride(nil, for: ChiefWelcome.goToAction)
         for id in ChiefWelcome.shortcutActions + [ChiefWelcome.anyAppAction] { registry.setShortcutOverride(nil, for: id) }
         let unbound = ChiefWelcome.text(registry)
         #expect(!unbound.contains("**"))
         #expect(!unbound.contains(HomeStrings.chiefWelcomeShortcuts))
-        #expect(unbound.contains(HomeStrings.chiefWelcomeExamples))
+        #expect(unbound == ChiefWelcome.aboutText)
         registry.setShortcutOverride(Shortcut("g", modifiers: [.control]), for: ChiefWelcome.goToAction)
         registry.setShortcutOverride(Shortcut("t", modifiers: [.control]), for: "newTab.default")
         let rebound = ChiefWelcome.text(registry)
         let goToKeys = try #require(registry.shortcutDisplay(for: ChiefWelcome.goToAction))
+        let goToTitle = try #require(registry.descriptor(for: ChiefWelcome.goToAction)?.title)
         let tabKeys = try #require(registry.shortcutDisplay(for: "newTab.default"))
         let tabTitle = try #require(registry.descriptor(for: "newTab.default")?.title)
-        #expect(rebound.contains(HomeStrings.chiefWelcomeGoTo(goToKeys)))
+        #expect(rebound.contains("- `\(goToKeys)` \(goToTitle.hasSuffix("…") ? String(goToTitle.dropLast()) : goToTitle)"))
         #expect(rebound.contains("- `\(tabKeys)` \(tabTitle)"))
         #expect(!rebound.contains("⌘P"))
     }
@@ -33,10 +33,9 @@ import Testing
         #expect(off.contains(line))
         #expect(off.contains("](cmux://settings/start-agent-from-any-app)"))
         let shortcuts = try #require(off.range(of: HomeStrings.chiefWelcomeShortcuts)), anyApp = try #require(off.range(of: line))
-        let examples = try #require(off.range(of: HomeStrings.chiefWelcomeExamplesHeader))
-        #expect(shortcuts.lowerBound < anyApp.lowerBound && anyApp.lowerBound < examples.lowerBound)
+        #expect(shortcuts.lowerBound < anyApp.lowerBound && off.hasSuffix(line))
         let on = ChiefWelcome.text(registry, anyAppOn: true)
-        #expect(on.contains("- `\(keys)` \(title)\n"))
+        #expect(on.hasSuffix("- `\(keys)` \(title)"))
         #expect(!on.contains(ChiefWelcome.anyAppLink))
         registry.setShortcutOverride(nil, for: ChiefWelcome.anyAppAction)
         #expect(!ChiefWelcome.text(registry).contains(title))
@@ -45,7 +44,7 @@ import Testing
     /// A leader chord (`⌘J` then `S`) reads as two keys: one code span `⌘J S` looked like a stray `S`
     /// after the shortcut.
     @Test func aLeaderChordReadsAsTwoKeysNotOneSpan() {
-        let text = ChiefWelcome.text(goTo: nil, shortcuts: [.init(keys: "⌘J", then: "S", title: "New Agent Chat")])
+        let text = ChiefWelcome.text(shortcuts: [.init(keys: "⌘J", then: "S", title: "New Agent Chat")])
         #expect(!text.contains("`⌘J S`"))
         #expect(text.contains("- " + HomeStrings.chiefWelcomeChord("⌘J", "S") + " New Agent Chat"))
     }
@@ -56,7 +55,7 @@ import Testing
         let registry = ActionRegistry.standard()
         let text = ChiefWelcome.text(registry)
         let expected: [(ActionID, String)] = [("newTab", "⌘N"), ("newTab.default", "⌘T"), ("splitRight", "⌘D"), ("splitDown", "⇧⌘D"),
-                                               ("focusLocation", "⌘L"), ("openBrowser", "⇧⌘L"), ("commandPalette", "⇧⌘P")]
+                                               ("focusLocation", "⌘L"), ("openBrowser", "⇧⌘L"), (ChiefWelcome.goToAction, "⌘P"), ("commandPalette", "⇧⌘P")]
         var last = text.startIndex
         for (id, keys) in expected {
             #expect(registry.shortcutDisplay(for: id) == keys, "\(id)")
@@ -68,7 +67,6 @@ import Testing
             #expect(line.lowerBound > last, "\(id) is in order")
             last = line.lowerBound
         }
-        #expect(registry.shortcutDisplay(for: ChiefWelcome.goToAction) == "⌘P")
         for rare: ActionID in ["home.openChiefDock", "palette.newAgentChat", "newSurface", "search.chats"] {
             let title = try #require(registry.descriptor(for: rare)?.title)
             #expect(!text.contains(title.hasSuffix("…") ? String(title.dropLast()) : title), "\(rare) is not listed")
