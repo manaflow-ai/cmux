@@ -20,18 +20,21 @@ fn stats(tokens: u64) -> UsageStats {
     .unwrap()
 }
 
-/// One peer row; every `WITH_USAGE`-th of the first ones carries `usageStats` of `tokens`.
+/// One peer row; the first `WITH_USAGE` are live (idle) and carry `usageStats` of `tokens`, the
+/// rest closed long ago. A chat with the last day's usage is live, as on this daemon, and the hub
+/// keeps a peer's live rows and only its newest closed ones (`peer_closed_bound.rs`).
 fn peer_row(i: usize, tokens: u64) -> Value {
     let mut row = json!({"sessionId": format!("remote-{i}"), "name": format!("remote-{i}"),
         "harness": "claude", "cwd": "/remote/work", "status": "closed", "updatedAt": i + 1});
     if i < WITH_USAGE {
+        row["status"] = json!("idle");
         row["usageStats"] = serde_json::to_value(stats(tokens + i as u64)).unwrap();
     }
     row
 }
 
 /// A daemon with `total` chats: half its own (all closed long ago but `WITH_USAGE` open today
-/// with stats) and half a peer's (`WITH_USAGE` of them with stats).
+/// with stats) and half a peer's (likewise, `WITH_USAGE` of them live with stats).
 fn seeded(total: usize) -> (Arc<Hub>, Arc<crate::peer::Peer>) {
     let mut cfg = crate::config::Config::default();
     cfg.store.mode = crate::config::StoreMode::Memory;
@@ -218,6 +221,8 @@ async fn stats_past_a_reply_page_send_the_client_to_the_pages() {
     let rows = (0..3_000)
         .map(|i| {
             let mut row = peer_row(i, 7_000);
+            // Live, so the peer's closed-row bound keeps every one (`peer_closed_bound.rs`).
+            row["status"] = json!("idle");
             row["usageStats"] = json!({"tokens24h": i, "pad": pad});
             row
         })
