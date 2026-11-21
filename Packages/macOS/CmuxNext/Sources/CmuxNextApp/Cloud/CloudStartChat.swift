@@ -1,7 +1,6 @@
 import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentPane
-import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextCloudCredentials
 // Re-exported: every App file and `@testable import CmuxNextApp` test reads Cloud's start-session strings (CloudStartSessionStrings).
@@ -251,7 +250,7 @@ struct CloudStartChat {
         defer { handOff(false) }
         // The chat's agent launch reads this choice (AgentTabs+RemoteStart): set before the tab exists, under the tab's key.
         services.cloud.agentCredentials.use(connection: origin.connection, chat: tabKey, machine: machine.machineID)
-        let open = { (workspace: WorkspaceHandle) in try await services.agentTabs.openFirstPage(workspace: workspace, cwd: cwd, on: daemon, source: seed, mutationID: tabKey) }
+        let inPlace = Self.frontsInPlace(origin.tab, workspace: CloudMachineWorkspace.chatKey(tabKey: tabKey).rawValue, services: services); let open = { (workspace: WorkspaceHandle) in try await services.agentTabs.openFirstPage(workspace: workspace, cwd: cwd, on: daemon, source: seed, mutationID: tabKey) }
         // The chat's own workspace, the chat its only tab: never the machine's first workspace and its starter terminal. The link can be down or drop under this (CloudMachineWorkspace.chatRelinked): it opens once more on the new link, under the same key.
         let (anchor, tab, opened) = try await CloudMachineWorkspace.chatRelinked(in: daemon.store, held: machine.linkHeld) {
             guard let connection = daemon.connection else { throw failure }
@@ -274,26 +273,13 @@ struct CloudStartChat {
                    permissionMode: services.agentTabs.startPermissionMode(), credentials: { (try? await credentials?.launchCredential(chat: opened.key, machine: machineID, harness: start.harness, model: start.model))?.env }) { outcome in
                 logger.info("cloud start prewarm: \(outcome, privacy: .public) in \(CloudStartSteps.milliseconds(prewarmBegan.duration(to: .now)), privacy: .public) ms")
             }
-        if let shown = services.agentTabs.existingView(origin.tab.id), let window = shown.window, let view = services.agentTabs.view(for: opened.key, machine: machine.machineID) { _ = await view.paintParked(in: window, size: shown.frame.size, within: .seconds(8)) }; if let slot = origin.workspace, let window = Self.placementWindow(of: slot, services: services) { services.windows.place(newWorkspace: anchor.id, in: window, at: Self.placementSlot(besides: slot)) } // the machine's page draws out of sight first (no blink, AgentPaneView+PaintParked), then its workspace takes the row this Mac's tab started in (cmux#45947), else the top of its machine's rows, never the end (cmux#47677)
+        if let shown = services.agentTabs.existingView(origin.tab.id), let window = shown.window, let view = services.agentTabs.view(for: opened.key, machine: machine.machineID) { _ = await view.paintParked(in: window, size: shown.frame.size, within: .seconds(8)) }; if let inPlace { services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine.machineID, key: opened.key)] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace, account: origin.account, machineID: machine.machineID); handOff(true); Self.front(inPlace, with: .init(machine: machine.machineID, key: opened.key, workspace: anchor.id), services: services); return machine.machine.title }; if let slot = origin.workspace, let window = Self.placementWindow(of: slot, services: services) { services.windows.place(newWorkspace: anchor.id, in: window, at: Self.placementSlot(besides: slot)) } // the machine's page draws out of sight first (no blink, AgentPaneView+PaintParked), then its workspace takes the row this Mac's tab started in (cmux#45947), else the top of its machine's rows, never the end (cmux#47677)
         CloudHandlers.show(anchor.id, context)
         for window in services.windows.controllers { window.state.selection.select(opened.key, in: anchor.pane.id) }
         services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine.machineID, key: opened.key)] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace, account: origin.account, machineID: machine.machineID)
         handOff(true)
         await origin.close()
         return machine.machine.title
-    }
-
-    /// Where a started Cloud chat's workspace goes (cmux#47677): right above the row the send began in,
-    /// when the sidebar lists the two together; else first among its machine's rows. A Cloud machine's
-    /// workspaces list in that machine's own section, which never holds this Mac's row, so `.above`
-    /// alone resolved to nothing and the workspace kept its place at the sidebar's end.
-    static func placementSlot(besides origin: String) -> WorkspaceSlot { .first([.above(origin), .top(anchor: nil)]) }
-
-    /// The window that holds the send's workspace, whichever workspace it shows now: the person may
-    /// have switched while the machine started, and the old lookup by selected workspace then placed nothing.
-    @MainActor static func placementWindow(of workspace: String, services: AppServices) -> String? {
-        services.windows.registry.value.owner(of: workspace)
-            ?? services.windows.controllers.first(where: { $0.state.workspaceID == workspace })?.state.id
     }
 
     /// A chat with no project: nothing is read or copied; the account is checked again as above.
