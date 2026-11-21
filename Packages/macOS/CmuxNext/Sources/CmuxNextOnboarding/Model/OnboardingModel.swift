@@ -33,15 +33,18 @@ public final class OnboardingModel {
     public var onEnd: ((Bool) -> Void)?
 
     /// `agentTools`: the cmux Tools source, else the services' own; `choices`: Make cmux Yours' source, else the services' own.
+    /// `clock` times the Computer Use done view's close (tests pass their own).
     public init(services: any OnboardingServices, step: Step, agentTools tools: (any AgentToolsSource)? = nil,
-                choices: (any FirstRunChoicesSource)? = nil) {
+                choices: (any FirstRunChoicesSource)? = nil, clock: any Clock<Duration> = ContinuousClock()) {
         self.services = services
         self.step = step
         importer = ImportStepModel(services: services)
-        computerUse = ComputerUseStepModel(source: services.computerUsePermissions)
+        computerUse = ComputerUseStepModel(source: services.computerUsePermissions, clock: clock)
         agents = AgentsStepModel(source: services.agentSignIns)
         agentTools = AgentToolsStepModel(source: tools ?? services.agentTools)
         makeItYours = MakeItYoursStepModel(source: choices ?? services.firstRunChoices)
+        // The done view's time is up: the window closes as Done.
+        computerUse.onFinished = { [weak self] in self?.finish(completed: true) }
     }
 
     /// The primary button: Find Browsers on the import step before a person

@@ -15,6 +15,8 @@ public import CmuxNextDesign
 /// - `focusLoss`: the app's focus log for a page's `focus-lost` events (``AgentPaneView/onPageFocusLost``); nil (tests) records none.
 /// - `newTabText`: the app's one maker and keeper of the JSON text of a New Tab context's shared part
 ///   (``AgentPaneNewTabText``): each page's model gets it, so the pages of a held New Tab key cost one make.
+/// - `computerUseState`: the app's one Computer Use Setup, which ``AgentPaneComputerUse`` follows and pushes
+///   to every page for the composer's `@computer-use`; nil (tests) pushes nothing, so the page holds no send.
 public struct AgentPaneShared {
     public let openPanel: MadeAheadOpenPanel?
     public let eventSources: EventSourceProcesses
@@ -23,12 +25,16 @@ public struct AgentPaneShared {
     public let flickerLog: AgentPageFlickerLog?
     public let focusLoss: AgentPaneView.PageFocusLoss?
     public let newTabText: AgentPaneNewTabText
+    public let computerUseState: (@MainActor () -> AgentPaneComputerUseState?)?
+    /// Follows `computerUseState` and pushes it to every pane's page (one for all the panes).
+    public let computerUse: AgentPaneComputerUse
 
     /// The defaults (tests): no open panel, a posting-process table of the pane's own, no apps, no grant, no flicker log, no focus log
     /// and a New Tab text of this value's own.
     public init(openPanel: MadeAheadOpenPanel? = nil, eventSources: EventSourceProcesses = EventSourceProcesses(), apps: AppsClient? = nil,
                 actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil, focusLoss: AgentPaneView.PageFocusLoss? = nil,
-                newTabText: AgentPaneNewTabText = AgentPaneNewTabText()) {
+                newTabText: AgentPaneNewTabText = AgentPaneNewTabText(),
+                computerUseState: (@MainActor () -> AgentPaneComputerUseState?)? = nil) {
         self.openPanel = openPanel
         self.eventSources = eventSources
         self.apps = apps
@@ -36,6 +42,8 @@ public struct AgentPaneShared {
         self.flickerLog = flickerLog
         self.focusLoss = focusLoss
         self.newTabText = newTabText
+        self.computerUseState = computerUseState
+        computerUse = AgentPaneComputerUse(read: computerUseState)
     }
 }
 
@@ -48,6 +56,7 @@ extension AgentPaneView {
         model.transport.gestures.actAsMe = shared.actAsMe
         model.newTabText = shared.newTabText // before the page's first request: a new view's document has no shared text
         onPageFocusLost = shared.focusLoss
+        model.computerUse = shared.computerUse
         showActAsMe(shared.actAsMe)
     }
 }

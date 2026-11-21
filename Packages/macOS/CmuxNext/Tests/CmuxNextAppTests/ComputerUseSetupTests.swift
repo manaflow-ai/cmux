@@ -227,6 +227,73 @@ struct ComputerUseSetupTests {
         #expect(box.restarts == 1)
     }
 
+    // MARK: A drop into the list (macOS "Quit & Reopen" after a grant)
+
+    /// Without a drop a helper that stops answering waits for the person's Restart.
+    @Test func withoutADropAFailedHelperIsNotRestarted() async {
+        let reader = Reader()
+        let box = InputBox()
+        let setup = make(box, reader)
+        setup.start()
+        await wait(setup, for: .failed)
+        #expect(box.restarts == 0)
+    }
+
+    /// The helper answered, the person dropped it into the list and macOS quit it for the grant: the
+    /// helper no longer answers, so the setup restarts it once and reads its grants.
+    @Test func aHelperThatStopsAnsweringAfterADropIsRestartedOnce() async {
+        let reader = Reader()
+        await reader.setResult(.answered(ComputerUsePermissions(accessibility: true, screenRecording: false), helper: nil))
+        let box = InputBox()
+        let setup = make(box, reader)
+        setup.start()
+        await wait(setup, for: .ready)
+        await reader.setResult(.noAnswer)
+        setup.recheckAfterGrant()
+        for await restarts in ObservationStream({ box.restarts }) where restarts == 1 { break }
+        await wait(setup, for: .ready)
+        #expect(box.restarts == 1)
+        #expect(setup.permissions.screenRecording, "the restarted helper's grants")
+        #expect(!setup.restartsAfterGrant, "the drop's one restart is spent")
+    }
+
+    /// A worker that keeps exiting after a drop is restarted once; when it still fails, the window
+    /// shows Restart instead of restarting it again.
+    @Test func aWorkerThatKeepsFailingAfterADropIsRestartedOnlyOnce() async {
+        let box = InputBox()
+        box.value.helper = .failed
+        let setup = make(box, Reader())
+        setup.start()
+        #expect(box.restarts == 0)
+        setup.recheckAfterGrant()
+        for await restarts in ObservationStream({ box.restarts }) where restarts == 1 { break }
+        await wait(setup, for: .failed)
+        #expect(box.restarts == 1)
+        #expect(setup.stepPermissions.helperFailed)
+        #expect(!setup.restartsAfterGrant)
+    }
+
+    /// Both grants on, or the step's end, disarm the drop's restart.
+    @Test func bothGrantsOnOrTheStepsEndDisarmTheDropsRestart() async {
+        let reader = Reader()
+        await reader.setResult(.answered(ComputerUsePermissions(accessibility: true, screenRecording: false), helper: nil))
+        let box = InputBox()
+        let setup = make(box, reader)
+        setup.start()
+        await wait(setup, for: .ready)
+        await reader.answer()
+        setup.recheckAfterGrant()
+        for await permissions in ObservationStream({ setup.permissions }) where permissions.screenRecording { break }
+        #expect(!setup.restartsAfterGrant, "both grants on: nothing left to restart for")
+
+        setup.recheckAfterGrant()
+        setup.endGrantWatch()
+        box.value.helper = .failed
+        setup.recheck()
+        #expect(setup.phase == .failed)
+        #expect(box.restarts == 0, "after the step ended a failure waits for Restart")
+    }
+
     /// Reads that wait until the test answers them.
     @MainActor @Observable final class GatedReads {
         private(set) var waiting = false

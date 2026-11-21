@@ -7,12 +7,12 @@ import React, {
   useCallback,
   useEffect,
   useEffectEvent,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  useInsertionEffect,
 } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
@@ -125,6 +125,8 @@ import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
+import { mentionQuery } from "../mentionMenuModel";
+import { toolMentionsIn } from "../toolMentions";
 import {
   applyCommand,
   insertsText,
@@ -135,6 +137,7 @@ import {
   withSkillDollars,
   type SlashCommand,
   type SlashTrigger,
+  matchCommands,
 } from "../slashCommands";
 import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
 import { useHarnessesListed } from "../catalog";
@@ -442,6 +445,8 @@ export function NewTabScreen(props: Props) {
   const newProjectMade = useRef<{ name: string; folder: string }>(undefined);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
   const [commandActive, setCommandActive] = useState(0);
+  /// The `/word` the arrows chose a row at: Return picks that row while the word and the list stay.
+  const [commandArrowedAt, setCommandArrowedAt] = useState<string>();
   const [commandDismissed, setCommandDismissed] = useState<string>();
   /// The `/word` the field's caret ends (MarkdownField `onSlash`), as in the chat composer.
   const [commandTrigger, setCommandTrigger] = useState<SlashTrigger>();
@@ -992,16 +997,36 @@ export function NewTabScreen(props: Props) {
   // list for the text it was pressed on only: any edit forgets it, a cleared draft too, so the same
   // word typed again opens the list again, as in the chat composer (Composer `edit`).
   if (commandDismissed !== undefined && commandDismissed !== text) setCommandDismissed(undefined);
-  const commandsOpen = commandAt !== undefined && commandDismissed !== text && commandMatches.length > 0;
+  const slashOpen = commandAt !== undefined && commandDismissed !== text && commandMatches.length > 0;
+  // An `@word` the text ends in lists the plugins, as Codex's @ does (Lucas 2026-11-21: "@ is for
+  // plugins"): computer use, browser use (toolMentions.ts) and extension commands, every row that
+  // writes its own text. In the same menu as `/`, never in the address rows below the field.
+  const atWord = shell || commandAt || profilePick ? undefined : mentionQuery(text, text.length);
+  const atMatches = atWord ? matchCommands((snapshot.commands ?? []).filter(insertsText), atWord.query, false) : [];
+  const atOpen = !slashOpen && atWord !== undefined && commandDismissed !== text && atMatches.length > 0;
+  const commandsOpen = slashOpen || atOpen;
+  const menuMatches = atOpen ? atMatches : commandMatches;
+  const menuQuery = atOpen ? atWord?.query : commandQuery;
+  // The row the arrows chose holds only while its word and its list stay: a new word, a cleared draft
+  // or the list closing forgets it (adjusted while rendering, before any key reads it).
+  if (commandArrowedAt !== undefined && (!commandsOpen || menuQuery !== commandArrowedAt))
+    setCommandArrowedAt(undefined);
   // A `/word` further on that names no command is the person's text (a path): the rows stay.
-  const commandTyping = commandAt !== undefined && (commandAt.leading || commandMatches.length > 0);
-  const commandIndex = Math.min(commandActive, Math.max(0, commandMatches.length - 1));
+  const commandTyping = (commandAt !== undefined && (commandAt.leading || commandMatches.length > 0)) || atOpen;
+  const commandIndex = Math.min(commandActive, Math.max(0, menuMatches.length - 1));
   const commandNames = useSlashNames(shell ? undefined : snapshot.commands);
   /// The Codex skills picked into this draft, by shown name.
   const pickedSkills = useRef(new Set<string>());
   const onCommands = props.onCommands;
   const pickCommand = (command: SlashCommand) => {
     setCommandActive(0);
+    // From the @ menu: its text over the `@word` the draft ends in.
+    if (atOpen && atWord && insertsText(command)) {
+      setText(text.slice(0, atWord.start) + command.insert);
+      // The field keeps focus while the menu is open (a row's press never takes it): only the caret moves.
+      requestAnimationFrame(() => field.current?.setCaret(field.current.plainText().length));
+      return;
+    }
     // A picked Codex skill goes as `/$name` even where a command shares its name (withSkillDollars).
     if (command.name.length > 1 && command.name.startsWith("$")) pickedSkills.current.add(shownName(command));
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
@@ -1091,7 +1116,11 @@ export function NewTabScreen(props: Props) {
           (words) => withoutInlineTokens(words),
         )
       : [];
-  const rows = text !== dismissed ? suggested : NO_ROWS;
+  // A prompt that names a plugin (`@computer-use`, toolMentions.ts) is for an agent: only its Ask rows
+  // stay, never a web search or an address for the same words.
+  // Return reads `offered` too once the rows are dismissed, so Escape never brings back a Run or a search.
+  const offered = toolMentionsIn(text).length > 0 ? suggested.filter((row) => row.type === "ask") : suggested;
+  const rows = text !== dismissed ? offered : NO_ROWS;
   // New tabs or pages from the host can shorten the rows under a highlight.
   // A highlighted row that went away (its tab closed) hands Return back to the top row.
   const kept = selected === undefined ? -1 : rows.findIndex((row) => rowKey(row) === selected);
@@ -1120,7 +1149,7 @@ export function NewTabScreen(props: Props) {
   // What Return does when it is not the prompt (a command, an address, a tab, a search): said beside
   // Send before Return is pressed (David Beyer 2026-11-20 typed words that ran as a shell command), the
   // same row submit takes (screenModel returnRow).
-  const returns = returnRow(rows, suggested, current, {
+  const returns = returnRow(rows, offered, current, {
     address: isAddress(typed.trim(), home),
     attachments: attachments.length,
   });
@@ -1473,7 +1502,7 @@ export function NewTabScreen(props: Props) {
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
     // address with no row selected (↑ from the top row): there is no prompt to send.
     // Navigation keeps staged files in chat. An explicit creation command keeps its own action.
-    const { row, takes: keeps } = returnRow(rows, suggested, current, {
+    const { row, takes: keeps } = returnRow(rows, offered, current, {
       address: isAddress(typed.trim(), home),
       attachments: attachments.length,
     });
@@ -1684,16 +1713,22 @@ export function NewTabScreen(props: Props) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         setCommandActive(
-          (commandIndex + (event.key === "ArrowDown" ? 1 : commandMatches.length - 1)) % commandMatches.length,
+          (commandIndex + (event.key === "ArrowDown" ? 1 : menuMatches.length - 1)) % menuMatches.length,
         );
+        setCommandArrowedAt(menuQuery);
         return;
       }
       // As in chat (slashCommands.ts returnPicks): Tab and a plain Return pick the highlighted row
       // (Return runs a whole command name that takes no arguments). Shift-Return, Cmd-Return and any
       // other Return keep their meaning (a line, a send).
       const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
-      const match = commandMatches[commandIndex];
-      if (plain && (event.key === "Tab" || (event.key === "Enter" && returnPicks(match, commandQuery ?? "")))) {
+      const match = menuMatches[commandIndex];
+      if (
+        plain &&
+        (event.key === "Tab" ||
+          (event.key === "Enter" &&
+            returnPicks(match, menuQuery ?? "", commandArrowedAt !== undefined, atOpen ? undefined : commandAt?.mark)))
+      ) {
         event.preventDefault();
         pickCommand(match!.command);
         return;
@@ -2385,7 +2420,8 @@ export function NewTabScreen(props: Props) {
             <ComposerListAnchor box={box} inert={props.cloudStarting === true}>
               <ComposerListLayer>
                 <SlashMenu
-                  matches={commandMatches}
+                  mark={atOpen ? "@" : (commandAt?.mark ?? "/")}
+                  matches={menuMatches}
                   active={commandIndex}
                   empty={t("composer.noMatchingCommands")}
                   onHover={setCommandActive}

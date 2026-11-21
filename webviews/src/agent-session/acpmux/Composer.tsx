@@ -6,12 +6,12 @@ import React, {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  useInsertionEffect,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
@@ -60,13 +60,12 @@ import { PromptFocusProvider } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { MentionMenu } from "./MentionMenu";
 import { markdownOffset, mentionQuery, mentionResults, useMentionSearch } from "./mentionMenuModel";
-import { wantAllSessions } from "./sessionPages";
 import {
-  hasOtherChats,
   loadRecentMentionPaths,
   mentionInsert,
   mentionItems,
   mentionSelection,
+  mentionWantsFiles,
   recentMentionScope,
   rememberMentionPath,
   type MentionItem,
@@ -1370,24 +1369,22 @@ function ComposerFrame({
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
   const slashNames = useSlashNames(commands);
 
-  // A new word or the list opening highlights the first row again; Return takes it (returnPicks).
-  useLayoutEffect(() => setActive(0), [query, open]);
-  // Typing @ at a word start lists other chats, then the chat's folders and files that match what
-  // follows (cx-ncc.68, mentionItems.ts).
-  const chatId = snapshot.summary?.sessionId;
-  const otherChats = useMemo(() => hasOtherChats(snapshot.sessions, chatId), [snapshot.sessions, chatId]);
+  // A new word or the list opening highlights the first row again; Return takes it (returnPicks). The
+  // row the arrows chose matters for a `$word` only: a new word, a cleared draft or the list closing forgets it.
+  const [arrowed, setArrowed] = useState(false);
+  useLayoutEffect(() => {
+    setActive(0);
+    setArrowed(false);
+  }, [query, open]);
+  // Typing @ at a word start lists the plugins (toolMentions.ts), then, for a specific word, the
+  // chat's folders and files that match what follows (mentionItems.ts). Computer use and browser use
+  // are always offered, so the menu always has rows.
   const mentionTyped =
-    !open && !recalling && (searchFiles || otherChats || snapshot.catalog.length > 0) && mentionDismissed !== text
-      ? mentionQuery(text, markdownOffset(text, caret))
-      : undefined;
+    !open && !recalling && mentionDismissed !== text ? mentionQuery(text, markdownOffset(text, caret)) : undefined;
   const mentionWord = mentionTyped?.query;
-  // The @ picker finds any chat by name, not only the first page's: the pane reads the rest once
-  // it opens (sessionPages.ts `wantAllSessions`), and follows the list from then on.
-  const mentioning = mentionWord !== undefined;
-  useEffect(() => {
-    if (mentioning) wantAllSessions();
-  }, [mentioning]);
-  const mentionSearch = useMentionSearch(searchFiles, mentionWord);
+  // Only a specific word asks for files (mentionItems.ts mentionWantsFiles): `@b` lists the plugins.
+  const fileWord = mentionWord !== undefined && mentionWantsFiles(mentionWord) ? mentionWord : undefined;
+  const mentionSearch = useMentionSearch(searchFiles, fileWord);
   const mentionFiles = mentionResults(mentionSearch);
   // Recent @ picks belong to this chat's folder on its machine, and only where its files are searched.
   const recentScope = searchFiles
@@ -1401,19 +1398,15 @@ function ComposerFrame({
             query: mentionWord,
             files: mentionFiles,
             recent: loadRecentMentionPaths(recentScope),
-            sessions: snapshot.sessions,
-            chatId,
             harnesses: guestHarnesses,
+            toolName: (tool) => t(tool.label),
           }),
-    [mentionWord, mentionFiles, snapshot.sessions, guestHarnesses, chatId, recentScope],
+    [mentionWord, mentionFiles, guestHarnesses, recentScope, t],
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
-  // chat; it never hints at a file search.
+  // row; it never hints at a file search.
   const mentionAt = searchFiles || mentions.length > 0 ? mentionTyped : undefined;
-  // The word's files are still on their way: asked, or about to be once typing settles.
-  const mentionPending =
-    !!searchFiles && !!mentionWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
-  const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending);
+  const mentionSelected = mentionSelection(mentions, mentionActive);
   useEffect(() => setMentionActive(undefined), [mentionWord]);
   // `:` and two letters at a word start list emoji by shortcode; a text emoticon (`:)`, `:DD`,
   // `<3`) lists its face; Return or Tab writes the highlighted row, Esc keeps the text (emojiShortcodes.ts).
@@ -1495,7 +1488,9 @@ function ComposerFrame({
   // The commands picked last (any chat), for the + menu's few recent rows; read again as + opens.
   const [recentCommandNames, setRecentCommandNames] = useState(loadRecentCommandNames);
   const pick = (command: SlashCommand) => {
-    setRecentCommandNames(rememberRecentCommand(command.name));
+    // A row that writes its own text (a built-in tool, an extension's command) is no command to recall:
+    // the + menu's recents write `/name`, which would lose what it writes.
+    if (!insertsText(command)) setRecentCommandNames(rememberRecentCommand(command.name));
     notePicked(command);
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
     if (field.current?.insertCommand(shownName(command), insertsText(command) ? command.insert : undefined)) {
@@ -2385,8 +2380,8 @@ function ComposerFrame({
   };
   // Enter sends unless it picks a command (slashCommands.ts returnPicks): while the list shows, it
   // takes the highlighted row, unless the typed word is that row's name in full with no arguments to
-  // take (Return runs it). Esc closes the list and keeps the word as typed.
-  const returnSends = () => !open || !returnPicks(matches[selected], query ?? "");
+  // take (Return runs it), or it is a `$word` whose row the arrows did not choose. Esc closes the list.
+  const returnSends = () => !open || !returnPicks(matches[selected], query ?? "", arrowed, typedSlash?.mark);
   const sendOnReturn = (event: { preventDefault(): void }) => {
     if (!returnSteers) return submit(event);
     event.preventDefault();
@@ -2991,6 +2986,7 @@ function ComposerFrame({
               <ComposerListLayer>
                 <SlashMenu
                   key={query}
+                  mark={typedSlash?.mark ?? "/"}
                   matches={matches}
                   active={selected}
                   empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}

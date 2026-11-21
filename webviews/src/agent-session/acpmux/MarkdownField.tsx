@@ -36,6 +36,8 @@ import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTi
 import { mentionChipsPlugin } from "./composer/mentionChips";
 import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
 import { iconMaskUrl } from "./icons/iconMask";
+import { toolOfHref } from "./toolMentions";
+import { translate } from "./i18n";
 import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
@@ -70,11 +72,16 @@ import { focusRoute } from "../../ui/focusRoute";
 
 /// How the draft names its known cmux links (composer/deeplinkTitles.ts), in the sent message's
 /// look (chips/cmuxLinkLook.experiment.ts); none in its `link` arm.
-function draftLinkTitles(): DeeplinkTitles | undefined {
+function draftLinkTitles(): DeeplinkTitles {
   const look = experimentArm(cmuxLinkLook);
-  if (look === "link") return undefined;
   return {
-    known: knownCmuxLink,
+    // A built-in tool's word (`@computer-use`) is its badge in every look, `link` too (that look keeps
+    // cmux links as links): the tool's name and icon.
+    known: (href) => {
+      const tool = toolOfHref(href);
+      if (tool) return { kind: "chat", title: translate(tool.label), tool: tool.icon };
+      return look === "link" ? undefined : knownCmuxLink(href);
+    },
     // The page's icon family too: a pooled page learns it when claimed, and the icon follows it.
     subscribe: (listener) => {
       const offLinks = subscribeCmuxLinks(listener);
@@ -86,7 +93,8 @@ function draftLinkTitles(): DeeplinkTitles | undefined {
     },
     label: (info) => (look === "icon-title-host" && info.host ? `${info.title} · ${info.host}` : info.title),
     // The sent chip's kind icon (chips/CmuxLinkChip.tsx), in the looks that draw one.
-    icon: (info) => (look === "kind-title" ? undefined : iconMaskUrl(CMUX_LINK_ICONS[info.kind])),
+    icon: (info) =>
+      info.tool ? iconMaskUrl(info.tool) : look === "kind-title" ? undefined : iconMaskUrl(CMUX_LINK_ICONS[info.kind]),
   };
 }
 
