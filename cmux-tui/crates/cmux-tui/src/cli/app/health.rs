@@ -1,10 +1,12 @@
 //! `cmux app health [--json]`: does the running app work, checked the way a person would find out.
 //!
 //! After an update the chat could fail to send while the window looked fine (the picker read only
-//! "Model"). This probe asks the app at the socket, over its sockets only, the three things that
-//! broke: a chat can start (acpmux answers and the default harness passes its handshake), the model
-//! picker has models, and a terminal runs (a throwaway terminal echoes a nonce, read back, then
-//! closed). Each check has its own deadline and a stable reason code, so the app's post-update check
+//! "Model"; NIGHTLY 229690498cfd: the app relay refused every chat page's `initialize` for an
+//! unknown `_meta` param). This probe asks the app at the socket, over its sockets only, what
+//! broke: the model picker has models, a chat can start (acpmux answers and the default harness
+//! passes its handshake), the app relay let the chat pages' frames through (no relay refusal in the
+//! error journal since `--since-ms`, after a real chat page handshake with `--open-chat`), and a
+//! terminal runs (a throwaway terminal echoes a nonce, read back, then closed). Each check has its own deadline and a stable reason code, so the app's post-update check
 //! (CmuxNextUpdater's `UpdateHealthCheck`) and the bisect helper (`cmux --app-socket SOCK app health
 //! --json` against a `cmux app try` copy) read the same verdict. Nothing here changes saved state:
 //! the terminal it opens is closed again, and the chat check runs the harness without a model call.
@@ -28,15 +30,36 @@ const MODELS_DEADLINE: Duration = Duration::from_secs(20);
 const CHAT_DEADLINE: Duration = Duration::from_secs(30);
 /// Create the terminal, type, read the nonce back, close it.
 const TERMINAL_DEADLINE: Duration = Duration::from_secs(15);
+/// `errors.list` (the app's own 12 s deadline), plus a chat page's open and handshake with
+/// `--open-chat`.
+const RELAY_DEADLINE: Duration = Duration::from_secs(15);
+const RELAY_OPEN_CHAT_DEADLINE: Duration = Duration::from_secs(35);
+/// How far back the relay check reads the journal with no `--since-ms`.
+const RELAY_DEFAULT_WINDOW: Duration = Duration::from_secs(10 * 60);
+/// What the app relay logs when it refuses a chat page's frame (AgentPaneTransport+Check.swift);
+/// the error journal harvests both. Any one since `since` fails the relay check.
+pub(super) const RELAY_REFUSALS: [&str; 2] =
+    ["agent pane params rule refused", "agent pane transport refused frame"];
 
 #[derive(Debug, PartialEq, Eq)]
-pub(in crate::cli) struct Command;
+pub(in crate::cli) struct Command {
+    /// Relay refusals count from here (unix ms); the app passes its launch. Default: 10 min ago.
+    pub since_ms: Option<u64>,
+    /// Open a new agent chat (no focus change) so its page does a real handshake through the
+    /// relay, then close it. Without it the relay check reads only the chats already open.
+    pub open_chat: bool,
+}
 
 /// `rest` starts with `health`. `--json` is the global output flag.
 pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     let usage = || UsageError::new(crate::localization::catalog().app_control.health.usage);
-    Options::parse(rest.get(1..).unwrap_or_default(), &[], &[]).map_err(|_| usage())?;
-    Ok(AppCommand::Health(Command))
+    let options = Options::parse(rest.get(1..).unwrap_or_default(), &["since-ms"], &["open-chat"])
+        .map_err(|_| usage())?;
+    let since_ms = match options.value("since-ms") {
+        Some(text) => Some(text.parse::<u64>().map_err(|_| usage())?),
+        None => None,
+    };
+    Ok(AppCommand::Health(Command { since_ms, open_chat: options.flag("open-chat") }))
 }
 
 /// One check's verdict. `reason` is a stable code (`ok` when it passed); `detail` is for a person.
@@ -94,7 +117,10 @@ fn timed(name: &'static str, deadline: Duration, work: impl FnOnce() -> Verdict)
 }
 
 /// `cmux app health`: runs the checks and prints them.
-pub(super) fn run(global: &GlobalArgs, _command: &Command) -> i32 {
+pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
+    let since_ms = command
+        .since_ms
+        .unwrap_or_else(|| now_ms().saturating_sub(RELAY_DEFAULT_WINDOW.as_millis() as u64));
     let mut stream = match super::connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return super::super::wire::print_local_error(&error, global.output, 3),
@@ -142,8 +168,13 @@ pub(super) fn run(global: &GlobalArgs, _command: &Command) -> i32 {
         }
     }
     if app_ok {
+        let deadline = if command.open_chat { RELAY_OPEN_CHAT_DEADLINE } else { RELAY_DEADLINE };
+        checks.push(timed("relay", deadline, || {
+            relay_check(global, &identify, since_ms, command.open_chat)
+        }));
         checks.push(timed("terminal", TERMINAL_DEADLINE, || terminal_check(global, &identify)));
     } else {
+        checks.push(skipped("relay"));
         checks.push(skipped("terminal"));
     }
     let report = report(&identify, &checks);
@@ -308,6 +339,157 @@ fn terminal_check(global: &GlobalArgs, identify: &Value) -> Verdict {
         return Verdict::fail("terminal.close", error_text(&error));
     }
     verdict
+}
+
+/// The relay check: with `open_chat`, a new agent chat opens (no focus change) and its page does
+/// its `initialize` handshake through the app relay, then the tab is closed; then the error
+/// journal (`errors.list`, harvested from the logs) must hold no relay refusal since `since_ms`.
+fn relay_check(global: &GlobalArgs, identify: &Value, since_ms: u64, open_chat: bool) -> Verdict {
+    let mut opened = None;
+    if open_chat {
+        match open_probe_chat(global, identify) {
+            Ok(tab) => opened = Some(tab),
+            Err(verdict) => return verdict,
+        }
+    }
+    let journal = (|| {
+        let mut stream = super::connect_command(global).map_err(|error| error_text(&error))?;
+        let params = json!({
+            "since_ms": since_ms,
+            "text": "agent pane",
+            "harvest": true,
+            "limit": 200,
+        });
+        match super::exchange(&mut stream, "errors.list", params, RELAY_DEADLINE) {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(error)) => Err(error_text(&error)),
+            Err(message) => Err(message),
+        }
+    })();
+    if let Some((daemon_global, tab)) = opened {
+        let closed = super::super::mcp::agent_resource(
+            &daemon_global,
+            plan(ResourceOperation::TabClose, json!({"tab": tab})),
+        );
+        if let Err(error) = closed {
+            return Verdict::fail("relay.close", error_text(&error));
+        }
+    }
+    match journal {
+        Ok(answer) => relay_verdict(&answer, since_ms),
+        Err(message) => Verdict::fail("relay.no_journal", message),
+    }
+}
+
+/// The relay refusals in an `errors.list` answer seen since `since_ms`: none passes.
+pub(super) fn relay_verdict(answer: &Value, since_ms: u64) -> Verdict {
+    let Some(entries) = answer["entries"].as_array() else {
+        return Verdict::fail("relay.no_journal", "errors.list returned no entries list");
+    };
+    let refusals: Vec<&Value> = entries
+        .iter()
+        .filter(|entry| entry["last_ms"].as_f64().is_some_and(|ms| ms >= since_ms as f64))
+        .filter(|entry| {
+            let text = format!(
+                "{} {}",
+                entry["template"].as_str().unwrap_or(""),
+                entry["sample"].as_str().unwrap_or("")
+            );
+            RELAY_REFUSALS.iter().any(|marker| text.contains(marker))
+        })
+        .collect();
+    if refusals.is_empty() {
+        return Verdict::pass("no relay refusal in the error journal");
+    }
+    let count: u64 =
+        refusals.iter().map(|entry| entry["count"].as_f64().unwrap_or(1.0) as u64).sum();
+    let samples: Vec<String> = refusals
+        .iter()
+        .take(3)
+        .map(|entry| {
+            let sample = entry["sample"].as_str().unwrap_or("");
+            let fingerprint = entry["fingerprint"].as_str().unwrap_or("?");
+            format!("{fingerprint}: {}", sample.chars().take(200).collect::<String>())
+        })
+        .collect();
+    Verdict::fail(
+        "relay.refused",
+        format!("the app relay refused chat page frames {count} times: {}", samples.join("; ")),
+    )
+}
+
+/// Opens a new agent chat with `palette.newAgentChat` (`focus: false`: what the app shows does not
+/// change) and finds its tab as the one tab the daemon lists after that it did not before. Its
+/// page loads and does its `initialize` through the relay; a few seconds are left for that.
+fn open_probe_chat(global: &GlobalArgs, identify: &Value) -> Result<(GlobalArgs, String), Verdict> {
+    let Some(daemon) = daemon_socket(identify) else {
+        return Err(Verdict::fail("relay.no_daemon", "no daemon socket for this app's identity"));
+    };
+    let mut daemon_global = global.clone();
+    daemon_global.socket = Some(daemon);
+    let tabs = |daemon_global: &GlobalArgs| -> Result<Vec<String>, Verdict> {
+        super::super::mcp::agent_resource(
+            daemon_global,
+            plan(ResourceOperation::TabList, json!({})),
+        )
+        .map(|answer| tab_ids(&answer))
+        .map_err(|error| Verdict::fail("relay.tabs", error_text(&error)))
+    };
+    let before = tabs(&daemon_global)?;
+    let mut params = Value::Object(super::run::action_run_params(
+        "palette.newAgentChat",
+        super::ActionName::Any,
+        super::action_origin(),
+    ));
+    params["focus"] = json!(false);
+    super::run::insert_run_key(&mut params, None)
+        .map_err(|message| Verdict::fail("relay.open", message))?;
+    let mut stream = super::connect_command(global)
+        .map_err(|error| Verdict::fail("relay.open", error_text(&error)))?;
+    match super::exchange(&mut stream, "action.run", params, Duration::from_secs(10)) {
+        Ok(Ok(_)) => {}
+        Ok(Err(error)) => return Err(Verdict::fail("relay.open", error_text(&error))),
+        Err(message) => return Err(Verdict::fail("relay.open", message)),
+    }
+    let until = Instant::now() + Duration::from_secs(10);
+    let tab = loop {
+        let after = tabs(&daemon_global)?;
+        if let Some(tab) = new_tab(&before, &after) {
+            break tab;
+        }
+        if Instant::now() >= until {
+            return Err(Verdict::fail("relay.open", "no new chat tab appeared"));
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    };
+    // The page loads, connects and sends `initialize`; a refusal is logged at once.
+    std::thread::sleep(Duration::from_secs(8));
+    Ok((daemon_global, tab))
+}
+
+/// The tab ids in a `tab.list` answer (`tabs` or `items`, each with an `id`).
+pub(super) fn tab_ids(answer: &Value) -> Vec<String> {
+    ["tabs", "items"]
+        .iter()
+        .find_map(|key| answer[*key].as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|tab| tab["id"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// The one tab in `after` that `before` did not have; none or several is no answer.
+pub(super) fn new_tab(before: &[String], after: &[String]) -> Option<String> {
+    let mut fresh = after.iter().filter(|tab| !before.contains(tab));
+    let tab = fresh.next()?;
+    fresh.next().is_none().then(|| tab.clone())
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis() as u64)
+        .unwrap_or_default()
 }
 
 /// `terminal.wait`'s answer: passed only when it says `matched: true`.

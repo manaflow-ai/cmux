@@ -10,7 +10,15 @@ fn args(words: &[&str]) -> Vec<String> {
 
 #[test]
 fn parses_bare_health_and_refuses_extra_arguments() {
-    assert_eq!(parse(&args(&["health"])).unwrap(), AppCommand::Health(Command));
+    assert_eq!(
+        parse(&args(&["health"])).unwrap(),
+        AppCommand::Health(Command { since_ms: None, open_chat: false })
+    );
+    assert_eq!(
+        parse(&args(&["health", "--since-ms", "1700000000000", "--open-chat"])).unwrap(),
+        AppCommand::Health(Command { since_ms: Some(1_700_000_000_000), open_chat: true })
+    );
+    assert!(parse(&args(&["health", "--since-ms", "soon"])).is_err());
     assert!(parse(&args(&["health", "--bogus"])).is_err());
     assert!(parse(&args(&["health", "extra"])).is_err());
 }
@@ -122,4 +130,47 @@ fn terminal_ids_are_uuid_v4_hex() {
     assert_eq!(&id[12..13], "4");
     assert!("89ab".contains(&id[16..17]));
     assert_ne!(nonce(), nonce());
+}
+
+/// NIGHTLY 229690498cfd: the relay refused every chat page's `initialize` (unknown param `_meta`).
+#[test]
+fn relay_fails_on_the_initialize_refusal_since_the_launch() {
+    let refusal = json!({
+        "fingerprint": "0123456789abcdef",
+        "source": "log",
+        "template": "agent pane params rule refused method=<s> session=<s> cause=<s>",
+        "sample": "agent pane params rule refused method=initialize session=none cause=unknown param \"_meta\"",
+        "count": 737,
+        "first_ms": 1000,
+        "last_ms": 5000,
+    });
+    let verdict = relay_verdict(&json!({"entries": [refusal.clone()]}), 2000);
+    assert!(!verdict.ok);
+    assert_eq!(verdict.reason, "relay.refused");
+    assert!(verdict.detail.contains("737"), "{}", verdict.detail);
+    assert!(verdict.detail.contains("method=initialize"), "{}", verdict.detail);
+
+    // Last seen before the launch: an old build's, not this one's.
+    assert!(relay_verdict(&json!({"entries": [refusal]}), 6000).ok);
+
+    let frame = json!({"sample": "agent pane transport refused frame error=intent_invalid method=session/prompt",
+                       "template": "", "count": 2, "last_ms": 9000});
+    assert_eq!(relay_verdict(&json!({"entries": [frame]}), 1).reason, "relay.refused");
+
+    let other =
+        json!({"sample": "agent pane slow paint", "template": "", "count": 9, "last_ms": 9000});
+    assert!(relay_verdict(&json!({"entries": [other]}), 1).ok);
+    assert!(relay_verdict(&json!({"entries": []}), 1).ok);
+    assert_eq!(relay_verdict(&json!({}), 1).reason, "relay.no_journal");
+}
+
+#[test]
+fn the_new_tab_is_the_one_tab_that_was_not_there() {
+    let before = vec!["a".to_owned(), "b".to_owned()];
+    let answer = json!({"tabs": [{"id": "a"}, {"id": "b"}, {"id": "c"}]});
+    let after = tab_ids(&answer);
+    assert_eq!(new_tab(&before, &after).as_deref(), Some("c"));
+    assert_eq!(new_tab(&before, &before), None);
+    let two = vec!["a".to_owned(), "c".to_owned(), "d".to_owned()];
+    assert_eq!(new_tab(&before, &two), None);
 }
