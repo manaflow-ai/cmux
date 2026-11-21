@@ -10,6 +10,8 @@
     "ghostty.super+alt+w": "unbind",
     "ghostty.super+enter": "unbind",
     "ghostty.super+j": "unbind",
+    "key.agent.triage.answer": ["ctrl+cmd+y"],
+    "key.agent.triage.next": ["ctrl+cmd+;"],
     "key.agentPane.archiveChat": ["ctrl+cmd+a"],
     "key.agentPane.composer.addMenu": ["ctrl+opt+cmd+a"],
     "key.agentPane.composer.agentOptions": ["ctrl+opt+cmd+g"],
