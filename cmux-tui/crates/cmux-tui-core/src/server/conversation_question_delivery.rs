@@ -255,7 +255,7 @@ fn transport(
             break;
         }
         let Ok(link) = AcpmuxLink::connect(&socket, |_| {}) else { continue };
-        let mut call = |method: &str, params: Value| {
+        let call = |method: &str, params: Value| {
             use super::super::super::agent_session_attach::agent_session_link::LinkError;
             let remaining = deadline.saturating_duration_since(Instant::now()).min(TIMEOUT);
             if remaining.is_zero() {
