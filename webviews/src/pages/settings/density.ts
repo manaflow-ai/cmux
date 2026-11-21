@@ -8,6 +8,10 @@ export const CUSTOM_DENSITY_KEY = "appearance.customDensity";
 export const CUSTOM_DENSITIES_KEY = "appearance.customDensities";
 /** Text Size: the chrome body size in points, over any density's. The density card draws its row. */
 export const TEXT_SIZE_KEY = "appearance.metrics.chromeFontSize";
+/** Sidebar Text Size (manaflow-ai/cmux#48429): the sidebar list's own step on top of Text Size. The density card
+ * draws it under Text Size so every text size sits in one place; it is the same row the Sidebar page draws, so
+ * it stays there too and is not one of DENSITY_CARD_ROWS. */
+export const SIDEBAR_TEXT_SIZE_KEY = "sidebar.textSize";
 /** The rows the density card draws, left out of their group. */
 export const DENSITY_ROWS: ReadonlySet<string> = new Set([DENSITY_KEY, CUSTOM_DENSITY_KEY, CUSTOM_DENSITIES_KEY]);
 /** Every row the density card holds: DENSITY_ROWS, and Text Size as a normal row inside it. */

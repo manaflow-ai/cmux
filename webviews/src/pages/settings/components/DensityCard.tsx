@@ -5,6 +5,8 @@
 // (the app then drops appearance.customDensity); a custom one writes appearance.customDensity;
 // the list is appearance.customDensities. Text Size (appearance.metrics.chromeFontSize, once the
 // separate Interface Size) is a normal row in the card: a custom size in points over any density.
+// Sidebar Text Size (sidebar.textSize) follows it, so the sidebar's text is set where the rest is
+// (manaflow-ai/cmux#48429); the Sidebar page still draws that same row.
 import { useMemo, useState, type CSSProperties } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
@@ -19,6 +21,7 @@ import {
   LEVEL_RANGE,
   PAIRS,
   PRESETS,
+  SIDEBAR_TEXT_SIZE_KEY,
   SPACING_RANGE,
   TEXT_SIZE_KEY,
   customDensities,
@@ -138,6 +141,7 @@ export function DensityCard({ focus = null }: { focus?: string | null }) {
   const shown = (density: Density): Density =>
     typeof textSize === "number" ? { ...density, fontSize: textSize } : density;
   const textSizeRow = rowsByKey.get(TEXT_SIZE_KEY);
+  const sidebarTextSizeRow = rowsByKey.get(SIDEBAR_TEXT_SIZE_KEY);
 
   const choose = (density: Density) => {
     setDraft(null);
@@ -228,9 +232,10 @@ export function DensityCard({ focus = null }: { focus?: string | null }) {
           );
         })}
       </div>
-      {textSizeRow && (
+      {(textSizeRow || sidebarTextSizeRow) && (
         <div className="rows density-rows">
-          <SettingRow row={textSizeRow} focused={focus === TEXT_SIZE_KEY} />
+          {textSizeRow && <SettingRow row={textSizeRow} focused={focus === TEXT_SIZE_KEY} />}
+          {sidebarTextSizeRow && <SettingRow row={sidebarTextSizeRow} focused={focus === SIDEBAR_TEXT_SIZE_KEY} />}
         </div>
       )}
       <div className="density-actions">

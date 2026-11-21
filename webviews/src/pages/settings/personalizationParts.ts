@@ -54,8 +54,9 @@ export const PERSONALIZATION_PARTS: readonly Part[] = [
   {
     id: "text",
     symbol: "textformat",
-    // The density tiles are Appearance's; the chat text rows (Chat's whole Chat Text card) are Chat's.
-    homes: ["appearance", "chat"],
+    // The density tiles are Appearance's; the chat text rows (Chat's whole Chat Text card) are Chat's;
+    // the density card's Sidebar Text Size row is Sidebar's (manaflow-ai/cmux#48429).
+    homes: ["appearance", "chat", "sidebar"],
     cardKeys: [...DENSITY_ROWS],
     rows: [
       "agentPane.display.font.ui",
