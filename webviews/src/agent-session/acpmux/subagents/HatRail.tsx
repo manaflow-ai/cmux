@@ -15,6 +15,7 @@ import type { TrayItem } from "./runningTray";
 import { longestRunningFirst } from "./trayHeadOrder";
 import { markTarget, openHatMark, peekOf, stackMarks } from "./SubagentTray";
 import "./hatRail.css";
+import { focusRoute } from "../../../ui/focusRoute";
 import type { HatSide } from "./hatSide.experiment";
 
 const MARK = rowIconSize(12);
@@ -65,7 +66,11 @@ export function HatRail({
     const at = stops.indexOf(event.target as HTMLButtonElement);
     if (at < 0) return;
     event.preventDefault();
-    stops[(at + (event.key === next ? 1 : -1) + stops.length) % stops.length]?.focus();
+    focusRoute(
+      stops[(at + (event.key === next ? 1 : -1) + stops.length) % stops.length],
+      "person",
+      "arrow along the hat rail",
+    );
   };
   return (
     <div
