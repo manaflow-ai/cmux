@@ -123,7 +123,7 @@ export function preserveScrollAnchorTop({
   // of the turns not read yet drawn above it; once the gap between them is read, those rows move to
   // where they belong, the chat's end, and anchoring on the one at the view's top took the reader
   // there too, 160,000 px from the prompt just clicked (Leo, 2026-11-21: "load without like
-  // unnecessary movement"). The anchor is then the next visible row whose next row still follows it.
+  // unnecessary movement"). The anchor is then the next visible row whose next row still comes after it.
   let indexById: Map<string, number> | undefined;
   const shift = newRows.length - oldRows.length;
   const find = (id: string, at: number) => {
@@ -142,10 +142,11 @@ export function preserveScrollAnchorTop({
     if (newIndex < 0) continue;
     const top = anchorTop + newGeometry.topAt(newIndex) - oldGeometry.topAt(oldIndex) - shown(oldIndex);
     const nextId = oldRows[oldIndex + 1]?.id;
-    // Its next row: still right after it, gone, or none (the last row) keeps it the anchor.
+    // It left when its next row now comes before it. Its next row still after it (rows inserted
+    // between them, a streamed tool row), gone, or none (the last row) keeps it the anchor.
     const nextAt =
       nextId === undefined ? -1 : newRows[newIndex + 1]?.id === nextId ? newIndex + 1 : find(nextId, oldIndex + 1);
-    if (nextAt < 0 || nextAt === newIndex + 1) return top;
+    if (nextAt < 0 || nextAt > newIndex) return top;
     fallback ??= top;
   }
   return fallback;

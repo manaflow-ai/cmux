@@ -217,3 +217,14 @@ test("a row that left its neighbours is not the anchor: the rows in view stay pu
   const next = preserveScrollAnchorTop({ oldLayout, newLayout, oldRows, newRows, liveTop: oldTop, anchorTop: oldTop });
   expect(next).toBe(newLayout.tops[1]! - 4);
 });
+
+test("rows inserted right after the row in view keep it the anchor", () => {
+  const oldRows = [row("head", "top"), row("anchor", "the row in view"), row("after", "next")];
+  const inserted = Array.from({ length: 6 }, (_, at) => row(`tool-${at}`, `tool ${at}`));
+  const newRows = [oldRows[0], oldRows[1], ...inserted, oldRows[2]];
+  const oldLayout = layoutConversation(oldRows, 420);
+  const newLayout = layoutConversation(newRows, 420);
+  const oldTop = oldLayout.tops[1]! + 5;
+  const next = preserveScrollAnchorTop({ oldLayout, newLayout, oldRows, newRows, liveTop: oldTop, anchorTop: oldTop });
+  expect(next).toBe(newLayout.tops[1]! + 5);
+});
