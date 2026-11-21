@@ -445,14 +445,9 @@ final class AppControl {
                 return .value(DebugLayers.dropHighlight(call.params, services: services))
             },
             .mainActor("debug.sidebar_filter") { [weak services] call in .value(services.map { DebugSidebarFilter.run(call.params, $0) } ?? .null) },
-            .mainActor("debug.sidebar_rows") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugSidebarRows.report(call.params, services: services))
-            },
-            .mainActor("debug.sidebar_wheel") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugSidebarWheel.post(call.params, services: services))
-            },
+            .mainActor("debug.sidebar_rows") { [weak services] call in .value(services.map { DebugSidebarRows.report(call.params, services: $0) } ?? .null) },
+            .mainActor("debug.sidebar_wheel") { [weak services] call in .value(services.map { DebugSidebarWheel.post(call.params, services: $0) } ?? .null) },
+            .mainActor("debug.text_field") { [weak services] call in .value(DebugFieldEditor.run(call.params, window: services?.windows.active?.window)) },
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.beginSidebarRename(call.params, services: services))

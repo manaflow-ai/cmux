@@ -1636,6 +1636,50 @@ async fn a_switch_keeps_a_pinned_mode_and_takes_the_start_mode_otherwise() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A profile that pins `--permission-mode default` runs its Claude Code in Manual, and the chat
+/// says so from its first answer: a new chat and a switch onto it report Manual before Claude
+/// Code's `system/init` (which Claude Code sends only when a turn starts, here
+/// `FAKE_CLAUDE_INIT_ON_TURN`) could correct it. The translator started in Claude Code's own Auto
+/// instead, so `a_switch_keeps_a_pinned_mode_and_takes_the_start_mode_otherwise` failed whenever
+/// the mode was read before init came.
+#[tokio::test]
+async fn a_pinned_profile_reports_its_own_mode_before_claude_code_says_it() {
+    let dir = home("pinned-first", json!({"defaultPermissionMode": "fullAccess"}));
+    let mut config: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
+    config["harnesses"]["pinned"] = json!({
+        "argv": ["python3", FAKE_CLAUDE, "--permission-mode", "default"],
+        "kind": "claude-stdio",
+        "env": {"FAKE_CLAUDE_INIT_ON_TURN": "1"},
+    });
+    std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+
+    let r = app.new_chat(&dir, "pinned").await;
+    assert_eq!(r["result"]["modes"]["currentModeId"], "default", "the session/new answer: {r}");
+    let fresh = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(app.mode(&fresh).await, "default", "a new pinned chat");
+
+    let (source, _) = app.chat(&dir, "codex").await;
+    let switch = json!({"sessionId": source, "cwd": dir.join("work"), "mcpServers": [],
+                        "_meta": {"acpmux": {"harness": "pinned"}}});
+    let r = app.call("session/fork", switch).await;
+    let switched = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(app.mode(&switched).await, "default", "a switch onto the pinned profile");
+
+    // The first turn brings Claude Code's init, which says the same.
+    let r = app
+        .call(
+            "session/prompt",
+            json!({"sessionId": fresh, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&fresh).await, "default", "after Claude Code's init");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A remote device's switch of a chat this Mac started (`session/fork` with
 /// `_meta.acpmux.harness` from the Web) is that device's new chat: it starts in the target's
 /// reviewed asking mode, never in this Mac's full-access start mode, so its first remote send runs
