@@ -63,21 +63,25 @@ fn trim_to(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
         return text.to_owned();
     }
-    let head: String = text.chars().take(max).collect();
-    let sentence_end = head
-        .char_indices()
-        .filter(|&(at, c)| {
-            matches!(c, '.' | '!' | '?')
-                && text[at + c.len_utf8()..].starts_with(char::is_whitespace)
-        })
-        .map(|(at, c)| at + c.len_utf8())
-        .next_back();
-    if let Some(end) = sentence_end.filter(|&end| head[..end].chars().count() > max / 2) {
-        return head[..end].to_owned();
+    // Character counts, not byte offsets, so no cut can land inside a character.
+    let chars: Vec<char> = text.chars().collect();
+    let half = max / 2;
+    // The last `n` (a count of characters kept) whose last character ends a sentence and whose
+    // next one is a space.
+    let sentence_end = (half.saturating_add(1)..=max).rev().find(|&n| {
+        let mut pair = chars.iter().skip(n.saturating_sub(1));
+        matches!(pair.next(), Some('.' | '!' | '?'))
+            && pair.next().is_some_and(|c| c.is_whitespace())
+    });
+    if let Some(n) = sentence_end {
+        return chars.iter().take(n).collect();
     }
-    let room: String = text.chars().take(max.saturating_sub(1)).collect();
-    let cut = room.rfind(char::is_whitespace).filter(|&at| at > room.len() / 2);
-    format!("{}…", room[..cut.unwrap_or(room.len())].trim_end())
+    let room = max.saturating_sub(1);
+    let space = (half.saturating_add(1)..room)
+        .rev()
+        .find(|&n| chars.get(n).is_some_and(|c| c.is_whitespace()));
+    let kept: String = chars.iter().take(space.unwrap_or(room)).collect();
+    format!("{}…", kept.trim_end())
 }
 
 /// The call's input checked: a recap, and an ask with its answers when there is one. A field
