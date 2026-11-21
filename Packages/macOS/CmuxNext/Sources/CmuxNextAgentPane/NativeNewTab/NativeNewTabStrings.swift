@@ -3,7 +3,7 @@ import Foundation
 /// The native New Tab page's localized labels.
 nonisolated struct NativeNewTabStrings {
     var placeholder: String {
-        String(localized: "agentPane.nativeNewTab.placeholder", defaultValue: "Ask, search, or type a URL or !command", bundle: .module)
+        String(localized: "agentPane.nativeNewTab.placeholder", defaultValue: "Ask, search, URL or !command", bundle: .module)
     }
     var terminal: String { String(localized: "agentPane.nativeNewTab.terminal", defaultValue: "Terminal", bundle: .module) }
     var browser: String { String(localized: "agentPane.nativeNewTab.browser", defaultValue: "Browser", bundle: .module) }

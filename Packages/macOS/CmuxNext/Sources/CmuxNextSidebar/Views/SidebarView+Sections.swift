@@ -73,6 +73,7 @@ extension SidebarViewComponents {
     /// A region's item activation and section folding (the bands and the list's blocks).
     private func wireItems(_ region: SidebarRegionView) {
         region.liftHost = self
+        region.workspacePin = { [weak self] in self?.model.workspacePin }
         region.sectionDropTarget = { [weak self] id, point in
             self.flatMap { SidebarAppSectionDrops.target($0, section: id, at: point) }
         }
@@ -160,7 +161,7 @@ extension SidebarViewComponents {
         // The bottom slot is reserved for app views. Ordinary item sections
         // remain stored but undrawn, as cx-n0i9 decided.
         let bottomApps = model.layout.appSections(in: .bottom, room: model.activeProfileID?.rawValue)
-            .presenting(hidingItems: hidden, apps: apps)
+            .presenting(hidingItems: hidden, apps: apps) + (appSections?.providedSections ?? [])
         // Without the document the list draws no blocks: the apps after it take the band below it.
         let bandApps = (model.docDrag == nil ? appsAfterList : []) + bottomApps
         belowRegion.update(content(bandApps), width: width)
