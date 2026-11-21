@@ -30,6 +30,7 @@ import {
   type DroppedKind,
   type LinkItem,
 } from "./attachments";
+import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
 import { canResumeFromComposer } from "./composer/resumeControl";
 import { useTranscriptReadOnly } from "./conversation/readOnly";
@@ -847,6 +848,8 @@ function ComposerFrame({
     },
   });
   const attachmentsRef = useRef(attachments);
+  // Browser picks that leave (their × or a send) leave the page too: its pins match the chips.
+  useReleasedPicks(attachments);
   const pendingRef = useRef(pending);
   // The latest of each, written as the render commits (every reader is a handler, an effect or the
   // handle): a write during render keeps the composer out of the React Compiler, and each key then
@@ -1244,11 +1247,13 @@ function ComposerFrame({
         if (sending.current) return "composer.sending";
         if (state.dictating) return "composer.dictation";
         if (state.reading) return "composer.attachment-reading";
-        if (shellRef.current.shell) return "composer.shell";
         // A new chat's prompt has no chat to keep it with yet.
-        if (!state.sessionId)
-          return (field.current?.value() ?? textRef.current).trim() || state.chips ? "composer.new-chat" : null;
-        if (hydratedSession.current !== state.sessionId) return "composer.draft-restoring";
+        if (!state.sessionId) {
+          if ((field.current?.value() ?? textRef.current).trim() || state.chips) return "composer.new-chat";
+        } else if (hydratedSession.current !== state.sessionId) return "composer.draft-restoring";
+        // Last: a hidden-chat release skips it (the wake state carries shell mode back, webSwap.ts
+        // WAKE_CARRIED_HOLDS), so it must not hide a hold the release keeps the page for.
+        if (shellRef.current.shell) return "composer.shell";
         return null;
       }),
     [],
