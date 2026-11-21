@@ -388,6 +388,7 @@
         "sidebar.chromeGroups",
         "sidebar.sideBySide",
         "sidebar.groupBy",
+        "sidebar.nav",
         "sidebar.priorityView.enabled",
         "sidebar.priorityView.shown",
         "browser.defaultEngine",
