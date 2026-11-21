@@ -17,7 +17,7 @@ import AppKit
 /// A page that lays out in time answers in 1 or 2 frames and its commit waits no longer than before.
 final class CEFCommitPageWait {
     /// Frame ticks the page's commit may wait for it.
-    static let commitTicks = 6
+    static let commitTicks = 8
     /// Display frames until the page is ready whatever it answered: one under ``commitTicks``.
     static let readyFrames = commitTicks - 1
     /// Display frames until a size taken ahead for a commit that has not shown goes (the commit shows at most 4 frames
