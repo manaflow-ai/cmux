@@ -448,9 +448,10 @@ public struct Typography {
     private static func size(_ compactSize: CGFloat, _ comfortableSize: CGFloat) -> CGFloat {
         Metrics.tokens.textSize(compact: compactSize, comfortable: comfortableSize) * scale
     }
-    /// The system font designs chrome uses.
+    /// The system font designs chrome uses. `rounded` (SF Pro Rounded) and `serif` (New York) are
+    /// the system's own designs, for app scenes' `fontDesign` (a widget's Lock Screen time).
     public enum Design: Hashable, Sendable {
-        case `default`, monospaced, monospacedDigit
+        case `default`, monospaced, monospacedDigit, rounded, serif
     }
 
     /// The system font of `design` at `size` and `weight`, made once per
