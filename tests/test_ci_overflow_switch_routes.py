@@ -20,10 +20,43 @@ WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
 PROBE = "ci-cloud-overflow-probe.yml"
 RUNS_ON = re.compile(r"^\s*(?:-\s*)?runs-on:\s*(?P<expr>.+?)\s*$")
 PICKER = re.compile(r"RUNNER_POOLS\)\.linux|vars\.LINUX_RUNNER\b|CI_CLOUD_OVERFLOW_SAVED|CI_TRUSTED_RUNNER")
+JOB = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$")
 SWITCH_AS_LABEL = re.compile(r"vars\.CI_OVERFLOW_LINUX\s*\|\|\s*'cmux-linux'")
 
+# Jobs that hold a write token, an environment or secrets and so must run on a one-job VM destroyed after the
+# job (tests/test_ci_fork_runner_routing.py). cmux-linux runners are not shown to be one-job, so these keep
+# their base route and are not counted. Move one out only once its label is a one-job VM.
+EPHEMERAL = {
+    ("app-ffi-release.yml", "placement"),
+    ("ci-compile-attribution.yml", "analyze"),
+    ("ci-fast-guards.yml", "fast-guards"),
+    ("cloud-chat-proof.yml", "signin"),
+    ("cloud-journey-prod.yml", "journey"),
+    ("cloud-newlink-e2e.yml", "create-and-link"),
+    ("cloud-vm-image-roll.yml", "plan"),
+    ("cloud-vm-image-roll.yml", "promote"),
+    ("cmux-next-dev-daily.yml", "pick-sign-runner"),
+    ("cmux-next-media.yml", "hand-off"),
+    ("cmux-next-web-perf.yml", "validate"),
+    ("cmux-next.yml", "push-head-preflight"),
+    ("cmux-tui-team-signed.yml", "plan"),
+    ("cmux-vm.yml", "deploy-preview"),
+    ("cmux-vm.yml", "tail-production"),
+    ("gateway-e2e.yml", "e2e"),
+    ("gateway-e2e.yml", "runner"),
+    ("nightly-next-health.yml", "judge"),
+    ("nightly-next-health.yml", "start"),
+    ("nightly-next-rollback-drill.yml", "order"),
+    ("nightly-next-rollback-drill.yml", "publish"),
+    ("nightly-next-rollback-drill.yml", "receipt"),
+    ("nightly-next-rollback-drill.yml", "start"),
+    ("nightly-next-rollback.yml", "rollback"),
+    ("nightly-next-verdict.yml", "write"),
+    ("web-complexity.yml", "complexity"),
+}
+
 # Single-line runs-on expressions that pick a Linux pool themselves (594 before this change).
-BASELINE = 125
+BASELINE = 107
 
 
 def runs_on_expressions():
@@ -31,19 +64,25 @@ def runs_on_expressions():
     for path in sorted(WORKFLOWS.glob("*.yml")):
         if path.name == PROBE:
             continue
+        job = None
         for number, line in enumerate(path.read_text().splitlines(), 1):
+            head = JOB.match(line)
+            if head:
+                job = head.group(1)
             match = RUNS_ON.match(line)
             if match:
                 expr = match.group("expr")
                 if "}}" in expr:
                     expr = expr[: expr.rindex("}}") + 2]
-                found.append((path.name, number, expr))
+                found.append((path.name, number, expr, job))
     return found
 
 
 class OverflowSwitchRoutes(unittest.TestCase):
     def test_linux_pool_pickers_only_shrink(self):
-        pickers = [f"{n}:{i}" for n, i, e in runs_on_expressions() if PICKER.search(e)]
+        pickers = [
+            f"{n}:{i}" for n, i, e, j in runs_on_expressions() if PICKER.search(e) and (n, j) not in EPHEMERAL
+        ]
         self.assertLessEqual(
             len(pickers),
             BASELINE,
@@ -51,10 +90,14 @@ class OverflowSwitchRoutes(unittest.TestCase):
             "|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }} instead: " + ", ".join(pickers[-10:]),
         )
 
+    def test_ephemeral_jobs_exist(self):
+        jobs = {(n, j) for n, _, _, j in runs_on_expressions()}
+        self.assertEqual(sorted(EPHEMERAL - jobs), [], "EPHEMERAL names a job that no longer has a runs-on")
+
     def test_switch_falls_back_to_our_pool(self):
         bad = [
             f"{n}:{i}"
-            for n, i, e in runs_on_expressions()
+            for n, i, e, _ in runs_on_expressions()
             if "vars.CI_OVERFLOW_LINUX" in e and not SWITCH_AS_LABEL.search(e)
         ]
         self.assertEqual(bad, [], "CI_OVERFLOW_LINUX is the label itself, read as vars.CI_OVERFLOW_LINUX || 'cmux-linux'")
