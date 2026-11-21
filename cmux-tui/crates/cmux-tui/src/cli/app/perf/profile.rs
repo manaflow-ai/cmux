@@ -744,7 +744,7 @@ fn collect_in<'scope, 'env>(
             ],
         ));
     }
-    let mut app = identify.clone();
+    let mut app = identify;
     if let Some(object) = app.as_object_mut() {
         object.remove("methods");
     }

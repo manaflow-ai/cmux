@@ -673,7 +673,7 @@ impl Sim<'_> {
         match step {
             "tab" => {
                 self.action(
-                    if tick % 2 == 0 { "nextSurface" } else { "prevSurface" },
+                    if tick.is_multiple_of(2) { "nextSurface" } else { "prevSurface" },
                     json!({}),
                     None,
                     true,
@@ -683,10 +683,8 @@ impl Sim<'_> {
                 let workspace = &workspaces[tick % workspaces.len()];
                 self.action("goToWorkspace", json!({ "workspace": workspace }), None, true);
             }
-            "sidebar" => {
-                if self.action("toggleSidebar", json!({}), None, true) {
-                    self.sidebar_toggles += 1;
-                }
+            "sidebar" if self.action("toggleSidebar", json!({}), None, true) => {
+                self.sidebar_toggles += 1;
             }
             "split" if !panes_made.is_empty() => {
                 let (workspace, pane) = &panes_made[tick % panes_made.len()];
@@ -699,7 +697,7 @@ impl Sim<'_> {
                     && let Some(new) = self.split(
                         workspace,
                         pane,
-                        if tick % 2 == 0 { "splitRight" } else { "splitDown" },
+                        if tick.is_multiple_of(2) { "splitRight" } else { "splitDown" },
                     )
                 {
                     self.churn_terminals += 1;

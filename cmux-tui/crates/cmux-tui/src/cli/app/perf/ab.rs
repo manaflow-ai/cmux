@@ -214,7 +214,7 @@ pub(super) fn run(global: &GlobalArgs, args: &AbArgs) -> i32 {
         Ok(report) => report,
         Err(error) => return super::super::super::wire::print_local_error(&error, output, 3),
     };
-    let before_path = before_args.out.clone().unwrap_or_default();
+    let before_path = before_args.out.unwrap_or_default();
     if let Err(error) = super::profile::write(&before, &before_path) {
         return super::super::super::wire::print_local_error(&error, output, 1);
     }
