@@ -1682,6 +1682,32 @@ def app_vm(pid: int) -> dict:
     return out
 
 
+def soak_vm(result: dict, label: str) -> dict:
+    """--soak-vm: app_vm() of the app process and of the largest Chromium renderer of this sample, printed as SOAK-VM
+    lines (`SOAK-VM <label> <app|cef-renderer> pid P <tool>| line`), so two samples diff region by region."""
+    pick = {}
+    for row in result["processes"]:  # largest footprint first
+        if row["kind"] in ("app", "cef-renderer") and row["kind"] not in pick:
+            pick[row["kind"]] = row["pid"]
+    out = {}
+    for kind, pid in pick.items():
+        vm = app_vm(pid)
+        out[kind] = {"pid": pid, **vm}
+        for tool, entry in vm.items():
+            for line in entry.get("lines") or [f"error: {entry.get('error')}"]:
+                print(f"SOAK-VM {label} {kind} pid {pid} {tool}| {line}", flush=True)
+    return out
+
+
+def soak_growth(first: dict, last: dict) -> dict:
+    """Footprint MB gained by each process kind and in total between two samples (largest growth first)."""
+    growth = {"total": round(last["total_footprint_mb"] - first["total_footprint_mb"], 1)}
+    for kind in set(first["kinds"]) | set(last["kinds"]):
+        growth[kind] = round(last["kinds"].get(kind, {}).get("footprint_mb", 0.0)
+                             - first["kinds"].get(kind, {}).get("footprint_mb", 0.0), 1)
+    return dict(sorted(growth.items(), key=lambda item: -item[1]))
+
+
 def print_app_vm(label: str, vm: dict) -> None:
     for tool, entry in ((t, e) for t, e in vm.items() if t not in ("pages", "stacks")):
         if "error" in entry:
@@ -1753,6 +1779,13 @@ def main():
     parser.add_argument("--app-vm", action="store_true",
                         help="after the idle-launch sample: the app process's vmmap --summary, footprint and "
                              "heap --sortBySize (`app_vm` in the sample, APP-VM lines)")
+    parser.add_argument("--idle-minutes", type=float, default=0,
+                        help="after the counts: leave the app alone this many minutes (a soak, no churn), sampling every "
+                             "--sample-minutes as `soak-<minutes>m`; with --soak-vm each of those samples (and idle-launch) "
+                             "also stores vmmap --summary, footprint and heap of the app and of the largest Chromium renderer")
+    parser.add_argument("--soak-vm", action="store_true",
+                        help="with --idle-minutes: the app's and the largest cef-renderer's vmmap/footprint/heap at idle-launch "
+                             "and at every soak sample (SOAK-VM lines, `soak_vm` in the sample), to diff what grows")
     parser.add_argument("--app-vm-stacks", metavar="PATTERN",
                         help="with --app-vm: launch with MallocStackLogging=lite and print each live block of the classes "
                              "`heap -addresses PATTERN` names with the stack that allocated it (a diagnostic run: the "
@@ -1889,6 +1922,8 @@ def main():
                 result["app_vm"]["pages"] = {"error": str(e)[:300]}
             print(f"APP-VM {label} pages: {json.dumps(result['app_vm']['pages'])[:3000]}", flush=True)
             print_app_vm(label, result["app_vm"])
+        if args.soak_vm and args.idle_minutes > 0:
+            result["soak_vm"] = soak_vm(result, label)
         result["pane_failures"] = len(PANE_FAILURES)
         report["samples"].append(result)
         report["pane_failures"] = PANE_FAILURES[:20]
@@ -1973,6 +2008,22 @@ def main():
                 print(f"== restore: {json.dumps({k: v for k, v in report['restore'].items() if k != 'opens'})}", flush=True)
         if chat_renderer_crash.enabled() and chats:
             report["chat_renderer_crash"] = chat_renderer_crash.crash(app)
+        if args.idle_minutes > 0:
+            started = time.monotonic()
+            end = started + args.idle_minutes * 60
+            step = max(args.sample_minutes, 1.0) * 60
+            n = 1
+            while time.monotonic() < end - 1:
+                time.sleep(max(0.0, min(started + n * step, end) - time.monotonic()))
+                settle_and_sample(f"soak-{round((time.monotonic() - started) / 60)}m")
+                n += 1
+            soak = [s for s in report["samples"] if s["label"].startswith("soak-")]
+            if soak:
+                first = next(s for s in report["samples"] if s["label"] == "idle-launch")
+                report["soak_growth_mb"] = soak_growth(first, soak[-1])
+                print(f"== soak: {soak[-1]['label']} against idle-launch, footprint growth by kind and total:")
+                for kind, delta in report["soak_growth_mb"].items():
+                    print(f"   {kind:<22}{delta:>+10.1f} MB")
         if args.churn_minutes > 0:
             end = time.monotonic() + args.churn_minutes * 60
             next_sample = time.monotonic() + args.sample_minutes * 60
