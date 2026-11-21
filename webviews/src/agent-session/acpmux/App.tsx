@@ -108,6 +108,7 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
+  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -116,14 +117,13 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
-  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  shownCloudStartPick,
-  withDraftFolder,
   withCloudStartFolder,
+  withDraftFolder,
+  shownCloudStartPick,
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import {
@@ -140,7 +140,7 @@ import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from ".
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
-import { githubFolderRepo, githubFolder } from "./githubRepos";
+import { githubFolder, githubFolderRepo } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
@@ -248,6 +248,8 @@ import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos } from "./projectRepos";
 import { answerFromHome, replyElsewhere } from "./homeInboxModel";
 import { HomeLists } from "./HomeLists";
+import { AgentDotGrid } from "./dotGrid/AgentDotGrid";
+import { agentDotGridArm } from "./dotGrid/agentDotGrid.experiment";
 import { lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
 import type { TrustSource } from "./folderTrust";
@@ -590,6 +592,8 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
@@ -598,8 +602,6 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   pageOnOtherMachine,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
@@ -854,11 +856,11 @@ import { holdWebSwap, pageEditHold, pageReleaseHold } from "../../pages/shared/w
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import {
   SandboxTab,
-  newTabRunModeRows,
   sandboxAgent,
   sandboxPageRefusal,
   sandboxRetryable,
   type RunMode,
+  newTabRunModeRows,
 } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
@@ -2850,6 +2852,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const subagentTray = useSubagentTray();
   const trayPlacement = useSubagentTrayPlacement();
   const [goalHatPlaceArm] = useState(() => experimentArm(goalHatPlace));
+  // The agent dot grid on the home (dotGrid/agentDotGrid.experiment.ts): off unless opted in.
+  const [dotGridArm] = useState(agentDotGridArm);
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
@@ -14617,6 +14621,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     Neither does a Cloud start's chat, which shows its sent message (CloudStartView). */}
                 {freshView && !premountsChatView && !sandboxHoldsChat && !viewedSandbox && !cloudStartShown && (
                   <div className="acpmux-home-area">
+                    {dotGridArm !== "off" && (
+                      <AgentDotGrid
+                        sessions={snapshot.sessions}
+                        currentId={snapshot.sessionId}
+                        onSelect={selectSession}
+                        size={dotGridArm === "compact" ? "compact" : "regular"}
+                      />
+                    )}
                     <HomeLists
                       sessions={snapshot.sessions}
                       currentId={snapshot.sessionId}
