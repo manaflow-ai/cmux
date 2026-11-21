@@ -31,9 +31,9 @@ case "$cmd" in
     # The module outputs a patch compiles against (docs: "Per-nightly artifacts"): interfaces and binary modules,
     # the compile command lines (pass 1's xcodebuild.log, EMIT_FRONTEND_COMMAND_LINES), the relink's log, the
     # interposable list, the bind check and the .o index.
-    tar -C "$o" -czf "$out/live-code-modules-$commit.tar.gz" \
-      modules xcodebuild.log xcodebuild-relink.log interposable.txt cost.json objects.sha256 build.json \
-      $(cd "$o" && ls exports-2.txt binds-2.txt missing-2.txt 2>/dev/null)
+    keep=(modules xcodebuild.log xcodebuild-relink.log interposable.txt cost.json objects.sha256 build.json)
+    for f in exports-2.txt binds-2.txt fixups-2.txt named-2.txt missing-2.txt; do [[ ! -f "$o/$f" ]] || keep+=("$f"); done
+    tar -C "$o" -czf "$out/live-code-modules-$commit.tar.gz" "${keep[@]}"
     tar -C "$o" -czf "$out/overlay.tar.gz" app build.json
     ls -l "$out"
     ;;
