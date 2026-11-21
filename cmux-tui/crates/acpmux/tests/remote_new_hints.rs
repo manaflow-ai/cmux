@@ -144,6 +144,69 @@ async fn each_remote_new_refusal_names_its_reason_and_a_peer_hears_the_allowed_r
     let _ = std::fs::remove_dir_all(&outside);
 }
 
+/// A hub whose `webRoots` are `roots`, as config.json lists them.
+fn hub_roots(roots: &[&Path]) -> Arc<Hub> {
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "defaultHarness": "fake",
+        "webRoots": roots,
+        "webAskingModes": {"fake": ["normal", "strict"]},
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    Hub::new(cfg, store)
+}
+
+/// cmuxterm-hq#7557: a fresh machine's webRoots set to its own home folder, the one entry a
+/// root never is (`~/.ssh` stays closed), refused every remote `--cwd` with no word that the
+/// entry was left out. A folder under a usable root starts, from a peer and from the Web; one
+/// outside every root is still refused, and the refusal names the entry left out, why, and
+/// the setting to change.
+#[tokio::test]
+async fn a_remote_start_under_web_roots_works_and_one_outside_names_the_entry_left_out() {
+    let root = scratch("left-out");
+    let outside = scratch("left-out-outside");
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    let home = std::fs::canonicalize(std::env::var_os("HOME").expect("HOME")).unwrap();
+    let hub = hub_roots(&[&home, &root]);
+
+    let mut peer = C::open(&hub, Origin::Peer);
+    let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&root.join("sub")))).await;
+    assert_eq!(cwd_of(&hub, &r), root.join("sub"), "{r}");
+    let mut web = C::open(&hub, Origin::Web);
+    let r = web.call(method::SESSION_NEW, new(json!({}), Some(&root.join("sub")))).await;
+    assert_eq!(cwd_of(&hub, &r), root.join("sub"), "{r}");
+
+    let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&outside))).await;
+    assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
+    assert_eq!(r["error"]["data"]["roots"], json!([root]), "{r}");
+    assert_eq!(r["error"]["data"]["leftOut"][0]["entry"], json!(home), "{r}");
+    let message = r["error"]["message"].as_str().unwrap();
+    let left_out =
+        format!("webRoots entry {} is left out: it is this machine's home folder", home.display());
+    assert!(message.contains(&left_out), "{message}");
+    assert!(message.contains("config.json"), "{message}");
+
+    // The Web hears that an entry is left out and which setting to change, never the folder.
+    let r = web.call(method::SESSION_NEW, new(json!({}), Some(&outside))).await;
+    assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
+    let message = r["error"]["message"].as_str().unwrap();
+    assert!(message.contains("home folder") && message.contains("webRoots"), "{message}");
+    assert!(!message.contains(&home.to_string_lossy().into_owned()), "{message}");
+    assert!(r["error"]["data"].get("leftOut").is_none(), "{r}");
+
+    // Only the home folder listed (the canary's config): not "no webRoots", but none usable.
+    let hub = hub_roots(&[&home]);
+    let mut peer = C::open(&hub, Origin::Peer);
+    let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&outside))).await;
+    let message = r["error"]["message"].as_str().unwrap();
+    assert!(message.contains("this machine has no usable webRoots"), "{message}");
+    assert!(message.contains(&left_out), "{message}");
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&outside);
+}
+
 #[tokio::test]
 async fn a_peers_missing_folder_inside_a_root_is_made_and_one_outside_is_refused() {
     let root = scratch("mkdir");
