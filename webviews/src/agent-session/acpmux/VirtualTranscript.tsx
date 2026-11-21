@@ -737,10 +737,6 @@ function arrivedAtTail(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]
   return false;
 }
 
-/// Whether a pass brought a sent prompt (a new user row that is no line). It lands at once with what
-/// came in the same pass (its live line, a reply already there); tool rows and the reply that land in
-/// the send's window after it are the turn's and chase. O(1): inspect bounded windows at the append
-/// boundary and tail, so a prompt followed by a burst of rows is still recognized without scanning history.
 /// The newest prompt's row id (a user row that is no line), or undefined: the turn the room the reader
 /// came back to is kept for (`readerRoom`). Reads back from the end to that prompt only.
 function newestPromptId(rows: readonly AcpmuxRow[]): string | undefined {
@@ -751,6 +747,10 @@ function newestPromptId(rows: readonly AcpmuxRow[]): string | undefined {
   return undefined;
 }
 
+/// Whether a pass brought a sent prompt (a new user row that is no line). It lands at once with what
+/// came in the same pass (its live line, a reply already there); tool rows and the reply that land in
+/// the send's window after it are the turn's and chase. O(1): inspect bounded windows at the append
+/// boundary and tail, so a prompt followed by a burst of rows is still recognized without scanning history.
 export function broughtSentPrompt(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): boolean {
   const promptRow = (row: AcpmuxRow | undefined): row is AcpmuxRow => row?.kind === "user" && !isLineRow(row);
   const becameCanonical = (was: AcpmuxRow | undefined, row: AcpmuxRow | undefined) => {
@@ -3680,7 +3680,7 @@ function TranscriptView({
   const previousViewport = useRef({ height, width, dockSpace, dockCard });
   /// The room kept under the last row (`room` below) as of the last placement pass.
   const heldRoom = useRef(dockRoom);
-  /// The room the reader scrolled back down to (`kept` below): what the room held while they were
+  /// The room the reader scrolled back down to (`readerKept` below): what the room held while they were
   /// scrolled up, kept under the last row once the view follows again, with the newest prompt it was
   /// kept under. Cut back to the stack's room there, it moved every row in view down by what was cut
   /// (Leo, 2026-11-20: "And then like we cut it out. We cut out the extra space. And so that is the
@@ -4427,7 +4427,7 @@ function TranscriptView({
   // to latest gives the stack's room before following (`takeRoom`, the send), so theirs keeps none.
   const followedRoom = dockRoom - lifted - trayHold - cardHold - noticeHold;
   const keptPrompt = following && !sessionSwitched ? newestPromptId(rows) : undefined;
-  const kept =
+  const readerKept =
     !following || sessionSwitched
       ? undefined
       : !followedBefore.current
@@ -4437,7 +4437,7 @@ function TranscriptView({
         : readerRoom.current?.prompt === keptPrompt
           ? readerRoom.current
           : undefined;
-  const room = sessionSwitched || following ? Math.max(followedRoom, kept?.room ?? 0) : heldRoom.current;
+  const room = sessionSwitched || following ? Math.max(followedRoom, readerKept?.room ?? 0) : heldRoom.current;
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
   const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
@@ -4455,9 +4455,9 @@ function TranscriptView({
     }),
     [measured, rowsEnd, keptEnd, draggedHeight],
   );
-  // Each commit: what this pass kept for the reader (`kept`), and whether it followed, for the next.
+  // Each commit: what this pass kept for the reader (`readerKept`), and whether it followed, for the next.
   useLayoutEffect(() => {
-    readerRoom.current = kept;
+    readerRoom.current = readerKept;
     followedBefore.current = following && !sessionSwitched;
   });
   // Where the rows draw against where they lay out: the followed offset of this layout against the
