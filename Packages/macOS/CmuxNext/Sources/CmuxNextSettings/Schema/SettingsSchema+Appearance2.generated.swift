@@ -232,6 +232,16 @@ extension AppearanceSettingsSchema {
                 placeholder: SettingText(key: nil, text: "37.77,-122.42")
             ),
             SettingDescriptor(
+                BackdropSelectionSetting.memoryPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundMemory", "Background Mode Memory"),
+                help: SettingsText.keyed("settings.appearance.backgroundMemory.help", "The folder and picture each background mode last showed, so switching back restores them."),
+                kind: .stringMap,
+                default: nil,
+                keywords: ["wallpaper", "background", "folder", "rotate", "restore"]
+            ),
+            SettingDescriptor(
                 BackdropSelectionSetting.displayBackgroundsPath,
                 section: .appearance,
                 group: group,
@@ -274,6 +284,16 @@ extension AppearanceSettingsSchema {
                 kind: .toggle,
                 default: .bool(ReducedBackgroundsSetting.fallback),
                 keywords: ["background", "plain", "reduce", "reduced", "painting", "wallpaper", "glass", "transparency", "backdrop", "art", "simple", "performance"]
+            ),
+            SettingDescriptor(
+                AgentGlowSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.agentGlow", "React to Agents"),
+                help: SettingsText.keyed("settings.appearance.agentGlow.help", "Calm while agents are idle; a soft glow in the machine's color when an agent needs you."),
+                kind: .toggle,
+                default: .bool(AgentGlowSetting.fallback),
+                keywords: ["agent", "agents", "glow", "react", "reactive", "background", "attention", "needs you", "idle", "calm", "machine color"]
             ),
             SettingDescriptor(
                 ExperimentalAppearanceSetting.configPath,
@@ -343,44 +363,6 @@ extension AppearanceSettingsSchema {
                 kind: .toggle,
                 default: .bool(WallpaperTintSetting.fallback),
                 keywords: ["wallpaper", "desktop", "tint", "tinting", "glass", "color", "colour", "space", "background"]
-            ),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var tuning: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
-        return [
-            SettingDescriptor(
-                AppearanceTuningSetting.glassTransparencyPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
-                help: SettingsText.keyed("settings.appearance.glassTransparency.help", "How much of the desktop or wallpaper shows through the glass."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.glassTransparencyRange, step: 0.05, unit: .fraction)),
-                default: .number(AppearanceTuningSetting.glassTransparencyDefault),
-                keywords: ["glass", "transparency", "alpha", "clear"]
-            ).hiddenFromSettingsPage("duplicates appearance.backgroundOpacity; the key still loads"),
-            SettingDescriptor(
-                AppearanceTuningSetting.huePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.hue", "Hue"),
-                help: SettingsText.keyed("settings.appearance.hue.help", "Shift the tint color around the hue wheel."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.hueRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.huePlaceholder)),
-                default: .number(AppearanceTuningSetting.hueDefault),
-                keywords: ["tint", "color", "colour"]
-            ),
-            SettingDescriptor(
-                AppearanceTuningSetting.saturationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.saturation", "Saturation"),
-                help: SettingsText.keyed("settings.appearance.saturation.help", "Increase or reduce the tint color intensity."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.saturationRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.saturationPlaceholder)),
-                default: .number(AppearanceTuningSetting.saturationDefault),
-                keywords: ["tint", "color", "colour", "intensity"]
             ),
         ]
     }
