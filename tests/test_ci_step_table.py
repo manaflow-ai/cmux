@@ -15,11 +15,13 @@ This test holds two things:
 from __future__ import annotations
 
 import io
+import json
 import os
 import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -181,6 +183,222 @@ class RunnerTest(unittest.TestCase):
         self.assertNotIn("other-ran", out)
         _, out = self.run_job(t, "advisory", "media-tour")
         self.assertIn("No step of job advisory", out)
+
+
+class SetupTest(unittest.TestCase):
+    """A job's `[setup]` runs once before its steps, fills $CI_TOOLS, and fails the job when it fails."""
+
+    def run_job(self, t, job, paths=None, workers=None):
+        out = io.StringIO()
+        env = {k: v for k, v in os.environ.items() if k != "GITHUB_STEP_SUMMARY"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            return ci_steps.run_job(t, job, paths, out=out, workers=workers), out.getvalue()
+
+    def test_steps_see_what_setup_made(self) -> None:
+        t = table('''
+            [setup]
+            linux = """
+            mkdir -p "$CI_TOOLS/bin"
+            printf '#!/bin/sh\\necho made-by-setup\\n' > "$CI_TOOLS/bin/ci-setup-probe"
+            chmod +x "$CI_TOOLS/bin/ci-setup-probe"
+            """
+            [step.a]
+            job = "linux"
+            run = "ci-setup-probe"
+            [step.b]
+            job = "linux"
+            run = "test -x \\"$CI_TOOLS/bin/ci-setup-probe\\""
+        ''')
+        code, out = self.run_job(t, "linux")
+        self.assertEqual(code, 0, out)
+        self.assertIn("made-by-setup", out)
+        self.assertEqual(out.count("::group::setup (linux)"), 1)
+
+    def test_a_failed_setup_fails_the_job_and_runs_no_step(self) -> None:
+        t = table('''
+            [setup]
+            linux = "echo no-network; exit 3"
+            [step.a]
+            job = "linux"
+            run = "echo step-ran"
+        ''')
+        code, out = self.run_job(t, "linux")
+        self.assertEqual(code, 1)
+        self.assertIn("no-network", out)
+        self.assertNotIn("step-ran", out)
+
+    def test_setup_does_not_run_when_no_step_is_routed(self) -> None:
+        t = table('''
+            [setup]
+            linux = "echo setup-ran"
+            [step.a]
+            job = "linux"
+            inputs = ["web/**"]
+            run = "true"
+        ''')
+        code, out = self.run_job(t, "linux", ["docs/x.md"])
+        self.assertEqual(code, 0)
+        self.assertNotIn("setup-ran", out)
+
+    def test_setup_names_a_job_of_the_table(self) -> None:
+        with self.assertRaises(ci_steps.TableError):
+            table('[setup]\nwindows = "true"\n[step.a]\njob = "linux"\nrun = "true"')
+
+    def test_workers_bound_the_steps_at_once(self) -> None:
+        body = "".join(f'[step.s{i}]\njob = "linux"\nrun = "sleep 0.5"\n' for i in range(4))
+        start = time.monotonic()
+        code, _ = self.run_job(table(body), "linux", workers=1)
+        self.assertEqual(code, 0)
+        self.assertGreaterEqual(time.monotonic() - start, 2.0)
+
+
+class PipelineTest(unittest.TestCase):
+    """pr-pipeline.yml runs the table's linux job through ci/run; pr-router.yml starts it from the table."""
+
+    def test_a_change_to_the_pipeline_routes_every_step(self) -> None:
+        t = table('[step.a]\njob = "linux"\ninputs = ["web/**"]\nrun = "true"')
+        for path in ci_steps.PIPELINE_PATHS:
+            with self.subTest(path=path):
+                self.assertTrue((ROOT / path).is_file(), "PIPELINE_PATHS names a file of this tree")
+                self.assertEqual(ci_steps.route(t, ["docs/x.md", path]), {"linux": ["a"]})
+        self.assertEqual(ci_steps.route(t, ["docs/x.md"]), {})
+
+    def test_the_entry_is_the_runner(self) -> None:
+        entry = ROOT / "ci" / "run"
+        self.assertTrue(os.access(entry, os.X_OK), "ci/run is executable")
+        run = subprocess.run([str(entry), "route", "--paths-file", os.devnull], cwd=ROOT, capture_output=True,
+                             text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        # An empty change routes only the steps with no inputs: the advisory lints.
+        self.assertEqual(set(json.loads(run.stdout)), {"advisory"})
+
+    def test_every_linux_step_has_inputs_and_blocks(self) -> None:
+        # A linux step with no inputs would start a runner on every head: say so with `inputs = ["**"]`.
+        for step in ci_steps.load().steps.values():
+            if step.job == "linux":
+                with self.subTest(step=step.name):
+                    self.assertTrue(step.inputs)
+                    self.assertTrue(step.blocks)
+                    self.assertTrue(step.title and step.about)
+
+    def test_the_workflow_runs_the_linux_job_on_the_merge_commit(self) -> None:
+        wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        self.assertEqual(set(wf.get("on", wf.get(True))), {"workflow_call"})
+        self.assertEqual(wf["permissions"], {})
+        job = wf["jobs"]["linux"]
+        self.assertEqual(job["permissions"], {"contents": "read"})
+        checkout = job["steps"][0]
+        self.assertEqual(checkout["with"]["fetch-depth"], 2)
+        self.assertIs(checkout["with"]["persist-credentials"], False)
+        self.assertIn("ci/run run --job linux", job["steps"][-1]["run"])
+
+    def test_the_router_starts_it_only_when_a_step_is_routed(self) -> None:
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import pr_router
+
+        callees = {"pr-pipeline.yml": pr_router.load_manifest()["pr-pipeline.yml"]}
+        self.assertEqual(callees["pr-pipeline.yml"]["table_jobs"], ["linux"])
+        self.assertIs(callees["pr-pipeline.yml"].get("draft"), True, "the workflows it replaced ran on drafts")
+
+        def started(files, **pr):
+            event = {"action": "synchronize", "pull_request": pr}
+            return pr_router.route(event, callees, files)
+
+        start, why = started(["web/app/lib/indexnow.ts"])
+        self.assertEqual(start, ["pr-pipeline.yml"])
+        self.assertIn("indexnow", why["pr-pipeline.yml"])
+        self.assertEqual(started(["docs/x.md"])[0], [])
+        self.assertEqual(started(["web/app/lib/indexnow.ts"], draft=True)[0], ["pr-pipeline.yml"])
+        self.assertEqual(started(None)[0], ["pr-pipeline.yml"])
+        self.assertEqual(started(["ci/steps.toml"])[0], ["pr-pipeline.yml"])
+        # A table the router cannot read starts the pipeline: it routes more, never less.
+        self.assertIsNone(pr_router.table_steps(callees["pr-pipeline.yml"], ["docs/x.md"], ROOT / "no-such.toml"))
+        with tempfile.TemporaryDirectory() as tmp:
+            for body in ("not toml [", 'setup = "x"\n[jobs]\nlinux = "l"', '[jobs]\nlinux = "l"\n[step]\na = 1'):
+                with self.subTest(body=body):
+                    bad = Path(tmp) / "steps.toml"
+                    bad.write_text(body)
+                    self.assertIsNone(pr_router.table_steps(callees["pr-pipeline.yml"], ["docs/x.md"], bad))
+
+    def test_the_changed_paths_are_nul_separated(self) -> None:
+        # Without -z git quotes a non-ASCII path, which then matches no step's inputs: green, nothing run.
+        wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        self.assertIn("git diff --name-only --no-renames -z ", wf["jobs"]["linux"]["steps"][1]["run"])
+        with tempfile.TemporaryDirectory() as tmp:
+            listed = Path(tmp) / "paths"
+            listed.write_bytes("skills/caf\u00e9/SKILL.md\0a b.txt\0".encode())
+            self.assertEqual(ci_steps.read_paths(str(listed)), ["skills/caf\u00e9/SKILL.md", "a b.txt"])
+            listed.write_text("a.txt\nb.txt\n")
+            self.assertEqual(ci_steps.read_paths(str(listed)), ["a.txt", "b.txt"])
+
+    def test_a_steps_log_prints_when_it_ends(self) -> None:
+        # A job cut by its own timeout still shows the steps that finished: nothing waits for the last one.
+        seen: list[str] = []
+        real = ci_steps.report
+
+        def late_report(results, job, out=sys.stdout, logs=True):
+            seen.append(out.getvalue())
+            return real(results, job, out, logs)
+
+        t = table('''
+            [step.one]
+            job = "linux"
+            run = "echo said-by-one"
+            blocks = true
+            inputs = ["**"]
+        ''')
+        out = io.StringIO()
+        with mock.patch.object(ci_steps, "report", late_report), mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""}):
+            self.assertEqual(ci_steps.run_job(t, "linux", None, out=out), 0)
+        self.assertIn("::group::one\nsaid-by-one\n::endgroup::", seen[0])
+        self.assertEqual(out.getvalue().count("::group::one"), 1)
+
+    def test_the_router_check_names_a_runner_that_does_not_import(self) -> None:
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import pr_router
+
+        with mock.patch.object(pr_router, "ci_steps", None):
+            problems = pr_router.check(pr_router.load_manifest(), pr_router.ENTRY.read_text(), pr_router.ENTRY.parent)
+        self.assertTrue(any("does not import" in p for p in problems), problems)
+
+    def test_the_router_checks_out_the_table(self) -> None:
+        wf = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())
+        sparse = wf["jobs"]["route"]["steps"][0]["with"]["sparse-checkout"].split()
+        self.assertIn("ci/steps.toml", sparse)
+        self.assertIn("scripts/ci/ci_steps.py", sparse)
+
+    def test_the_replaced_workflows_are_gone(self) -> None:
+        for name in ("indexnow-tests.yml", "vendored-agent-cursor.yml", "r2-upload-tests.yml",
+                     "cmux-skill-contract.yml", "ci-cache-receipts.yml"):
+            self.assertFalse((ROOT / ".github/workflows" / name).exists(), f"{name}: the step table runs it")
+
+    def test_the_moved_pull_request_triggers_are_gone(self) -> None:
+        # These keep their push, dispatch or post-merge runs; a pull request runs them as steps of the table.
+        moved = {"labels-sync.yml": "labels-manifest",
+                 "cmux-next-shim-cpp.yml": "shim-cpp", "cmux-next-chromium-currency.yml": "chromium-currency",
+                 "swift-acpmux-protocol.yml": "swift-acpmux-protocol"}
+        steps = ci_steps.load().steps
+        for name, step in moved.items():
+            with self.subTest(workflow=name):
+                wf = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
+                self.assertNotIn("pull_request", wf.get("on", wf.get(True)), "the step table runs it")
+                self.assertEqual(steps[step].job, "linux")
+        self.assertNotIn("validate", yaml.safe_load((ROOT / ".github/workflows/labels-sync.yml").read_text())["jobs"])
+
+    def test_the_shim_step_runs_every_cpp_script(self) -> None:
+        run = ci_steps.load().steps["shim-cpp"].run
+        scripts = sorted((ROOT / "scripts" / "cmux-next").glob("test-*-cpp.sh"))
+        self.assertGreaterEqual(len(scripts), 10)
+        for script in scripts:
+            with self.subTest(script=script.name):
+                self.assertIn(f"./scripts/cmux-next/{script.name}", run)
+
+    def test_the_job_timeout_covers_setup_and_every_wave(self) -> None:
+        # Setup, then the linux steps two at once (a 2 vCPU runner), each wave as long as the longest step.
+        linux = [s for s in ci_steps.load().steps.values() if s.job == "linux"]
+        need = ci_steps.SETUP_TIMEOUT + -(-len(linux) // 2) * max(s.timeout for s in linux)
+        wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        self.assertGreaterEqual(wf["jobs"]["linux"]["timeout-minutes"] * 60, need)
 
 
 class RepositoryAdvisoryStepsTest(unittest.TestCase):

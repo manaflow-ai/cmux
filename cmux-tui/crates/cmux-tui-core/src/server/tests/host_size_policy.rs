@@ -805,3 +805,104 @@ fn host_policy_a_local_connection_batch_shrinks_the_mac_pane_at_once() {
     rig.claim(&mac, (39, 26));
     assert_eq!(rig.grid(), (54, 26));
 }
+
+/// A ratio for the divider between the two columns on the resource route
+/// (`pane.split_ratio.set`), which reads its value after the views are
+/// marked.
+fn route_ratio(rig: &Rig, actor: &crate::Actor, pane: PaneId, ratio: f64) -> anyhow::Result<()> {
+    let split = rig
+        .mux
+        .with_state(|state| {
+            let split = state.workspaces[0].screens[0].layout_columns[1].id;
+            state.resource_indexes.split_ids.get(&split).map(ToString::to_string)
+        })
+        .unwrap();
+    let selectors = rig.mux.ordinary_pane_selectors(pane).unwrap();
+    let fields = serde_json::Map::from_iter([
+        ("split_id".to_string(), json!(split)),
+        ("ratio".to_string(), json!(ratio)),
+    ]);
+    rig.mux
+        .resource_topology_operation(
+            ResourceOperation::PaneSplitRatioSet,
+            selectors,
+            fields,
+            None,
+            &WorkspaceMutation::local("host-size-policy-test", actor.clone()),
+        )
+        .map(|_| ())
+}
+
+/// The control of the row below: the same call with a ratio that is taken is
+/// the agent's change.
+#[test]
+fn host_policy_an_agent_split_ratio_on_the_resource_route_does_not_shrink_the_grid() {
+    let (rig, columns, mac, _phone) = two_column_rig("route-ratio");
+    let before = column_widths(&rig);
+    route_ratio(&rig, &agent(), columns.0, 0.6).unwrap();
+    assert_ne!(column_widths(&rig), before, "the route did not move the divider");
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 40), "the agent's ratio does not count");
+}
+
+/// A split ratio that the resource route refuses changed no pane, as a
+/// refused width: a smaller report after it counts at once.
+#[test]
+fn host_policy_an_agent_split_ratio_that_the_resource_route_refuses_holds_nothing() {
+    let (rig, columns, mac, _phone) = two_column_rig("route-ratio-refused");
+    let before = column_widths(&rig);
+    let refused = route_ratio(&rig, &agent(), columns.0, 1.5).unwrap_err();
+    assert!(format!("{refused:#}").contains("invalid split ratio"), "{refused:#}");
+    assert_eq!(column_widths(&rig), before, "a refused ratio changed a width");
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 26), "a refused ratio held the Mac view's report");
+}
+
+/// The creation command with a receipt (`create-surface-with-receipt`) of
+/// `view`'s connection: a pane right of the rig's pane. The app's own
+/// creations use this command; any connection that lists the capability can.
+fn wire_receipted_split(rig: &Rig, view: &View) {
+    rig.run(view, json!({"cmd":"set-client-info","capabilities":[CREATION_RECEIPTS_CAPABILITY]}))
+        .unwrap();
+    let pane = rig.mux.with_state(|state| state.pane_of(rig.surface.id).unwrap());
+    let panes =
+        || rig.mux.with_state(|state| state.workspaces[0].screens[0].root.pane_ids_vec().len());
+    let before = panes();
+    let reply = rig
+        .run(
+            view,
+            json!({"cmd":"create-surface-with-receipt","operation":"split-right",
+                "origin":"host-size-policy-test","receipt":"host-size-policy-split-0001",
+                "pane":pane}),
+        )
+        .unwrap();
+    assert_eq!(reply["replayed"], false, "{reply}");
+    assert_eq!(panes(), before + 1, "the command made no pane");
+}
+
+/// A split through the creation command with a receipt, from a connection
+/// that the daemon types as an agent, is the agent's layout change.
+#[test]
+fn host_policy_an_agent_connection_receipted_split_does_not_shrink_the_grid() {
+    let rig = rig("receipt-agent");
+    let mac = rig.mac((120, 40));
+    let _phone = rig.phone("p1", (54, 40));
+    let agent = agent_connection(&rig);
+    wire_receipted_split(&rig, &agent);
+    // The client info did not change who the connection is.
+    let actor = origin_gate::connection_actor(&rig.mux, agent.client);
+    assert!(matches!(actor, crate::Actor::Terminal { .. }), "the connection's actor is {actor:?}");
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 40), "the agent's split does not count");
+}
+
+/// The same command from the local user's own connection is a person's.
+#[test]
+fn host_policy_a_local_connection_receipted_split_shrinks_the_mac_pane_at_once() {
+    let rig = rig("receipt-person");
+    let mac = rig.mac((120, 40));
+    let _phone = rig.phone("p1", (54, 40));
+    wire_receipted_split(&rig, &rig.connection(Via::Local));
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 26));
+}
