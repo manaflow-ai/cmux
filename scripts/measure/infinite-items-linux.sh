@@ -70,7 +70,9 @@ target="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'imp
 if [[ "$musl" == 1 ]]; then
   # The shipped Linux flavor: musl, built as cmux-tui-build-package.yml builds it (cargo-zigbuild).
   musl_target=x86_64-unknown-linux-musl
-  rustup target add "$musl_target" >/dev/null
+  # shellcheck source=../lib/rust-targets.sh
+  source "$root/scripts/lib/rust-targets.sh"
+  ensure_rust_targets "$musl_target" >/dev/null
   command -v cargo-zigbuild >/dev/null || cargo install --locked cargo-zigbuild@0.20.0 2>&1 | tail -n 1
   if ! command -v zig >/dev/null && [ -n "${CMUX_ZIG:-}" ]; then export CARGO_ZIGBUILD_ZIG_PATH="$CMUX_ZIG"; fi
   cargo zigbuild --locked --release --target "$musl_target" \
