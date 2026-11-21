@@ -768,7 +768,10 @@ mod tests {
         );
         let source = Hub::new(cfg.clone(), Box::new(MemoryStore::default()));
         let chat = fixture();
-        let session = source.insert_test_session(chat.session.clone().unwrap());
+        let meta = chat.session.clone().unwrap();
+        // A store keeps a session's events only once it holds the session (`MemoryStore::append`).
+        source.store.save(&meta).unwrap();
+        let session = source.insert_test_session(meta);
         for record in imported_events(&chat, "portable") {
             source.append(&session, &record.dir, &record.kind, record.msg);
         }
