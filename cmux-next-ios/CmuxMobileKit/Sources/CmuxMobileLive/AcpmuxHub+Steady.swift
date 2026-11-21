@@ -107,6 +107,7 @@ extension AcpmuxHub {
             log.info("acpmux read \(method, privacy: .public) slow behind a write: not recovering")
             return
         }
+        // Asked again: another read may have started a recovery while this one waited above.
         if let recovering {
             await recovering.value
             return
