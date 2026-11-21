@@ -86,10 +86,10 @@ const LOOK_PREFIXES: [&str; 7] = [
 ];
 /// Look keys outside those prefixes: the terminal font; the sidebar's shape,
 /// edges, text, group headers and buttons; the tab strip's and titlebar's
-/// buttons and inactive tabs; pane corners; and the agent chat's text sizes,
-/// sender marks and Session Info. Keep in step with Swift
-/// `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 35] = [
+/// buttons and inactive tabs; pane corners and the column strip's scroll bar;
+/// and the agent chat's text sizes, sender marks and Session Info. Keep in
+/// step with Swift `ThemeFileOverlay.lookKeys`.
+const LOOK_KEYS: [&str; 36] = [
     "terminal.fontFamily",
     "terminal.fontSize",
     "sidebar.style",
@@ -115,6 +115,7 @@ const LOOK_KEYS: [&str; 35] = [
     "layout.paneCornerRadius",
     "layout.cornerPadding",
     "layout.paneBorderWidth",
+    "layout.stripScrollbar",
     "agentPane.display.sessionInfo.placement",
     "agentPane.display.font.preset",
     "agentPane.display.font.ui",

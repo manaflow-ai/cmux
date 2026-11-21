@@ -36,8 +36,10 @@ Each one is in the Theme File list by name. Your own file with the same name win
 A theme file is a pit of success: it can only set how cmux looks, never what it does.
 
 - It takes look settings only: `appearance.*`, `ui.animation*`, `ui.calm`, the terminal font and the
-  sidebar's shape. A key that does something (a shortcut, a command, an agent setting) is refused
-  with "a theme file sets only look settings".
+  sidebar's shape. That includes the thin scroll bar under the column strip:
+  `"layout.stripScrollbar": "system"` (the default, follows macOS), `"auto"` (while scrolling),
+  `"always"` or `"off"`. A key that does something (a shortcut, a command, an agent setting) is
+  refused with "a theme file sets only look settings".
 - Each value gets the same check as `cmux settings set`. A bad one is dropped and the rest still
   applies.
 - Unreadable text is ignored. If you save the file halfway through an edit, the last good version

@@ -10191,7 +10191,7 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
+      "agent_refusal" : null,
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -10324,7 +10324,7 @@
         240,
         120.5
       ],
-      "agent_refusal" : "userOnly",
+      "agent_refusal" : null,
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -108346,7 +108346,7 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
+      "agent_refusal" : null,
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
