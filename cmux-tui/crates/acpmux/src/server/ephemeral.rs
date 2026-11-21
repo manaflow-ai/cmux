@@ -57,7 +57,9 @@ pub(super) async fn release_all(hub: &Hub, conn: &Conn) {
 }
 
 async fn purge(hub: &Hub, session: &Arc<Session>) {
-    if let Err(e) = hub.kill(session, true).await {
+    use crate::hub::close_record::{CloseCause, reason};
+    let cause = CloseCause::new(reason::CLIENT_CLOSED);
+    if let Err(e) = hub.kill_because(session, true, cause).await {
         tracing::warn!(session = %session.id, "purge of an ephemeral session failed: {}", e.message);
     }
 }

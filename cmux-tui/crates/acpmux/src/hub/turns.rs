@@ -2655,6 +2655,8 @@ impl Hub {
                 self.remove_queued_because(session, &queued.prompt_id, Some("stopped"));
             }
         }
+        // The agent's exit this stop itself saw (a direct child's status after its kill).
+        let mut child_exit = None;
         if let Some(child) = session.child.lock().await.take() {
             if let Some(sid) = session.meta().agent_session_id {
                 let _ = tokio::time::timeout(
@@ -2664,7 +2666,9 @@ impl Hub {
                 .await;
             }
             let link_lost = child.host_record().is_some() && !child.is_alive().await;
-            child.kill().await;
+            child_exit = child.kill().await.map(|(code, signal)| {
+                super::close_record::exit_value(child.pid, code, signal, now_ms())
+            });
             // A host whose link was lost cannot take a Terminate frame; one whose link stopped
             // reading did not take it within the grace (`host_unended`).
             if link_lost || child.host_unended() {
@@ -2681,6 +2685,8 @@ impl Hub {
         self.end_background_turn(session, "exit");
         // Before the close's event, which sends the cards it owes (`tasks.rs`).
         self.orphan_tasks_of(session, purge);
+        // Why and when, on its metadata before the status turns (`close_record.rs`).
+        self.write_close_record(session, purge, child_exit);
         self.set_status(session, SessionStatus::Closed);
         // Its inbox's timer stops and its senders are answered (`inbox.rs`).
         self.inbox_closed(session);

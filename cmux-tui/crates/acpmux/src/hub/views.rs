@@ -792,6 +792,8 @@ impl Hub {
             moving: session.moving().is_some() && m.moved_to.is_none(),
             // Moved away for good (`transfer_out.rs` commit): where it runs now.
             moved_to: m.moved_to.clone(),
+            // Why and when it closed (`close_record.rs`).
+            closed: m.closed.clone(),
             // Shows a conversation another app runs (`watch.rs`): it takes no prompt until taken over.
             watching: m.watching.as_ref().map(|w| w.family.clone()),
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
@@ -993,6 +995,11 @@ impl Hub {
         let mut v = self.session_summary(session);
         // Its permission modes (`permission_modes.rs`): the phone's Mode picker reads them.
         v.set("modes", super::permission_modes::of_session(&m).unwrap_or(Value::Null));
+        // When and why it closed, at the top for a reader that looks there (`close_record.rs`);
+        // `closed` holds the whole record.
+        let closed = m.closed.as_ref();
+        v.set("closedAt", closed.and_then(|c| c.get("at")).cloned().unwrap_or(Value::Null));
+        v.set("closeReason", closed.and_then(|c| c.get("reason")).cloned().unwrap_or(Value::Null));
         v.set("configOptions", m.config_options.as_deref().cloned().unwrap_or(Value::Null));
         v.set("models", m.models.clone().unwrap_or(Value::Null));
         v.set("agentInfo", m.agent_info.clone().unwrap_or(Value::Null));

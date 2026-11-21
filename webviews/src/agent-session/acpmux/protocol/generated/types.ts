@@ -15,6 +15,7 @@ export interface AcpmuxRequestMeta {
   cancelToken?: unknown;
   class?: unknown;
   cliHost?: unknown;
+  command?: unknown;
   compression?: unknown;
   context?: unknown;
   createdBy?: unknown;
@@ -1534,6 +1535,15 @@ export type SessionDetail = {
   backgroundsWork: boolean;
   /** Its sub-sessions that are not closed. */
   children: number;
+  /**
+   * Why and when it closed (`hub/close_record.rs`): `{at, reason, by?, detail?, exit?,
+   * origin?}`. `reason` is `stopped`, `deleted`, `client_closed` or `moved`; `by` names who
+   * asked (`method`, `client`, `pid`, `session`, `sessionName`, `command`); `exit` is the
+   * agent process's last exit (`code` or `signal`); `origin` whether the process that
+   * registered the chat still ran. Absent while open, for a chat closed before acpmux kept
+   * it, and from a peer on an older acpmux.
+   */
+  closed?: unknown;
   configOptions?: unknown;
   createdAt: number;
   /**
@@ -1907,6 +1917,15 @@ export type SessionSummary = {
   backgroundsWork: boolean;
   /** Its sub-sessions that are not closed. */
   children: number;
+  /**
+   * Why and when it closed (`hub/close_record.rs`): `{at, reason, by?, detail?, exit?,
+   * origin?}`. `reason` is `stopped`, `deleted`, `client_closed` or `moved`; `by` names who
+   * asked (`method`, `client`, `pid`, `session`, `sessionName`, `command`); `exit` is the
+   * agent process's last exit (`code` or `signal`); `origin` whether the process that
+   * registered the chat still ran. Absent while open, for a chat closed before acpmux kept
+   * it, and from a peer on an older acpmux.
+   */
+  closed?: unknown;
   createdAt: number;
   /**
    * Who created it (`hub/created_by.rs`): `{kind: "person"|"agent"|"script", workspace?,
