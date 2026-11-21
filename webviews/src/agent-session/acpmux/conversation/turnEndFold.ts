@@ -411,9 +411,10 @@ export function playTurnEnd(
   /// backstop waits for it: armed at the move's end alone, it finished a held fade part way, the
   /// reply from 28% ink to full in one step (cmux#48689 F2).
   let tail = 0;
-  const arm = (wait = Math.max(0, toMove())) => {
+  // `wait`: until the move starts, negative once it runs, so a pass mid-move arms what is left.
+  const arm = (wait = toMove()) => {
     clearTimeout(fold.timer);
-    fold.timer = setTimeout(() => settleTurnEnd(thread, fold), wait + ms + tail + 50);
+    fold.timer = setTimeout(() => settleTurnEnd(thread, fold), Math.max(0, wait + ms + tail + 50));
   };
   const play = (node: HTMLElement, keyframes: Keyframe[], timing: KeyframeAnimationOptions = {}) => {
     // On the fold's clock: a pass after its first frame starts each animation part way, in step.

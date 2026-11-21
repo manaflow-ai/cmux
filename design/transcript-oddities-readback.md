@@ -22,7 +22,7 @@ round up and scrutinize."
    | T4, cmux#48597 and cmux#48701 | `2f17202e0cd6`, `af4bc681457a` |
    | T5, cmux#48689 | `0ffdb431156d` |
    | T7 and T8, cmux#48711 | `e0c141734dde` |
-   | Follow-ups, cmux#FOLLOWUP | its merge commit |
+   | Follow-ups, cmux#48904 | its merge commit |
 
    If the nightly is older, put the web code in over it: `cmux app try feat-cmux-next` (every fix
    here is web code, so no build is needed).

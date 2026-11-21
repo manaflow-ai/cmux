@@ -45,7 +45,7 @@ State: **fixed** (merged), **open** (root cause known), **unknown** (seen, not r
 | T2 | Every reply after a daemon restart is hidden: a background bracket that never closed owns all later rows | 1 | fixed (follow-up PR) |
 | T3 | Under the Claude `runs` fold, a background turn's reply takes the prompt turn's answer slot, and the real answer folds away | 2 | fixed (follow-up PR) |
 | T4 | A large gap between the last tool row and the live Thinking line | 3 | fixed (cmux#48701, cmux#48597) |
-| T5 | The settled reply flickers in from the left middle of the pane, then lands | 4 | fixed (cmux#48689, follow-ups cmux#FOLLOWUP) |
+| T5 | The settled reply flickers in from the left middle of the pane, then lands | 4 | fixed (cmux#48689, follow-ups cmux#48904) |
 | T6 | A one-line acknowledgement of a background finish is hidden with nothing to open it from | 2 | left as it is (taste, answered 2026-11-21) |
 | T7 | Thought rows open on some clicks and not others | 4 | fixed (cmux#48711) |
 | T8 | The fork button shows only after later tool calls | none (the turn's menu) | fixed (cmux#48711) |
@@ -148,7 +148,7 @@ State: **fixed** (merged), **open** (root cause known), **unknown** (seen, not r
 - **Numbers** (13 scenarios, every painted frame, headless Chromium): frames away from place 55 to
   0, overlap frames 0, first ink 52 ms in 11 scenarios and 224 to 232 ms in the 2 where a kept row
   slides through the reply's box.
-- **Follow-ups** (cmux#FOLLOWUP, from the review of cmux#48689). (1) The hold was read once: a
+- **Follow-ups** (cmux#48904, from the review of cmux#48689). (1) The hold was read once: a
   placement pass later in the fold (a row above measured shorter, the view scrolled) could send a
   kept row through the reply's box while the reply kept its first, zero-delay fade, visible over up
   to 34 px of that row. The hold is now read on every pass (`Moving.hold`), and the reply goes back
@@ -201,7 +201,7 @@ open for Leo himself: should a finish's one-line acknowledgement be reachable fr
   that can fork through any finished turn (`forksAnyTurn`: Claude and Codex). Other agents fork
   only at a chat's end and still wait for the idle chat. The app-level Fork Conversation is
   unchanged.
-- **Follow-up** (cmux#FOLLOWUP, from the review of cmux#48711): with the Fork kept while a turn
+- **Follow-up** (cmux#48904, from the review of cmux#48711): with the Fork kept while a turn
   streams, the map of each prompt's turn was rebuilt from the whole chat on every streamed render
   (`promptTurns` then `editableKey`). `trackPromptTurns` now reads only the rows after the first that
   changed and keeps the same Map until an answered prompt changes
