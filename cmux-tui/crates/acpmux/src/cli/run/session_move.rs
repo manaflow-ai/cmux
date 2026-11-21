@@ -343,8 +343,12 @@ async fn move_steps(
     };
     let checkout = checkout_unless_named(&cwd, args, source).await?;
     o.preflight.dirty = Some(checkout.as_ref().is_some_and(|c| c.dirty));
-    if let Some(why) = plan::refusal(&info, args.interrupt || args.after_turn) {
-        o.error_code = preflight::session_refusal_code(&info, args.interrupt || args.after_turn);
+    // A dry run is the preflight: it names a running turn even with --after-turn, so the caller
+    // can offer Move after this turn or Move now. A real --after-turn move goes on, and
+    // transfer_begin waits for the turn under its lock.
+    let running_ok = args.interrupt || (args.after_turn && !args.dry_run);
+    if let Some(why) = plan::refusal(&info, running_ok) {
+        o.error_code = preflight::session_refusal_code(&info, running_ok);
         bail!("{why}");
     }
     let home = match source {
