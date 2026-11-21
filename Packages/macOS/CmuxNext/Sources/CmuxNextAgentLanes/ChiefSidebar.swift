@@ -123,8 +123,10 @@ public final class ChiefSidebar {
     /// and the subagents that need the person, and the blue unread dot of a workspace row while any of the person's
     /// `homeUnread` chats is unread, never a count (Lawrence 2026-10-23: "home unread indicator should just be blue dot").
     public func decorateHome(_ info: inout SidebarItemInfo, homeUnread: Int, picture: SidebarFavicon?) {
+        // The Chief's look (sparkles, the Chief's picture) under the top row's own name, "Chief": the Chief Activity
+        // item keeps its own title (cmux#48416).
         let chief = SidebarBuiltIn.chief.defaultInfo
-        (info.title, info.symbol, info.icon, info.favicon) = (chief.title, chief.symbol, chief.icon, picture)
+        (info.title, info.symbol, info.icon, info.favicon) = (SidebarBuiltIn.home.title, chief.symbol, chief.icon, picture)
         info.unreadDot = homeUnread > 0
         decorate(&info)
     }
