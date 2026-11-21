@@ -62,9 +62,10 @@ import Testing
         let outcome = await answerer.signQuestionDecision(try Self.unsigned(), through: { body in clicks.spend(body) })
         guard case .signed(let text) = outcome else { Issue.record("not signed: \(outcome)"); return }
         let envelope = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
-        #expect(Set(envelope.keys) == ["question", "request", "digest", "instance", "option_id", "decision_nonce", "person_decision"])
+        #expect(Set(envelope.keys) == ["question", "request_json", "digest", "instance", "option_id", "decision_nonce", "person_decision"])
         #expect(envelope["person_decision"] as? String == Self.expectedProof(key: key, answers: #"{"Which auth method?":"API keys"}"#))
         #expect(envelope["decision_nonce"] as? String == Self.nonce)
+        #expect(envelope["request_json"] as? String == AcpmuxSecretKey.canonicalJSON(Self.request))
         #expect(envelope["digest"] as? String == AcpmuxSecretKey.canonicalDigest(Self.request))
         #expect(clicks.spent == 1)
         // Signing answers nothing: the conversation owner delivers the answer with the proof.
@@ -134,9 +135,9 @@ import Testing
         #expect(server.connections == 1)
     }
 
-    /// The signer reads the request's canonical text, not `request`, which the app's JSON value
-    /// may have rounded: an integer past 2^53 still signs, and the envelope keeps it exact.
-    @Test func aRequestWithAWideIntegerSignsFromItsCanonicalText() async throws {
+    /// The envelope carries the request's canonical text, exactly as the daemon returned and the
+    /// signer verified it: an integer past 2^53 signs and stays exact in `request_json`.
+    @Test func aRequestWithAWideIntegerIsCarriedAsItsCanonicalText() async throws {
         var request = Self.request
         request["toolCall"] = ["_meta": (Self.request["toolCall"] as? [String: Any])?["_meta"] ?? [:], "rawInput": ["at": 9_007_199_254_740_993]]
         let (answerer, server, _) = try fixture()
@@ -144,15 +145,34 @@ import Testing
         var info = server.info
         info["pending"] = [["permissionId": "p1", "personInstance": "0123456789abcdef", "decisionNonce": Self.nonce, "request": request]]
         server.info = info
-        var reply = try #require(try JSONSerialization.jsonObject(with: Data(try Self.unsigned(request: request).utf8)) as? [String: Any])
-        var rounded = request
-        rounded["toolCall"] = ["_meta": (Self.request["toolCall"] as? [String: Any])?["_meta"] ?? [:], "rawInput": ["at": 9_007_199_254_740_992.0]]
-        reply["request"] = rounded
-        let text = String(decoding: try JSONSerialization.data(withJSONObject: reply), as: UTF8.self)
-        guard case .signed(let signed) = await answerer.signQuestionDecision(text, through: { body in body(); return true }) else {
+        let reply = try Self.unsigned(request: request)
+        guard case .signed(let signed) = await answerer.signQuestionDecision(reply, through: { body in body(); return true }) else {
             Issue.record("a wide integer was refused"); return
         }
-        #expect(signed.contains("9007199254740993"))
+        let envelope = try #require(try JSONSerialization.jsonObject(with: Data(signed.utf8)) as? [String: Any])
+        let text = try #require(envelope["request_json"] as? String)
+        #expect(text.contains("9007199254740993"))
+        #expect(text == AcpmuxSecretKey.canonicalJSON(request))
+        #expect(envelope["digest"] as? String == AcpmuxSecretKey.canonicalDigest(request))
+        #expect(envelope["request"] == nil)
+    }
+
+    /// An integer past what the app can write exactly (above u64 or Int64) has no canonical form
+    /// here: the reply is refused before the click, never signed with a rounded number.
+    @Test func aRequestIntegerTheAppCannotWriteExactlyIsRefused() async throws {
+        let (answerer, server, _) = try fixture()
+        defer { server.stop() }
+        for wide in ["18446744073709551617", "123456789012345678901234567890"] {
+            let text = #"{"at":\#(wide),"options":[]}"#
+            let reply: [String: Any] = ["session": "s1", "permission": "p1", "option_id": "answer",
+                                        "instance": "0123456789abcdef", "decision_nonce": Self.nonce,
+                                        "answers": ["Which auth method?": "API keys"], "question": ["harness": "chief"],
+                                        "request_json": text,
+                                        // The daemon hashes the text it sends: only the canonical check can refuse it.
+                                        "digest": SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()]
+            let json = String(decoding: try JSONSerialization.data(withJSONObject: reply), as: UTF8.self)
+            #expect(await answerer.signQuestionDecision(json, through: { _ in Issue.record("\(wide) reached the click"); return false }) == .refused)
+        }
     }
 
     /// One native click's write claims, counted.

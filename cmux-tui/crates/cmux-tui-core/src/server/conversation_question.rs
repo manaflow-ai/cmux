@@ -36,7 +36,10 @@ pub(super) use delivery::answer;
 #[derive(Deserialize)]
 struct Decision {
     question: Question,
-    request: Value,
+    /// The exact canonical text of the request the daemon returned and the app verified and
+    /// signed for: `digest` is the sha256 of these bytes. It is parsed only to compare the
+    /// question's items and harness, so no number passes through a lossy value on the way.
+    request_json: String,
     digest: String,
     instance: String,
     option_id: String,
@@ -63,6 +66,11 @@ fn refuse(reason: &str) -> anyhow::Error {
 fn digest(value: &Value) -> String {
     let canonical = cmux_conversation::question_wire::canonical_json(value);
     format!("{:x}", Sha256::digest(canonical.as_bytes()))
+}
+/// Lowercase hex sha256 of `text`'s bytes: the request digest of its canonical text.
+#[cfg(any(unix, test))]
+fn text_digest(text: &str) -> String {
+    format!("{:x}", Sha256::digest(text.as_bytes()))
 }
 #[cfg(any(unix, test))]
 fn hex64(value: &str) -> bool {
@@ -91,13 +99,14 @@ fn decode(question: &Question, value: Option<&Value>) -> anyhow::Result<Decision
         serde_json::from_value(value.clone()).map_err(|_| refuse("question.invalid_decision"))?;
     if question.state != QuestionState::Pending
         || decision.question != *question
-        || digest(&decision.request) != decision.digest
+        || text_digest(&decision.request_json) != decision.digest
     {
         return Err(refuse("question.stale"));
     }
+    let request: Value = serde_json::from_str(&decision.request_json)
+        .map_err(|_| refuse("question.invalid_decision"))?;
     // Match the stored content to the normalized request, not just a caller-provided hash.
-    let mut normalized = decision
-        .request
+    let mut normalized = request
         .pointer("/toolCall/_meta/acpmux/question")
         .cloned()
         .ok_or_else(|| refuse("question.not_question"))?;
