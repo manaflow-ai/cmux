@@ -25,6 +25,12 @@ extension TerminalTermSetting {
     public nonisolated static let fallback: TerminalTerm = .xterm256color
 }
 
+extension TerminalPredictiveEchoSetting {
+    /// `terminal.predictiveLocalEcho`: On: a terminal whose shell runs on another machine draws typed characters before the remote echoes them (the shared prediction engine, which still waits for a slow measured echo and skips password prompts and full-screen programs). Off: nothing is predicted, and glyphs already drawn go at once. Applies to running terminals.
+    public nonisolated static let configPath = ["terminal", "predictiveLocalEcho"]
+    public nonisolated static let fallback = true
+}
+
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum TerminalSettingsSchema {
     /// terminal.fontFamily and terminal.fontSize: Ghostty overrides (TerminalFontSetting).
@@ -104,8 +110,25 @@ nonisolated enum TerminalSettingsSchema {
         ]
     }
 
+    /// terminal.predictiveLocalEcho (TerminalPredictiveEchoSetting): the opt-out classic cmux documents.
+    static var typingRows: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.terminalTyping", "Typing")
+        return [
+            SettingDescriptor(
+                TerminalPredictiveEchoSetting.configPath,
+                section: .terminal,
+                group: group,
+                title: SettingsText.keyed("settings.terminal.predictiveLocalEcho", "Predictive Local Echo"),
+                help: SettingsText.keyed("settings.terminal.predictiveLocalEcho.help", "Shows characters you type in a terminal on another machine right away when the link is slow, underlined until the remote confirms them. Local terminals, password prompts and full-screen programs are never predicted."),
+                kind: .toggle,
+                default: .bool(TerminalPredictiveEchoSetting.fallback),
+                keywords: ["predictive", "echo", "local echo", "latency", "lag", "ssh", "remote", "typing"]
+            ),
+        ]
+    }
+
     /// Every list of schemas/settings/source/terminal.json, in order.
     static var descriptors: [SettingDescriptor] {
-        [fontRows, linkRows, compatibilityRows].flatMap { $0 }
+        [fontRows, linkRows, compatibilityRows, typingRows].flatMap { $0 }
     }
 }
