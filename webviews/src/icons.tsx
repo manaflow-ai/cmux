@@ -37,12 +37,8 @@ export type IconName =
   | "none"
   | "numbers"
   | "package"
-  | "pillCollapse"
-  | "pillExpand"
   | "pillFiles"
-  | "pillRefresh"
   | "viewedEye"
-  | "pillWrap"
   | "minus"
   | "plus"
   | "plusMinus"
@@ -231,55 +227,12 @@ function StrokeIconPaths({ name }: { name: IconName }) {
           <path d="M4.5 8h7a3.75 3.75 0 0 1 0 7.5H9" />
         </>
       );
-    case "pillWrap":
-      // A return arrow and the wrap margin.
-      return (
-        <>
-          <path d="M4 8h5.5a2.75 2.75 0 0 1 0 5.5H5" />
-          <path d="M7 11.5l-2 2 2 2" />
-          <path d="M15.5 4.5v11" />
-        </>
-      );
     case "viewedEye":
       // The file bar's eye: an outline with a ring pupil.
       return (
         <>
           <path d="M2.6 10c1.7-3.2 4.3-4.9 7.4-4.9s5.7 1.7 7.4 4.9c-1.7 3.2-4.3 4.9-7.4 4.9S4.3 13.2 2.6 10Z" />
           <circle cx="10" cy="10" r="2.3" />
-        </>
-      );
-    case "pillRefresh":
-      // Two thin arcs chasing each other.
-      return (
-        <>
-          <path d="M4.8 8.2a5.4 5.4 0 0 1 9.6-2.1" />
-          <path d="M14.8 3.6v2.9h-2.9" />
-          <path d="M15.2 11.8a5.4 5.4 0 0 1-9.6 2.1" />
-          <path d="M5.2 16.4v-2.9h2.9" />
-        </>
-      );
-    case "pillCollapse":
-      // Arrows closing on the line, beside two lines.
-      return (
-        <>
-          <path d="M6.5 3v5.2" />
-          <path d="M4.6 6.4l1.9 1.9 1.9-1.9" />
-          <path d="M6.5 17v-5.2" />
-          <path d="M4.6 13.6l1.9-1.9 1.9 1.9" />
-          <path d="M11 8.5h5" />
-          <path d="M11 11.5h5" />
-        </>
-      );
-    case "pillExpand":
-      // Arrows opening from the line, beside two lines.
-      return (
-        <>
-          <path d="M6.5 8.6V3.4" />
-          <path d="M4.6 5.3l1.9-1.9 1.9 1.9" />
-          <path d="M6.5 11.4v5.2" />
-          <path d="M4.6 14.7l1.9 1.9 1.9-1.9" />
-          <path d="M11 8.5h5" />
-          <path d="M11 11.5h5" />
         </>
       );
     case "pillFiles":

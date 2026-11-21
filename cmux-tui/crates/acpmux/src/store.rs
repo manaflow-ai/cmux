@@ -45,6 +45,26 @@ mod shared_value;
 mod text_index;
 pub use shared_value::{SharedRows, SharedText, SharedValue};
 
+/// A chat's rolling summary (`hub/rolling_summary.rs`): one short line on where it stands and
+/// the next action, kept current after each turn a person started (or one that ended on a
+/// `wrap_up`). The sidebar and the chat header draw it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RollingSummary {
+    /// Where the chat stands, one or two short sentences.
+    pub text: String,
+    /// The next action, for the person or the agent; absent when there is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub next: Option<String>,
+    /// Who wrote it: `wrap_up` (the agent's own recap and ask, no model call) or `model`.
+    pub source: String,
+    /// The chat's turn count it covers.
+    pub turn: u64,
+    /// When it was written, Unix ms.
+    pub at: u64,
+}
+
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -191,6 +211,11 @@ pub struct SessionMeta {
     /// default (`hub/new_request.rs` `unique_name_among`). False in a log from before it was kept.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub name_given: bool,
+    /// The names it had before its renames, oldest first (`hub/former_names.rs`): each still
+    /// names it wherever no session has it as its current name, so a message sent to an old
+    /// name still arrives. At most `former_names::KEPT`; no other session keeps the same one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub former_names: Vec<String>,
     /// `agent` in a chat stored before the agent-to-harness rename (e857185a58).
     #[serde(alias = "agent")]
     pub harness: String,
@@ -392,6 +417,10 @@ pub struct SessionMeta {
         skip_serializing_if = "Option::is_none"
     )]
     pub goal: Option<GoalState>,
+    /// What is done and next across the chat's turns (`task_list.rs`): its harness's latest plan,
+    /// or the list its agent or Chief keeps. None until one is written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_list: Option<crate::task_list::TaskList>,
     /// Per-session permission rules layered above the policy (see hub/rules.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_rules: Option<Value>,
@@ -419,6 +448,10 @@ pub struct SessionMeta {
     /// None until the first recap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub away_recap: Option<AwayRecap>,
+    /// The chat's rolling summary and next action (`hub/rolling_summary.rs`); None until the
+    /// first turn that makes one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rolling_summary: Option<RollingSummary>,
     /// Each person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they had on
     /// screen while they attended the chat, keyed by person id (`_meta.acpmux.author` id,
     /// [`crate::hub::seen::OWNER_READER`] for the owner). Only `_acpmux/seen` moves it forward; a
@@ -1380,6 +1413,27 @@ pub trait Store: Send + Sync {
     fn save_restore_point(&self, _id: &str, _bytes: &[u8]) -> Result<()> {
         Ok(())
     }
+    /// Records used by the whole-store search, including an archive without thawing it.
+    fn search_records(&self, id: &str, visit: &mut dyn FnMut(EventRecord)) -> Result<()> {
+        self.scan_kinds(id, crate::session_search::KINDS, &mut |rec| {
+            visit(rec);
+            true
+        })
+    }
+
+    /// Use the warm text index, or stream the messages out of an archived log.
+    fn conversation_entries(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(crate::session_search::Entry),
+    ) -> Result<()> {
+        if self.is_cold(id) {
+            crate::session_search::project_records(|feed| self.search_records(id, feed), visit)
+        } else {
+            self.text_entries(id, visit)
+        }
+    }
+
     /// `scan` from the start, passing each record's head ([`RecordHead`]) until `visit` returns
     /// false; the reader parses only the records it needs (`RecordHead::record`). A file store
     /// reads a head without parsing its line: adopting a host after a restart reads its whole
@@ -2429,7 +2483,7 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_kinds_in(id, kinds, false, &mut |rec| rec.seq <= after || visit(rec))
+        self.scan_kinds_past(id, after, kinds, false, visit)
     }
 
     fn scan_kinds_after_strict(
@@ -2439,7 +2493,7 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_kinds_in(id, kinds, true, &mut |rec| rec.seq <= after || visit(rec))
+        self.scan_kinds_past(id, after, kinds, true, visit)
     }
 
     fn scan_kinds_keyed(
@@ -2472,6 +2526,17 @@ impl Store for LocalStore {
         visit: &mut dyn FnMut(crate::session_search::Entry),
     ) -> Result<()> {
         self.text_entries_in(id, visit)
+    }
+
+    fn search_records(&self, id: &str, visit: &mut dyn FnMut(EventRecord)) -> Result<()> {
+        if self.is_cold(id) {
+            self.cold_search_records(id, visit)
+        } else {
+            self.scan_kinds(id, crate::session_search::KINDS, &mut |rec| {
+                visit(rec);
+                true
+            })
+        }
     }
 
     /// Segments newest first, so a page from the end reads only the segments it
