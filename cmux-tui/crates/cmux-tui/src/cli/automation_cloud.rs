@@ -398,10 +398,12 @@ mod tests {
                 "a body holds at most 50 steps ({timeout} s: {})",
                 steps.len()
             );
+            // STEP_LIMIT itself stays under the provider's cut; checked at compile time.
+            const { assert!(STEP_LIMIT < 120) };
             for (i, s) in steps.iter().enumerate() {
                 let limit = s["timeout_seconds"].as_u64().unwrap();
                 assert!(
-                    limit <= STEP_LIMIT && limit < 120,
+                    limit <= STEP_LIMIT,
                     "{timeout} s: step {i} may run {limit} s, past the provider's cut"
                 );
             }
