@@ -166,7 +166,9 @@ enum AgentChatThemeSync {
         var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(
             reason: "agentChatThemeSync",
             loadConfig: {
-                GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent)
+                // The chat UI (iMessage view) keeps its own zoom: the app-wide
+                // GUI magnification must not scale the chat's font size.
+                GhosttyConfig.loadForCmux(globalFontMagnificationPercent: nil)
             }
         )
         config.backgroundBlur = GhosttyApp.shared.defaultBackgroundBlur
