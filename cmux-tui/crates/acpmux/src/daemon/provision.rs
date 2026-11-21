@@ -44,9 +44,11 @@ use std::time::Duration;
 /// How long `daemon enroll` waits for a daemon to answer on the socket (the unit may have just
 /// been started): under the provisioning exec's 4.5 s budget.
 #[cfg(target_os = "linux")]
+// timeout: bounds the 50 ms connect retry (no readiness event); then enroll fails, with a message.
 const ANSWER_WAIT: Duration = Duration::from_millis(3_000);
 /// How long one request on the provisioner's connection may take.
 #[cfg(target_os = "linux")]
+// timeout: each read and write on the socket; a daemon that stops answering fails enroll.
 const REPLY_WAIT: Duration = Duration::from_millis(2_000);
 /// The image's daemon layout marker: root-owned, present on Cloud machines only.
 #[cfg(target_os = "linux")]

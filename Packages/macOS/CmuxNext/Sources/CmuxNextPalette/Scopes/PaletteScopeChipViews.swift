@@ -133,7 +133,7 @@ final class PaletteScopeChipView: NSView {
                 }
                 layer?.borderColor = Palette.separator.cgColor
                 layer?.borderWidth = ink.outlined ? Metrics.dividerThickness : 0
-                layer?.cornerRadius = bounds.height / 2
+                layer?.cornerRadius = Metrics.buttonCornerRadius(fitting: bounds.size)
             } else {
                 layer?.backgroundColor = nil
                 layer?.borderWidth = 0

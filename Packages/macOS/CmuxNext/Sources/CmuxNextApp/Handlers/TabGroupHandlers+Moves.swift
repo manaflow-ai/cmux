@@ -17,14 +17,14 @@ extension TabGroupHandlers {
             guard let move, move.decision != "refuse" else { return ctx.refuse(RefusalStrings.chatDockCannotSplit) }
             let edge = move.edge.flatMap(PaneEdge.init(rawValue:)) ?? .right
             let handle = pane.handle
-            run("move-tab-group-to-split", pane: pane, ctx) { c, t in
+            run("move-tab-group-to-split", pane: pane, departing: group, ctx) { c, t in
                 _ = try await c.moveTabGroupToSplit(group, pane: handle, edge: edge, transaction: t)
             }
         }
         bind("tabGroup.moveToNewColumn") { invocation in
             guard let (group, pane) = group(invocation, ctx) else { return }
             let handle = pane.handle
-            run("move-tab-group-to-column", pane: pane, ctx) { c, t in
+            run("move-tab-group-to-column", pane: pane, departing: group, ctx) { c, t in
                 _ = try await c.moveTabGroupToColumn(group, target: .pane(handle), transaction: t)
             }
         }
@@ -44,7 +44,7 @@ extension TabGroupHandlers {
                 return ctx.refuse(RefusalStrings.otherMachine)
             }
             let handle = target.handle, index = target.tabs.count
-            run("move-tab-group", pane: pane, ctx) { c, t in
+            run("move-tab-group", pane: pane, departing: group, into: target, ctx) { c, t in
                 _ = try await c.moveTabGroup(group, to: handle, index: index, transaction: t)
             }
         }

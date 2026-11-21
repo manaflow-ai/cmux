@@ -29,6 +29,16 @@ extension HomeStore {
         return thread
     }
 
+    /// The agents of `conversation` still waiting for a slot, in the order the Chief starts them (lowest id
+    /// first; a `control priority` it gave one is not in Home's rows): a queued agent's chat says how many are
+    /// ahead of it. An agent whose session showed (``agentsStarted(_:)``) is not waiting. Reads the transcript's
+    /// version, so an observer follows starts.
+    public func queuedAgents(in conversation: ConversationID) -> [String] {
+        _ = transcriptVersion[conversation]
+        let started = startedAgents.union(agentSessions[conversation]?.values.map(\.peer) ?? [])
+        return agentMessages[conversation]?.queuedPeers(started: started) ?? []
+    }
+
     /// The person wrote `text` to agent `peer` from the agent pane: it goes to the Chief's chat as a
     /// ``HomeAgentNote`` (`[to <peer>] <text>`), so the Chief reads it, relays it to the agent and keeps it in
     /// its log, and the agent's chat shows it labelled "You" at once. A send that fails shows Not Delivered

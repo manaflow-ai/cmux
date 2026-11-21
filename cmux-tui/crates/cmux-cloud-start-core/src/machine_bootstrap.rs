@@ -38,6 +38,13 @@ pub const MAX_FAILED_READS: u32 = 3;
 /// `root CMD`: CMD as root, from either account.
 pub const ROOT_HELPER: &str =
     r#"root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }"#;
+/// `fill_failed`: the last start's repo step left the rest of its checkout to a background fill
+/// (`repo-status.json` says `"fill":"background"`), and that fill failed: the checkout's barrier
+/// reads failed (`cmux repo wait DIR 0` exits 1). A start identical to it then runs again, so the
+/// repo step repairs the checkout (cmux#38364). A fill still running, or a machine whose cmux has
+/// no `repo wait`, is no failure. Needs `as_u`; the runner, which runs as the work user, defines it
+/// as a plain call.
+pub const FILL_FAILED: &str = r#"fill_failed() { r=$(cat "$d/repo-status.json" 2>/dev/null) || return 1; case "$r" in *'"fill":"background"'*) ;; *) return 1 ;; esac; f=$(printf '%s\n' "$r" | sed -n 's/.*"dir":"\([^"]*\)".*/\1/p'); [ -n "$f" ] || return 1; x=$(command -v cmux-tui || command -v cmux) || return 1; c=0; as_u "$x" repo wait "$f" 0 >/dev/null 2>&1 || c=$?; [ "$c" = 1 ]; }"#;
 /// `as_u CMD`: CMD as the work user `$u`, from either account.
 pub const USER_HELPER: &str =
     r#"as_u() { if [ "$(id -un)" = "$u" ]; then "$@"; else root runuser -u "$u" -- "$@"; fi; }"#;
@@ -158,7 +165,9 @@ pub fn start_command(staged: &str) -> String {
         // `script_sha256` is the script's; `start_sha256` is the script's and the repo step's,
         // which say together what a start runs: the same pair done already runs nothing.
         r#"sum=$(sha256sum "$d/script" | cut -d' ' -f1); key=$(cat "$d/script" "$d/repo" | sha256sum | cut -d' ' -f1)"#.to_owned(),
-        r#"if grep -q "\"state\":\"done\".*\"start_sha256\":\"$key\"" "$d/status.json" 2>/dev/null; then echo skipped; exit 0; fi"#.to_owned(),
+        // Not when its background fill failed since: the same start repairs it.
+        FILL_FAILED.to_owned(),
+        r#"if grep -q "\"state\":\"done\".*\"start_sha256\":\"$key\"" "$d/status.json" 2>/dev/null && ! fill_failed; then echo skipped; exit 0; fi"#.to_owned(),
         r#"as_u rm -f "$d/repo-status.json""#.to_owned(),
         // Only when a runner is launched: a machine-config applier waits on `starting` (a retry of
         // a failed script too). The runner takes `alive` once it runs, which the applier waits on

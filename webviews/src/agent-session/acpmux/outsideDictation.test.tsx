@@ -1,13 +1,11 @@
-// The outside-dictation mark (outsideDictation.ts): the host is asked to watch the microphone only
-// while a composer has the keyboard, the mark draws in the mic's own place, and the prompt keeps
-// focus and every key while it shows.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { DictationButton } from "./DictationButton";
 import type { Dictation } from "./dictation";
-import { setOutsideDictation } from "./outsideDictation";
+import { applyHostEvent } from "./pageHost";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -17,7 +15,7 @@ const saved = new Map<string, unknown>();
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
-  setOutsideDictation({ active: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -70,33 +68,28 @@ async function mount(watches: boolean[]) {
   return { doc, prompt: doc.querySelector("textarea")!, button: doc.querySelector("button")! };
 }
 
-test("the host watches only while the composer has the keyboard", async () => {
+test("focusing a composer never watches the microphone", async () => {
   const watches: boolean[] = [];
   const { doc, prompt } = await mount(watches);
-  expect(watches).toEqual([]);
   await act(async () => prompt.focus());
-  expect(watches).toEqual([true]);
   await act(async () => (doc.getElementById("elsewhere") as HTMLInputElement).focus());
-  expect(watches).toEqual([true, false]);
+  await act(async () => prompt.focus());
+  expect(watches).toEqual([]);
 });
 
-test("another app's dictation draws in the mic's place and leaves the prompt focused", async () => {
+test("another app's microphone events leave the mic idle and preserve typing", async () => {
   const { prompt, button } = await mount([]);
   await act(async () => prompt.focus());
-  expect(button.getAttribute("data-outside")).toBeNull();
-  await act(async () => setOutsideDictation({ active: true, bundleId: "com.openai.codex", name: "ChatGPT" }));
-  expect(button.getAttribute("data-outside")).toBe("true");
-  expect(button.querySelector(".acpmux-mic-outside")).not.toBeNull();
-  // The glyph stays in the tree (hidden by CSS), so the button never re-lays out.
-  expect(button.querySelector("svg")).not.toBeNull();
-  expect(button.getAttribute("title")).toContain("ChatGPT");
-  expect(button.ownerDocument.activeElement).toBe(prompt);
-  await act(async () => setOutsideDictation({ active: false }));
-  expect(button.getAttribute("data-outside")).toBeNull();
-});
-
-test("an unfocused composer shows nothing even while another app listens", async () => {
-  const { button } = await mount([]);
-  await act(async () => setOutsideDictation({ active: true, name: "ChatGPT" }));
-  expect(button.getAttribute("data-outside")).toBeNull();
+  const title = button.getAttribute("title");
+  for (const name of ["Meeting", "Dictation app"]) {
+    await act(async () => {
+      applyHostEvent({ kind: "micActivity", value: { active: true, name, metered: true } });
+      applyHostEvent({ kind: "micLevel", value: { level: 0.8 } });
+    });
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    expect(button.getAttribute("data-state")).toBe("idle");
+    expect(button.getAttribute("title")).toBe(title);
+    expect(button.querySelector(".acpmux-mic-outside, .acpmux-mic-level")).toBeNull();
+    expect(button.ownerDocument.activeElement).toBe(prompt);
+  }
 });

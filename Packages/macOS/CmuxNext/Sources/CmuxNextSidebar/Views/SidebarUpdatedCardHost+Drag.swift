@@ -25,6 +25,8 @@ extension SidebarUpdatedCardHost {
             return
         }
         guard let drop = drag.drop else {
+            // A held card leaves its changes' popover behind: it closes.
+            notes.hide()
             if heldOffset == nil {
                 // Taken mid-settle: the drag carries on from where the card is shown, never from its rest.
                 heldBase = CGPoint(x: settleX.value, y: settleY.value)

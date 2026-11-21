@@ -7,8 +7,9 @@ public import CmuxNextSettings
 /// reasoning slider toggle and visual style, `plainFooter`, Debug Settings' plain footer look
 /// (``AgentPaneTunables/composerPlainFooter``), `modelMenu`, what the model chip opens
 /// (``AgentPaneTunables/modelMenu``), and `harnessSwitch`, whether a started chat can switch
-/// harness (``AgentPaneTunables/harnessSwitchInStartedChat``). None of the last
-/// three is a setting: each is read here, on the pane's side, each time the event is made.
+/// harness (``AgentPaneTunables/harnessSwitchInStartedChat``), and `cloudEnvironments`, the launch
+/// flag `CLOUD_ENVIRONMENTS_ENABLED` (``AgentPaneCloudEnvironmentsFlag``). None of the last
+/// four is a setting: each is read here, on the pane's side, each time the event is made.
 extension AgentPageEvent {
     /// The composer's settings: `{showContextUsage, composerRing, showDictation, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, reasoningSlider, reasoningSliderStyle, plainFooter, modelMenu, harnessSwitch}`.
     public static func composer(_ setting: AgentPaneComposerSetting) -> AgentPageEvent {
@@ -34,6 +35,7 @@ extension AgentPaneComposerSetting {
         value["harnessPlacement"] = .string(AgentPaneTunables.harnessPlacement.value.rawValue)
         value["modelMenu"] = .string(AgentPaneTunables.modelMenu.value.rawValue)
         value["harnessSwitch"] = .bool(AgentPaneTunables.harnessSwitchInStartedChat.value)
+        value["cloudEnvironments"] = .bool(AgentPaneCloudEnvironmentsFlag.current.enabled)
         return .object(value)
     }
 

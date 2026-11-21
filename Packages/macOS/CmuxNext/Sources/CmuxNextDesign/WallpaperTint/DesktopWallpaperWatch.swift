@@ -96,8 +96,8 @@ public final class DesktopWallpaperWatch {
         }
     }
 
-    /// The Wallpaper group palette is chosen (`sidebar.groupPalette`): pictures are sampled for it even with
-    /// `appearance.wallpaperTint` off, and each color lands in `DesignSettings.groupWallpaperTint`, so the sidebar's
+    /// The Wallpaper or Pictorial group palette is chosen (`sidebar.groupPalette`): pictures are sampled for it even
+    /// with `appearance.wallpaperTint` off, and each color lands in `DesignSettings.groupWallpaperTint`, so the sidebar's
     /// groups repaint when the desktop picture changes. The window's own tint still follows only `tintEnabled`.
     public var samplesForGroups = false {
         didSet {
@@ -106,6 +106,9 @@ public final class DesktopWallpaperWatch {
             if samplesForGroups { sampleIfNeeded() }
         }
     }
+
+    /// How many bands a sample takes, top to bottom (`WallpaperTint.bands`).
+    nonisolated static let bandCount = 16
 
     private let read: @MainActor () async -> Reading?
     private let sample: @Sendable (Reading) async -> WallpaperTint?
@@ -127,6 +130,7 @@ public final class DesktopWallpaperWatch {
     private var observers: [MainActorObservation] = []
     private var storeSource: WallpaperStoreSource?
     private let views = NSHashTable<WindowMaterialView>.weakObjects()
+    private let followers = NSHashTable<AnyObject>.weakObjects()
 
     /// - Parameters:
     ///   - read: What the desktop shows now, read off the main thread; nil without a screen.
@@ -279,12 +283,18 @@ public final class DesktopWallpaperWatch {
     }
 
     private func publish(_ color: WallpaperTint?, for reading: Reading) {
+        let changed = tint != color
         tint = color
         published = reading
         if let color { defaults?.set([color.red, color.green, color.blue], forKey: Self.lastTintKey) }
         if samplesForGroups { DesignSettings.shared.groupWallpaperTint = color }
         refreshViews()
+        if changed { for follower in followers.allObjects { (follower as? DesktopWallpaperColorFollower)?.desktopWallpaperColorDidChange() } }
     }
+
+    /// Tells `follower` each time ``tint`` (and its bands) changes; held weakly. The sidebar's group colors follow the
+    /// picture this way under a palette that follows it.
+    public func follow(_ follower: DesktopWallpaperColorFollower) { followers.add(follower) }
 
     /// The wallpaper store's folder: macOS rewrites its index there when a picture is chosen. A
     /// burst of writes settles before one reading, so the reading sees the new picture.
@@ -342,7 +352,16 @@ public final class DesktopWallpaperWatch {
         await Task.detached(priority: .utility) { () -> WallpaperTint? in
             guard let url = reading.picture.resolvedURL(dark: reading.dark),
                   let image = BackdropImageStore.decode(url, maxPixelSize: 64, dark: reading.dark) else { return nil }
-            return WallpaperTint.average(of: image)
+            var tint = WallpaperTint.average(of: image)
+            tint?.bands = WallpaperTint.bands(of: image, count: Self.bandCount)
+            return tint
         }.value
     }
+}
+
+/// Something that follows the desktop picture's color (``DesktopWallpaperWatch/follow(_:)``).
+@MainActor
+public protocol DesktopWallpaperColorFollower: AnyObject {
+    /// The picture's color (``DesktopWallpaperWatch/tint``) changed.
+    func desktopWallpaperColorDidChange()
 }

@@ -4,7 +4,7 @@
 public import CmuxNextDesign
 
 extension NewTabTemplate {
-    /// `tabs.newTabTemplate`: Which New Tab page template shows (the page's dots also set it). NewTabTemplate is hand-written: it keeps the legacy composer case, which loads as Minimal.
+    /// `tabs.newTabTemplate`: Which New Tab page template shows (the page's dots also set it). NewTabTemplate is hand-written: it keeps the retired composer, cards, default, threads and console cases, which load as Minimal. Those four pages are templates a person builds now (Leo 2026-11-18: "The templates should be like the customixastikms api you can build them i don't think they should ship as is"): skills/cmux-customization/templates/newtab-*, picked with tabs.newTabApp.
     public nonisolated static let configPath = ["tabs", "newTabTemplate"]
     public nonisolated static let fallback: NewTabTemplate = .minimal
 }
@@ -13,6 +13,11 @@ extension NativeNewTabPageSetting {
     /// `tabs.nativeNewTabPage`: The native New Tab page, an alternative to the web one (off by default).
     public nonisolated static let configPath = ["tabs", "nativeNewTabPage"]
     public nonisolated static let fallback = false
+}
+
+extension NewTabAppSetting {
+    /// `tabs.newTabApp`: A whole New Tab page drawn by an extension (cmux.newtab/1), by app id. Unset (the default) draws cmux's own page; a missing, hidden, disabled or failing app draws it too. Read by the web page only.
+    public nonisolated static let configPath = ["tabs", "newTabApp"]
 }
 
 extension NewTabPosition {
@@ -86,12 +91,6 @@ extension NewTerminalWorkspaceSetting {
     /// `newTerminal.opensWorkspace`: Whether New Terminal creates a workspace in the current space instead of a tab in the focused workspace.
     public nonisolated static let configPath = ["newTerminal", "opensWorkspace"]
     public nonisolated static let fallback = false
-}
-
-extension CmdWClosesPinnedTabsSetting {
-    /// `tabs.cmdWClosesPinnedTabs`: Whether the user's Cmd-W closes a pinned tab.
-    public nonisolated static let configPath = ["tabs", "cmdWClosesPinnedTabs"]
-    public nonisolated static let fallback = true
 }
 
 extension VerticalTabsSetting {

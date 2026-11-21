@@ -2,9 +2,8 @@
 // The subagent tray's motion next to a new message arriving (trayMotion.tsx; Leo 2026-10-26: "Like
 // why is this not animating and, like, following along with the exact same things as everything
 // else?"): the card eases in as the first subagent starts, its header ticks as a second joins, its
-// list folds and opens, and it leaves on a kept snapshot when the last one ends. Three arms
-// (trayMotion.experiment.ts; view Compare arms): the message's own rise (shipped), a tight fade, a
-// slight spring.
+// list folds and opens, and it leaves on a kept snapshot when the last one ends. Two arms
+// (trayMotion.experiment.ts; view Compare arms): the house settle (shipped) and a tight fade.
 import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { trayMotionLook } from "./trayMotion.experiment";

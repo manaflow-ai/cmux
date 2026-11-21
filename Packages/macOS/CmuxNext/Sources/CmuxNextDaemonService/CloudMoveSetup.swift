@@ -25,4 +25,9 @@ public struct CloudMoveSetup {
                 ledger: UserDefaults? = nil, accessPoll: Duration = .seconds(3), accessSync: Duration = .seconds(60)) {
         (self.cli, self.workRoots, self.timeout, self.ledger, self.accessPoll, self.accessSync) = (cli, workRoots, timeout, ledger, accessPoll, accessSync)
     }
+
+    /// The work root (``workRoots``) a chat's synced folder is under.
+    public func workRoot(of folder: String) -> String? {
+        workRoots.first { folder.hasPrefix($0.hasSuffix("/") ? $0 : $0 + "/") }
+    }
 }

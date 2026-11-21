@@ -40,6 +40,7 @@ struct ReduceMotionPaneCloseFrameTests {
         let kept = [0, 2]
         let start = kept.map { screen.sessions[$0].view.surfaceSize(forHostSize: screen.sessions[$0].view.bounds.size) }
 
+        let reports = TerminalSurfaceView.gridReports
         try #require(screen.model.showPaneClose("p2") != nil, "the close of p2 was not shown")
         screen.root.syncWithModel()
         var off: [String] = []
@@ -68,6 +69,10 @@ struct ReduceMotionPaneCloseFrameTests {
                 return view.frameOwnership.ahead == nil || state == GHOSTTY_HOST_FRAME_READY || state == GHOSTTY_HOST_FRAME_SHOWN
             }
         }
+        // A snap's size drawn ahead is render only: its grid goes when the snap shows (review of #38125, finding 1: the key
+        // press's rule, its grid with the size drawn ahead, reached the snap and sent each terminal's grid in the close's turn).
+        #expect(TerminalSurfaceView.gridReports == reports,
+                "a Reduce Motion close sent \(TerminalSurfaceView.gridReports - reports) grids before it showed: a snap's grid goes at its landing")
         _ = screen.root.advanceFrame(1.0 / 120)
         screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
         await TerminalKeyResizeFrameTests.commit()
@@ -99,7 +104,8 @@ struct ReduceMotionPaneCloseFrameTests {
         var ios: [ScriptedTerminalIO] = []
         private let drew: Bool
 
-        init() async throws {
+        /// `reduceMotion`: false pins pane springs on (a key press animates), for the same three terminals.
+        init(reduceMotion: Bool = true) async throws {
             _ = NSApplication.shared
             TunableStore.shared.activate(file: nil)
             TunableStore.shared.register(TerminalDragTunables.all)
@@ -111,7 +117,7 @@ struct ReduceMotionPaneCloseFrameTests {
                                 activeScreenID: "s", focusedPane: "p2")
             model.splitSizingOverride = .even
             root = LayoutRootView(model: model, contentProvider: provider)
-            root.context.reduceMotionOverride = true
+            root.context.reduceMotionOverride = reduceMotion
             window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1200, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false

@@ -100,6 +100,8 @@ struct NewTabAnchorRaceTests {
             let wrong = seen.filter { $0.contains("s") && $0 != ["a", "b", "c", "s"] }
             #expect(wrong.isEmpty, "the script's tab showed in the closed stand-in's slot: \(seen.map { $0.joined(separator: " ") })")
             #expect(seen.last == ["a", "b", "c", "s"], "settled at \(seen.last?.joined(separator: " ") ?? "-"), want a b c s; frames \(seen.map { $0.joined(separator: " ") })")
+            // The closed stand-in was selected: its selection went to the one tab that arrived (review F1 on #38085).
+            #expect(pane.stripModel.selectedID?.rawValue != script, "the script's tab took the closed stand-in's selection")
         }
     }
 }

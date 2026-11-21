@@ -3,7 +3,7 @@
 // SentMessageLine.tsx). The tool's first shape, `{to, text}`, stays agentMessages.ts's card.
 //
 // Input: `{to|tag, text|file, steer?, class?, pr?, thread?, supersede?}`, or `messages: [ … ]` of
-// those items, up to 32, each merged over the call's top-level fields (they are its defaults). A
+// those items, each merged over the call's top-level fields (they are its defaults). A
 // `file` stands in for the text, which the input does not hold: the row names the file. A `tag`
 // stands in for `to` and reaches every live session carrying it.
 // Result: the first shape `{deliveryId, target, status, delivery, …}`, or `{results: [{index, to,
@@ -134,23 +134,63 @@ function results(output: string | undefined): Row[] | undefined {
   return textRows(trimmed);
 }
 
-/// The tool takes at most 32 items (more and it sends nothing) and reaches at most 64 sessions.
-const ITEM_CAP = 32;
-const MESSAGE_CAP = 64;
+/// Whether the result is an MCP error (`isError: true`): the tool refused the whole call (more
+/// recipients than it reaches, say), so nothing went, whatever the call's status says.
+function isErrorResult(output: string | undefined): boolean {
+  if (!output?.includes('"isError"')) return false;
+  return record(parse(output.trim()))?.isError === true;
+}
+
+type Memo = {
+  title: string;
+  command: string | undefined;
+  input: string | undefined;
+  output: string | undefined;
+  status: Tool["status"];
+  exitCode: number | undefined;
+  parts: AcpmuxSendCallPart[] | undefined;
+};
+const receipts = new WeakMap<Tool, Memo>();
 
 /// The messages an acpmux MCP send call with `messages`, `file` or `tag` makes, one per recipient
 /// with its state; nil for any other call, and for the first shape (`{to, text}`), which
 /// agentMessages.ts draws.
 export function acpmuxMcpSends(tool: Tool): AcpmuxSendCallPart[] | undefined {
+  const memo = receipts.get(tool);
+  if (
+    memo &&
+    memo.title === tool.title &&
+    memo.command === tool.command &&
+    memo.input === tool.inputSummary &&
+    memo.output === tool.output &&
+    memo.status === tool.status &&
+    memo.exitCode === tool.exitCode
+  )
+    return memo.parts;
+  const parts = readSends(tool);
+  receipts.set(tool, {
+    title: tool.title,
+    command: tool.command,
+    input: tool.inputSummary,
+    output: tool.output,
+    status: tool.status,
+    exitCode: tool.exitCode,
+    parts,
+  });
+  return parts;
+}
+
+function readSends(tool: Tool): AcpmuxSendCallPart[] | undefined {
   const args = sendArgs(tool);
   if (!args) return undefined;
   const list = Array.isArray(args.messages) ? args.messages : undefined;
   if (!list && !text(args.file) && !text(args.tag)) return undefined;
   const defaults = item(args, {});
   const items = list ? list.map((entry) => item(record(entry) ?? {}, defaults)) : [defaults];
-  if (!items.length || items.length > ITEM_CAP) return undefined;
+  if (!items.length) return undefined;
   const running = tool.status === "pending" || tool.status === "in_progress";
-  const failed = tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0);
+  const failed =
+    tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0) || isErrorResult(tool.output);
   const rows = running ? undefined : results(tool.output);
   const count = rows?.length || items.length;
   const base = (one: Item, index: number) => ({
@@ -171,7 +211,7 @@ export function acpmuxMcpSends(tool: Tool): AcpmuxSendCallPart[] | undefined {
   const parts: AcpmuxSendCallPart[] = [];
   // Text rows carry no index: in order, they are the items' while each item reached one session.
   const ordered = rows.every((row) => row.index === undefined) && rows.length === items.length;
-  for (const [at, row] of rows.slice(0, MESSAGE_CAP).entries()) {
+  for (const [at, row] of rows.entries()) {
     const item = row.index !== undefined && items[row.index] ? row.index : ordered ? at : undefined;
     const one = item !== undefined ? items[item]! : items.length === 1 ? items[0]! : {};
     parts.push({

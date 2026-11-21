@@ -4,7 +4,7 @@
  * Usage (from web/):
  *   bun ../images/cmux-vm/smoke.ts --snapshot <sh-id> --tag <tag> [--clones 5] [--browser-probe]
  *       [--idle-seconds 120] [--out-dir <dir>] [--lock <path>]
- *       [--expect-capabilities <json>] [--team-vm] [--native-receiver]
+ *       [--expect-capabilities <json>] [--team-vm]
  *
  * Creates N clones (cmuxnp-dev-vmimg-<tag>-smoke-<i>) and measures create ->
  * first exec and create -> daemon listening. On two of them it checks: the
@@ -27,7 +27,7 @@
  * The daemon handshake (identify.ts) must serve REQUIRED_IMAGE_CAPABILITIES and, with
  * --expect-capabilities, every listed capability; --team-vm also checks /srv/team.
  * The session host stays up 60 s after boot and after one forced rebind, with no legacy or migration
- * error, and UDP 4101 bound on a Cloud-bound Native clone (daemon-uptime.ts). No agent sign-in
+ * error (daemon-uptime.ts). No agent sign-in
  * (~/.claude/.credentials.json, ~/.codex/auth.json) or daemon identity comes from the image.
  * Checks that need the bind agent are reported as PENDING.
  * Every clone is deleted whatever happens.
@@ -44,9 +44,10 @@ import { DNS_SMOKE_COMMAND, dnsCheckProblems } from "./dns";
 import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./machine-health";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
+import { AGENT_TOOLS_BIN } from "./agent-tools";
 import { browserRoleProbe } from "./browser-probe";
 import { GH_SHIM } from "./github-auth";
-import { HOST_CLI, NATIVE_RECEIVER_SMOKE, SELF_UPDATE_OFF } from "./host-agent";
+import { HOST_CLI, SELF_UPDATE_OFF } from "./host-agent";
 import { agentBindProbe, resizeProbe } from "./probes";
 import { daemonHoldCommand, daemonUptimeDetail, daemonUptimeProblems, forcedRebindCommand, HOLD_SECONDS } from "./daemon-uptime";
 import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
@@ -201,7 +202,7 @@ const LISTEN_POLL = [
   "grep -qi ':0539 00000000000000000000000000000000:0000 0A' /proc/net/tcp6",
 ].join("; ");
 
-const IDENTITY_PROBE = [
+export const IDENTITY_PROBE = [
   `echo instance=$(${DEVBOX_INSTANCE_ID_COMMAND})`,
   "echo bound=$(cat /etc/cmux/daemon-instance-id 2>/dev/null)",
   "for i in $(seq 1 150); do [ -n \"$(find /etc/ssh -name ssh_host_ed25519_key.pub -newer /etc/cmux/daemon-instance-id 2>/dev/null)\" ] && break; sleep 0.2; done",
@@ -215,7 +216,7 @@ const IDENTITY_PROBE = [
   "echo urandom=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \\n')",
 ].join("; ");
 
-function kv(stdout: string): Record<string, string> {
+export function kv(stdout: string): Record<string, string> {
   return Object.fromEntries(stdout.trim().split("\n").filter((l) => l.includes("=")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
 }
 
@@ -227,19 +228,90 @@ function check(report: Report, name: string, ok: boolean, detail: string): void 
   console.log(`${ok ? "PASS" : "FAIL"} ${name}: ${detail.split("\n").slice(0, 6).join(" | ")}`);
 }
 
+/**
+ * The provider never finished this clone: its create call failed, its guest never answered an exec,
+ * or an exec call failed before the guest ran the command. That is the provider's latency or capacity,
+ * not the image's, so the smoke replaces the clone instead of failing the image on it.
+ */
+export class ProviderUnfinished extends Error {
+  constructor(readonly clone: Clone | undefined, reason: string) {
+    super(reason);
+  }
+}
+
+/**
+ * A restored guest answers its first exec 0.1 to 0.7 s after the create returns. Roll 43953739384's
+ * clone 3 took 13.8 s, then its daemon missed the 30 s listen poll but was ready at 145 s: the provider
+ * stalled that guest. Such a clone is replaced, and the replacement must pass; a clone that answered
+ * promptly and still has no daemon fails the image.
+ */
+export const PROVIDER_STALL_MS = 10_000;
+
+/** Why a clone whose daemon missed the listen poll is the provider's stall, or undefined when it is the image's. */
+export function providerStall(createApiMs: number, createToFirstExecMs: number, listenCode: number): string | undefined {
+  const firstExecAfterCreate = createToFirstExecMs - createApiMs;
+  if (listenCode === 0 || firstExecAfterCreate <= PROVIDER_STALL_MS) return undefined;
+  return `guest stalled: first exec ${firstExecAfterCreate} ms after the create returned, then no daemon listening in the 30 s poll`;
+}
+
+const providerUnfinished =(clone: Clone | undefined, step: string) => (error: unknown): never => {
+  throw new ProviderUnfinished(clone, `${step}: ${String(error).slice(0, 200)}`);
+};
+
 export async function measureClone(fs: ReturnType<typeof freestyleClient>, ledger: Ledger, name: string, snapshotId: string): Promise<{ clone: Clone; row: Record<string, number | string> }> {
-  const { vm, vmId, createMs, t0 } = await createVm(fs, ledger, { name, snapshotId });
+  const { vm, vmId, createMs, t0 } = await createVm(fs, ledger, { name, snapshotId }).catch(providerUnfinished(undefined, "create"));
   const clone = { vm, vmId, name };
-  const firstExecMs = await firstExec(vm, t0);
+  const firstExecMs = await firstExec(vm, t0).catch(providerUnfinished(clone, "first exec"));
   // A smoke clone measures the snapshot as baked: the marker goes down with the first command,
   // well before its updater's first check (30 s after cmux host run starts), which reads it
   // again right before it changes anything.
-  const listen = await run(vm, `mkdir -p /etc/cmux && touch ${SELF_UPDATE_OFF}; ${LISTEN_POLL}`, 60_000);
+  const listen = await run(vm, `mkdir -p /etc/cmux && touch ${SELF_UPDATE_OFF}; ${LISTEN_POLL}`, 60_000).catch(providerUnfinished(clone, "listen exec"));
   const listeningMs = Date.now() - t0;
-  const ready = await run(vm, devboxWaitForDaemonCommand(60), 90_000);
+  // The poll prints its wait before it judges; without that line the guest never ran it.
+  if (!/guest-wait-ms \d+/.test(listen.stdout)) throw new ProviderUnfinished(clone, `listen exec returned ${listen.code} without running: ${listen.stderr.slice(-200)}`);
+  const stall = providerStall(createMs, firstExecMs, listen.code);
+  if (stall) throw new ProviderUnfinished(clone, stall);
+  const ready = await run(vm, devboxWaitForDaemonCommand(60), 90_000).catch(providerUnfinished(clone, "ready exec"));
   const readyMs = Date.now() - t0;
   const guestWaitMs = Number(/guest-wait-ms (\d+)/.exec(listen.stdout)?.[1] ?? Number.NaN);
-  return { clone, row: { vmId, createApiMs: createMs, createToFirstExecMs: firstExecMs, createToListeningMs: listen.code === 0 ? listeningMs : -1, guestWaitMs, createToReadyMs: ready.code === 0 ? readyMs : -1 } };
+  // createTo* include the provider's create call; createDoneTo* start when it returned, the image's part.
+  return {
+    clone,
+    row: {
+      vmId,
+      createApiMs: createMs,
+      createToFirstExecMs: firstExecMs,
+      createToListeningMs: listen.code === 0 ? listeningMs : -1,
+      guestWaitMs,
+      createToReadyMs: ready.code === 0 ? readyMs : -1,
+      createDoneToFirstExecMs: firstExecMs - createMs,
+      createDoneToListeningMs: listen.code === 0 ? listeningMs - createMs : -1,
+      createDoneToReadyMs: ready.code === 0 ? readyMs - createMs : -1,
+    },
+  };
+}
+
+/** Replacement clones a smoke may create for ones the provider never finished. */
+export const PROVIDER_RETRIES = 3;
+
+/**
+ * Measures one clone, replacing it when the provider never finished it (deleting the unfinished one),
+ * at most `retries` times across the whole smoke (`budget.left`). An image failure is never retried.
+ */
+export async function measureCloneRetrying(measure: (attempt: number) => Promise<{ clone: Clone; row: Record<string, number | string> }>, discard: (clone: Clone) => Promise<void>, budget: { left: number; unfinished: string[] }, backoffMs = 10_000): Promise<{ clone: Clone; row: Record<string, number | string> }> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await measure(attempt);
+    } catch (error) {
+      if (!(error instanceof ProviderUnfinished)) throw error;
+      budget.unfinished.push(error.message);
+      if (error.clone) await discard(error.clone).catch((e) => console.error(`could not delete unfinished ${error.clone?.vmId}: ${String(e)}`));
+      if (budget.left <= 0) throw new Error(`provider never finished ${budget.unfinished.length} clones: ${budget.unfinished.join("; ")}`);
+      budget.left--;
+      console.log(`PROVIDER clone unfinished (${error.message}); replacing it, ${budget.left} replacements left`);
+      await sleep(backoffMs);
+    }
+  }
 }
 
 async function idlePhase(vm: Vm, report: Report, idleSeconds: number): Promise<void> {
@@ -331,11 +403,28 @@ async function automationChecks(vm: Vm, report: Report): Promise<void> {
   const probe = await run(vm, `${HOST_CLI} cloud probe-activity`, 60_000);
   const probed = probe.code === 0 && /"capability":true,"connected":true/.test(probe.stdout);
   check(report, "vm-activity-stream", probed, probe.stdout.trim().split("\n").at(-1) || probe.stderr.slice(-300));
-  const roles = await run(vm, `test -s ${ROLES_MANIFEST_PATH} && ! pgrep -x Xvfb >/dev/null && ! command -v openbox >/dev/null && ! command -v ffmpeg >/dev/null && command -v Xvfb >/dev/null && ls /usr/share/fonts/opentype/noto/ | grep -q '^NotoSansCJK' && echo roles-off-fonts-on`);
+  const roles = await run(vm, rolesOffFontsOnCommand());
   check(report, "roles-off-fonts-on", roles.code === 0, roles.stdout.trim() || roles.stderr.slice(-300));
 }
 
 /** The health loop runs clean and the guard drop-ins apply (machine-health.ts). */
+/**
+ * Roles are parked (no Xvfb running), first-use packages are absent, and CJK fonts are baked. openbox is role
+ * display-wm's: a first-use package, except that an agent-tools image bakes it for the desktop session
+ * (AGENT_TOOLS_BAKED_ROLES, #44696). The agent tools' cmux-cua wrapper marks that image.
+ */
+export function rolesOffFontsOnCommand(): string {
+  return [
+    `test -s ${ROLES_MANIFEST_PATH}`,
+    "! pgrep -x Xvfb >/dev/null",
+    `{ test -x ${AGENT_TOOLS_BIN}/cmux-cua || ! command -v openbox >/dev/null; }`,
+    "! command -v ffmpeg >/dev/null",
+    "command -v Xvfb >/dev/null",
+    "ls /usr/share/fonts/opentype/noto/ | grep -q '^NotoSansCJK'",
+    "echo roles-off-fonts-on",
+  ].join(" && ");
+}
+
 async function machineHealthChecks(vm: Vm, report: Report): Promise<void> {
   const out = await run(vm, machineHealthSmokeCommand(DEVBOX_WORK_USER), 120_000);
   const problems = machineHealthSmokeProblems(out.stdout);
@@ -355,26 +444,26 @@ async function resolverChecks(vm: Vm, report: Report): Promise<void> {
  * The session host stays up HOLD_SECONDS after boot and again after one forced rebind (daemon-uptime.ts).
  * Last on its clone: the rebind restarts the session host and rewrites the bound id.
  */
-async function daemonUptimeChecks(vm: Vm, report: Report, nativeReceiver: boolean): Promise<void> {
-  await daemonBootHold(vm, report, nativeReceiver);
-  await daemonRebindHold(vm, report, nativeReceiver);
+async function daemonUptimeChecks(vm: Vm, report: Report): Promise<void> {
+  await daemonBootHold(vm, report);
+  await daemonRebindHold(vm, report);
 }
 
 const HOLD_TIMEOUT_MS = (HOLD_SECONDS + 60) * 1000;
 
-async function daemonBootHold(vm: Vm, report: Report, nativeReceiver: boolean): Promise<void> {
+async function daemonBootHold(vm: Vm, report: Report): Promise<void> {
   const boot = await run(vm, daemonHoldCommand(), HOLD_TIMEOUT_MS);
-  const bootProblems = daemonUptimeProblems(boot.stdout, nativeReceiver);
+  const bootProblems = daemonUptimeProblems(boot.stdout);
   check(report, "daemon-stays-up", boot.code === 0 && bootProblems.length === 0, bootProblems.join("\n") || daemonUptimeDetail(boot.stdout));
 }
 
 /** Last on its clone: the rebind restarts the session host and rewrites the bound id. */
-async function daemonRebindHold(vm: Vm, report: Report, nativeReceiver: boolean): Promise<void> {
+async function daemonRebindHold(vm: Vm, report: Report): Promise<void> {
   const hold = HOLD_TIMEOUT_MS;
   const rebind = await run(vm, forcedRebindCommand(), 120_000);
   const rebound = /^rebound=1$/m.test(rebind.stdout);
   const after = rebound ? await run(vm, daemonHoldCommand(), hold) : undefined;
-  const afterProblems = after ? daemonUptimeProblems(after.stdout, nativeReceiver) : [`forced rebind did not finish: ${rebind.stdout.trim() || rebind.stderr.slice(-200)}`];
+  const afterProblems = after ? daemonUptimeProblems(after.stdout) : [`forced rebind did not finish: ${rebind.stdout.trim() || rebind.stderr.slice(-200)}`];
   check(report, "daemon-stays-up-after-rebind", after?.code === 0 && afterProblems.length === 0, afterProblems.join("\n") || daemonUptimeDetail(after?.stdout ?? ""));
 }
 
@@ -384,10 +473,36 @@ function summarize(rows: Array<Record<string, number | string>>): Record<string,
     const values = pick(key);
     return { n: values.length, p50: percentile(values, 50), p95: percentile(values, 95), raw: values };
   };
-  return { createApi: stat("createApiMs"), createToFirstExec: stat("createToFirstExecMs"), createToListening: stat("createToListeningMs"), createToReady: stat("createToReadyMs"), guestWait: stat("guestWaitMs") };
+  return {
+    createApi: stat("createApiMs"),
+    createToFirstExec: stat("createToFirstExecMs"),
+    createToListening: stat("createToListeningMs"),
+    createToReady: stat("createToReadyMs"),
+    guestWait: stat("guestWaitMs"),
+    createDoneToFirstExec: stat("createDoneToFirstExecMs"),
+    createDoneToListening: stat("createDoneToListeningMs"),
+    createDoneToReady: stat("createDoneToReadyMs"),
+  };
 }
 
-export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean; expectCapabilities?: readonly string[]; teamVm?: boolean; nativeReceiver?: boolean }): Promise<Report> {
+/** The provider's part: its create call and the clones it never finished. Reported, never judged. */
+export function providerLatency(rows: Array<Record<string, number | string>>, unfinished: readonly string[]): Record<string, unknown> {
+  const s = summarize(rows);
+  return { createApi: s.createApi, unfinished: unfinished.length, reasons: unfinished };
+}
+
+/** The image's part: from the create call's return to the daemon listening and ready. */
+export function imageLatency(rows: Array<Record<string, number | string>>): Record<string, unknown> {
+  const s = summarize(rows);
+  return { createDoneToFirstExec: s.createDoneToFirstExec, createDoneToListening: s.createDoneToListening, createDoneToReady: s.createDoneToReady, guestWait: s.guestWait };
+}
+
+/** Every clone the provider finished had its daemon listening and ready. */
+export function daemonListening(rows: Array<Record<string, number | string>>): boolean {
+  return rows.length > 0 && rows.every((r) => Number(r.createDoneToListeningMs) >= 0 && Number(r.createDoneToReadyMs) >= 0);
+}
+
+export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean; expectCapabilities?: readonly string[]; teamVm?: boolean }): Promise<Report> {
   mkdirSync(options.outDir, { recursive: true });
   const lock = readInputsLock(options.lockPath);
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
@@ -398,15 +513,17 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
   try {
     // One at a time: creating them at once made every create wait about 13 s at the provider (run
     // 42012003953, against about 0.5 s each one by one), and create latency is what this measures.
+    const budget = { left: PROVIDER_RETRIES, unfinished: [] as string[] };
+    report.providerUnfinished = budget.unfinished;
     for (let i = 1; i <= options.clones; i++) {
-      const { clone, row } = await measureClone(fs, ledger, `cmuxnp-dev-vmimg-${options.tag}-smoke-${i}`, options.snapshotId);
+      const { clone, row } = await measureCloneRetrying(
+        (attempt) => measureClone(fs, ledger, `cmuxnp-dev-vmimg-${options.tag}-smoke-${i}${attempt ? `r${attempt}` : ""}`, options.snapshotId),
+        (c) => deleteVm(c.vm, c.vmId, c.name, ledger),
+        budget,
+      );
       rows.push(row);
       // Track the clone before the extra probe so a refused/failed exec still cleans it up.
       kept.push(clone);
-      if (options.nativeReceiver) {
-        const receiver = await run(clone.vm, NATIVE_RECEIVER_SMOKE);
-        check(report, `native-receiver-root-${i}`, receiver.code === 0, receiver.stdout.trim() || receiver.stderr.slice(-200));
-      }
       console.log(`clone ${i} ${clone.vmId}: ${JSON.stringify(row)}`);
       // Clones 1 and 2 carry the identity and idle checks; a third, when there is one, takes the rebind hold.
       if (kept.length > 3) {
@@ -416,7 +533,9 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
     }
     report.clones = rows;
     report.latency = summarize(rows);
-    check(report, "daemon-listening", rows.every((r) => Number(r.createToListeningMs) > 0 && Number(r.createToReadyMs) > 0), JSON.stringify(report.latency));
+    report.providerLatency = providerLatency(rows, budget.unfinished);
+    console.log(`INFO provider-latency ${JSON.stringify(report.providerLatency)}`);
+    check(report, "daemon-listening", daemonListening(rows), JSON.stringify(imageLatency(rows)));
     const ids = await Promise.all(kept.slice(0, 2).map((c) => run(c.vm, IDENTITY_PROBE, 60_000).then((r) => kv(r.stdout))));
     report.identity = ids.map((id) => ({ instance: id.instance, bound: id.bound, sshkey: id.sshkey, daemon: id.daemon?.slice(0, 12), machineid: id.machineid?.slice(0, 8), bootid: id.bootid?.slice(0, 8) }));
     check(report, "daemon-bound", ids.every((id) => id.instance && id.instance === id.bound && id["identity-present"] === "1"), JSON.stringify(report.identity));
@@ -453,13 +572,13 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
         report.browser = { timings: browser.timings, idle: browser.idle, pending: browser.pending };
         for (const [name, c] of Object.entries(browser.checks)) check(report, `browser-${name}`.replace(/^browser-browser-/, "browser-"), c.ok, c.detail);
       }
-      if (rebindClone) await daemonBootHold(kept[1].vm, report, Boolean(options.nativeReceiver));
-      else await daemonUptimeChecks(kept[1].vm, report, Boolean(options.nativeReceiver));
+      if (rebindClone) await daemonBootHold(kept[1].vm, report);
+      else await daemonUptimeChecks(kept[1].vm, report);
     };
     const phases: Record<string, number> = {};
     const timed = (label: string, f: () => Promise<void>) => async () => { const t = Date.now(); await f(); phases[label] = Date.now() - t; };
     await Promise.all([timed("idleClone1Ms", () => idlePhase(kept[0].vm, report, options.idleSeconds))(), timed("checksClone2Ms", onClone2)(),
-      ...(rebindClone ? [timed("rebindClone3Ms", () => daemonRebindHold(rebindClone.vm, report, Boolean(options.nativeReceiver)))()] : [])]);
+      ...(rebindClone ? [timed("rebindClone3Ms", () => daemonRebindHold(rebindClone.vm, report))()] : [])]);
     report.phasesMs = phases;
     if (options.resizeProbe) {
       report.resize = await resizeProbe(kept[0].vm);
@@ -513,7 +632,6 @@ export async function main(argv = process.argv): Promise<number> {
     browserProbe: argv.includes("--browser-probe"),
     expectCapabilities: expectedCapabilities(argValue("--expect-capabilities", argv)),
     teamVm: argv.includes("--team-vm"),
-    nativeReceiver: argv.includes("--native-receiver"),
   });
   return report.passed ? 0 : 1;
 }

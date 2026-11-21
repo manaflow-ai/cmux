@@ -1,0 +1,113 @@
+{
+ "id": 130448365318,
+ "run_id": 42998467090,
+ "workflow_name": "cmux-next guards",
+ "head_branch": "feat-cmux-next",
+ "head_sha": "0238fcd45607926b7546c5b1714f4e4a75cb2689",
+ "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/42998467090/job/130448365318",
+ "status": "completed",
+ "conclusion": "failure",
+ "created_at": "2026-11-11T09:49:56Z",
+ "started_at": "2026-11-11T09:49:56Z",
+ "completed_at": "2026-11-11T09:50:58Z",
+ "name": "cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files",
+ "steps": [
+  {
+   "name": "Set up job",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 1,
+   "started_at": "2026-11-11T09:49:57Z",
+   "completed_at": "2026-11-11T09:49:57Z"
+  },
+  {
+   "name": "Set up runner",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 2,
+   "started_at": "2026-11-11T09:49:57Z",
+   "completed_at": "2026-11-11T09:49:57Z"
+  },
+  {
+   "name": "Checkout",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 3,
+   "started_at": "2026-11-11T09:49:57Z",
+   "completed_at": "2026-11-11T09:50:21Z"
+  },
+  {
+   "name": "CmuxNextApp size cap",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 4,
+   "started_at": "2026-11-11T09:50:21Z",
+   "completed_at": "2026-11-11T09:50:24Z"
+  },
+  {
+   "name": "cmux-next crash ratchet",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 5,
+   "started_at": "2026-11-11T09:50:24Z",
+   "completed_at": "2026-11-11T09:50:50Z"
+  },
+  {
+   "name": "cmux-next spawn-owner ratchet",
+   "status": "completed",
+   "conclusion": "failure",
+   "number": 6,
+   "started_at": "2026-11-11T09:50:50Z",
+   "completed_at": "2026-11-11T09:50:51Z"
+  },
+  {
+   "name": "cmux-next localization debt ratchet",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 7,
+   "started_at": "2026-11-11T09:50:51Z",
+   "completed_at": "2026-11-11T09:50:54Z"
+  },
+  {
+   "name": "The generated files guard's own tests",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 8,
+   "started_at": "2026-11-11T09:50:54Z",
+   "completed_at": "2026-11-11T09:50:55Z"
+  },
+  {
+   "name": "cmux-next no new generated files",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 9,
+   "started_at": "2026-11-11T09:50:55Z",
+   "completed_at": "2026-11-11T09:50:57Z"
+  },
+  {
+   "name": "Post Checkout",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 17,
+   "started_at": "2026-11-11T09:50:57Z",
+   "completed_at": "2026-11-11T09:50:57Z"
+  },
+  {
+   "name": "Complete runner",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 18,
+   "started_at": "2026-11-11T09:50:57Z",
+   "completed_at": "2026-11-11T09:50:57Z"
+  },
+  {
+   "name": "Complete job",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 19,
+   "started_at": "2026-11-11T09:50:57Z",
+   "completed_at": "2026-11-11T09:50:57Z"
+  }
+ ],
+ "run_attempt": 1
+}

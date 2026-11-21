@@ -9,9 +9,12 @@ output and on a hand-built Mach-O object.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import re
 import struct
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -62,10 +65,22 @@ class StubTests(unittest.TestCase):
         stubs._run = FakeTools({"a": (DYLIBS, NM), "b": (DYLIBS, "                 (undefined) external _CFRetain (from CoreFoundation)\n")})
         self.tmp = tempfile.TemporaryDirectory()
         self.dir = Path(self.tmp.name)
+        # The tool's own report lines: the cases that expect a refusal print "FAIL stubs: ...", which a CI log
+        # reader took for this suite failing (2026-11-19). They are kept here and shown only when a test fails.
+        self.tool_output = io.StringIO()
+        self.redirect = contextlib.redirect_stdout(self.tool_output)
+        self.redirect.__enter__()
 
     def tearDown(self) -> None:
+        self.redirect.__exit__(None, None, None)
         stubs._run = self.original_run
         self.tmp.cleanup()
+
+    def run(self, result=None):
+        result = super().run(result)
+        if result is not None and any(test is self for test, _ in result.failures + result.errors):
+            sys.stderr.write(f"{self.id()} tool output:\n{self.tool_output.getvalue()}")
+        return result
 
     def test_imports_are_grouped_by_install_name_with_versions(self) -> None:
         libs = stubs.imports("a")
@@ -99,6 +114,15 @@ class StubTests(unittest.TestCase):
         installed = sysroot / "System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd"
         self.assertEqual(installed.read_text(), (self.dir / "CoreFoundation.tbd").read_text())
         self.assertTrue((sysroot / "System/Library/Frameworks/Security.framework/Security.tbd").exists())
+
+    def test_tailnet_headers_and_link_stubs_are_installed_together(self) -> None:
+        stubs.cmd_install(ROOT / "scripts/ci/macos-stubs", self.dir)
+        for name in ["IOKit", "SystemConfiguration"]:
+            self.assertTrue((self.dir / f"System/Library/Frameworks/{name}.framework/{name}.tbd").is_file())
+        self.assertTrue((self.dir / "usr/lib/libresolv.tbd").is_file())
+        self.assertTrue((self.dir / "usr/include/CoreFoundation/CoreFoundation.h").is_file())
+        self.assertTrue((self.dir / "usr/include/IOKit/IOKitLib.h").is_file())
+        self.assertTrue((self.dir / "usr/include/Security/Security.h").is_file())
 
     def test_a_libsystem_routine_bound_to_a_framework_needs_no_stub(self) -> None:
         # A Mac link with the macOS 15 SDK binds log2 to CoreServices (an

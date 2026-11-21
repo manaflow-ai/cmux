@@ -61,7 +61,7 @@ pub(super) async fn steer(
     if let Some(via) = params.pointer("/_meta/acpmux/via").cloned() {
         p.set_path(&["_meta", "acpmux", "via"], via);
     }
-    Box::pin(super::handle_request(hub, conn, method::SESSION_PROMPT, p)).await?;
+    Box::pin(super::handle_request(hub, conn, method::SESSION_PROMPT, p, None)).await?;
     let row = hub
         .briefs
         .update(id, |r| {

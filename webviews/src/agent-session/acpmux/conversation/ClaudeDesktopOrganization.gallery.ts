@@ -119,7 +119,7 @@ const openRun: Play = async (ctx) => {
 /// Claude's Bash description (Codex parity), so it is "rg -l fetchWithRetry src".
 const hoverStep: Play = async (ctx) => {
   await openRun(ctx);
-  await ctx.hover({ role: "button", name: /rg -l fetchWithRetry src/ });
+  await ctx.hover({ role: "button", name: /Searched for “fetchWithRetry”/ });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-steps > .cv-step > .cv-tool:hover"), { capMs: 10_000 });
 };
 
@@ -136,14 +136,31 @@ const variant = (
 
 function mixedVariant(harness: "claude" | "codex", working: boolean): AgentPaneVariant {
   return {
-    note: `${harness}, ${working ? "live" : "finished"}: raw turn rows project through the app into mixed steps, with discovery noise omitted.`,
+    note: working
+      ? `${harness}, live: the same raw rows while the turn runs. Under live-turn-work \`line\` (pinned), the prompt stays in sight with the one live line under it and none of the finished steps; they project into mixed steps once the turn ends.`
+      : `${harness}, finished: raw turn rows project through the app into mixed steps, with discovery noise omitted.`,
     snapshot: chat(mixedToolTurnFixture(working), {
       title: "Mixed tool steps",
       harness,
       model: harness === "codex" ? "gpt-6-astra" : "claude-opus-5-5",
       isWorking: working,
     }),
+    // The live case is about the `line` arm's look; the finished turn draws the same under either.
+    ...(working ? { experiments: { "live-turn-work": "line" } } : {}),
     play: async (ctx) => {
+      // A running turn is its prompt and one live line (liveTurnWork.experiment.ts `line`): its
+      // finished steps draw no row until the turn ends.
+      if (working) {
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-row[data-row-id="thinking-live"]'), {
+          capMs: 10_000,
+        });
+        if (!ctx.document.body.textContent?.includes("Inspect the retry behavior"))
+          throw new Error("the running turn's prompt is not in sight");
+        const rows = '.acpmux-row:not([data-row-id="thinking-live"])';
+        const drawn = ctx.document.querySelectorAll(`${rows} [data-tool-id], ${rows} .cv-tool.is-run`).length;
+        if (drawn) throw new Error(`the running turn draws ${drawn} finished steps over its live line`);
+        return;
+      }
       await ctx.waitFor(() => ctx.document.querySelector(".cv-worked, .cv-tool.is-run"), { capMs: 10_000 });
       const worked = ctx.document.querySelector(".cv-worked");
       if (worked?.getAttribute("aria-expanded") === "false") await ctx.click({ selector: ".cv-worked" });

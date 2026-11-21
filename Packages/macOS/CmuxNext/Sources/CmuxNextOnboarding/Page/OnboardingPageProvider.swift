@@ -11,9 +11,11 @@ import Foundation
 /// key runs one gesture (its `gestureEvent` is spent): nothing a page sends on its own can install
 /// an agent, start an import, a sign-in or a System Settings grant, or run a second one off the
 /// same click. This is the rule of the app's other pages with person-only ops (Settings' agents,
-/// the agent pane); like theirs, a VoiceOver press, which carries no key or mouse event, is refused
-/// until the page bridge has a gesture path for it that page script cannot fake (manaflow-ai/cmux#37809).
-/// Full Keyboard Access (Tab, then Space or Return) sends real key events and works.
+/// the agent pane). A VoiceOver press carries no key or mouse event; in Chromium it counts as the
+/// gesture all the same (`ChromiumAccessibilityPress`: only an assistive app reaches it). In WebKit,
+/// where VoiceOver talks to the web process directly, its trusted click counts while VoiceOver runs
+/// (`PageAccessibilityPress`, manaflow-ai/cmux#37809).
+/// Full Keyboard Access (Tab, then Space or Return) sends real key events and works in both.
 @MainActor
 final class OnboardingPageProvider: PageProvider {
     private let model: OnboardingModel
@@ -80,6 +82,15 @@ final class OnboardingPageProvider: PageProvider {
             }
             model.computerUse.allow(pane)
         case "cmux.onboarding.computerUse.restart": model.computerUse.restart()
+        case "cmux.onboarding.makeItYours.workStyle":
+            guard let value = WorkStyle(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown work style") }
+            model.makeItYours.setWorkStyle(value)
+        case "cmux.onboarding.makeItYours.density":
+            guard let value = DensityChoice(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown density") }
+            model.makeItYours.setDensity(value)
+        case "cmux.onboarding.makeItYours.background":
+            // null: no background.
+            guard model.makeItYours.setBackground(params["id"]?.stringValue) else { throw PageError.invalidParams("unknown background") }
         default: throw PageError.unknownOp(op)
         }
     }
@@ -103,6 +114,7 @@ final class OnboardingPageProvider: PageProvider {
         if op.hasPrefix("cmux.onboarding.agents.") { return .agents }
         if op.hasPrefix("cmux.onboarding.import.") { return .importData }
         if op.hasPrefix("cmux.onboarding.computerUse.") { return .computerUse }
+        if op.hasPrefix("cmux.onboarding.makeItYours.") { return .makeItYours }
         return nil
     }
 

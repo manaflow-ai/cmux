@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextDesignTokens
 @testable import CmuxNextSidebar
 import Testing
 
@@ -28,6 +29,33 @@ import Testing
         #expect(rest.footer == 0)
         let hovered = SidebarChromeReveal(revealed: true, minimalMode: .off, controlsOnHover: true, spacesVisibility: .hover)
         #expect(hovered.newButton == 1 && hovered.spaces == 1 && hovered.footer == 1)
+    }
+
+    /// Minimal Mode is the one switch (user 2026-11-15): on, it hides the sidebar's controls until hover with
+    /// Show Sidebar Controls Only on Hover off; off, they show.
+    @Test func minimalModeHidesTheControlsUntilHover() {
+        var sections = SidebarSectionsPreferences.defaults
+        #expect(!sections.hidesControlsUntilHover, "every control shows by default")
+        sections.minimal = true
+        #expect(sections.hidesControlsUntilHover)
+        sections.minimal = false
+        sections.controlsOnHover = true
+        #expect(sections.hidesControlsUntilHover, "the older sidebar-only toggle still hides them")
+    }
+
+    @Test func minimalModeFadesTheSidebarControlsInPlace() async throws {
+        let previousMotion = Motion.reduceMotionOverride
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = previousMotion }
+        let h = try await SidebarBandHideTests().make(#"{"sidebar":{"minimal":true}}"#)
+        defer { h.tearDown() }
+        await h.until { h.sidebar.design.sidebarSections.minimal }
+        h.sidebar.setChromeRevealed(false)
+        let views: [NSView] = [h.sidebar.newButton, h.sidebar.searchButton, h.sidebar.footerRegion, h.sidebar.profileBar]
+        await h.until { views.allSatisfy { $0.alphaValue == 0 } }
+        #expect(views.allSatisfy { $0.alphaValue == 0 }, "Minimal Mode at rest: \(views.map(\.alphaValue))")
+        h.sidebar.setChromeRevealed(true)
+        #expect(views.allSatisfy { $0.alphaValue == 1 }, "the pointer over the sidebar: \(views.map(\.alphaValue))")
     }
 
     /// `sidebar.spacesVisibility` Always pins the strip, controls on hover or not.
@@ -95,8 +123,8 @@ import Testing
         let h = try await SidebarBandHideTests().make(#"{"sidebar":{"minimal":true,"controlsOnHover":true}}"#)
         defer { h.tearDown() }
         h.model.profileAvatar = SidebarAvatar(name: "Default", color: .blue)
-        await h.until { h.sidebar.footerBand.profileControl != nil && h.model.minimal }
-        #expect(h.model.minimal, "Minimal Mode's compact rows stay on")
+        await h.until { h.sidebar.footerBand.profileControl != nil && h.sidebar.design.sidebarSections.minimal }
+        #expect(h.sidebar.design.sidebarSections.minimal, "Minimal Mode stays on")
         h.sidebar.setChromeRevealed(false)
         #expect(h.sidebar.newButton.alphaValue == 0 && h.sidebar.searchButton.alphaValue == 0)
         h.sidebar.setChromeRevealed(true)
@@ -124,9 +152,11 @@ import Testing
         #expect(h.saved("controlsOnHover") == true)
         #expect(h.sidebar.newButton.alphaValue == 0)
 
+        // Off is the default: the write removes the key (#38119), so cmux.json keeps no copy.
         _ = h.services.registry.perform("sidebar.controlsOnHover.off")
-        await h.until { h.saved("controlsOnHover") == false && h.sidebar.newButton.alphaValue == 1 }
-        #expect(h.saved("controlsOnHover") == false)
+        await h.until { h.fileParses() && h.saved("controlsOnHover") == nil && h.sidebar.newButton.alphaValue == 1 }
+        #expect(h.fileParses(), "cmux.json is missing or does not parse")
+        #expect(h.saved("controlsOnHover") == nil, "off is the default: sidebar.controlsOnHover leaves cmux.json")
         #expect(h.sidebar.newButton.alphaValue == 1)
     }
 }

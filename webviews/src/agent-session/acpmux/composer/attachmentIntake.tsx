@@ -18,17 +18,23 @@ import { useStripReorder } from "./stripReorder";
 
 import { SourceBadge } from "./SourceBadge";
 import { useSourceLabel, withSourceLabel } from "./sourceBadgeModel";
-
-import { FADE_BAND_PX } from "../MarkdownField";
+import { FADE_BAND_PX } from "../markdownFieldModel";
 import { useScrollEdges } from "../summary/scrollEdges";
-import { isVideoAttachment, useVideoReading } from "./videoAttachments";
+import { isVideoAttachment } from "./videoAttachments";
+import { chipVideoRatio, videoShapeStyle } from "./videoShape";
 import { VideoAttachmentTile } from "./VideoAttachmentTile";
 import { useAttachedVideoPlayer } from "./videoAttachmentTileModel";
 import { FileAttachment } from "../FileAttachment";
+import { PastedTextChip } from "./PastedTextChip";
+import { UIPickChip } from "./UIPickChip";
+import { BrowserPickChip } from "./BrowserPickChip";
+import { isBrowserPick } from "./browserPickModel";
+import { isUIPick } from "./uiPickModel";
 import { TextAttachmentCard } from "./TextAttachmentCard";
 import { pastedSize } from "./textAttachmentCardModel";
 import { ATTACHMENT_LABELS, imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { RemoveGlyph } from "./RemoveGlyph";
+import { AttachmentPreviewBoundary } from "./AttachmentPreviewBoundary";
 import { chipRef } from "../conversation/sendMorph";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
@@ -41,6 +47,7 @@ export function AttachmentStrip({
   codex = false,
   onRemove,
   onExpand,
+  onKeepFile,
   onCancel,
   onRetry,
   onReorder,
@@ -67,6 +74,8 @@ export function AttachmentStrip({
   /// A pasted text chip's click: its text goes back into the prompt (pastedText.ts). Unset, the chip
   /// only shows.
   onExpand?(id: string): void;
+  /// A pasted text chip's Keep as .txt: it goes as a file instead. Unset, the chip has no such button.
+  onKeepFile?(id: string): void;
 }) {
   const t = useT();
   // More chips than fit scroll sideways: the side with chips past it is marked, and the CSS fades it
@@ -124,7 +133,8 @@ export function AttachmentStrip({
           key={attachment.id}
           className="acpmux-attachment-slot"
           data-attachment-index={index}
-          // Where its chip is when the prompt goes: the sent preview moves from it (sendMorph.ts).
+          // Where its chip is when the prompt goes: sent from the latest row, it moves from there
+          // to its slot in the message (conversation/sendMorph.ts).
           ref={chipRef(attachment.id)}
           data-dragging={reorder.dragging === attachment.id || undefined}
         >
@@ -133,6 +143,7 @@ export function AttachmentStrip({
             codex={codex}
             onRemove={onRemove}
             {...(onExpand ? { onExpand } : {})}
+            {...(onKeepFile ? { onKeepFile } : {})}
             {...(onRetry && originalFailures?.[attachment.id]
               ? { onRetry, originalFailed: originalFailures[attachment.id] }
               : {})}
@@ -158,7 +169,7 @@ export function AttachmentStrip({
 /// A file still being read: an image's tile in the shape of an image chip, or a file's chip with its
 /// name, with a spinner and a × that cancels it. One that could not be attached says why, with
 /// Retry.
-function PendingChip({
+export function PendingChip({
   chip,
   onCancel,
   onRetry,
@@ -180,35 +191,59 @@ function PendingChip({
       <RemoveGlyph />
     </button>
   );
-  // A video (a screen recording) is the square its poster will fill, like an image's tile; only
-  // another file shows its name (Leo, 2026-10-26: "not for screen recordings. ... We know it's a
-  // video. ... Just do the square.").
-  const square = chip.image || chip.video;
-  const kind = square ? "acpmux-attachment-image" : "acpmux-attachment-file";
-  const shape = chip.image ? imageShape(chip.size) : undefined;
+  const indicator = (
+    <PasteLoadingMark
+      look={look}
+      size={16}
+      className="acpmux-attachment-spinner"
+      upload={chip.progress === undefined ? undefined : <UploadProgress value={chip.progress} name={name} />}
+    />
+  );
+  if (!chip.image && !chip.video) {
+    // Keep the same file body, byte count and icon slot while the path is resolved or uploaded.
+    const { failed } = chip;
+    return (
+      <div
+        className={`acpmux-attachment acpmux-attachment-file ${failed ? "acpmux-attachment-failed" : `acpmux-attachment-pending ${PASTE_LOADING_CLASS}`}`}
+        aria-label={name}
+        aria-busy={failed ? undefined : "true"}
+        data-paste-look={failed ? undefined : look}
+        /* tooltip-allow: the tile shows no reason; the tooltip says why it failed */ title={chip.failed}
+      >
+        <FileAttachment
+          file={{ name, size: chip.fileSize }}
+          remove={remove}
+          {...(failed ? { failure: failed } : {})}
+          statusIcon={
+            failed
+              ? onRetry && chip.retryable && <RetryButton reason={failed} onRetry={() => onRetry(chip.id)} />
+              : indicator
+          }
+        />
+      </div>
+    );
+  }
+  // A video, like an image, loads in the tile its poster will fill.
+  const shape = chip.image ? imageShape(chip.size) : videoShapeStyle(chip.videoShape);
   const style =
-    shape || (chip.preview && square)
-      ? { ...shape, ...(chip.preview && square ? { backgroundImage: `url("${chip.preview}")` } : {}) }
+    shape || chip.preview
+      ? { ...shape, ...(chip.preview ? { backgroundImage: `url("${chip.preview}")` } : {}) }
       : undefined;
   // One that could not be attached keeps its shape: what it is (its kind's glyph, a file's name),
-  // one small retry button, and its ×; why is in its tooltip (Leo, 2026-10-31: "video attachments
+  // one small retry button where a retry can work (`retryable`), and its ×; why is in its tooltip (Leo, 2026-10-31: "video attachments
   // (big attachments?) still sucks", over a strip of empty tiles with only an underlined Retry).
   if (chip.failed)
     return (
       <div
-        className={`acpmux-attachment ${kind} acpmux-attachment-failed`}
+        className="acpmux-attachment acpmux-attachment-image acpmux-attachment-failed"
         aria-label={name}
+        {...(chip.video ? { "data-video-shape": "", style: videoShapeStyle(chip.videoShape) } : {})}
         /* tooltip-allow: the tile shows no reason; the tooltip says why it failed */ title={chip.failed}
       >
         {chip.image ? (
           <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
-        ) : chip.video ? (
-          <PlayTriangle size={16} className="acpmux-attachment-failed-icon" />
         ) : (
-          <>
-            <FileDoc size={14} className="acpmux-attachment-failed-icon" />
-            <span className="acpmux-attachment-failed-name">{chip.name}</span>
-          </>
+          <PlayTriangle size={16} className="acpmux-attachment-failed-icon" />
         )}
         {onRetry && chip.retryable && <RetryButton reason={chip.failed} onRetry={() => onRetry(chip.id)} />}
         {remove}
@@ -216,24 +251,19 @@ function PendingChip({
     );
   return (
     <div
-      className={`acpmux-attachment ${kind} acpmux-attachment-pending ${PASTE_LOADING_CLASS}`}
+      className={`acpmux-attachment acpmux-attachment-image acpmux-attachment-pending ${PASTE_LOADING_CLASS}`}
       data-paste-look={look}
       aria-busy="true"
       aria-label={name}
       // The image's shape from its header (the slot its thumbnail ends in), and its own picture
       // behind the spinner (a background, not an <img>: the strip's images are its ready chips).
       {...(chip.image && shape ? { "data-sized": "" } : {})}
+      {...(chip.video ? { "data-video-shape": "" } : {})}
       {...(chip.sizing ? { "data-sizing": "" } : {})}
-      {...(chip.preview && square ? { "data-instant": "" } : {})}
+      {...(chip.preview ? { "data-instant": "" } : {})}
       {...(style ? { style } : {})}
     >
-      <PasteLoadingMark
-        look={look}
-        size={16}
-        className="acpmux-attachment-spinner"
-        upload={chip.progress === undefined ? undefined : <UploadProgress value={chip.progress} name={name} />}
-      />
-      {!square && <span>{chip.name}</span>}
+      {indicator}
       {remove}
     </div>
   );
@@ -315,11 +345,65 @@ const keptThumbOf = (id: string) => keptThumb(id) ?? keptThumb(inlineCopyParent(
 
 /// A staged attachment's chip: the strip draws it, and so does the prompt for one placed in its text
 /// (composer/inlineAttachments.tsx), with the same preview, open, play and remove.
-export function AttachmentChip({
+type AttachmentChipProps = Parameters<typeof AttachmentChipPreview>[0];
+
+/// A staged attachment's chip. Its preview draws inside a boundary: one that throws is the file's
+/// plain chip instead (AttachmentPreviewBoundary.tsx), never a blank prompt or pane.
+export function AttachmentChip(props: AttachmentChipProps) {
+  return (
+    <AttachmentPreviewBoundary
+      attachment={props.attachment}
+      fallback={<AttachmentFileFallback attachment={props.attachment} onRemove={props.onRemove} />}
+    >
+      <AttachmentChipPreview {...props} />
+    </AttachmentPreviewBoundary>
+  );
+}
+
+/// The chip a failed preview falls back to: the file's name, type and size, and its ×.
+function AttachmentFileFallback({
+  attachment,
+  onRemove,
+}: {
+  attachment: ComposerAttachment;
+  onRemove(id: string): void;
+}) {
+  const t = useT();
+  return (
+    <div
+      className="acpmux-attachment acpmux-attachment-file acpmux-attachment-link"
+      data-preview-failed="true"
+      /* tooltip-allow: the full path is secondary detail for the file chip */
+      title={attachment.path ?? attachment.name}
+    >
+      <FileAttachment
+        file={{
+          name: attachment.name,
+          path: attachment.path,
+          mimeType: attachment.mimeType,
+          size: attachment.size > 0 ? attachment.size : undefined,
+        }}
+        remove={
+          <button
+            type="button"
+            className="acpmux-attachment-remove"
+            aria-label={t(ATTACHMENT_LABELS.removeAttachment, { name: attachment.name })}
+            onClick={() => onRemove(attachment.id)}
+          >
+            <RemoveGlyph />
+          </button>
+        }
+      />
+    </div>
+  );
+}
+
+function AttachmentChipPreview({
   attachment,
   codex = false,
   onRemove,
   onExpand,
+  onKeepFile,
   onRetry,
   originalFailed,
 }: {
@@ -327,6 +411,8 @@ export function AttachmentChip({
   codex?: boolean;
   onRemove(id: string): void;
   onExpand?(id: string): void;
+  /// A pasted chip sent as a .txt file instead (composer/pastedChips.ts `keepAsFile`).
+  onKeepFile?(id: string): void;
   /// An image whose original failed to upload (`originalFailed`, why): its Retry uploads it again.
   onRetry?(id: string): void;
   originalFailed?: string;
@@ -340,8 +426,7 @@ export function AttachmentChip({
   );
   /// The image's natural size, from its thumbnail or from the image itself once it loads.
   const [size, setSize] = useState<{ width: number; height: number }>();
-  const videoReading = useVideoReading(attachment.id);
-  const videoPlayer = useAttachedVideoPlayer(attachment.path, attachment.name);
+  const videoPlayer = useAttachedVideoPlayer(attachment.path, attachment.name, attachment.video);
   const isImage = attachment.kind === "image" && Boolean(attachment.data);
   const image = isImage && !broken;
   const source = image ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined;
@@ -382,15 +467,21 @@ export function AttachmentChip({
     </>
   );
   // Its right-click menu: Open (or what a click does) where a click opens it, and Remove (cx-2lm4).
-  const menu = (open: (() => void) | undefined, chip: React.ReactNode, openLabel = t("image.open")) => (
+  const menu = (
+    open: (() => void) | undefined,
+    chip: React.ReactNode,
+    openLabel = t("image.open"),
+    keep?: () => void,
+  ) => (
     <ContextMenu
       className="acpmux-attachment-menu"
       items={[
         ...(open ? [{ id: "open", label: openLabel, onSelect: open }] : []),
+        ...(keep ? [{ id: "keep", label: t(ATTACHMENT_LABELS.keepPasted), onSelect: keep }] : []),
         {
           id: "remove",
           label: t(ATTACHMENT_LABELS.removeAttachment, { name }),
-          separatorBefore: Boolean(open),
+          separatorBefore: Boolean(open || keep),
           onSelect: () => onRemove(attachment.id),
         },
       ]}
@@ -449,35 +540,39 @@ export function AttachmentChip({
   // An image the engine could not draw says so in its slot, instead of an empty tile or a bare
   // file name; its × still removes it.
   if (isImage) return menu(undefined, <BrokenImageChip remove={remove} onRetry={() => setBroken(false)} />);
-  // A huge paste (pastedText.ts): its first words and line count; a click puts it back in the prompt.
+  // A huge paste (pastedText.ts): a compact chip that opens its whole text, Edit in Prompt and Keep
+  // as .txt in the opened view (PastedTextChip.tsx). Its menu keeps both too.
   if (pasted) {
     const text = attachment.text ?? "";
     const expand = onExpand ? () => onExpand(attachment.id) : undefined;
+    const keep = onKeepFile ? () => onKeepFile(attachment.id) : undefined;
     const label = `${name} · ${pastedSize(t, language, text)}`;
-    const accessible = `${attachment.name || pasteName(text)}, ${label}`;
-    const body = <TextAttachmentCard text={text} label={label} wrap />;
     return menu(
       expand,
-      <div className="acpmux-attachment acpmux-attachment-pasted acpmux-text-card">
-        {expand ? (
-          <button
-            type="button"
-            className="acpmux-attachment-pasted-open"
-            aria-label={accessible}
-            /* tooltip-allow: the chip shows the paste's first lines; the tooltip says a click puts it back in the prompt */
-            title={t(ATTACHMENT_LABELS.editPasted)}
-            onClick={expand}
-          >
-            {body}
-          </button>
-        ) : (
-          <span className="acpmux-attachment-pasted-open">{body}</span>
-        )}
-        {remove}
-      </div>,
+      <PastedTextChip
+        host="strip"
+        text={text}
+        name={name}
+        accessibleName={`${attachment.name || pasteName(text)}, ${label}`}
+        remove={remove}
+        {...(expand ? { onEdit: expand } : {})}
+        {...(keep ? { onKeep: keep } : {})}
+      />,
       t(ATTACHMENT_LABELS.editPasted),
+      keep,
     );
   }
+  // A browser pick (browserPickModel.ts): its number and comment over the element, one chip with its
+  // crop inside, opening its whole card in place (BrowserPickChip.tsx).
+  if (attachment.kind === "text" && attachment.text !== undefined && isBrowserPick(attachment))
+    return menu(
+      undefined,
+      <BrowserPickChip host="strip" name={attachment.name} text={attachment.text} remove={remove} />,
+    );
+  // An inspector pick (uiPickModel.ts): the element and a snippet of its text, opening its whole
+  // report in place (UIPickChip.tsx).
+  if (attachment.kind === "text" && attachment.text !== undefined && isUIPick(attachment))
+    return menu(undefined, <UIPickChip host="strip" name={attachment.name} text={attachment.text} remove={remove} />);
   // A text file (attachments.ts readAttachment) or a picked selection: the same page of its first
   // lines, under its name and line count.
   if (attachment.kind === "text" && attachment.text !== undefined) {
@@ -509,22 +604,24 @@ export function AttachmentChip({
     );
   }
   // A video goes as its path too, with its poster and length once the host read them; a click plays it
-  // in the pane, streamed from its path (VideoAttachmentTile.tsx useAttachedVideoPlayer). One the host
-  // could not read (or never asked: a chat on another machine) keeps the square with its play glyph
-  // and no poster; Quick Look still plays it from its path when the pane may not.
+  // in the pane, streamed from its path (VideoAttachmentTile.tsx useAttachedVideoPlayer); in a chat on
+  // another machine, from its upload there. One the host could not read (or never asked: a chat on
+  // another machine) keeps the square with its play glyph and no poster; Quick Look plays it from its
+  // path when the pane may not, and one nothing can play says so on its tile.
   if (isVideoAttachment(attachment)) {
     const play = videoPlayer.play;
     return (
       <>
         {menu(
-          videoReading ? undefined : play,
+          play,
           <VideoAttachmentTile
             name={attachment.name}
             title={withSourceLabel(attachment.name, from)}
             video={attachment.video}
-            reading={!attachment.video && videoReading}
+            shape={chipVideoRatio(attachment)}
             remove={remove}
             onPlay={play}
+            unplayable={videoPlayer.unplayable}
           />,
           t("media.play"),
         )}

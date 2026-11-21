@@ -6,6 +6,7 @@ import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { readFileSync } from "node:fs";
 import type { WaitingOn } from "../src/agent-session/acpmux/conversation/waitingOn";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -23,7 +24,8 @@ Object.assign(globals, {
   Node: dom.window.Node,
   IS_REACT_ACT_ENVIRONMENT: true,
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) globals[key] = value;
     else delete globals[key];

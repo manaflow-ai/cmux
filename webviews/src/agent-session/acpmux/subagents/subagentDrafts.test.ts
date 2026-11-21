@@ -59,11 +59,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  Object.defineProperty(globalThis, "localStorage", {
-    value: previous,
-    configurable: true,
-    writable: true,
-  });
+  if (previous === undefined) delete (globalThis as { localStorage?: unknown }).localStorage;
+  else
+    Object.defineProperty(globalThis, "localStorage", {
+      value: previous,
+      configurable: true,
+      writable: true,
+    });
   resetSubagentDraftsForTests();
 });
 

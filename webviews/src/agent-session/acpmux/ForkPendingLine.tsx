@@ -1,6 +1,6 @@
 import { DialogButton } from "../../ui/DialogButton";
 import { Spinner } from "./conversation/icons";
-import { waitedText } from "./HostError";
+import { waitedText } from "./hostErrorModel";
 import { useT } from "./i18n";
 import { useNow } from "./subagents/subagentGroupModel";
 

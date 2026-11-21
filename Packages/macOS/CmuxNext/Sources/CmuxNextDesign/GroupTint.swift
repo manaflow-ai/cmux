@@ -87,7 +87,8 @@ public nonisolated enum GroupTint: Hashable, Sendable {
     @MainActor public func lineRGB(palette: GroupPalette) -> ThemeRGB {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
         return switch self {
-        case let .palette(token): token.paletteRGB(palette, tokens: tokens, wallpaper: Self.wallpaper)
+        case let .palette(token): token.paletteRGB(palette, tokens: tokens, wallpaper: Self.wallpaper,
+                                                  gradient: DesignSettings.shared.sidebarSections.groupGradient)
         case let .custom(rgb): Self.readable(rgb)
         // No color: a line and dot nobody sees.
         case .none: tokens.sidebarBackground.withAlpha(0)

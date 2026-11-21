@@ -14,7 +14,7 @@ export const tableActionsPlace = defineExperiment({
     corner: {
       label: "In the corner",
       description:
-        "A small glass pill inside the table's top-right corner, on the header row, which keeps room for it.",
+        "Bare buttons inside the table's top-right corner, on the header row, which keeps room for them (no pill, as a code card's corner).",
     },
     above: {
       label: "Above",

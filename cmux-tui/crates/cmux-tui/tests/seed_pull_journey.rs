@@ -284,6 +284,69 @@ fn a_pull_brings_back_commits_edits_adds_deletes_and_staged_changes_not_ignored_
     assert!(ok && after["unchanged"] == json!(true), "{after}");
 }
 
+/// Read refs/stash without treating its expected absence as a Git failure.
+fn stash_at(folder: &Path) -> Option<String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(folder)
+        .args(["rev-parse", "--verify", "-q", "refs/stash"])
+        .output()
+        .unwrap();
+    out.status.success().then(|| String::from_utf8(out.stdout).unwrap().trim().to_owned())
+}
+
+#[test]
+fn a_stash_only_cloud_change_returns_on_pull_and_can_be_deleted() {
+    let world = World::new("stash-roundtrip");
+    let repo = world.project("app");
+    let (ok, seeded) = world.push(&repo, "app", false);
+    assert!(ok && seeded["mode"] == "seed", "{seeded}");
+    let vm = world.folder("app");
+
+    // Cloud changes only refs/stash: the work, index and HEAD are the same.
+    write(&vm.join("a"), "a\nstash-only VM change\n");
+    git(&vm, &["stash", "push", "-q", "-m", "from-cloud"]);
+    let remote_stash = stash_at(&vm).expect("Cloud stash");
+    assert!(stash_at(&repo).is_none());
+    let (ok, pulled) = world.pull(&repo, "app", None);
+    assert!(ok && pulled["stash_changed"] == true, "{pulled}");
+    assert_eq!(pulled["written"], 0, "{pulled}");
+    assert_eq!(stash_at(&repo), Some(remote_stash));
+
+    // An unmodified follow-up is idempotent, including the stash baseline.
+    let (ok, same) = world.pull(&repo, "app", None);
+    assert!(ok && same["unchanged"] == true, "{same}");
+    git(&vm, &["update-ref", "-d", "refs/stash"]);
+    let (ok, removed) = world.pull(&repo, "app", None);
+    assert!(ok && removed["stash_changed"] == true, "{removed}");
+    assert_eq!(removed["bundle_bytes"], 0, "deletion needs no object bundle: {removed}");
+    assert!(stash_at(&repo).is_none(), "the Mac kept the deleted Cloud stash");
+    let (ok, stable) = world.pull(&repo, "app", None);
+    assert!(ok && stable["unchanged"] == true, "{stable}");
+}
+
+#[test]
+fn a_divergent_stash_conflicts_before_any_worktree_or_index_changes() {
+    let world = World::new("stash-conflict");
+    let repo = world.project("app");
+    let (ok, seeded) = world.push(&repo, "app", false);
+    assert!(ok && seeded["mode"] == "seed", "{seeded}");
+    let vm = world.folder("app");
+
+    write(&repo.join("a"), "a\nlocal stash\n");
+    git(&repo, &["stash", "push", "-q", "-m", "local"]);
+    let local_stash = stash_at(&repo).unwrap();
+    write(&vm.join("a"), "a\nremote stash\n");
+    git(&vm, &["stash", "push", "-q", "-m", "cloud"]);
+    write(&vm.join("b"), "b\nremote dirty edit\n");
+    let before = everything(&repo);
+    let (ok, conflict) = world.pull(&repo, "app", None);
+    assert!(!ok && conflict["error_code"] == "sync_conflict", "{conflict}");
+    assert_eq!(conflicted(&conflict), vec![".git/refs/stash"], "{conflict}");
+    assert_eq!(stash_at(&repo), Some(local_stash), "the local stash was overwritten");
+    assert_eq!(everything(&repo), before, "a stash conflict changed other local files");
+}
+
 #[test]
 fn a_pull_keeps_both_sides_and_refuses_what_changed_on_both() {
     let world = World::new("both");

@@ -79,7 +79,7 @@ output_binary="${BUILD_OUTPUT_DIR}/${BINARY_NAME}"
 if [[ "${#binaries[@]}" -eq 1 ]]; then
   rsync -a "${binaries[0]}" "$output_binary"
 else
-  lipo -create -output "$output_binary" "${binaries[@]}"
+  lipo -create -output "$output_binary" ${binaries[@]+"${binaries[@]}"}
 fi
 chmod +x "$output_binary"
 "${ROOT}/scripts/verify-diff-sidecar-artifact.sh" "$output_binary" --archs "$requested_archs"

@@ -22,7 +22,7 @@
         "installed"
       ],
       "wait": 4,
-      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/AppStoreActionCatalog.swift"
+      "cite": "cmux-tui/crates/cmux-action-catalog/src/catalog/app_store.rs"
     },
     {
       "title": "cmux apps install manaflow-ai/standup",

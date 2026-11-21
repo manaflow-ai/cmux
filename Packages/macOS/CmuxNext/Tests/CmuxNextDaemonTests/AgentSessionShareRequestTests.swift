@@ -21,6 +21,14 @@ struct AgentSessionShareRequestTests {
         ]))
     }
 
+    /// `cmux share chat --view-only`: a link where nobody sends goes to the daemon as both roles.
+    @Test func createCarriesTheLinkRoleAndTheSignedInRole() throws {
+        #expect(try fields(AgentSessionShareCreateRequest(surface: 3, role: "view", signedInRole: "view")) == .object([
+            "id": .number(1), "cmd": .string("agent-session-share-create"), "surface": .number(3),
+            "role": .string("view"), "signed_in_role": .string("view"),
+        ]))
+    }
+
     @Test func listRevokeAndKickNameWhatTheyAct() throws {
         #expect(try fields(AgentSessionShareListRequest()) == .object(["id": .number(1), "cmd": .string("agent-session-share-list")]))
         #expect(try fields(AgentSessionShareRevokeRequest(shareId: "s1")) == .object([

@@ -1,7 +1,8 @@
 // A text attachment's chip as a small page of its text, as Claude and ChatGPT draw a long paste: its
 // first lines in small monospace, left-aligned from the top and fading out at the bottom, over one
-// quiet label (what it is and its line count). The strip (attachmentIntake.tsx AttachmentChip) and
-// the prompt's inline chip (inlineAttachments.tsx) draw this one body inside their own button.
+// quiet label (what it is and its line count). The strip (attachmentIntake.tsx AttachmentChip) draws
+// a text file's chip with it, here or placed in the prompt; an oversized paste has its own compact
+// chip that opens its whole text (PastedTextChip.tsx).
 // Leo, 2026-11-01: "bro this is a TERRIBLE text preview we need to do better for these text type
 // attachments' previews" (the inline chip drew the paste's first words large, centred, underlined
 // and clipped). A paste's card wraps its lines in the composer's font, so a long paragraph fills the
@@ -19,7 +20,9 @@ export function TextAttachmentCard({ text, label, wrap = false }: { text: string
       <span className="acpmux-text-card__lines" aria-hidden="true" dir="auto" data-wrap={wrap ? "" : undefined}>
         {textPreview(text, TEXT_CARD_LINES, wrap ? TEXT_CARD_WRAP_CHARS : TEXT_CARD_LINE_CHARS)}
       </span>
-      <span className="acpmux-text-card__label">{label}</span>
+      <span className="acpmux-text-card__foot">
+        <span className="acpmux-text-card__label">{label}</span>
+      </span>
     </>
   );
 }

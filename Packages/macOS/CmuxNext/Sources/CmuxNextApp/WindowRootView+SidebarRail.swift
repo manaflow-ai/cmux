@@ -17,7 +17,7 @@ extension WindowRootView {
     /// Swaps between the side pins and the rail pins for the current style and side, and sets the
     /// rail pins' insets. Idempotent; runs on a style, side, presentation or gutter change.
     func applySidebarRail() {
-        let rail = sidebar.model.style == .rail
+        let rail = sidebar.model.style == .rail || sidebar.isFloatOverlay // a float covers the content too (`SidebarFloat`)
         let existing = constraints.filter { $0.identifier == Self.railPinID }
         let wanted = rail ? railPins(existing: existing) : []
         NSLayoutConstraint.deactivate(existing.filter { old in !wanted.contains { $0 === old } })

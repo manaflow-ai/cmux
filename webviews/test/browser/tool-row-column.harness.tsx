@@ -58,10 +58,12 @@ const lone = call({
   title: "Read fixture/notes.md",
   locations: [{ path: "fixture/notes.md" }],
 });
+// A program the verb table does not know (commandActions.ts), so the row reads "Ran <command>"
+// with the line in mono: the column test measures the space between the verb and the line.
 const loneFailed = call({
   id: "lone-failed",
   status: "failed",
-  command: "python3 fixture/decode.py --input fixture/broken.json",
+  command: "./fixture/decode.sh --input fixture/broken.json",
   output: "Exit code 1\njson.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)",
 });
 

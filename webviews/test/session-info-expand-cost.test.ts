@@ -48,6 +48,11 @@ await requireBrowserLane("session-info-expand-cost.test.ts", async () => {
       await page.goto(`http://127.0.0.1:${port}${PAGE}?list=tasks&n=5000`);
       await page.waitForFunction(() => typeof window.__expand === "function");
       await page.evaluate(() => window.__expand());
+      // The finished rows open over the settle step (foldMotion.ts); the panel scrolls their whole height
+      // once it ends.
+      await page.waitForFunction(
+        () => !!document.querySelector("ul[data-finished]") && !document.querySelector("[data-folding]"),
+      );
       const body = ".acpmux-session-info__body";
       const rows = () => page.locator("ul[data-finished] > li:not([data-rows-rest])").count();
       expect(await rows()).toBeLessThanOrEqual(BOUND);

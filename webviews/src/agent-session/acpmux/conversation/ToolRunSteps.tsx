@@ -9,7 +9,7 @@ import { StepThought } from "./ThoughtRow";
 import { ToolRow } from "./ToolRow";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { toolGroupKind } from "./toolGroups";
-import { InStep } from "./ToolFailureCause";
+import { InStep } from "./toolFailureCauseModel";
 import { isQuietThought } from "./thoughts";
 import { toolImages } from "../toolImages";
 
@@ -29,7 +29,10 @@ const RunStep = memo(
     const images = useMemo(() => (item.tool ? toolImages(item.tool) : []), [item.tool]);
     if (!item.tool && item.kind !== "note" && isQuietThought(item)) return null;
     return (
-      <div className={item.tool ? "cv-step" : `cv-step is-thought${lead ? " is-lead" : ""}`}>
+      <div
+        className={item.tool ? "cv-step" : `cv-step is-thought${lead ? " is-lead" : ""}`}
+        data-step-call={item.tool?.id}
+      >
         {item.tool ? (
           mcpCall(item.tool) ? (
             <McpCallRow item={item} />

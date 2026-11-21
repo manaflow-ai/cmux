@@ -1,16 +1,21 @@
 import AppKit
 import CmuxNextDesign
 
-/// The color a Chromium page shows between a navigation committing and the
+/// What a Chromium page shows between a navigation committing and the
 /// document painting.
 ///
 /// Chromium repaints the whole page area with the browser's background color
 /// (`cmux_browser_set_background_color`) as soon as a new document commits,
 /// well before that document's first contentful paint. With Chromium's white
 /// default that is a white flash on every navigation, and in a dark theme it
-/// is the brightest thing on screen (Leo, 2026-10-20). So a committed document
-/// that has not painted yet keeps the theme page background; the base becomes
-/// the document's own color (white included) as soon as it paints.
+/// is the brightest thing on screen (Leo, 2026-10-20). An opaque theme color
+/// in its place was still a backing of its own over the pane's glass (Leo,
+/// 2026-11-07: "don't add some sort of weird backing to the Chromium thing to
+/// make that opaque when everything else is just the one level of
+/// transparency"). So a committed document that has not painted yet is
+/// see-through (fork API 17, as a cmux page is) and the pane's own ground
+/// shows, as under WebKit's hold (`WebKitTab+LoadingBackground`); the base
+/// becomes the document's own color (white included) as soon as it paints.
 ///
 /// "Has not painted" is Blink's first contentful paint
 /// (`CEFFirstPaintBridge`), not the end of the load: the base is Chromium's
@@ -35,11 +40,23 @@ extension CEFTab {
     }
 
     /// The theme base of a committed document that has not settled yet; nil
-    /// once it has.
+    /// once it has. The page is see-through meanwhile (``showsPaneGround``), so
+    /// the color counts only on a fork without the see-through switch.
     var loadingBaseARGB: UInt32? {
         guard pastFirstRealPage, !documentSettled else { return nil }
         return PageBackground.themeARGB(in: container)
     }
+
+    /// The page shows the pane's own ground where its document draws nothing:
+    /// a see-through cmux page, or a committed document that has not painted
+    /// on a fork with the see-through switch (an older fork keeps the page
+    /// opaque on ``loadingBaseARGB``, so its host and gaps take that color).
+    var showsPaneGround: Bool {
+        pageSeeThrough || (loadingBaseARGB != nil && runtime.forkAPIVersion >= Self.seeThroughForkAPI)
+    }
+
+    /// The fork API with the see-through switch (`cmux_shim_tab_set_transparent_background`).
+    static let seeThroughForkAPI: Int32 = 17
 
     /// The committed document painted content (`CEFFirstPaintBridge`), or its load ended or stopped (`.loadEnd`,
     /// `.loadingState`). None of these moments is the painted frame being on screen, so the base changes only to a
@@ -146,14 +163,16 @@ extension CEFTab {
         } else {
             _ = shim.browserSetBackgroundColor(browser, pageBaseARGB)
         }
-        if pageSeeThrough { _ = shim.tabSetTransparentBackground(browser, 1) }
+        let clear = showsPaneGround
+        if clear || seeThroughSent { _ = shim.tabSetTransparentBackground(browser, clear ? 1 : 0) }
+        seeThroughSent = clear
     }
 
     /// The shared host view under the page window takes this tab's page
     /// color while it shows this tab.
     func applyHostBackdrop() {
         guard host.visibleTab === self else { return }
-        host.hostView.pageSeeThrough = pageSeeThrough
+        host.hostView.pageSeeThrough = showsPaneGround
         host.hostView.pageBackdrop = pageBackdropColor
     }
 }

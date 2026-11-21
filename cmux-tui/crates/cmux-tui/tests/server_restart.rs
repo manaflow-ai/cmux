@@ -25,8 +25,12 @@ struct Fixture {
 
 impl Fixture {
     fn new(session: &str) -> Self {
+        // Tests run in parallel threads of one process and can read the same
+        // clock value: the counter keeps each fixture's directory its own.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let dir = PathBuf::from("/tmp").join(format!("cmux-rs-{}-{stamp}", std::process::id()));
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = PathBuf::from("/tmp").join(format!("cmux-rs-{}-{stamp}-{n}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
         fs::create_dir(dir.join("home")).unwrap();
@@ -281,13 +285,43 @@ fn daemon_upgrade_restart_keeps_the_old_owners_launch_flags_and_environment() {
             "new owner lost CMUX_APPS_DIRS"
         );
     }
-    // The terminal is adopted as before: the same incarnation, running
-    // (the new owner may still be adopting its host when restart returns).
-    let resolve = || {
-        fixture.request(json!({"cmd": "resolve-terminal", "terminal_id": created["terminal_id"]}))
-    };
-    wait_for("the adopted terminal", || resolve()["lifecycle"] != "adopting");
-    let resolved = resolve();
+    // The terminal is adopted as before: restart returns once it runs.
+    let resolved =
+        fixture.request(json!({"cmd": "resolve-terminal", "terminal_id": created["terminal_id"]}));
     assert_eq!(resolved["lifecycle"], "running", "{resolved}");
     assert_eq!(resolved["terminal_incarnation"], created["terminal_incarnation"], "{resolved}");
+}
+
+/// cmux-ad i3: `server restart` said "every terminal was kept" while the new
+/// owner still adopted their hosts: right after it returned, a terminal read
+/// lifecycle `adopting` (Linux fleet, steps c73722be and 1c1addbb). A
+/// seamless upgrade returns only when every kept terminal runs again, and
+/// its report counts them.
+#[test]
+fn daemon_upgrade_restart_returns_when_every_kept_terminal_runs() {
+    let fixture = Fixture::new("restart-adopted");
+    pid_of(&fixture.server("ensure", &[]));
+    let mut kept = Vec::new();
+    for at in 0..6 {
+        let created =
+            fixture.request(json!({"cmd": "run", "argv": ["/bin/sh"], "new_workspace": true}));
+        let text = format!("echo kept-$((100+{at}))\n");
+        fixture.request(json!({"cmd": "send", "surface": created["surface"], "text": text}));
+        let shown = format!("kept-{}", 100 + at);
+        wait_for("the shell before the restart", || {
+            fixture.screen_has(&created["surface"], &shown)
+        });
+        kept.push(created["terminal_id"].clone());
+    }
+
+    let restarted = fixture.server("restart", &[]);
+    let listed = fixture.request(json!({"cmd": "list-terminals"}));
+    for terminal in &kept {
+        let row = listed["terminals"]
+            .as_array()
+            .and_then(|rows| rows.iter().find(|row| row["terminal_id"] == *terminal))
+            .unwrap_or_else(|| panic!("terminal {terminal} gone after restart: {listed}"));
+        assert_eq!(row["lifecycle"], "running", "restart returned before adoption: {row}");
+    }
+    assert_eq!(restarted["terminals"]["running"], 6, "{restarted}");
 }

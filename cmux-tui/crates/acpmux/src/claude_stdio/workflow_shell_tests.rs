@@ -89,6 +89,23 @@ async fn a_workflow_agents_shell_goes_to_its_workflow_naming_its_agent() {
 }
 
 #[tokio::test]
+async fn a_shell_whose_bash_call_came_first_is_still_looked_up() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let dir = run_dir("call-first", &[("a5e1bb51", &["toolu_sh"])]);
+    workflow(&t, &dir).await;
+    // The Bash call's line makes the shell's record before its task_started.
+    t.inbound(&json!({"type": "assistant", "message": {"content": [{"type": "tool_use",
+        "id": "toolu_sh", "name": "Bash",
+        "input": {"command": "cargo test", "run_in_background": true}}]}}))
+        .await;
+    let out = shells(&updates(&t.inbound(&agent_shell("toolu_sh")).await));
+    assert_eq!(out.len(), 1, "{out:?}");
+    assert_eq!(out[0].0, "acp-1/toolu_wf", "{out:?}");
+    assert_eq!(out[0].1["workflowAgentId"], "a5e1bb51");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
 async fn a_shell_whose_call_is_not_written_yet_is_named_on_the_runs_next_snapshot() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     let dir = run_dir("late", &[("a437d46d", &["toolu_other"])]);

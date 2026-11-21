@@ -104,6 +104,9 @@ impl Translator {
                     workflow_agent: None,
                     owner_tries: 0,
                 });
+                // The Bash call's own line usually made the record first: its task_started still
+                // says whose shell it is.
+                shell.workflow_owned |= workflow_owned;
                 shell.task = task.map(str::to_owned).or(shell.task.take());
                 shell.output = text("output_file").map(str::to_owned).or(shell.output.take());
                 shell.background |= backgrounded(line.get("is_backgrounded"));

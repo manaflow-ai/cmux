@@ -17,7 +17,7 @@ A tour is a JSON file with a `title` and `steps`, and optionally `settings`:
 the cmux-next.json the app launches with (`CMUX_NEXT_CONFIG_FILE`), a private
 file in the tour's work directory, so a tour can show a setting (background
 art, a theme) and `cmux settings set` writes there, never to the runner's own
-settings. `customize: true` gives the launch its own empty customize folder
+settings. `launch_args` are arguments the app launches with (`--showcase`). `customize: true` gives the launch its own empty customize folder
 (`CMUX_CUSTOMIZE_DIR`, `local/customize`'s folder, in the tour's work directory,
 which every terminal of the app has too), so a step can write a customize app
 there and the daemon installs and reloads it; every tour gets its own folder either
@@ -38,12 +38,20 @@ and optionally:
     optional  why the step may fail (a feature not ported yet); its failure is
               reported as unavailable and makes the tour degraded, rather than
               letting an incomplete tour look fully verified
+    readback  what `cmux-ci capture` reads back from the step's rpc answer:
+              {"at": "windows.*.toasts",
+              "contains": [...], "absent": [...], "empty": true, "count": 1,
+              "within": 15}; a mismatch fails the capture's step. A tour run only
+              checks its shape
     expect    app debug RPC postcondition: {"method": "debug.layers",
               "fields": {"field": expected_value}}; mismatches fail required
               steps and make optional steps unavailable
     capture   fixture geometry RPC {"method": ..., "params": {...}, "scale": 2,
               "menu": false}; reads top-left window-point `capture` bounds after
               settling, crops the composited snapshot, and verifies real 2x pixels
+    relaunch  true: quit the app alone and open it again on the same socket, before the
+              step's `cmux`/`rpc`; its daemon, Chief owner and state stay (what a person's
+              quit and reopen keeps)
     collect   a file name (`sidebar-order.png`) for an image the step's `rpc`
               writes itself, as debug.palette.capture does for the palette panel
               the window shot leaves out: `{collect}` in the rpc's params is its
@@ -92,11 +100,30 @@ import tempfile
 import threading
 import time
 from typing import Any
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 MAX_SECONDS = 300
 
-STEP_KEYS = {"title", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect", "windows", "capture",
-             "collect"}
+STEP_KEYS = {"title", "relaunch", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect", "windows", "capture",
+             "collect",
+             # Read by `cmux-ci capture` only (whats-new-clips.py CAPTURE_ONLY_STEP_KEYS): where a clip's
+             # steps are and where its video starts. A tour run takes them and does nothing with them.
+             "clip", "record",
+             # Read by `cmux-ci capture` only (cmuxterm-hq build-fleet/pr_capture/driver.py): the text the step's
+             # answer must show. A tour run checks its shape (READBACK_KEYS) and nothing more.
+             "readback"}
+# A step's `readback` (what `cmux-ci capture` reads back from the step's answer): `at` a dotted path into the
+# answer (`*` every item), `contains` and `absent` lists of text, `empty` true, `count` a number of items, and
+# `within` seconds to ask a read-only rpc again until it matches.
+READBACK_KEYS = {"at", "contains", "absent", "empty", "count", "within"}
 # A `collect` image's file name; it is kept as shots/NN-collect-<name>.png, a shot name publish.py takes.
 COLLECT_NAME = re.compile(r"([a-z0-9][a-z0-9-]{0,31})\.png")
 # Other windows a step shoots beside the main one (floating panels, popovers,
@@ -105,7 +132,7 @@ MAX_OTHER_WINDOWS = 4
 MIN_OTHER_WINDOW = (40, 24)
 # All of a step's other-window shots share this many seconds.
 OTHER_WINDOWS_BUDGET = 20.0
-TOUR_KEYS = {"title", "steps", "settings", "env", "customize"}
+TOUR_KEYS = {"title", "steps", "settings", "env", "customize", "launch_args", "harnessFixture"}
 # A directional focus right after a pane close (focus_after_close).
 DIRECTIONAL_FOCUS = {"focusLeft", "focusRight", "focusUp", "focusDown"}
 # Focus moves that open no pane, so they never undo a close (ActionCatalog+Focus.swift).
@@ -134,6 +161,9 @@ HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
                      Path("/Applications/CuaSshScreenCapture.app"))
 # A long tour would make a GIF past the inline limit; split it instead.
 MAX_STEPS = 30
+# The CMUX_* knobs (not CMUX_NEXT_*) a tour's `env` may set: they reach the app's terminals too, so a
+# tour's own store is the one its shells and the app's pages read.
+FIXTURE_ENV = frozenset({"CMUX_AUTOMATIONS_DIR"})
 READ_ONLY_POSTCONDITION_METHODS = {
     "debug.layers", "debug.surfaces", "debug.focus", "debug.window_list", "debug.windows",
     "debug.pane_chrome", "debug.notifications", "debug.themes", "debug.dialog",
@@ -208,11 +238,20 @@ def load_tour(path: Path) -> dict[str, Any]:
     if "settings" in data and not isinstance(data["settings"], dict):
         raise TourError(f"{path}: `settings` must be an object (the cmux-next.json the app launches with)")
     env = data.get("env", {})
-    if (not isinstance(env, dict) or not all(isinstance(key, str) and key.startswith("CMUX_NEXT_") and isinstance(value, str)
-                                             for key, value in env.items())):
-        raise TourError(f"{path}: `env` maps CMUX_NEXT_* names to strings ({{repo}} is the checkout)")
+    if (not isinstance(env, dict) or not all(isinstance(key, str) and (key.startswith("CMUX_NEXT_") or key in FIXTURE_ENV)
+                                             and isinstance(value, str) for key, value in env.items())):
+        raise TourError(f"{path}: `env` maps CMUX_NEXT_* names (or {', '.join(sorted(FIXTURE_ENV))}) to strings "
+                        "({repo} is the checkout, {workdir} a private folder of the run)")
     if "customize" in data and not isinstance(data["customize"], bool):
         raise TourError(f"{path}: `customize` must be true or false")
+    # The acpmux harness catalog the tour's daemon starts with (ACPMUX_HARNESS_FIXTURE, acpmux harness_fixture.rs).
+    harness_fixture = data.get("harnessFixture")
+    if harness_fixture is not None and (not isinstance(harness_fixture, dict)
+                                        or not isinstance(harness_fixture.get("harnesses", {}), dict)):
+        raise TourError(f"{path}: `harnessFixture` is an acpmux harness fixture object ({{\"harnesses\": {{...}}}})")
+    launch_args = data.get("launch_args", [])
+    if not isinstance(launch_args, list) or not all(isinstance(arg, str) for arg in launch_args):
+        raise TourError(f"{path}: `launch_args` must be a list of strings (arguments the app launches with)")
     if len(steps) > MAX_STEPS:
         raise TourError(f"{path}: {len(steps)} steps; split tours past {MAX_STEPS}")
     for number, step in enumerate(steps, 1):
@@ -260,6 +299,25 @@ def load_tour(path: Path) -> dict[str, Any]:
                 raise TourError(f"{where}: `{key}` must be true or false")
         if "optional" in step and (not isinstance(step["optional"], str) or not step["optional"].strip()):
             raise TourError(f"{where}: `optional` is the reason the step may fail")
+        readback = step.get("readback")
+        if readback is not None:
+            if not isinstance(readback, dict) or not readback or set(readback) - READBACK_KEYS:
+                raise TourError(f"{where}: `readback` is an object of {sorted(READBACK_KEYS)}")
+            if "at" in readback and (not isinstance(readback["at"], str) or not readback["at"].strip()):
+                raise TourError(f"{where}: `readback.at` is a dotted path into the step's answer")
+            for key in ("contains", "absent"):
+                words = readback.get(key, [])
+                if not isinstance(words, list) or not all(isinstance(w, str) and w.strip() for w in words):
+                    raise TourError(f"{where}: `readback.{key}` is a list of non-empty strings")
+            if "empty" in readback and readback["empty"] is not True:
+                raise TourError(f"{where}: `readback.empty` is true or left out")
+            if "count" in readback and (type(readback["count"]) is not int or readback["count"] < 0):
+                raise TourError(f"{where}: `readback.count` is a whole number of items")
+            within = readback.get("within", 0)
+            if isinstance(within, bool) or not isinstance(within, (int, float)) or not 0 <= within <= 30:
+                raise TourError(f"{where}: `readback.within` is 0 to 30 seconds")
+            if rpc is None:
+                raise TourError(f"{where}: `readback` needs an `rpc` whose answer it reads")
         expect = step.get("expect")
         if expect is not None:
             if not isinstance(expect, dict) or set(expect) - {"method", "fields"}:
@@ -276,8 +334,12 @@ def load_tour(path: Path) -> dict[str, Any]:
     for number, step in enumerate(steps, 1):
         if step.get("cmux"):
             step["cmux"] = fill_repo(step["cmux"], repo, f"{path}: step {number}")
+    # {repo} in the fixture's strings too, so a harness can run a checkout file (acpmux's fake_agent.py).
+    if harness_fixture is not None:
+        harness_fixture = json.loads(json.dumps(harness_fixture).replace("{repo}", json.dumps(repo)[1:-1]))
     return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings"),
-            "env": launch_env, "customize": data.get("customize", False)}
+            "env": launch_env, "customize": data.get("customize", False), "launch_args": launch_args,
+            "harness_fixture": harness_fixture}
 
 
 def _action(step: dict[str, Any]) -> str | None:
@@ -318,6 +380,28 @@ def command_line(argv: list[str]) -> str:
     return " ".join(word if re.fullmatch(r"[\w@%+=:,./-]+", word) else json.dumps(word) for word in argv)
 
 
+def on_console() -> tuple[str, str] | None:
+    """(user, uid) of the session on the physical display: the IOConsoleUsers entry with kCGSSessionOnConsoleKey
+    (`ioreg`, needs no right), or None when the registry names none or cannot be read.
+
+    Not /dev/console's owner: that names whoever logged in last. Since `fleet gui-ci-users` (cmuxterm-hq#13193,
+    2026-11-18) logs cmuxci-gui-01..03 in through each GUI mini's Screen Sharing, /dev/console reads cmuxci-gui-03
+    while the runner's own user `cmux` is on the display. The tour then hopped to cmuxci-gui-03 through `sudo -n
+    launchctl asuser`, which the runner may not do, and every What's New clip failed at launch with "sudo: a password
+    is required" (cmux-next-media runs 44661108446, 44677589803, 44686797632). cmuxterm-hq
+    docs/handbook/console-user-read-as-last-login.md."""
+    try:
+        raw = subprocess.run(["ioreg", "-n", "Root", "-d1", "-a"], capture_output=True, timeout=10).stdout
+        users = plistlib.loads(raw).get("IOConsoleUsers") or []
+    except Exception:  # no ioreg (Linux), or an unreadable registry: the caller falls back to /dev/console
+        return None
+    for entry in users:
+        if isinstance(entry, dict) and entry.get("kCGSSessionOnConsoleKey") and entry.get("kCGSSessionUserNameKey"):
+            uid = entry.get("kCGSSessionUserIDKey")
+            return str(entry["kCGSSessionUserNameKey"]), "" if uid is None else str(uid)
+    return None
+
+
 class Session:
     """Runs commands in the console user's GUI session.
 
@@ -336,11 +420,11 @@ class Session:
     def __init__(self) -> None:
         self.prefix: list[str] = []
         self.user = getpass.getuser()
-        console = subprocess.run(["stat", "-f", "%Su", "/dev/console"],
-                                 capture_output=True, text=True).stdout.strip()
+        console, uid = on_console() or (subprocess.run(["stat", "-f", "%Su", "/dev/console"],
+                                                       capture_output=True, text=True).stdout.strip(), "")
         asuser: list[str] = []
         if console and console not in ("root", "loginwindow"):
-            uid = subprocess.run(["id", "-u", console], capture_output=True, text=True).stdout.strip()
+            uid = uid or subprocess.run(["id", "-u", console], capture_output=True, text=True).stdout.strip()
             asuser = ["sudo", "-n", "launchctl", "asuser", uid, "sudo", "-n", "-H", "-u", console]
             if console != self.user:
                 self.prefix = asuser
@@ -701,7 +785,7 @@ class App:
         if not self.bundle_tag:
             return None
         home = Path(os.path.expanduser(f"~{self.session.user}"))
-        return home / "Library/Application Support/cmux/tags" / self.bundle_tag / "tui"
+        return home / "Library/Application Support/cmux-next/tags" / self.bundle_tag / "tui"
 
     def stop_daemon(self) -> None:
         """End the tagged build's daemon and its terminals through its own socket.
@@ -717,7 +801,9 @@ class App:
         """Start from no workspaces, not the ones an earlier tour on this tag left."""
         directory = self.state_directory()
         if self.fresh_state and directory:
-            self.session.run(["rm", "-rf", str(directory)])
+            # And an older build's in classic's cmux/tags, which a new build adopts at launch.
+            old = directory.parents[3] / "cmux/tags" / directory.parent.name / "tui"
+            self.session.run(["rm", "-rf", str(directory), str(old)])
             print(f"fresh state: cleared {directory}", flush=True)
 
     def write_shell_home(self) -> Path:
@@ -732,6 +818,27 @@ class App:
         self.stop_daemon()
         self.clear_leftovers()
         self.clear_state()
+        self.start()
+
+    def relaunch(self) -> None:
+        """Quit the app alone and open it again: its daemon and state stay, as a person's quit and reopen."""
+        pid = self.pid()
+        if isinstance(pid, int):
+            self.session.run(["kill", str(pid)])
+            deadline = time.monotonic() + 15
+            while self.session.run(["kill", "-0", str(pid)]).returncode == 0 and time.monotonic() < deadline:
+                time.sleep(0.25)
+            self.session.run(["kill", "-9", str(pid)])
+        if self.process and self.process.poll() is None:
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+        self.identity = {}
+        self.start()
+
+    def start(self) -> None:
+        """Opens the app on this tour's socket and waits for its first answer."""
         # CMUX_NEXT_NO_ACTIVATE: the app refuses every activation, so tours side by side on one Mac never take
         # focus or the key window from each other; debug.key and the CLI work on a window that is never key.
         knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll", "CMUX_NEXT_NO_ACTIVATE=1",
@@ -830,12 +937,21 @@ class App:
         pid = self.identity.get("pid")
         if isinstance(pid, int):
             self.session.run(["kill", str(pid)])
-        if self.process and self.process.poll() is None:
-            try:
-                os.killpg(self.process.pid, signal.SIGTERM)
-                self.process.wait(timeout=10)
-            except (ProcessLookupError, PermissionError, subprocess.TimeoutExpired):
-                pass
+        if self.process:
+            # The group, whatever its leader's state: an exited leader can leave a child running in it (cmux#41767
+            # review F1). The group keeps the leader's pid as its id while any member lives.
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                try:
+                    os.killpg(self.process.pid, sig)
+                except ProcessLookupError:
+                    break
+                except PermissionError:
+                    pass
+                if sig == signal.SIGTERM:
+                    try:
+                        self.process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        pass
         if isinstance(pid, int):
             self.session.run(["kill", "-9", str(pid)])
         # The app leaves its daemon running by design; this tour started it.
@@ -1053,8 +1169,17 @@ def capture_fixture(app: App, path: Path, config: dict[str, Any]) -> str | None:
 def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: Path) -> dict[str, Any]:
     started = time.monotonic()
     result: dict[str, Any] = {"index": index, "title": step["title"], "status": "ok"}
+    if step.get("relaunch"):
+        result["command"] = "relaunch"
+        try:
+            app.relaunch()
+            if screen.pid is not None:
+                screen.pid = app.pid()
+        except TourError as problem:
+            result["status"] = "failed"
+            result["detail"] = f"relaunch: {problem}"
     command = step.get("cmux")
-    if command:
+    if command and result["status"] == "ok":
         result["command"] = "cmux " + command_line(command)
         done = app.cli(command, daemon=bool(step.get("daemon")))
         output = (done.stdout.strip() + "\n" + done.stderr.strip()).strip()
@@ -1147,6 +1272,12 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     frames = session.shareable(directory / "frames")
     workdir = Path(tempfile.mkdtemp(prefix="cmux-tour.", dir="/tmp"))
     launch_env = dict(tour.get("env") or {})
+    # `{workdir}` in an `env` value is a folder of this run the app's user can write, so state the app
+    # and its terminals keep through a CMUX_* knob (CMUX_AUTOMATIONS_DIR) starts empty and is never
+    # the runner's own.
+    if any("{workdir}" in value for value in launch_env.values()):
+        state = str(session.shareable(workdir / "env"))
+        launch_env = {key: value.replace("{workdir}", state) for key, value in launch_env.items()}
     # Every tour gets its own customize folder, named or not: with no CMUX_CUSTOMIZE_DIR the daemon
     # falls back to the runner's own ~/.config/cmux/customize, so one personal extension there would
     # draw itself into every tour's shots. The daemon reads CMUX_* from the app's environment
@@ -1157,12 +1288,21 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     # creates it, so the launch sees an empty customize folder either way.
     launch_env["CMUX_CUSTOMIZE_DIR"] = str(session.shareable(customize) if tour.get("customize")
                                            else customize)
+    if tour.get("harness_fixture") is not None:
+        # In a folder the app's user can read when that user is someone else (session.shareable).
+        fixture = session.shareable(workdir / "harness") / "fixture.json"
+        fixture.write_text(json.dumps(tour["harness_fixture"]), encoding="utf-8")
+        fixture.chmod(0o644)
+        launch_env["ACPMUX_HARNESS_FIXTURE"] = str(fixture)
     app = App(app_path, session, workdir, fresh_state=fresh_state, settings=tour.get("settings"),
-              launch_env=launch_env)
+              launch_env=launch_env, launch_args=tour.get("launch_args"))
     screen = Screen(session, session.shareable(workdir / "raw"), app)
     recorder = Recorder(screen, frames)
     video = WindowVideo(session, None, session.shareable(directory), screen.scratch)
     video_started = False
+    # When the recording (video or stills) began: each step's `at` is its start on that clock, which
+    # whats-new-clips.py's render-tour uses to cut a step range out of capture.mov.
+    clock: float | None = None
     manifest: dict[str, Any] = {"name": tour["name"], "title": tour["title"], "steps": [], "frames": [],
                                 "frame_interval": recorder.interval, "console_user": session.user,
                                 "capture_mode": screen.mode}
@@ -1196,6 +1336,7 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         else:
             video.pid = app.pid()
             video_started = video.start()
+            clock = time.monotonic()
             if video_started:
                 manifest["video_mode"] = "ScreenCaptureKit window, requested 60 fps"
             else:
@@ -1204,7 +1345,10 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
                 recorder.start()
         for index, step in enumerate(tour["steps"], 1):
             recorder.step = index
+            step_started = time.monotonic()
             result = run_step(app, screen, step, index, shots)
+            if clock is not None:
+                result["at"] = round(step_started - clock, 3)
             manifest["steps"].append(result)
             print(f"[{tour['name']}] {index:02d} {step_label(result):<11} {step['title']}"
                   + (f": {result['detail']}" if result.get("detail") else ""), flush=True)
@@ -1262,14 +1406,14 @@ def stop_apps(bundles: list[Path], session: Session) -> bool:
     clean = True
     for bundle in bundles:
         if not (bundle / "Contents/Info.plist").is_file():
-            print(f"{bundle}: no app here; nothing to stop", flush=True)
+            safe_print(f"{bundle}: no app here; nothing to stop", flush=True)
             continue
         workdir = Path(tempfile.mkdtemp(prefix="cmux-tour-stop.", dir="/tmp"))
         try:
             App(bundle, session, workdir).stop_daemon()
         except (OSError, ValueError, KeyError) as error:
             # A half-built bundle (no CLI, a bad Info.plist) still gets its processes ended.
-            print(f"{bundle.name}: could not stop its daemon ({error})", flush=True)
+            safe_print(f"{bundle.name}: could not stop its daemon ({error})", flush=True)
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
         pattern = "^" + re.escape(f"{bundle}/Contents/")
@@ -1283,7 +1427,7 @@ def stop_apps(bundles: list[Path], session: Session) -> bool:
             session.run(["pkill", "-9", "-f", pattern])
             time.sleep(1)
             left = running_from(session, bundle)
-        print(f"{bundle.name}: " + (f"still running {left}" if left else "nothing left running"), flush=True)
+        safe_print(f"{bundle.name}: " + (f"still running {left}" if left else "nothing left running"), flush=True)
         clean = clean and not left
     return clean
 

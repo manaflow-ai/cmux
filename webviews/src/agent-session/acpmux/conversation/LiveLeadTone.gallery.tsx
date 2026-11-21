@@ -8,7 +8,8 @@
 // claude/live/status-thinking-line-token-counts, claude/live/transcript-tool-rows-and-task-list.
 import { componentEntry, type ComponentVariant } from "../../../gallery/format";
 import { Thinking } from "./Thinking";
-import { WorkingCountsContext, type WorkingCounts } from "./WorkingFor";
+import { WorkingCountsContext } from "./workingForModel";
+import { type WorkingCounts } from "./workingForModel";
 
 type Look = "muted" | "ink" | "weight" | "soft";
 type Props = { look: Look };

@@ -4,9 +4,9 @@ import enum CmuxNextLayout.NewChatPlacement
 
 extension PaneController {
     /// New Agent Chat: a new agent tab in this pane, selected. It inherits
-    /// the selected tab's context (`agentSeedFromSelectedTab`, #16620).
-    func newAgentTab(then: (@MainActor (String) -> Void)? = nil) {
-        openAgentTab(seed: agentSeedFromSelectedTab(), then: then)
+    /// the selected tab's context (`agentSeedFromSelectedTab`, #16620). `placed` false: never a chat dock.
+    func newAgentTab(placed: Bool = true, then: (@MainActor (String) -> Void)? = nil) {
+        openAgentTab(seed: agentSeedFromSelectedTab(), placed: placed, then: then)
     }
 
     /// A `cmux://session/<id>` link no tab shows: a new agent tab in this
@@ -20,7 +20,7 @@ extension PaneController {
     /// `then` places it (``NewTabSlot``).
     func duplicateAgentTab(_ key: String, then: (@MainActor (String) -> Void)? = nil) {
         let tabs = services.agentTabs
-        guard tabs.lookup(key)?.record.host == tabs.localHost else { return services.registry.refuse(RefusalStrings.agentTabOtherHost) }
+        guard tabs.record(for: tabs.tabKey(key))?.record.host == tabs.localHost else { return services.registry.refuse(RefusalStrings.agentTabOtherHost) }
         openAgentTab(session: tabs.session(of: key), placed: false, then: then) // beside its original, never in a chat dock
     }
 

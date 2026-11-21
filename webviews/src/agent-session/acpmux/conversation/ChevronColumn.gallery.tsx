@@ -2,7 +2,8 @@
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { tool } from "../../../gallery/fixtures/acpmux";
-import { TranscriptDisclosureProvider, resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";

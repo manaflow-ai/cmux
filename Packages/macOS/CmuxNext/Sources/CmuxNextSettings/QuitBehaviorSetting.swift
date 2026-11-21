@@ -17,8 +17,6 @@ public nonisolated enum QuitBehavior: String, Sendable, Hashable, CaseIterable {
 /// release's) as "end-keep-layout", and "ask" (the removed "Quit cmux?"
 /// alert, Leo 2026-11-05) is removed, so it reads as the default.
 public nonisolated enum QuitBehaviorSetting {
-    public static let configPath = ["app", "quitBehavior"]
-    public static let fallback: QuitBehavior = .keep
     /// The value "end-keep-layout" replaced.
     public static let legacyEnd = "end"
     /// The value that showed the quit alert; "keep" replaced it.

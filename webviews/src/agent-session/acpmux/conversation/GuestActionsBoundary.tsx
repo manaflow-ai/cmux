@@ -16,10 +16,11 @@ import { RenderPages } from "./renderCall";
 import { RunInBackgroundContext } from "./runInBackground";
 import { TurnActionsContext, type TurnActions } from "./turnActions";
 import { ChatAccountsContext } from "../chatAccounts";
-import { SpeedToggleHost } from "../FastToggle";
-import { UpdateOfferContext } from "../HarnessHealthNotice";
+import { SpeedToggleHost } from "../fastToggleModel";
+import { UpdateOfferContext } from "../harnessHealthNoticeModel";
+import { HarnessUpdatesContext } from "../harnessUpdateList";
 import { PromptFocus } from "../promptFocus";
-import { ShellActionsContext } from "../shell/ShellRow";
+import { ShellActionsContext } from "../shell/shellRowModel";
 import { SignInContext } from "../signIn";
 import { SubagentNavContext, SubagentPaneContext, SubagentStopContext } from "../subagents/subagentGroupModel";
 import { SessionHoverContext } from "../started/sessionHoverCardModel";
@@ -50,6 +51,7 @@ export function GuestActionsBoundary({ children }: { children: ReactNode }) {
     [SignInContext.Provider, undefined],
     [ChatAccountsContext.Provider, undefined],
     [UpdateOfferContext.Provider, undefined],
+    [HarnessUpdatesContext.Provider, undefined],
     [SpeedToggleHost.Provider, null],
     [PromptFocus.Provider, null],
     [AvatarContext.Provider, undefined],

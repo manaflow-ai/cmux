@@ -12,10 +12,15 @@
 //   move one way only, the clicked line with them (Leo, 2026-11-03).
 // A close away from the bottom puts every row back where it was before the open.
 //
+// The "near the bottom" case tests the `runs` arm of live-turn-work, not the shipped `line` arm: the run
+// of commands it toggles is a finished run of a turn that still runs, which only `runs` draws
+// (support/liveTurnRuns.ts). The other two cases take the shipped arms.
+//
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -301,10 +306,11 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
         )
         .join("\n"),
     );
-  const open = async () => {
+  const open = async (liveRuns = false) => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
     await installPaintedFrames(page);
+    if (liveRuns) await pinLiveTurnRuns(page);
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
     await page.waitForFunction(() => "__showLiveRows" in window);
@@ -317,7 +323,7 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
     await settle(page);
     // The message opens to its text first (its line is the click), as in the recording. Opened at
     // the end it grows down (Codex parity), so the view goes back to the latest row after it.
-    await page.click('[data-row-id="msg"] .cv-disclosure__toggle');
+    await page.click('[data-row-id="msg"] .cv-agentmsg__toggle');
     await settle(page);
     await page.locator(".acpmux-scroll").evaluate((node) => {
       node.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true }));
@@ -412,13 +418,32 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
   for (const name of Object.keys(engines) as (keyof typeof engines)[]) {
     test(`${name}: near the bottom: Details and a run of commands open down and close with nothing under them moving`, async () => {
       browser = browsers[name];
-      const page = await open();
+      const page = await open(true);
       const failures = [
         ...(await bottomToggle(page, "Details", DETAILS, "msg")),
+        // A running turn's run is open while it runs (turns.ts `codexRuns`): it closes, then opens
+        // down, which leaves the latest row; the reader's wheel goes back to it.
         ...(await bottomToggle(page, "run of commands", RUN_B, "run-b")),
-        // Again, the message's Details after the run's fold, as Leo toggled it back and forth.
-        ...(await bottomToggle(page, "Details again", DETAILS, "msg")),
       ];
+      await toLatest(page);
+      // Again, the message's Details after the run's toggles, as Leo toggled it back and forth.
+      failures.push(...(await bottomToggle(page, "Details again", DETAILS, "msg")));
+      expect(failures).toEqual([]);
+      await page.close();
+    });
+
+    // The message card itself (`.cv-agentmsg`, a flex gap over its fold body), closed and opened at
+    // the latest row five times: the gap folds with the card, so the close has no last step.
+    test(`${name}: near the bottom: the message card closes and opens with nothing under it moving`, async () => {
+      browser = browsers[name];
+      const page = await open(true);
+      const failures: string[] = [];
+      for (let round = 0; round < 5; round += 1) {
+        failures.push(
+          ...(await bottomToggle(page, `message card ${round}`, '[data-row-id="msg"] .cv-agentmsg__toggle', "msg")),
+        );
+        await toLatest(page);
+      }
       expect(failures).toEqual([]);
       await page.close();
     });

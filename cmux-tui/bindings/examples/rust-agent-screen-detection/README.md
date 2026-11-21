@@ -41,6 +41,14 @@ CMUX_TUI_SESSION_ID=demo \
 ./cmux-agent-screen-detection explain --live term_0123456789abcdef0123456789abcdef
 ```
 
+`--session NAME` reads that local session, at the socket the `cmux` CLI
+derives for it (an inherited `CMUX_TUI_SOCKET` does not redirect it), and
+`--socket PATH` reads the daemon at an exact socket:
+
+```text
+./cmux-agent-screen-detection explain --live --session demo term_0123456789abcdef0123456789abcdef
+```
+
 The target is an exact terminal ID or an exact terminal title. Duplicate titles
 are rejected and the error lists the IDs to use. The command returns the
 matched rule, evaluated evidence, process identity source, screen revision,

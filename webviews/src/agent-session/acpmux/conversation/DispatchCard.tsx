@@ -6,7 +6,7 @@ import type { AcpmuxActivity } from "../model";
 import { useFindReveal } from "./chatFind";
 import { ChevronRight, Envelope, ToolGroup } from "./icons";
 import { CopyButton } from "./CopyButton";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useT } from "../i18n";
 import { dispatchDestination, type DispatchCall } from "./dispatchCalls";
 import { messagePreview } from "./agentMessageRowModel";

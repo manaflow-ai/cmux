@@ -1,0 +1,14 @@
+name: Give this runner instance its own CARGO_HOME
+description: >-
+  On a host where several runner instances share one HOME, point CARGO_HOME at
+  <runner>/_work/.cargo-home so Swatinem/rust-cache's cleanup in one job cannot
+  delete crate sources a sibling runner's cargo build is reading. Use it before
+  any Swatinem/rust-cache step and after the toolchain install. Ephemeral and
+  single-runner hosts, Windows, and jobs that set CARGO_HOME keep theirs.
+
+runs:
+  using: composite
+  steps:
+    - name: Give this runner instance its own CARGO_HOME
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/runner-cargo-home.sh"

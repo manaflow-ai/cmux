@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createStrings } from "../shared/i18n";
 import type { AgentsLook } from "./AgentsStep";
-import { agentsState, computerUseState, importState } from "./fixtures";
+import { agentToolsState, agentsState, computerUseState, importState } from "./fixtures";
 import table from "./generated/strings.json";
 import { OnboardingPage } from "./Onboarding";
 import { OPS, type OnboardingState } from "./ops";
@@ -16,7 +16,11 @@ function render(state: OnboardingState, look?: AgentsLook): string {
 }
 
 /** Text with tags removed, so assertions read what a person reads (hidden sizing labels are attributes). */
-const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+const text = (html: string) =>
+  html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ");
 
 describe("agents", () => {
   test("title, line, each agent with its sign-in, and Skip / Continue", () => {
@@ -64,43 +68,45 @@ describe("agents", () => {
 });
 
 describe("import", () => {
-  test("idle: Find Browsers, four empty row slots, not looked for yet", () => {
+  test("idle: Find Browsers, no empty rows drawn, not looked for yet", () => {
     const html = render(importState("idle"));
     expect(text(html)).toContain("Import from Browsers");
     expect(text(html)).toContain("Not looked for yet.");
     expect(text(html)).toContain("Find Browsers");
-    expect(html.match(/data-state="slot"/g)?.length).toBe(4);
+    // The browsers' card keeps its room but draws nothing until a look finds something.
+    expect(html.match(/data-state="slot"/g)).toBeNull();
+    expect(html).toContain("data-empty");
   });
-  test("detecting keeps the slots and disables the primary", () => {
+  test("detecting keeps three icon placeholders and disables the primary", () => {
     const html = render(importState("detecting"));
-    expect(html.match(/data-state="slot"/g)?.length).toBe(4);
+    expect(html.match(/class="onb-express-icon" data-empty=""/g)?.length).toBe(3);
     expect(text(html)).toContain("Looking for browsers…");
     expect(html).toMatch(/data-primary="detecting"[^>]*disabled/);
   });
-  test("ready: profiles, Full Disk Access, an awaiting browser, the kinds, Keep in sync", () => {
-    const words = text(render(importState("ready")));
-    expect(words).toContain("Personal");
-    expect(words).toContain("Needs Full Disk Access");
+  test("ready: one summary with the checked browser and kinds, the grant asks, and the list one click away", () => {
+    const html = render(importState("ready"));
+    const words = text(html);
+    expect(words).toContain("Bring over your browsing from Northwind.");
+    expect(words).toContain("Bookmarks · History · Sign-ins");
+    expect(words).toContain("Meridian needs Full Disk Access");
     expect(words).toContain("Open System Settings");
-    expect(words).toContain("No access yet");
+    expect(words).toContain("Orbit needs access to its folder");
     expect(words).toContain("Allow Access…");
-    for (const kind of ["Bookmarks", "History", "Open Tabs", "Sign-ins", "Search Engine", "Passwords"])
-      expect(words).toContain(kind);
-    expect(words).toContain("Keep history in sync");
+    expect(words).toContain("Choose Browsers and Data…");
     expect(words).toContain("Import from Another Browser…");
+    expect(html).not.toContain("onb-import-row");
   });
-  test("importing shows the running counts and Waiting", () => {
+  test("importing names the profile being read and sums the counts so far", () => {
     const words = text(render(importState("importing")));
-    expect(words).toContain("Bookmarks 204 · History 8,311 · Search Engine");
-    expect(words).toContain("Bookmarks 37");
-    expect(words).toContain("Waiting");
+    expect(words).toContain("Importing Northwind · Work…");
+    expect(words).toContain("History 8,311");
   });
-  test("finished sums it up", () => {
+  test("finished with a failed profile sums it up over the list, whose rows say why", () => {
     const html = render(importState("finished"));
+    expect(html).toContain('title="The profile’s history database is locked by the browser."');
     expect(text(html)).toContain(
       "Imported: Bookmarks 204 · History 8,311 · Passwords 41 · Search Engine Passwords skipped: 9 Already saved with a different password: 2. cmux kept the saved password. Some profiles couldn’t be read; hover one for why.",
     );
-    expect(html).toContain('title="The profile’s history database is locked by the browser."');
   });
   test("the folder explainer replaces the list", () => {
     const html = render(importState("accessRefused"));
@@ -146,6 +152,62 @@ describe("computer use", () => {
   });
   test("off: the note", () => {
     expect(text(render(computerUseState("off")))).toContain("Computer Use is off.");
+  });
+});
+
+describe("cmux tools", () => {
+  const settingsPlace = "You can change this later in Settings > Agents.";
+  test("asks before giving anything: the question, Claude Code and Codex found, Not Now and Turn On", () => {
+    const html = render(agentToolsState("found"));
+    const words = text(html);
+    expect(words).toContain("Use cmux Tools in Your Agents?");
+    expect(words).toContain("Agents you start in cmux get cmux’s tools, Computer Use included");
+    expect(words).toContain("cmux never changes your agents’ own settings.");
+    expect(html).toContain('data-agent="claude"');
+    expect(html).toContain('data-agent="codex"');
+    expect(html.match(/data-tools="ready"/g)?.length).toBe(2);
+    expect(words).toContain("Found on this Mac");
+    expect(words).toContain("Not Now");
+    expect(html).toMatch(/data-primary="addTools"/);
+    expect(words).toContain("Turn On");
+    expect(words).toContain(settingsPlace);
+  });
+  test("none found and still checking say so, and still name the place in Settings", () => {
+    const none = text(render(agentToolsState("none")));
+    expect(none).toContain("No coding agents found on this Mac yet.");
+    expect(none).toContain(settingsPlace);
+    expect(text(render(agentToolsState("checking")))).toContain("Checking…");
+  });
+  test("while Turn On runs the primary waits; on, declined and failed answers end on Done with no Not Now", () => {
+    const adding = render(agentToolsState("adding"));
+    expect(text(adding)).toContain("Turning on…");
+    expect(adding).toMatch(/data-primary="addTools"[^>]*disabled/);
+    const added = render(agentToolsState("added"));
+    expect(text(added)).toContain("Done. Agents you start in cmux’s terminals and agent chats get cmux’s tools.");
+    expect(added.match(/data-tools="terminals"/g)?.length).toBe(2);
+    expect(text(added)).toContain("Gets cmux’s tools in cmux");
+    expect(added).toMatch(/data-primary="done"/);
+    expect(text(added)).not.toContain("Not Now");
+    const declined = text(render(agentToolsState("declined")));
+    expect(declined).toContain("Agents you start in cmux won’t get cmux’s tools.");
+    expect(declined).toContain("Off in cmux");
+    expect(text(render(agentToolsState("failed")))).toContain(
+      "Couldn’t save your choice. You can try again in Settings.",
+    );
+  });
+  test("Add and Not Now are the footer's two gestures: next and skip", async () => {
+    const calls: string[] = [];
+    const store = new OnboardingStore({
+      call: async <R,>(op: string): Promise<R> => {
+        calls.push(op);
+        return {} as R;
+      },
+      subscribe: async () => () => {},
+      handle: () => () => {},
+    });
+    store.call(OPS.next);
+    store.call(OPS.skip);
+    expect(calls).toEqual([OPS.next, OPS.skip]);
   });
 });
 

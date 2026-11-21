@@ -2,7 +2,7 @@
 //! session it names, here, on a peer and as `HOST/NAME`; several are refused with each one
 //! (Leo, 2026-11-05: "stuff like that should work better yes").
 
-use super::tests::{list, named, test_hub};
+use super::tests::{list, list_with_alias, named, test_hub};
 use super::*;
 
 fn uses(e: &RpcError) -> Vec<String> {
@@ -35,6 +35,50 @@ async fn a_name_in_another_case_finds_the_one_session_here() {
     named(&hub, "td2-B").await;
     assert_eq!(hub.key_route("td2-a").unwrap().as_deref(), Some(a.id.as_str()));
     assert_eq!(hub.key_route("TD2_a").unwrap().as_deref(), Some(a.id.as_str()));
+}
+
+#[tokio::test]
+async fn session_alias_routes_with_the_same_case_prefix_and_separator_rules() {
+    let hub = test_hub();
+    list_with_alias(
+        &hub,
+        "lanevm-7",
+        "0199aaaa-1111",
+        "ruby-long",
+        "idle",
+        Some("Ruby dot startup-speedups"),
+    );
+    assert_eq!(
+        hub.key_route("Ruby dot startup-speedups").unwrap().as_deref(),
+        Some("lanevm-7/0199aaaa-1111")
+    );
+    assert_eq!(
+        hub.key_route("ruby dot startup-speedups").unwrap().as_deref(),
+        Some("lanevm-7/0199aaaa-1111")
+    );
+    // A prefix of a peer's alias names nothing, as a prefix of a peer's name never did
+    // (`key_candidates`): a short key never reaches another machine's chat nobody named.
+    assert_eq!(hub.key_route("ruby").unwrap(), None);
+    assert_eq!(
+        hub.key_route("ruby_dot_startup-speedups").unwrap().as_deref(),
+        Some("lanevm-7/0199aaaa-1111")
+    );
+}
+
+#[tokio::test]
+async fn session_aliases_collide_with_names_and_generic_alias_tags_do_not_route() {
+    let hub = test_hub();
+    list_with_alias(&hub, "lanevm-7", "0199aaaa-1111", "canonical", "idle", Some("shared"));
+    list(&hub, "lanevm-8", "0199bbbb-2222", "shared", "idle");
+    let e = hub.key_route("shared").unwrap_err();
+    assert_eq!(uses(&e).len(), 2, "{e:?}");
+
+    let hub = test_hub();
+    list_with_alias(&hub, "lanevm-7", "0199aaaa-1111", "canonical", "idle", Some("friendly"));
+    let remote_sessions = hub.remote_sessions.read();
+    let row = remote_sessions.get("lanevm-7/0199aaaa-1111").unwrap();
+    assert_eq!(row.summary.alias(), Some("friendly"));
+    assert_eq!(hub.key_route("alias").unwrap(), None);
 }
 
 #[tokio::test]
@@ -210,4 +254,31 @@ async fn resolve_takes_a_whole_name_before_a_peer_named_like_its_parent() {
     list(&hub, "coord", "0199dddd-4444", "lane-extra", "idle");
     let found = hub.locate("coord/lane", false, true).unwrap();
     assert_eq!(found["session"]["sessionId"], child.id.as_str(), "{found}");
+}
+
+/// Review of #36919: `HOST/ID`, a peer session's qualified id, names that session before a
+/// session whose whole name is the same text.
+#[tokio::test]
+async fn resolve_takes_a_qualified_id_before_a_whole_name_like_it() {
+    let hub = test_hub();
+    let lookalike = named(&hub, "hb/0199eeee-5555").await;
+    add_peer(&hub, "hb");
+    list_as_peers_do(&hub, "hb", "0199eeee-5555", "worker");
+    let found = hub.locate("hb/0199eeee-5555", false, true).unwrap();
+    assert_ne!(found["session"]["sessionId"], lookalike.id.as_str(), "{found}");
+    assert_eq!(found["session"]["qualifiedSessionId"], "hb/0199eeee-5555", "{found}");
+    // A loose key `key_route` sends to that peer session is read back as its qualified id, never
+    // as the local name like it.
+    let found = hub.locate("WORKER", false, true).unwrap();
+    assert_eq!(found["session"]["qualifiedSessionId"], "hb/0199eeee-5555", "{found}");
+}
+
+/// Peer `peer`'s session `id` named `name`, with the summary a peer's list gives it
+/// (`Hub::remote_summary`: its `peer/` name, qualified id and receipt).
+fn list_as_peers_do(hub: &Hub, peer: &str, id: &str, name: &str) {
+    let summary =
+        Hub::remote_summary(peer, json!({"sessionId": id, "name": name, "status": "idle"}));
+    let receipt = crate::session_identity::SessionReceipt::new(peer, id, None, 1);
+    let row = RemoteSession { peer: peer.into(), summary: summary.into(), receipt };
+    hub.remote_sessions.write().insert(format!("{peer}/{id}"), row);
 }

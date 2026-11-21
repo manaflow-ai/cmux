@@ -16,10 +16,12 @@ and what changed and what people said about it.
    hover card shows: diff totals and file count, a checks tally (a dot and count
    for failing, running and passed), the review decision, conflicts, and labels
    in their GitHub colours.
-2. **Main column**, what a person reads: the description as rendered Markdown,
+2. **Merge readiness**, under the header: Ready (with the SHIP that counts) or
+   Blocked, then each gate that refuses the merge (see below).
+3. **Main column**, what a person reads: the description as rendered Markdown,
    the files changed, then the conversation (comments and reviews with their
-   review comments, oldest first).
-3. **Rail**, what a person checks: checks, reviewers, linked issues.
+   review comments, newest first; filters All, Unresolved and Mine).
+4. **Rail**, what a person checks: checks, reviewers, linked issues.
 
 A pane 900px wide or more shows main and rail side by side; a narrower one is a
 single column in the same DOM order. The page takes the whole pane less a gutter
@@ -34,6 +36,31 @@ The files go in the main column, not the rail, because an opened file shows its
 diff inline and needs the width. The gallery keeps the other layouts as
 `layout-rail` (files in the rail) and `layout-single` (one column at every
 width).
+
+## Merge readiness
+
+The page leads with whether the land would go through, read from the gates our
+merge path enforces (`merge_hold.py`, `review_model.py`), mirrored in
+`readiness.ts`:
+
+- a SHIP receipt (`Review (<reviewer>): SHIP at <full head>`) at the exact head
+  from a model family other than the author's (the body's "Generated with"
+  footer), or from a person; a subagent or an unnamed reviewer does not count;
+- no BLOCK, FIX, NOT SHIP or HOLD receipt at the head (a later SHIP does not
+  clear one);
+- no hold label and no `HOLD:` body line;
+- no red of its own (a check that also fails at the base's tip is not one);
+- nothing still running or queued;
+- into `main`, a by-name approval of the head, which the page cannot read, so it
+  says it is needed;
+- and GitHub's own: not a draft, no conflict.
+
+Each gate is one line; the ones with a detail open in place: a receipt's
+findings and a link to it, the failing job's step, log end and link, the hold's
+label or line, the review gate's last SHIP and its commit. Merged and closed
+pull requests show nothing here. The gallery keeps `ready-blocked-chips` (the
+gates as chips) and `ready-blocked-line` (one line) as candidates; the list won
+because a drill-down opens under its own gate.
 
 ## Checks: the CI dashboard
 
@@ -88,7 +115,8 @@ spends the person's click, so a script can't merge.
 The cache's batched read (one GraphQL call for many pull requests) gives the
 header, checks and files. The body, conversation, reviewers, linked issues,
 label colours, head commit and merge state come from a second GraphQL read
-(`pr.details`). The host keeps that read until the pull request's `updatedAt`
+(`pr.details`), with the signed-in login (for Mine) and whether each review
+comment's thread is resolved (for Unresolved). The host keeps that read until the pull request's `updatedAt`
 moves and runs it at most once a minute, so a page that refreshes every minute
 doesn't read every minute. An inline file's patch is cut from the diff the page
 already reads for View all changes, so expanding files makes no GitHub call.

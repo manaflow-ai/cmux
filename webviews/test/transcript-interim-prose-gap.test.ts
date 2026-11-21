@@ -3,10 +3,11 @@
 // Leo, 2026-11-01, on a line of the agent's prose sitting tight between a tool row and a "Ran 2
 // commands" row: "the thoughts in between tool calls probably want a bit more padding".
 //
-// In gallery entry agent-pane.interim-prose-gap (a running turn's opened run: a command, a short
+// In gallery entry agent-pane.interim-prose-gap (a running turn's row of calls: a command, a short
 // note, "Ran 2 commands" opened, a note, a command; turns.ts mergeShortNotes folds the notes into
-// the run), measured in Chromium in light and dark:
-// - each note (`.cv-tool-note`) has the run gap (16, design/transcript-spacing.md rule 4; 24 on the
+// the row, and each note splits the calls around it into their own runs, toolGroups.ts `isAside`),
+// measured in Chromium in light and dark:
+// - each note (`.cv-tool-note`) has the run gap (12, design/transcript-spacing.md rule 4; 24 on the
 //   grid before it, 12px `--cv-note-gap` before the grid) between its text box and the row above it, and as much to the row below it;
 // - every other gap in the run (between its tool rows, around the run) is the same as in the
 //   `tight` variant, which draws the earlier 3px.
@@ -16,7 +17,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
+import { TRANSCRIPT_RUN_GAP } from "../src/agent-session/acpmux/transcriptGrid";
 
 await requireBrowserLane("transcript-interim-prose-gap.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -27,9 +28,9 @@ await requireBrowserLane("transcript-interim-prose-gap.test.ts", async () => {
   ];
   /** The room above and below a note, CSS px (conversation.css `--cv-note-gap`). */
   // Prose by a run of one-line rows sits the run gap from it (design/transcript-spacing.md rule 4;
-  // Leo, 2026-11-02: "now there's sometimes too much spacing between tool calls"), so a note has 16
-  // above and below it: more room than #30400's 12, less than the block gap's 24.
-  const NOTE_GAP = gridLength("gap-run");
+  // Leo, 2026-11-02: "now there's sometimes too much spacing between tool calls"), so a note has 12
+  // above and below it. The transcript now uses the inner gap, 12px.
+  const NOTE_GAP = TRANSCRIPT_RUN_GAP;
   const TOLERANCE = 0.5;
 
   try {
@@ -61,12 +62,12 @@ await requireBrowserLane("transcript-interim-prose-gap.test.ts", async () => {
   /** One gap between two stacked boxes in the run: their labels and the room between them. */
   type Gap = { pair: string; room: number; note: boolean };
 
-  /** Every vertical gap between the opened run's stacked boxes: its rows, groups and notes. */
+  /** Every vertical gap between the activity row's stacked boxes: its rows, groups and notes. */
   const measure = (page: Page): Promise<Gap[]> =>
     page.evaluate(() => {
       const label = (element: Element) =>
         element.classList.contains("cv-tool-note") ? "note" : (element.textContent ?? "").trim().slice(0, 24);
-      const boxes = [...document.querySelectorAll(".cv-tool-run .cv-tool, .cv-tool-run .cv-tool-note")]
+      const boxes = [...document.querySelectorAll(".acpmux-activity .cv-tool, .acpmux-activity .cv-tool-note")]
         .filter((element) => element.getBoundingClientRect().height > 0)
         .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
       const gaps: Gap[] = [];

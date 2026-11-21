@@ -6,14 +6,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use base64::Engine as _;
-use cmux_link::connect_info::ConnectInfo;
-use cmux_link::dial::PathState;
 use cmux_link::pairing::{PairingRecord, Pairings};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{Semaphore, mpsc};
 
-use super::cloud::{CloudResolver, RelaySource};
 use super::control::{Peers, serve_local};
 use super::dial::Overlay;
 
@@ -64,23 +61,6 @@ impl Overlay for DialOverlay {
         self.synced_after_close.store(self.remote_closed.load(Ordering::SeqCst), Ordering::SeqCst);
         Ok(())
     }
-
-    async fn set_cloud_peer(
-        &self,
-        _host: &str,
-        _key: [u8; 32],
-        _info: &ConnectInfo,
-    ) -> std::io::Result<()> {
-        panic!("a paired dial must not request a Cloud peer")
-    }
-
-    async fn forget_cloud_peer(&self, _host: &str) -> std::io::Result<()> {
-        panic!("a paired reload must not remove a Cloud peer")
-    }
-
-    async fn path_state(&self, _key: &[u8; 32]) -> PathState {
-        PathState::Direct
-    }
 }
 
 struct LocalLink {
@@ -108,13 +88,8 @@ impl LocalLink {
             remote_closed: AtomicBool::new(false),
             synced_after_close: AtomicBool::new(false),
         });
-        let task = tokio::spawn(serve_local(
-            listener,
-            overlay.clone(),
-            peers.clone(),
-            Arc::new(CloudResolver::new(RelaySource::unavailable())),
-            Arc::from("{}"),
-        ));
+        let task =
+            tokio::spawn(serve_local(listener, overlay.clone(), peers.clone(), Arc::from("{}")));
         Self { directory, peers, overlay, connected, entered, task }
     }
 
@@ -273,13 +248,11 @@ async fn outgoing_revocation_refuses_a_stale_snapshot_before_contacting_the_peer
     link.peers.reload(&*link.overlay).await.unwrap();
     let (caller, link_side) = tokio::io::duplex(4096);
     let mut caller = BufReader::new(caller);
-    let resolver = CloudResolver::new(RelaySource::unavailable());
     let serve = super::dial::serve_dial_line(
         link_side,
         "{\"op\":\"link.dial\",\"host\":\"inst_b\",\"service\":\"daemon\"}",
         &*link.overlay,
         &stale,
-        &resolver,
         Some(link.peers.revocations()),
     );
     let read = async {
