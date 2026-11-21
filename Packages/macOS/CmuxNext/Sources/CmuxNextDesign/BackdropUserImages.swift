@@ -36,7 +36,7 @@ public nonisolated struct BackdropUserImages: Sendable {
             at: folder, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey, .isSymbolicLinkKey],
             options: [.skipsHiddenFiles]
         )) ?? []
-        let images: [(url: URL, modified: Date)] = files.filter { Self.isImage($0) && !isDownloadedArt($0) && Self.isPlainFile($0) }.map { url in
+        let images: [(url: URL, modified: Date)] = files.filter { Self.isImage($0) && !Self.isDownloadedArt($0) && Self.isPlainFile($0) }.map { url in
             let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
             return (url, modified ?? .distantPast)
         }
@@ -54,7 +54,7 @@ public nonisolated struct BackdropUserImages: Sendable {
         guard case .file(let path) = selection else { return false }
         let url = URL(fileURLWithPath: path)
         guard url.resolvingSymlinksInPath().path == path, url.deletingLastPathComponent().path == folder.path else { return false }
-        return Self.isImage(url) && !isDownloadedArt(url) && Self.isPlainFile(url)
+        return Self.isImage(url) && !Self.isDownloadedArt(url) && Self.isPlainFile(url)
     }
 
     /// A regular file, not a symbolic link or a folder named like an image.
@@ -69,7 +69,7 @@ public nonisolated struct BackdropUserImages: Sendable {
     public func adopt(_ source: URL, fileManager: FileManager = .default) throws -> BackdropSelection {
         let source = source.standardizedFileURL.resolvingSymlinksInPath()
         guard Self.isImage(source), Self.isPlainFile(source) else { throw CocoaError(.fileReadUnsupportedScheme) }
-        if source.deletingLastPathComponent().path == folder.path, !isDownloadedArt(source) {
+        if source.deletingLastPathComponent().path == folder.path, !Self.isDownloadedArt(source) {
             return .file(path: source.path)
         }
         if let copy = list(fileManager: fileManager).first(where: { selection in
@@ -83,7 +83,7 @@ public nonisolated struct BackdropUserImages: Sendable {
         let ext = source.pathExtension.lowercased()
         var target = folder.appendingPathComponent("\(name).\(ext)")
         var copy = 2
-        while fileManager.fileExists(atPath: target.path) || isDownloadedArt(target) {
+        while fileManager.fileExists(atPath: target.path) || Self.isDownloadedArt(target) {
             target = folder.appendingPathComponent("\(name) \(copy).\(ext)")
             copy += 1
         }
@@ -93,7 +93,7 @@ public nonisolated struct BackdropUserImages: Sendable {
 
     /// A downloaded work, including one since taken out of the set (``BackdropArt/removedIDs``): its
     /// file stays in the folder but is never one of the person's own images.
-    private func isDownloadedArt(_ url: URL) -> Bool {
+    static func isDownloadedArt(_ url: URL) -> Bool {
         let id = url.deletingPathExtension().lastPathComponent
         return url.pathExtension.lowercased() == "avif" && (BackdropArt(id: id) != nil || BackdropArt.removedIDs.contains(id))
     }

@@ -50,11 +50,13 @@ public struct BackdropSwitch: Equatable, Sendable {
 
     /// The picture shown at `date` and when it next changes (nil: it holds; no timer needed).
     public func turn(at date: Date, calendar: Calendar,
-                     frames: FramesReader = BackdropDynamicFrames.read(contentsOf:)) -> (picture: BackdropSelection?, next: Date?) {
+                     frames: FramesReader = BackdropDynamicFrames.read(contentsOf:),
+                     pictures: BackdropShuffle.PicturesReader = { BackdropFolderPictures(folder: $0).list() })
+        -> (picture: BackdropSelection?, next: Date?) {
         let location = location ?? BackdropLocation.of(calendar.timeZone)
         switch source {
         case .shuffle(let shuffle):
-            return (shuffle.pick(on: date, calendar: calendar), shuffle.rotation.nextTurn(after: date, calendar: calendar))
+            return (shuffle.pick(on: date, calendar: calendar, pictures: pictures), shuffle.rotation.nextTurn(after: date, calendar: calendar))
         case .schedule(let schedule):
             let (value, next) = schedule.resolve(at: date, location: location, calendar: calendar)
             let (picture, frameNext) = pin(value.flatMap(BackdropSelection.init(id:)), at: date, location: location,

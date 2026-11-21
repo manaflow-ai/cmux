@@ -29,6 +29,13 @@ public final class BackdropSwitchClock {
     public private(set) var nextChange: Date?
     /// Each dynamic wallpaper's frames, read once per path (its metadata, not a decode).
     private let knownFrames = OSAllocatedUnfairLock<[String: BackdropDynamicFrames?]>(initialState: [:])
+    /// The shuffled folder's last listing and when it was read: the prewarm and the turn
+    /// ``prewarmLead`` later walk the tree once, and a picture added since shows by the next turn.
+    private let knownPictures = OSAllocatedUnfairLock<(path: String, read: ContinuousClock.Instant, pictures: [BackdropSelection])?>(
+        initialState: nil)
+    /// How long a folder's listing is reused: past the prewarm to its turn, well short of the
+    /// shortest rotation (15 minutes).
+    nonisolated static let picturesLifetime: Duration = .seconds(60)
 
     public init(show: @escaping (BackdropSelection?) -> Void) {
         self.show = show
@@ -46,7 +53,7 @@ public final class BackdropSwitchClock {
     public func turn() {
         guard let switching else { return }
         let date = now()
-        let turn = switching.turn(at: date, calendar: calendar(), frames: frames(of:))
+        let turn = switching.turn(at: date, calendar: calendar(), frames: frames(of:), pictures: pictures(in:))
         show(turn.picture)
         stop()
         nextChange = turn.next
@@ -56,7 +63,7 @@ public final class BackdropSwitchClock {
         guard wait > Self.prewarmLead else { return }
         prewarmTimer.schedule(after: .seconds(wait - Self.prewarmLead)) { @MainActor [weak self] in
             guard let self, let upcoming = self.switching?.turn(at: next.addingTimeInterval(1), calendar: self.calendar(),
-                                                                frames: self.frames(of:)).picture
+                                                                frames: self.frames(of:), pictures: self.pictures(in:)).picture
             else { return }
             self.prewarm(upcoming)
         }
@@ -66,6 +73,16 @@ public final class BackdropSwitchClock {
         if let known = knownFrames.withLock({ $0[url.path] }) { return known }
         let read = BackdropDynamicFrames.read(contentsOf: url)
         knownFrames.withLock { $0[url.path] = .some(read) }
+        return read
+    }
+
+    private nonisolated func pictures(in folder: URL) -> [BackdropSelection] {
+        let now = ContinuousClock.now
+        if let known = knownPictures.withLock({ $0 }), known.path == folder.path, now - known.read < Self.picturesLifetime {
+            return known.pictures
+        }
+        let read = BackdropFolderPictures(folder: folder).list()
+        knownPictures.withLock { $0 = (folder.path, now, read) }
         return read
     }
 

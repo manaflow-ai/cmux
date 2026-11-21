@@ -8,7 +8,7 @@ import Testing
 
 /// A rotating background like macOS's (Leo, 2026-10-20): Shuffle turns to its next picture on an
 /// interval (`appearance.backgroundRotation`: every 15 minutes, hour or day), through the
-/// paintings (`daily`) or the pictures in a folder (`folder:<absolute path>`).
+/// paintings (`daily`) or the pictures in a folder and its subfolders (`folder:<absolute path>`).
 @MainActor @Suite(.serialized, .ghosttyOverrides) struct BackgroundRotationTests {
     struct Harness {
         let settings: SettingsController
@@ -88,14 +88,18 @@ import Testing
         #expect(harness.scope.backdropSelection == .art(.daily(on: Self.today, calendar: harness.calendar)))
     }
 
-    /// A folder: its pictures take turns, each once before any repeats; other files are skipped.
+    /// A folder: its pictures, in subfolders too, take turns, each once before any repeats; other
+    /// files are skipped.
     @Test func aFolderShufflesItsPictures() async throws {
         let harness = try await make()
         defer { harness.tearDown() }
         let folder = harness.directory.appending(path: "Pictures")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let names = ["a.png", "b.jpg", "c.heic"]
-        for name in names + ["notes.txt"] { try Data([0]).write(to: folder.appending(path: name)) }
+        for (name, subfolder) in zip(names + ["notes.txt"], ["", "Trips", "Trips/Rome/2024", ""]) {
+            let directory = subfolder.isEmpty ? folder : folder.appending(path: subfolder)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data([0]).write(to: directory.appending(path: name))
+        }
         let path = folder.standardizedFileURL.resolvingSymlinksInPath().path
         try await harness.write(#"{"appearance": {"background": "folder:\#(path)", "backgroundRotation": "15m"}}"#)
         await settle { harness.scope.backdropSelection != nil }
