@@ -9,9 +9,9 @@ step), opens a diff tab on a scratch repository's uncommitted changes, turns Pla
                (90 x 1250: 11,250 hunks, 22,500 changed lines, 101,610 lines of `git diff`). The same bytes each
                time, so two arms read the same tree.
   summarizer   Plain English offers itself only when this Mac's acpmux has a harness with a headless mode
-               (`cmux.diff.summaryCheck`). The run adds one: harness `claude` (the automatic default), protocol
-               claude-stdio, whose program is a shell script in the scratch folder that answers each hunk with one
-               fixed sentence. No model and no network: every hunk's sentence costs one `sh` run.
+               (`cmux.diff.summaryCheck`). The run adds one as a profile file in its own XDG_CONFIG_HOME:
+               harness `claude` (the automatic default), protocol claude-stdio, whose program is a shell script
+               in the scratch folder that answers each hunk with one fixed sentence. No model and no network: every hunk's sentence costs one `sh` run.
   code_open_ms `openDiffViewer` (with focus) sent to the first `.file-header` of the code view in the page
                (`debug.page wait`), on this script's clock: the code view's first file drawn.
   plain_english  the toggle (`#plain-english-toggle`, else the "..." menu row) clicked inside the page; on the
@@ -48,6 +48,12 @@ import diff_tab_cells as cells  # noqa: E402
 
 PAGE = cells.PAGE
 STUB = "#!/bin/sh\ncat >/dev/null\necho run >> \"$(dirname \"$0\")/summarizer.runs\"\necho 'Changes one constant value in this file.'\n"
+
+
+def profile_toml(stub: str) -> str:
+    """The stand-in summarizer's harness profile file (schema 1): id `claude`, the automatic default."""
+    return ("schema = 1\nid = \"claude\"\nname = \"Bench summarizer\"\nprotocol = \"claude-stdio\"\n"
+            f"command = {json.dumps(stub)}\nargs = []\n")
 
 
 def make_repository(root: str, files: int, lines: int) -> dict:
@@ -176,24 +182,22 @@ def main() -> int:
         with open(stub, "w") as handle:
             handle.write(STUB)
         os.chmod(stub, 0o755)
+        # The stand-in is a harness profile file, not `agent.harness.add`: that action takes only
+        # protocol acp or terminal, and only a claude-stdio harness has a headless recipe (`claude -p`,
+        # acpmux complete/recipes.rs). A user profile file wins over the discovered `claude` for its id
+        # (config/profiles.rs), and XDG_CONFIG_HOME names its folder, so the run's acpmux reads only it.
+        xdg = os.path.join(work, "xdg")
+        os.makedirs(os.path.join(xdg, "cmux", "harnesses"), exist_ok=True)
+        with open(os.path.join(xdg, "cmux", "harnesses", "claude.toml"), "w") as handle:
+            handle.write(profile_toml(stub))
+        out["harness_add"] = "profile file"
         # The keyboard and the screen: the window comes to the front (no CMUX_NEXT_NO_ACTIVATE), as a person's.
-        pid, socket_path, scratch = bm.launch(bundle, {}, {"CMUX_NEXT_NO_ACTIVATE": None})
+        pid, socket_path, scratch = bm.launch(bundle, {}, {"CMUX_NEXT_NO_ACTIVATE": None, "XDG_CONFIG_HOME": xdg})
         app = bm.App(bundle, socket_path)
         for _ in range(30):
             if app.ping():
                 break
             time.sleep(1)  # test script: the app's socket answers once its control service runs
-        for attempt in range(5):
-            added = app.action("agent.harness.add", id="claude", name="Bench summarizer", command=stub,
-                               protocol="claude-stdio", replace=True)
-            if "timeout" not in str(added.get("code") or added.get("error") or ""):
-                break
-            time.sleep(5)  # test script: the action answers "timeout" while its work goes on; try again
-        out["harness_add"] = {k: added.get(k) for k in ("error", "code", "message") if added.get(k)} or "ok"
-        if out["harness_add"] != "ok":
-            # The automatic default would stay the real `claude`: each hunk on screen would run it.
-            raise RuntimeError(f"agent.harness.add of the stand-in summarizer: {out['harness_add']}")
-        time.sleep(3)  # test script: the add goes on in acpmux after the action answered
         made = app.run("workspace.newAtBottom")
         app.run("workspace.selectLast")
         app.run("newSurface")

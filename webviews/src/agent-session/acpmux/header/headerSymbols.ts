@@ -16,6 +16,7 @@ export const HEADER_SYMBOLS: Readonly<Record<string, string>> = {
   "git.worktree": "arrow.triangle.branch",
   "git.pullrequest": "arrow.triangle.pull",
   "action.share": "person.crop.circle.badge.plus",
+  search: "magnifyingglass",
 };
 
 /// Symbols the app draws from the cmux pack, not as SF Symbols (the icon catalog's `overrides`): the outlined globe
