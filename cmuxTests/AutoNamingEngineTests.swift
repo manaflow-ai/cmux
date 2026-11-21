@@ -17,14 +17,16 @@ import Testing
         lastLineCount: Int? = nil,
         lastNamedAt: TimeInterval? = nil,
         inFlightAt: TimeInterval? = nil,
-        lastAttemptAt: TimeInterval? = nil
+        lastAttemptAt: TimeInterval? = nil,
+        userOwned: Bool = false
     ) -> AutoNamingSessionSnapshot {
         AutoNamingSessionSnapshot(
             lastTitle: lastTitle,
             lastLineCount: lastLineCount,
             lastNamedAt: lastNamedAt,
             inFlightAt: inFlightAt,
-            lastAttemptAt: lastAttemptAt
+            lastAttemptAt: lastAttemptAt,
+            userOwned: userOwned
         )
     }
 
@@ -48,6 +50,15 @@ import Testing
             now: now
         )
         #expect(decision == .skipShortTranscript)
+    }
+
+    @Test func userOwnedSessionSkipsEvenWithTranscriptGrowth() {
+        let decision = engine.throttleDecision(
+            snapshot: snapshot(userOwned: true),
+            transcriptLineCount: 1_000,
+            now: Date(timeIntervalSince1970: 1_000_000)
+        )
+        #expect(decision == .skipUserOwned)
     }
 
     @Test func insufficientGrowthSkipsAndSufficientGrowthQualifies() {
@@ -174,6 +185,19 @@ import Testing
             AutoNamingTranscriptMessage(role: "assistant", text: "Looking at the login flow now."),
             AutoNamingTranscriptMessage(role: "assistant", text: "Found it.")
         ])
+    }
+
+    @Test func detectsClaudeRenamePromptAndCustomTitleRecord() {
+        #expect(engine.isClaudeRenamePrompt("/rename Chosen title"))
+        #expect(engine.isClaudeRenamePrompt("  /RENAME Chosen title"))
+        #expect(engine.isClaudeRenamePrompt("/rename"))
+        #expect(!engine.isClaudeRenamePrompt("please /rename Chosen title"))
+        #expect(!engine.isClaudeRenamePrompt("/renamer Chosen title"))
+
+        let customTitle = #"{"type":"custom-title","customTitle":"Chosen title"}"#
+        let emptyTitle = #"{"type":"custom-title","customTitle":"  "}"#
+        #expect(engine.containsClaudeCustomTitle(inTranscriptLines: [emptyTitle, customTitle]))
+        #expect(!engine.containsClaudeCustomTitle(inTranscriptLines: [emptyTitle]))
     }
 
     @Test func emptyOrUnreadableTranscriptYieldsNoContext() {
