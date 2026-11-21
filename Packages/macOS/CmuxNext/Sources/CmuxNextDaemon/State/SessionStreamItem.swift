@@ -140,10 +140,14 @@ enum SessionWire {
         var ephemeral: Bool { extra?["ephemeral"] == .bool(true) }
         /// The folder new agent chats start in (`workspace.agent_folder.set`).
         var agentFolder: String? { extra?["agent_folder"]?.stringValue }
-        /// The description and the manual task status (`workspace.update`); an unknown lane reads as automatic.
+        /// The description and the manual task status (`workspace.update`); an unknown lane reads as automatic. Also
+        /// who made the workspace (`extra.created_by.kind`).
         var notes: SessionStateMirror.WorkspaceNotes {
-            SessionStateMirror.WorkspaceNotes(description: extra?["description"]?.stringValue,
-                                              taskStatus: extra?["task_status"]?.stringValue.flatMap(WorkspaceTaskStatus.init(rawValue:)))
+            var createdBy: String?
+            if case .object(let record)? = extra?["created_by"] { createdBy = record["kind"]?.stringValue }
+            let taskStatus = extra?["task_status"]?.stringValue.flatMap(WorkspaceTaskStatus.init(rawValue:))
+            return SessionStateMirror.WorkspaceNotes(description: extra?["description"]?.stringValue, taskStatus: taskStatus,
+                                                     createdBy: createdBy)
         }
 
         var screenState: SessionStateMirror.ScreenState {

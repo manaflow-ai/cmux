@@ -10,6 +10,9 @@ public nonisolated struct SidebarDoneFoldID: Hashable, Sendable {
         /// Settled chats (`sidebar.settleFinished`, ``SidebarLayoutOptions/settled``): the "Settled (N)" row, before the
         /// Done row.
         case settled
+        /// Automatic sessions (`sidebar.showAutomaticSessions` off, the default; ``SidebarLayoutOptions/automatic``):
+        /// the "Automatic (N)" row, before the Settled row.
+        case automatic
         /// Archived workspaces: the "Archived (N)" row, after the Done row (Lawrence 18470, gallery pick V2).
         case archived
         /// The sidebar's one Archive section (``SidebarDoneFoldID/archive``): every archived workspace and wholly
@@ -51,10 +54,17 @@ nonisolated extension SidebarLayoutOptions {
         !settled.isEmpty && settled.contains(ws.id) && ws.id != activeWorkspaceID && filterMatches == nil && sessionTree == nil
     }
 
+    /// Whether `ws` draws behind its list's "Automatic (N)" row: an automatic session (``automatic``), not the active
+    /// one, and not while a filter shows matches where they are or the session tree nests rows.
+    func automates(_ ws: SidebarWorkspace) -> Bool {
+        !automatic.isEmpty && automatic.contains(ws.id) && ws.id != activeWorkspaceID && filterMatches == nil && sessionTree == nil
+    }
+
     /// Clears every fold a drag or an external drop unfolds: Done, Archived, the Archive and Settled.
     mutating func unfoldsAll() {
         (foldsDone, foldsArchived, archiveSection) = (false, false, false)
         settled = []
+        automatic = []
     }
 }
 
@@ -72,6 +82,8 @@ nonisolated extension SidebarLayout {
     static let archivedFoldIndex = -3
     /// The index `foldingDone` gives the "Settled (N)" row's entry (its depth is the fold's count).
     static let settledFoldIndex = -4
+    /// The index `foldingDone` gives the "Automatic (N)" row's entry (its depth is the fold's count).
+    static let automaticFoldIndex = -5
 
     /// `drawn` with the workspaces marked Done moved behind one fold entry (`doneFoldIndex`) at the end, and after it
     /// when the person opened the fold; then, past `rowLimit`, the rest behind a "Show N more" entry (`limiting`).
@@ -84,6 +96,7 @@ nonisolated extension SidebarLayout {
         var shown: [(index: Int, depth: Int)] = []
         var done: [(index: Int, depth: Int)] = []
         var settled: [(index: Int, depth: Int)] = []
+        var automatic: [(index: Int, depth: Int)] = []
         var archived: [(index: Int, depth: Int)] = []
         for entry in drawn {
             let ws = workspace(entry.index)
@@ -93,11 +106,17 @@ nonisolated extension SidebarLayout {
                 done.append(entry)
             } else if let ws, o.settles(ws) {
                 settled.append(entry)
+            } else if let ws, o.automates(ws) {
+                automatic.append(entry)
             } else {
                 shown.append(entry)
             }
         }
         var listed = limiting(shown, workspace: workspace, limits: limits, list: id, options: o)
+        // Automatic sessions close the list's working rows first: no person started them.
+        if !automatic.isEmpty {
+            listed += [(automaticFoldIndex, automatic.count)] + (o.openDoneFolds.contains(id.of(.automatic)) ? automatic : [])
+        }
         // Settled chats close the list's working rows: their own row first, then the Done and Archived rows.
         if !settled.isEmpty {
             listed += [(settledFoldIndex, settled.count)] + (o.openDoneFolds.contains(id.of(.settled)) ? settled : [])
@@ -133,10 +152,12 @@ nonisolated extension SidebarLayout {
     /// make or drop a "Done (N)" row the drag's base rows lack, so the drag draws as it did before it kept the folds.
     /// A drag of rows that never fold keeps them: it moves no fold row and changes no fold's count.
     static func dragUnfolds(_ dragged: [SidebarWorkspace], options o: SidebarLayoutOptions) -> Bool {
-        guard o.foldsDone || o.foldsArchived || o.archiveSection || !o.settled.isEmpty, o.filterMatches == nil, o.sessionTree == nil else { return false }
+        guard o.foldsDone || o.foldsArchived || o.archiveSection || !o.settled.isEmpty || !o.automatic.isEmpty,
+              o.filterMatches == nil, o.sessionTree == nil else { return false }
         return dragged.contains {
             $0.id != o.activeWorkspaceID
-                && ((o.foldsDone && $0.taskStatus == .done) || ((o.foldsArchived || o.archiveSection) && $0.isArchived) || o.settles($0))
+                && ((o.foldsDone && $0.taskStatus == .done) || ((o.foldsArchived || o.archiveSection) && $0.isArchived)
+                    || o.settles($0) || o.automates($0))
         }
     }
 
@@ -151,12 +172,13 @@ nonisolated extension SidebarLayout {
         return drawn.first { $0.index < 0 || $0.index >= gap.index }?.index
     }
 
-    /// Appends the row of a `foldingDone` entry (`doneFoldIndex`, `settledFoldIndex`, `archivedFoldIndex` or `showMoreIndex`) at `y`: one
-    /// line, as a document item's row.
+    /// Appends the row of a `foldingDone` entry (`doneFoldIndex`, `settledFoldIndex`, `automaticFoldIndex`,
+    /// `archivedFoldIndex` or `showMoreIndex`) at `y`: one line, as a document item's row.
     static func appendFold(_ entry: Int, _ list: SidebarDoneFoldID, count: Int, parent: Int?, color: GroupColor?, last: Bool,
                            options o: SidebarLayoutOptions, to rows: inout [SidebarRow], y: inout CGFloat, metrics m: SidebarLayoutMetrics) {
         let more = entry == showMoreIndex
-        let id = list.of(entry == archivedFoldIndex ? .archived : entry == settledFoldIndex ? .settled : .done)
+        let id = list.of(entry == archivedFoldIndex ? .archived : entry == settledFoldIndex ? .settled
+            : entry == automaticFoldIndex ? .automatic : .done)
         let open = more ? o.openShowMore.contains(id) : o.openDoneFolds.contains(id)
         let content = WorkspaceRowContent()
         let h = m.height(for: content)

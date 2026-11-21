@@ -325,6 +325,16 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "settle", "settled", "finished", "done", "read", "seen", "fold", "chats", "threads", "tidy"]
             ),
             SettingDescriptor(
+                SidebarSectionsSetting.showAutomaticSessionsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.showAutomaticSessions", "Show Automatic Sessions"),
+                help: SettingsText.keyed("settings.sidebar.showAutomaticSessions.help", "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.showAutomaticSessionsDefault),
+                keywords: ["sidebar", "automatic", "auto", "script", "automation", "background", "hidden", "hide", "fold", "sessions", "tidy"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.showColorsPath,
                 section: .appearance,
                 group: group,
@@ -366,16 +376,6 @@ extension SidebarSettingsSchema {
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.groupHeaderMemberCountDefault),
                 keywords: ["sidebar", "group", "groups", "count", "members", "workspaces", "number", "header"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderUnreadCountPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount", "Show Group Unread Count"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount.help", "A collapsed group shows its unread notification count."),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.groupHeaderUnreadCountDefault),
-                keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"]
             ),
         ]
     }
