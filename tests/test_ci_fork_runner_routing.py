@@ -176,7 +176,22 @@ TRUSTED_RUNNER_EXPRESSION = (
     + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
     + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
 )
-TRUSTED_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
+# Write-token bot jobs lead with one of our one-job GCP JIT labels (cmuxterm-hq runner_pool.py JIT_ONLY_LABELS: a VM per
+# job, deleted after it, no persistent runner registers the label), behind that label's own switch variable; the
+# trusted selector follows unchanged, so the operand can only ever add that one literal label (Leo, 2026-11-21: "i just
+# am like fundamentally opposed to paying for ci when i exist").
+JIT_FIRST_OPERANDS = {
+    "CI_REPAIR_SKIP_FLEET": "cmux-gcp-repair-jit-x64",
+    "CI_PR_CONTROL_SKIP_FLEET": "cmux-gcp-pr-control-jit-x64",
+}
+OWNED_JIT_LABELS = frozenset(JIT_FIRST_OPERANDS.values())
+JIT_FIRST_TRUSTED_RUNNER_EXPRESSIONS = tuple(
+    TRUSTED_RUNNER_EXPRESSION.replace(
+        "'ubuntu-24.04' || ", f"'ubuntu-24.04' || vars.{variable} != '1' && '{label}' || ", 1)
+    for variable, label in JIT_FIRST_OPERANDS.items())
+TRUSTED_RUNNER_LINE = re.compile(
+    r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, (TRUSTED_RUNNER_EXPRESSION, *JIT_FIRST_TRUSTED_RUNNER_EXPRESSIONS)))
+    + r")\s*(?:#.*)?$")
 # The one named exception: language-boundaries.yml keeps the selector that still admits ubuntu-24.04, because its
 # own guard refuses a change to it without Leo's leo-approved-port label; a follow-up PR carries it. Only that file.
 LEGACY_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace("('[", "('[\"ubuntu-24.04\",", 1)
