@@ -311,6 +311,19 @@ pub(crate) fn record_daemon_signal(
     }
 }
 
+/// Next to [`LOSS_LOG_FILE`]: each terminal host `cmux gc --apply` ended or
+/// failed to end, with the proof it was an orphan.
+pub(crate) const GC_LOG_FILE: &str = "terminal-host-gc.jsonl";
+
+/// Append one `cmux gc` outcome (`line`, which carries its own `event`) to
+/// the gc log of the state root that holds `record_path`'s record directory,
+/// rotated as the loss log is. Returns the log's path.
+pub(crate) fn record_host_gc(record_path: &Path, line: &serde_json::Value) -> Option<PathBuf> {
+    let log = record_path.parent().and_then(Path::parent).map(|dir| dir.join(GC_LOG_FILE))?;
+    append_rotating(&log, line);
+    Some(log)
+}
+
 fn append_rotating(log: &Path, line: &serde_json::Value) {
     if fs::metadata(log).is_ok_and(|metadata| metadata.len() >= MAX_LOG_BYTES) {
         let _ = fs::rename(log, log.with_extension("jsonl.1"));

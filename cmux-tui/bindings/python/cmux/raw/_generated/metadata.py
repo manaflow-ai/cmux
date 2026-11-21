@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226'
+IR_SHA256 = '0a05a0413ea1324cb913b87d559653bab07bdd45aa3b698a124dbecc710bc002'
 
 
 @dataclass(frozen=True)
@@ -2642,6 +2642,16 @@ COMMANDS = {
         6,
         None,
         ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
+    'process-census': CommandMetadata(
+        'process-census',
+        'local-admin',
+        12,
+        'process-census-v1',
+        ('local-admin',),
         None,
         {
         },

@@ -11381,6 +11381,7 @@
       }
     },
     "request:ping": {},
+    "request:process-census": {},
     "request:process-info": {
       "/surface": {
         "ty": "uint64",
@@ -19759,6 +19760,12 @@
       },
       "/data/version": {
         "ty": "string",
+        "required": true
+      }
+    },
+    "response:process-census": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },

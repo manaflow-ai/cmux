@@ -858,6 +858,77 @@ stdout renders the object as nested `key: value` lines; `--json` prints the
 exact result object. Against a server without `server-stats-v1` the CLI exits
 1 with `server.stats_unsupported`.
 
+### process-census
+
+| Field | Value |
+| --- | --- |
+| name | `process-census` |
+| status | implemented |
+| since | protocol 12, capability `process-census-v1` |
+
+Lists the terminal hosts this daemon holds and the state it and its sibling
+sessions keep, classified from the product's own records: each host's record
+and lease (live, dead or indeterminate, proven with the lock the host holds
+for its lifetime), each record root's session guard, and this daemon's own
+surfaces and registry. It never reads a process's arguments: a host's
+`--owner <bundle>:<tag>@<pid>` names the daemon that launched it, which may
+be dead while a later daemon adopted the host. Read-only; trusted local
+connections only (a remote or relayed connection gets `bad request`).
+
+Params: `{}`.
+
+Result (`census_version` `1`):
+
+```text
+object{
+  census_version: uint32,
+  source: "daemon" | "records",
+  generated_at_ms: uint64,
+  state_root: string,
+  daemon?: {pid, pgid?, session, record_root},
+  hosts: array<{terminal_id, incarnation, host_pid, pgid?, record_path,
+    record_root, endpoint, session?, root_owner, workspace_key,
+    placements: array<{surface, pane, pane_name?, workspace?, workspace_name?}>,
+    surfaces: array<uint64>, stream_held: boolean,
+    liveness: "live" | "indeterminate", shell_ended: boolean,
+    record_age_ms?, last_output_ms?,
+    state: "in-use" | "idle" | "orphaned" | "unknown", reason: string,
+    gc: {candidate: boolean, refusal?, grace_ms?, unowned_for_ms?}}>,
+  helpers: array<{pid, name?, own_executable, terminal_host}>,
+  state: {
+    roots: array<{state_root, record_root, session?, owner,
+      owner_last_active_ms?, hosts, stale_records, exit_records, error?}>,
+    stale_records: array<{terminal_id, incarnation, host_pid, record_path,
+      record_root, session?, shell_ended}>,
+    exit_records: array<{terminal_id, incarnation, path, record_root,
+      has_host_record}>,
+    unnamed_sockets: array<string>}
+}
+```
+
+`root_owner` and `owner` are `this-daemon`, `live-daemon` (its session guard
+is held), `none` (the guard is free), `no-guard` or `unnamed` (no guard file
+names the root). `state`: `in-use` (a live daemon serves it: this one in a
+pane, or another that owns its session), `idle` (this daemon holds it and no
+pane shows it), `orphaned` (no live daemon holds it), `unknown` (its lease or
+session cannot be read, or this daemon references it without holding it).
+`gc.candidate` is true only for a live host of a root whose guard is free,
+past the reaper's grace (24 h, 10 min once its shell ended) counted from the
+session's last owner activity. Stale records are records whose host's lease
+is dead. `unnamed_sockets` are sockets under `/tmp/cmux-th-<uid>/` that no
+record read here names. Roots are read as the unowned-host reaper reads them:
+this state root and, on the app's per-build layout, every build's. Probing a
+free root's guard holds it for the probe only.
+
+Errors: `bad request: process census requires a trusted local connection`,
+`bad request: this session keeps no terminal host records`.
+
+CLI mapping: `cmux ps [--json] [--state-dir <dir>]` prints this object (with
+no daemon it reads the records from disk, `source: "records"`).
+`cmux gc [--apply] [--json] [--state-dir <dir>]` lists the `gc.candidate`
+hosts and, with `--apply`, ends each under its session's guard and appends
+the outcome to `terminal-host-gc.jsonl` next to `terminal-losses.jsonl`.
+
 ### browser-host-provider
 
 | Field | Value |

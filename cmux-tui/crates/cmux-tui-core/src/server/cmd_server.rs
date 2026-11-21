@@ -34,6 +34,23 @@ pub(super) fn server_stats(
     Ok(serde_json::to_value(server_stats::server_stats(mux, include.as_deref()))?)
 }
 
+pub(super) fn process_census(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value> {
+    if !mux.control_clients.is_unix(client) {
+        anyhow::bail!("process census requires a trusted local connection");
+    }
+    #[cfg(any(unix, windows))]
+    {
+        let view = mux.process_census_view();
+        let state_root = view
+            .as_ref()
+            .and_then(|view| view.record_root.parent().map(std::path::Path::to_path_buf))
+            .ok_or_else(|| anyhow::anyhow!("this session keeps no terminal host records"))?;
+        Ok(serde_json::to_value(crate::mux::process_census::census(&state_root, view.as_ref()))?)
+    }
+    #[cfg(not(any(unix, windows)))]
+    anyhow::bail!("process census is not available on this platform")
+}
+
 pub(super) fn identify(
     mux: &Arc<Mux>,
     machine_metadata: bool,

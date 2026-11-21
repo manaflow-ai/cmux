@@ -142,6 +142,26 @@ pub(crate) fn session_owner_mark(root: &Path, component: &str) -> String {
     format!("{newest}:{size}:{files}")
 }
 
+/// When the last owner run of the session `component` of `root` last wrote
+/// its session directory (the newest modification time of its top-level
+/// files, as [`session_owner_mark`] reads them); `None` when the directory has
+/// no such file or its times cannot be read.
+pub(crate) fn session_owner_last_active(
+    root: &Path,
+    component: &str,
+) -> Option<std::time::SystemTime> {
+    let dir = platform::normalize_filesystem_path(root.join(component));
+    fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let metadata = entry.metadata().ok()?;
+            metadata.is_file().then(|| metadata.modified().ok()).flatten()
+        })
+        .max()
+}
+
 /// The guard file stems in `root` (`session-locks/<stem>.lock`), sorted.
 #[cfg(unix)]
 pub(crate) fn session_guard_components(root: &Path) -> Vec<String> {

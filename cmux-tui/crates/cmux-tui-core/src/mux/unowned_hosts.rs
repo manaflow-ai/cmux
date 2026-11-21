@@ -94,6 +94,12 @@ impl Timing {
         retry_failed: PASS_INTERVAL,
     };
 
+    /// The grace of a live host of an unowned root: shorter once its own
+    /// shell ended. `cmux gc` (`process_census.rs`) applies the same rule.
+    fn grace(&self, shell_ended: bool) -> Duration {
+        if shell_ended { self.ended_grace } else { self.live_grace }
+    }
+
     fn for_owner() -> Self {
         #[cfg(debug_assertions)]
         {
@@ -119,6 +125,13 @@ impl Timing {
         #[cfg(not(debug_assertions))]
         Self::STANDARD
     }
+}
+
+/// The grace a live host of a root no live daemon owns must wait before it
+/// is ended, by the reaper and by `cmux gc` alike (debug builds: the
+/// reaper's test seam applies to both).
+pub(super) fn unowned_host_grace(shell_ended: bool) -> Duration {
+    Timing::for_owner().grace(shell_ended)
 }
 
 /// What one pass saw.
@@ -215,7 +228,7 @@ impl Mux {
 /// of these; a build that is never launched again leaves its hosts in it.
 /// Elsewhere (Linux, Windows, a standalone cmux-tui) a state root has no
 /// such siblings and only the own one is looked in.
-fn state_roots(own_state_root: &Path) -> Vec<PathBuf> {
+pub(super) fn state_roots(own_state_root: &Path) -> Vec<PathBuf> {
     fn name(path: Option<&Path>) -> Option<&str> {
         path.and_then(Path::file_name).and_then(|name| name.to_str())
     }
@@ -255,7 +268,7 @@ fn state_roots(own_state_root: &Path) -> Vec<PathBuf> {
 
 /// The record roots of the sessions of `state_root` other than `own_root`,
 /// each with its session's guard file stem when it can be named, sorted.
-fn session_roots(state_root: &Path, own_root: &Path) -> Vec<(PathBuf, Option<String>)> {
+pub(super) fn session_roots(state_root: &Path, own_root: &Path) -> Vec<(PathBuf, Option<String>)> {
     #[cfg(unix)]
     let components = crate::workspace_registry::session_guard_components(state_root);
     let mut roots = std::fs::read_dir(state_root)
@@ -322,7 +335,7 @@ struct Seen {
 /// record's own shell. Startup keeps the sidecars of older incarnations
 /// (`terminal_adoption.rs`), and a replacement launch leaves them in
 /// place, so any other sidecar says nothing about the shell running now.
-fn current_shell_ended(
+pub(super) fn current_shell_ended(
     record_path: &Path,
     record: &crate::terminal_host_runtime::TerminalHostRecord,
 ) -> bool {
@@ -577,11 +590,7 @@ fn reap_pass_with(
                     }
                     TerminalHostLiveness::Live => all_dead = false,
                 }
-                let grace = if current_shell_ended(&record_path, &record) {
-                    timing.ended_grace
-                } else {
-                    timing.live_grace
-                };
+                let grace = timing.grace(current_shell_ended(&record_path, &record));
                 if unowned_for < grace {
                     report.in_grace += 1;
                     store.hosts.insert(key, seen);
