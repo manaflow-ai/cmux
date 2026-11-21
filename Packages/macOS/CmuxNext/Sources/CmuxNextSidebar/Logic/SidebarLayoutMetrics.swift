@@ -173,6 +173,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var chatHistory: SidebarChatHistoryState?
     /// The Done fold: workspaces marked Done fold into a "Done (N)" row at the end of their list.
     public var foldsDone = false
+    /// Settled chats (`sidebar.settleFinished`, `SidebarSettlePlanner`): these rows fold into a "Settled (N)" row at the
+    /// end of their list, before the Done row. Empty (the setting off, the default) draws every row in place.
+    public var settled: Set<WorkspaceID> = []
     /// Archived workspaces fold into an "Archived (N)" row at the end of their list, after the Done row; on by default
     /// (Lawrence 18470, gallery pick V2). Off, they draw dimmed in place.
     public var foldsArchived = true
