@@ -206,6 +206,8 @@ pub fn read_dir(dir: &Path) -> Result<Setup, Error> {
             manifest.format
         )));
     }
+    let mut manifest = manifest;
+    inline_files(&mut manifest.settings, dir)?;
     let mut files = manifest.files.clone();
     for (path, text) in repo_files(dir)? {
         if files.insert(path.clone(), text).is_some() {
@@ -229,6 +231,53 @@ pub fn read_dir(dir: &Path) -> Result<Setup, Error> {
         tree::sha256(&canonical)
     };
     Ok(Setup { manifest, profile, sha256 })
+}
+
+/// The most bytes a setting's `{"$file": ...}` may read.
+pub const MAX_SETTING_FILE_BYTES: u64 = 64 * 1024;
+
+/// Puts in place each setting whose value is `{"$file": "PATH"}`: the JSON (or JSONC) of the file
+/// at PATH in `dir`, the look's folder. A look keeps a long value, such as the `cmux.particles/1`
+/// document of `agentPane.display.thinking.glyph`, as a file beside its `cmux-setup.json`
+/// (`"agentPane.display.thinking.glyph": {"$file": "thinking-glyph.json"}`); the settings file
+/// then holds the document itself, checked like any value. PATH stays inside `dir`: relative,
+/// no `.` or `..`, no link, a file under [`MAX_SETTING_FILE_BYTES`].
+pub fn inline_files(settings: &mut BTreeMap<String, Value>, dir: &Path) -> Result<(), Error> {
+    for (key, value) in settings.iter_mut() {
+        let Some(members) = value.as_object() else { continue };
+        let Some(reference) = members.get("$file") else { continue };
+        let bad = |why: &str| Error::Setup(format!("{key}: {why}"));
+        let (Some(path), 1) = (reference.as_str(), members.len()) else {
+            return Err(bad("{\"$file\": PATH} names one file of the look's folder"));
+        };
+        let relative = Path::new(path);
+        let inside = !path.is_empty()
+            && relative.components().all(|part| matches!(part, std::path::Component::Normal(_)));
+        if !inside {
+            return Err(bad(&format!("{path:?} is not a path inside the look's folder")));
+        }
+        let mut walked = dir.to_path_buf();
+        for part in relative.components() {
+            walked.push(part);
+            let metadata = std::fs::symlink_metadata(&walked)
+                .map_err(|_| bad(&format!("{path} is not in the look's folder")))?;
+            if metadata.file_type().is_symlink() {
+                return Err(bad(&format!("{path} is a link; a look holds plain files")));
+            }
+        }
+        let metadata = std::fs::metadata(&walked)?;
+        if !metadata.is_file() || metadata.len() > MAX_SETTING_FILE_BYTES {
+            return Err(bad(&format!(
+                "{path} is not a file under {} KB",
+                MAX_SETTING_FILE_BYTES / 1024
+            )));
+        }
+        let text =
+            std::fs::read_to_string(&walked).map_err(|_| bad(&format!("{path} is not text")))?;
+        *value =
+            jsonc::parse(&text).map_err(|error| bad(&format!("{path} is not JSON: {error}")))?;
+    }
+    Ok(())
 }
 
 /// The serde message without the value it quotes.

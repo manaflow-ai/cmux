@@ -256,6 +256,7 @@ fn describe(accepted: &Accepted) -> Option<String> {
             format!("one of {}, or {shape}", choices.join(", "))
         }
         Accepted::Shape(shape) => (*shape).to_owned(),
+        Accepted::Document { schema, reason } => format!("a {schema} document ({reason})"),
         Accepted::Domain { name, .. } => format!("a {name} name"),
     })
 }

@@ -12,6 +12,9 @@ workspace = true
 
 [dependencies]
 cmux-json.workspace = true
+# The one cmux.particles/1 validator (src/particles.rs), for agentPane.display.thinking.glyph:
+# only its wire types, no VM (`default-features = false` in the workspace).
+cmux-app-host.workspace = true
 # The settings schema compiled in compressed (src/schema/mod.rs).
 cmux-embed.workspace = true
 cmux-theme-tokens.workspace = true

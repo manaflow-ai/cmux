@@ -1659,6 +1659,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-app-host",
  "cmux-embed",
  "cmux-json",
  "cmux-theme-tokens",

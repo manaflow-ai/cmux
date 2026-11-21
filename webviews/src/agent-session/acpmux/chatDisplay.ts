@@ -13,7 +13,7 @@
 import { useSyncExternalStore } from "react";
 import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
-import { experimentArm, isArm } from "../../experiments/experiment";
+import { isArm, experimentArm } from "../../experiments/experiment";
 import { readingLook, readingLookValues } from "./readingLook.experiment";
 import {
   HIGH_CONTRAST_CHAT_VARIABLES,

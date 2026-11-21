@@ -1,5 +1,14 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-19 (lane/look-glyph-settings): Sidebar-Look: Leo, 2026-11-19: "the dots and the way it moves changes a
+  lot". A `cmux.sidebar.rows/1` row's `indicator` may be a particles glyph: `{choreography: <cmux.particles/1
+  document>, trigger}`, or `"glyph"` / `{choreography: "glyph", trigger}` for the look's
+  `agentPane.display.thinking.glyph`. While the row is busy or working, `StatusIndicatorView` hides its loading glyph
+  and plays the document in the same cell (`SidebarRowChoreographyView`, the scene renderer's native player on the
+  motion clock, at the document's own size, held when the indicator would not animate). Rows with no such indicator
+  draw as before; nothing changes without a look or a customize app that asks for it. The player and the look's glyph
+  reader are instance members of `StatusIndicatorAppearance`. Regression: `SidebarRowGlyphTests` (CmuxNextAppTests).
+
 - 2026-11-21 (hide-app-store-2): Sidebar-Look: David Beyer, Nov 20 call: "don't show the app store until it's ready, it takes too much space"; the person: hide it by default, keep a setting that turns it back on. With `labs.previewFeatures` off (the default) the App Store item is hidden in every look: the `cmux/app-store` app item (0aa5aa4a64043, `SidebarAppItemInfo`) and now the `app_store` built-in of a layout stored before it became an app (`SidebarBuiltIn.defaultInfo(showsStore:)`). The stored layout keeps both; Labs on draws them again. `AppStoreHiddenUntilReadyTests`.
 - 2026-11-21 (lane/sidebar-pin-archive): Sidebar-Look: Leo, 2026-11-21: "the pin button does not make sense. you
   expect this to be the pinned thing. but it isn't. when you pin it, the pin goes to teh left of the bar as an empty
