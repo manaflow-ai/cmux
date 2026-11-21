@@ -381,6 +381,37 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
     }
 }
 
+/// One running turn that ended: session id `session` of this Mac (or a mirrored acpmux on it) when `peer` is nil,
+/// else acpmux peer `peer`'s session of that id. Session ids are each daemon's own, so two machines can hold
+/// the same one: ``reaches(_:mirrorPeer:)`` says which chat tabs show this turn's chat.
+public nonisolated struct AgentTurnEnd: Hashable, Sendable {
+    public var session: String
+    public var peer: String?
+    /// The hosts whose chats have their facts here (`localHost` and the mirrored ones) when the turn ended; nil
+    /// when the store did not know this Mac's host yet (every tab of the id is then this Mac's).
+    public var hostsHere: Set<String>?
+
+    public init(session: String, peer: String? = nil, hostsHere: Set<String>? = nil) {
+        self.session = session
+        self.peer = peer
+        self.hostsHere = hostsHere
+    }
+
+    /// Whether the chat tab of `ref` shows this turn's chat. A chat of a host here is this Mac's, unless this
+    /// Mac's acpmux lists its id as a peer's mirror (`mirrorPeer`, by session id: the tab binds to the mirrored
+    /// session, cx-k21v); a chat of another host is that host's (`hostName`, the peer's name, any case).
+    public func reaches(_ ref: AgentSessionRef, mirrorPeer: (String) -> String?) -> Bool {
+        guard ref.session == session else { return false }
+        let here = hostsHere?.contains(ref.host)
+        guard let peer else {
+            guard here != false else { return false }
+            return mirrorPeer(session) == nil
+        }
+        if here != true, let hostName = ref.hostName { return hostName.caseInsensitiveCompare(peer) == .orderedSame }
+        return mirrorPeer(session) == peer
+    }
+}
+
 /// The app's mirror of the local acpmux turn states. The app's watch feed
 /// writes it; `StatusMapping` reads it while the tab strip and the sidebar
 /// observe. Keyed observable storage (perf-speed-of-light.md I2): each
@@ -463,7 +494,8 @@ public final class AgentTurnStateStore {
     /// end), this Mac's or an acpmux peer's row of it (that row's working to anything else). The
     /// app rings the chat's pane until the person goes into it, as a terminal agent's
     /// notification does: acpmux reads a turn that ends in a shown chat at once (cx-n8ou).
-    @ObservationIgnored public var onTurnEnded: ((String) -> Void)?
+    /// The end says whose session it was (``AgentTurnEnd``): session ids are each daemon's own, so only that chat's tabs ring.
+    @ObservationIgnored public var onTurnEnded: ((AgentTurnEnd) -> Void)?
     /// Also told when a session's running turn ends, with its folder (`cwd`, when known): the diff
     /// viewer precomputes that repository's diff once someone can see the chat, before anyone clicks
     /// (DiffPageRuntime+Warm.swift; a chat nobody sees owes it until it shows, `AgentPaneOwedWork`).
@@ -483,9 +515,10 @@ public final class AgentTurnStateStore {
         stateRevision &+= 1
     }
 
-    /// Tells the turn-end hooks that `session`'s running turn ended.
-    private func turnEnded(_ session: String, folder: String?) {
-        onTurnEnded?(session)
+    /// Tells the turn-end hooks that `session`'s running turn ended: this Mac's (`peer` nil) or acpmux peer `peer`'s.
+    private func turnEnded(_ session: String, peer: String? = nil, folder: String?) {
+        let hostsHere = localHost.map { mirroredHosts.union([$0]) }
+        onTurnEnded?(AgentTurnEnd(session: session, peer: peer, hostsHere: hostsHere))
         for observer in turnEndedObservers { observer(session, folder) }
     }
 
@@ -499,13 +532,19 @@ public final class AgentTurnStateStore {
                       generatedTitle: String? = nil, detail: AgentChatDetail?, recordsTimeline: Bool = true,
                       source: String = AgentTurnStateStore.localSource, peer: AgentPeerRow? = nil, peerName: String? = nil) {
         let held = record(session)
-        held.source = source
         if let name = peerName ?? peer?.name {
-            if recordsTimeline, held.peers[name]?.state == .working, peer?.state != .working { turnEnded(session, folder: (detail ?? held.detail)?.cwd) }
+            // A peer's row never takes the record from the watch that holds it (a mirrored acpmux's chat of the
+            // same id): the next page of this Mac's watch would read it as its own and clear it.
+            if recordsTimeline, held.peers[name]?.state == .working, peer?.state != .working {
+                turnEnded(session, peer: name, folder: (detail ?? held.detail)?.cwd)
+            }
             if held.peers[name] != peer { held.peers[name] = peer }
+            // Nor its chat facts: a mirrored chat of the same id keeps its own title, last message and detail.
+            guard held.source == source else { return }
             writeFacts(held, sessionName: sessionName, lastMessage: lastMessage, muted: muted, title: title, generatedTitle: generatedTitle, detail: detail)
             return
         }
+        held.source = source
         if recordsTimeline, held.state == .working, state != .working { turnEnded(session, folder: (detail ?? held.detail)?.cwd) }
         if recordsTimeline {
             let nowMs = UInt64((Date().timeIntervalSince1970 * 1000).rounded())
@@ -536,7 +575,7 @@ public final class AgentTurnStateStore {
                         titles: [String: String], generatedTitles: [String: String] = [:], sessionNames: [String: String] = [:], details: [String: AgentChatDetail],
                         source: String = AgentTurnStateStore.localSource, peers: [String: [String: AgentPeerRow]] = [:], keeping: Set<String> = [],
                         keepingPeers: [String: Set<String>] = [:]) {
-        let own = sessions.compactMap { $0.value.source == source ? $0.key : nil }
+        let own = Set(sessions.compactMap { $0.value.source == source ? $0.key : nil })
         let listed = Set(states.bySession.keys).union(lastMessages.keys).union(muted)
             .union(titles.keys).union(generatedTitles.keys).union(sessionNames.keys).union(details.keys).union(peers.keys)
         let ids = listed.union(own)
@@ -545,7 +584,11 @@ public final class AgentTurnStateStore {
             for id in own where !listed.contains(id) && !keeping.contains(id) && keepingPeers[id] == nil { sessionEnded(id) }
         }
         for id in ids.union(keepingPeers.keys) {
-            if !keeping.contains(id), keepingPeers[id] == nil {
+            // An id the page has only as peers' rows, held by another watch (a mirrored acpmux's chat of the same
+            // id), stays that watch's: its peer rows are laid below, its facts are not this page's.
+            let peerOnlyElsewhere = sessions[id].map { $0.source != source } == true && states[id] == nil && !own.contains(id)
+                && (peers[id] != nil || keepingPeers[id] != nil)
+            if !keeping.contains(id), keepingPeers[id] == nil, !peerOnlyElsewhere {
                 apply(session: id, sessionName: sessionNames[id], state: states[id], lastMessage: lastMessages[id], muted: muted.contains(id),
                       title: titles[id], generatedTitle: generatedTitles[id], detail: details[id], source: source)
             }
@@ -554,8 +597,8 @@ public final class AgentTurnStateStore {
             for name in keepingPeers[id] ?? [] { rows[name] = held.peers[name] }
             guard held.peers != rows else { continue }
             // A peer's turn that ran ended when the page has its row no longer working (or gone).
-            if held.peers.contains(where: { $0.value.state == .working && rows[$0.key]?.state != .working }) {
-                turnEnded(id, folder: (details[id] ?? held.detail)?.cwd)
+            for (name, row) in held.peers.sorted(by: { $0.key < $1.key }) where row.state == .working && rows[name]?.state != .working {
+                turnEnded(id, peer: name, folder: (details[id] ?? held.detail)?.cwd)
             }
             held.peers = rows
         }
