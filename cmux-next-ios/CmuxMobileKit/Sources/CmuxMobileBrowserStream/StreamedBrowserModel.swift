@@ -106,6 +106,11 @@ public final class StreamedBrowserModel: BrowserTabState {
     public private(set) var meter = Meter()
     /// The last shown picture for the grid card.
     public private(set) var snapshot: CGImageBox?
+    /// The newest decoded picture's size in pixels (`StreamedBrowserKey.pictureFrame`).
+    @ObservationIgnored public private(set) var pictureSize: CGSize?
+    /// The newest picture came at another size than the one before: the page
+    /// lays its video out again.
+    @ObservationIgnored var pictureResized: (@MainActor () -> Void)?
     /// The page's open `<select>` popup (`rb.menu.show` of kind `select`): the page shows
     /// its options until the person picks or cancels, or the page closes it.
     public private(set) var selectMenu: OpenMenu?
@@ -152,6 +157,8 @@ public final class StreamedBrowserModel: BrowserTabState {
     @ObservationIgnored private var connection: (any BrowserStreamConnection)?
     @ObservationIgnored private var sink: Sink?
     @ObservationIgnored private var screen: RemoteBrowserWire.Screen?
+    /// The scale the Mac renders this page's pictures at (`RemoteBrowserWire.Screen.scale`).
+    var screenScale: Double { screen?.scale ?? 2 }
     @ObservationIgnored private var appliedScreen: RemoteBrowserWire.Screen?
     @ObservationIgnored private var screenSeq = 0
     @ObservationIgnored private var welcomed = false
@@ -550,6 +557,11 @@ public final class StreamedBrowserModel: BrowserTabState {
         meter.decodeMillis = Double(samples.map(\.decode).reduce(0, +)) / Double(max(1, samples.count)) / 1000
         meter.width = shown.width
         meter.height = shown.height
+        let size = CGSize(width: CGFloat(shown.width), height: CGFloat(shown.height))
+        if size != pictureSize {
+            pictureSize = size
+            pictureResized?()
+        }
         meter.frames = self.meter.frames + 1
         if let stats = connection?.stats() {
             meter.carrier = stats.videoCarrier

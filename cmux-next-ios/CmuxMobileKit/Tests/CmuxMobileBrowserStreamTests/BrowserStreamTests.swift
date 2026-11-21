@@ -356,6 +356,29 @@ final class SinkBox: @unchecked Sendable {
         #expect(StreamedBrowserKey.covered(page: page, keyboard: CGRect(x: 0, y: 500, width: 402, height: 374)) == 259)
         #expect(StreamedBrowserKey.covered(page: page, keyboard: CGRect(x: 0, y: 0, width: 402, height: 874)) == 700)
     }
+
+    /// A keyboard move never scales the picture on screen: the old picture
+    /// keeps its size, top-anchored, until the Mac's at the new size comes.
+    @Test func aKeyboardMoveKeepsThePictureAtItsOwnSize() {
+        let full = CGSize(width: 804, height: 1400)
+        // The keyboard rose: the page is 441 pt, the picture still 700 pt tall.
+        #expect(StreamedBrowserKey.pictureFrame(width: 402, page: 441, picture: full, scale: 2)
+            == CGRect(x: 0, y: 0, width: 402, height: 700))
+        // The Mac's picture at the new viewport fills the page.
+        #expect(StreamedBrowserKey.pictureFrame(width: 402, page: 441, picture: CGSize(width: 804, height: 882), scale: 2)
+            == CGRect(x: 0, y: 0, width: 402, height: 441))
+        // The keyboard went: the short picture stays at the top, unscaled.
+        #expect(StreamedBrowserKey.pictureFrame(width: 402, page: 700, picture: CGSize(width: 804, height: 882), scale: 2)
+            == CGRect(x: 0, y: 0, width: 402, height: 441))
+        // An encoder's even rounding is the same width.
+        #expect(StreamedBrowserKey.pictureFrame(width: 401, page: 700, picture: CGSize(width: 804, height: 1400), scale: 2).height
+            == 698)
+        // No picture yet, or one at another width (a rotation): fill the page.
+        #expect(StreamedBrowserKey.pictureFrame(width: 402, page: 700, picture: nil, scale: 2)
+            == CGRect(x: 0, y: 0, width: 402, height: 700))
+        #expect(StreamedBrowserKey.pictureFrame(width: 874, page: 350, picture: full, scale: 2)
+            == CGRect(x: 0, y: 0, width: 874, height: 350))
+    }
 }
 
 /// A Mac phone tab's simulator streams through the browser tab's model (verify/simulator-surface.md).
