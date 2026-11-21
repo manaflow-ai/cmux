@@ -72,7 +72,7 @@ test("O4: a second stall drains again on its own deadline, not the first one's",
 // and the backlog is drawn by the lag correction (rate + backlog / correctMs 250 ms): 1,080 chars/s
 // for 200 characters and 1,800 chars/s for 400, 3.4x and 5.6x the 320 chars/s the reader followed,
 // where the finish at a tool boundary (O3) holds twice. Run with the 2x bound to see it.
-test.skip("O4 (red): the late delta's backlog draws at no more than twice the arrival rate", () => {
+test("O4: the late delta's backlog draws at no more than twice the arrival rate", () => {
   for (const [stallMs, late] of [
     [800, 200],
     [1500, 400],

@@ -11,7 +11,9 @@
 // A backlog of more than 900 ms of text drains in 250 ms; once the stream ends (or nothing arrives
 // for 600 ms) the rest drains in 180 ms, or longer for a backlog that would need more than twice the
 // arrival rate (at most 350 ms, the longest lag): the reply's last lines never sprint when a tool call
-// ends its stream (Leo, 2026-11-21: "sometimes animations sprint for no reason"). Pure: the caller
+// ends its stream (Leo, 2026-11-21: "sometimes animations sprint for no reason"). A delta that lands
+// after a stall drains the same way, at no more than twice the rate the stream last flowed at (up to
+// 900 ms), instead of through the lag correction, which drew it at 3-6x. Pure: the caller
 // ticks it with display-frame times.
 
 export type StreamRevealOptions = {
@@ -52,6 +54,13 @@ export class StreamReveal {
   private gaps: number[] = [];
   private smoothedRate = 0;
   private drainUntil: number | undefined;
+  /// The arrival rate while the stream last flowed: a stall empties the rate window, so a delta
+  /// that lands after one is paced against what the reader last followed, not against ~0.
+  private flowRate = 0;
+  /// A delta landed after a stall: its backlog drains like a finish (at most twice the flow rate,
+  /// within the longest lag) instead of through the lag correction, which sprinted it at 3-6x
+  /// (design/chat-animation-ordering-map.md O4).
+  private resumed = false;
   private reduceMotion: boolean;
 
   constructor(options: StreamRevealOptions = {}) {
@@ -80,6 +89,8 @@ export class StreamReveal {
     this.arrivals = [];
     this.gaps = [];
     this.drainUntil = undefined;
+    this.flowRate = 0;
+    this.resumed = false;
   }
 
   /// Reduce Motion changed while the row is mounted: on, all of `text` (the latest, which may not
@@ -103,6 +114,7 @@ export class StreamReveal {
     this.received = text.length;
     if (this.reduceMotion || this.shown >= text.length) {
       this.shown = text.length;
+      this.resumed = false;
       return text.length;
     }
     if (elapsed > 0)
@@ -111,6 +123,16 @@ export class StreamReveal {
   }
 
   private arrived(time: number, chars: number): void {
+    if (this.lastArrival !== undefined && time - this.lastArrival > StreamReveal.stallMs) {
+      // The stream resumes after a stall: a fresh deadline for the new backlog. The gap itself is
+      // not a gap between deltas, so it does not stretch the lag.
+      this.resumed = true;
+      this.drainUntil = undefined;
+      this.lastArrival = time;
+      this.arrivals.push([time, chars]);
+      return;
+    }
+    if (this.resumed) this.drainUntil = undefined;
     if (this.lastArrival !== undefined) {
       this.gaps.push(time - this.lastArrival);
       if (this.gaps.length > GAP_SAMPLES) this.gaps.shift();
@@ -139,14 +161,19 @@ export class StreamReveal {
   private charsPerSecond(time: number, elapsed: number, done: boolean): number {
     const backlog = this.received - this.shown;
     const rate = this.rate(time);
-    const stalled = this.lastArrival === undefined || time - this.lastArrival > StreamReveal.stallMs;
+    const stalled = this.resumed || this.lastArrival === undefined || time - this.lastArrival > StreamReveal.stallMs;
+    // Sampled on arrival frames only: the quiet frames before a stall registers decay the rate.
+    if (!stalled && !done && time === this.lastArrival) this.flowRate = rate;
+    const paced = Math.max(rate, this.flowRate);
     // Draining (the end, a stall, a backlog too big) moves linearly to a deadline set when it
     // starts, so it finishes on time instead of slowing down as the backlog shrinks.
     const drain =
       done || stalled
         ? Math.min(
-            StreamReveal.maxLagMs,
-            Math.max(StreamReveal.finishMs, (backlog / (rate * StreamReveal.finishSpeedup)) * 1000),
+            // The stream resumed and is still going: the backlog may trail longer (up to the
+            // catch-up bound) rather than sprint; at the end it never trails past the longest lag.
+            this.resumed && !done ? StreamReveal.maxBacklogMs : StreamReveal.maxLagMs,
+            Math.max(StreamReveal.finishMs, (backlog / (paced * StreamReveal.finishSpeedup)) * 1000),
           )
         : backlog > (rate * StreamReveal.maxBacklogMs) / 1000
           ? StreamReveal.catchUpMs
