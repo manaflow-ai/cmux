@@ -186,7 +186,9 @@ extension TerminalController: ControlSurfaceContext {
                 simulatorDeviceTypeIdentifier: simulatorPanel?.selectedDeviceTypeIdentifier,
                 simulatorDeviceName: simulatorPanel?.selectedDeviceName,
                 simulatorDeviceState: simulatorPanel?.selectedDeviceState,
-                dockScopeRawValue: summary.dockScopeRawValue
+                dockScopeRawValue: summary.dockScopeRawValue,
+                controllingTTY: summary.controllingTTY,
+                foregroundProcessID: summary.foregroundProcessID
             )
         }
     }
