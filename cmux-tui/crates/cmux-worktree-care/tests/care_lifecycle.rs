@@ -631,7 +631,7 @@ fn pr_archive_preserves_late_writes_and_restores_the_linked_checkout() {
         }),
     };
     let mut options = Options {
-        roots: vec![main.clone()],
+        roots: vec![main],
         sessions: vec![session.clone()],
         settings: Settings { recent_hours: [0; 3], ..Settings::default() },
         uses: nothing(),
