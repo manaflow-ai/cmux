@@ -415,6 +415,21 @@
 :root[data-glass-underlay="heavy"] {
   --glass-underlay: 70%;
 }
+/* A covered element's own filter list (seeThroughBlur.ts writes it on the element's inline style).
+   Not inherited: no descendant reads it, and as an inherited property its every write (the rail's
+   preview card showing, moving or going) restyled every row in the transcript's scroller. */
+@property --glass-under-filter {
+  syntax: "*";
+  inherits: false;
+}
+@property --glass-under-filter-hover-card {
+  syntax: "*";
+  inherits: false;
+}
+@property --glass-under-filter-summary {
+  syntax: "*";
+  inherits: false;
+}
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
     :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency])
