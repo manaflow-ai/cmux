@@ -2383,6 +2383,47 @@ class ReadTokenSplitTests(unittest.TestCase):
         self.assertEqual(set(jobs), {run["id"] for run in runs})
         self.assertEqual(sorted(sent), ["Bearer bot"] * 4 + ["Bearer reader"] * 4)
 
+    def test_under_the_floor_the_sweep_stops_instead_of_draining_the_read_installation(self):
+        """2026-11-20 23:10-23:18Z: one sweep's 57 run pages and 2,000 job listings left glaeda-route at 872 of 5000,
+        and the runner scaler, which mints on the same installation, read 0 left at 00:24Z with 396 lane-build and 200
+        gate creates waiting. Under READ_TOKEN_FLOOR a read is not sent: the sweep ends as a rate-limit skip, on
+        neither token."""
+        github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
+        github.use_read_token("reader")
+        github.read_token_floor = 3000
+        sent = []
+        left = iter(["3100", "3000"])
+
+        def urlopen(request, timeout=30):
+            sent.append(request.get_header("Authorization"))
+            return self.Response(b'{"jobs": []}', self.budget(next(left)))
+
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen):
+            github.jobs(1)  # 3100 left: above the floor
+            github.jobs(2)  # this answer says 3000 left: the floor
+            with self.assertRaises(janitor.RateLimited):
+                github.jobs(3)
+            # Writes and GraphQL are cmux-bot's own budget: the floor holds back only the read token's reads.
+            left = iter(["7000"])
+            github.request("POST", "/repos/manaflow-ai/cmux/actions/runs/1/cancel")
+        self.assertEqual(sent, ["Bearer reader", "Bearer reader", "Bearer bot"])
+        self.assertIn("READ_TOKEN_FLOOR", github.rate_limited)
+
+    def test_no_floor_or_a_reset_window_reads_as_before(self):
+        github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
+        github.use_read_token("reader")
+        github.rate_limits["core (read token)"] = {"remaining": 10, "reset": 1}
+        github.read_token_floor = 3000
+        self.assertFalse(github.read_token_floor_reached(), "the window reset since that reading")
+        github.rate_limits["core (read token)"] = {"remaining": 10}
+        github.read_token_floor = 0
+        self.assertFalse(github.read_token_floor_reached(), "no floor set")
+
+    def test_the_sweep_leaves_a_3000_call_floor_by_default(self):
+        self.assertEqual(janitor.READ_TOKEN_FLOOR, 3000)
+        text = (ROOT / ".github/workflows/ci-queue-janitor.yml").read_text()
+        self.assertIn("READ_TOKEN_FLOOR: ${{ vars.CI_JANITOR_READ_TOKEN_FLOOR }}", text)
+
     def test_no_read_token_or_one_of_the_sweeps_own_changes_nothing(self):
         for read in ("", "bot", "workflow"):
             github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
