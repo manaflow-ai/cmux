@@ -157,8 +157,9 @@ jobs:
       entitlements: ${{ steps.decide.outputs.entitlements }}
       icon_name: ${{ steps.decide.outputs.icon_name }}
     env:
-      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
-      GH_BUDGET_WAIT_MAX_SECONDS: "900"
+      # A nightly delivery job waits through one whole hourly API reset (3600s + 300s) rather
+      # than lose the night's build; then it fails loud (scripts/ci/gh_budget_wait.sh).
+      GH_BUDGET_WAIT_MAX_SECONDS: "3900"
     steps:
       # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
@@ -582,8 +583,9 @@ jobs:
       dry_run: ${{ steps.decide.outputs.dry_run }}
       scan_failed: ${{ steps.decide.outputs.scan_failed }}
     env:
-      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
-      GH_BUDGET_WAIT_MAX_SECONDS: "900"
+      # A nightly delivery job waits through one whole hourly API reset (3600s + 300s) rather
+      # than lose the night's build; then it fails loud (scripts/ci/gh_budget_wait.sh).
+      GH_BUDGET_WAIT_MAX_SECONDS: "3900"
     steps:
       # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
@@ -767,7 +769,7 @@ jobs:
     # was given to release-surface-ack on this run; guard.approvedBy() reads it.
     environment: nightly-next-promote
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
-    timeout-minutes: 25
+    timeout-minutes: 70
     permissions:
       contents: read
       actions: read
@@ -778,8 +780,9 @@ jobs:
       group: nightly-next-promote-ack-${{ github.run_id }}
       cancel-in-progress: false
     env:
-      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
-      GH_BUDGET_WAIT_MAX_SECONDS: "900"
+      # A nightly delivery job waits through one whole hourly API reset (3600s + 300s) rather
+      # than lose the night's build; then it fails loud (scripts/ci/gh_budget_wait.sh).
+      GH_BUDGET_WAIT_MAX_SECONDS: "3900"
     steps:
       # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
@@ -1414,7 +1417,7 @@ jobs:
     # branch dogfood always uses the dedicated Blacksmith image. A
     # repository-wide runner override may point at a slower shared builder,
     # which defeats the purpose of the one-architecture path.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-12vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The Blacksmith cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were

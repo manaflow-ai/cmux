@@ -4328,11 +4328,22 @@ class FleetGatesTests(unittest.TestCase):
         self.assertEqual(side["as_of"], "2026-09-22T16:58:00Z")  # the reading's own, when a label has none
         self.assertEqual(janitor.FLEET_GATES_STALE_S, 300)
 
+    def test_a_version_2_reading_is_read_and_cut_to_version_1(self):
+        # cmuxterm-hq#16097 (2026-11-21) moved the dashboard to version 2, which only adds a top-level `disk`
+        # inventory. Refusing it read every glaeda label as full for hours (snapshot gates_error "not version 1").
+        v2 = dict(gates_reading(), version=2, disk=[{"host": "cmux20", "free_gib": 80}])
+        gates, why = janitor.fleet_gates(json.dumps(v2))
+        self.assertIsNone(why)
+        self.assertEqual(gates, janitor.fleet_gates(json.dumps(gates_reading()))[0])
+        self.assertEqual(gates["version"], 1)
+        self.assertNotIn("disk", gates)
+
     def test_a_reading_out_of_shape_is_refused_whole(self):
         bad = {
             "": "no CI_FLEET_GATES reading",
             "not json": "not JSON",
-            json.dumps(dict(gates_reading(), version=2)): "not version 1",
+            json.dumps(dict(gates_reading(), version=3)): "not a version this reader takes",
+            json.dumps(dict(gates_reading(), version=True)): "not a version this reader takes",
             json.dumps(dict(gates_reading(), as_of="yesterday")): "no as_of",
             json.dumps(dict(gates_reading(), as_of="2026-09-22T16:58:00")): "no as_of",
             json.dumps(gates_reading(busy=-1)): "out of shape",
