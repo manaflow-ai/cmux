@@ -24891,6 +24891,137 @@
         }
       }
     },
+    "macScreen.hub.notSharedBodyLinux": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يشارك %@ شاشته. لمشاركتها، شغّل cmux-rd linux-host share on هناك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ne dijeli svoj ekran. Da biste ga dijelili, tamo pokrenite cmux-rd linux-host share on."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ deler ikke sin skærm. Kør cmux-rd linux-host share on der for at dele den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ teilt seinen Bildschirm nicht. Führe dort cmux-rd linux-host share on aus, um ihn zu teilen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ does not share its screen. To share it, run cmux-rd linux-host share on there."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no comparte su pantalla. Para compartirla, ejecuta cmux-rd linux-host share on en ese equipo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ne partage pas son écran. Pour le partager, exécutez cmux-rd linux-host share on sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non condivide il suo schermo. Per condividerlo, esegui cmux-rd linux-host share on su quella macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は画面を共有していません。共有するには、そのマシンで cmux-rd linux-host share on を実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ មិនចែករំលែកអេក្រង់របស់វាទេ។ ដើម្បីចែករំលែក សូមដំណើរការ cmux-rd linux-host share on នៅទីនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 화면을 공유하지 않습니다. 공유하려면 해당 컴퓨터에서 cmux-rd linux-host share on을 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ deler ikke skjermen sin. Kjør cmux-rd linux-host share on der for å dele den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nie udostępnia swojego ekranu. Aby go udostępnić, uruchom tam cmux-rd linux-host share on."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não compartilha a tela. Para compartilhar, execute cmux-rd linux-host share on nessa máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не предоставляет доступ к экрану. Чтобы открыть доступ, запустите там cmux-rd linux-host share on."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ไม่ได้แชร์หน้าจอ หากต้องการแชร์ ให้รัน cmux-rd linux-host share on ที่เครื่องนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ekranını paylaşmıyor. Paylaşmak için orada cmux-rd linux-host share on komutunu çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не надає доступ до екрана. Щоб надати доступ, запустіть там cmux-rd linux-host share on."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ không chia sẻ màn hình. Để chia sẻ, hãy chạy cmux-rd linux-host share on trên máy đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 未共享其屏幕。要共享，请在该机器上运行 cmux-rd linux-host share on。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 未分享其螢幕。若要分享，請在該電腦上執行 cmux-rd linux-host share on。"
+          }
+        }
+      }
+    },
     "macScreen.hub.notSharedBodyNamed": {
       "extractionState": "manual",
       "localizations": {
@@ -25280,6 +25411,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "在那部 Mac 上打開 cmux，並確定已登入。"
+          }
+        }
+      }
+    },
+    "macScreen.hub.offlineBodyLinux": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تأكد من أن جهاز Linux هذا يعمل وأن مضيف شاشة cmux عليه قيد التشغيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provjerite je li taj Linux računar uključen i radi li na njemu cmux host ekrana."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sørg for, at Linux-maskinen er tændt, og at dens cmux-skærmvært kører."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stelle sicher, dass dieser Linux-Rechner eingeschaltet ist und sein cmux-Bildschirmhost läuft."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make sure that Linux machine is on and its cmux screen host is running."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asegúrate de que ese equipo Linux esté encendido y de que su host de pantalla de cmux esté en ejecución."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifiez que cette machine Linux est allumée et que son hôte d’écran cmux est en cours d’exécution."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assicurati che quella macchina Linux sia accesa e che il suo host dello schermo cmux sia in esecuzione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その Linux マシンの電源が入っていて、cmux の画面ホストが実行中であることを確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមប្រាកដថាម៉ាស៊ីន Linux នោះបើក ហើយម៉ាស៊ីនបង្ហាញអេក្រង់ cmux របស់វាកំពុងដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 Linux 컴퓨터가 켜져 있고 cmux 화면 호스트가 실행 중인지 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sørg for at Linux-maskinen er på og at cmux-skjermverten kjører."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upewnij się, że ta maszyna z Linuksem jest włączona, a jej host ekranu cmux działa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifique se essa máquina Linux está ligada e se o host de tela do cmux está em execução."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убедитесь, что этот компьютер с Linux включён и на нём запущен хост экрана cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบว่าเครื่อง Linux นั้นเปิดอยู่และโฮสต์หน้าจอ cmux กำลังทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Linux makinesinin açık olduğundan ve cmux ekran ana bilgisayarının çalıştığından emin olun."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переконайтеся, що цей комп’ютер з Linux увімкнено і на ньому працює хост екрана cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy đảm bảo máy Linux đó đang bật và máy chủ màn hình cmux của nó đang chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请确保该 Linux 机器已开机，且其 cmux 屏幕主机正在运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請確認該 Linux 電腦已開機，且其 cmux 螢幕主機正在執行。"
           }
         }
       }
