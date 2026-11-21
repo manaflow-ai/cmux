@@ -281,10 +281,10 @@ impl Hub {
             if !was_web || t.device.as_deref() != device {
                 t.device = (!was_web).then(|| device.map(str::to_owned)).flatten();
             }
-            t.turn_id.clone()
+            (t.turn_id.clone(), t.device.clone())
         });
-        if let Some(turn_id) = raised {
-            session.floor.last_turn_web.store(true, Ordering::SeqCst);
+        if let Some((turn_id, device)) = raised {
+            session.floor.mark_last_turn(true, device);
             // Read back when a host is adopted (`hosts.rs`).
             self.append(
                 session,

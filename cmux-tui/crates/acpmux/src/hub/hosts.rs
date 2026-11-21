@@ -850,10 +850,7 @@ impl Hub {
     pub(super) fn recover_floor(session: &Session, work: &OpenWork) {
         session.floor.harness_grant.store(work.harness_grant, Ordering::SeqCst);
         session.floor.unsandboxed.store(work.unsandboxed, Ordering::SeqCst);
-        session
-            .floor
-            .last_turn_web
-            .store(work.last_control == Some(Control::Web), Ordering::SeqCst);
+        session.floor.mark_last_turn(work.last_control == Some(Control::Web), None);
         session.floor.cloud_mobile_turn.store(work.cloud_mobile_turn, Ordering::SeqCst);
         if let Some((_, turn_id, ..)) = &work.turn
             && work.floor_cancelled.as_ref() == Some(turn_id)
@@ -947,7 +944,7 @@ impl Hub {
                     if work.turn_trigger {
                         self.restore_trigger_background(session, &turn_id);
                     }
-                    session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+                    session.floor.mark_last_turn(control == Control::Web, None);
                     // A Web turn in flight in an agent the sandbox did not
                     // start does not go on (tools that do not ask).
                     if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {

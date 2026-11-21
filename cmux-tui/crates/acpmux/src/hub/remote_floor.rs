@@ -34,6 +34,14 @@ pub(crate) struct FloorState {
     /// The last turn was a Web turn: an agent request between turns is
     /// held to the floor.
     pub(super) last_turn_web: AtomicBool,
+    /// The paired device that drove the last Web turn (`TurnInfo::device`, set and narrowed
+    /// beside `last_turn_web`), read between turns: the owner's phone with Full access keeps the
+    /// chat's mode for its agent's background work too (a helper the turn started that runs on
+    /// after it), as it does inside the turn (`Hub::remote_floor_breach`). None for a Local turn,
+    /// a Web turn more than one client touched and a turn recovered after a restart. Leo,
+    /// 2026-11-21, after his phone's prompt to a bypass chat refused every helper's tool call:
+    /// "i did not mean to pause you. it must be a bug?"
+    pub(super) last_turn_device: StdMutex<Option<String>>,
     /// The active Web turn was started by the native Cloud mobile relay.
     /// Unlike an ordinary Web client, it may not use Codex's any-mode bridge.
     pub(super) cloud_mobile_turn: AtomicBool,
@@ -87,6 +95,21 @@ pub(crate) struct FloorState {
     pub(super) unsandboxed: AtomicBool,
 }
 
+impl FloorState {
+    /// Who drove the last turn: whether it was a Web turn and, for one, the one paired device
+    /// that sent every Web prompt and steer in it (`TurnInfo::device`). The device goes with the
+    /// mark, so a Local turn or another client's never leaves an earlier phone's behind.
+    pub(super) fn mark_last_turn(&self, web: bool, device: Option<String>) {
+        *self.last_turn_device.lock().unwrap_or_else(|e| e.into_inner()) = device.filter(|_| web);
+        self.last_turn_web.store(web, Ordering::SeqCst);
+    }
+
+    /// The device `mark_last_turn` kept (between turns).
+    pub(super) fn last_turn_device(&self) -> Option<String> {
+        self.last_turn_device.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
 impl Hub {
     /// Whether `session`'s current turn was started or steered by a remote
     /// device. A turn adopted after a restart keeps its recorded control.
@@ -102,7 +125,13 @@ impl Hub {
     /// current mode does not ask.
     pub(super) fn remote_floor_breach(&self, session: &Session) -> Option<&'static str> {
         let (turn, device) = session.turn().map(|t| (t.turn_id, t.device)).unzip();
-        let device = device.flatten();
+        // Between turns (an agent's background request, a helper the last turn started), the
+        // device that drove the last turn: without it the owner's phone's own turn left every
+        // later tool call of its helpers refused `remote.mode_not_asking` until a local turn.
+        let device = match turn {
+            Some(_) => device.flatten(),
+            None => session.floor.last_turn_device(),
+        };
         if turn.is_some()
             && *session.floor.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) == turn
         {
