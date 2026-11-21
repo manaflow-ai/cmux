@@ -10,6 +10,7 @@ import { text } from "../strings";
 import { AccountsSection } from "./AccountsSection";
 import { AgentHarnesses } from "./AgentHarnesses";
 import { AgentIntegrations } from "./AgentIntegrations";
+import { AgentCustomizationCard } from "./AgentCustomizationCard";
 import { AgentToolsCard } from "./AgentToolsCard";
 import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { ChannelsCard } from "./ChannelsCard";
@@ -27,6 +28,7 @@ import { ImportSuggestionsCard } from "./ImportSuggestionsCard";
 import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
 import { DENSITY_CARD_ROWS } from "../density";
 import { DensityCard } from "./DensityCard";
+import { TextSizeCard } from "./TextSizeCard";
 import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
 import { AppUpdateCard } from "./AppUpdateCard";
@@ -38,6 +40,7 @@ import { SharedLinksCard } from "./SharedLinksCard";
 import { CustomizeLibraryCard } from "./CustomizeLibraryCard";
 import { KeysCard } from "./KeysCard";
 import { McpServersCard } from "./McpServersCard";
+import { AgentSkillsCard } from "./AgentSkillsCard";
 import { TailnetCard } from "./TailnetCard";
 import { ModelsCard } from "./ModelsCard";
 import { SectionActions } from "./SectionActions";
@@ -70,7 +73,9 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   accounts: () => <AccountsSection />,
   agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
   agentIntegrations: (focus) => <AgentIntegrations focus={focus} />,
+  agentCustomization: () => <AgentCustomizationCard />,
   agentTools: () => <AgentToolsCard />,
+  agentSkills: () => <AgentSkillsCard />,
   chiefs: (focus) => <ChiefsCard focus={focus} />,
   advancedInfo: () => <AdvancedInfo />,
   advancedActions: () => <PlaceholderSection section="advanced" />,
@@ -79,6 +84,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   devices: () => <DevicesCard />,
   chiefPet: (focus) => <ChiefPetCard focus={focus} />,
   density: (focus) => <DensityCard focus={focus} />,
+  textSize: () => <TextSizeCard />,
   importSuggestions: () => <ImportSuggestionsCard />,
   channels: (focus) => <ChannelsCard focus={focus} />,
   appUpdate: () => <AppUpdateCard />,
