@@ -4,8 +4,8 @@
 // - classic: `clientReadOnlyMetadata.cmuxVmPlan`, the manual override that
 //   `resolveProPlanStatus` and Cloud VM entitlements already honor and that
 //   Stripe reconciliation never touches;
-// - cmux NEXT: `clientReadOnlyMetadata.cmuxNextVmPlan` (`next_pro` or
-//   `next_max`), which the classic app never reads.
+// - cmux NEXT: `clientReadOnlyMetadata.cmuxNextVmPlan` (`next_plus`,
+//   `next_pro` or `next_max`), which the classic app never reads.
 // A write to one slot never changes the other. Grants made before the NEXT
 // slot existed hold the NEXT id in `cmuxVmPlan`; they read as the NEXT grant
 // and move to `cmuxNextVmPlan` in the next admin write to either slot.
@@ -51,6 +51,7 @@ import {
   NEXT_GRANT_METADATA_KEY,
   NEXT_MAX_PLAN_ID,
   NEXT_PLAN_IDS,
+  NEXT_PLUS_PLAN_ID,
   NEXT_PRO_PLAN_ID,
   isNextPlanId,
   nextGrantPlanIdFromMetadata,
@@ -58,12 +59,13 @@ import {
   type NextPlanId,
 } from "../billing/nextPlans";
 
-// `next_pro` / `next_max` grant a cmux NEXT Cloud plan (see
+// `next_plus` / `next_pro` / `next_max` grant a cmux NEXT Cloud plan (see
 // services/billing/nextPlans.ts); the classic app reads them as no plan.
 export const ADMIN_GRANTABLE_PLAN_IDS = [
   PRO_PLAN_ID,
   MAX_PLAN_ID,
   FOUNDERS_PLAN_ID,
+  NEXT_PLUS_PLAN_ID,
   NEXT_PRO_PLAN_ID,
   NEXT_MAX_PLAN_ID,
 ] as const;
