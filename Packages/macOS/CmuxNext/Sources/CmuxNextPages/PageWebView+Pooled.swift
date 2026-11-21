@@ -76,14 +76,8 @@ extension PageWebView {
     }
 
     /// Starts the served bundle document after the pooled view has been parked.
-    func startLoading(_ variant: PageSpareVariant = .painted) {
+    func startLoading() {
         guard !loaded, webView.url == nil else { return }
-        // A blank spare runs its WebContent process on an empty document; the claim loads the page
-        // (another URL, so retarget loads it instead of claiming the document).
-        if variant == .blank {
-            webView.loadHTMLString("<!doctype html>", baseURL: nil)
-            return
-        }
         webView.load(URLRequest(url: descriptor.url()))
     }
 
