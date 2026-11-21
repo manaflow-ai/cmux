@@ -22,10 +22,16 @@ extension MessagesLabHomeView {
             guard let window = controller.host.window, let hit = controller.demo?.lastTextRow(mine: args["mine"] == "1") else { return ["ok": "0", "error": "no text bubble"] }
             let point = controller.host.convert(CGPoint(x: hit.body.midX, y: hit.body.midY), to: nil)
             let num = { (k: String, d: Double) in args[k].flatMap(Double.init) ?? d }
+            let hostPoint = CGPoint(x: hit.body.midX, y: hit.body.midY)
+            let (swipe, scroll) = (controller.swipe, controller.host.scrollView)
             let player = TrackpadSwipePlayer(point: point, dx: num("dx", 160), dy: num("dy", 0), duration: num("duration", 0.35),
-                                             hold: num("hold", 0), window: window)
+                                             hold: num("hold", 0), window: window) { [weak window] e in
+                if let window, e.window === window { NSApp.sendEvent(e); return "app" }
+                if let left = swipe.monitored(e, at: hostPoint) { scroll.scrollWheel(with: left) }
+                return "monitor"
+            }
             player.play(on: controller.host)
-            return ["ok": "1", "x": "\(point.x)", "y": "\(point.y)", "seconds": "\(player.length)"]
+            return ["ok": "1", "x": "\(point.x)", "y": "\(point.y)", "seconds": "\(player.length)", "route": player.route]
         case "header":
             return ["open": controller.demo?.threadOpen == true ? "1" : "", "header": controller.demo?.threadHeaderFrame == nil ? "" : "1"]
         case "thread_rows":
