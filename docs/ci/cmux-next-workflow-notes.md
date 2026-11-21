@@ -3093,7 +3093,7 @@ Above `checks: timeout-minutes` in `.github/workflows/cmux-next.yml`.
 pay the runner hook's admission wait, and its slow checks run about three times as long beside
 the mini's other jobs. #42624, a data-only devbox image promotion, was placed on a mini on all
 three of its heads and every run was cancelled by the timeout, never passing or failing, so
-merge_hold had no verdict to read: job 131984422217 (run 43454315926) and job 132002973791 (run
+land-judge had no verdict to read: job 131984422217 (run 43454315926) and job 132002973791 (run
 43459662812) were admitted at once and were still in their script tests at 15 minutes
 (test_cmux_next_prepush_gate.py 693 and 720 s, 238 s on Blacksmith); job 132013731059 (run
 43462746656) waited 8 min 5 s in the hook for the canonical root token (the hook costs `checks`
@@ -3614,10 +3614,10 @@ compile, which runs when app-compile-fleet gives no verdict, is in CASCADE_RUNS 
 Above `PR_HEAD_SHA` in the `Classify pull request paths` step's env and above the
 `cmux_next_base_merge_carry.py` call in its run, in `.github/workflows/cmux-next.yml`.
 
-The base-merge carry. merge_hold asks a pull request whose fast-gates green went stale to merge
+The base-merge carry. land-judge asks a pull request whose fast-gates green went stale to merge
 feat-cmux-next in (update-branch), and only after every check at the older head H finished and passed; it
 then lands the base merge M on its merged-tree checks alone (cmux-next/fast-gates on Linux,
-cmux-next/compile on the build fleet, the web compile) and carries the rest from H (merge_hold
+cmux-next/compile on the build fleet, the web compile) and carries the rest from H (land-judge
 merged_tree_hold). This workflow still ran every Mac tier again at M. On 2026-11-16 at 05:44Z, with
 macos-pool-load at 134 queued on glaeda-std-xcode-26.6 and 126 on glaeda-side-std-xcode-26.6 (oldest 187
 min), 18 of the 60 open cmux-next pull request runs were on base-merge heads and 13 more same-tree dispatches

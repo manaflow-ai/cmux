@@ -159,6 +159,40 @@ fn a_bad_query_is_refused() {
     assert_eq!(q.limit, MAX_LIMIT);
 }
 
+#[test]
+fn history_search_uses_the_opening_turn_time_and_skips_tool_text() {
+    let mut steer = prompt(3, "marker steer");
+    steer.msg["steer"] = json!(true);
+    let store = store(&[
+        prompt(1, "marker prompt"),
+        tool(2, "marker tool"),
+        steer,
+        chunk(4, "reply", "marker\nreply"),
+        prompt(5, "next marker"),
+    ]);
+    let query = Query::from_params(&json!({"query": "marker"})).unwrap();
+    let result = json!(search_messages(&store, "c", &query, TextView::Conversation).unwrap());
+    let hits = result["hits"].as_array().unwrap();
+    assert_eq!(seqs(hits), [5, 4, 3, 1]);
+    assert_eq!(hits[0]["turnTime"], "1970-01-01T00:00:05.000Z");
+    assert_eq!(hits[1]["turnTime"], "1970-01-01T00:00:01.000Z");
+    assert_eq!(hits[1]["snippet"], "marker reply");
+    assert_eq!(hits[2]["turnTime"], hits[1]["turnTime"]);
+}
+
+#[test]
+fn history_search_masks_the_peer_message_before_matching_or_cutting_it() {
+    let token = format!("gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234");
+    let store = store(&[prompt(1, &format!("check {token} before the deadline"))]);
+    let query = Query::from_params(&json!({"query": "deadline"})).unwrap();
+    let result = search_messages(&store, "c", &query, TextView::PeerConversation).unwrap();
+    assert!(result.hits[0].snippet.contains("[GitHub Personal Access Token]"));
+    let query = Query::from_params(&json!({"query": &token})).unwrap();
+    assert!(
+        search_messages(&store, "c", &query, TextView::PeerConversation).unwrap().hits.is_empty()
+    );
+}
+
 /// One message keeps at most [`MAX_TEXT`] bytes, cut at a character boundary.
 #[test]
 fn a_huge_message_is_capped_at_a_character_boundary() {

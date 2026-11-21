@@ -75,9 +75,9 @@ Back on your Mac, use an SSH alias that reaches your own remote account:
 ```sh
 ssh my-linux
 # After leaving the remote shell:
-acpmux machine add my-linux ssh://my-linux
-acpmux machine ls
-acpmux machine doctor my-linux --json
+cmux agent machine add my-linux ssh://my-linux
+cmux agent machine ls
+cmux agent machine doctor my-linux --json
 ```
 
 Run the SSH probe before adding a host. If the first connection is offline,
@@ -85,12 +85,12 @@ Run the SSH probe before adding a host. If the first connection is offline,
 SSH probe and doctor commands to run next. With `--json`, the response includes
 `warning: {"reason":"peer_unreachable","try":"ssh -o BatchMode=yes HOST true",
 "detail":"the peer was saved and will keep reconnecting"}`. WebSocket URLs
-use `acpmux machine ls` as the next command. Saving failures remain errors:
+use `cmux agent machine ls` as the next command. Saving failures remain errors:
 
 ```sh
 ssh -o BatchMode=yes my-linux true
-acpmux machine add my-linux ssh://my-linux:47921
-acpmux machine doctor my-linux --json
+cmux agent machine add my-linux ssh://my-linux:47921
+cmux agent machine doctor my-linux --json
 ```
 
 When testing a second home, clear inherited daemon variables. `ACPMUX_SOCKET`
@@ -114,10 +114,10 @@ its daemon token. Peering grants access to session contents and tools, so add
 only hosts and accounts you trust.
 
 Run `host doctor` from your Mac against the SSH alias; on the host itself, use
-`acpmux daemon status` and `acpmux daemon harnesses`. `host doctor` without
+`cmux agent daemon status` and `cmux agent daemon harnesses`. `host doctor` without
 `--harness` skips harness checks; a healthy peer does not prove that an agent
 can run. Its `--harness ID` option is described below. Verify the remote
-harness with `acpmux daemon harnesses` on that host and a real session prompt.
+harness with `cmux agent daemon harnesses` on that host and a real session prompt.
 
 `machine enroll` and `machine setup` install the invoking binary. Use them only for a
 compatible remote OS and architecture. For a Linux host reached from a Mac, use
@@ -126,7 +126,7 @@ refuses a peer of another OS or architecture unless you pass `--binary-dir DIR`
 with a build named `acpmux-<target>` there (for example
 `acpmux-x86_64-unknown-linux-musl`); otherwise update that host by rebuilding
 it there. Same-target peers can use the plain
-`acpmux machine update NAME`.
+`cmux agent machine update NAME`.
 
 ## Work with a remote session
 
@@ -144,8 +144,8 @@ how the chat reaches the host:
 
 - A session reached through your Mac's peer daemon (`cmux agent new --machine`,
   `cmux agent open-tab --host`, or `--group` with `--machine`) takes a one-time
-  Allow from the card once the host has enrolled this Mac: `acpmux machine enroll
-  NAME` (or `acpmux machine approvals enroll NAME`) adds the app's public key to
+  Allow from the card once the host has enrolled this Mac: `cmux agent machine enroll
+  NAME` (or `cmux agent machine approvals enroll NAME`) adds the app's public key to
   the host's `~/.acpmux/mac-approvers.json` over your ssh. The app signs each
   Allow on the Mac with a key that never leaves it (the Secure Enclave in a
   signed build; a signed build on a Mac without one cannot allow from the card)
@@ -161,8 +161,8 @@ how the chat reaches the host:
   same command, over your ssh) and then sends that answer, with the card waiting
   and the notice saying "Enrolling this Mac on NAME" meanwhile. Only when the
   enroll fails does the notice say why, with an Enroll this Mac button that runs
-  the same command; choose Allow once again after it. `acpmux machine approvals
-  unenroll NAME` from the Mac, or `acpmux machine approvals rm ID` on the host,
+  the same command; choose Allow once again after it. `cmux agent machine approvals
+  unenroll NAME` from the Mac, or `cmux agent machine approvals rm ID` on the host,
   stops this Mac's Allows there at once. A DEV build without a Team ID makes a
   new key each launch, so enroll again after a relaunch.
 - For tool approvals, connect the host in cmux NEXT with **File › Connect to
@@ -195,21 +195,22 @@ cmux agent new --machine my-linux -m codex --name api-work --cwd /home/me/projec
 cmux agent ls
 cmux agent session info my-linux/api-work
 cmux agent send my-linux/api-work "Summarize this project's structure."
-cmux agent open my-linux/api-work
+cmux agent search "project's structure"
+cmux agent attach my-linux/api-work
 ```
 
 `host doctor --harness ID` checks a client profile that can be copied to the
 host. If the remote daemon already discovers `ID` on its PATH, the check reports
 that discovery and skips profile copying. Verify actual readiness with
-`acpmux daemon harnesses`, then create and prompt a real remote session:
+`cmux agent daemon harnesses`, then create and prompt a real remote session:
 
 ```sh
-acpmux daemon harnesses
+cmux agent daemon harnesses
 cmux agent new --machine my-linux -m codex --name api-work --cwd /home/me/project -d
 cmux agent send my-linux/api-work "Reply with exactly CODEX_REMOTE_OK. Do not use tools."
 ```
 
-`acpmux harness doctor codex` speaks ACP directly. A Codex app-server that
+`cmux agent harness doctor codex` speaks ACP directly. A Codex app-server that
 answers `unknown variant session/new` is a protocol mismatch; it is not repaired
 by logging in. Use the bridge through a real `cmux agent new --machine` session.
 
@@ -227,7 +228,7 @@ dedicated agent VM (`vmHost`): the VM is the sandbox, so Claude runs there, and
 sessions your peer daemon starts with no policy run approve-all. A Cloud VM
 cmux created for you is one by default (its `/etc/cmux/vm-kind` reads `owner`);
 a team VM, a personal machine and an SSH-added machine never are. Turn it off
-or back on per machine with `acpmux machine dedicated [NAME] off|on` (no restart;
+or back on per machine with `cmux agent machine dedicated [NAME] off|on` (no restart;
 `on` is refused on a machine cmux did not create), or set `"vmHost": true` or
 `false` in that machine's `~/.acpmux/config.json`. A Mac ignores `vmHost`, and
 Web clients and sessions started with an explicit `--policy` keep their
@@ -378,7 +379,7 @@ event segments under `~/.acpmux/sessions`; an app or `ACPMUX_HOME` can select a
 different home. If you deliberately run an isolated standalone daemon from
 inside an agent session, unset the inherited `ACPMUX_SOCKET` before setting
 `ACPMUX_HOME`; otherwise commands can still target the enclosing session's
-daemon. Check `acpmux daemon status` for the actual socket and home before
+daemon. Check `cmux agent daemon status` for the actual socket and home before
 starting or stopping it. The checkout, harness login and native state must also remain
 available to resume execution.
 
@@ -399,11 +400,11 @@ not a complete copy of its transcript.
 
 | Symptom | Start here |
 | --- | --- |
-| Remote sessions unreachable | `acpmux machine ls`, then `acpmux machine doctor my-linux --json`; a peer-unreachable error says the prompt was not submitted and gives `acpmux machine ls` as the retry check. Resume a paused machine before expecting live agent traffic. |
-| Daemon missing | On its host, `acpmux daemon status`, then `acpmux daemon start` for a standalone daemon. For a service-managed daemon, inspect that service and its configured home/listener. |
+| Remote sessions unreachable | `cmux agent machine ls`, then `cmux agent machine doctor my-linux --json`; a peer-unreachable error says the prompt was not submitted and gives `cmux agent machine ls` as the retry check. Resume a paused machine before expecting live agent traffic. |
+| Daemon missing | On its host, `cmux agent daemon status`, then `cmux agent daemon start` for a standalone daemon. For a service-managed daemon, inspect that service and its configured home/listener. |
 | Another service owns the socket | Use the CLI from the running app and record its socket/holder error. Do not delete a live socket or terminate an unknown process. |
-| Harness fails to start | `acpmux daemon harnesses`; verify that host's harness installation/login. `acpmux harness doctor codex` performs a handshake and a real prompt, which can consume usage. |
-| `remote chain refused: bwrap unavailable` on a Linux machine | Sessions started there from another machine run only inside the bubblewrap sandbox. `acpmux machine doctor my-linux` warns at the daemon step; `--fix` installs `bubblewrap` when sudo needs no password, else run `sudo apt-get install -y bubblewrap` there. The sandbox lets Claude reach its own `ANTHROPIC_BASE_URL` port on another host (a tailnet router such as `:4016`), plus 80 and 443. |
+| Harness fails to start | `cmux agent daemon harnesses`; verify that host's harness installation/login. `cmux agent harness doctor codex` performs a handshake and a real prompt, which can consume usage. |
+| `remote chain refused: bwrap unavailable` on a Linux machine | Sessions started there from another machine run only inside the bubblewrap sandbox. `cmux agent machine doctor my-linux` warns at the daemon step; `--fix` installs `bubblewrap` when sudo needs no password, else run `sudo apt-get install -y bubblewrap` there. The sandbox lets Claude reach its own `ANTHROPIC_BASE_URL` port on another host (a tailnet router such as `:4016`), plus 80 and 443. |
 | Stuck or stale chat | `cmux agent session info my-linux/api-work` and `cmux agent session tail my-linux/api-work`. Restore connectivity before interpreting stale state; cancel/stop only the intended session. |
 | Cloud action unavailable | Inspect `cmux action describe cloudPauseMachine --json`, account/team access and the explicit machine target. A command being listed does not mean its current context is eligible. |
 
@@ -411,4 +412,4 @@ Enroll preserves an existing peer URL and listener port. If the remote daemon
 already listens on a non-default port, pass that URL to `machine add` or let
 `machine enroll` find the saved peer; it will not restart the daemon on 47811 or
 change its listener. A restart can briefly show `reconnecting`; check
-`acpmux machine ls`, then re-add the same `ssh://HOST:PORT` URL if needed.
+`cmux agent machine ls`, then re-add the same `ssh://HOST:PORT` URL if needed.
