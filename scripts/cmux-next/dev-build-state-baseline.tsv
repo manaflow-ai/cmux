@@ -70,7 +70,6 @@ cmux-tui/crates/acpmux/src/agent_login.rs	3	a Cloud or SSH machine's file (writt
 cmux-tui/crates/acpmux/src/claude_cloud_auth.rs	1	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 cmux-tui/crates/acpmux/src/codex_auth_file.rs	1	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 cmux-tui/crates/acpmux/src/codex_cloud_auth.rs	4	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
-cmux-tui/crates/acpmux/src/joined_model_plane.rs	2	test fixtures under a temporary machine root: the agent-auth choice file `cr use` writes on the joined machine acpmux runs on, never this Mac's build state
 cmux-tui/crates/acpmux/src/hand/policy.rs	1	a protected-path list (agents may not write ~/.config/cmux), not a read
 cmux-tui/crates/acpmux/src/hub/route_switch.rs	1	text only (help, a description, an error message), no path is read
 cmux-tui/crates/acpmux/src/login_env.rs	7	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
