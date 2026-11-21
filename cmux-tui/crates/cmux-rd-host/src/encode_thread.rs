@@ -241,11 +241,19 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
 mod tests {
     use super::*;
     use cmux_rd_core::flow::Rect;
+    use cmux_rd_core::profile::EncodeProfile;
 
-    /// Records every bitrate it is given.
+    /// Records every bitrate and profile it is given.
     struct Recorder {
         kbps: u32,
         set: Vec<u32>,
+        profiles: Vec<(EncodeProfile, bool)>,
+    }
+
+    impl Recorder {
+        fn new(kbps: u32) -> Self {
+            Self { kbps, set: Vec::new(), profiles: Vec::new() }
+        }
     }
 
     impl FrameSource for Recorder {
@@ -259,6 +267,9 @@ mod tests {
         fn set_bitrate(&mut self, kbps: u32) {
             self.kbps = kbps;
             self.set.push(kbps);
+        }
+        fn set_profile(&mut self, profile: EncodeProfile, refine: bool) {
+            self.profiles.push((profile, refine));
         }
         fn kbps(&self) -> u32 {
             self.kbps
@@ -284,17 +295,31 @@ mod tests {
 
     #[test]
     fn the_frame_after_a_drop_encodes_at_half_the_rate() {
-        let mut source = Recorder { kbps: 8_000, set: Vec::new() };
+        let mut source = Recorder::new(8_000);
         let frame = encode_one(&mut source, &job(8_000, true)).expect("encode");
         assert_eq!(frame.kbps, 4_000, "the halve holds for this frame: {:?}", source.set);
         assert_eq!(source.set.last(), Some(&4_000));
         // A target already under half wins.
-        let mut source = Recorder { kbps: 8_000, set: Vec::new() };
+        let mut source = Recorder::new(8_000);
         encode_one(&mut source, &job(3_000, true)).expect("encode");
         assert_eq!(source.kbps, 3_000);
         // Without a drop the engine's target applies.
-        let mut source = Recorder { kbps: 8_000, set: Vec::new() };
+        let mut source = Recorder::new(8_000);
         encode_one(&mut source, &job(9_000, false)).expect("encode");
         assert_eq!(source.kbps, 9_000);
+    }
+
+    #[test]
+    fn each_frame_hands_its_profile_and_refine_to_the_source() {
+        let mut source = Recorder::new(8_000);
+        let mut ultra = job(8_000, false);
+        ultra.req.profile = EncodeProfile::Ultra;
+        ultra.req.refine = true;
+        encode_one(&mut source, &ultra).expect("encode");
+        encode_one(&mut source, &job(8_000, false)).expect("encode");
+        assert_eq!(
+            source.profiles,
+            vec![(EncodeProfile::Ultra, true), (EncodeProfile::Standard, false)]
+        );
     }
 }
