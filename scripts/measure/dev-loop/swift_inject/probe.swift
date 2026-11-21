@@ -20,7 +20,7 @@ func emit(_ samples: [Double]) { say("[" + samples.map { String(format: "%.3f", 
 func real(_ path: String) -> String { URL(fileURLWithPath: path).resolvingSymlinksInPath().path }
 
 /// An FSEvents stream on `dir`, file-level events, no latency, no deferral: the fastest a watcher can hear a save.
-final class Stream {
+final class FileEvents {
     let handler: ([String]) -> Void
     var stream: FSEventStreamRef?
     init(dir: String, queue: DispatchQueue, handler: @escaping ([String]) -> Void) {
@@ -28,7 +28,7 @@ final class Stream {
         var context = FSEventStreamContext(version: 0, info: nil, retain: nil, release: nil, copyDescription: nil)
         context.info = Unmanaged.passUnretained(self).toOpaque()
         let callback: FSEventStreamCallback = { _, info, count, paths, _, _ in
-            let me = Unmanaged<Stream>.fromOpaque(info!).takeUnretainedValue()
+            let me = Unmanaged<FileEvents>.fromOpaque(info!).takeUnretainedValue()
             let list = unsafeBitCast(paths, to: NSArray.self) as? [String] ?? []
             me.handler(Array(list.prefix(count)))
         }
@@ -40,6 +40,8 @@ final class Stream {
     }
 }
 
+/// What must outlive its last use (a stream's callback holds it unretained); a global lives until exit.
+var keep: [AnyObject] = []
 let args = Array(CommandLine.arguments.dropFirst())
 guard let verb = args.first else { FileHandle.standardError.write(Data("usage: probe VERB ...\n".utf8)); exit(64) }
 
@@ -50,7 +52,7 @@ case "watch":
     let command = Array(args[3...])
     var last = FileManager.default.contents(atPath: file)
     let queue = DispatchQueue(label: "watch")
-    let stream = Stream(dir: (file as NSString).deletingLastPathComponent, queue: queue) { paths in
+    let stream = FileEvents(dir: (file as NSString).deletingLastPathComponent, queue: queue) { paths in
         guard paths.contains(where: { real($0) == file }) else { return }
         let heard = now()
         let bytes = FileManager.default.contents(atPath: file)
@@ -68,7 +70,7 @@ case "watch":
             say("injected at=\(now()) status=127 error=\(error)")
         }
     }
-    _ = stream
+    keep.append(stream)
     say("watching \(file)")
     dispatchMain()
 
@@ -79,12 +81,12 @@ case "fsevents-floor":
     let heard = DispatchSemaphore(value: 0)
     var armed = false
     let lock = NSLock()
-    let stream = Stream(dir: dir, queue: DispatchQueue(label: "fs")) { paths in
+    let stream = FileEvents(dir: dir, queue: DispatchQueue(label: "fs")) { paths in
         guard paths.contains(where: { real($0) == file }) else { return }
         lock.lock(); defer { lock.unlock() }
         if armed { armed = false; heard.signal() }
     }
-    _ = stream
+    keep.append(stream)
     Thread.sleep(forTimeInterval: 0.5)  // the stream's setup events pass
     var samples: [Double] = []
     for i in 0..<n {
@@ -106,6 +108,7 @@ case "pickup-floor":
     let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: .write, queue: DispatchQueue(label: "pickup"))
     source.setEventHandler { heard.signal() }
     source.resume()
+    keep.append(source as AnyObject)
     var samples: [Double] = []
     for i in 0..<n {
         let staged = dir + "/../.pickup-\(i).tmp"
