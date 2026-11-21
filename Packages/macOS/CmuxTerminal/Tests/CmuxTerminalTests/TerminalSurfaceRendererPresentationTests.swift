@@ -65,6 +65,64 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(rendererRebuildCallCount() == 1)
     }
 
+    /// Verifies that a portal-owned surface waits for committed portal geometry before presenting its renderer.
+    @Test
+    /// Verifies that a portal-owned surface waits for committed portal geometry before presenting its renderer.
+    func portalOwnedSurfaceWaitsForCommittedGeometryBeforePresentingRenderer() throws {
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        surface.paneHost.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        surface.surfaceView.frame = surface.paneHost.bounds
+        (surface.surfaceView as? FakeTerminalSurfaceNativeView)?.paneGeometryIsPortalOwned = true
+        surface.clearPaneGeometry()
+        window.contentView?.addSubview(surface.paneHost)
+        surface.attachedView = surface.surfaceView
+
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        beginRendererRealizedTracking(runtimeSurface)
+        surface.setRendererPortalVisible(false, presentationReady: false)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        registerRendererCallbacksForTesting(on: surface, runtimeSurface: runtimeSurface)
+        surface.rendererRuntimeSurfaceDidCreate(presentationReady: false)
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+            resetRendererRealizedTracking()
+            window.contentView = nil
+            window.close()
+        }
+
+        // Revealing a portal-owned surface before the portal commits its
+        // settled layout geometry must not rebuild or probe against a stale
+        // placeholder frame.
+        surface.setRendererPortalVisible(true)
+        #expect(surface.isRendererPortalVisible)
+        #expect(!surface.isRendererPresented)
+        #expect(rendererRebuildCallCount() == 0)
+
+        let geometry = try #require(
+            TerminalPaneGeometry(
+                size: CGSize(width: 640, height: 480),
+                backingScale: 2.0,
+                phase: .settled
+            )
+        )
+        surface.commitPaneGeometry(geometry)
+        surface.rendererPresentationReadinessDidChange()
+        #expect(surface.renderHealth == .awaitingFrame)
+        #expect(rendererRebuildCallCount() == 1)
+        acknowledgePresentation(on: surface)
+        #expect(surface.isRendererPresented)
+    }
+
     @Test func firstPresentationWaitsUntilTheSurfaceIsAttachedToARealWindow() {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)
