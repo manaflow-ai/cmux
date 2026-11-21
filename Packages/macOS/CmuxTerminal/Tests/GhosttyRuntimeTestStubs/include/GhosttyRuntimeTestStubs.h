@@ -83,7 +83,6 @@ typedef struct {
 bool ghostty_surface_key(void *surface, cmux_test_ghostty_input_key_s key_event);
 void ghostty_surface_mouse_button(void);
 void ghostty_surface_mouse_pos(void);
-void ghostty_surface_mouse_scroll(void);
 bool ghostty_surface_needs_confirm_quit(void *surface);
 void ghostty_surface_new(void);
 bool ghostty_surface_process_exited(void *surface);
@@ -124,7 +123,6 @@ void ghostty_surface_set_occlusion(void *surface, bool visible);
 bool ghostty_surface_set_renderer_realized(void *surface, bool realized);
 bool ghostty_surface_rebuild_renderer(void *surface);
 void ghostty_surface_set_size(void);
-void ghostty_surface_size(void);
 void ghostty_surface_text(void);
 void ghostty_surface_text_input(void);
 void ghostty_surface_update_config(void *surface, void *config);
@@ -167,6 +165,24 @@ bool cmux_test_ghostty_surface_key_was_called(void);
 int cmux_test_ghostty_surface_key_mods(void);
 uint32_t cmux_test_ghostty_surface_key_unshifted_codepoint(void);
 const char* cmux_test_ghostty_surface_key_text(void);
+// Mirrors ghostty_surface_size_s so the stub can hand `ghostty_surface_size`
+// callers a configurable cell geometry.
+typedef struct {
+  uint16_t columns;
+  uint16_t rows;
+  uint32_t width_px;
+  uint32_t height_px;
+  uint32_t cell_width_px;
+  uint32_t cell_height_px;
+} cmux_test_ghostty_surface_size_s;
+cmux_test_ghostty_surface_size_s ghostty_surface_size(void *surface);
+void cmux_test_ghostty_surface_size_set(uint32_t cell_width_px, uint32_t cell_height_px);
+void ghostty_surface_mouse_scroll(void *surface, double x, double y, int mods);
+void cmux_test_ghostty_mouse_scroll_reset(void);
+uint32_t cmux_test_ghostty_mouse_scroll_call_count(void);
+double cmux_test_ghostty_mouse_scroll_last_x(void);
+double cmux_test_ghostty_mouse_scroll_last_y(void);
+int cmux_test_ghostty_mouse_scroll_last_mods(void);
 void cmux_test_ghostty_input_events_reset(void);
 uint32_t cmux_test_ghostty_input_event_count(void);
 int cmux_test_ghostty_input_event_kind(uint32_t index);
