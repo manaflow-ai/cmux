@@ -17,6 +17,7 @@ macro_rules! interfaces {
 interfaces! {
     "cmux.composer.command/1" => "cmux.composer.command",
     "cmux.composer.mention/1" => "cmux.composer.mention",
+    "cmux.composer.control/1" => "cmux.composer.control",
     "cmux.chat.widget/1" => "cmux.chat.widget",
     "cmux.contact.provider/1" => "cmux.contact.provider",
     "cmux.credential.provider/1" => "cmux.credential.provider",

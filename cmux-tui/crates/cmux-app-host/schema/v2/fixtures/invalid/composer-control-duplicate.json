@@ -1,0 +1,30 @@
+{
+  "manifestVersion": 2,
+  "id": "local/x",
+  "name": "X",
+  "version": "1.0.0",
+  "description": "d",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "implements": {
+    "cmux.composer.control/1": {
+      "options": {
+        "controls": [
+          {
+            "id": "x",
+            "kind": "button",
+            "label": "X",
+            "insert": "a"
+          },
+          {
+            "id": "x",
+            "kind": "button",
+            "label": "Y",
+            "insert": "b"
+          }
+        ]
+      }
+    }
+  }
+}
