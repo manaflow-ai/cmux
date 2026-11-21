@@ -123,3 +123,20 @@ test("the person's own /compact stays theirs, and its compaction names no reason
   expect(notes).toHaveLength(1);
   expect(notes[0]!.compaction?.reason).toBeUndefined();
 });
+
+// Leo, 2026-11-07: "i thought it'd do a thing where like... it compacted BEFORE you sent a prompt
+// automatically?" acpmux's /compact before the person's prompt is its own too, but the cache had
+// already lapsed: no bubble, and the note claims no cache expiry.
+test("acpmux's /compact before the person's prompt draws no bubble, and its note names no reason", async () => {
+  const rows = await drawn((s) => [
+    ...turn(s, 1, "/compact", { kind: "cache_compact", when: "before_prompt" }),
+    update(s, 3, { sessionUpdate: "compaction", state: "running" }),
+    update(s, 4, { sessionUpdate: "compaction", state: "completed", preTokens: 160_000, postTokens: 21_000 }),
+    mux(s, 5, "turn_result", { status: "completed", turnId: "t-1" }),
+  ]);
+  const prompts = rows.filter((row) => row.kind === "user" && row.incoming?.kind !== "hidden");
+  expect(prompts.map((row) => row.text)).toEqual([]);
+  const notes = rows.filter((row) => row.kind === "compaction");
+  expect(notes).toHaveLength(1);
+  expect(notes[0]!.compaction?.reason).toBeUndefined();
+});

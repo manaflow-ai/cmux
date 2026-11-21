@@ -12,3 +12,11 @@ export const CACHE_EXPIRY_REASON = "cache_expiry";
 export function isCacheCompaction(msg: { _meta?: { provenance?: unknown } } | undefined): boolean {
   return (msg?._meta?.provenance as { kind?: unknown } | undefined)?.kind === "cache_compact";
 }
+
+/// Whether the timer's prompt ran because the cache was about to lapse, so its compaction note says
+/// so. acpmux's compaction before the person's next prompt (`"when": "before_prompt"`, Leo,
+/// 2026-11-07: "it compacted BEFORE you sent a prompt automatically") is acpmux's too, so it draws
+/// no bubble, but the cache had already lapsed: its note is the plain one.
+export function isCacheExpiryCompaction(msg: { _meta?: { provenance?: unknown } } | undefined): boolean {
+  return isCacheCompaction(msg) && (msg?._meta?.provenance as { when?: unknown } | undefined)?.when !== "before_prompt";
+}
