@@ -19,6 +19,14 @@ const server = spawn("bun", ["run", "dev:pages", "--host", "127.0.0.1", "--stric
   stdio: ["ignore", "pipe", "pipe"],
 });
 let browser;
+function stopPreviewServer() {
+  if (!server.pid) return;
+  try {
+    process.kill(-server.pid, "SIGTERM");
+  } catch (error) {
+    if (error.code !== "ESRCH") throw error;
+  }
+}
 try {
   await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error("preview did not start in 60s")), 60000);
@@ -70,12 +78,6 @@ try {
   console.log("LIVE_FLOW_COMPLETE: default off → Labs mock → revoke one → other stays → empty");
 } finally {
   await browser?.close();
-  if (server.pid) {
-    try {
-      process.kill(-server.pid, "SIGTERM");
-    } catch (error) {
-      if (error.code !== "ESRCH") throw error;
-    }
-  }
+  stopPreviewServer();
 }
 console.log("LIVE_CAPTURE_CLEANUP_COMPLETE");
