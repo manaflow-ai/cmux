@@ -222,6 +222,7 @@ impl Command {
             Self::ConversationHistory(..) => "conversation-history",
             Self::ConversationThread(..) => "conversation-thread",
             Self::ConversationLinkResolve(..) => "conversation-link-resolve",
+            Self::ConversationQuestionDecision(..) => "conversation-question-decision",
             Self::ConversationInboxOp(..) => "conversation-inbox-op",
             Self::HomeInbox(..) => "home-inbox",
             Self::ConversationSearch(..) => "conversation-search",

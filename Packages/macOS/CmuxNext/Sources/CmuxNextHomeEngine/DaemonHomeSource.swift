@@ -232,6 +232,35 @@ public nonisolated final class DaemonHomeSource: HomeSource {
                               path: target.path.map { MessageID($0) })
     }
 
+    /// `conversation-question-decision`: the unsigned decision for answering a stored Chief
+    /// question with `answer` (its `question.answer` form), as canonical JSON text, for the native
+    /// signer (``ChiefApprovalDecider``). Refused with the daemon's `question.*` code.
+    public func questionDecision(conversation: String, message: String, partIndex: Int, answer: Data,
+                                 question: String? = nil) async throws -> String {
+        let value = try JSONDecoder().decode(JSONValue.self, from: answer)
+        let request = ConversationQuestionDecisionRequest(conversation: conversation, messageID: message, partIndex: partIndex, answer: value,
+                                                          question: try Self.displayed(question))
+        let reply = try await requireConnection().request(request)
+        return String(decoding: try JSONEncoder().encode(reply), as: UTF8.self)
+    }
+
+    /// The displayed question's JSON text as a request value; nil when none was captured.
+    static func displayed(_ text: String?) throws -> JSONValue? {
+        try text.map { try JSONDecoder().decode(JSONValue.self, from: Data($0.utf8)) }
+    }
+
+    /// `conversation-question-decision` with `native_record`: the stored tool-approval card,
+    /// `{question}`, unchanged, for the record ``ChiefApprovalDecider`` sends after it answered
+    /// acpmux natively. Refused with the daemon's `question.*` code.
+    public func approvalRecordQuestion(conversation: String, message: String, partIndex: Int, answer: Data,
+                                      question: String? = nil) async throws -> String {
+        let value = try JSONDecoder().decode(JSONValue.self, from: answer)
+        let request = ConversationQuestionDecisionRequest(conversation: conversation, messageID: message, partIndex: partIndex,
+                                                          answer: value, nativeRecord: true, question: try Self.displayed(question))
+        let reply = try await requireConnection().request(request)
+        return String(decoding: try JSONEncoder().encode(reply), as: UTF8.self)
+    }
+
     public func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         // Typing is never stored: the owner's typing frame, not an op.
         if case .setTyping(let conversation, let on) = intent.op {

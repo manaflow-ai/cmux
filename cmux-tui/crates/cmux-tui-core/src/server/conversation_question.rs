@@ -5,9 +5,11 @@
 #[cfg(unix)]
 use std::time::Duration;
 
-use cmux_conversation::{Question, QuestionAnswer};
+#[cfg(unix)]
+use cmux_conversation::QuestionHarness;
 #[cfg(any(unix, test))]
-use cmux_conversation::{QuestionHarness, QuestionState};
+use cmux_conversation::QuestionState;
+use cmux_conversation::{Question, QuestionAnswer};
 #[cfg(any(unix, test))]
 use serde::Deserialize;
 use serde_json::Value;
@@ -34,7 +36,10 @@ pub(super) use delivery::answer;
 #[derive(Deserialize)]
 struct Decision {
     question: Question,
-    request: Value,
+    /// The exact canonical text of the request the daemon returned and the app verified and
+    /// signed for: `digest` is the sha256 of these bytes. It is parsed only to compare the
+    /// question's items and harness, so no number passes through a lossy value on the way.
+    request_json: String,
     digest: String,
     instance: String,
     option_id: String,
@@ -55,21 +60,17 @@ fn refuse(reason: &str) -> anyhow::Error {
     Refusal(reason.to_owned()).into()
 }
 
-// Recursively sort keys, even in serde_json builds with preserve_order enabled.
-#[cfg(any(unix, test))]
-fn canonical(value: &Value) -> Value {
-    match value {
-        Value::Object(map) => {
-            let sorted: std::collections::BTreeMap<_, _> = map.iter().collect();
-            Value::Object(sorted.into_iter().map(|(k, v)| (k.clone(), canonical(v))).collect())
-        }
-        Value::Array(items) => Value::Array(items.iter().map(canonical).collect()),
-        _ => value.clone(),
-    }
-}
+// The request's canonical JSON (keys in UTF-8 byte order, as acpmux and the app write it), even in
+// serde_json builds with preserve_order enabled.
 #[cfg(any(unix, test))]
 fn digest(value: &Value) -> String {
-    format!("{:x}", Sha256::digest(canonical(value).to_string().as_bytes()))
+    let canonical = cmux_conversation::question_wire::canonical_json(value);
+    format!("{:x}", Sha256::digest(canonical.as_bytes()))
+}
+/// Lowercase hex sha256 of `text`'s bytes: the request digest of its canonical text.
+#[cfg(any(unix, test))]
+fn text_digest(text: &str) -> String {
+    format!("{:x}", Sha256::digest(text.as_bytes()))
 }
 #[cfg(any(unix, test))]
 fn hex64(value: &str) -> bool {
@@ -98,13 +99,14 @@ fn decode(question: &Question, value: Option<&Value>) -> anyhow::Result<Decision
         serde_json::from_value(value.clone()).map_err(|_| refuse("question.invalid_decision"))?;
     if question.state != QuestionState::Pending
         || decision.question != *question
-        || digest(&decision.request) != decision.digest
+        || text_digest(&decision.request_json) != decision.digest
     {
         return Err(refuse("question.stale"));
     }
+    let request: Value = serde_json::from_str(&decision.request_json)
+        .map_err(|_| refuse("question.invalid_decision"))?;
     // Match the stored content to the normalized request, not just a caller-provided hash.
-    let mut normalized = decision
-        .request
+    let mut normalized = request
         .pointer("/toolCall/_meta/acpmux/question")
         .cloned()
         .ok_or_else(|| refuse("question.not_question"))?;
@@ -196,34 +198,12 @@ fn deliver_with(
     Ok(())
 }
 
+/// The one encoder the app signs over (`decision_answers_proof`): a different byte here would make
+/// acpmux refuse every Home answer.
 #[cfg(any(unix, test))]
 fn encode_answers(question: &Question, answer: &QuestionAnswer) -> anyhow::Result<Value> {
-    let mut answers = serde_json::Map::new();
-    for item in &question.items {
-        let selection =
-            answer.selections.get(&item.id).ok_or_else(|| refuse("question.invalid_answer"))?;
-        let mut labels: Vec<_> = item
-            .options
-            .iter()
-            .filter(|o| selection.option_ids.contains(&o.id))
-            .map(|o| o.label.clone())
-            .collect();
-        if let Some(other) = &selection.other {
-            labels.push(other.trim().to_owned());
-        }
-        match question.harness {
-            QuestionHarness::Claude | QuestionHarness::Chief => {
-                if answers.insert(item.prompt.clone(), json!(labels.join(", "))).is_some() {
-                    return Err(refuse("question.ambiguous"));
-                }
-            }
-            QuestionHarness::Codex => {
-                answers.insert(item.id.clone(), json!({"answers":labels}));
-            }
-            QuestionHarness::Acp => return Err(refuse("question.unsupported_harness")),
-        }
-    }
-    Ok(Value::Object(answers))
+    cmux_conversation::question_wire::acpmux_answers(question, answer)
+        .map_err(|error| refuse(error.code()))
 }
 
 #[cfg(test)]

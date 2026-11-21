@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226. */
+/* cmux-tui mux protocol 12, IR 5ef5e3f7c49d7de863d18fc83f298f34a41b331815505a3533eda7703d49c6d7. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -316,6 +316,24 @@ export type ConversationParticipant = {
   "id": string;
   /** Known values: human, agent. Other values are future kinds. */
   "kind": string;
+};
+
+export type ConversationQuestionAnswer = {
+  "answered_at"?: (string) | null;
+  "respondent"?: (ConversationQuestionRespondent) | null;
+  "selections": Record<string, ConversationQuestionSelection>;
+};
+
+export type ConversationQuestionRespondent = {
+  "device"?: (string) | null;
+  "display_name": string;
+  "participant": string;
+  "remote"?: boolean;
+};
+
+export type ConversationQuestionSelection = {
+  "option_ids"?: Array<string>;
+  "other"?: (string) | null;
 };
 
 export type ConversationReaction = {

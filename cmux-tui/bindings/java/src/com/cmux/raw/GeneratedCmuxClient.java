@@ -433,6 +433,11 @@ public abstract class GeneratedCmuxClient {
         return ConversationOpResult.fromWire(result);
     }
 
+    public final Object conversationQuestionDecision(ConversationQuestionDecisionRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_QUESTION_DECISION, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final ConversationRunResult conversationRun(ConversationRunRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_RUN, request.toWire());
         return ConversationRunResult.fromWire(result);

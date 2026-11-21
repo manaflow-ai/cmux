@@ -326,6 +326,11 @@ impl ConversationStore {
         })
     }
 
+    /// One stored message by id, any conversation's (the caller checks which).
+    pub(crate) fn message(&mut self, id: &str) -> anyhow::Result<Option<Message>> {
+        load_message_by_id(&self.connection, id)
+    }
+
     /// Every conversation, newest `updated_at` first.
     pub(crate) fn list(&mut self) -> anyhow::Result<Vec<Summary>> {
         let transaction = self.connection.transaction()?;

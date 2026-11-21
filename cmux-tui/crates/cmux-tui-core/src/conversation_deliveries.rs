@@ -182,11 +182,22 @@ impl ConversationStore {
         op: &Op,
     ) -> anyhow::Result<Option<String>> {
         let Op::QuestionAnswer { message_id, part_index, .. } = op else { return Ok(None) };
+        self.message_chief_author(conversation, message_id, *part_index as usize)
+    }
+
+    /// [`Self::question_chief_author`] for the stored message and question part itself, before
+    /// any op exists (the decision read that Home signs for).
+    pub(crate) fn message_chief_author(
+        &self,
+        conversation: &str,
+        message_id: &str,
+        part_index: usize,
+    ) -> anyhow::Result<Option<String>> {
         let Some(message) = load_message_by_id(&self.connection, message_id)? else {
             return Ok(None);
         };
         if message.conversation != conversation
-            || !matches!(message.parts.get(*part_index as usize), Some(Part::Question(_)))
+            || !matches!(message.parts.get(part_index), Some(Part::Question(_)))
         {
             return Ok(None);
         }

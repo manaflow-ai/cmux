@@ -19,13 +19,26 @@ pub(super) fn decision(question: &Question) -> Value {
         "harness":"claude","items":[{"id":"q0","prompt":"Pick a color",
         "options":[{"id":"o0","label":"Blue"}],"multiSelect":false,"allowsOther":true}]
     }}}}});
-    json!({"question":question,"digest":digest(&request),"request":request,
+    json!({"question":question,"digest":digest(&request),"request_json":canonical(&request),
         "instance":"instance1","option_id":"allow","decision_nonce":"a".repeat(64),
         "person_decision":"b".repeat(64)})
 }
+/// The canonical text of `request`, as the envelope carries it.
+pub(super) fn canonical(request: &Value) -> String {
+    cmux_conversation::question_wire::canonical_json(request)
+}
+/// The request an envelope carries, parsed from its text.
+pub(super) fn request_of(decision: &Value) -> Value {
+    serde_json::from_str(decision["request_json"].as_str().unwrap()).unwrap()
+}
+/// Re-signs `decision` over `request` the way the app does: its text and that text's digest.
+pub(super) fn with_request(decision: &mut Value, request: &Value) {
+    decision["request_json"] = json!(canonical(request));
+    decision["digest"] = json!(digest(request));
+}
 pub(super) fn pending(decision: &Value) -> Value {
     json!({"pending":[{"permissionId":"permission1","personInstance":"instance1",
-        "decisionNonce":decision["decision_nonce"],"request":decision["request"]}]})
+        "decisionNonce":decision["decision_nonce"],"request":request_of(decision)}]})
 }
 
 #[test]
@@ -67,9 +80,10 @@ fn changed_question_and_recomputed_wrong_snapshot_are_refused() {
     let mut changed = q.clone();
     changed.items[0].prompt = "Pick a different color".into();
     assert_eq!(decode(&changed, Some(&d)).err().unwrap().to_string(), "question.stale");
-    d["request"]["toolCall"]["_meta"]["acpmux"]["question"]["items"][0]["prompt"] =
+    let mut request = request_of(&d);
+    request["toolCall"]["_meta"]["acpmux"]["question"]["items"][0]["prompt"] =
         json!("Another question");
-    d["digest"] = json!(digest(&d["request"]));
+    with_request(&mut d, &request);
     assert_eq!(decode(&q, Some(&d)).err().unwrap().to_string(), "question.stale");
 }
 
@@ -216,9 +230,41 @@ fn reservation_refuses_replacement_but_does_not_lock_other_messages() {
 fn original_request_context_has_no_extra_envelope_size_cap() {
     let q = question();
     let mut d = decision(&q);
-    d["request"]["context"] = json!("x".repeat(128 * 1024 + 1));
-    d["digest"] = json!(digest(&d["request"]));
+    let mut request = request_of(&d);
+    request["context"] = json!("x".repeat(128 * 1024 + 1));
+    with_request(&mut d, &request);
     assert!(decode(&q, Some(&d)).is_ok());
+}
+
+/// The envelope carries the request as text, so an integer past 2^53 (and past u64::MAX) reaches
+/// the digest check exactly as the app signed it; a request an app rounded fails the digest.
+#[test]
+fn request_text_keeps_wide_integers_exact_and_a_changed_digest_is_stale() {
+    let q = question();
+    let mut d = decision(&q);
+    let text = canonical(&request_of(&d));
+    for wide in ["9007199254740993", "18446744073709551615", "18446744073709551617"] {
+        let wide_text = text.replacen(
+            "\"options\":[{\"kind\"",
+            &format!("\"at\":{wide},\"options\":[{{\"kind\""),
+            1,
+        );
+        assert!(wide_text.contains(wide), "{wide}");
+        d["request_json"] = json!(wide_text);
+        d["digest"] = json!(text_digest(&wide_text));
+        assert!(decode(&q, Some(&d)).is_ok(), "{wide}");
+        // The same request with that integer rounded (what a JSON value would hold) is another text.
+        let rounded = wide_text.replace(wide, &format!("{:.0}", wide.parse::<f64>().unwrap()));
+        if rounded != wide_text {
+            d["request_json"] = json!(rounded);
+            assert_eq!(decode(&q, Some(&d)).err().unwrap().to_string(), "question.stale", "{wide}");
+        }
+    }
+    // The old object form is no envelope at all.
+    let mut old = decision(&q);
+    old["request"] = request_of(&old);
+    old.as_object_mut().unwrap().remove("request_json");
+    assert_eq!(decode(&q, Some(&old)).err().unwrap().to_string(), "question.invalid_decision");
 }
 
 #[cfg(not(unix))]
