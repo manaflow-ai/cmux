@@ -479,6 +479,29 @@ class PullRequestSkip(unittest.TestCase):
         self.assertEqual(self.check(folded), [])
         self.assertEqual(jobs.job_if("    if: >-\n      a\n      && b\n    runs-on: x\n"), "a && b")
 
+    def test_a_job_routed_by_its_outputs_runs_on_every_pull_request_and_is_named(self):
+        # cmux-tui-sdks.yml's conformance: its `if:` read the skipped contract job's routing, which is empty on a
+        # pull request, and a router that fails open ran it on every one. An `||` beside the event clause is no
+        # "never on a pull request".
+        routed = SKIP_WORKFLOW.replace(
+            "    if: ${{ !cancelled() }}\n",
+            "    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.heavy.outputs.run != 'false') }}\n")
+        problems = self.check(routed)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("job after is routed by heavy's outputs", problems[0])
+        self.assertEqual(self.check(routed, skipped=((".github/workflows/s.yml", "heavy"),
+                                                     (".github/workflows/s.yml", "after"))),
+                         [".github/workflows/s.yml: job after's `if:` does not carry " + SKIP_IF
+                          + ", so a pull request still runs it (scripts/ci/affected-jobs.json pull_request_skip)"])
+        guarded = routed.replace("${{ !cancelled() && (github.event_name", "${{ !cancelled() && " + SKIP_IF
+                                 + " && (github.event_name")
+        self.assertEqual(self.check(guarded, skipped=((".github/workflows/s.yml", "heavy"),
+                                                      (".github/workflows/s.yml", "after"))), [])
+        push_only = SKIP_WORKFLOW.replace(
+            "    if: ${{ !cancelled() }}\n",
+            "    if: ${{ github.event_name != 'pull_request' && needs.heavy.outputs.run != 'false' }}\n")
+        self.assertEqual(self.check(push_only), [])
+
     def test_the_lane_reader_counts_the_push_as_its_lane(self):
         # tests/test_pr_lane_coverage.py reads which jobs a pull request runs; a listed job's lane is the push.
         try:

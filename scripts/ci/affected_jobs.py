@@ -618,6 +618,9 @@ def post_merge_batch_paths(root: Path, workflow: str) -> list[str] | None:
     return None
 
 
+NEVER_ON_PULL_REQUEST = re.compile(r"(?<!\|\|\s)(?<!\|\|)\bgithub\.event_name != 'pull_request'(?!\s*\|\|)")
+
+
 def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[str, str]] = frozenset()) -> list[str]:
     """Each pull_request_skip job: its `if:` carries PR_SKIP_IF; its workflow is a post-merge batch suite (on every
     path its pull_request trigger starts on) or starts on a feat-cmux-next push, on every
@@ -673,11 +676,20 @@ def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[
                 continue
             other_if = job_if(other_block)
             # A job that never runs on a pull request loses nothing when the pull request skips what it needs.
-            if "github.event_name != 'pull_request'" in other_if:
+            # Only when that clause is a condition of its own: `(github.event_name != 'pull_request' || X)` runs on
+            # a pull request whenever X holds.
+            if NEVER_ON_PULL_REQUEST.search(other_if):
                 continue
             if not any(status in other_if for status in ("!cancelled()", "always()", "failure()")):
                 problems.append(f"{workflow}: job {other} needs {job_id}, which a pull request skips, and its `if:` "
                                 f"has no !cancelled(), always() or failure(), so it would be skipped too")
+            # Routed by the skipped job's outputs: on a pull request those are empty, and a router that fails open
+            # (`!= 'false'`, `result != 'success'`) then runs the job on every pull request. Seven-language live
+            # conformance read the protocol contract's routing this way and ran on every one, ~15 min each.
+            elif f"needs.{job_id}.outputs." in other_if:
+                problems.append(f"{workflow}: job {other} is routed by {job_id}'s outputs, which a pull request "
+                                f"skips, so it runs on every pull request; list it in {MAP} pull_request_skip too, "
+                                f"or route it from a job that runs")
     return problems
 
 

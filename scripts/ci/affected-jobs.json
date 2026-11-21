@@ -178,6 +178,7 @@
         "packages": "1 run on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 30 job-minutes",
         "consumers": "1 run on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 24 job-minutes",
         "rust-msrv": "1 run on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 14 job-minutes",
+        "conformance": "skipped with contract, which routes it, so it takes contract's replay (15 runs on 52 merged pull requests, 0 with a red of their own); the 7-day skip scorer (cmux#48480): 5,574 heads ran it, 3 (0.05%) where it alone caught the head's own red, 1.57% of pull request runner-minutes; with contract skipped it ran on 17 of 19 sampled pull request runs, a median 15 min each",
         "code-mode": "15 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 26 job-minutes"
       },
       ".github/workflows/swift-linux-packages.yml": {
