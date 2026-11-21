@@ -4,20 +4,70 @@ import AppKit
 import Testing
 
 /// Environment Secrets Playground in AppKit: the places it drew differently from its SwiftUI first version,
-/// checked on the drawn view (``EnvRenderedPage``).
+/// checked on the drawn view (``EnvRenderedPage``) or on its laid-out view tree (``EnvLaidOutPage``).
 @MainActor @Suite struct EnvSecretsAppKitParityTests {
-    /// Sentences, Terminal state: the whole page holds both terminal frames, every line in full (wrapped where
-    /// the 680-point column is too narrow), none cut off with an ellipsis.
+    /// Sentences, Terminal state: every terminal line is shown in full (wrapped where the 680-point column is
+    /// too narrow), none cut off with an ellipsis, and the terminal scrolls with the whole page, in the same
+    /// scroll view as the page's header.
     @Test func sentencesTerminalShowsEveryLineInFull() throws {
         let model = EnvSecretsPlaygroundModel()
         model.direction = .sentences
         model.scene = .cli
-        let page = try EnvRenderedPage(model, size: CGSize(width: 1180, height: 2400))
-        #expect(page.cutLines.isEmpty, "lines cut off: \(page.cutLines)")
-        // Line ends the text recognition reads reliably on the dark frames: the list's last column title,
-        // the last row's last word, and the last line's middle.
-        for tail in ["LAST USE", "never", "shown again"] {
-            #expect(page.text.contains(tail), "\"\(tail)\" is drawn")
+        let page = EnvLaidOutPage(model)
+        let lines = page.all(NSTextField.self).filter { $0.font?.isFixedPitch == true && !$0.stringValue.trimmingCharacters(in: .whitespaces).isEmpty }
+        #expect(lines.count > 10, "the two terminal frames draw their lines (\(lines.count) found)")
+        let cut = lines.filter { !page.showsInFull($0) }.map(\.stringValue)
+        #expect(cut.isEmpty, "terminal lines cut off: \(cut)")
+        let header = try #require(page.label(startingWith: "Values every chat in this environment"), "the page header is drawn")
+        let pageScroll = try #require(header.enclosingScrollView, "the page scrolls")
+        let own = lines.filter { $0.enclosingScrollView !== pageScroll }.map(\.stringValue)
+        #expect(own.isEmpty, "terminal lines in a scroll view of their own, not the page's: \(own)")
+    }
+
+    /// Ledger, Paste state: each row's type menu reads as a borderless menu, as in SwiftUI: the type's symbol
+    /// and short name in the text colour and a small chevron in the text colour, with no badge fill behind them.
+    @Test func ledgerTypeMenuIsALabelAndAChevronWithNoBadge() throws {
+        let model = EnvSecretsPlaygroundModel()
+        model.direction = .ledger
+        model.scene = .paste
+        let page = EnvLaidOutPage(model)
+        let shorts = Set(EnvSecretsKind.allCases.map(\.short))
+        let menus = page.all(EnvClickArea.self).filter { area in
+            guard let stack = area.subviews.first as? NSStackView, stack.arrangedSubviews.last is NSImageView else { return false }
+            return page.all(NSTextField.self, in: area).contains { shorts.contains($0.stringValue) }
+        }
+        #expect(menus.count >= 4, "the review rows draw their type menus (\(menus.count) found)")
+        for menu in menus {
+            let name = try #require(page.all(NSTextField.self, in: menu).first { shorts.contains($0.stringValue) })
+            let chevron = try #require((menu.subviews.first as? NSStackView)?.arrangedSubviews.last as? NSImageView)
+            #expect(name.textColor == EnvInk.text, "\"\(name.stringValue)\" is in the text colour, not \(String(describing: name.textColor))")
+            #expect(chevron.contentTintColor == EnvInk.text, "the chevron after \"\(name.stringValue)\" is in the text colour")
+            #expect(chevron.fittingSize.height < name.fittingSize.height, "the chevron is smaller than the name")
+            let fills = page.all(EnvBox.self, in: menu).filter { $0.fill != nil }
+            #expect(fills.isEmpty, "\"\(name.stringValue)\" sits on \(fills.count) badge fill(s)")
+        }
+    }
+
+    /// Inspector, Revoke state: the sheet casts two shadows, as the SwiftUI sheet did: a tight contact shadow
+    /// (blur 2, 1 point down, 10 %) and a soft drop (blur 18, 8 points down, 18 %), both the sheet's size.
+    @Test func inspectorRevokeSheetHasTheTwoLayerShadow() throws {
+        let model = EnvSecretsPlaygroundModel()
+        model.direction = .inspector
+        model.scene = .revoke
+        let page = EnvLaidOutPage(view: EnvInspectorDirection(model: model, reload: {}).make(), size: CGSize(width: 1180, height: 820))
+        let sheetTitle = try #require(page.label(startingWith: "Revoke STRIPE_SECRET_KEY now?"), "the sheet's title is drawn")
+        let shadowed = page.all(NSView.self).filter { $0.shadow != nil }
+        func layer(blur: CGFloat) -> NSView? { shadowed.first { abs(($0.shadow?.shadowBlurRadius ?? -1) - blur) < 0.01 } }
+        let contact = try #require(layer(blur: 2), "a contact shadow with blur 2; shadows found: \(shadowed.compactMap { $0.shadow?.shadowBlurRadius })")
+        let drop = try #require(layer(blur: 18), "a drop shadow with blur 18")
+        for (view, alpha, down) in [(contact, 0.10, 1.0), (drop, 0.18, 8.0)] {
+            let shadow = try #require(view.shadow)
+            let opacity = shadow.shadowColor?.usingColorSpace(.sRGB)?.alphaComponent ?? 0
+            #expect(abs(opacity - alpha) < 0.005, "blur \(shadow.shadowBlurRadius): opacity \(opacity), want \(alpha)")
+            #expect(shadow.shadowOffset == NSSize(width: 0, height: -down), "blur \(shadow.shadowBlurRadius): offset \(shadow.shadowOffset)")
+            let sheet = try #require(view.superview, "the shadow layer sits in the sheet's holder")
+            #expect(view.frame == sheet.bounds, "blur \(shadow.shadowBlurRadius): the layer is the sheet's size")
+            #expect(sheetTitle.isDescendant(of: sheet), "blur \(shadow.shadowBlurRadius): the layer is under the revoke sheet")
         }
     }
 

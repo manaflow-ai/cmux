@@ -85,7 +85,7 @@ pub fn check_log(log: &Path) -> Result<()> {
             log.display()
         )));
     }
-    Ok(())
+    super::check_no_acl_grants(log, "the service log")
 }
 
 /// Makes the service log folder 0700 and creates `server.log` in it, or
@@ -124,6 +124,9 @@ fn private_log(logs: &Path) -> Result<()> {
     }
     dir.set_permissions(std::fs::Permissions::from_mode(0o700))
         .map_err(|e| Error::io(logs.display(), e))?;
+    // The mode does not reach macOS ACL entries: drop any that allow
+    // another account to write here (crate::acl).
+    crate::acl::strip_write_grants(&dir).map_err(|e| Error::io(logs.display(), e))?;
     let log = logs.join("server.log");
     // SAFETY: a valid descriptor and a constant C string.
     let log_fd = unsafe {
@@ -150,6 +153,7 @@ fn private_log(logs: &Path) -> Result<()> {
     }
     file.set_permissions(std::fs::Permissions::from_mode(0o600))
         .map_err(|e| Error::io(log.display(), e))?;
+    crate::acl::strip_write_grants(&file).map_err(|e| Error::io(log.display(), e))?;
     Ok(())
 }
 

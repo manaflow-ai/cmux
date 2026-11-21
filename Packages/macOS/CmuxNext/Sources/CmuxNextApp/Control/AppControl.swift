@@ -213,9 +213,9 @@ final class AppControl {
                 return .value(DebugFocus.report(services: services))
             },
             // Home per window and the local conversation projection (home.md).
-            .mainActor("debug.home") { [weak services] _ in
+            .mainActor("debug.home") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugHome.report(services: services))
+                return .value(DebugHome.report(services: services, paths: call.params["paths"]?.boolValue == true))
             },
             // My pending and refused sends with the reason (no screenshot needed).
             .mainActor("debug.home.delivery") { [weak services] _ in
