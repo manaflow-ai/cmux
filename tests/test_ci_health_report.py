@@ -974,7 +974,7 @@ class WorkflowStructureTests(unittest.TestCase):
 
     def test_the_runner_is_the_persistent_linux_pool(self):
         self.assertIn(
-            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX == 'on' && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}",
+            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}",
             self.text
         )
 

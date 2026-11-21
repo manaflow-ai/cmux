@@ -3,8 +3,9 @@
 
 CI v2 overflow design (cmuxterm-hq#13993, docs/design/ci-v2.md "Overflow and failure"):
 Blacksmith is reached only through two repository variables, CI_OVERFLOW_LINUX and
-CI_OVERFLOW_MAC. The value 'on' means overflow is on; anything else, unset included,
-means off. A watchdog in cmuxterm-hq flips them. A runs-on that names a Blacksmith label
+CI_OVERFLOW_MAC. When overflow is on, the variable holds the overflow runner label; when off it
+is unset, so `vars.CI_OVERFLOW_LINUX || 'cmux-linux'` asks for our pool. A watchdog in
+cmuxterm-hq sets and deletes them. A runs-on that names a Blacksmith label
 without reading either variable bypasses the switch, so this ratchet counts those and
 lets the count fall, never rise. When you move a job behind the switch, lower BASELINE.
 
@@ -21,7 +22,7 @@ WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
 PROBE = "ci-cloud-overflow-probe.yml"
 RUNS_ON = re.compile(r"^\s*(?:-\s*)?runs-on:\s*(?P<expr>.+?)\s*$")
 SWITCH = re.compile(r"vars\.CI_OVERFLOW_(?:LINUX|MAC)\b")
-SWITCH_ON = re.compile(r"vars\.CI_OVERFLOW_(?:LINUX|MAC)\s*==\s*'on'")
+SWITCH_AS_LABEL = re.compile(r"vars\.CI_OVERFLOW_(?:LINUX|MAC)\s*\|\|")
 
 # Runs-on expressions naming a Blacksmith label without the switch, after this change.
 BASELINE = 231
@@ -59,7 +60,7 @@ class OverflowSwitchRoutes(unittest.TestCase):
             len(direct),
             BASELINE,
             f"{len(direct)} runs-on expressions name Blacksmith without CI_OVERFLOW_LINUX/CI_OVERFLOW_MAC "
-            f"(baseline {BASELINE}); read the switch instead: vars.CI_OVERFLOW_LINUX == 'on' && 'blacksmith-...' || '<ours>'",
+            f"(baseline {BASELINE}); read the switch instead: ... || vars.CI_OVERFLOW_LINUX || '<ours>'",
         )
 
     def test_our_linux_pool_has_the_overflow_clause(self):
@@ -73,15 +74,16 @@ class OverflowSwitchRoutes(unittest.TestCase):
             OURS_WITHOUT_OVERFLOW_BASELINE,
             f"{len(missing)} runs-on route to cmux-linux with no overflow clause (baseline "
             f"{OURS_WITHOUT_OVERFLOW_BASELINE}): end it with "
-            "|| vars.CI_OVERFLOW_LINUX == 'on' && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}: " + ", ".join(missing),
+            "|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}: " + ", ".join(missing),
         )
 
-    def test_switch_compares_with_on(self):
+    def test_switch_is_the_label_itself(self):
         for name, number, expr in runs_on_expressions():
             for match in SWITCH.finditer(expr):
                 self.assertTrue(
-                    SWITCH_ON.match(expr, match.start()),
-                    f"{name}:{number} reads {match.group(0)} without == 'on'; only 'on' turns overflow on",
+                    SWITCH_AS_LABEL.match(expr, match.start()),
+                    f"{name}:{number} reads {match.group(0)} other than as the label (`{match.group(0)} || ...`); "
+                    "the variable holds the overflow label when on and is unset when off",
                 )
 
 
