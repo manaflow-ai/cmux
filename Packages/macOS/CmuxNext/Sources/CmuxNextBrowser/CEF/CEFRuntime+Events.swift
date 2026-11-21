@@ -262,6 +262,7 @@ extension CEFRuntime {
             tab.automaticDownloads.userGesture()
             tab.pageUserInput?(ProcessInfo.processInfo.systemUptime)
         }
+        windowRequests.linkClicks.onPersonInput = { [weak self] browser in self?.tabsByBrowser[browser]?.allowWebAuthnForPerson() }
         windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
         tabsByBrowser[browser] = tab
         drawOnInput.addressChanged(browser: browser, url: tab.pendingURL ?? tab.loadAfterAttach ?? tab.state.url)
