@@ -54,9 +54,9 @@ permissions: {}
 jobs:
   coalesce:
     name: coalesce
-    # Only pushes to feat-cmux-next decide anything: a pull request (and a workflow_call from one) skips this job, so its
-    # outputs are empty and the caller's jobs run as before.
-    if: ${{ github.event_name == 'push' }}
+    # Only pushes to feat-cmux-next decide anything: a pull request (and a workflow_call from one), a dispatch and any
+    # other ref skip this job, so its outputs are empty and the caller's jobs run as before.
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     outputs:
@@ -65,7 +65,7 @@ jobs:
     env:
       KEY: ${{ inputs.key }}
       HOLD_MINUTES: ${{ inputs.hold_minutes }}
-      ON: ${{ github.ref == 'refs/heads/feat-cmux-next' && !inputs.off && '1' || '0' }}
+      ON: ${{ !inputs.off && '1' || '0' }}
     steps:
       - name: Name this push's window
         id: window
@@ -124,7 +124,7 @@ jobs:
           set -euo pipefail
           sha_re='^[0-9a-f]{40}$'
           if [ "$ON" != 1 ]; then
-            echo "not coalescing (ref $GITHUB_REF, or the off switch): the checks run on this push's own range"
+            echo "not coalescing (the off switch): the checks run on this push's own range"
             printf 'run=true\nbase=\nsave=false\n' >> "$GITHUB_OUTPUT"; exit 0
           fi
           if [ "$OWN_HIT" = true ]; then
