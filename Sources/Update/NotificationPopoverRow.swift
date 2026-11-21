@@ -1,15 +1,19 @@
 import CmuxFoundation
+import CmuxNotifications
 import SwiftUI
 
 struct NotificationPopoverRow: View, Equatable {
     // Closures excluded from ==; equality is the rendered snapshot only (#2586).
     nonisolated static func == (lhs: NotificationPopoverRow, rhs: NotificationPopoverRow) -> Bool {
         lhs.notification == rhs.notification && lhs.workspaceTitle == rhs.workspaceTitle
+            && lhs.workspaceColorHex == rhs.workspaceColorHex
             && lhs.shortcut == rhs.shortcut && lhs.showsShortcutHint == rhs.showsShortcutHint
     }
 
     let notification: TerminalNotification
     let workspaceTitle: String?
+    /// The color the notification's workspace shows in the sidebar, or nil when it has none.
+    var workspaceColorHex: String? = nil
     /// The shortcut that opens this row while the popover is up (e.g. "⌘3"), or nil for a row
     /// no digit reaches. VoiceOver reads it as the row's value.
     var shortcut: String? = nil
@@ -21,11 +25,36 @@ struct NotificationPopoverRow: View, Equatable {
 
     @State private var isHovering: Bool = false
     @Environment(\.cmuxAccentColor) private var cmuxAccent
+    @Environment(\.colorScheme) private var colorScheme
 
     private static let rowHeight: CGFloat = 56
 
     private var shortcutHint: String? { showsShortcutHint ? shortcut : nil }
     private var showsClearButton: Bool { isHovering && shortcutHint == nil }
+
+    private var workspaceColor: Color? {
+        workspaceColorHex
+            .flatMap { WorkspaceTabColorSettings.displayNSColor(hex: $0, colorScheme: colorScheme, forceBright: true) }
+            .map(Color.init(nsColor:))
+    }
+
+    private func rail(_ rail: NotificationRowMarks.Rail) -> some View {
+        Rectangle()
+            .fill(rail == .workspaceColor ? workspaceColor ?? .clear : .clear)
+            .frame(width: 2.5)
+            .padding(.vertical, 6)
+    }
+
+    /// The unread dot, centered on the headline's capitals. Read rows keep the space so every
+    /// row's text starts at the same x.
+    private func unreadDot(_ shows: Bool) -> some View {
+        Circle()
+            .fill(shows ? cmuxAccent.color : Color.clear)
+            .frame(width: 6, height: 6)
+            .alignmentGuide(.firstTextBaseline) { $0.height / 2 + 4.5 }
+            .padding(.horizontal, 5)
+            .accessibilityHidden(true)
+    }
 
     var body: some View {
         // Row uses a ZStack so the hover-only clear button is a *sibling* of the row's
@@ -111,67 +140,68 @@ struct NotificationPopoverRow: View, Equatable {
     }
 
     private var rowContent: some View {
-        HStack(spacing: 0) {
-            Rectangle()
-                .fill(notification.isRead ? Color.clear : cmuxAccent.color)
-                .frame(width: 2.5)
-                .padding(.vertical, 6)
+        let marks = NotificationRowMarks(hasWorkspaceColor: workspaceColor != nil, isRead: notification.isRead)
+        return HStack(spacing: 0) {
+            rail(marks.rail)
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                unreadDot(marks.showsUnreadDot)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        if let workspaceTitle, !workspaceTitle.isEmpty {
+                            Text(workspaceTitle)
+                                .cmuxFont(size: 12.5, weight: .semibold)
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                                .layoutPriority(1)
+                                .accessibilityIdentifier(
+                                    "NotificationPopoverRow.\(notification.id.uuidString).workspaceTitle"
+                                )
+                        } else {
+                            Text(notification.title)
+                                .cmuxFont(size: 12.5, weight: .semibold)
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                        Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
+                            .cmuxFont(size: 10.5)
+                            .foregroundColor(.secondary)
+                            // Room for the hover clear button, which the hint replaces.
+                            .padding(.trailing, shortcutHint == nil ? 34 : 0)
+                            .layoutPriority(2)
+                        // In the header, after the time, so it can never cover it.
+                        if let shortcutHint {
+                            ShortcutHintPill(text: shortcutHint, fontSize: 10, emphasis: 1.05)
+                                // The pill is taller than this line's text; lay it out at the text's
+                                // height so holding the modifier doesn't grow the row and jump the list.
+                                .padding(.vertical, -2)
+                                .padding(.trailing, 10)
+                                .shortcutHintTransition()
+                                // Decorative: a click on the hint must reach the row's Button underneath.
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                                .layoutPriority(3)
+                        }
+                    }
+
                     if let workspaceTitle, !workspaceTitle.isEmpty {
-                        Text(workspaceTitle)
-                            .cmuxFont(size: 12.5, weight: .semibold)
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-                            .layoutPriority(1)
-                            .accessibilityIdentifier(
-                                "NotificationPopoverRow.\(notification.id.uuidString).workspaceTitle"
-                            )
-                    } else {
                         Text(notification.title)
-                            .cmuxFont(size: 12.5, weight: .semibold)
-                            .foregroundColor(.primary)
+                            .cmuxFont(size: 10.5, weight: .medium)
+                            .foregroundColor(.secondary)
                             .lineLimit(1)
                     }
-                    Spacer(minLength: 0)
-                    Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
-                        .cmuxFont(size: 10.5)
-                        .foregroundColor(.secondary)
-                        // Room for the hover clear button, which the hint replaces.
-                        .padding(.trailing, shortcutHint == nil ? 34 : 0)
-                        .layoutPriority(2)
-                    // In the header, after the time, so it can never cover it.
-                    if let shortcutHint {
-                        ShortcutHintPill(text: shortcutHint, fontSize: 10, emphasis: 1.05)
-                            // The pill is taller than this line's text; lay it out at the text's
-                            // height so holding the modifier doesn't grow the row and jump the list.
-                            .padding(.vertical, -2)
-                            .padding(.trailing, 10)
-                            .shortcutHintTransition()
-                            // Decorative: a click on the hint must reach the row's Button underneath.
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                            .layoutPriority(3)
+
+                    if !notification.body.isEmpty {
+                        Text(notification.body)
+                            .cmuxFont(size: 11.5)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                }
-
-                if let workspaceTitle, !workspaceTitle.isEmpty {
-                    Text(notification.title)
-                        .cmuxFont(size: 10.5, weight: .medium)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-
-                if !notification.body.isEmpty {
-                    Text(notification.body)
-                        .cmuxFont(size: 11.5)
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(.leading, 10)
             .padding(.vertical, 8)
 
             Spacer(minLength: 0)
