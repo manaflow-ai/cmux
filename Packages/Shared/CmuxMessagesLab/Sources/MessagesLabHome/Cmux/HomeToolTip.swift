@@ -2,7 +2,7 @@
 import AppKit
 
 extension NSView {
-    /// cmux: the control's tooltip, through the host's ``MessagesLabHomeHost/toolTip``; nil or empty: none. Callable
+    /// cmux: the control's tooltip, through the host's ``MessagesLabHomeHost/showToolTip``; nil or empty: none. Callable
     /// from the transcript's nonisolated controllers (as `toolTip` was); off the main thread it sets nothing.
     func setHomeToolTip(_ text: String?) {
         HomeToolTipSeam(view: self).set(text)
@@ -10,13 +10,13 @@ extension NSView {
 }
 
 extension NSSegmentedControl {
-    /// cmux: `texts[i]` as segment `i`'s tooltip, through the host's ``MessagesLabHomeHost/toolTipRegions``. Each
+    /// cmux: `texts[i]` as segment `i`'s tooltip, through the host's ``MessagesLabHomeHost/showToolTipRegions``. Each
     /// region is its segment's width (`width(forSegment:)`; 0, AppKit's own size, counts as an even share), and the
     /// room the style leaves between segments (`.separated`'s gaps) is split between its neighbours, so the regions
     /// tile the control. Call it after the control's size changes.
     @MainActor func setHomeSegmentToolTips(_ texts: [String]) {
         let count = segmentCount
-        guard count > 0 else { return MessagesLabHomeView.host.toolTipRegions(self, []) }
+        guard count > 0 else { return MessagesLabHomeView.host.showToolTipRegions(self, []) }
         let set = (0..<count).map { width(forSegment: $0) }
         let even = bounds.width / CGFloat(count)
         let widths = set.contains(0) ? Array(repeating: even, count: count) : set
@@ -28,6 +28,6 @@ extension NSSegmentedControl {
             regions.append((rect: NSRect(x: x - lead, y: 0, width: width + lead + trail, height: bounds.height), text: text))
             x += width + gap
         }
-        MessagesLabHomeView.host.toolTipRegions(self, regions)
+        MessagesLabHomeView.host.showToolTipRegions(self, regions)
     }
 }

@@ -25,9 +25,9 @@ final class HomeReduceMotion {
         // The message box's dictation waveform follows the input level only while Home's loops run.
         MessagesLabHomeView.voiceMotionGate = { Motion.home.animatesLoops }
         // Home's controls show the app's one themed tooltip.
-        MessagesLabHomeView.host.toolTip = { view, text in view.themedToolTip = text }
-        MessagesLabHomeView.host.toolTipRegions = { view, regions in view.setThemedToolTipRegions(regions) }
-        CmuxSidebarView.host.toolTip = { view, text in view.themedToolTip = text }
+        MessagesLabHomeView.host.showToolTip = { view, text in view.themedToolTip = text }
+        MessagesLabHomeView.host.showToolTipRegions = { view, regions in view.setThemedToolTipRegions(regions) }
+        CmuxSidebarView.host.showToolTip = { view, text in view.themedToolTip = text }
         motion = Motion.changes.subscribe { change in
             switch change {
             case .reduceMotion: HomeReduceMotion.mirror()

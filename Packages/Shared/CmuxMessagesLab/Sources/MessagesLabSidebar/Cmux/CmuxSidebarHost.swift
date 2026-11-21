@@ -10,7 +10,7 @@ public struct CmuxSidebarHost {
 
     /// How a list control shows its tooltip (``AppKit/NSView/setSidebarToolTip(_:)``); nil text: none. cmux-next
     /// installs its one themed tooltip (`NSView.themedToolTip`; Lawrence 2026-11-20); the default is AppKit's.
-    public var toolTip: @MainActor (_ view: NSView, _ text: String?) -> Void = { view, text in
+    public var showToolTip: @MainActor (_ view: NSView, _ text: String?) -> Void = { view, text in
         view.toolTip = text // tooltip-native-allow: the package's fallback for a host without its own tooltip
     }
 
