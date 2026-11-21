@@ -30,10 +30,11 @@ public protocol DockMenuHost: AnyObject {
 /// each with More ▸ (Leo 2026-11-03, after Claude's and Codex's Dock menus).
 ///
 /// The menu never waits: `menu()` builds only from values this controller already holds. The
-/// chats are rebuilt off the main thread from a copy of the lane store and the Priority marks
-/// after they change, at most once a second while agents stream (the copy is a copy-on-write
-/// handle; the filter and sort run detached). The harnesses and machines are read at `start()`
-/// and again each time the menu opens, for the next open, never for this one.
+/// chats are rebuilt after the lanes or the Priority marks change, at most once a second while
+/// agents stream, from an order of the sessions kept one changed session at a time
+/// (`AgentLaneStore.changes(since:)`, `DockMenuChats.Order`): a step reads the changed sessions and
+/// the rows it shows, never every session, so it runs on the main actor. The harnesses and machines
+/// are read at `start()` and again each time the menu opens, for the next open, never for this one.
 @MainActor
 public final class DockMenuController: NSObject {
     private let lanes: AgentLaneStore
@@ -44,6 +45,9 @@ public final class DockMenuController: NSObject {
     public private(set) var chats = DockMenuChats.empty
     public private(set) var choices = DockMenuChoices.empty
     private var watch: Task<Void, Never>?
+    /// Every session newest first, as of `orderRevision` (nil: build it from the lanes).
+    private var order = DockMenuChats.Order()
+    private var orderRevision: UInt64?
     private var choicesRead: Task<Void, Never>?
     /// A row picked while no window was open: it runs once the window that opened for it mounts
     /// its first pane (`windowDidShowContent`, called by the App's pane mount), with the harness or
@@ -65,18 +69,29 @@ public final class DockMenuController: NSObject {
         let (lanes, marks, throttle) = (lanes, marks, throttle)
         // task-owner: this controller; cancelled by stop()
         watch = Task { [weak self] in
-            for await _ in ObservationStream({ _ = lanes.lanes; _ = marks.state }) {
-                let (copy, state) = (lanes.lanes, marks.state)
-                let made = await Task.detached(priority: WorkPriority.bestEffort.taskPriority) {
-                    DockMenuChats.make(lanes: copy.values, marks: state)
-                }.value
+            for await _ in ObservationStream({ _ = lanes.revision; _ = marks.state }) {
                 guard !Task.isCancelled, let self else { return }
-                if made != chats { chats = made }
+                refreshChats()
                 // wakeup-allow: one sleep per change burst while agents stream; the stream coalesces the changes meanwhile and nothing wakes when nothing changes
                 try? await Task.sleep(for: throttle)
             }
         }
         refreshChoices()
+    }
+
+    /// The rows rebuilt now from the lanes and marks, on this turn (what one step of the watch does;
+    /// the scale bench, `SidebarScaleWorkTests`, counts it).
+    func refreshChats() {
+        let revision = lanes.revision
+        let current = lanes.lanes
+        if let seen = orderRevision, let changed = lanes.changes(since: seen) {
+            for id in changed { order.update(id, current[id]) }
+        } else {
+            order = DockMenuChats.Order(current.values)
+        }
+        orderRevision = revision
+        let made = DockMenuChats.make(ordered: order, lanes: current, unread: lanes.unread, marks: marks.state)
+        if made != chats { chats = made }
     }
 
     public func stop() {

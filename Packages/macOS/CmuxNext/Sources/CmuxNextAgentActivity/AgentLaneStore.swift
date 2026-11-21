@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 public import Observation
 
@@ -25,7 +26,15 @@ public final class AgentLaneStore {
             return storage
         }
         set {
-            if storage != newValue { revision &+= 1 }
+            // The whole map: compared, then three sets built over every session (ScaleWork counts it).
+            ScaleWork.add(.rebuilds)
+            ScaleWork.add(.lanesWalked, max(storage.count, newValue.count) + 3 * newValue.count)
+            ScaleWork.add(.setsBuilt, 3)
+            if storage != newValue {
+                revision &+= 1
+                // Any session may have changed: a journal reader rebuilds.
+                (journal, journalStart) = ([], revision)
+            }
             withMutation(keyPath: \.lanes) { storage = newValue }
             waiting = Set(newValue.compactMap { $0.value.state == .input ? $0.key : nil })
             if waitingSessions != waiting { waitingSessions = waiting }
@@ -64,7 +73,11 @@ public final class AgentLaneStore {
         let ownedBefore = Self.chiefOwnership(storage[session])
         let nameBefore = storage[session]?.name
         let startBefore = storage[session]?.createdAt
-        if storage[session] != lane { revision &+= 1 }
+        if storage[session] != lane {
+            revision &+= 1
+            journal.append(session)
+            trimJournal()
+        }
         withMutation(keyPath: \.lanes) { storage[session] = lane }
         let wasWaiting = waiting.contains(session)
         if lane?.state == .input { waiting.insert(session) } else { waiting.remove(session) }
@@ -81,7 +94,28 @@ public final class AgentLaneStore {
         if lane?.name != nameBefore || lane?.createdAt != startBefore { syncNames() }
     }
 
+    /// The sessions changed after `seen` (a ``revision`` read before), so a reader that keeps its own model per
+    /// session (the remote machines' groups, the Dock menu) updates those alone. Nil when that is not known: a
+    /// whole write of ``lanes`` came since, or more single changes than the journal keeps. Then rebuild from
+    /// ``lanes``. Not observed: observe ``revision``.
+    public func changes(since seen: UInt64) -> Set<String>? {
+        guard seen >= journalStart, seen <= revision else { return nil }
+        return Set(journal[Int(seen - journalStart)...])
+    }
+
+    /// The most single changes ``changes(since:)`` can name; past it the older half goes.
+    static let journalLimit = 4096
+
+    private func trimJournal() {
+        guard journal.count > Self.journalLimit else { return }
+        let dropped = journal.count / 2
+        journal.removeFirst(dropped)
+        journalStart &+= UInt64(dropped)
+    }
+
     private func syncNames() {
+        ScaleWork.add(.lanesWalked, storage.count)
+        ScaleWork.add(.setsBuilt)
         let current = Set(storage.values.map(\.name))
         if names != current { names = current }
         let starts = Dictionary(storage.values.compactMap { lane in lane.createdAt.map { (lane.name, $0) } },
@@ -96,12 +130,18 @@ public final class AgentLaneStore {
     }
 
     private func syncChiefParticipants() {
+        ScaleWork.add(.lanesWalked, storage.count)
+        ScaleWork.add(.setsBuilt)
         let identities = Dictionary(storage.values.compactMap { lane -> (String, String)? in
             Self.chiefOwnership(lane).map { ($0[0], $0[1]) }
         }, uniquingKeysWith: { first, _ in first })
         if chiefParticipants != identities { chiefParticipants = identities }
     }
     @ObservationIgnored private var storage: [String: AgentActivityLane] = [:]
+    /// The session each single change since ``journalStart`` wrote (``set(_:_:)``): revision `journalStart + 1`
+    /// is `journal[0]`, so `journal.count == revision - journalStart`. A whole write of ``lanes`` empties it.
+    @ObservationIgnored private var journal: [String] = []
+    @ObservationIgnored private var journalStart: UInt64 = 0
     /// Counts the writes that changed a lane (``set(_:_:)``, ``lanes``' setter), observed: a reader that only needs to
     /// know that some lane changed (`agent_chat.changed`, AppProviderChangeFeed.agentChats) reads this one number
     /// instead of every lane. Reading ``lanes`` there mapped and compared every lane on the main thread at each agent
@@ -167,6 +207,7 @@ public final class AgentLaneStore {
     /// told (their readers re-read and get a fresh cell).
     private func syncCells() {
         guard !cells.isEmpty else { return }
+        ScaleWork.add(.lanesWalked, cells.count)
         var ended: [String] = []
         for (session, cell) in cells {
             let lane = storage[session]

@@ -57,6 +57,18 @@ public final class RemoteMachinesSidebar {
         public var resources: AcpmuxPeerList.Resources?
         /// The SF Symbol of its device kind, as it reported (nil: an older build; the cloud glyph).
         public var symbol: String?
+        /// How many of `chats` wait on the person and how many work, kept with `chats`, so the header's
+        /// indicator never scans them.
+        var waiting = 0
+        var working = 0
+
+        /// The header's indicator: waiting on you over working over idle.
+        var activity: StatusIndicatorState { waiting > 0 ? .waiting : working > 0 ? .working : .idle }
+
+        /// Counts `chat` in (`by` 1) or out (-1) of the indicator's numbers.
+        mutating func count(_ chat: Chat, by delta: Int) {
+            if chat.activity == .waiting { waiting += delta } else if chat.activity == .working { working += delta }
+        }
     }
 
     /// A machine's closed chats read so far (its Older row), newest first.
@@ -86,8 +98,31 @@ public final class RemoteMachinesSidebar {
         }
     }
 
-    /// The groups, by machine name. Written only when they change.
-    public internal(set) var machines: [Machine] = []
+    /// The groups, by machine name. Written only when they change. A lane's change updates its machine's
+    /// chats in place (``update(_:)``), so the map is never grouped or sorted again for one session.
+    public internal(set) var machines: [Machine] {
+        get {
+            access(keyPath: \.machines)
+            return model
+        }
+        set {
+            withMutation(keyPath: \.machines) { model = newValue }
+            reindex()
+        }
+    }
+    @ObservationIgnored private var model: [Machine] = []
+    /// Each machine's index in `model`, by peer.
+    @ObservationIgnored private var machineIndex: [String: Int] = [:]
+    /// The machine each shown chat is in, and its place key (``newer(_:_:)``: when it last changed state, then
+    /// its name), by session id.
+    @ObservationIgnored private var placed: [String: (peer: String, since: Date, name: String)] = [:]
+    /// What the groups were last built from: the lanes' revision (nil: rebuild them whole), the peer list and
+    /// whether the capture's sample machines stood in.
+    @ObservationIgnored private var builtRevision: UInt64?
+    @ObservationIgnored private var builtPeers: [AcpmuxPeerList.Peer]?
+    @ObservationIgnored private var builtFixture = false
+    /// ``update(_:)`` changed `model` and then gave up: the whole build that follows must announce itself.
+    @ObservationIgnored private var partMoved = false
     /// The unfolded machines (folded by default). This view state stays on this Mac.
     public var expanded: Set<String> = Set(UserDefaults.standard.stringArray(forKey: RemoteMachinesSidebar.expandedKey) ?? []) {
         didSet { UserDefaults.standard.set(expanded.sorted(), forKey: Self.expandedKey) }
@@ -125,7 +160,7 @@ public final class RemoteMachinesSidebar {
         let lanes = lanes, refresh = refresh
         // task-owner: this instance; event-driven (Observation); each change only arms the one-shot `refresh`
         laneWatch = Task { [weak self] in
-            for await _ in ObservationStream({ _ = lanes.lanes; _ = SidebarTunables.laneFixture.value }) {
+            for await _ in ObservationStream({ _ = lanes.revision; _ = SidebarTunables.laneFixture.value }) {
                 refresh.scheduleIfIdle(after: Self.refreshInterval) { @MainActor [weak self] in self?.rebuild() }
             }
         }
@@ -232,13 +267,121 @@ public final class RemoteMachinesSidebar {
         return true
     }
 
-    private func rebuild() {
+    func rebuild() {
         guard laneWatch != nil else { return } // stopped: a fire queued before `stop()` does nothing
         askForPeers()
+        let fixture = SidebarTunables.laneFixture.value
+        let revision = lanes.revision
+        // The same peers and lanes as the groups were built from, with some sessions changed since: those alone.
+        if !fixture, !builtFixture, builtPeers == peers, let built = builtRevision, let changed = lanes.changes(since: built),
+           update(changed) {
+            builtRevision = revision
+            return
+        }
         // Captures run no peers: the sample machines stand in (`sidebar.laneFixture`, Debug, off).
-        let next = SidebarTunables.laneFixture.value ? Self.machines(lanes: Self.fixtureLanes, peers: Self.fixturePeers)
+        let next = fixture ? Self.machines(lanes: Self.fixtureLanes, peers: Self.fixturePeers)
             : Self.machines(lanes: lanes.lanes.values, peers: peers)
-        if machines != next { machines = next }
+        ScaleWork.add(.lanesWalked, model.reduce(0) { $0 + $1.chats.count }) // the comparison
+        (builtRevision, builtPeers, builtFixture) = (fixture ? nil : revision, peers, fixture)
+        // A move that gave up part way left `model` changed but unannounced: announce the build either way then.
+        if model != next || partMoved { machines = next } else { reindex() }
+        partMoved = false
+    }
+
+    /// Indexes `model` after a whole build: each machine by peer, each shown chat's machine and place.
+    private func reindex() {
+        machineIndex = Dictionary(model.enumerated().map { ($1.peer, $0) }, uniquingKeysWith: { first, _ in first })
+        placed = [:]
+        let current = builtFixture ? Dictionary(Self.fixtureLanes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            : lanes.lanes
+        for machine in model {
+            for chat in machine.chats { placed[chat.id] = (machine.peer, chat.since, current[chat.id]?.name ?? "") }
+        }
+    }
+
+    /// Moves each of `sessions` (changed since the groups were built) to where a whole build would put it: out of
+    /// the machine it was in, into its machine's chats at its place by a binary search. False when that is not
+    /// one session's move (a machine comes or goes): then the caller builds the groups whole.
+    private func update(_ sessions: Set<String>) -> Bool {
+        let current = lanes.lanes
+        // In place: a copy of a machine's chats would copy every chat of it. A move that ends in a whole
+        // build (false) leaves `model` part-moved, and that build replaces it.
+        var changed = false
+        for id in sessions {
+            let lane = current[id]
+            // Where it goes: an online machine already shown (an unlisted peer's lanes are not shown).
+            var target: Int?
+            if let peer = lane?.peer {
+                if let index = machineIndex[peer] {
+                    if model[index].online { target = index }
+                } else if peers == nil {
+                    partMoved = partMoved || changed
+                    return false // a new machine
+                }
+            }
+            let chat = lane.map(Self.chat)
+            if let was = placed[id], let index = machineIndex[was.peer] {
+                let at = Self.place(of: (was.since, was.name, id), id: id, in: model[index].chats, placed: placed)
+                guard let at else {
+                    partMoved = partMoved || changed
+                    return false
+                }
+                if index == target, let chat, model[index].chats[at] == chat, was.since == chat.since, was.name == lane?.name {
+                    continue // nothing it draws or its place changed
+                }
+                model[index].count(model[index].chats[at], by: -1)
+                model[index].chats.remove(at: at)
+                placed[id] = nil
+                changed = true
+                // A machine named only by its lanes goes with its last chat.
+                if peers == nil, model[index].chats.isEmpty, target != index {
+                    partMoved = true
+                    return false
+                }
+            }
+            guard let target, let chat, let lane else { continue }
+            let at = Self.insertion(of: (chat.since, lane.name, id), in: model[target].chats, placed: placed)
+            model[target].chats.insert(chat, at: at)
+            model[target].count(chat, by: 1)
+            placed[id] = (model[target].peer, chat.since, lane.name)
+            changed = true
+        }
+        if changed { withMutation(keyPath: \.machines) {} }
+        return true
+    }
+
+    /// Whether place key `a` comes before `b`: as ``newer(_:_:)`` orders lanes.
+    private static func before(_ a: (since: Date, name: String, id: String), _ b: (since: Date, name: String, id: String)) -> Bool {
+        a.since != b.since ? a.since > b.since : a.name != b.name ? a.name < b.name : a.id < b.id
+    }
+
+    /// The first index whose chat does not come before `key`.
+    private static func insertion(of key: (since: Date, name: String, id: String), in chats: [Chat],
+                                  placed: [String: (peer: String, since: Date, name: String)]) -> Int {
+        var (low, high) = (0, chats.count)
+        var probes = 0
+        defer { ScaleWork.add(.probes, probes) }
+        while low < high {
+            probes += 1
+            let mid = (low + high) / 2
+            let other = placed[chats[mid].id].map { ($0.since, $0.name, chats[mid].id) } ?? (chats[mid].since, "", chats[mid].id)
+            if before(other, key) { low = mid + 1 } else { high = mid }
+        }
+        return low
+    }
+
+    /// Where chat `id`, at place key `key`, is in `chats`; nil when it is not there.
+    private static func place(of key: (since: Date, name: String, id: String), id: String, in chats: [Chat],
+                              placed: [String: (peer: String, since: Date, name: String)]) -> Int? {
+        var at = insertion(of: key, in: chats, placed: placed)
+        // Chats with the same key sit together; it is one of them.
+        while at < chats.count {
+            if chats[at].id == id { return at }
+            let other = placed[chats[at].id].map { ($0.since, $0.name, chats[at].id) } ?? (chats[at].since, "", chats[at].id)
+            if before(key, other) { break }
+            at += 1
+        }
+        return nil
     }
 
     /// One bounded page of `peer`'s closed chats after `cursor`, appended; one read per machine at
@@ -310,6 +453,9 @@ public final class RemoteMachinesSidebar {
     /// The groups: every peer the daemon lists (none listed yet: every peer a lane names), each
     /// with its live chats newest first, reachable machines first. A peer the daemon cannot reach has no chats.
     static func machines(lanes: some Collection<AgentActivityLane>, peers: [AcpmuxPeerList.Peer]?) -> [Machine] {
+        ScaleWork.add(.rebuilds)
+        ScaleWork.add(.setsBuilt)
+        ScaleWork.add(.lanesWalked, lanes.count)
         var byPeer: [String: [AgentActivityLane]] = [:]
         for lane in lanes {
             guard let peer = lane.peer else { continue }
@@ -322,8 +468,10 @@ public final class RemoteMachinesSidebar {
         return Set(names).map { peer in
             let isOnline = online[peer] ?? true
             let chats = isOnline ? (byPeer[peer] ?? []).sorted(by: newer).map(chat) : []
-            return Machine(peer: peer, online: isOnline, chats: chats, resources: isOnline ? room[peer] ?? nil : nil,
-                           symbol: symbols[peer] ?? nil)
+            var machine = Machine(peer: peer, online: isOnline, chats: chats, resources: isOnline ? room[peer] ?? nil : nil,
+                                  symbol: symbols[peer] ?? nil)
+            for chat in chats { machine.count(chat, by: 1) }
+            return machine
         }
         // Reachable machines first, each part by name.
         .sorted { ($0.online ? 0 : 1, $0.peer) < ($1.online ? 0 : 1, $1.peer) }
@@ -332,7 +480,7 @@ public final class RemoteMachinesSidebar {
     /// Newest first by when it last changed state (a step leaves the order alone), then by name.
     static func newer(_ a: AgentActivityLane, _ b: AgentActivityLane) -> Bool {
         let (x, y) = (a.since ?? a.createdAt ?? .distantPast, b.since ?? b.createdAt ?? .distantPast)
-        return x != y ? x > y : a.name < b.name
+        return x != y ? x > y : a.name != b.name ? a.name < b.name : a.id < b.id
     }
 
     static func chat(_ lane: AgentActivityLane) -> Chat {
@@ -370,7 +518,7 @@ public final class RemoteMachinesSidebar {
             var header = SidebarItemInfo(title: machine.online ? title : RemoteMachinesStrings.offline(name), symbol: machine.symbol ?? "cloud",
                                          icon: machine.symbol == nil ? .cloud : nil,
                                          badge: machine.online && !machine.chats.isEmpty ? machine.chats.count : nil, isMissing: !machine.online)
-            header.activity = activity(machine.chats)
+            header.activity = machine.activity
             add(machinePrefix + machine.peer, header)
             guard machine.online, expanded.contains(machine.peer) else { continue }
             if let room, style == .row {
