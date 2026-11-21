@@ -143,6 +143,14 @@
   Regression: `SidebarCustomizationScaleTests` (CmuxNextAppTests).
 
 - 2026-11-18 (minimal-hide-all): Sidebar-Look: user, 2026-11-17 (msg 38388): "minimal mode should hide everything in sidebar including cards like update, iff user is not hovered in sidebar". In Minimal Mode (`sidebar.minimal`), with the pointer away, every sidebar view but the content (the workspace list, the bands, the Priority view, edit mode's bar) fades out with the controls' hover fade (`SidebarChromeReveal.rest`, `SidebarView.minimalChromeViews`): one rule over the sidebar's subviews, so a card added later hides by default. Newly hidden: the Restart to Update, notice (tips, star prompt, restoring, update status), Now Playing and cmux Updated cards, the card stack, app health's line, the Update Available button, the Priority bell, the titlebar accessory and the needs-you tray. A card arriving while hidden arrives hidden. Their room goes to the list with the footer's, on the footer's curve, and comes back on hover. A fade only: frames and the accessibility tree stay. Show Sidebar Controls Only on Hover alone keeps the cards. `MinimalModeHidesEverythingTests`.
+- 2026-11-18 (lane/custom-hovercard-draws): Sidebar-Look: Leo asked for thoughtfully designed looks people can make on
+  their own. The user's hover card (`cmux.hovercard/1` in `~/.config/cmux/customize/`) draws as the workspace card
+  opens. Since Show details came (#28897), `WorkspaceHoverCardView.updateDetailsVisibility` hid the custom slot and its
+  error while the details were collapsed, the state every card opens in: a working card never drew and a broken one
+  showed no "Custom card error", only the built-in card. The user's card now replaces the built-in card's rows in both
+  states (the tab list stays under it), a failed card's error shows on the collapsed card, and the card takes the
+  pointer whenever it shows. Regression: `WorkspaceHoverCardCustomCardTests`.
+
 - 2026-11-18 (a590, grid base red): Sidebar-Look: an unread dot beside a status mark sits one column in again, as before
   #44449. d8917c9 (#44449) made the trailing pitch the control plus a tenth of it (17.6 or 20.53 pt), and
   `SidebarColumns` rounded the pitches back from the trailing edge up with no tolerance, so one pitch could count as two
