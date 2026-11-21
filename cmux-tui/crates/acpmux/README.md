@@ -43,8 +43,8 @@ alone does not grant access to sessions or app-only operations.
 
 `transport.wireguard: true` needs the `wireguardStatic` block below. Without
 it the daemon refuses to start, and `acpmux config --set transport.wireguard=true`
-refuses to write it. The hub carrier (`cmux remote ... --via-machine`) does not
-need this transport. A joined machine runs the carrier on its node key alone.
+refuses to write it. The hub carrier (the `--via-machine` flag of cmux remote exec, cp and
+connect) does not need this transport. A joined machine runs the carrier on its node key alone.
 
 Configure each side in its private `config.json`, with different node keys and
 virtual addresses. The endpoint is the other machine's UDP address; `address`
@@ -84,6 +84,9 @@ family. Discovery, hole punching and relays are separate components.
 
 ## Quick start
 
+Use `cmux agent` to drive sessions from cmux. On a host with just the standalone
+engine installed, use `acpmux` with the session command and its arguments.
+
 ```sh
 acpmux                               # that is it: starts the daemon if needed, opens the TUI
 ```
@@ -96,21 +99,22 @@ it. `/form` opens the older field-by-field form instead. The bottom line of the 
 the web dashboard URL.
 
 ```sh
-acpmux web                           # print the dashboard URL and open it in the browser
-acpmux new -m codex -n backend-review   # scripted: create a session and open the TUI on it
-acpmux new -m codex --tag task=review --tag owner=leo -n backend-review -d
-acpmux send backend-review "inspect the failing tests"
-acpmux ls                            # live named lanes, one short line each; --all, --wide for more
-acpmux attach backend-review         # TUI on one session; Ctrl-q leaves, the agent keeps running
+cmux agent web                           # print the dashboard URL and open it in the browser
+cmux agent new -m codex -n backend-review   # scripted: create a session and open the TUI on it
+cmux agent new -m codex --tag task=review --tag owner=leo -n backend-review -d
+cmux agent send backend-review "inspect the failing tests"
+cmux agent search "failing tests"       # matching prompts and replies locally and on peers
+cmux agent ls                            # live named lanes, one short line each; --all, --wide for more
+cmux agent attach backend-review         # TUI on one session; Ctrl-q leaves, the agent keeps running
 ```
 
-The daemon starts on demand, like the tmux server. `acpmux daemon` runs it in the foreground.
-`acpmux ls` is the one command that never starts it: with no daemon it fails with
+The daemon starts on demand, like the tmux server. `cmux agent daemon` runs it in the foreground.
+`cmux agent ls` is the one command that never starts it: with no daemon it fails with
 `no_daemon` at once, so a census reads "no daemon here", never an empty host (hq#4897).
 
-`acpmux ls` is compact by default: the live lanes someone named, as NAME, HOST (only while
+`cmux agent ls` is compact by default: the live lanes someone named, as NAME, HOST (only while
 some row is on a peer), STATE, TURNS, AGE, STUCK and WARN. STUCK says in a few words why a
-lane needs someone (`permission`, `capacity`, `harness down`, `failed turn`, `stalled 12m`);
+lane needs someone (`permission`, `rate-limited until 04:30Z`, `capacity`, `harness down`, `failed turn`, `stalled 12m`);
 WARN is `warn` while the row breaks a usage rule. Closed sessions, reviewer boxes,
 sub-sessions and sessions with only a generated name are hidden and counted on the last line;
 `--all` lists them, and a filter (`--status`, `--tag`, `--since`, ...) hides nothing. `--wide`
@@ -118,7 +122,7 @@ adds AGENT, STATUS, the usage columns (LAUNCHER, autocompact CAP, CTX, CMP compa
 live/started, TOK24H, $24H; `?` when acpmux could not read one, never 0) and LAST (the last
 prompt). A peer whose link is down never drops out: its
 rows read `unknown`, and an `UNKNOWN <peer>` line says its sessions are last known. Scripts
-read `acpmux --json ls`, which is the daemon's rows, unchanged.
+read `cmux agent ls --json`, which is the daemon's rows, unchanged.
 
 ## Web dashboard
 
@@ -265,7 +269,7 @@ Session controls work across configured peers without a shell on the target host
 
 ```sh
 acpmux new --machine worker -m codex -n review -d
-acpmux resolve worker/review
+cmux agent resolve worker/review
 acpmux session resume worker/review  # release held queued prompts
 acpmux retry worker/review           # retry its failed last turn
 acpmux session cancel worker/review  # cancel its running turn
@@ -275,9 +279,9 @@ acpmux session stop worker/review    # stop its agent; keep the session
 Use the stable `sessionId` from `resolve`, an id prefix, a bare name, or `HOST/NAME`.
 Every command that takes a session (send, last, retry, wait, attach, `session
 info|cancel|stop|close|rename`) reads a bare name or prefix the same way: it names the one
-live session with that name across this host and its peers, so `acpmux send review "…"`
+live session with that name across this host and its peers, so `cmux agent send review "…"`
 reaches `linux-b/review` when no other live session is called `review`. A sub-session (named
-`PARENT/SHORT`) also answers to its short name: `acpmux send lane-3` reaches
+`PARENT/SHORT`) also answers to its short name: `cmux agent send lane-3` reaches
 `coord/lane-3` when no session on any host has that name or id and none here has a
 name starting with it; `HOST/SHORT` looks on that host only. A name nothing matches is
 refused with the close matches. A name typed loosely still finds its one session
@@ -292,10 +296,10 @@ only when no live one matches. Several live matches are refused (exit 2,
 lists each choice and the exact command for it:
 
 ```text
-$ acpmux send review "ship it"
+$ cmux agent send review "ship it"
 acpmux: usage: "review" names 2 live sessions: mac-a/review, linux-b/review; name one of them
-  acpmux send mac-a/review 'ship it'
-  acpmux send linux-b/review 'ship it'
+  cmux agent send mac-a/review 'ship it'
+  cmux agent send linux-b/review 'ship it'
 ```
 
 With `--json`, `error.data.choices` lists each one's `host`, `name`, `route` and the key to
@@ -337,7 +341,7 @@ refused (the session is not idle or its revision moved), 130 interrupted. A clos
 message says what was in flight, whether the daemon is still running, exited without cleanup, or
 was shut down, which build it ran when that differs from the CLI's, and where the log is
 (`detail: daemon_closed`, retryable). When a prompt was in flight the error also carries its
-`promptId`: `acpmux send NAME --prompt-id ID "…"` (or `run --prompt-id`) sends it again safely,
+`promptId`: `cmux agent send NAME --prompt-id ID "…"` (or `run --prompt-id`) sends it again safely,
 because the daemon runs a prompt id once and answers a repeat with the first run's outcome, even
 after a restart. `--no-wait` and `--detach` return once the daemon has accepted the prompt. The TUI
 reconnects on its own when the daemon restarts and re-attaches the selected session.
@@ -356,14 +360,14 @@ acpmux exec -m claude "one-shot"                              # same, and the se
 acpmux --json run -m claude --policy approve-all "..."       # {"sessionId","name","reply","stopReason","permissions",…}
 acpmux ensure NAME -m codex --cwd DIR                         # the session if it exists, else create it
 acpmux ensure NAME -m codex --tag task=review                  # repeatable creation-time labels
-acpmux send NAME --no-wait "..."                              # hand it over and return at once; prints the delivery id
-acpmux send --status ID                                       # queued, delivering, delivered, held or failed
-acpmux send NAME --timeout 120 --on-permission deny|fail "…"  # cancel after 120 s (exit 3); answer prompts without a human
+cmux agent send NAME --no-wait "..."                              # hand it over and return at once; prints the delivery id
+cmux agent send --status ID                                       # queued, delivering, delivered, held or failed
+cmux agent send NAME --timeout 120 --on-permission deny|fail "…"  # cancel after 120 s (exit 3); answer prompts without a human
 acpmux wait                                                   # until any session on any host resolves (turn ended or needs a permission)
 acpmux wait NAME… --until ready|permission|closed|done|running [--all] [--timeout 300] [--print] [--notify]
 acpmux wait NAME --match "tests pass" | --regex "pass(ed)?"   # until the agent's output contains it
 acpmux last NAME [-n 3]                                       # last reply text
-acpmux history NAME                                           # one line per turn: status, wall time, tools, tokens, prompt
+cmux agent history NAME                                           # one line per turn: status, wall time, tools, tokens, prompt
 acpmux pending                                                # every pending permission, and how to answer it
 acpmux session deny NAME                                      # an allow is the cmux app's alone (the chat's permission card)
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"], "default": "approve"}'
@@ -373,17 +377,17 @@ acpmux session inbox NAME [--thread T] | --digest [--dry-run]  # other agents' m
 acpmux session queue list NAME                                # one row per queued prompt: id, sender, age, first line (--json: whole text)
 acpmux session queue remove NAME PROMPT_ID...                 # take those out; each reported removed or not found
 acpmux session queue clear NAME --from-agents [--dry-run]     # take out every other agent's message; your own prompts stay
-acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
-acpmux ls --all --wide                                        # every session, every column (with usage)
-acpmux ls --live --machine my-linux                              # filters, text and --json alike (--machine local: this machine)
-acpmux ls --status running | --pending                        # filters; --json for the full records
-acpmux ls --limit 20 --fields name,harness,model,status,cwd   # newest sessions, selected fields
-acpmux ls 'review-27*' [my-linux/*] --fields name,status     # sessions whose name matches a glob (`host/glob` for one peer), on any host
-acpmux ls --tag area=acpmux --fields name,turn.activity       # a dotted field reads a nested value (tags.lane.reportsTo too)
+acpmux session tag NAME task=review --ttl 3600; cmux agent ls --tag task=review
+cmux agent ls --all --wide                                        # every session, every column (with usage)
+cmux agent ls --live --machine my-linux                              # filters, text and --json alike (--machine local: this machine)
+cmux agent ls --status running | --pending                        # filters; --json for the full records
+cmux agent ls --limit 20 --fields name,harness,model,status,cwd   # newest sessions, selected fields
+cmux agent ls 'review-27*' [my-linux/*] --fields name,status     # sessions whose name matches a glob (`host/glob` for one peer), on any host
+cmux agent ls --tag area=acpmux --fields name,turn.activity       # a dotted field reads a nested value (tags.lane.reportsTo too)
 acpmux session info NAME --fields sessionId                   # one field prints its bare value; several print field<TAB>value; --json an object
-acpmux send --tag area=acpmux [--dry-run] "base is green"     # one --no-wait message to every non-closed session with the tag, on every host; skips your own
-acpmux ls --since 24h --limit 100 --json                     # sessions changed in the last day
-acpmux ls --json --live --fields name,status,peer             # what an agent should read: `ls --json` alone is every record
+cmux agent send --tag area=acpmux [--dry-run] "base is green"     # one --no-wait message to every non-closed session with the tag, on every host; skips your own
+cmux agent ls --since 24h --limit 100 --json                     # sessions changed in the last day
+cmux agent ls --json --live --fields name,status,peer             # what an agent should read: `ls --json` alone is every record
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
 acpmux compare -m claude -m codex/gpt-5.5 "prompt"                    # one temporary session per harness, run one after another
 # Race CLI commands run inside an authenticated acpmux agent session:
@@ -436,8 +440,15 @@ off) the chat gets one prompt telling the agent to check what finished and conti
 id `<promptId>~resume-<n>` and `_meta.provenance.kind` `auto_resume`. Stop, closing the chat, or
 anything else run in it meanwhile cancels it, and a continuation that completes resumes the
 prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row's `retry` is
-`{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `transport` or
-`agent_exited`), null otherwise. Usage limits and sign-in failures never retry this way.
+`{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `rate_limit`, `transport` or
+`agent_exited`), null otherwise. Sign-in failures never retry this way. An account's usage or
+rate limit (HTTP 429, `rate_limit`) holds the whole chat until its reset (`hub/rate_hold.rs`): no
+turn starts, what comes in queues and goes in as one turn at the reset with the continuation's
+words (a context past 200K tokens compacts first), the row's `rateLimitedUntil` says until when,
+and `acpmux retry` is refused (`retry.rate_limited`) until then. Six such turns in a row, or a
+Stop (or `session stop`) while the limit has the chat, park it (`rateLimitParked`): nothing
+starts by itself until `acpmux retry` or the person's own prompt, which send it on with what
+queued as one turn. A daemon restart keeps the hold, the park and the strikes.
 `acpmux retry NAME` (`_acpmux/retry {sessionId}`, the Retry button; the sub-session tool
 `retry_session`) retries a failed last turn now, under the caller's rules, taking over a waiting
 retry: the failed prompt goes again as its next `~resume-<n>` (a continuation when the turn had
@@ -477,7 +488,7 @@ no agent's or lane's (the Chief's own sessions): its log gets `agent_start_waiti
 and it fails the same way only once its harness has used no CPU, with no thread ready, for 5
 minutes.
 
-`agentInbox` (default true): another agent's plain send (`acpmux send`, the MCP `send` tool) goes
+`agentInbox` (default true): another agent's plain send (`cmux agent send`, the MCP `send` tool) goes
 into the receiving chat's inbox, in a thread, and the agent hears of it as one notice at its next
 tool step; it is never a turn or a steer of its own. false puts plain sends back on the queue.
 
@@ -528,11 +539,11 @@ last hour. A number acpmux could not read is null, never zero, and an unknown ca
 chat it adopted or revived without seeing its launch) or count never raises a warning. A peer's
 row names the peer's session (`<peer>/<name>`) in its commands. Each warning names the step that answers it (`actions`: `[{label, command, pending}]`, the one
 to try first first; nothing is done automatically): no cap, rotate onto a capped profile
-(`sessions rotate NAME --harness claude-sr2`, a dry run until `--yes`, which rotates); a large context, compact it (`acpmux send NAME
+(`sessions rotate NAME --harness claude-sr2`, a dry run until `--yes`, which rotates); a large context, compact it (`cmux agent send NAME
 /compact`) or rotate to a fresh session (`sessions rotate NAME`); many subagents, open
-the session and, to stop it, `acpmux session cancel NAME`. `acpmux ls` marks such a row `warn`
-in a WARN column, shown only while some row has one; `acpmux ls --wide` names each rule with its
-number and commands (`ctx 412k: acpmux send NAME /compact | sessions rotate NAME`), and `--json` rows carry the whole list. The cmux NEXT
+the session and, to stop it, `acpmux session cancel NAME`. `cmux agent ls` marks such a row `warn`
+in a WARN column, shown only while some row has one; `cmux agent ls --wide` names each rule with its
+number and commands (`ctx 412k: cmux agent send NAME /compact | sessions rotate NAME`), and `--json` rows carry the whole list. The cmux NEXT
 sidebar draws a warning triangle on the row whose tooltip is each `text`.
 
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
@@ -1131,7 +1142,7 @@ acpmux machine update --all               # update compatible ssh peers; use --b
 acpmux machine update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn (not counting the one running this)
 acpmux machine update HOST --keep-newer --binary-dir DIR  # never a move back: a later day's build or one with local changes stays (current)
 acpmux machine update HOST --allow-downgrade  # the host refuses a binary of an older commit than its own (current, newerInstalled); this installs it anyway
-acpmux ls                              # a HOST column while some row is a peer's; UNKNOWN for a down peer
+cmux agent ls                              # a HOST column while some row is a peer's; UNKNOWN for a down peer
 acpmux new -m claude --machine HOST "…"   # start a session there; `ensure NAME --machine HOST` too
 acpmux attach HOST/session-name        # or plain `acpmux attach` for the full sidebar
 acpmux session export HOST/name        # the bundle is fetched to ~/.acpmux/bundles/HOST-<id>
@@ -1340,7 +1351,7 @@ falls back onto one.
 
 ### Messages to other sessions: the outbox
 
-`acpmux send --no-wait NAME` is how one session (or a person, or a script) messages another,
+`cmux agent send --no-wait NAME` is how one session (or a person, or a script) messages another,
 here or on any peer, and it acks within a second whatever the target is doing. An agent's send
 (`--from`, one in an acpmux session, or one from a Claude Code or Codex shell) and any send with
 `--class` take this path by default; `--wait` (or `--quiet`, `--timeout`) waits for the reply
@@ -1372,12 +1383,28 @@ returns once the message is on disk here, and the daemon delivers it when the pe
    the target's daemon runs it when the person resumes the pair, so it is never sent again from
    here. `--no-wait` prints a refusal or a hold that comes within half a second as its error, as
    a direct send did.
-5. **Status.** `acpmux send --status ID` (`_acpmux/send_status {deliveryId, waitMs?}`) reads it;
-   `acpmux send --status` with no id (`{list: true, caller?, limit?}`) lists every message, newest
+5. **Status.** `cmux agent send --status ID` (`_acpmux/send_status {deliveryId, waitMs?}`) reads it;
+   `cmux agent send --status` with no id (`{list: true, caller?, limit?}`) lists every message, newest
    first. The `acpmux` MCP server's `send_status` tool is the same for an agent: a `deliveryId`
    from `send`, or none for the messages its chat sent. `acpmux session inbox SESSION` ends with the messages that session sent and their
-   state, and `acpmux ls` ends with how many still wait (`outboxPending` in `_acpmux/status`).
+   state, and `cmux agent ls` ends with how many still wait (`outboxPending` in `_acpmux/status`).
    Delivered, held and failed deliveries are kept for a day.
+
+**Waking a paused machine for a message (`peerWake`).** A message for a session on a peer whose
+link is down marks that peer to wake for 180 s: its reconnects come within a second, and each
+runs its ssh with `ACPMUX_PEER_WAKE=1`, which a route's ProxyCommand may act on. A daemon with a
+wake command also runs it once, at the first such message in each 180 s window, whatever the
+peer's route, with the peer's name appended:
+
+```json
+{"peerWake": {"argv": ["machine-wake"]}}
+```
+
+runs `machine-wake lane-vm-3` (with `ACPMUX_PEER_WAKE=1`) for a message to `lane-vm-3/lane`. The
+command resumes the machine on whatever provider it is on (a paused VM, a VM that
+was stopped); it is killed after 180 s, and its outcome is logged. The message waits in the
+sender's outbox and goes once the link is back. Unset (the default), nothing runs. A config reload
+takes a new or removed command at once.
 
 **A relay for targets no peer reaches (`sendRelay`).** A host may have no peer that reaches the
 target, such as an agent VM that cannot dial back to the machine that drives it. A relay command,
@@ -1453,26 +1480,28 @@ own `--mcp-config` names.
 
 Every local session also gets the `acpmux` MCP server (`acpmux acpmux-mcp`, `acpmux_mcp.rs`),
 so an agent messages another lane or session with a tool call instead of piping text into
-`acpmux send --no-wait` in a shell. Behind the `cmux` server its tools are:
+`cmux agent send --no-wait` in a shell. Behind the `cmux` server its tools are:
 
 - `acpmux_send {to, text, steer?}`: message a session by name, id or `host/name`. Like
-  `acpmux send --no-wait`, it hands the message to this daemon's outbox (`_acpmux/send_queue`),
+  `cmux agent send --no-wait`, it hands the message to this daemon's outbox (`_acpmux/send_queue`),
   which delivers it as this session and retries a slow target or a peer that is down. It returns
   the `promptId` and delivery id once the delivery settles (steered in, queued, or a new turn),
   or after 5 s with the message on its way; it never waits for the reply. `steer` defaults to true.
   It also takes `class`, `pr`, `thread` and `supersede` (as the CLI's flags), `file` in place of
-  `text` (a UTF-8 file of the caller's own, at most 256 KiB; a relative path is from the
-  folder the agent runs in), `tag` in place of `to` (every live session carrying it, at most 32, not the sender),
+  `text` (a UTF-8 file of the caller's own; small files go inline and larger files are attached;
+  a relative path is from the
+  folder the agent runs in), `tag` in place of `to` (every live session carrying it, not the sender),
   `notice: {sender?, host?, severity, title, links?}` sends it as a tool's notice (as `acpmux
   send --notice`; `text` is its optional body, the sender defaults to this session's name),
-  and `messages: [{to|tag, text|file, steer?, class?, pr?, thread?, supersede?, notice?}]`, a batch of up
-  to 32 sent in order, with the top-level fields as each item's defaults. With `messages` or
+  and `messages: [{to|tag, text|file, steer?, class?, pr?, thread?, supersede?, notice?}]`, a batch
+  sent in order, with the top-level fields as each item's defaults. With `messages` or
   `tag` the result is `results: [{index, to, target, tag, ok, promptId, deliveryId, status,
   sessionId, delivery, error?}]` plus `sent` and `failed`: one row per recipient, a bad one its
   own row's error, never the others'. Messages to one session go in turn, each once the one
   before it was taken, so they arrive in the order given (one still on its way after the 5 s
   wait holds back the rest to that session, with a row saying why); different sessions go side
-  by side, so a batch answers within the one 5 s wait. Use it in place of a shell loop of `acpmux send --no-wait`.
+  by side in bounded groups sharing one 5 s delivery-status deadline. There is no message,
+  tag-session or expanded-recipient count cap. Use it in place of a shell loop of `cmux agent send --no-wait`.
 - `acpmux_ls {status?, query?, limit?}`: one line per session on this machine and its peers,
   newest first. Closed sessions are left out unless `status` is `closed`; `query` matches name,
   title or peer; the list stops at `limit` (default 100, at most 500) and says how many more match.
