@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CoreText
 import CmuxNextDesign
 import CmuxNextSettings
 
@@ -101,11 +102,19 @@ func glassParityTree(_ view: NSView, depth: Int = 0) -> JSONValue {
         node["filters"] = .number(Double((layer.filters?.count ?? 0) + (layer.backgroundFilters?.count ?? 0)))
         node["masks"] = .bool(layer.masksToBounds)
     }
-    if view.responds(to: NSSelectorFromString("tintColor")), let tinted = view.value(forKey: "tintColor") as? NSColor {
+    if let tinted = glassParityTint(view) {
         node["tint"] = .string(String(describing: tinted.usingColorSpace(.sRGB) ?? tinted))
     }
     if depth < 4 { node["children"] = .array(view.subviews.map { glassParityTree($0, depth: depth + 1) }) }
     return .object(node)
+}
+
+/// The glass tint of VIEW, read through the typed glass APIs (no selector or key lookup that could raise).
+@MainActor
+private func glassParityTint(_ view: NSView) -> NSColor? {
+    if let panel = view as? GlassPanelView { return panel.tintColor }
+    if #available(macOS 26.0, *), let glass = view as? NSGlassEffectView { return glass.tintColor }
+    return nil
 }
 
 final class GlassParityFlippedView: NSView {
@@ -150,14 +159,20 @@ final class GlassParityTextView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
         let font = NSFont.systemFont(ofSize: TypeScale.body)
-        NSGraphicsContext.current?.cgContext.setShouldSmoothFonts(smoothing)
+        context.setShouldSmoothFonts(smoothing)
+        // Core Text at the exact baseline: NSAttributedString.draw(at:) places its own baseline from the
+        // typesetter's line metrics and drew every line a pixel below WebKit's whatever top it was given (fleet
+        // step e21b4763: the native pixels did not move when the top moved by 0.62 pt).
+        context.saveGState()
+        context.textMatrix = CGAffineTransform(scaleX: 1, y: -1)  // this view is flipped
         for (index, (text, color)) in lines.enumerated() {
-            // draw(at:) takes the line's top; its baseline is that plus the font's ascender.
-            let top = Self.baseline(line: index, ascender: font.ascender, descender: font.descender) - font.ascender
-            NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color])
-                .draw(at: CGPoint(x: Self.origin.x, y: top))
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color]))
+            context.textPosition = CGPoint(x: Self.origin.x, y: Self.baseline(line: index, ascender: font.ascender, descender: font.descender))
+            CTLineDraw(line, context)
         }
+        context.restoreGState()
     }
 }
 

@@ -534,6 +534,15 @@ def retry_wait(error: "urllib.error.HTTPError", cap: float) -> float | None:
     return max(0.0, min(after, cap))
 
 
+# Requests a live runner read leaves in its token's hour. The routing App (manaflow-glaeda-route) is also the
+# runner census publisher's token (cmuxterm-hq runner-state-publish.yml, at most about 15 reads a refresh, one
+# refresh every 4 minutes). While the census (CI_RUNNER_STATE) is stale every placement reads runners live; on
+# 2026-11-20/21 those reads spent the App's hour within minutes of each reset, so the publisher could never refresh
+# and the census stayed stale for 20 h. Stopping here keeps the publisher's share, and its next refresh ends the
+# live reads (tests/test_ci_route_quota_reserve.py).
+ROUTE_QUOTA_RESERVE = 1000
+
+
 class RateLimited(RuntimeError):
     """A runner read was refused because the token's GitHub quota is spent.
 
@@ -2351,6 +2360,8 @@ class GitHub:
         # per-request timeouts below.
         self.deadline = deadline
         self.repo = repo
+        # X-RateLimit-Remaining of the last answer, when GitHub sent it (runners() keeps ROUTE_QUOTA_RESERVE).
+        self.remaining: int | None = None
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -2379,9 +2390,11 @@ class GitHub:
                 # one byte at a time included (deadline_http).
                 status, body, headers = deadline_http.request(request, self._timeout(15), raise_errors=True)
                 github_spend.record(self.headers["Authorization"], headers, status)
+                self._note_remaining(headers)
                 return json.loads(body)
             except urllib.error.HTTPError as error:
                 github_spend.record(self.headers["Authorization"], error.headers, error.code)
+                self._note_remaining(error.headers)
                 wait = (retry_wait(error, self.retry_cap)
                         if attempt == 1 and self.retry_cap > 0 and self.retries.left > 0 else None)
                 if wait is not None:
@@ -2396,6 +2409,20 @@ class GitHub:
                     raise
                 time.sleep(wait)
         raise AssertionError("unreachable")
+
+    def _note_remaining(self, headers: Any) -> None:
+        try:
+            value = (headers or {}).get("X-RateLimit-Remaining")
+            self.remaining = int(value) if value is not None else self.remaining
+        except (TypeError, ValueError, AttributeError):
+            pass
+
+    def _keep_reserve(self) -> None:
+        """Stop a live runner read once its token has fewer than ROUTE_QUOTA_RESERVE requests left this hour."""
+        if self.remaining is not None and self.remaining < ROUTE_QUOTA_RESERVE:
+            raise RateLimited(f"live runner read stopped with {self.remaining} requests left in the token's hour: "
+                              f"the last {ROUTE_QUOTA_RESERVE} are kept for the runner census publisher "
+                              "(CI_RUNNER_STATE), whose next refresh ends these live reads")
 
     def snapshot(self, *, now: dt.datetime, branch: str = SNAPSHOT_BRANCH) -> Mapping[str, Any] | None:
         """The newest trusted janitor snapshot, preferring the census document."""
@@ -2538,10 +2565,12 @@ class GitHub:
                     *(runner for runners in document["runner_groups"].values() for runner in runners)]
         found = ({runner.get("id"): runner for runner in self._runner_pages(f"/repos/{self.repo}/actions/runners")}
                  if include_repository else {})
+        self._keep_reserve()
         owner, _, name = self.repo.partition("/")
         try:
             groups = self.get_api(f"/orgs/{owner}/actions/runner-groups?per_page={PAGE_SIZE}"
                                   f"&visible_to_repository={urllib.parse.quote(name)}").get("runner_groups") or []
+            self._keep_reserve()
             by_name = {
                 group.get("name"): group
                 for group in groups
