@@ -44,7 +44,9 @@ pub struct Sender {
 
 /// The trailer line for `sender`, with no line break.
 pub fn line(sender: &Sender) -> String {
-    let field = |v: &Option<String>| v.as_deref().map(str::trim).filter(|v| !v.is_empty());
+    fn field(v: &Option<String>) -> Option<&str> {
+        v.as_deref().map(str::trim).filter(|v| !v.is_empty())
+    }
     let mut out = String::from(PREFIX);
     if let Some(host) = field(&sender.host) {
         out.push_str(host);
@@ -108,13 +110,13 @@ pub fn this_host() -> Option<String> {
 /// harness reads the first block's words as the command's arguments). Nothing when a text block
 /// has a [`PREFIX`] line already. Returns whether it stamped.
 pub fn stamp_blocks(prompt: &mut Value, line: &str) -> bool {
-    let Some(blocks) = prompt.get_mut("prompt").and_then(Value::as_array_mut) else {
-        return false;
-    };
-    let text_of = |b: &Value| {
+    fn text_of(b: &Value) -> Option<&str> {
         (b.get("type").and_then(Value::as_str) == Some("text"))
             .then(|| b.get("text").and_then(Value::as_str))
             .flatten()
+    }
+    let Some(blocks) = prompt.get_mut("prompt").and_then(Value::as_array_mut) else {
+        return false;
     };
     if blocks.iter().filter_map(text_of).any(has_line) {
         return false;
