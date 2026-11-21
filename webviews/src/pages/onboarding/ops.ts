@@ -77,12 +77,21 @@ export interface AgentsState {
 
 // MARK: Import from Browser
 
-export type ImportDataKind = "bookmarks" | "history" | "openTabs" | "cookies" | "searchEngines" | "passwords";
+export type ImportDataKind =
+  | "bookmarks"
+  | "history"
+  | "openTabs"
+  | "extensions"
+  | "cookies"
+  | "searchEngines"
+  | "passwords";
 
 export interface ImportCounts {
   bookmarks: number;
   history: number;
   openTabs: number;
+  /** Extensions read (store ones open their page in the profile, unpacked ones are copied). Older hosts leave it out. */
+  extensions?: number;
   cookies: number;
   passwords: number;
   searchEngines: number;
