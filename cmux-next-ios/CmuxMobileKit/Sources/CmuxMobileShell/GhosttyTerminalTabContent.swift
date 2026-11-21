@@ -59,6 +59,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     private var placeholderTabs: [String: (tab: WorkspaceTab, workspace: Workspace)] = [:]
     /// Last frames kept across launches.
     var frameStore: TerminalFrameStore? = .standard
+    /// Each tab's composer draft, kept across rebuilds and launches (nil: not kept).
+    var drafts: ComposerDraftStore? = .shared
     /// The signed-in account that owns the linked Macs. Unscoped frames are
     /// never loaded or saved when auth has not resolved to a stable ID.
     var accountUserIDProvider: (@MainActor () -> String?)?
@@ -227,6 +229,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             release(id)
             slots[id] = nil
             cardViews[id] = nil
+            drafts?.clear(ComposerDraftStore.key(macID: workspace.macID, tabID: id))
         }
         let live = sessionProvider?(tab, workspace.macID)
         if let host = hosts[tab.id], live == nil { return host }
@@ -255,6 +258,14 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         model.voiceSource = voiceSourceProvider?(tab, workspace, model)
         // The page shown already keeps opening links where it did (R1-0 swaps the host in place).
         model.linkOpener = previous?.model.linkOpener
+        // The draft survives the rebuild (a reconnect replaces the host) and the app's restart.
+        let draftKey = ComposerDraftStore.key(macID: workspace.macID, tabID: tab.id)
+        if let previous { model.adoptComposer(from: previous.model) }
+        model.restoreDraft(drafts?.text(for: draftKey))
+        model.onDraftChange = { [weak self, weak model] in
+            guard let model else { return }
+            self?.drafts?.save(model.draftToKeep, for: draftKey)
+        }
         // The placeholder's page carries over only through the frame gate: a
         // still of its never-attached surface is a blank page (`TerminalFrameKeep`).
         var frame = key.flatMap { lastFrames.removeValue(forKey: $0) ?? framesBeingWritten[$0] } ?? previous?.model.frameToKeep()

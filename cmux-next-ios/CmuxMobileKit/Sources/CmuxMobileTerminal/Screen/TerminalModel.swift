@@ -51,7 +51,11 @@ public final class TerminalModel {
     var sticky = TerminalStickyModifiers()
 
     // Composer
-    public var composerText = ""
+    public var composerText = "" {
+        didSet { if composerText != oldValue { onDraftChange?() } }
+    }
+    /// Told when the draft to keep changes (``draftToKeep``): the shell writes it to disk.
+    @ObservationIgnored public var onDraftChange: (@MainActor () -> Void)?
     /// Voice mode on this terminal's agent (set by the shell); the composer's
     /// voice button shows only when there is one.
     public var voiceSource: (any AgentVoiceSource)?
@@ -569,7 +573,10 @@ public final class TerminalModel {
     /// A composer send made while the terminal is not attached (a blip): the
     /// session holds its keys, and drops them if the terminal does not come
     /// back in time. Its text, with when it was sent, comes back then.
-    @ObservationIgnored var heldComposerSend: (text: String, at: TimeInterval)?
+    @ObservationIgnored var heldComposerSend: (text: String, at: TimeInterval)? {
+        // A held send is still the draft until the Mac has it (``draftToKeep``).
+        didSet { if oldValue?.text != heldComposerSend?.text { onDraftChange?() } }
+    }
     /// How long after a held send its text may come back (the session's hold, with room for the attach).
     static let heldComposerSendWindow: TimeInterval = 30
 

@@ -46,6 +46,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Leaves the workspace (back to the list).
     @ObservationIgnored public var exit: @MainActor () -> Void = {}
     @ObservationIgnored var surfaces: [String: AgentChatSurface] = [:]
+    /// Each chat tab's composer draft, kept across rebuilds and launches (nil: not kept).
+    @ObservationIgnored var drafts: ComposerDraftStore? = .shared
     /// Toggle Terminal and Chat (WorkspaceTabsSource+TerminalChat.swift): the face each paired tab
     /// shows, once the person chose one (else Rust's default).
     var chosenFaces: [String: TabFace] = [:]
@@ -596,6 +598,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         let next = store.removeTab(id, from: workspaceID)
         // The kit reads `tabs` as soon as this returns (Safari's timing).
         refreshTabs()
+        dropDraft(id)
         surfaces[id] = nil
         browsers[id] = nil
         streamed.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
@@ -941,9 +944,21 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The opening tab of a workspace this phone is creating (`WorkspaceCreator.placeholder`).
     nonisolated static func placeholderTabID(of workspaceID: String) -> String { "\(workspaceID)-t1" }
 
+    /// A tab closed or archived: its draft goes with it.
+    func dropDraft(_ id: String) {
+        guard let drafts, let macID = store.workspace(id: workspaceID)?.macID else { return }
+        drafts.clear(ComposerDraftStore.key(macID: macID, tabID: id))
+    }
+
     func surface(_ id: String) -> AgentChatSurface {
         if let surface = surfaces[id] { return surface }
         let surface = AgentChatSurface()
+        // The draft outlives the page: a rebuild, a reconnect, the app killed in the background.
+        if let drafts, let macID = store.workspace(id: workspaceID)?.macID {
+            let key = ComposerDraftStore.key(macID: macID, tabID: id)
+            surface.text = drafts.text(for: key) ?? ""
+            surface.onTextChange = { [weak drafts] text in drafts?.save(text, for: key) }
+        }
         // `/fork` and an earlier prompt's Edit and Resend open their copy as a tab beside it.
         surface.tabActions = AgentChatTabActions(
             fork: { [weak self] in await self?.fork(id) },
@@ -1693,6 +1708,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     func dropClosedTabs(_ ids: [String]) {
         for id in ids {
             _ = store.removeTab(id, from: workspaceID)
+            dropDraft(id)
             surfaces[id] = nil
             browsers[id] = nil
             streamed.drop(tab: id)
@@ -1812,6 +1828,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         let next = store.removeTab(id, from: workspaceID)
         refreshTabs()
+        dropDraft(id)
         surfaces[id] = nil
         if selectedTabID == id || !isListed(selectedTabID) { selectedTabID = next?.id }
         if self.workspace?.tabs.isEmpty ?? true { exit() }
