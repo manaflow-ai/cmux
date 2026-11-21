@@ -49,7 +49,6 @@ export interface AcpmuxRequests {
   "_acpmux/watch": { params: WatchParams; result: SessionsResult };
   "_acpmux/rename": { params: unknown; result: unknown };
   "_acpmux/register": { params: unknown; result: unknown };
-  "_acpmux/inbox_relay": { params: unknown; result: unknown };
   "_acpmux/offer_session": { params: unknown; result: unknown };
   "_acpmux/offer_respond": { params: OfferRespondParams; result: unknown };
   "_acpmux/subsession/answer": { params: unknown; result: unknown };
@@ -114,8 +113,6 @@ export interface AcpmuxRequests {
   "_acpmux/goal/set": { params: unknown; result: unknown };
   "_acpmux/goal/update": { params: unknown; result: unknown };
   "_acpmux/goal/get": { params: unknown; result: unknown };
-  "_acpmux/task_list/set": { params: unknown; result: unknown };
-  "_acpmux/task_list/get": { params: unknown; result: unknown };
   "_acpmux/plan/build": { params: unknown; result: unknown };
   "_acpmux/plan/compare": { params: unknown; result: unknown };
   "_acpmux/plan/keep": { params: unknown; result: unknown };
@@ -235,12 +232,16 @@ export interface AcpmuxRequests {
   "_acpmux/chats_window": { params: unknown; result: unknown };
   "_acpmux/chats_window_close": { params: unknown; result: unknown };
   "_acpmux/transfer_abort": { params: unknown; result: unknown };
+  "_acpmux/transfer_base": { params: unknown; result: unknown };
   "_acpmux/transfer_begin": { params: unknown; result: unknown };
   "_acpmux/transfer_commit": { params: unknown; result: unknown };
   "_acpmux/transfer_finish": { params: unknown; result: unknown };
   "_acpmux/transfer_forget": { params: unknown; result: unknown };
+  "_acpmux/transfer_prepare": { params: unknown; result: unknown };
   "_acpmux/transfer_read": { params: unknown; result: unknown };
   "_acpmux/transfer_receive": { params: unknown; result: unknown };
+  "_acpmux/transfer_stage": { params: unknown; result: unknown };
+  "_acpmux/transfer_stage_finish": { params: unknown; result: unknown };
   "_acpmux/transfer_write": { params: unknown; result: unknown };
   "_acpmux/handoff_prepare": { params: HandoffPrepareParams; result: unknown };
   "_acpmux/handoff_get": { params: HandoffGetParams; result: unknown };
@@ -434,7 +435,6 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/watch", kind: "request", acp: false, typed: true },
   { name: "_acpmux/rename", kind: "request", acp: false, typed: false },
   { name: "_acpmux/register", kind: "request", acp: false, typed: false },
-  { name: "_acpmux/inbox_relay", kind: "request", acp: false, typed: false },
   { name: "_acpmux/offer_session", kind: "request", acp: false, typed: false },
   { name: "_acpmux/offer_respond", kind: "request", acp: false, typed: true },
   { name: "_acpmux/subsession/answer", kind: "request", acp: false, typed: false },
@@ -499,8 +499,6 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/goal/set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/goal/update", kind: "request", acp: false, typed: false },
   { name: "_acpmux/goal/get", kind: "request", acp: false, typed: false },
-  { name: "_acpmux/task_list/set", kind: "request", acp: false, typed: false },
-  { name: "_acpmux/task_list/get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/plan/build", kind: "request", acp: false, typed: false },
   { name: "_acpmux/plan/compare", kind: "request", acp: false, typed: false },
   { name: "_acpmux/plan/keep", kind: "request", acp: false, typed: false },
@@ -626,12 +624,16 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/chats_window_close", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chats_window_changed", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/transfer_abort", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/transfer_base", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_begin", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_commit", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_finish", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_forget", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/transfer_prepare", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_read", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_receive", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/transfer_stage", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/transfer_stage_finish", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_write", kind: "request", acp: false, typed: false },
   { name: "_acpmux/handoff_prepare", kind: "request", acp: false, typed: true },
   { name: "_acpmux/handoff_get", kind: "request", acp: false, typed: true },

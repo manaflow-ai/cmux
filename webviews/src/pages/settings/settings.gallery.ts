@@ -561,6 +561,14 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
+  // David Beyer (Nov 20) could not find a sidebar font size: General opens on one Text Size and density pick.
+  "general-text-size": variant("general", {
+    note: "General's first card: Text Size (five Aa steps) and density, the pick Set Up cmux offers too.",
+  }),
+  "general-text-size-larger": variant("general", {
+    options: { values: { "appearance.metrics.chromeFontSize": 16, "appearance.density": "comfortable" } },
+    note: "Text Size at Larger with Comfortable density: the steps follow the density's own body size.",
+  }),
   // One settings area (David Beyer, 2026-11-20): the sidebar's short top level, then More opened.
   "sidebar-more": variant("general", {
     steps: [click(".sidebar-more"), wait('.sidebar-more[aria-expanded="true"]')],

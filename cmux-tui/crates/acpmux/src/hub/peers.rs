@@ -1894,7 +1894,9 @@ pub(super) fn listed_remote_text(
 /// or `PEER/NAME`.
 pub(super) fn names_remote(id: &str, r: &RemoteSession, key: &str) -> bool {
     let name = r.summary.name().unwrap_or("");
+    let alias = r.summary.alias();
     name == key
+        || alias == Some(key)
         || r.receipt.mux_session_id.starts_with(key)
         || id.starts_with(key)
         || name.strip_prefix(&format!("{}/", r.peer)) == Some(key)

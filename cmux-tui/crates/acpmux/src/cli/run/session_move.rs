@@ -18,7 +18,9 @@
 //!    in one checkout go to one host. A named machine no ssh peer names but the team hub lists
 //!    as one of the person's moves through the hub instead (`session_move_hub.rs`).
 //! 3. The chat is frozen here (`transfer_begin`), so nothing changes its folder or history
-//!    while the rest is made; any step below that fails gives it back (`transfer_abort`).
+//!    while the rest is made; any step below that fails gives it back (`transfer_abort`). When
+//!    both daemons list pre-copy, its history is staged on the target first, with no freeze, and
+//!    the freeze moves only what followed (`transfer::precopy`, `hub/transfer_precopy.rs`).
 //! 4. The folder (`plan_folder`, planned again now that the chat is frozen): a checkout's branch
 //!    is pushed to `origin` (never forced) and becomes a fresh worktree of that branch on the
 //!    target (`wt new` there when it has `wt`, else a fresh clone of its own under
@@ -404,10 +406,15 @@ async fn move_steps(
         }
         Source::Peer { .. } => None,
     };
-    let begun =
-        super::transfer::begin_move(src, &id, watch, (args.interrupt, args.after_turn)).await?;
+    // The target's daemon first: the chat's history is staged there before the freeze when both
+    // daemons can (`transfer::precopy`), so the freeze moves only what follows.
+    let (forward, dst, dst_init) =
+        super::transfer::connect_target(&target.ssh, &remote.socket).await?;
+    let staged = super::transfer::precopy(src, &dst, &dst_init, &id).await;
+    let running = (args.interrupt, args.after_turn);
+    let begun = super::transfer::begin_staged(src, &id, watch, running, staged.as_ref()).await?;
     let prepared = prepare(&cwd, &home, &target, &remote, args, source, o).await;
-    let (record, forward, dst, dst_init) = match prepared {
+    let record = match prepared {
         Ok(p) => p,
         Err(e) => {
             super::transfer::abort_move(src, &id, &begun).await;
@@ -438,10 +445,9 @@ async fn move_steps(
     Ok(())
 }
 
-/// The frozen chat's folder made on the target, and a client of the target's daemon: the
-/// checkout read again (it may have changed before the freeze), its branch pushed, the folder
-/// made there. Returns the move's record (`movedTo`), the forward, the client, and the
-/// receiving daemon's own `initialize` reply on it (`transfer::receiver_takes`).
+/// The frozen chat's folder made on the target: the checkout read again (it may have changed
+/// before the freeze), its branch pushed, the folder made there. Returns the move's record
+/// (`movedTo`).
 async fn prepare(
     cwd: &Path,
     home: &Path,
@@ -450,7 +456,7 @@ async fn prepare(
     args: &MoveArgs,
     source: &Source,
     o: &mut Outcome,
-) -> Result<(Value, Option<Forward>, std::sync::Arc<Client>, Value)> {
+) -> Result<Value> {
     let checkout = checkout_unless_named(cwd, args, source).await?;
     let folder = plan::plan_folder(
         cwd,
@@ -521,21 +527,7 @@ async fn prepare(
     }
     o.cwd = Some(there.clone());
     record.set("cwd", json!(there));
-    // This machine as the target (`--machine local`): its own daemon, no forward.
-    let (forward, dst) = if target.ssh.is_empty() {
-        (None, Client::connect(Path::new(&remote.socket)).await?)
-    } else {
-        let forward = Forward::open(&target.ssh, &remote.socket).await?;
-        let dst = Client::connect(&forward.local).await?;
-        (Some(forward), dst)
-    };
-    let dst_init = dst
-        .request(
-            method::INITIALIZE,
-            json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-move"}}),
-        )
-        .await?;
-    Ok((record, forward, dst, dst_init))
+    Ok(record)
 }
 
 /// The checkout `cwd` is in, unless `--cwd` names the folder there (no checkout is carried).
