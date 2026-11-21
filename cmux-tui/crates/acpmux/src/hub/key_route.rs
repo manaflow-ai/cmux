@@ -217,7 +217,7 @@ impl Hub {
                     take(
                         own,
                         &meta.name,
-                        meta.tags.get("alias").map(|tag| tag.value.as_str()),
+                        meta.tags.get("session.alias").map(|tag| tag.value.as_str()),
                         &s.id,
                         meta.handle.as_deref(),
                         &s.id,
@@ -300,7 +300,7 @@ impl Hub {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(tier) = tier_of(
                 &meta.name,
-                meta.tags.get("alias").map(|tag| tag.value.as_str()),
+                meta.tags.get("session.alias").map(|tag| tag.value.as_str()),
                 &s.id,
                 meta.handle.as_deref(),
                 true,
@@ -416,10 +416,25 @@ mod tests {
 
     /// Peer `peer`'s session `id`, listed as peers list them: under `peer/id`, named `peer/name`.
     pub(super) fn list(hub: &Hub, peer: &str, id: &str, name: &str, status: &str) {
+        list_with_alias(hub, peer, id, name, status, None);
+    }
+
+    pub(super) fn list_with_alias(
+        hub: &Hub,
+        peer: &str,
+        id: &str,
+        name: &str,
+        status: &str,
+        alias: Option<&str>,
+    ) {
+        let mut summary =
+            json!({"sessionId": id, "name": format!("{peer}/{name}"), "status": status});
+        if let Some(alias) = alias {
+            summary["tags"] = json!({"session.alias": alias});
+        }
         let row = RemoteSession {
             peer: peer.into(),
-            summary: json!({"sessionId": id, "name": format!("{peer}/{name}"), "status": status})
-                .into(),
+            summary: summary.into(),
             receipt: SessionReceipt {
                 host_id: peer.into(),
                 mux_session_id: id.into(),

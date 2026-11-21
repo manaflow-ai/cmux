@@ -2304,7 +2304,7 @@ impl Hub {
         let (mut by_name, mut by_segment, mut by_prefix) = (Vec::new(), Vec::new(), Vec::new());
         for s in sessions.values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let alias = meta.tags.get("alias").map(|tag| tag.value.as_str());
+            let alias = meta.tags.get("session.alias").map(|tag| tag.value.as_str());
             if meta.name == key || alias == Some(key) {
                 by_name.push(s.clone());
             }
@@ -2385,7 +2385,7 @@ impl Hub {
         let mut counts = [0_usize; 3];
         for s in sessions.values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let alias = meta.tags.get("alias").map(|tag| tag.value.as_str());
+            let alias = meta.tags.get("session.alias").map(|tag| tag.value.as_str());
             if s.id.starts_with(key)
                 || meta.name.starts_with(key)
                 || alias.is_some_and(|alias| alias.starts_with(key))

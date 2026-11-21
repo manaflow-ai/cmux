@@ -81,7 +81,7 @@ impl Hot {
             handle: text("handle"),
             alias: summary
                 .get("tags")
-                .and_then(|tags| tags.get("alias"))
+                .and_then(|tags| tags.get("session.alias"))
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|alias| !alias.is_empty())
