@@ -117,6 +117,7 @@ interface NewVm {
   readonly idleTimeoutSeconds: number;
   readonly maxRunSeconds: number | undefined;
   readonly autoDeleteSeconds: number | undefined;
+  readonly ttlSeconds: number | undefined;
   readonly size: SizeRequest | undefined;
 }
 
@@ -299,6 +300,7 @@ const createRecordedTimed = <C, S, M>(
           idleTimeoutSeconds: spec.idleTimeoutSeconds,
           ...(spec.maxRunSeconds === undefined ? {} : { maxRunSeconds: spec.maxRunSeconds }),
           ...(spec.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: spec.autoDeleteSeconds }),
+          ...(spec.ttlSeconds === undefined ? {} : { ttlSeconds: spec.ttlSeconds }),
           ...(spec.size === undefined ? {} : { size: spec.size }),
           environment: policy.environment,
           journal,
@@ -495,6 +497,8 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
       if (networkIntent !== undefined) request.push(networkIntent.fingerprint);
       // Likewise an omitted mesh: only a create that names one carries it, so a key is never replayed onto another mesh.
       if (payload.meshId !== undefined) request.push(`mesh:${payload.meshId}`);
+      // And an omitted deadline, so every create from before the field keeps its fingerprint.
+      if (payload.ttlSeconds !== undefined) request.push(`ttl:${payload.ttlSeconds}`);
       const clientFingerprint = payload.image === undefined ? undefined : yield* requestFingerprint(["createVm:client:v1", request, payload.image.id, payload.image.revision]);
       const imageDecision = payload.image === undefined ? undefined : yield* Effect.either(vmImageAllowed(caller, payload.image));
       if (imageDecision?._tag === "Left" && payload.image !== undefined) {
@@ -509,6 +513,7 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
         idleTimeoutSeconds,
         maxRunSeconds: payload.maxRunSeconds,
         autoDeleteSeconds: payload.autoDeleteSeconds,
+        ttlSeconds: payload.ttlSeconds,
         size: payload.resources,
       };
       if (imageIntent !== undefined) request.push(`image:${imageIntent.fingerprint}`);
@@ -616,6 +621,8 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
           payload.autoDeleteSeconds ?? null,
           sortedLabels(payload.labels),
         ];
+        // Only a fork that names a deadline carries it, so every fork from before the field keeps its fingerprint.
+        if (payload.ttlSeconds !== undefined) request.push(`ttl:${payload.ttlSeconds}`);
         const limits = yield* TenantLimits;
         const generated = idempotencyKey === undefined ? yield* issueCreation(principal, "fork", payload, source.value) : undefined;
         const effectiveKey = generated?.key ?? idempotencyKey;
@@ -654,6 +661,7 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
               idleTimeoutSeconds,
               maxRunSeconds: payload.maxRunSeconds,
               autoDeleteSeconds: payload.autoDeleteSeconds,
+              ttlSeconds: payload.ttlSeconds,
               size: undefined,
             };
             return yield* withCreateSlot(caller, (mayCreate) =>

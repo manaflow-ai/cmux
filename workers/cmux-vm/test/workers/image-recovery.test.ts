@@ -54,7 +54,7 @@ it("reconciles an unrecorded allocation after withdrawal without reading the rem
 
 it.each([
   { displayName: "changed" }, { resources: { vcpus: 8 } }, { maxRunSeconds: 120 },
-  { autoDeleteSeconds: 600 }, { idleTimeoutSeconds: 120 }, { labels: { role: "cloud", changed: "yes" } },
+  { autoDeleteSeconds: 600 }, { ttlSeconds: 600 }, { idleTimeoutSeconds: 120 }, { labels: { role: "cloud", changed: "yes" } },
 ])("rejects changed request fields after withdrawal: %j", async (extra) => {
   expect((await create()).status).toBe(201);
   withdraw();
