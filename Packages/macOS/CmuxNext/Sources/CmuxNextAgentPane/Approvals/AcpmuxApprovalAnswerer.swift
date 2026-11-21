@@ -9,8 +9,8 @@ import os
 /// and Deny send it.
 @MainActor
 public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswering {
-    private let environment: AcpmuxEnvironment
-    private let chiefHomeID: String?
+    let environment: AcpmuxEnvironment
+    let chiefHomeID: String?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "notifications.approval")
 
     public init(environment: AcpmuxEnvironment, chiefHomeID: String? = nil) {

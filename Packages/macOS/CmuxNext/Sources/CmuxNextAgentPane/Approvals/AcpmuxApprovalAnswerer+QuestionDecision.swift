@@ -1,0 +1,54 @@
+import Foundation
+
+/// What signing one Home question answer came to.
+public enum AgentQuestionDecisionOutcome: Sendable, Equatable {
+    /// The `question.answer` op's `decision` envelope, as canonical JSON text.
+    case signed(String)
+    /// This daemon does not hold that prompt for this home: try the next one.
+    case notHere
+    /// The prompt ended or changed since the daemon read it.
+    case expired
+    /// Not the person's line, no key, an answer the request does not take, or the click expired.
+    case refused
+}
+
+extension AcpmuxApprovalAnswerer {
+    /// Signs a Home answer to a Chief question (acpmux `decision_answers_proof`) after a native
+    /// click. `unsignedJSON` is the daemon's `conversation-question-decision` reply. The daemon is
+    /// not trusted with it: the prompt is read again here on a person-proven line, and its run
+    /// (`personInstance`), one-use `decisionNonce` and request digest must match the reply. The
+    /// reply's `answers` must also be an answer that request takes (``AgentPaneQuestionReply``).
+    /// Only then, and only through `gate` (the click's one use), does the key sign. A proof works
+    /// for that prompt, option and answers only, and acpmux spends it once.
+    public func signQuestionDecision(_ unsignedJSON: String,
+                                     through gate: @escaping @Sendable (() -> Void) -> Bool) async -> AgentQuestionDecisionOutcome {
+        guard let unsigned = (try? JSONSerialization.jsonObject(with: Data(unsignedJSON.utf8))) as? [String: Any],
+              let session = unsigned["session"] as? String, let permission = unsigned["permission"] as? String,
+              let option = unsigned["option_id"] as? String, let instance = unsigned["instance"] as? String,
+              let nonce = unsigned["decision_nonce"] as? String, let digest = unsigned["digest"] as? String,
+              let answers = unsigned["answers"] as? [String: Any], let question = unsigned["question"],
+              let claimed = unsigned["request"] as? [String: Any], !instance.isEmpty, !nonce.isEmpty,
+              AcpmuxSecretKey.canonicalDigest(claimed) == digest else { return .refused }
+        guard let line = await AcpmuxPersonLine.open(environment) else { return .notHere }
+        defer { line.close() }
+        guard let entry = await line.ownPending(of: session, chiefHomeID: chiefHomeID)
+                .first(where: { $0["permissionId"] as? String == permission }),
+              let request = entry["request"] as? [String: Any] else { return .notHere }
+        guard entry["personInstance"] as? String == instance, entry["decisionNonce"] as? String == nonce,
+              AcpmuxSecretKey.canonicalDigest(request) == digest, let requestJSON = AcpmuxSecretKey.canonicalJSON(request)
+        else { return .expired }
+        // A question's answer is an allow: only the person's line, with this app's key for this daemon.
+        guard line.isPerson, let key = AcpmuxPersonKey.secretKey(socketPath: environment.socketPath),
+              let replyJSON = AcpmuxSecretKey.canonicalJSON(["optionId": option, "answers": answers] as [String: Any]),
+              (try? AgentPaneQuestionReply(input: .init(sessionId: session, permissionId: permission,
+                                                        requestJSON: requestJSON, requestDigest: digest),
+                                           replyJSON: replyJSON)) != nil else { return .refused }
+        var proof: String?
+        guard gate({ proof = key.decisionProof(instance: instance, session: session, permission: permission,
+                                               option: option, nonce: nonce, answers: answers) }),
+              let proof else { return .refused }
+        let envelope: [String: Any] = ["question": question, "request": claimed, "digest": digest, "instance": instance,
+                                       "option_id": option, "decision_nonce": nonce, "person_decision": proof]
+        return AcpmuxSecretKey.canonicalJSON(envelope).map(AgentQuestionDecisionOutcome.signed) ?? .refused
+    }
+}
