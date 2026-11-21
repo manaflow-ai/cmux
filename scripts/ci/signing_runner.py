@@ -47,7 +47,8 @@ job and never prints an empty `runner`:
     -> owned=..., runner=..., alternate=..., placement=... in $GITHUB_OUTPUT
 
 `signing_runner.py owned` prints `owned` and its shared `owned_pool` label
-(pick-nightly-sign-runner already prints the Blacksmith pair).
+(pick-nightly-sign-runner already prints the Blacksmith pair). `signing_runner.py next-slot` prints the signer Mac a
+nightly-next loop run's nightly-next-one takes when two build at once (nightly_next_signer_slot.py).
 """
 
 from __future__ import annotations
@@ -390,6 +391,9 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
          read_jobs: Callable[[str], Any] | None = None,
          read_snapshot: Callable[[str, str], Any] | None = None, now: dt.datetime | None = None,
          sleep: Callable[[float], None] = time.sleep) -> int:
+    if list(argv[:1]) == ["next-slot"]:  # nightly-next-one's signer Mac when two build at once
+        import nightly_next_signer_slot  # noqa: PLC0415
+        return nightly_next_signer_slot.main(env)
     now = now or dt.datetime.now(dt.timezone.utc)
     reader = read_snapshot or (lambda t, r: pool.GitHub(t, r).snapshot(now=now))
     kept: list[tuple[Any, str]] = []

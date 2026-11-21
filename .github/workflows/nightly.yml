@@ -3192,6 +3192,8 @@ jobs:
       chief_key: ${{ steps.chief-key.outputs.key }}
       already_published: ${{ steps.build.outputs.already_published }}
       superseded: ${{ steps.superseded.outputs.superseded || steps.sign-superseded.outputs.superseded }}
+      signer_slot: ${{ steps.signer-slot.outputs.slot }}
+      signer_owned: ${{ steps.signer-slot.outputs.owned }}
       # The build number (<run id><attempt>) for both side-by-side jobs, the app and the daemon.
       daemon_build: ${{ steps.daemon-build.outputs.build }}
     steps:
@@ -3313,6 +3315,19 @@ jobs:
           LOOP_RETRY: ${{ inputs.nightly_next_loop_retry }}
           SUPERSEDE_SKIP: ${{ vars.NIGHTLY_NEXT_SUPERSEDE_SKIP }}
         run: bash scripts/ci/nightly-steps/resolve-leave-build-slot.sh
+
+      # Two signer Macs, two push slots, with vars.NIGHTLY_NEXT_SIGNER_SLOTS 2; empty keeps the one shared slot.
+      - name: Pick the signer Mac for nightly-next-one
+        id: signer-slot
+        if: github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && vars.NIGHTLY_NEXT_SIGNER_SLOTS == '2' && steps.superseded.outputs.superseded != 'true'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          SLOTS: ${{ vars.NIGHTLY_NEXT_SIGNER_SLOTS }}
+        run: python3 scripts/ci/signing_runner.py next-slot
 
   # No nightly from a tree whose webview checks are red (2026-11-02: #32056's TS2448 in SessionInfo.tsx broke every
   # agent pane and was published). The pieces of webviews' `bun run check` that gate feat-cmux-next pushes
@@ -7081,10 +7096,11 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     # The push slot, never cancelled. Why: docs/ci/nightly-workflow-notes.md#note-19
     concurrency:
-      group: ${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && 'nightly-next-one-push' || format('nightly-next-one-{0}', github.run_id) }}
+      group: ${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && (github.run_attempt == 1 && needs.resolve-nightly-cmux-tui-client.outputs.signer_slot != '' && format('nightly-next-one-push-{0}', needs.resolve-nightly-cmux-tui-client.outputs.signer_slot) || 'nightly-next-one-push') || format('nightly-next-one-{0}', github.run_id) }}
       cancel-in-progress: false
-    # cmux15's signer label, a literal (one-mini mode too): no variable picks where signing secrets go.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || 'glaeda-trusted-next-signing' }}
+    # The signer label, a literal (one-mini mode too): no variable picks where signing secrets go. A slot pins one
+    # signer Mac's runner, on attempt 1 only (signing_runner.py next-slot).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || github.run_attempt == 1 && needs.resolve-nightly-cmux-tui-client.outputs.signer_owned && fromJSON(needs.resolve-nightly-cmux-tui-client.outputs.signer_owned) || 'glaeda-trusted-next-signing' }}
     # Build, sign, notarize (40m wait), then the publish lease's 60m wait.
     timeout-minutes: 300
     permissions:
