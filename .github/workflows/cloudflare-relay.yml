@@ -68,8 +68,8 @@ jobs:
       - name: Install pinned Rust toolchain and Worker builder
         run: |
           if ! pkg-config --exists openssl 2>/dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends libssl-dev pkg-config
+            sudo apt-get -o DPkg::Lock::Timeout=120 update
+            sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends libssl-dev pkg-config
           fi
           rustup target add wasm32-unknown-unknown
           cargo install --locked worker-build@0.8.5

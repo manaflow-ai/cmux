@@ -17,8 +17,8 @@ runs:
         else
           distro_jdk="/usr/lib/jvm/java-17-openjdk-$(dpkg --print-architecture)"
           if [[ ! -x "$distro_jdk/bin/javac" ]]; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends openjdk-17-jdk-headless
+            sudo apt-get -o DPkg::Lock::Timeout=120 update
+            sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends openjdk-17-jdk-headless
           fi
           jdk="$distro_jdk"
         fi

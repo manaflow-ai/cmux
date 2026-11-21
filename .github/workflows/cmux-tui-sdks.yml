@@ -250,8 +250,8 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v cmake >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends cmake
+            sudo apt-get -o DPkg::Lock::Timeout=120 update
+            sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends cmake
           fi
           clang++ --version
           cmake --version
@@ -443,8 +443,8 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v cmake >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends cmake
+            sudo apt-get -o DPkg::Lock::Timeout=120 update
+            sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends cmake
           fi
           clang++ --version
           cmake --version
@@ -625,8 +625,8 @@ jobs:
 
       - name: Install Linux build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake libclang-dev pkg-config
+          sudo apt-get -o DPkg::Lock::Timeout=120 update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y clang cmake libclang-dev pkg-config
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
