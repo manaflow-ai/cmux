@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44907057376",
+  "recorded_at": "2026-11-21T13:07:56Z",
+  "reason": "cmux-tui 7d366623b24d changes the image's cmux-tui (pinned 68f3288992be)",
+  "dry_run": false,
+  "cmux_tui": "7d366623b24d8f088ef4830e23a017beebcc74e2",
+  "fixes": [
+    {
+      "sha": "7d366623b24d8f088ef4830e23a017beebcc74e2",
+      "mergedAt": "2026-11-21T12:23:12Z",
+      "subject": "Cloud model connections: one sentence for where a token or key goes; setup's cloud_chat points at Settings > Cloud (#48925)"
+    },
+    {
+      "sha": "eb017d6a92c4ab4a4415ff3aef0e9c100384f28e",
+      "mergedAt": "2026-11-21T04:21:32-08:00",
+      "subject": "Tooltips: a live gallery of every tooltip state (Debug > Tooltip Gallery)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-21T13:07:56Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
