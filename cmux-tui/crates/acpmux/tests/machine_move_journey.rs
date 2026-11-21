@@ -11,7 +11,7 @@
 //! `hub/journal_restore.rs`) and what B had accepted is delivered again under its own prompt
 //! ids (`server/outbox.rs` `redeliver_open`): every prompt A sent runs exactly once, B2's
 //! journal holds every record A saw of B, and the agent, which resumed its own older session,
-//! is told the turns it missed (`hub/transcript.rs` `catch_up`).
+//! is told the turns it missed (`hub/transcript.rs` `missed_turns`).
 //!
 //! Debug builds only: its faults are the library's debug seams (`journal_restore.rs`,
 //! `hub::peer_snapshot_reads_fail`), which a release build of the library does not have.
