@@ -17,6 +17,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("agent-pane-older-paging-return-keeps-rows.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -147,18 +148,18 @@ await requireBrowserLane("agent-pane-older-paging-return-keeps-rows.test.ts", as
     // The streamed turn's 40 chunks and lines are drawn.
     await quiet();
     const inView = () =>
-      page.evaluate(() => {
+      page.evaluate((rowSelector) => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const box = scroller.getBoundingClientRect();
         const client = (window as any).__returnClient;
-        return [...scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")]
+        return [...scroller.querySelectorAll<HTMLElement>(rowSelector)]
           .filter((row) => {
             const rect = row.getBoundingClientRect();
             return rect.bottom > box.top + 1 && rect.top < box.bottom - 1;
           })
           .map((row) => ({ id: row.dataset.rowId!, seq: client.rows.orderOf(row.dataset.rowId!) as number }))
           .filter((row) => Number.isFinite(row.seq));
-      });
+      }, TRANSCRIPT_ROW);
     const before = await inView();
     const promptSeq = (await page.evaluate(() => (window as any).__returnPromptSeq)) as number;
     console.log(`RETURN-KEEPS-ROWS view ${JSON.stringify({ before, promptSeq })}`);
