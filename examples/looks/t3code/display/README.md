@@ -18,4 +18,4 @@ The profile centers the conversation in a 736-point column. System text at 14 po
 
 The source caps the user bubble at 80% of the column. cmux owns the bubble width, file-link treatment and wording of work summaries. This preset maps the comfortable width. The source also offers a wider 72 rem column and a full-width mode.
 
-[Column widths](https://github.com/pingdotgg/t3code/blob/v0.1.11/apps/web/src/index.css) · [User message layout](https://github.com/pingdotgg/t3code/blob/v0.1.11/apps/web/src/components/chat/TimelineUserMessage.tsx) · [Type defaults](https://github.com/pingdotgg/t3code/blob/v0.1.11/packages/contracts/src/settings.ts)
+[Column widths](https://github.com/pingdotgg/t3code/blob/v0.1.11/apps/web/src/index.css) · [User message layout](https://github.com/pingdotgg/t3code/blob/v0.1.11/apps/web/src/components/chat/TimelineUserMessageRow.tsx) · [Type defaults](https://github.com/pingdotgg/t3code/blob/v0.1.11/packages/contracts/src/settings.ts)
