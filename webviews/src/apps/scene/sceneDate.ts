@@ -114,7 +114,8 @@ function schedule() {
 function tick() {
   timer = undefined;
   now = Date.now();
-  for (const listener of [...listeners]) listener();
+  // A snapshot: a listener may subscribe or unsubscribe while the tick runs.
+  for (const listener of Array.from(listeners)) listener();
   schedule();
 }
 
