@@ -222,6 +222,16 @@ PARTS = [
     {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
      "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
+    # Power (scripts/cmux-next/power-cron.py, bench_power.py): the app and every process it owns in mW, idle with one
+    # terminal, idle with one Chromium page and scrolling a page, and standalone Ghostty idle in the same step. The
+    # terminal row's budget is that Ghostty number; the page rows' are the best other browser's in the checked-in
+    # xbench baseline. The bench configuration, as for throughput: power of a Debug build is not the app's.
+    {"name": "power", "args": [*MEASURE, "--config=bench", "--suite=power"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "power",
+     # Measured 2026-11-19 (step bb11176fe4ba, a macOS 27 measure Mac with no cached app): 2738 s, of which the cold
+     # bench build took about 2100 s and the scenarios plus the comparison about 640 s. A cached build runs in about
+     # 11 minutes; the cap holds the cold case with about 20 % to spare.
+     "run_seconds": 3300},
     # Quit and reopen with the chats restored (relaunch-wake-cron.py): the window and the shown chat drawn and live
     # again, warm and after an in-place update. Budgets in that file, each with its source. Its rows
     # (launch.relaunch.*) and the wake part's (launch.wake_proxy.*) are in the launch family, whose target is each
@@ -301,6 +311,7 @@ ROW_PARTS = [
     (r"^launch\.cold\.", "launch-cold"),
     (r"^launch\.relaunch\.", "relaunch"), (r"^launch\.wake_proxy\.", "wake"), (r"^launch\.", "launch"),
     (r"^terminal\.throughput\.", "throughput"), (r"^terminal\.scroll\.", "terminal-scroll"),
+    (r"^power\.", "power"),
     (r"^chat_size\.", "chat-size"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -323,10 +334,13 @@ ROW_PARTS = [
 # same echo with nothing frozen: the floor under the judged wake row, shown only. The chat-open paired rounds'
 # attach_to_latest ms (webui.chat_open_paired[.god].<rail>.attach_to_latest) is shown against cmuxterm-hq's ms target
 # but tracks the runner (100 to 185 ms for the same code, goal chat-attach-p95); attach_per_dcl beside it, the same
-# rounds over each load's own DOMContentLoaded, is the row judged, so a slow runner opens no regression.
+# rounds over each load's own DOMContentLoaded, is the row judged, so a slow runner opens no regression. The power
+# part's Ghostty idle mW and the app's ratio to it are the terminal row's comparison: shown, not judged (that row has
+# Ghostty's mW as budget).
 REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\."
                                 r"|acp\.[^.]+\.typing\.(to_listener|to_work)$|launch\.wake_proxy\.awake_echo_ms$"
-                                r"|webui\.chat_open_paired\.(god\.)?[a-z0-9_]+\.attach_to_latest$)")
+                                r"|webui\.chat_open_paired\.(god\.)?[a-z0-9_]+\.attach_to_latest$"
+                                r"|power\.idle\.terminal\.(ghostty_mw|vs_ghostty)$)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
@@ -2049,7 +2063,7 @@ def supported_parts_at(sha):
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
                                    capture_output=True, text=True).stdout
             ok = "--suite=launch" in text and '"--fresh-copy"' in bench and '"--ready-mark"' in bench
-        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "chat-size"):
+        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
