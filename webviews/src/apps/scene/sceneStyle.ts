@@ -223,7 +223,10 @@ export function gradientImage(value: unknown): string | undefined {
 /** Whether the node's `offset` goes in `transform` (after its rotation, or beside a ZStack `position`)
  * rather than the individual `translate`. */
 export function offsetInTransform(props: SceneProps): boolean {
-  return offsetTranslate(props.offset) !== undefined && (sceneNumber(props.rotation) !== undefined || scenePosition(props) !== undefined);
+  return (
+    offsetTranslate(props.offset) !== undefined &&
+    (sceneNumber(props.rotation) !== undefined || scenePosition(props) !== undefined)
+  );
 }
 
 /** The `offset` prop as a CSS `translate`. */
