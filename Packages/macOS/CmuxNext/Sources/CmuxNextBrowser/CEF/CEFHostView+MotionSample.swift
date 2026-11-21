@@ -15,7 +15,7 @@ extension CEFHostView {
     /// `debug.motion` `trace_*` sampler: per display frame, each shown Chromium host as
     /// `page`: `[host width, host height, page window width, page window height, wall ms,
     /// host screen x, page window screen x, page area width, detached, hosted root width, hosted root height,
-    /// hosted page screen x]`.
+    /// hosted page screen x, page area height, browser id]`.
     /// The page window is the child window the fork keeps over this view (the content child
     /// window whose top edge is the host's and whose left edge is nearest it; -1 when none is near).
     /// The page area is the host's superview (the tab's content view): the host may be held
@@ -27,7 +27,9 @@ extension CEFHostView {
     /// (`CEFLayerHosting.isDetached`: 1, else 0) no page window is over the host, and the page's pixels are the
     /// hosted root's (`CEFHostedPageView`, at the host's top-left corner): its size and the hosted view's screen x,
     /// -1 each when no page is hosted, let the harness read the page's edge and gap then
-    /// (scripts/ci/frame-pacing/split_resize.py).
+    /// (scripts/ci/frame-pacing/split_resize.py). The page area's height and the page window's browser id (-1 for none)
+    /// let a harness follow one page through a layout change and count the frames its layout does not cover its area
+    /// (scripts/cmux-next/pane-perf-terminal.py `page_gap`).
     static func motionSample(_ view: NSView) -> [String: [Any]]? {
         guard let host = view as? CEFHostView else { return nil }
         guard let window = host.window, !host.isHiddenOrHasHiddenAncestor, !host.bounds.isEmpty else { return [:] }
@@ -48,7 +50,9 @@ extension CEFHostView {
                           rounded(host.superview?.bounds.width ?? host.bounds.width),
                           host.layerHosting.isDetached ? 1 : 0,
                           hostedRoot.map { rounded($0.width) } ?? -1, hostedRoot.map { rounded($0.height) } ?? -1,
-                          hosted.map { rounded(window.convertToScreen($0.convert($0.bounds, to: nil)).minX) } ?? -1]
+                          hosted.map { rounded(window.convertToScreen($0.convert($0.bounds, to: nil)).minX) } ?? -1,
+                          rounded(host.superview?.bounds.height ?? host.bounds.height),
+                          Int(host.layerHosting.browser ?? -1)]
         return ["page": [row]]
     }
 }
