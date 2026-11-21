@@ -1,6 +1,10 @@
-// The live line's "Thinking" handing over to a tool call, read frame by frame on the scripted
-// `arrive-thinking` turn (send-stream-motion.harness.tsx): thinking-tool-swap-stills.test.ts draws
-// it for review, thinking-tool-swap-frames.test.ts holds it to its bounds.
+// The live line's words handing over to a tool call, read frame by frame on the scripted `arrive-tool`
+// turn (send-stream-motion.harness.tsx; conversation.css `data-live-swap`):
+// thinking-tool-swap-stills.test.ts draws it for review, thinking-tool-swap-frames.test.ts holds it to
+// its bounds.
+import type { Page } from "playwright";
+
+export const SWAP_PAGE = "/test/browser/send-stream-motion.html";
 
 /// One box in the viewport, px.
 export type Box = { top: number; bottom: number; left: number; right: number };
@@ -176,7 +180,7 @@ export function readSwapFrame(): SwapFrame {
 }
 
 /// The px every drawn thing moved since the frame before: the live line's words (the leaving and the
-/// arriving), the live line and every row in view (by id).
+/// arriving), the live line and every row in view (by id; pass rows: [] for the line alone).
 export function movedPx(before: SwapFrame, now: SwapFrame): number {
   let most = 0;
   const step = (a: Box | undefined, b: Box | undefined) => {
@@ -205,4 +209,52 @@ export function overlapPx(frame: SwapFrame, arriving: ReadonlySet<string>): numb
     if (height > 0 && width > 0) most = Math.max(most, height);
   }
   return Math.round(most * 100) / 100;
+}
+
+/// Runs `arrive-tool` on a page opened at SWAP_PAGE (with `swapFrameGate` installed) and reads every
+/// frame from the one drawn before the call starts to 48 frames (400 ms) past its end; `each` sees
+/// each frame as it is drawn (the stills take their picture there).
+export async function recordSwap(
+  page: Page,
+  each?: (frame: SwapFrame, index: number, landed: number) => Promise<void>,
+): Promise<{ frames: SwapFrame[]; landed: number }> {
+  await page.waitForFunction(() => "__sendStream" in window);
+  await page.getByText("History answer 6.").waitFor();
+  const run = page.evaluate(() =>
+    (window as unknown as { __sendStream: { run(options: object): Promise<unknown> } }).__sendStream
+      .run({ scenario: "arrive-tool" })
+      .then(() => true),
+  );
+  await page.waitForFunction(() => (window as unknown as { __phase?: string }).__phase === "begin");
+  // The composer's stand-in and the scroller's edge fade would cover the live line on this page.
+  await page.addStyleTag({
+    content:
+      ".acpmux-dock { visibility: hidden !important; } .acpmux-scroll, .acpmux-scroll * { mask-image: none !important; -webkit-mask-image: none !important; }",
+  });
+  const frames: SwapFrame[] = [];
+  let landed = -1;
+  for (let index = 0; index < 400 && (landed < 0 || index - landed <= 48); index += 1) {
+    if (index > 0) await page.evaluate(() => (window as unknown as { __advance: () => Promise<void> }).__advance());
+    const frame = await page.evaluate(readSwapFrame);
+    if (landed < 0 && frame.phase === "land") landed = index;
+    frames.push(frame);
+    await each?.(frame, index, landed);
+  }
+  await page.evaluate(() => (window as unknown as { __release: () => void }).__release());
+  await run;
+  return { frames, landed };
+}
+
+/// The call's rows: rows in view after the call ends that were not before it.
+export function arrivingRows(frames: SwapFrame[], landed: number): Set<string> {
+  const before = new Set(frames[landed - 1]?.rows.map((row) => row.id));
+  const arriving = new Set<string>();
+  for (const frame of frames.slice(landed)) for (const row of frame.rows) if (!before.has(row.id)) arriving.add(row.id);
+  return arriving;
+}
+
+/// Frames in which the leaving words and an arriving row are both drawn: the call's name twice.
+export function drawnTwice(frame: SwapFrame, arriving: ReadonlySet<string>): boolean {
+  if (!frame.out || frame.out.ink <= 0.02) return false;
+  return frame.rows.some((row) => arriving.has(row.id) && row.ink > 0.02);
 }

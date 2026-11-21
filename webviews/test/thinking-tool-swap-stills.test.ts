@@ -1,6 +1,6 @@
 // Stills of the live line's "Thinking" handing over to a tool call, frame by frame, for review (Leo,
 // 2026-11-21: "the animation for the Thinking swapping to tool calls also probably needs to be
-// smoothed out"). Run with CMUX_SWAP_STILLS=<dir> (and CMUX_SWAP_LOOKS=before,exit,cross,slide):
+// smoothed out"). Run with CMUX_SWAP_STILLS=<dir> (and CMUX_SWAP_LOOKS=roll,exit,quick,cross,slide; CMUX_SWAP_THEME=light):
 // each look writes PNGs of the live line's corner, one per 120 Hz frame from the call's arrival on,
 // plus frames.json with, per frame, the leaving words' box and ink, the arriving words' box, the
 // live line's and the arriving row's boxes and ink. Skipped otherwise: it asserts nothing (the
@@ -15,13 +15,13 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
-import { swapFrameGate, readSwapFrame, type SwapFrame } from "./support/thinkingToolSwap";
+import { recordSwap, SWAP_PAGE, swapFrameGate } from "./support/thinkingToolSwap";
 
 await requireBrowserLane("thinking-tool-swap-stills.test.ts", async () => {
   setDefaultTimeout(240_000);
   const OUT = process.env.CMUX_SWAP_STILLS;
   const LOOKS = (process.env.CMUX_SWAP_LOOKS ?? "").split(",").filter(Boolean);
-  const PAGE = "/test/browser/send-stream-motion.html";
+  const PAGE = SWAP_PAGE;
   const skip = !OUT;
   let vite: Awaited<ReturnType<typeof import("vite").createServer>> | undefined;
   beforeAll(async () => {
@@ -57,51 +57,20 @@ await requireBrowserLane("thinking-tool-swap-stills.test.ts", async () => {
         const theme = process.env.CMUX_SWAP_THEME ?? "dark";
         await page.emulateMedia({ colorScheme: theme === "light" ? "light" : "dark" });
         await page.goto(`http://127.0.0.1:${port}${PAGE}?clock=frames&rows=1${look ? `&liveSwap=${look}` : ""}`);
-        await page.waitForFunction(() => "__sendStream" in window);
-        await page.getByText("History answer 6.").waitFor();
-        const run = page.evaluate(() =>
-          (window as unknown as { __sendStream: { run(options: object): Promise<unknown> } }).__sendStream
-            .run({ scenario: "arrive-tool" })
-            .then(() => true),
-        );
-        await page.waitForFunction(() => (window as unknown as { __phase?: string }).__phase === "begin");
-        // The composer's stand-in would cover the live line on this page: hide it for the stills.
-        await page.addStyleTag({
-          content:
-            ".acpmux-dock { visibility: hidden !important; } .acpmux-scroll, .acpmux-scroll * { mask-image: none !important; -webkit-mask-image: none !important; }",
-        });
-        const frames: (SwapFrame & { png: Buffer })[] = [];
+        const shots: Buffer[] = [];
         const full: Buffer[] = [];
-        // The frame drawn before the call starts, every frame to its end, and 48 frames (400 ms) on.
-        let landed = -1;
         let clipTop: number | undefined;
-        for (let frame = 0; frame < 400 && (landed < 0 || frame - landed <= 48); frame += 1) {
-          if (frame > 0)
-            await page.evaluate(() => (window as unknown as { __advance: () => Promise<void> }).__advance());
-          const now = await page.evaluate(readSwapFrame);
-          if (landed < 0 && now.phase === "land") landed = frame;
+        const { frames } = await recordSwap(page, async (now, index, landed) => {
           clipTop ??= Math.max(0, now.clipTop);
-          const clip = { x: 0, y: clipTop, width: 760, height: 190 };
-          frames.push({ ...now, png: await page.screenshot({ clip }) });
-          if (frame === 0 || frame === landed + 48) full.push(await page.screenshot());
-        }
-        await page.evaluate(() => (window as unknown as { __release: () => void }).__release());
-        await run;
+          shots.push(await page.screenshot({ clip: { x: 0, y: clipTop, width: 760, height: 190 } }));
+          if (index === 0 || index === landed + 48) full.push(await page.screenshot());
+        });
         expect(frames.length).toBeGreaterThan(0);
         const dir = path.join(OUT!, `${look || "shipped"}-${theme}`);
         mkdirSync(dir, { recursive: true });
-        frames.forEach((frame, index) =>
-          writeFileSync(path.join(dir, `${String(index).padStart(2, "0")}.png`), frame.png),
-        );
+        shots.forEach((png, index) => writeFileSync(path.join(dir, `${String(index).padStart(2, "0")}.png`), png));
         full.forEach((png, index) => writeFileSync(path.join(dir, `full-${index ? "end" : "start"}.png`), png));
-        writeFileSync(
-          path.join(dir, "frames.json"),
-          JSON.stringify(
-            frames.map(({ png: _png, ...frame }) => frame),
-            null,
-            1,
-          ),
-        );
+        writeFileSync(path.join(dir, "frames.json"), JSON.stringify(frames, null, 1));
       } finally {
         await browser.close();
       }
