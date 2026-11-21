@@ -159,12 +159,28 @@ async fn inbox(
 ) -> Result<Value, RpcError> {
     let unread_only = params.get("unreadOnly").and_then(Value::as_bool).unwrap_or(true);
     let before = params.get("before").and_then(Value::as_u64);
-    let mut page = mesh
-        .team_messages(unread_only, None, before)
-        .await
-        .map_err(|e| RpcError::internal(format!("the mesh hub did not answer: {e}")))?;
+    let mut page = team_page(mesh, unread_only, before).await?;
     page.messages.retain(|message| may_read(conn, &message.to));
     Ok(serde_json::to_value(page).unwrap_or(Value::Null))
+}
+
+/// One page of the team's messages (`acpmux inbox`), tried again on a hub failure that passes
+/// (`mesh_retry`: no connection, a 5xx, or a 404 `mesh.not_found` while the hub briefly does not
+/// list this daemon). What is left says whether the hub answered at all.
+async fn team_page(
+    mesh: &Arc<dyn MeshHub>,
+    unread_only: bool,
+    before: Option<u64>,
+) -> Result<crate::mesh::TeamPage, RpcError> {
+    crate::mesh_retry::retry(true, || mesh.team_messages(unread_only, None, before)).await.map_err(
+        |e| {
+            let what = if e.status.is_some() { "refused the inbox read" } else { "did not answer" };
+            RpcError::internal(format!("the mesh hub {what}: {e}")).with_data(json!({
+                "reason": e.code.as_deref().unwrap_or("mesh.unavailable"),
+                "retryable": !e.refused,
+            }))
+        },
+    )
 }
 
 /// Local session identity, not a mutable address tag, scopes agent access. The hub
@@ -188,18 +204,16 @@ async fn read(
     let mut before = None;
     // Browse all pages to locate the body; this never steals the relay's lease.
     loop {
-        let page = mesh
-            .team_messages(false, None, before)
-            .await
-            .map_err(|e| RpcError::internal(format!("the mesh hub did not answer: {e}")))?;
+        let page = team_page(mesh, false, before).await?;
         if let Some(mut message) = page
             .messages
             .into_iter()
             .find(|message| message.message_id == id && may_read(conn, &message.to))
         {
-            let receipt = mesh.read(&id).await.map_err(|e| {
-                RpcError::internal(format!("the mesh hub did not mark it read: {e}"))
-            })?;
+            let receipt =
+                crate::mesh_retry::retry(false, || mesh.read(&id)).await.map_err(|e| {
+                    RpcError::internal(format!("the mesh hub did not mark it read: {e}"))
+                })?;
             message.state = Some(receipt.state.clone());
             return Ok(json!({"message": message, "receipt": receipt}));
         }
