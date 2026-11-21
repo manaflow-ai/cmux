@@ -23,7 +23,6 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextMacScreen
 import CmuxNextDaemonRecovery
-public import CmuxNextDictation
 import CmuxNextFloating
 import CmuxNextFavicons
 import CmuxNextHibernation
@@ -371,12 +370,6 @@ final class AppServices {
         overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.menuBarAgentsWorking ?? 0 },
                                       lockMac: { SleepyMacLock().lock() })
     )
-    /// Share Screen with Chief (docs/chief-screen-share.md); journal in `optchat/screen`. Its capture
-    /// host went with the cmux Computer Use helper: until cmux Remote serves screen stills, the
-    /// share reports itself unavailable (``ChiefScreenStillsUnavailable``).
-    lazy var chiefScreenShare = ChiefScreenShare(
-        capture: ChiefScreenHelperCapture(host: ChiefScreenStillsUnavailable()),
-        journal: ChiefScreenJournal(directory: ChiefHome.resolve(tag: environment.tag).muxHome.appending(path: "optchat/screen", directoryHint: .isDirectory)))
     /// Native input for `browser.page.mouse|wheel|insert_text|key` (`BrowserNativeInputs`).
     let browserNativeInputs = BrowserNativeInputs()
     /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).

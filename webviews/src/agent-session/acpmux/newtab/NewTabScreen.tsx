@@ -438,8 +438,6 @@ export function NewTabScreen(props: Props) {
   const newProjectMade = useRef<{ name: string; folder: string }>(undefined);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
   const [commandActive, setCommandActive] = useState(0);
-  /// The `/word` the arrows chose a row at: Return picks that row while the word and the list stay.
-  const [commandArrowedAt, setCommandArrowedAt] = useState<string>();
   const [commandDismissed, setCommandDismissed] = useState<string>();
   /// The `/word` the field's caret ends (MarkdownField `onSlash`), as in the chat composer.
   const [commandTrigger, setCommandTrigger] = useState<SlashTrigger>();
@@ -990,10 +988,6 @@ export function NewTabScreen(props: Props) {
   // word typed again opens the list again, as in the chat composer (Composer `edit`).
   if (commandDismissed !== undefined && commandDismissed !== text) setCommandDismissed(undefined);
   const commandsOpen = commandAt !== undefined && commandDismissed !== text && commandMatches.length > 0;
-  // The row the arrows chose holds only while its word and its list stay: a new word, a cleared draft
-  // or the list closing forgets it (adjusted while rendering, before any key reads it).
-  if (commandArrowedAt !== undefined && (!commandsOpen || commandQuery !== commandArrowedAt))
-    setCommandArrowedAt(undefined);
   // A `/word` further on that names no command is the person's text (a path): the rows stay.
   const commandTyping = commandAt !== undefined && (commandAt.leading || commandMatches.length > 0);
   const commandIndex = Math.min(commandActive, Math.max(0, commandMatches.length - 1));
@@ -1661,19 +1655,14 @@ export function NewTabScreen(props: Props) {
         setCommandActive(
           (commandIndex + (event.key === "ArrowDown" ? 1 : commandMatches.length - 1)) % commandMatches.length,
         );
-        setCommandArrowedAt(commandQuery);
         return;
       }
-      // As in chat (slashCommands.ts returnPicks): Tab picks; a plain Return picks only a row the
-      // arrows chose or one whose name the typed word begins. Shift-Return, Cmd-Return and any other
-      // Return keep their meaning (a line, a send).
+      // As in chat (slashCommands.ts returnPicks): Tab and a plain Return pick the highlighted row
+      // (Return runs a whole command name that takes no arguments). Shift-Return, Cmd-Return and any
+      // other Return keep their meaning (a line, a send).
       const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
       const match = commandMatches[commandIndex];
-      if (
-        plain &&
-        (event.key === "Tab" ||
-          (event.key === "Enter" && returnPicks(match, commandQuery ?? "", commandArrowedAt !== undefined)))
-      ) {
+      if (plain && (event.key === "Tab" || (event.key === "Enter" && returnPicks(match, commandQuery ?? "")))) {
         event.preventDefault();
         pickCommand(match!.command);
         return;
@@ -2440,9 +2429,12 @@ export function NewTabScreen(props: Props) {
                     : rows[current]
                       ? `nt-row-${current}`
                       : undefined,
-                  spellcheck: spellChecking && !shell ? "true" : "false",
+                  // One completion UI: the system's spelling bubble and inline predictions stay off
+                  // while the slash list shows, as in the chat composer.
+                  spellcheck: spellChecking && !shell && !commandsOpen ? "true" : "false",
                   autocapitalize: "off",
                   autocorrect: "off",
+                  writingsuggestions: commandsOpen ? "false" : undefined,
                 }}
               />
               {/* The attachments placed in the text draw inside the field at their place, as Messages
