@@ -3220,7 +3220,7 @@ jobs:
     # sharing a host's CPU between tests. They run no XCTest, so unlike
     # cli-product-tests they hold no gui token: on an owned pool they take the
     # root label, which has a runner per root, not the one gui runner per mini.
-    runs-on: ${{ github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant) || needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')[format('cli-regressions-{0}', matrix.shard)] || (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, format(' cli-regressions-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_root_runner || needs.macos-compile-admission.outputs.runner }}
+    runs-on: ${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')[format('cli-regressions-{0}', matrix.shard)] || github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant) || (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, format(' cli-regressions-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_root_runner || needs.macos-compile-admission.outputs.runner }}
     strategy:
       fail-fast: false
       matrix:
@@ -3240,7 +3240,7 @@ jobs:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ github.event_name == 'pull_request' && inputs.pr_grant != '' && inputs.pr_grant || needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')[format('cli-regressions-{0}', matrix.shard)] || (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, format(' cli-regressions-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_root_runner || needs.macos-compile-admission.outputs.runner }}
+          REQUESTED_RUNNER: ${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')[format('cli-regressions-{0}', matrix.shard)] || github.event_name == 'pull_request' && inputs.pr_grant != '' && inputs.pr_grant || (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, format(' cli-regressions-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_root_runner || needs.macos-compile-admission.outputs.runner }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
