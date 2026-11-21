@@ -1,4 +1,5 @@
 import { acpmuxPerf } from "./perf";
+import { useLocationShortcut } from "./composerControls";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
@@ -1582,6 +1583,7 @@ function LocationPicker({
   const press = usePopoverTrigger(open, changeOpen);
   const trigger = useRef<HTMLButtonElement>(null);
   useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
+  const shortcut = useLocationShortcut(disabled ? undefined : menu);
   useEffect(() => {
     if (!closeOnTrustAsk || !open) return;
     setPopoverOpen(false);
@@ -1641,7 +1643,9 @@ function LocationPicker({
       ref={control}
       className="acpmux-location-picker"
       data-kind={kind}
-      title={kind === "computer" ? label + ": " + value : undefined}
+      // The folder chip shows its folder; its tooltip only names its key, when it has one.
+      title={kind === "computer" ? label + ": " + value : shortcut ? label : undefined}
+      data-tooltip-shortcut={shortcut}
     >
       <button
         ref={trigger}

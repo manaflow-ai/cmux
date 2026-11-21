@@ -187,6 +187,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         }
         // A toolbar row under the strip (a browser's omnibar) or content sharing the tab row (the docked Home, msg 31502): no divider.
         stripView.meetsToolbar = onTop && !isBandActive && shown > 0 && (rowTools > 0 || (visibleContent as? any ToolbarEdgeHosting)?.showsToolbarRowAtTop == true)
+        (visibleContent as? any ToolbarEdgeHosting)?.meetsTabStrip = onTop && !isBandActive && shown > 0 && (visibleContent as? any ToolbarEdgeHosting)?.showsToolbarRowAtTop == true
         var hostFrame = isBandActive || rowTools > 0 ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
         contentHost.paintsRestingGround = rowTools <= 0
         let listWidth = layoutVerticalList()

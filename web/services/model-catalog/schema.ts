@@ -23,7 +23,7 @@ export const DOCS_URL_HOSTS = [
 ] as const;
 
 const EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
-const STATUSES = ["preview", "deprecated"];
+const STATUSES = ["preview", "deprecated", "disabled"];
 const MODALITIES = ["text", "image", "pdf", "audio", "video"];
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:/@[\]+-]{0,199}$/;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -104,10 +104,33 @@ function checkHarnessModel(input: unknown, path: string): HarnessModel {
   optional(model, "fast", path, bool);
   optional(model, "aliases", path, list((v, p) => matching(v, ID, p)));
   optional(model, "status", path, oneOf(STATUSES));
+  optional(model, "statusReason", path, text);
   if (model.defaultEffort !== undefined && !(model.efforts as string[] | undefined)?.includes(model.defaultEffort as string)) {
     fail(`${path}.defaultEffort`, "must be one of its efforts");
   }
   return model as unknown as HarnessModel;
+}
+
+/** A harness's feed rules (types.ts `HarnessFeed`): data a client matches feed ids against. */
+function checkFeed(input: unknown, path: string): void {
+  const feed = record(input, path);
+  if (!Array.isArray(feed.sources) || feed.sources.length === 0 || feed.sources.length > 16) {
+    fail(`${path}.sources`, "must be an array of 1 to 16 sources");
+  }
+  feed.sources.forEach((raw, index) => {
+    const source = record(raw, `${path}.sources[${index}]`);
+    matching(source.provider, SLUG, `${path}.sources[${index}].provider`);
+    for (const key of ["include", "exclude"]) optional(source, key, `${path}.sources[${index}]`, list(text));
+    optional(source, "minReleaseDate", `${path}.sources[${index}]`, text);
+  });
+  optional(feed, "shortNamePrefix", path, text);
+  optional(feed, "familyNames", path, (v, p) => {
+    for (const [key, name] of Object.entries(record(v, p))) text(name, `${p}.${key}`);
+  });
+  optional(feed, "dropEfforts", path, list(oneOf(EFFORTS)));
+  optional(feed, "defaultEffort", path, oneOf(EFFORTS));
+  optional(feed, "groupByProvider", path, bool);
+  optional(feed, "hidden", path, list(text));
 }
 
 function checkHarness(input: unknown, path: string): CatalogHarness {
@@ -126,6 +149,8 @@ function checkHarness(input: unknown, path: string): CatalogHarness {
   optional(harness, "defaultModel", path, (v, p) => {
     if (!models.some((model) => model.id === v)) fail(p, "must name one of its models");
   });
+  optional(harness, "runsAnyModel", path, bool);
+  optional(harness, "feed", path, checkFeed);
   return harness as unknown as CatalogHarness;
 }
 

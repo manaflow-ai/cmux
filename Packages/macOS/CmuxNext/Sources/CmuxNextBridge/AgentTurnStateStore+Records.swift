@@ -57,6 +57,7 @@ extension AgentTurnStateStore {
     private func forget(_ id: String) {
         guard let record = sessions.removeValue(forKey: id) else { return }
         if record.state != nil {
+            if record.state == .working { workingSessions -= 1 } // the count stays this Mac's working records
             record.state = nil
             stateRevision &+= 1
         }
