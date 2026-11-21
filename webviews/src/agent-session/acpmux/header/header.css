@@ -112,6 +112,11 @@
 .acpmux-header-worktree>svg{flex:none}
 .acpmux-header-worktree-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-header-worktree-detail{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+/* The default-off live-tree slice: a quiet marker beside the chat's worktree pill. */
+.acpmux-header-tool.acpmux-header-live-tree{width:auto;gap:4px;min-width:0;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-header-live-tree>svg{flex:none}
+.acpmux-live-tree-status{width:280px}
+.acpmux-live-tree-path{display:block;margin-top:6px;padding:5px 6px;border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 5%,var(--agent-page-bg));color:var(--agent-text);font:inherit;font-size:var(--text-detail);overflow-wrap:anywhere}
 /* The pill's popover (cx-lyqio.4): the branch, what it is a worktree of, then Apply and where it stands. */
 .acpmux-worktree-status{width:280px}
 .acpmux-worktree-apply{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:2px;padding:8px 6px 2px;border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail);overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}
@@ -450,3 +455,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.acpmux-live-tree-results{list-style:none;margin:0;padding:4px 6px;font-size:var(--text-detail)}
+.acpmux-live-tree-results li{display:flex;justify-content:space-between;gap:12px}
