@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+
 /// The outline over the native element being pointed at, with a chip naming it ("Tab · notes.md"). It never
 /// takes the mouse; one is reused for the whole pick.
 @MainActor
