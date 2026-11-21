@@ -100,7 +100,8 @@ fn import_text(places: &Places, bytes: &[u8], now: i64) -> Result<String, Failur
 #[cfg(test)]
 pub(crate) fn test_auth_json(aud: &str, refresh: Option<&str>, account: bool) -> String {
     let part = |v: Value| {
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(serde_json::to_vec(&v).unwrap())
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&v).unwrap_or_default())
     };
     let token = |payload: Value| format!("{}.{}.c2ln", part(json!({"alg": "none"})), part(payload));
     let mut claims = json!({"aud": [aud], "sub": "user-1", "email": "ci@example.com"});
