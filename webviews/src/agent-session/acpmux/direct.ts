@@ -1192,6 +1192,17 @@ const oneLine = (text: string) => text.split(/\s+/).filter(Boolean).join(" ");
 /// one acpmux lists, else the one its newest `queued` or `queue_updated` record named (`authors`, by
 /// prompt id: null when that record named none), else the one the pane had: an attach's page can
 /// hold a teammate's edit without the `queued` record before it.
+/// A chat's `rollingSummary` (acpmux `RollingSummary`) as the pane's summary field: nothing
+/// before its first summary or for a blank one.
+export function rollingSummaryOf(raw: unknown): { rollingSummary?: { text: string; next?: string } } {
+  if (!raw || typeof raw !== "object") return {};
+  const { text: rawText, next: rawNext } = raw as Record<string, unknown>;
+  const text = typeof rawText === "string" ? rawText.trim() : "";
+  if (!text) return {};
+  const next = typeof rawNext === "string" ? rawNext.trim() : "";
+  return { rollingSummary: next ? { text, next } : { text } };
+}
+
 /// A queue list's `subagentRetry` (acpmux `QueuedSubagentRetry`) as a row's resume.
 function listedRetry(raw: unknown): SubagentRetryNotice | undefined {
   if (!raw || typeof raw !== "object") return undefined;
@@ -3255,6 +3266,7 @@ export class AcpmuxDirectClient {
   private readonly sessionPages = new SessionPager<Session>(
     (method, params) => this.request(method, params),
     () => this.sessions,
+    () => this.readPeerRows(),
   );
   /// The later pages being read (`readAllSessions`), and whether a list read anew meanwhile asks
   /// for them again once that read ends (it ends early when a newer list starts).
@@ -3263,6 +3275,8 @@ export class AcpmuxDirectClient {
   /// Stops listening for `wantAllSessions`.
   private stopWantAll?: () => void;
   private sessionReread: ReturnType<typeof setTimeout> | undefined;
+  /// The list read asked for peer batch rows (`readPeerRows`), not yet started.
+  private peerRowsRead: ReturnType<typeof setTimeout> | undefined;
   /// The pending reread follows a watch lag: once it sets the list, Needs you's asks resync too.
   private sessionRereadResyncsAsks = false;
   /// Sidebar entries by acpmux session object. A changed session arrives as a new object, so unchanged rows keep their entry and skip rendering.
@@ -4454,6 +4468,9 @@ export class AcpmuxDirectClient {
           protocolVersion: 1,
           clientInfo: { name: "cmux-react-agent-pane", version: "1" },
           clientCapabilities: {},
+          // A peer's list comes as one `_acpmux/peer_rows_changed`, read by the next follow
+          // (`SessionPager.peerRowsChanged`); an acpmux before it ignores the key and sends each row.
+          _meta: { acpmux: { peerRowBatches: true } },
         },
         AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS,
       );
@@ -5751,6 +5768,10 @@ export class AcpmuxDirectClient {
       this.asks.pending(notification.params);
       this.applyPermission(notification.params);
     } else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
+    // One peer's rows changed at once (its list), told once instead of row by row: the pager reads
+    // them with the next follow (`SessionPager.peerRowsChanged`, `readPeerRows`).
+    else if (notification.method === "_acpmux/peer_rows_changed")
+      this.sessionPages.peerRowsChanged(notification.params?.afterSeq, notification.params?.listSeq);
     // acpmux took a prompt this connection sent; it comes even when the event stream lags.
     else if (notification.method === "_acpmux/prompt_accepted") {
       const promptId = notification.params?.promptId;
@@ -6351,6 +6372,17 @@ export class AcpmuxDirectClient {
         this.laterAgain = false;
         this.readAllSessions();
       });
+  }
+
+  /// Peer batch rows the pager owes (`SessionPager.peerRowsChanged`): one list read (a follow
+  /// from the cursor) for every batch that came before it starts. A read that fails is read again
+  /// later, as any list read.
+  private readPeerRows(): void {
+    if (this.closed || this.peerRowsRead) return;
+    this.peerRowsRead = setTimeout(() => {
+      this.peerRowsRead = undefined;
+      if (!this.closed) void this.refreshSessions().catch(() => this.rereadSessionsLater());
+    }, 0);
   }
 
   /// A list that could not be read to its end (a page and the whole-list fallback both failed)
@@ -11569,6 +11601,7 @@ export class AcpmuxDirectClient {
           configOptions: summary.configOptions,
           tools: chatTools(summary.tools),
           toolsMutable: summary.toolsMutable === true,
+          ...rollingSummaryOf(summary.rollingSummary),
         }
       : undefined;
     this.publishedSummaryOf = { summary, usage: this.usage, start, value };
@@ -16705,6 +16738,8 @@ export class AcpmuxDirectClient {
     this.shareOnRead.clear();
     clearTimeout(this.sessionReread);
     this.sessionReread = undefined;
+    clearTimeout(this.peerRowsRead);
+    this.peerRowsRead = undefined;
     clearTimeout(this.missingRecheck);
     this.missingRecheck = undefined;
     this.stopAfterSeq = undefined;

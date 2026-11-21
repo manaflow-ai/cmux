@@ -565,14 +565,14 @@ install_harnesses() {
     fi
   fi
   if wants codex && [ -z "$(find_codex || true)" ]; then
-    if [ "$os" = Darwin ] && "$acpmux" harness codex-runtime --help >/dev/null 2>&1; then
+    if "$acpmux" harness codex-runtime --help >/dev/null 2>&1; then
       if "$acpmux" harness codex-runtime install </dev/null >/dev/null 2>&1; then
         say "installed Codex (acpmux's pinned, checked runtime)"
       else
         say "warning: Codex did not install; later: $acpmux harness codex-runtime install"
       fi
     else
-      say "Codex is not installed: npm install -g @openai/codex (acpmux installs it on macOS only)"
+      say "Codex is not installed: update acpmux, then run $acpmux harness codex-runtime install"
     fi
   fi
 }
@@ -619,7 +619,7 @@ fi
 # 8. Where this machine stands.
 rc=0
 if "$acpmux" host doctor --help 2>/dev/null | grep -q -- '--here'; then
-  "$acpmux" host doctor --here || rc=$?
+  "$acpmux" host doctor --here --fix || rc=$?
 elif has_capability "$acpmux"; then
   "$acpmux" host join --status || rc=$?
 fi
@@ -636,7 +636,13 @@ else
 fi
 
 # 9. Last: the agents' own sign-in, on this machine.
+# FUTURE_HOOK: cmux-share-prepare-json
+# The share-host-helper-process lane will replace this named no-op with one
+# best-effort `cmux share prepare --json` call once that verb lands. Keep it
+# after sign-in so it runs once at the end of a join.
+prepare_share_hook() { :; }
 if [ "$is_joined" = 1 ]; then
   signin_step
+  prepare_share_hook
 fi
 exit "$rc"
