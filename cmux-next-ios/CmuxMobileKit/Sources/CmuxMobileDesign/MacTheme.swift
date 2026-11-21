@@ -97,6 +97,20 @@ public struct CmuxMobileMacAppearance: Codable, Equatable, Sendable {
 
     public var chat: Chat?
 
+    private enum CodingKeys: String, CodingKey {
+        case theme, wallpaper, terminal, chat
+    }
+
+    /// `chat` is read on its own: a malformed one is dropped (the stock chat), and the theme, the
+    /// accent and the terminal theme of the same frame still apply.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        theme = try container.decode(Theme.self, forKey: .theme)
+        wallpaper = try container.decodeIfPresent(Wallpaper.self, forKey: .wallpaper)
+        terminal = try container.decodeIfPresent([String].self, forKey: .terminal)
+        chat = try? container.decodeIfPresent(Chat.self, forKey: .chat)
+    }
+
     public init(theme: Theme, wallpaper: Wallpaper? = nil, terminal: [String]? = nil, chat: Chat? = nil) {
         self.theme = theme
         self.wallpaper = wallpaper
@@ -303,8 +317,19 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
 
     /// Whether the accent follows the Mac's theme.
     public var matchesMac: Bool {
-        didSet { defaults.set(matchesMac, forKey: Self.settingKey) }
+        didSet {
+            defaults.set(matchesMac, forKey: Self.settingKey)
+            // Turned back on: the chat's picture, if the Mac shows one this phone lacks, is fetched now.
+            guard matchesMac, !oldValue, let wanted = pictureWanted else { return }
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { wanted() }
+            } else {
+                Task { @MainActor in wanted() }
+            }
+        }
     }
+    /// Called on the main actor when Match Mac theme turns on (`MacAppearanceFeed` fetches a missing picture).
+    @ObservationIgnored public var pictureWanted: (@MainActor @Sendable () -> Void)?
     /// The last appearance a Mac sent (live or cached).
     public private(set) var appearance: CmuxMobileMacAppearance?
     /// Its palette, whatever ``matchesMac`` says (Settings previews it).
