@@ -192,6 +192,7 @@ export const SubagentTray = memo(function SubagentTray({
   tuckSide = "middle",
   onHold,
   onSeen,
+  onFold,
 }: {
   /// What runs or waits on the person (runningTray.ts `trayItems`): the lines the header counts.
   items: readonly TrayItem[];
@@ -255,6 +256,9 @@ export const SubagentTray = memo(function SubagentTray({
   /// App.tsx's linger counts a finished line's grace only while it could. Reported on a change only,
   /// and false when the hat stops drawing.
   onSeen?: (seen: boolean) => void;
+  /// The person folded the open hat from its header. The composer's side rail (HatRail.tsx,
+  /// hatSide.experiment.ts) shows the hat only while its list is open, so a fold puts it away.
+  onFold?: () => void;
 }) {
   // Its committed renders while measuring (loadDebug.ts `loadTick` `still`): the hat over the composer
   // draws again on an event, never on the clock's tick.
@@ -639,28 +643,20 @@ export const SubagentTray = memo(function SubagentTray({
     setTuckQuiet(true);
     setOpened(!open);
     rememberTrayOpen(chat, !open);
+    if (open) onFold?.();
   };
   // A click on one of the header's marks opens what it stands for, never the hat's fold: a subagent's
   // view, a chat the agent started, a lone command's terminal. The commands' shared mark (and a chat
   // with nowhere to open) opens the hat on its lines instead.
-  const openMark = (key: string) => {
-    const all = [...items, ...finished];
-    const item = all.find((candidate) => itemKey(candidate) === key);
-    if (item?.kind === "agent") {
-      onOpen(item.agent.id);
-      return;
-    }
-    if (item?.kind === "session" && onOpenSession) {
-      onOpenSession(item.session.sessionId);
-      return;
-    }
-    const commands = all.flatMap((candidate) => (candidate.kind === "command" ? [candidate.command] : []));
-    if (key === COMMANDS_MARK && commands.length === 1 && onOpenCommand) {
-      onOpenCommand(commands[0]);
-      return;
-    }
-    if (!open) toggle();
-  };
+  const openMark = (key: string) =>
+    openHatMark(markTarget(key, [...items, ...finished]), {
+      onOpen,
+      onOpenSession,
+      onOpenCommand,
+      onList: () => {
+        if (!open) toggle();
+      },
+    });
   // The top rim drags the list taller or shorter (trayResize.ts): up from folded opens it, down past
   // its last line folds it, a double-click goes back to the default five lines.
   const resizes = !(headed && opensPanel === "header");
@@ -1437,14 +1433,48 @@ function leadNames(t: Translate, leading: readonly TrayItem[], limit = 2): reado
     );
 }
 
-type HeadMark = { key: string; harness?: string; tone?: number; icon: string };
+export type HeadMark = { key: string; harness?: string; tone?: number; icon: string };
 /// The one mark every command shares in the header's stack.
-const COMMANDS_MARK = "commands";
+export const COMMANDS_MARK = "commands";
+
+/// What a click on a mark opens (the hat's header marks and the composer's side rail,
+/// hatSide.experiment.ts, share it): a subagent's view, a chat the agent started, a lone command's
+/// terminal; the commands' shared mark (and a chat with nowhere to open) opens the list of lines.
+export type MarkTarget =
+  | { kind: "agent"; id: string }
+  | { kind: "session"; sessionId: string }
+  | { kind: "command"; command: BackgroundCommand }
+  | { kind: "list" };
+
+export function markTarget(key: string, all: readonly TrayItem[]): MarkTarget {
+  const item = all.find((candidate) => itemKey(candidate) === key);
+  if (item?.kind === "agent") return { kind: "agent", id: item.agent.id };
+  if (item?.kind === "session") return { kind: "session", sessionId: item.session.sessionId };
+  const commands = all.flatMap((candidate) => (candidate.kind === "command" ? [candidate.command] : []));
+  if (key === COMMANDS_MARK && commands.length === 1) return { kind: "command", command: commands[0] };
+  return { kind: "list" };
+}
+
+/// The one open path every mark takes; a target its host can't open opens the list instead.
+export function openHatMark(
+  target: MarkTarget,
+  handlers: {
+    onOpen: (id: string) => void;
+    onOpenSession?: (sessionId: string) => void;
+    onOpenCommand?: (command: BackgroundCommand) => void;
+    onList: () => void;
+  },
+): void {
+  if (target.kind === "agent") return handlers.onOpen(target.id);
+  if (target.kind === "session" && handlers.onOpenSession) return handlers.onOpenSession(target.sessionId);
+  if (target.kind === "command" && handlers.onOpenCommand) return handlers.onOpenCommand(target.command);
+  handlers.onList();
+}
 
 /// What the header says while the pointer is on one of its marks (hatRolodex.experiment.ts): that
 /// line's name and what it does now, as a lone item's header reads it; the commands' shared mark names
 /// its commands. Undefined once the mark's line is gone, so the header goes back to its counts.
-function peekOf(
+export function peekOf(
   t: Translate,
   language: PaneLanguage,
   key: string,
@@ -1460,12 +1490,12 @@ function peekOf(
 }
 const NO_MARKS: readonly HeadMark[] = [];
 /// How many lines' marks the header stacks; the counts after them say the rest.
-const STACK_MARKS = 4;
+export const STACK_MARKS = 4;
 
 /// The marks the header stacks (the `stack` arm): the first lines' own glyphs, what runs first, then
 /// what ended. Agents use their harness logos; commands share one terminal mark.
 /// Computed when the lists change, never per tick.
-function stackMarks(
+export function stackMarks(
   items: readonly TrayItem[],
   finished: readonly TrayItem[],
   chatHarness: string | undefined,

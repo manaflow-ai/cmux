@@ -1,0 +1,142 @@
+/* The composer hat's marks beside the composer (HatRail.tsx, hatSide.experiment.ts; Leo, 2026-11-21:
+   "this is uncomfortably tight. didn't we say we wanted to move these to the side or smth?"). A slim
+   column of the running lines' marks at the composer's right or left, or a run of them on its bottom
+   line. The mark under the pointer (or keyboard focus) lifts as the hat's Rolodex marks do and names
+   its line in a small label beside it, toward the composer. */
+.acpmux-hat-rail {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+.acpmux-hat-rail:is([data-side="right-rail"], [data-side="left-rail"]) {
+  /* Marks touch, as the hat header's do, so the rail stands as little over the composer as it can. */
+  flex-direction: column;
+  align-self: flex-end;
+  gap: 0;
+}
+/* In the live composer (ComposerBox.tsx `hatMarks`) a side rail is the box's child: it stands just
+   past the box's edge, level with its bottom, and the box gives up that room, so the rail never
+   covers the prompt or the send controls. */
+.acpmux-composer-box[data-hat-rail] {
+  --acpmux-hat-rail-room: calc(var(--ds-space-4) + var(--ds-space-2) + var(--ds-space-1));
+}
+.acpmux-composer-box[data-hat-rail="right-rail"] {
+  margin-right: var(--acpmux-hat-rail-room);
+}
+.acpmux-composer-box[data-hat-rail="left-rail"] {
+  margin-left: var(--acpmux-hat-rail-room);
+}
+.acpmux-composer-box > .acpmux-hat-rail {
+  position: absolute;
+  bottom: 0;
+}
+.acpmux-composer-box > .acpmux-hat-rail[data-side="right-rail"] {
+  left: calc(100% + var(--ds-space-1));
+}
+.acpmux-composer-box > .acpmux-hat-rail[data-side="left-rail"] {
+  right: calc(100% + var(--ds-space-1));
+}
+.acpmux-hat-rail[data-side="bottom-line"] {
+  /* The label stands from the rail's start, not its mark's, so a later mark's label stays in a narrow pane. */
+  position: relative;
+  flex-direction: row;
+  min-width: 0;
+}
+.acpmux-hat-rail[data-side="bottom-line"] .acpmux-hat-rail__mark {
+  position: static;
+}
+.acpmux-hat-rail__mark,
+.acpmux-hat-rail__list {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--ds-space-4) + var(--ds-space-2));
+  height: calc(var(--ds-space-4) + var(--ds-space-2));
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  color: var(--agent-muted);
+  transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
+}
+.acpmux-hat-rail__mark > :not(.acpmux-hat-rail__label),
+.acpmux-hat-rail__list > * {
+  pointer-events: none;
+}
+.acpmux-hat-rail__mark:hover,
+.acpmux-hat-rail__mark[data-peeked],
+.acpmux-hat-rail__list:hover,
+.acpmux-hat-rail__list[aria-expanded="true"] {
+  background: var(--ds-surface-hover);
+  color: var(--agent-text);
+}
+.acpmux-hat-rail__mark:focus-visible,
+.acpmux-hat-rail__list:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+.acpmux-hat-rail__glyph {
+  display: inline-flex;
+  line-height: 0;
+  transition: transform var(--agent-motion-hover) var(--agent-ease-out);
+}
+.acpmux-hat-rail__mark[data-peeked] .acpmux-hat-rail__glyph {
+  transform: scale(1.2);
+}
+/* The list control: the hat's chevron, pointing up at the list it opens over the composer. */
+.acpmux-hat-rail__list > * {
+  transition: transform var(--agent-motion-hover) var(--agent-ease-out);
+  transform: rotate(180deg);
+}
+.acpmux-hat-rail__list[aria-expanded="true"] > * {
+  transform: none;
+}
+.acpmux-hat-rail[data-side="bottom-line"] .acpmux-hat-rail__list {
+  margin-left: calc(-1 * var(--ds-space-1));
+}
+/* The mark's name and what it does now, in a small popup beside it, over the composer's edge. */
+.acpmux-hat-rail__label {
+  position: absolute;
+  z-index: var(--layer-tooltip);
+  max-width: min(320px, 70vw);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ds-radius-popup);
+  background: var(--agent-surface-elevated);
+  color: var(--agent-text);
+  font-size: var(--text-detail);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  box-shadow: var(--ui-popup-shadow);
+  animation: acpmux-hat-rail-label var(--agent-motion-in) var(--agent-ease-out);
+}
+.acpmux-hat-rail[data-side="right-rail"] .acpmux-hat-rail__label {
+  right: calc(100% + var(--ds-space-1));
+  top: 50%;
+  translate: 0 -50%;
+}
+.acpmux-hat-rail[data-side="left-rail"] .acpmux-hat-rail__label {
+  left: calc(100% + var(--ds-space-1));
+  top: 50%;
+  translate: 0 -50%;
+}
+.acpmux-hat-rail[data-side="bottom-line"] .acpmux-hat-rail__label {
+  bottom: calc(100% + var(--ds-space-1));
+  left: 0;
+  max-width: min(320px, calc(100vw - 4 * var(--ds-space-6)));
+}
+@keyframes acpmux-hat-rail-label {
+  from {
+    opacity: 0;
+  }
+}
+:root:is([data-cmux-motion="reduced"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="off"])
+  :is(.acpmux-hat-rail__mark, .acpmux-hat-rail__list, .acpmux-hat-rail__glyph, .acpmux-hat-rail__list > *, .acpmux-hat-rail__label) {
+  transition: none;
+  animation: none;
+}

@@ -59,7 +59,7 @@ import { isActive, type Dictation } from "./dictation";
 import { DictationStrip } from "./DictationListening";
 import { FileSearch } from "./FileSearch";
 import { PromptFocusProvider } from "./promptFocus";
-import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
+import { ComposerBox, type ComposerBoxHandle, type ComposerBoxProps } from "./ComposerBox";
 import { MentionMenu } from "./MentionMenu";
 import { markdownOffset, mentionQuery, mentionResults, useMentionSearch } from "./mentionMenuModel";
 import { wantAllSessions } from "./sessionPages";
@@ -363,6 +363,9 @@ type Props = {
   /// stood as a 46px gap between that part and the card (Lucas, 2026-11-12: "its completely
   /// detached"). The part's arrival moves the rows anyway, so the slot leaving adds no move.
   stackAbove?: boolean;
+  /// The composer hat's marks beside the box instead of the hat over it (ComposerBox.tsx `hatMarks`,
+  /// hatSide.experiment.ts). Unset, the composer is as before.
+  hatMarks?: ComposerBoxProps["hatMarks"];
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic.
@@ -556,6 +559,7 @@ function ComposerFrame({
   draft,
   chatKnown = true,
   stackAbove = false,
+  hatMarks,
   leading,
   accessory,
   dictating = false,
@@ -3115,6 +3119,7 @@ function ComposerFrame({
         }
         accessory={accessory}
         trailing={quietActions ? undefined : sendControl}
+        hatMarks={hatMarks}
         chromeItems={chrome.all}
       />
     </form>

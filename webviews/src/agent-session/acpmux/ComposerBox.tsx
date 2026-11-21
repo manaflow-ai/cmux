@@ -16,6 +16,7 @@ import { ComposerListAnchor } from "./backdropLayer";
 import { remember } from "./composer/pasteMarks";
 import { acpmuxPerf } from "./perf";
 import { holdFlag, setRef } from "./heldFlag";
+import type { HatSide } from "./subagents/hatSide.experiment";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -102,6 +103,10 @@ export type ComposerBoxProps = {
   accessory?: React.ReactNode;
   /// The row's last control: Send or Stop.
   trailing?: React.ReactNode;
+  /// The composer hat's marks beside the box (HatRail.tsx, hatSide.experiment.ts): a slim rail
+  /// standing at the box's right or left edge (the box gives it the room), or a run on the button row
+  /// after +. Unset (the `top` arm), the box is as before.
+  hatMarks?: { side: HatSide; node: React.ReactNode };
   /// The hideable controls the row's right-click shows again (composerChrome.tsx).
   chromeItems: readonly HideableChromeItem[];
 };
@@ -144,6 +149,7 @@ export function ComposerBox({
   actionsLead,
   accessory,
   trailing,
+  hatMarks,
   chromeItems,
 }: ComposerBoxProps) {
   acpmuxPerf.render("composer:box");
@@ -298,6 +304,7 @@ export function ComposerBox({
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}
+        data-hat-rail={hatMarks && hatMarks.side !== "bottom-line" ? hatMarks.side : undefined}
         onMouseDown={focusFromCard}
       >
         <ComposerListAnchor box={boxElement}>{top}</ComposerListAnchor>
@@ -423,6 +430,7 @@ export function ComposerBox({
             data-footer-look={plainFooter ? "plain" : undefined}
           >
             {leading}
+            {hatMarks?.side === "bottom-line" && hatMarks.node}
             <span className="acpmux-composer-actions">
               {actionsLead}
               {/* The mic stays at every width; the prompt shrinks instead (composerRowFit.ts). */}
@@ -436,6 +444,7 @@ export function ComposerBox({
           </div>
         </ChromeArea>
         {rowInBox && quietRow}
+        {hatMarks && hatMarks.side !== "bottom-line" && hatMarks.node}
       </div>
       {!rowInBox && quietRow}
     </>
