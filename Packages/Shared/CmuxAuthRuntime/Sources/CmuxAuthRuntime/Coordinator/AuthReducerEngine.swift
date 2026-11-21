@@ -137,6 +137,25 @@ struct AuthReducerSnapshot: Decodable, Equatable {
     var hasActiveSignInFlows: Bool
 }
 
+extension AuthReducerSnapshot {
+    /// What a coordinator without a reducer shows: nobody signed in.
+    static let signedOut = AuthReducerSnapshot(
+        isAuthenticated: false, currentUser: nil, isRestoringSession: false, isLoading: false, availableTeams: [],
+        selectedTeamId: nil, resolvedTeamId: nil, sessionGeneration: 0, signOutRevision: 0, lastSignOutReason: nil,
+        hasPendingCode: false, teamScopeGeneration: 0, hasPendingTeamScopeRecovery: false, needsTeamScopeRecovery: false,
+        sessionTokenTransitionIsActive: false, sessionIdentity: nil, publishedSessionIdentity: nil, teamScope: nil,
+        cachedTeamIdentity: nil, tokenStoreWriteHighWater: 0, hasActiveSignInFlows: false
+    )
+}
+
+/// Stands in for a reducer that refused its config: it takes no event.
+final class RefusedAuthReducer: AuthReducerEngine {
+    struct Refused: Error {}
+    func feed(_ event: Data) throws { throw Refused() }
+    func takeEffects() -> Data { Data("[]".utf8) }
+    func snapshot() -> Data { Data() }
+}
+
 extension AuthReducerSnapshot.Identity {
     var identity: AuthenticatedSessionIdentity { AuthenticatedSessionIdentity(generation: generation, accountID: accountId) }
 }
