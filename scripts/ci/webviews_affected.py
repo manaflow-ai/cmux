@@ -79,7 +79,7 @@ NAME_MIN = 10
 # These are inputs consumed by a browser, generator, or fixture reader rather than a
 # JS import. Unknown future formats must be classified, not silently broaden every PR.
 ASSET_SUFFIXES = (".css", ".html", ".json", ".jsonl", ".ndjson", ".xcstrings",
-                  ".png", ".jpg", ".svg", ".webp", ".woff2", ".txt")
+                  ".png", ".jpg", ".svg", ".webp", ".woff2", ".txt", ".mmd")
 BENCH_SUFFIXES = ft.EXTENSIONS + (".sh", ".swift", ".json", ".html")
 
 
