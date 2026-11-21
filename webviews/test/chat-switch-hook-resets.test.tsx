@@ -92,3 +92,47 @@ test("a chat switch renders the turn checkpoints once, and a visit back reads it
     await act(async () => root.unmount());
   }
 });
+
+test("a visit back relists the chat's records rather than reading the last visit's as current", async () => {
+  const asks: { sessionId: string; answer: (reply: unknown) => void }[] = [];
+  const source: ProcessSource = {
+    listProcesses: (sessionId) => new Promise((answer) => asks.push({ sessionId, answer })),
+    watchProcesses: () => () => {},
+  };
+  let registry: ReturnType<typeof useProcessRegistry> | undefined;
+  function View({ sessionId, live }: { sessionId: string; live: boolean }) {
+    registry = useProcessRegistry(source, sessionId, live);
+    return null;
+  }
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    await act(async () => root.render(<View sessionId="visit-a" live />));
+    await act(async () =>
+      asks.shift()!.answer({
+        processes: [{ id: "visit-a/1", sessionId: "visit-a", command: "make", state: "exited", startedAt: 1 }],
+      }),
+    );
+    expect(registry!.processes.map((process) => process.command)).toEqual(["make"]);
+    // Chat B is shown and its listing has not answered; chat A ran a new command meanwhile.
+    await act(async () => root.render(<View sessionId="visit-b" live />));
+    expect(asks.map((ask) => ask.sessionId)).toEqual(["visit-b"]);
+    // Back on chat A, which no longer streams and runs nothing the last visit saw: what that visit
+    // listed is not read as current, and the chat is listed again.
+    await act(async () => root.render(<View sessionId="visit-a" live={false} />));
+    expect(registry!.listed).toBe(false);
+    expect(registry!.processes).toEqual([]);
+    expect(asks.map((ask) => ask.sessionId)).toEqual(["visit-b", "visit-a"]);
+    await act(async () =>
+      asks.pop()!.answer({
+        processes: [
+          { id: "visit-a/1", sessionId: "visit-a", command: "make", state: "exited", startedAt: 1 },
+          { id: "visit-a/2", sessionId: "visit-a", command: "make test", state: "exited", startedAt: 2 },
+        ],
+      }),
+    );
+    expect(registry!.listed).toBe(true);
+    expect(registry!.processes.map((process) => process.command).sort()).toEqual(["make", "make test"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
