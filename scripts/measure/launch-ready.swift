@@ -489,7 +489,10 @@ let timer = Timer(timeInterval: 0.001, repeats: true) { _ in
         if movesBeforeQuit { moveThenQuit(pid) } else { quitSent = now(); kill(pid, SIGTERM) }
     }
     if window == nil, quitSent == nil, t - requested > 30_000 { failure = "no window in 30 s"; quitSent = t; kill(pid, SIGTERM) }
-    if quitSent == nil, windowSeenAt != nil, app.isTerminated { quitSent = t }
+    // An app quit from outside (dev-loop-ceiling startup_loop SIGTERMs it, as reload.sh does): isTerminated alone can
+    // stay false after the process is gone, as launch-premain.swift and background-ready.swift already pair it with
+    // kill(pid, 0). 2026-11-21 step 4b9c45ea3d756d968ad03448: "launch-ready floor1 did not end 90 s after its app quit".
+    if quitSent == nil, app.isTerminated || kill(pid, 0) != 0 { quitSent = t }
     if let sent = quitSent {
         if app.isTerminated || kill(pid, 0) != 0 { done = true }
         else if t - sent > 30_000 { kill(pid, SIGKILL); done = true }
@@ -506,7 +509,7 @@ let keep = ["stub_main", "main_start", "main.warmup_started", "main.environment"
             "launch_snapshot_shown", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed", "home.first_page", "reveal.home",
             "deferred_windows_restored",
             // The bare launch's marks (piece 8): Home's composer takes keys; a terminal's shell printed its first output.
-            "window_usable", "first_shell_live",
+            "window_usable", "first_shell_live", "first_key_down",
             // A relaunch's restored terminal: its first frame, and with `type` the key typed at the first window frame,
             // when it left the app for the PTY, and its echo back (LaunchTypeProbe, LaunchInputMarks).
             "first_terminal_content_applied", "first_terminal_frame", "launch.visible_terminals_drawn",
@@ -543,7 +546,7 @@ var row: [String: Any] = [
     // its window still waited on the CLI (2026-11-17: 635 ms on a fresh home's prime launch, and no relaunch row).
     "marks": marks.filter { mark in
         label == "prime" || keep.contains(mark.key)
-            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot", "terminal."].contains { mark.key.hasPrefix($0) }
+            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot", "terminal.", "window.", "frame."].contains { mark.key.hasPrefix($0) }
     },
     "all_marks": marks.count,
     "stages": stages,
