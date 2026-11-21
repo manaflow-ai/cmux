@@ -51,8 +51,7 @@ final class NativeNewTabRowView: NSView {
     func show(_ content: NativeNewTabRowContent, selected: Bool) {
         if content != self.content {
             self.content = content
-            symbol.image = NSImage.packOverride(forSymbol: content.symbol, pointSize: NSFont.systemFontSize)
-                ?? NSImage(systemSymbolName: content.symbol, accessibilityDescription: nil)
+            symbol.image = Self.image(for: content)
             title.stringValue = content.title
             detail.stringValue = content.detail ?? ""
             detail.isHidden = content.detail == nil
@@ -69,6 +68,17 @@ final class NativeNewTabRowView: NSView {
         }
         self.selected = selected
         updateTint()
+    }
+
+    private static func image(for content: NativeNewTabRowContent) -> NSImage? {
+        if let icon = content.icon, let comma = icon.firstIndex(of: ","), icon[icon.index(after: comma)...].hasPrefix("base64,"),
+           let data = Data(base64Encoded: String(icon[icon.index(after: comma)...].dropFirst(7))),
+           let image = NSImage(data: data) {
+            image.size = NSSize(width: 16, height: 16)
+            return image
+        }
+        return NSImage.packOverride(forSymbol: content.symbol, pointSize: NSFont.systemFontSize)
+            ?? NSImage(systemSymbolName: content.symbol, accessibilityDescription: nil)
     }
 
     private func updateTint() {

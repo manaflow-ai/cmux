@@ -113,8 +113,9 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
         let model = model
         following = Task { [weak self] in
             // The inputs of the rows, not the rows: reading them here would rank every row once more per key.
-            for await _ in ObservationStream({ _ = model.page; _ = model.text; _ = model.kind; _ = model.highlighted }) {
+            for await _ in ObservationStream({ _ = model.page; _ = model.text; _ = model.kind; _ = model.highlighted; _ = model.faviconRevisionTick() }) {
                 guard let self, !Task.isCancelled else { return }
+                model.refreshFaviconPage()
                 self.render()
             }
         }
