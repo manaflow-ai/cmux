@@ -236,6 +236,78 @@ fn main() -> std::process::ExitCode {
     if let Some(code) = supervise(&all) {
         return code;
     }
-    eprintln!("cmux-remote-browser-host: the macOS host is the only host in r2 (Linux follows)");
+    #[cfg(unix)]
+    if all.iter().any(|a| a == "--serve") {
+        return serve_cdp(&all);
+    }
+    eprintln!(
+        "cmux-remote-browser-host: off macOS the host runs only --serve (headless Chromium), \
+         --probe and --supervise"
+    );
     std::process::ExitCode::from(2)
+}
+
+/// `--serve` off macOS: one tab of a headless Chromium (src/cdp_serve.rs),
+/// with the macOS host's launch contract. `--chromium PATH` and
+/// `--openh264-lib PATH` override the lookups (`chromium::find`, Cisco's
+/// library in the per-user directory `cmux-rd openh264-install` fills).
+#[cfg(all(unix, not(target_os = "macos")))]
+fn serve_cdp(all: &[String]) -> std::process::ExitCode {
+    use cmux_remote_browser_host::{cdp_serve, chromium, launch};
+    let flag = |f: &str| all.iter().position(|a| a == f).and_then(|i| all.get(i + 1)).cloned();
+    let listen = flag("--listen").unwrap_or_else(|| "127.0.0.1:4103".into());
+    let Some(listen) =
+        listen.parse().ok().and_then(|a: std::net::SocketAddr| launch::loopback_only(a).ok())
+    else {
+        eprintln!("--listen: expected a loopback ADDR:PORT (127.0.0.1 or ::1)");
+        return std::process::ExitCode::from(2);
+    };
+    if all.iter().any(|a| a == "--shared") {
+        eprintln!("--serve --shared: not off macOS yet (one tab per host)");
+        return std::process::ExitCode::from(2);
+    }
+    let lifeline = all.iter().any(|a| a == "--lifeline");
+    let secret = if lifeline { launch::read_secret(&mut std::io::stdin().lock()) } else { None };
+    if secret.is_none() {
+        eprintln!(
+            "--serve needs --lifeline and the per-launch secret as the first stdin line \
+             (by hand: (printf '%s\\n' \"$SECRET\"; cat) | cmux-remote-browser-host --serve --lifeline)"
+        );
+        return std::process::ExitCode::from(2);
+    }
+    let Some(binary) = flag("--chromium").map(std::path::PathBuf::from).or_else(chromium::find)
+    else {
+        eprintln!(
+            "--serve: no Chromium (set CMUX_RB_CHROMIUM or pass --chromium; looked for {})",
+            chromium::PATH_NAMES.join(", ")
+        );
+        return std::process::ExitCode::from(2);
+    };
+    let Some(profile) = chromium::profile_dir() else {
+        eprintln!("--serve: no profile directory (set HOME or CMUX_RB_PROFILE_DIR)");
+        return std::process::ExitCode::from(2);
+    };
+    let lib = flag("--openh264-lib").or_else(|| std::env::var("CMUX_RB_OPENH264_LIB").ok());
+    let encoder: cdp_serve::EncoderApi =
+        std::sync::Arc::new(move || cdp_serve::cisco_api(lib.as_deref()));
+    let listener = match std::net::TcpListener::bind(listen) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("--serve: listen on {listen}: {e}");
+            return std::process::ExitCode::from(1);
+        }
+    };
+    let Ok(bound) = listener.local_addr() else { return std::process::ExitCode::from(1) };
+    println!("{}", launch::listening_line(bound));
+    let opts = cdp_serve::Options {
+        url: flag("--url").unwrap_or_else(|| "about:blank".into()),
+        secret,
+        once: all.iter().any(|a| a == "--once"),
+        lifeline,
+        chromium: binary,
+        profile,
+        encoder,
+    };
+    let code = cdp_serve::run(listener, opts);
+    std::process::ExitCode::from(u8::try_from(code).unwrap_or(1))
 }
