@@ -10,7 +10,8 @@ public import CmuxNextSettings
 /// no `to`: the end; no `from`: the caret at the end). `blur` takes the keyboard from whatever has it. Answers the
 /// field's class, its placeholder, its text and the selected range, or `error` when no text field has the keyboard.
 @MainActor
-public enum DebugFieldEditor {
+public struct DebugFieldEditor {
+    public init() {}
     public static func run(_ params: [String: JSONValue], window: NSWindow?) -> JSONValue {
         guard let window else { return .object(["error": .string("no window")]) }
         if params["key"]?.boolValue == true {
