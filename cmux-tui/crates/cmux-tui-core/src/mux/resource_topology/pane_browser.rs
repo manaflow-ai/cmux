@@ -105,11 +105,17 @@ impl Mux {
         &self,
         intent: &Value,
     ) -> anyhow::Result<()> {
-        if !intent["fields"][PANE_BROWSER_ENGINE_FIELD].is_string() {
+        if intent
+            .get("fields")
+            .and_then(|fields| fields.get(PANE_BROWSER_ENGINE_FIELD))
+            .and_then(Value::as_str)
+            .is_none()
+        {
             return Ok(());
         }
-        let browser_id = intent["browser_reservation"]["browser_id"]
-            .as_str()
+        let browser_id = intent
+            .pointer("/browser_reservation/browser_id")
+            .and_then(Value::as_str)
             .context("stored browser reservation omitted its browser id")?;
         let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         if !crate::state::frontend_browser_keys::browser_committed(
@@ -258,9 +264,7 @@ impl Mux {
                 })
                 .with_context(|| format!("pane {target} has no workspace"))?;
             if let Some(engine) = fields.get(PANE_BROWSER_ENGINE_FIELD).and_then(Value::as_str) {
-                let browser_id = intent["browser_reservation"]["browser_id"]
-                    .as_str()
-                    .context("stored browser reservation omitted its browser id")?;
+                let browser_id = identity.content_id.as_str();
                 let record = FrontendBrowserRecord {
                     engine: engine.to_string(),
                     url: url.to_string(),
