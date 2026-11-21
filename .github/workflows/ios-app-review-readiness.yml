@@ -16,8 +16,14 @@ name: iOS App Review readiness
 # `asc validate --strict` needs that key, so it stays in the production
 # submission (ios-app-store.yml), which calls the gate with it.
 #
-# No paths filter and no cancel-in-progress: every main push leaves its own run
-# and verdict behind.
+# No paths filter. One waiter at a time: a newer main push cancels the older
+# push run still waiting, and the newer run carries the verdict for the newest
+# feat-cmux-next (the gate judges feat-cmux-next's head, not the main commit,
+# so an older main push's wait answers the same question later). Until
+# 2026-11-21 every main push held its own runner for up to 6 h polling the same
+# gate run: 28 waiters on 11-20 held 168 runner-hours and all timed out with no
+# verdict (CI 10x, T1; Leo, 2026-11-21 03:45Z: "clearly we need to be hitting a
+# 10x improvement in not running useless jobs"). A dispatch keeps its own group.
 
 on:
   push:
@@ -25,8 +31,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ios-app-review-readiness-${{ github.sha }}
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'push' && 'ios-app-review-readiness-push' || format('ios-app-review-readiness-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 permissions: {}
 
@@ -37,7 +43,7 @@ jobs:
     permissions:
       actions: write # dispatch and read ios-review-gate.yml
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # Gate runs have taken up to about 2 hours (the reviewer-path jobs and their
     # macOS queue), and a followed successor waits behind the run holding the
     # gate's group first, so up to about 4; past this the push run is red with

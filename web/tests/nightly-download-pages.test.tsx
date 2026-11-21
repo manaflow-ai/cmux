@@ -37,11 +37,12 @@ function render(page: () => React.ReactElement, locale: Locale): string {
 }
 
 describe("nightly download pages", () => {
-  test("/next downloads the latest cmux NEXT NIGHTLY arm64 DMG", () => {
+  test("/next downloads the update feed's newest cmux NEXT NIGHTLY build", () => {
     const html = render(NextNightlyPage, "en");
-    expect(html).toContain(
-      'href="https://github.com/manaflow-ai/cmux/releases/download/nightly-next/cmux-nightly-next-macos-arm64.dmg"',
-    );
+    // The route resolves the live feed's newest DMG, so a fresh download is
+    // never the build before the one the app offers as an update.
+    expect(html).toContain('href="/api/download/next"');
+    expect(html).not.toContain("releases/download/nightly-next/");
     expect(html).toContain('src="/next/icon-96.webp"');
     expect(html).toContain("cmux NEXT NIGHTLY");
     expect(html).not.toContain("cmux-nightly-macos.dmg");
@@ -75,7 +76,7 @@ describe("nightly download pages", () => {
       const page = messagesByLocale[locale].next;
       expect(page).toBeDefined();
       const html = render(NextNightlyPage, locale);
-      expect(html).toContain("cmux-nightly-next-macos-arm64.dmg");
+      expect(html).toContain('href="/api/download/next"');
       expect(html).toContain("https://github.com/manaflow-ai/cmux/issues");
       if (locale !== "en") {
         expect(page.description).not.toBe(enMessages.next.description);

@@ -380,6 +380,7 @@
     "typingCodingAgents": "وكلاء البرمجة",
     "typingMultitasking": "تعدد المهام",
     "subtitle": "محطة طرفية أصلية لنظام macOS مجانية ومفتوحة المصدر مبنية على Ghostty. علامات تبويب عمودية، وحلقات إشعارات عندما يحتاج الوكلاء إلى الانتباه، وأجزاء مقسمة، و<cliLink>واجهة CLI</cliLink> للبرمجة.",
+    "nextCallout": "جديد: جرّب <link>cmux NEXT</link>، النسخة التجريبية من الإصدار القادم من cmux.",
     "features": "الميزات",
     "faq": "الأسئلة الشائعة",
     "communitySection": "المجتمع",

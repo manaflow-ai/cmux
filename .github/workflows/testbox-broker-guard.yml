@@ -16,7 +16,7 @@ concurrency:
 jobs:
   guard:
     name: Testbox broker trust boundary
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -45,7 +45,7 @@ jobs:
 
       - name: Lint the Testbox lane helpers
         run: >-
-          shellcheck
+          "$(scripts/ci/ensure-shellcheck.sh)"
           scripts/blacksmith-bounded-command.sh
           scripts/blacksmith-cmux-tui-testbox-stage.sh
           scripts/blacksmith-testbox-cleanup.sh
