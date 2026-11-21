@@ -68,6 +68,26 @@ pub struct MachineCredential {
     /// existed: the next start on the box it runs on takes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cloned_on: Option<String>,
+    /// The person named this machine at its join (`machine join --name`), so [`Self::name`] is
+    /// its name to its peers in place of the host name ([`joined_name_at`]). False for a join
+    /// that took the default (the host name) or a sign-in's: those keep the host name.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub named: bool,
+}
+
+/// The name this machine joined under when it was named at its join (`machine join --name`):
+/// what `pairing::machine_name` gives in place of the host name, so machines whose host names
+/// match (VMs made from one image) are still told apart on the hub, in each heartbeat and in
+/// every sender they stamp. None when the record in `home` is missing, unreadable, revoked, a
+/// copy (marked, or joined on a box whose fingerprint is not `current`), took the default name,
+/// or names nothing a session name may be.
+pub(crate) fn joined_name_at(home: &std::path::Path, current: Option<&str>) -> Option<String> {
+    let record = load_at(home).ok().flatten()?;
+    let joined = record.host_fingerprint.as_deref();
+    let other_box = joined.zip(current).is_some_and(|(joined, here)| joined != here);
+    (record.named && !record.revoked && !record.cloned && !other_box)
+        .then_some(record.name)
+        .filter(|name| crate::session_name::validate(name).is_ok())
 }
 
 /// A hub-supplied id the store keeps: non-empty, one line, and no secret-shaped text.

@@ -2,7 +2,7 @@
 """scripts/cmux-next/check-test-redefinitions.py: a test file never defines one name twice in one body (F811).
 
 Also its pre-push gate row ("Test redefinitions", prepush-gate.py): only a redefinition a push adds refuses.
-Manual lane: no new CI tests (CLAUDE.md); the gate is local only, like SwiftFormat.
+Manual lane (kept out of CI under the 2026-10-23 no-new-CI rule, since lifted); the gate is local only, like SwiftFormat.
 """
 from __future__ import annotations
 

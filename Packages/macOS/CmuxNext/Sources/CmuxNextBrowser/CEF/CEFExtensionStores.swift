@@ -17,6 +17,9 @@ final class CEFExtensionStores {
     /// ``scriptsPage(at:profile:)`` answers by profile and site (scheme and host), for the mirror
     /// revision they were made from: the freeze planner asks for each hidden page on each tab switch.
     private var siteAnswers: [BrowserProfileID: (revision: Int, sites: [String: Bool])] = [:]
+    /// Unpacked folders an import copied, by profile, waiting for a Chromium page of that profile:
+    /// the fork loads an extension through one of the profile's browsers (``loadUnpacked(_:into:)``).
+    private var pendingUnpacked: [BrowserProfileID: [String]] = [:]
 
     init(runtime: CEFRuntime, makeBackend: ((BrowserProfileID) -> any BrowserExtensionBackend)? = nil) {
         self.runtime = runtime
@@ -49,6 +52,31 @@ final class CEFExtensionStores {
     }
 
     func hasStore(for profile: BrowserProfileID) -> Bool { stores[profile] != nil }
+
+    /// Loads the unpacked extension `folders` into `profile`: now when a Chromium page of it is
+    /// open, else when the first one registers (``browserRegistered(_:)``). Answers the folders
+    /// loaded now; a refused one is logged by the caller's next list, not retried.
+    @discardableResult
+    func loadUnpacked(_ folders: [String], into profile: BrowserProfileID) -> [String] {
+        guard !folders.isEmpty else { return [] }
+        guard runtime.tabsByBrowser.values.contains(where: { $0.profileID == profile }) else {
+            pendingUnpacked[profile, default: []].append(contentsOf: folders)
+            return []
+        }
+        let store = store(for: profile)
+        let loaded = folders.filter { store.loadUnpacked(at: $0) }
+        store.refresh()
+        return loaded
+    }
+
+    /// Whether an import's unpacked folders wait for a Chromium page of `profile`.
+    func hasPendingUnpacked(_ profile: BrowserProfileID) -> Bool { pendingUnpacked[profile] != nil }
+
+    /// A Chromium browser of `profile` registered: the import's unpacked folders waiting for one load.
+    func browserRegistered(_ profile: BrowserProfileID) {
+        guard let folders = pendingUnpacked.removeValue(forKey: profile) else { return }
+        loadUnpacked(folders, into: profile)
+    }
 
     /// A tab of `profile`'s page menu `items` with the icons Chrome draws and
     /// CEF's model drops: each extension row its extension's icon
