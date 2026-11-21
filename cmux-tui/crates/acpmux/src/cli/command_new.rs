@@ -18,6 +18,9 @@ pub struct NewArgs {
     /// `local` keeps it on this machine. `--host` still works.
     #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
     pub host: Option<String>,
+    /// Compatibility spelling for `--machine local`.
+    #[arg(long, conflicts_with = "host")]
+    pub stay: bool,
     /// Session name. Generated when omitted. With a launcher flag it is lowercased
     /// and `/` or spaces become `-` (`gui/x` is `gui-x`).
     #[arg(long, short)]
@@ -57,6 +60,9 @@ pub struct NewArgs {
     /// Do not open the TUI after creating.
     #[arg(long, short)]
     pub detach: bool,
+    /// Compatibility spelling that sends the first prompt and waits for its reply.
+    #[arg(long)]
+    pub wait: bool,
     /// With a prompt: print only the final reply (implied by `acpmux run`).
     #[arg(long, short)]
     pub quiet: bool,
@@ -131,4 +137,33 @@ pub struct NewArgs {
     /// app's name (`acpmux_mcp_guest.rs`).
     #[arg(long, value_name = "SENDER", hide = true)]
     pub from: Option<String>,
+}
+
+impl NewArgs {
+    /// Normalize legacy spellings before launch preparation, so every later path sees the same
+    /// name, target, and wait behavior.
+    pub fn apply_compat(&mut self) -> Vec<&'static str> {
+        let mut notices = Vec::new();
+        if self.name.is_none()
+            && self.prompt.len() == 1
+            && self.prompt_file.is_none()
+            && self.worktree.is_none()
+            && self.report_to.is_none()
+            && self.group.is_none()
+            && !self.reuse
+        {
+            self.name = self.prompt.pop();
+            notices
+                .push("acpmux new: the lone positional is the session name, equivalent to --name");
+        }
+        if self.stay {
+            self.host = Some("local".to_owned());
+            notices.push("acpmux new: --stay is a compatibility spelling for --machine local");
+        }
+        if self.wait {
+            self.detach = false;
+            notices.push("acpmux new: --wait sends the first prompt and waits for its reply");
+        }
+        notices
+    }
 }

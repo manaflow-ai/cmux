@@ -411,7 +411,7 @@ fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> 
 /// The `status` words that say a machine is off for now: leo-workspace's host_state.py reads an
 /// `idle-stopped` one (and a `retired` one) as stopped, and reach and the stall reconciler skip it.
 /// `retiring` is still up.
-const STOPPED: [&str; 4] = ["idle-stopped", "stopped", "paused", "retired"];
+const STOPPED: [&str; 6] = ["idle-stopped", "stopped", "paused", "retired", "restarting", "stale"];
 
 /// Why a machine's registry `status` keeps new work off it: it starts with one of `STOPPED`
 /// (any case). It holds even while its peer link reads connected: a link that comes back for a
