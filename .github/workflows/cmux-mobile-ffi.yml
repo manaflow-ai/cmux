@@ -87,6 +87,9 @@ concurrency:
 permissions: {}
 
 env:
+  # Warnings never fail a pull request's compile (Leo, 2026-11-19); pushes, dispatches, nightly and release
+  # keep them errors. scripts/ci/warnings_policy.py.
+  CI_WARNINGS: ${{ github.event_name == 'pull_request' && 'soft' || 'deny' }}
   CARGO_TERM_COLOR: always
   # Every job installs the toolchain pinned in cmux-tui/rust-toolchain.toml.
   CMUX_MOBILE_FFI_CRATE: cmux-mobile-ffi
@@ -132,7 +135,7 @@ jobs:
 
       - name: clippy
         working-directory: cmux-tui
-        run: cargo clippy --locked -p cmux-terminal-sizing -p cmux-mobile-core -p cmux-mobile-ffi -p cmux-cloud-wire --all-targets -- -D warnings
+        run: python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy --locked -p cmux-terminal-sizing -p cmux-mobile-core -p cmux-mobile-ffi -p cmux-cloud-wire --all-targets -- -D warnings
 
       - name: Rust tests (fixtures included)
         working-directory: cmux-tui
