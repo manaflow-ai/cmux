@@ -42,7 +42,7 @@ enum MiscHandlerStrings {
     static var noTerminal: String { String(localized: "handlers.misc.failed.noTerminal", defaultValue: "No terminal tab is focused.", table: "MiscHandlers", bundle: .module) }
     /// A shortcut the key window's kind does not support (`WindowKeyTable`).
     static var notInThisWindow: String { String(localized: "handlers.misc.unavailable.windowKind", defaultValue: "Not available in this window.", table: "MiscHandlers", bundle: .module) }
-    static var noPane: String { String(localized: "handlers.misc.failed.noPane", defaultValue: "No pane is focused.", table: "MiscHandlers", bundle: .module) }
+    static var noPane: String { String(localized: "handlers.misc.failed.noPane", defaultValue: "Click a tab first, then try again.", table: "MiscHandlers", bundle: .module) }
     /// The sheet that asks for a terminal's resume command (Set/Edit Resume Command).
     /// A pane verb on a pane still opening (`PaneNotReady`, P0 2026-10-30): it was not sent.
     static var paneNotReady: String { String(localized: "handlers.misc.failed.paneNotReady", defaultValue: "This pane is still opening; try again in a moment.", table: "MiscHandlers", bundle: .module) }
@@ -74,6 +74,7 @@ enum MiscHandlerStrings {
     static var sideQuestionNeedsFocus: String { String(localized: "handlers.misc.failed.sideQuestionNeedsFocus", defaultValue: "Ask a Side Question… opens the chat's composer, so it needs focus.", table: "MiscHandlers", bundle: .module) }
     static var continueInNeedsFocus: String { String(localized: "handlers.misc.failed.continueInNeedsFocus", defaultValue: "Continue In… requires focus; use cmux acp continue for a headless handoff.", table: "MiscHandlers", bundle: .module) }
     static var quickChatNeedsFocus: String { String(localized: "handlers.misc.failed.quickChatNeedsFocus", defaultValue: "Start Agent opens from the keyboard, palette or menu. It does not take the keyboard for automation.", table: "MiscHandlers", bundle: .module) }
+    static func sessionTabRevealFailed(_ tab: String) -> String { String(format: String(localized: "handlers.misc.failed.sessionTabRevealFailed", defaultValue: "The chat is open in tab %@, but cmux could not show it.", table: "MiscHandlers", bundle: .module), tab) }
     static var quickChatUnavailable: String { String(localized: "handlers.misc.failed.quickChatUnavailable", defaultValue: "Start Agent needs the agent page, which this build does not include.", table: "MiscHandlers", bundle: .module) }
     static var checkpointNeedsFocus: String { String(localized: "handlers.misc.failed.checkpointNeedsFocus", defaultValue: "Checkpoint review requires focus. Use git.checkpoint.create for a headless capture.", table: "MiscHandlers", bundle: .module) }
     static var gitWriteNeedsFocus: String { String(localized: "handlers.misc.failed.gitWriteNeedsFocus", defaultValue: "Commit and push from the agent pane require focus. Use cmux git commit or cmux git push to run them headless.", table: "MiscHandlers", bundle: .module) }

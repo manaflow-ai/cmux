@@ -120,7 +120,9 @@ public nonisolated struct KeyBindingDefaults {
         .equals(KeyContext.surfaceKind, .string("home-dock")),
     ])
 
-    /// The `topPage` of a window that shows Bring your history on top (the first-run import over Home).
+    /// The `topPage` Bring your history had on top of a window (the first-run import over Home). That page is
+    /// gone (2026-11-20), so no window has it; the term stays in ``onChiefZoom`` until the Rust catalog's
+    /// binding text (`bindings.rs`) drops it, which reaches the app only with an app FFI re-pin.
     public static let historyImportTopPage = "import-history"
 
     /// Where the Chief chat's zoom keys run: Home (``onHome``'s terms), and Bring your history
