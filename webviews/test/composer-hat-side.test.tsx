@@ -102,7 +102,9 @@ async function rail(side: HatSide, agents: Subagent[], commands: BackgroundComma
   const label = () => host.querySelector(".acpmux-hat-rail__label")?.textContent;
   const hover = async (node: Element) =>
     act(async () => {
-      node.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: toolbar() }));
+      node.dispatchEvent(
+        new dom.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: dom.window.document.body }),
+      );
     });
   const leave = async (node: Element) =>
     act(async () => {

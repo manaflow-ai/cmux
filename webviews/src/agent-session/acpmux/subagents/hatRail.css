@@ -78,7 +78,6 @@
   z-index: var(--layer-tooltip);
   max-width: min(320px, 70vw);
   padding: var(--ds-space-1) var(--ds-space-2);
-  border: 1px solid var(--agent-border);
   border-radius: var(--ds-radius-popup);
   background: var(--agent-surface-elevated);
   color: var(--agent-text);
