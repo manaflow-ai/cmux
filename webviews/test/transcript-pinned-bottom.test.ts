@@ -18,6 +18,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("transcript-pinned-bottom.test.ts", async () => {
@@ -155,14 +156,14 @@ await requireBrowserLane("transcript-pinned-bottom.test.ts", async () => {
   /// and the anchor moves the offset by their estimate error in the frame that draws them, the row
   /// staying where it was.
   const watchRow = (page: Page) =>
-    page.evaluate(() => {
+    page.evaluate((rowSelector) => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const view = scroller.getBoundingClientRect();
-      const id = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")].find(
+      const id = [...scroller.querySelectorAll<HTMLElement>(rowSelector)].find(
         (row) => row.getBoundingClientRect().bottom > view.top + 1,
       )!.dataset.rowId!;
       const at = () => {
-        const row = scroller.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${CSS.escape(id)}"]`);
+        const row = [...scroller.querySelectorAll<HTMLElement>(rowSelector)].find((each) => each.dataset.rowId === id);
         return row ? row.getBoundingClientRect().top - view.top : null;
       };
       const tops: (number | null)[] = [at()];
@@ -171,7 +172,7 @@ await requireBrowserLane("transcript-pinned-bottom.test.ts", async () => {
       own.__stopRowTops = window.cmuxAfterPaint(() => {
         tops.push(at());
       });
-    });
+    }, TRANSCRIPT_ROW);
   const rowTops = (page: Page) =>
     page.evaluate(() => {
       const own = window as unknown as { __rowTops: (number | null)[]; __stopRowTops: () => void };
