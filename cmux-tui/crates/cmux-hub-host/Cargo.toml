@@ -11,6 +11,8 @@ description = "The device hub screen host shared by `cmux-rd linux-host` and the
 workspace = true
 
 [dependencies]
+# The cmux.rd/1 documents (rd_doc.rs re-exports cmux_rd_link::doc; no `net`, nothing to bind).
+cmux-rd-link = { path = "../cmux-rd-link" }
 # The device key (P-256 ECDSA), SHA-256 and the hub's HTTPS and WebSocket over rustls with the
 # ring provider and the platform trust store.
 ring.workspace = true
