@@ -173,3 +173,24 @@ test("two rows of one name keep where each comes from", async () => {
   expect(shown(skill, ".acpmux-slash-source")).not.toBe("");
   expect(details(quiet)).toEqual([shown(quiet, ".acpmux-slash-source")].filter(Boolean));
 });
+
+// A tag that every row shares tells no row apart (the agent chat's own list: "cmux" on each row).
+// The tags show only when the list holds more than one source.
+test("a list of one source shows no source tag", async () => {
+  const sessionId = `quiet-rows-${++chats}`;
+  await composer(
+    noChat([], {
+      sessionId,
+      summary: { sessionId, harness: "codex", cwd: "/Users/you/src/app", turnCount: 1 },
+      rows: [user("Add retries", 1)],
+      commands: [
+        { name: "checklist", description: "Review with the team checklist", source: "skill" },
+        { name: "release", description: "Cut a release", source: "skill" },
+      ],
+    }),
+    "/",
+  );
+  const all = rows();
+  expect(all.length).toBe(2);
+  expect(all.map((row) => shown(row, ".acpmux-slash-source"))).toEqual(["", ""]);
+});
