@@ -397,6 +397,41 @@ function Columns({
     sizeHold.current = observer;
   }, []);
   const modelsList = useRef<HTMLDivElement | null>(null);
+  // A search or a tab removes rows: the rows that stay would jump up to their new slots in one frame.
+  // Each keeps its old place for the frame it lands and glides to the new one on one clock (a CSS
+  // keyframe, see quickModelColumns.css), so a keystroke is one continuous move, not a jump.
+  const flipSlots = useRef<Map<string, number>>(new Map());
+  useLayoutEffect(() => {
+    const list = modelsList.current;
+    if (!list) {
+      flipSlots.current = new Map();
+      return;
+    }
+    const top = list.getBoundingClientRect().top - list.scrollTop;
+    const slots = new Map<string, number>();
+    const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const rows = [...list.querySelectorAll<HTMLElement>("[data-flip]")];
+    // Read every row's slot first, then write: one layout, not one per row.
+    const places = rows.map((row) => row.getBoundingClientRect().top - top);
+    const moved: [HTMLElement, number][] = [];
+    rows.forEach((row, at) => {
+      const key = row.dataset.flip ?? "";
+      const slot = places[at]!;
+      slots.set(key, slot);
+      const was = flipSlots.current.get(key);
+      if (was !== undefined && !reduced && Math.abs(was - slot) >= 0.5) moved.push([row, was - slot]);
+    });
+    for (const [row, dy] of moved) {
+      row.style.setProperty("--flip-dy", `${dy}px`);
+      row.removeAttribute("data-flipping");
+    }
+    if (moved.length > 0) void list.offsetWidth;
+    for (const [row] of moved) {
+      row.setAttribute("data-flipping", "");
+      row.addEventListener("animationend", () => row.removeAttribute("data-flipping"), { once: true });
+    }
+    flipSlots.current = slots;
+  });
   // The list as state too: the popup draws it after `open` turns true, so an effect keyed on `open`
   // alone ran before it existed and never watched its width (the star sat on the check in a narrowed
   // menu, Lucas 2026-11-11).
@@ -1307,6 +1342,8 @@ function Columns({
       <DrivenRow
         key={`${model.family}\u0000${model.id}`}
         {...place}
+        // A virtual row is placed by its own transform, which the glide's keyframe would override.
+        data-flip={place ? undefined : `${model.family}\u0000${model.id}`}
         id={`acpmux-cols-model-${index}`}
         kind="option"
         aria-selected={running}
@@ -1363,7 +1400,12 @@ function Columns({
 
   // A search's harness heading over its rows.
   const groupHead = (group: QuickSearchGroup, place?: RowPlace) => (
-    <div key={`group\u0000${group.id}`} className="acpmux-cols-group" {...place}>
+    <div
+      key={`group\u0000${group.id}`}
+      className="acpmux-cols-group"
+      data-flip={place ? undefined : `group\u0000${group.id}`}
+      {...place}
+    >
       <AgentMark agent={list.find((family) => family.id === group.rows[0]?.family)?.mark} size={12} />
       {group.name}
       {group.note && <span className="acpmux-cols-group-note">{group.note}</span>}
