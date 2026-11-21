@@ -187,7 +187,7 @@ export function HarnessesScreen({
       });
     }, signInPollMs);
     return () => clearInterval(timer);
-  }, [callNative, needsOf, waiting, signInPollMs]);
+  }, [callNative, mark, needsOf, remember, waiting, signInPollMs]);
   useEscapeCloses(true, onClose);
   /// The harness a row's checks ask about: the one it needs, else its own.
   const target = useCallback((row: HarnessRow) => row.needs?.harness ?? row.harness, []);
