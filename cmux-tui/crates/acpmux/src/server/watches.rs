@@ -13,6 +13,8 @@ struct Add {
     #[serde(rename = "match")]
     match_text: Option<String>,
     once: Option<bool>,
+    channel: Option<String>,
+    thread: Option<String>,
 }
 pub(super) async fn handle(
     hub: &Arc<Hub>,
@@ -50,14 +52,19 @@ pub(super) async fn handle(
             if a.until.is_empty() {
                 a.until = vec!["ready".into(), "permission".into()];
             }
-            if a.until
-                .iter()
-                .any(|u| !matches!(u.as_str(), "ready" | "permission" | "done" | "closed"))
-            {
+            if a.until.iter().any(|u| {
+                !matches!(u.as_str(), "ready" | "permission" | "done" | "closed" | "forum")
+            }) {
                 return Err(RpcError::invalid_params(
-                    "until accepts ready, permission, done or closed",
+                    "until accepts ready, permission, done, closed or forum",
                 ));
             }
+            let forum = crate::hub::watches::ForumSelector::parse(
+                &a.until,
+                a.channel,
+                a.thread,
+                a.match_text.is_some(),
+            )?;
             let key = match a.to.as_deref() {
                 None | Some("@" | "current") => conn.caller().ok_or_else(|| {
                     RpcError::invalid_params(
@@ -71,14 +78,34 @@ pub(super) async fn handle(
                 a.sessions.iter().map(|k| resolve(hub, k)).collect::<Result<Vec<_>, _>>()?;
             sessions.sort();
             sessions.dedup();
-            if sessions.contains(&to) {
+            if forum.is_some() {
+                // The first slice shares the forum read boundary: an agent sees only its
+                // own recipient journal. Owner CLI/app may select a local recipient.
+                let owner = conn.is_person() || (conn.caller().is_none() && !conn.unproven_agent());
+                if sessions.len() != 1
+                    || sessions[0] != to
+                    || hub.resolve(&to).is_err()
+                    || (!owner && conn.caller() != Some(to.as_str()))
+                {
+                    return Err(RpcError::invalid_params(
+                        "forum watches require the local recipient's own session as both source and destination",
+                    ));
+                }
+            }
+            if forum.is_none() && sessions.contains(&to) {
                 return Err(RpcError::invalid_params(
                     "a session cannot watch itself (that would wake it forever)",
                 ));
             }
             let cursors = sessions
                 .iter()
-                .map(|k| (k.clone(), crate::hub::watches::seed(hub, k, a.match_text.as_deref())))
+                .map(|k| {
+                    let cursor = match &forum {
+                        Some(selector) => crate::hub::watches::seed_forum(hub, k, selector.clone()),
+                        None => crate::hub::watches::seed(hub, k, a.match_text.as_deref()),
+                    };
+                    (k.clone(), cursor)
+                })
                 .collect();
             hub.watches.add(Watch {
                 id: uuid::Uuid::now_v7().to_string(),

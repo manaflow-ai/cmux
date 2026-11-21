@@ -865,6 +865,9 @@ pub mod method {
     pub const MUX_FORUM_ANNOUNCE: &str = "_acpmux/forum/announce";
     pub const MUX_FORUM_RULES: &str = "_acpmux/forum/rules";
     pub const MUX_FORUM_ACK: &str = "_acpmux/forum/ack";
+    pub const MUX_FORUM_THREADS: &str = "_acpmux/forum/threads";
+    pub const MUX_FORUM_POST: &str = "_acpmux/forum/post";
+    pub const MUX_FORUM_CLAIM: &str = "_acpmux/forum/claim";
     /// The background-process registry (`hub/processes.rs`): list a chat's
     /// (or every chat's) background processes, read one's output, and stop
     /// one.
