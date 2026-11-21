@@ -52,6 +52,8 @@ pub struct Coordinator {
     token_store_write_high_water: u64,
     active_sign_in_flows: BTreeMap<u64, SignInFlow>,
     is_revalidating_session: bool,
+    restore_counter: u64,
+    active_restore_id: Option<u64>,
     is_capturing_sign_out_credentials: bool,
     authenticated_teams_session_generation: Option<u64>,
     team_scope_generation: u64,
@@ -92,6 +94,8 @@ impl Coordinator {
             token_store_write_high_water: 0,
             active_sign_in_flows: BTreeMap::new(),
             is_revalidating_session: false,
+            restore_counter: 0,
+            active_restore_id: None,
             is_capturing_sign_out_credentials: false,
             authenticated_teams_session_generation: None,
             team_scope_generation: 0,
@@ -262,6 +266,13 @@ impl Coordinator {
     /// Applies `event` and returns the effects to run, in order.
     pub fn reduce(&mut self, event: Event) -> Vec<Effect> {
         let mut fx = Vec::new();
+        // A restore answer from a run that already finished (or was replaced)
+        // must not end or steer the run that owns the restore now.
+        if let Some(ticket) = event.restore_ticket()
+            && self.active_restore_id != Some(ticket.id)
+        {
+            return fx;
+        }
         match event {
             Event::Restore(trigger) => self.on_restore(trigger, &mut fx),
             Event::TokensProbed { ticket, probe, storage_was_available, read_failed } => {
@@ -317,7 +328,12 @@ impl Coordinator {
                 self.on_token_work_quiesced(flow, result, &mut fx);
             }
             Event::OnlineChecked { flow, online } => {
-                if !online {
+                if !self.flow_is_active(flow) {
+                    return fx;
+                }
+                if !self.flow_is_current(flow) {
+                    self.fail_sign_in(flow, AuthFailure::Cancelled, false, &mut fx);
+                } else if !online {
                     self.fail_sign_in(flow, AuthFailure::Offline, false, &mut fx);
                 } else {
                     if flow.sets_loading {
@@ -357,7 +373,9 @@ impl Coordinator {
             Event::TeamsRefreshed { ticket, result } => {
                 self.on_teams_refreshed(ticket, result, &mut fx);
             }
-            Event::PostSignInHookFinished { ticket } => self.after_teams(ticket.after, &mut fx),
+            Event::PostSignInHookFinished { ticket } => {
+                self.after_teams(ticket.generation, ticket.after, &mut fx);
+            }
             Event::TeamScopeRecoveryDue { id } => self.on_recovery_due(id, &mut fx),
             Event::TeamScopeRecoveryCheckFinished { id } => {
                 if let Some(recovery) = self.team_scope_recovery
