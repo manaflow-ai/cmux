@@ -952,6 +952,33 @@ struct FocusHistoryModelTests {
         #expect(host.focusedPanels.last?.panelId == panelA1)
     }
 
+    /// Back falls back to a surviving tab (A2) when the recorded tab (A1) has
+    /// closed. The restore's deferred focus notice on A2 must not read as a
+    /// move away from A1, or Focus Last Surface loses its way back to B.
+    @Test(arguments: scopes)
+    func focusLastSurfaceReturnsAfterBackFallsBackFromAClosedTab(scope: FocusHistoryNavigationScope) {
+        let (model, host) = makeModel(scope: scope)
+        let panelA1 = UUID()
+        let panelA2 = UUID()
+        let panelB = UUID()
+        let wsA = host.addWorkspace(title: "A", panels: [panelA1: "a1", panelA2: "a2"])
+        let wsB = host.addWorkspace(title: "B", panels: [panelB: "b"])
+        focus(model, host, workspaceId: wsA, panelId: panelA1)
+        focus(model, host, workspaceId: wsB, panelId: panelB)
+        host.workspaces[wsA]?.panels.removeValue(forKey: panelA1)
+        host.workspaces[wsA]?.rememberedFocusedPanelId = panelA2
+        model.invalidateFocusHistoryTarget(workspaceId: wsA, panelId: panelA1)
+
+        #expect(model.navigateBack())
+        #expect(host.selectedWorkspaceId == wsA)
+        #expect(host.focusedPanels.last?.panelId == panelA2)
+        model.recordFocusInHistory(workspaceId: wsA, panelId: panelA2)
+
+        #expect(model.navigateToLastFocusedSurface())
+        #expect(host.selectedWorkspaceId == wsB)
+        #expect(host.focusedPanels.last?.panelId == panelB)
+    }
+
     @Test func focusLastSurfaceTogglesAfterBackBetweenTabsInOneWorkspace() {
         let (model, host) = makeModel(scope: .panesAndTabs)
         let panelA1 = UUID()
