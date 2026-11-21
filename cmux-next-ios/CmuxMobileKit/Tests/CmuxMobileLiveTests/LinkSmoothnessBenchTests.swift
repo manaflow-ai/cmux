@@ -200,4 +200,27 @@ import Testing
         }
         #expect(stalls == 0)
     }
+
+    /// A read slow behind a prompt or mutation still in flight never replaces the channel: that
+    /// would cut the write off on a channel that is only slow. The read keeps its own deadline,
+    /// and the write keeps its channel to the end.
+    @Test func aReadSlowBehindAWriteLeavesTheChannelAlone() async {
+        let hub = hub(steady: true)
+        let mac = BenchMac(.quiet)
+        await hub.bind(mac)
+        var stalls = 0
+        hub.onStall = { stalls += 1; await hub.bind(BenchMac(.healthy)) }
+        let write = Task { @MainActor in
+            try await hub.request("session/new", .object([:]), timeout: .seconds(3))
+        }
+        await Task.yield()
+        var outcome = Outcome()
+        await read(hub, into: &outcome)
+        #expect(stalls == 0, "no rebind while a write is in flight")
+        #expect(outcome.answered == 0)
+        #expect(outcome.errors.count == 1)
+        // The write ran to its own deadline on the channel it was sent on.
+        await #expect(throws: LinkError.self) { _ = try await write.value }
+        #expect(stalls == 0)
+    }
 }

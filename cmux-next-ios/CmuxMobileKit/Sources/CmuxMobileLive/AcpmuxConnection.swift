@@ -97,6 +97,9 @@ public actor AcpmuxConnection {
         start()
         let id = nextID
         nextID += 1
+        let isWrite = !AcpmuxHub.steadyMethods.contains(method)
+        if isWrite { writes.insert(id) }
+        defer { if isWrite { writes.remove(id) } }
         let message: JSONValue = .object(["jsonrpc": .string("2.0"), "id": .number(Double(id)), "method": .string(method), "params": params])
         let data = try JSONEncoder().encode(message)
         rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes")
@@ -220,6 +223,12 @@ public actor AcpmuxConnection {
     /// Submitted requests not yet answered to their ``reply(to:)``, and answers that came
     /// before it was called.
     private var submitted: Set<Int> = []
+    /// Requests other than idempotent reads (``AcpmuxHub/steadyMethods``) waiting for their answer.
+    private var writes: Set<Int> = []
+
+    /// A prompt or mutation is still waiting for the Mac on this channel: a slow answer here is
+    /// work, not a stall, and closing the channel would lose it.
+    var hasWritesInFlight: Bool { !writes.isEmpty || !submitted.isEmpty }
     private var answered: [Int: Result<JSONValue, any Error>] = [:]
 
     /// A JSON-RPC notification (no id, no reply), e.g. `session/cancel`.
