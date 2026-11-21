@@ -334,6 +334,12 @@
   margin-inline-end: -4px;
   margin-bottom: calc(var(--cv-user-attachment-gap, 6px) - 2px);
 }
+/* A tile in the strip lays its thumbnail out as a flex box, not on a text line: a line adds the
+   font's descent (3px) under the thumbnail, so the gap to the bubble would be 9px, not the 6px
+   model.ts reserves. */
+.cv-user__inline-strip > .cv-user__inline-image {
+  display: flex;
+}
 .cv-user__images button,
 .cv-user__inline-image button {
   max-width: 100%;
