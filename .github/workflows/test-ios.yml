@@ -37,7 +37,7 @@ on:
         required: false
         default: ""
       test_filter:
-        description: "UI test target, target/class or target/class/method, for example cmuxUITests/cmuxUITests/testSignInPairingAndWorkspaceShell; cmuxUITests alone runs every UI test (ios-ui-tests-nightly.yml)"
+        description: "UI test target, target/class or target/class/method, for example cmuxUITests/cmuxUITests/testSignInPairingAndWorkspaceShell; cmuxUITests alone runs every UI test"
         required: false
         default: ""
       swift_package:
