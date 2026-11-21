@@ -111,9 +111,11 @@ def table_steps(config: dict, files: list[str], table: Path | None = None) -> li
 
 
 def route(event: dict, callees: dict, files: list[str] | None,
-          draft_switch: str = "1") -> tuple[list[str], dict[str, str]]:
-    """(the callee files to start, a reason per callee) for one pull_request event."""
-    cheap = head_tier.tier("pull_request", event, draft_switch)[0] == "cheap"
+          draft_switch: str = "1", decided: tuple[str, str] | None = None) -> tuple[list[str], dict[str, str]]:
+    """(the callee files to start, a reason per callee) for one pull_request event. DECIDED: head_tier's
+    (tier, reason) when the caller read the head's facts (route mode); else the draft rule alone."""
+    tier, tier_reason = decided or head_tier.tier("pull_request", event, draft_switch)
+    cheap = tier == "cheap"
     action = str(event.get("action") or "")
     pr = event.get("pull_request") or {}
     labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
@@ -130,6 +132,9 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if FULL_CI in labels:
             start.append(name)
             why[name] = "full-ci"
+            continue
+        if tier == "none":
+            why[name] = tier_reason
             continue
         if cheap and not config.get("draft"):
             why[name] = "draft: starts when marked ready for review (or with full-ci)"
@@ -231,7 +236,7 @@ def main(argv: list[str]) -> int:
     if mode == "route":
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
         files = changed_files()
-        start, why = route(event, callees, files, os.environ.get("CI_DRAFT_CHEAP_TIER", "1"))
+        start, why = route(event, callees, files, decided=head_tier.decide("pull_request", event))
         write_outputs(start, why, files)
         return 0
     if mode == "check":
