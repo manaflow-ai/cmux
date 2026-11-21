@@ -956,3 +956,46 @@ fn a_kind_scan_past_a_seq_reads_only_the_copies_past_it() {
     }
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A scan past `after` (a log load past its restore point) reads no segment before the one that
+/// holds `after + 1`, neither its copy nor its bytes: a strict one past a damaged first segment
+/// reads, where one of the whole log fails, and both return exactly the records past `after`
+/// (goal infinite-chats: a 514 MB chat's restart read every segment's copy from the start).
+#[test]
+fn a_scan_past_a_seq_reads_no_segment_before_it() {
+    let root = root();
+    let (store, log) = store_with_log(&root, 12);
+    let segments = store.segments("c").unwrap();
+    assert!(segments.len() > 4, "the log spans many segments: {}", segments.len());
+    let (_, first) = segments[0].clone();
+    // The first record of the third segment: everything before it is at or before `after`.
+    let third = crate::store::log_line::first_seq(&segments[2].1).unwrap().unwrap();
+    let after = third - 1;
+    let mut file = std::fs::OpenOptions::new().append(true).open(&first).unwrap();
+    file.write_all(b"{\"seq\": not json}\n").unwrap();
+    drop(file);
+    let kinds = ["queued", "turn_result"];
+    let past: Vec<EventRecord> =
+        log.iter().filter(|r| r.seq > after && kinds.contains(&r.kind.as_str())).cloned().collect();
+    let read_past = |strict: bool| {
+        let mut out = Vec::new();
+        let mut visit = |r: EventRecord| {
+            out.push(r);
+            true
+        };
+        let result = if strict {
+            store.scan_kinds_after_strict("c", after, &kinds, &mut visit)
+        } else {
+            store.scan_kinds_after("c", after, &kinds, &mut visit)
+        };
+        result.map(|()| out)
+    };
+    assert!(
+        store.scan_kinds_after_strict("c", 0, &kinds, &mut |_| true).is_err(),
+        "a strict scan of the whole log reads the damaged first segment"
+    );
+    assert_eq!(read_past(true).unwrap(), past, "strict, past the damaged segment");
+    assert_eq!(read_past(false).unwrap(), past, "lenient");
+    assert_eq!(read_past(true).unwrap(), past, "strict again, from the copies");
+    let _ = std::fs::remove_dir_all(&root);
+}

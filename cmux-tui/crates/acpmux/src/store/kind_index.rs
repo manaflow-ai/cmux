@@ -436,15 +436,27 @@ impl LocalStore {
         strict: bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_kinds_past(id, 0, kinds, strict, visit)
+        self.scan_kinds_from(id, 0, kinds, strict, visit)
     }
 
-    /// [`Self::scan_kinds_in`] of the records past `after` (`scan_kinds_after`, a restore point's
-    /// seq): from the segment that holds `after + 1` on (`store/segment_starts.rs`, its first
-    /// seqs kept), so the copies of the segments before it are not opened. Each fold of a restored
-    /// chat's log load read every copy from the log's first: a load from a restore point cost the
-    /// chat's whole history in opens and copied lines, five times over.
+    /// [`Self::scan_kinds_in`] of the records past `after` only. The segments before the one
+    /// that holds `after + 1` hold no such record (seqs only grow from segment to segment,
+    /// `store/segment_starts.rs`), so they are not read, copies or segments: a log load past a
+    /// restore point read every segment's copy from the log's start, a share of the whole
+    /// history on every daemon start (goal infinite-chats: 69 MB of a 514 MB chat). The visitor
+    /// still sees only records past `after`; the segment it starts in is read whole.
     pub(super) fn scan_kinds_past(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        strict: bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_kinds_from(id, after, kinds, strict, &mut |rec| rec.seq <= after || visit(rec))
+    }
+
+    fn scan_kinds_from(
         &self,
         id: &str,
         after: u64,
@@ -463,9 +475,8 @@ impl LocalStore {
         let scan = Scan { kinds, copied, strict, heads: false };
         let segments = self.segments(id)?;
         let start = self.segment_starts.start(id, &segments, after)?;
-        let mut past = |rec: EventRecord| rec.seq <= after || visit(rec);
-        for (index, path) in segments.get(start..).unwrap_or_default() {
-            if !self.scan_segment(id, *index, path, &scan, &mut past)? {
+        for (index, path) in segments.into_iter().skip(start) {
+            if !self.scan_segment(id, index, &path, &scan, visit)? {
                 break;
             }
         }
@@ -577,7 +588,7 @@ impl LocalStore {
         let copy = self.kind_index_path(id, index);
         crate::config::private_state_file(&copy).ok()?.read_to_end(&mut bytes).ok()?;
         let end = bytes.iter().position(|b| *b == b'\n')?;
-        let header: Header = serde_json::from_slice(bytes.get(..end)?).ok()?;
+        let header: Header = serde_json::from_slice(&bytes[..end]).ok()?;
         let id = segment.id;
         let mut lines = bytes.split_off(end.saturating_add(1));
         // Bytes past the lines the header covers are an addition a crash cut before its header.
