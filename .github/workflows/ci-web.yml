@@ -73,11 +73,14 @@ jobs:
         run: bun tools/generate-managed-iroh-relay-catalog.ts --check
 
       - name: Typecheck
+        env:
+          FIXIT_COMPILE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -o pipefail
           log="$RUNNER_TEMP/web-typecheck.log"
           set +e
-          bun run typecheck 2>&1 | tee "$log"
+          # fixit-compile (ci-oops 0a): on type errors that each have one safe fix, it writes the fixup patch.
+          python3 -I ../scripts/ci/oops/fixit_compile.py run --kind tsc -- bun run typecheck 2>&1 | tee "$log"
           status=${PIPESTATUS[0]}
           set -e
 
@@ -92,6 +95,17 @@ jobs:
           fi
 
           exit "$status"
+
+      # A type check whose every error had one safe language-service fix, and passed with them: the patch, for the
+      # cmuxterm-hq fixit-compile reconciler to push onto a lane/* branch as a fixup commit (ci-oops 0a).
+      - name: Upload the fixit-compile patch
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fixit-compile-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fixit-compile
+          if-no-files-found: ignore
+          retention-days: 3
 
   web-production-build:
     needs: web-subarea-scope
@@ -264,8 +278,23 @@ jobs:
         run: ./scripts/check-webviews-react-compiler.mjs
 
       - name: Typecheck webviews
+        id: typecheck-webviews
         working-directory: webviews
-        run: bun run typecheck
+        env:
+          FIXIT_COMPILE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # fixit-compile (ci-oops 0a): on type errors that each have one safe fix, it writes the fixup patch.
+        run: python3 -I ../scripts/ci/oops/fixit_compile.py run --kind tsc -- bun run typecheck
+
+      # A type check whose every error had one safe language-service fix, and passed with them: the patch, for the
+      # cmuxterm-hq fixit-compile reconciler to push onto a lane/* branch as a fixup commit (ci-oops 0a).
+      - name: Upload the fixit-compile patch
+        if: ${{ failure() && steps.typecheck-webviews.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fixit-compile-${{ github.job }}-webviews-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fixit-compile
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Test webviews
         working-directory: webviews
