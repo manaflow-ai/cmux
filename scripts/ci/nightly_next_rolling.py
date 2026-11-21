@@ -43,6 +43,11 @@ that waited in the group behind another build) waits there for this promotion be
 leaves once nightly-next moves. The same holds for nightly-next-one's first step (LEAVE_ONE_STEP), where a run
 admitted after a long wait at nightly-next-one-push checks again and leaves by skipping its build.
 
+A holder whose nightly-next-one reached notarization (FINISH_STEPS; finishing) holds nothing while it is the only
+open loop run: the tick promotes ONE run then, whose set-up runs during the notarize and publish and whose
+nightly-next-one waits pending on nightly-next-one-push. Once that run is open the holder holds again, so no second
+promotion ever replaces the pending job. run_holds_group (the feed watch's starvation guard) is unchanged.
+
 A dispatch for one commit (a person, or the feed watch's starvation guard) never
 reaches this rule: the tick runs it only when its `sha` input is empty.
 
@@ -107,6 +112,12 @@ LEAVE_SLOT_STEP = "Leave the build slot to a newer nightly-next push"
 ONE_JOB = "nightly-next-one"
 LEAVE_ONE_STEP = "Leave the push slot to a newer nightly-next push"
 LEAVE_STEPS = {RESOLVE_JOB: LEAVE_SLOT_STEP, ONE_JOB: LEAVE_ONE_STEP}
+# nightly-next-one's steps from which its run is finishing: feat-cmux-next's nightly-next-one asks this tick in the first,
+# just before the second, so the next run's promotion, preflight, decide and resolve run during the holder's notarize
+# and publish instead of after it (4.7 min, 21:38:45 to 21:43:25; push runs 43634178843, 43642011551, 43644053566
+# waited 19.6-26.8 min from landing to run created). The promoted run's nightly-next-one waits pending on
+# nightly-next-one-push until the slot frees (finishing, below).
+FINISH_STEPS = ("Ask main's nightly-next tick at notarization", "Notarize app ticket through final DMG")
 
 
 def leaving_slot(jobs: list[dict]) -> bool:
@@ -119,6 +130,19 @@ def leaving_slot(jobs: list[dict]) -> bool:
     others = [job for job in jobs if job.get("name") not in leaving and (job.get("status") in ("in_progress", "waiting")
               or job.get("status") in ("queued", "pending", "requested") and job.get("runner_name"))]
     return bool(leaving) and not others
+
+
+def finishing(jobs: list[dict]) -> bool:
+    """Whether a run's nightly-next-one is in progress at or past FINISH_STEPS (asking the tick, notarizing,
+    publishing, the post-feed uploads): it builds nothing more, and the slot frees when it ends. A skipped step (a run
+    that left the slot, or one that failed before notarization) is not reached."""
+    for job in jobs:
+        if job.get("name") != ONE_JOB or job.get("status") != "in_progress":
+            continue
+        return any(step.get("name") in FINISH_STEPS and (step.get("status") == "in_progress" or step.get(
+            "status") == "completed" and step.get("conclusion") in ("success", "failure"))
+            for step in job.get("steps") or [])
+    return False
 
 
 def may_wait_at_slot(now: dt.datetime, runs: list[dict]) -> str:
@@ -186,6 +210,10 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
     must be a window old too. A started build is never cancelled."""
     if not head:
         return True, "nightly-next is unreadable; asking as before"
+    # Every open loop run, counted before the retry_of filter below: a retry of the head pending at the slot is
+    # still a job GitHub would replace, so it keeps a finishing holder holding (review of 4cf338e7c740).
+    every_open = {run.get("id") for run in [*head_runs, *(starts or [])]
+                  if run.get("status") != "completed" and watch.holds_push_group(run)}
     if oldest_waiting is not None:
         # A retry of nightly-next's own head while a newer commit waits rebuilds a commit that already
         # failed, and it leaves the build slot only when a newer push arrives (feat-cmux-next's
@@ -211,7 +239,7 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
     if not building:
         # Every recent push run, not only the head's: an older commit's build holding the push group
         # while the head's run waits on it is the case a promotion would cancel.
-        seen = set()
+        seen, open_runs = set(), []
         for run in [*head_runs, *(starts or [])]:
             if run.get("id") in seen or run.get("status") == "completed" or not watch.holds_push_group(run):
                 continue
@@ -221,8 +249,17 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
                     continue
             except (KeyError, TypeError, ValueError):
                 pass
+            open_runs.append(run)
+        for run in open_runs:
             jobs = jobs_of(run)
-            if watch.run_holds_group(run, jobs, now) and not leaving_slot(jobs):
+            # A finishing holder lets ONE run be promoted: only while no other loop run is open (a retry of the head
+            # included) and the holder still builds nightly-next's head. A head past it means a promotion went
+            # through whose push run may not be listed yet. A second promotion would get GitHub to replace the first
+            # one's pending nightly-next-one (a cancelled nightly).
+            alone = (every_open <= {run.get("id")} and len(open_runs) == 1
+                     and (run.get("head_sha") or "").lower() == head.lower())
+            if (watch.run_holds_group(run, jobs, now) and not leaving_slot(jobs)
+                    and not (alone and finishing(jobs))):
                 building = (f"nightly-next run {run.get('html_url', run.get('id'))} is building "
                             f"{(run.get('head_sha') or head)[:12]}")
                 break

@@ -36,6 +36,7 @@ mod journal_extensions;
 mod public_projection_store;
 mod resource_store;
 mod session_journal;
+mod startup_recovery;
 mod terminal_exit_store;
 mod terminal_unplaced_store;
 
@@ -96,6 +97,11 @@ use session_journal::{
     migrate_resource_events_to_session_journal,
 };
 pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
+pub use startup_recovery::{
+    RegistryIntegrityFailure, RegistryRecovery, RegistryStartupDamage,
+    UnrecoverableInterruptedCreations, quarantine_session_registry,
+    recover_registry_after_failed_open, registry_startup_damage,
+};
 
 // Schema 9 shipped independently on the journal and multiview development
 // branches. Schema 10 shipped the journal extensions. Version 11 is the first
@@ -3995,7 +4001,7 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
         let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
         if result != "ok" {
-            anyhow::bail!("workspace registry integrity check failed: {result}");
+            return Err(RegistryIntegrityFailure { report: result }.into());
         }
     }
     // History is validated incrementally when replayed. Touch only each
