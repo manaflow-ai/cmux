@@ -2679,6 +2679,7 @@ dependencies = [
  "parking_lot",
  "plist",
  "png",
+ "pulldown-cmark",
  "ratatui",
  "regex",
  "reqwest",
