@@ -41,10 +41,10 @@ GRANT_LABEL = re.compile(r"cmux-[0-9]+-[0-9]+-mac")
 _XCODE = re.compile(r"(?:-xcode-|(?:^|/)Xcode_)(?P<version>[0-9]+(?:\.[0-9]+)*)(?:\.app)?(?:/|$)")
 
 
-def switch_on(path: Path | str = SWITCH_FILE) -> bool:
-    """Whether SWITCH_FILE says `"on": true`. A missing or malformed file is off."""
+def switch_on(path: Path | str | None = None) -> bool:
+    """Whether PATH (default SWITCH_FILE) says `"on": true`. A missing or malformed file is off."""
     try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        data = json.loads(Path(SWITCH_FILE if path is None else path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
     return isinstance(data, dict) and data.get("on") is True
@@ -88,7 +88,7 @@ def same_repo_pr(env: Mapping[str, str]) -> bool:
 
 
 def grant_labels(env: Mapping[str, str], xcode_sources: Iterable[str | None] = (),
-                 path: Path | str = SWITCH_FILE) -> str:
+                 path: Path | str | None = None) -> str:
     """This run's granted runs-on as a JSON array, or "" (see the module docstring)."""
     run_id = (env.get("GITHUB_RUN_ID") or "").strip()
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "1").strip()
