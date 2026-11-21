@@ -18,15 +18,15 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import designScale from "../../schemas/design-scale/design-scale.json";
 
-// The popover level the composer is (design-scale glass popover): its own tint on each side.
-const popover = designScale.glass.find((level) => level.name === "popover") as { tint: number; darkTint?: number };
-const popoverTint = (scheme: "light" | "dark") =>
-  (scheme === "dark" ? (popover.darkTint ?? popover.tint) : popover.tint) / 100;
-
 type Rgba = [number, number, number, number];
 type Look = { fill: Rgba; backdrop: string; shadow: string; ink: Rgba };
 
 await requireBrowserLane("composer-glass.test.ts", async () => {
+  // The popover level the composer is (design-scale glass popover): its own tint on each side.
+  const popover = designScale.glass.find((level) => level.name === "popover") as { tint: number; darkTint?: number };
+  const popoverTint = (scheme: "light" | "dark") =>
+    (scheme === "dark" ? (popover.darkTint ?? popover.tint) : popover.tint) / 100;
+
   /** Parses a computed color (`rgb()`, `rgba()` or `color(srgb …)`) into 0-1 channels and alpha. */
   function parse(color: string): Rgba {
     const srgb = color.match(/color\(srgb\s+([\d.e-]+)\s+([\d.e-]+)\s+([\d.e-]+)(?:\s*\/\s*([\d.e-]+))?\)/);

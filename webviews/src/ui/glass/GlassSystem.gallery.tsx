@@ -43,6 +43,20 @@ const POPOVER: CSSProperties = {
 
 const TEXT_BLOCK: CSSProperties = { position: "absolute", lineHeight: 1.55, overflow: "hidden" };
 
+/** A block of page text placed in the sheet (gallery geometry, not UI spacing). */
+const textAt = (
+  top: number,
+  left: number,
+  right: number,
+  size: { height: number } | { bottom: number },
+): CSSProperties => ({
+  ...TEXT_BLOCK,
+  top,
+  left,
+  right,
+  ...size,
+});
+
 const MENU_ROWS = ["Open in New Tab", "Fork Conversation", "Copy Link", "Move to Cloud", "Archive"];
 
 function useMode(mode: Mode): void {
@@ -68,9 +82,9 @@ function GlassSystemGallery({ mode }: Props) {
     >
       {/* The page's text, with a gap on the left where the content card sits in the flow (a content
           card is never over text; the floating levels are). */}
-      <div style={{ ...TEXT_BLOCK, top: 56, left: 24, right: 24, height: 88 }}>{TEXT.repeat(2)}</div>
-      <div style={{ ...TEXT_BLOCK, top: 144, left: 370, right: 24, height: 110 }}>{TEXT.repeat(2)}</div>
-      <div style={{ ...TEXT_BLOCK, top: 254, left: 24, right: 24, bottom: 0 }}>{TEXT.repeat(3)}</div>
+      <div style={textAt(56, 24, 24, { height: 88 })}>{TEXT.repeat(2)}</div>
+      <div style={textAt(144, 370, 24, { height: 110 })}>{TEXT.repeat(2)}</div>
+      <div style={textAt(254, 24, 24, { bottom: 0 })}>{TEXT.repeat(3)}</div>
       <div
         className="ui-glass"
         data-level="chrome"

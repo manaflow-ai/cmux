@@ -15,25 +15,27 @@ import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-const webviews = path.resolve(import.meta.dir, "..");
-
-/** The `now` arm's token values: the first `{...}` block of the shot's arm CSS. */
-function nowArm(): Record<string, string> {
-  const spec = JSON.parse(readFileSync(path.join(webviews, "scripts/gallery/glass-system.capture.json"), "utf8"));
-  const css: string = spec.shots.find((shot: { name: string }) => shot.name === "glass-system").arms.now;
-  const block = css.slice(css.indexOf("{") + 1, css.indexOf("}"));
-  return Object.fromEntries(
-    block
-      .split(";")
-      .map((pair) => pair.trim())
-      .filter(Boolean)
-      .map((pair) => [pair.slice(0, pair.indexOf(":")).trim(), pair.slice(pair.indexOf(":") + 1).trim()]),
-  );
-}
-
-const designScale = JSON.parse(readFileSync(path.join(webviews, "../schemas/design-scale/design-scale.json"), "utf8"));
-
 await requireBrowserLane("previous-glass.test.ts", async () => {
+  const webviews = path.resolve(import.meta.dir, "..");
+
+  /** The `now` arm's token values: the first `{...}` block of the shot's arm CSS. */
+  function nowArm(): Record<string, string> {
+    const spec = JSON.parse(readFileSync(path.join(webviews, "scripts/gallery/glass-system.capture.json"), "utf8"));
+    const css: string = spec.shots.find((shot: { name: string }) => shot.name === "glass-system").arms.now;
+    const block = css.slice(css.indexOf("{") + 1, css.indexOf("}"));
+    return Object.fromEntries(
+      block
+        .split(";")
+        .map((pair) => pair.trim())
+        .filter(Boolean)
+        .map((pair) => [pair.slice(0, pair.indexOf(":")).trim(), pair.slice(pair.indexOf(":") + 1).trim()]),
+    );
+  }
+
+  const designScale = JSON.parse(
+    readFileSync(path.join(webviews, "../schemas/design-scale/design-scale.json"), "utf8"),
+  );
+
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
