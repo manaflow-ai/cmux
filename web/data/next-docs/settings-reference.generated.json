@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 640,
+  "count": 641,
   "sections": [
     {
       "id": "general",
@@ -1505,10 +1505,6 @@
           "group": "Tabs",
           "values": [
             "minimal",
-            "cards",
-            "default",
-            "threads",
-            "console",
             "classic",
             "terminal"
           ]
@@ -4316,6 +4312,14 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.settleFinished",
+          "title": "Settle Finished Chats",
+          "help": "A chat whose answer you have read folds into Settled at the end of its list until its next turn.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.showChats",
           "title": "Show All Chats on New Tab",
           "help": "New Tab lists every agent chat on this computer, not only recent ones.",
@@ -4374,7 +4378,7 @@
         {
           "key": "sidebar.showSpaces",
           "title": "Show Spaces",
-          "help": "",
+          "help": "Spaces show once you have more than one. New Space is in the command palette.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
