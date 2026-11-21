@@ -7,6 +7,15 @@ use super::*;
 
 const MINUTE: Duration = Duration::from_secs(60);
 
+fn moment() -> Moment {
+    Moment { awake: Instant::now(), wall: SystemTime::now() }
+}
+
+/// `start` moved on by `by` on both clocks.
+fn at(start: Moment, by: Duration) -> Moment {
+    Moment { awake: start.awake + by, wall: start.wall + by }
+}
+
 #[derive(Default)]
 struct FakeFacts {
     clients: AtomicUsize,
@@ -38,17 +47,38 @@ fn facts(gone: bool, terminals: usize) -> FakeFacts {
 
 #[test]
 fn an_owner_whose_executable_is_gone_stops_after_an_hour_without_a_client() {
-    let start = Instant::now();
+    let start = moment();
     let facts = facts(true, 2);
-    assert_eq!(decide(Some(start), start + 59 * MINUTE, &facts), Decision::Wait(MINUTE));
-    assert_eq!(decide(Some(start), start + 60 * MINUTE, &facts), Decision::Exit);
+    assert_eq!(decide(Some(start), at(start, 59 * MINUTE), &facts), Decision::Wait(MINUTE));
+    assert_eq!(decide(Some(start), at(start, 60 * MINUTE), &facts), Decision::Exit);
+}
+
+#[test]
+fn the_time_the_mac_slept_counts_toward_the_hour() {
+    // A minute awake, then the Mac slept past the hour: the wall clock counts it.
+    let start = moment();
+    let facts = facts(true, 2);
+    let woke = Moment { awake: start.awake + MINUTE, wall: start.wall + 61 * MINUTE };
+    assert_eq!(decide(Some(start), woke, &facts), Decision::Exit);
+}
+
+#[test]
+fn a_wall_clock_set_back_counts_the_awake_time() {
+    let start = moment();
+    let facts = facts(true, 2);
+    let back = |awake: Duration| Moment {
+        awake: start.awake + awake,
+        wall: start.wall - Duration::from_secs(24 * 60 * 60),
+    };
+    assert_eq!(decide(Some(start), back(59 * MINUTE), &facts), Decision::Wait(MINUTE));
+    assert_eq!(decide(Some(start), back(60 * MINUTE), &facts), Decision::Exit);
 }
 
 #[test]
 fn an_owner_whose_executable_exists_never_leaves_live_terminals() {
-    let start = Instant::now();
+    let start = moment();
     let facts = facts(false, 1);
-    let ten_days = start + Duration::from_secs(10 * 24 * 60 * 60);
+    let ten_days = at(start, Duration::from_secs(10 * 24 * 60 * 60));
     assert_eq!(decide(Some(start), ten_days, &facts), Decision::Wait(ORPHAN_RECHECK));
     facts.unreadable.store(true, Ordering::SeqCst);
     facts.terminals.store(0, Ordering::SeqCst);
@@ -57,16 +87,18 @@ fn an_owner_whose_executable_exists_never_leaves_live_terminals() {
 
 #[test]
 fn an_owner_without_terminals_stops_after_an_hour_without_a_client() {
-    let start = Instant::now();
+    let start = moment();
     let facts = facts(false, 0);
-    assert_eq!(decide(Some(start), start + 30 * MINUTE, &facts), Decision::Wait(30 * MINUTE));
-    assert_eq!(decide(Some(start), start + 60 * MINUTE, &facts), Decision::Exit);
+    // The wait is at most one recheck, so a sleep is seen soon after waking.
+    assert_eq!(decide(Some(start), at(start, 30 * MINUTE), &facts), Decision::Wait(ORPHAN_RECHECK));
+    assert_eq!(decide(Some(start), at(start, 55 * MINUTE), &facts), Decision::Wait(5 * MINUTE));
+    assert_eq!(decide(Some(start), at(start, 60 * MINUTE), &facts), Decision::Exit);
 }
 
 #[test]
 fn a_connected_client_keeps_any_owner() {
     let facts = facts(true, 0);
-    assert_eq!(decide(None, Instant::now(), &facts), Decision::Serve);
+    assert_eq!(decide(None, moment(), &facts), Decision::Serve);
 }
 
 #[test]
@@ -110,21 +142,36 @@ fn the_bundle_id_comes_from_the_bundle_around_the_executable() {
 
 /// A clock that moves only when the test says so, and records each timeout
 /// the watcher asks for.
-struct FakeClock(Mutex<Instant>, Mutex<Vec<Duration>>);
+struct FakeClock(Mutex<Instant>, Mutex<Vec<Duration>>, Mutex<SystemTime>);
 
 impl FakeClock {
+    /// Awake time: both clocks move.
     fn advance(&self, by: Duration) {
         *self.0.lock().unwrap() += by;
+        *self.2.lock().unwrap() += by;
+    }
+
+    /// The Mac sleeps: only the wall clock moves.
+    fn sleep(&self, by: Duration) {
+        *self.2.lock().unwrap() += by;
     }
 
     fn asked(&self, timeout: Duration) -> bool {
         self.1.lock().unwrap().contains(&timeout)
+    }
+
+    fn longest_ask(&self) -> Option<Duration> {
+        self.1.lock().unwrap().iter().copied().max()
     }
 }
 
 impl OrphanClock for FakeClock {
     fn now(&self) -> Instant {
         *self.0.lock().unwrap()
+    }
+
+    fn wall(&self) -> SystemTime {
+        *self.2.lock().unwrap()
     }
 
     fn wait_timeout<'a>(
@@ -147,7 +194,11 @@ struct Fixture {
 }
 
 fn fixture(facts: FakeFacts) -> Fixture {
-    let clock = Arc::new(FakeClock(Mutex::new(Instant::now()), Mutex::new(Vec::new())));
+    let clock = Arc::new(FakeClock(
+        Mutex::new(Instant::now()),
+        Mutex::new(Vec::new()),
+        Mutex::new(SystemTime::now()),
+    ));
     let facts = Arc::new(facts);
     let watch = OrphanWatch::new(clock.clone(), facts.clone());
     let (tx, fired) = channel();
@@ -198,6 +249,20 @@ fn the_watcher_notices_a_deleted_executable_after_the_hour() {
 }
 
 #[test]
+fn the_watcher_stops_an_orphan_after_the_mac_slept_past_the_hour() {
+    let f = fixture(facts(true, 3));
+    f.clock.advance(MINUTE);
+    not_yet(&f);
+    assert!(
+        f.clock.longest_ask().is_some_and(|ask| ask <= ORPHAN_RECHECK),
+        "a wait on the awake clock is at most one recheck"
+    );
+    f.clock.sleep(60 * MINUTE);
+    // The watcher wakes from its (awake clock) wait and reads the wall clock.
+    fires(&f);
+}
+
+#[test]
 fn a_stopped_watcher_returns_false() {
     let f = fixture(facts(false, 1));
     f.watch.stop();
@@ -219,14 +284,17 @@ fn shortened_timing_drives_the_same_policy() {
     // The debug-only test seams (CMUX_TUI_TEST_DEV_ORPHAN_DELAY_MS and
     // _RECHECK_MS) only change these two intervals.
     let timing = Timing { delay: Duration::from_millis(200), recheck: Duration::from_millis(50) };
-    let start = Instant::now();
+    let start = moment();
     let gone = facts(true, 1);
     let live = facts(false, 1);
-    let at = |ms| start + Duration::from_millis(ms);
+    let after = |ms| at(start, Duration::from_millis(ms));
     assert_eq!(
-        decide_with(Some(start), at(150), &gone, timing),
+        decide_with(Some(start), after(150), &gone, timing),
         Decision::Wait(Duration::from_millis(50))
     );
-    assert_eq!(decide_with(Some(start), at(200), &gone, timing), Decision::Exit);
-    assert_eq!(decide_with(Some(start), at(10_000), &live, timing), Decision::Wait(timing.recheck));
+    assert_eq!(decide_with(Some(start), after(200), &gone, timing), Decision::Exit);
+    assert_eq!(
+        decide_with(Some(start), after(10_000), &live, timing),
+        Decision::Wait(timing.recheck)
+    );
 }
