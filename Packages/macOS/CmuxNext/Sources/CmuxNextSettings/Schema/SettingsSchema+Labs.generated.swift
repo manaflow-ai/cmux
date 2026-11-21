@@ -26,6 +26,9 @@ extension CmuxConfigSnapshot {
     /// `labs.agentCustomization`: Opt-in Claude Code and Codex customization (cmux-agent-customize, `cmux agent-config`), each agent's own setup read and changed in the agent's own files: Settings > MCP Servers shows and edits the MCP servers the person gave Claude Code (~/.claude.json, .mcp.json) and Codex (~/.codex/config.toml, .codex/config.toml, plugins); Settings > Agents > Claude Code & Codex lists, edits and turns on or off their skills and slash commands. Off by default; off hides the card and shows only cmux own servers, as before. Leo 2026-11-19: "when I say Claude Code, when I say Codex [...] I need you guys to be, like, doing the thing."
     public nonisolated static let agentCustomizationPath = ["labs", "agentCustomization"]
     public nonisolated static let agentCustomizationDefault = false
+    /// `labs.chatMultiplayer`: Chat multiplayer for a teammate this Mac shares a chat with (`cmux host share`, plans/cmux-next/chat-multiplayer/DESIGN.md phase 1b): on, the teammate's app also says when they view the shared chat and when a member types, so both people see each other's face and typing row. Off by default; off, a teammate gets exactly what it got before (read, and a member's prompt and cancel). Read by `cmux host serve` and the daemon on each frame. The person turns it on: agents may not (it widens what a teammate may send). Leo 2026-10-26: "we can still do the regular chat multiplayer".
+    public nonisolated static let chatMultiplayerPath = ["labs", "chatMultiplayer"]
+    public nonisolated static let chatMultiplayerDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -113,6 +116,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.agentCustomizationDefault),
                 keywords: ["labs", "claude", "codex", "mcp", "servers", "skills", "commands", "slash", "customize", "agent", "agents", "config"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.chatMultiplayerPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.chatMultiplayer", "Chat Multiplayer"),
+                help: SettingsText.keyed("settings.labs.chatMultiplayer.help", "Teammates you share a chat with show when they view it and when they type."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.chatMultiplayerDefault),
+                keywords: ["labs", "multiplayer", "share", "shared", "teammate", "presence", "typing", "together", "chat"]
             ),
         ]
     }

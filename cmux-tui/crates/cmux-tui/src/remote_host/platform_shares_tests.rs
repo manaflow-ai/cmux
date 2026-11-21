@@ -610,7 +610,8 @@ fn an_every_chat_platform_share_never_takes_the_place_of_a_local_share() {
     // The proxy still lets her prompt the shared chat.
     let frame = json!({"cmd": "agent-session-prompt", "surface": 3, "text": "hi"});
     let author = json!({"login": TEAMMATE});
-    let filtered = crate::remote_host::agent_proxy::filter(&outcome.config, &author, BOOT, frame);
+    let filtered =
+        crate::remote_host::agent_proxy::filter(&outcome.config, &author, BOOT, false, frame);
     assert!(filtered.is_ok(), "{filtered:?}");
 }
 

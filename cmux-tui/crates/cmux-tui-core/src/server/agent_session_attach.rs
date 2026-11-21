@@ -167,6 +167,9 @@ pub(crate) struct AgentSessions {
     link_shares: proxy::shares::LinkShares,
     /// Unix connections past their first line: a proxy binds only on its first.
     spoken: Mutex<HashSet<u64>>,
+    /// Bound tailnet teammates whose bind asked for presence (`labs.chatMultiplayer`): their
+    /// typing and view reach acpmux as their own. Set only by the bind, never by `set-client-info`.
+    proxy_presence: Mutex<HashSet<u64>>,
     /// A tab's session changes under the write side; every write to or for a teammate's
     /// attachment checks the tab under the read side, so none lands after a rebind.
     rebinding: RwLock<()>,
@@ -277,6 +280,7 @@ impl AgentSessions {
             }
         }
         self.spoken.lock().unwrap_or_else(|e| e.into_inner()).remove(&client);
+        self.proxy_presence.lock().unwrap_or_else(|e| e.into_inner()).remove(&client);
         let gone: Vec<Arc<Attachment>> = {
             let mut state = self.lock();
             state.reserved.retain(|(c, _)| *c != client);
@@ -287,6 +291,16 @@ impl AgentSessions {
         for attachment in gone {
             attachment.end(None);
         }
+    }
+
+    /// The bind asked for presence for `client` (`agent_session_proxy::bind`).
+    pub(super) fn set_proxy_presence(&self, client: u64) {
+        self.proxy_presence.lock().unwrap_or_else(|e| e.into_inner()).insert(client);
+    }
+
+    /// Whether `client`'s bind asked for presence.
+    pub(super) fn proxy_presence(&self, client: u64) -> bool {
+        self.proxy_presence.lock().unwrap_or_else(|e| e.into_inner()).contains(&client)
     }
 
     fn remove(&self, attachment: &Attachment) {
@@ -1610,12 +1624,17 @@ fn run_on_worker(
         return refuse(writer, id, Refusal::NotTrusted);
     }
     // A teammate (a bound proxy author) never answers the host's asks: an allow
-    // would run a tool on the owner's machine (design section 7). Nor does it say it types or
-    // views yet: acpmux would count that as the owner's own presence. A link guest's typing and
-    // view carry its author.
+    // would run a tool on the owner's machine (design section 7). Without presence it does not
+    // say it types or views either. A link guest's typing and view carry its author.
     let guest = attachment.author.as_ref().is_some_and(proxy::is_guest);
     // A Cloud team member's typing and view carry its own author (acpmux presence), like a guest's.
     let member = attachment.author.as_ref().is_some_and(proxy::is_member);
+    // A tailnet teammate whose bind asked for presence (`labs.chatMultiplayer`, design
+    // chat-multiplayer phase 1b) types and views as its own author too; without it, as before.
+    let teammate_presence = attachment.author.is_some()
+        && !guest
+        && !member
+        && mux.control_clients.agent_sessions.proxy_presence(attachment.client);
     // Only the owner answers an ask or decides a held prompt (acpmux refuses an author too).
     if attachment.author.is_some()
         && matches!(
@@ -1628,7 +1647,8 @@ fn run_on_worker(
         return refuse(writer, id, if member { Refusal::OwnerOnly } else { Refusal::NotTrusted });
     }
     if attachment.author.is_some()
-        && (!(guest || member) || matches!(&command, AgentSessionCommand::Permission(_)))
+        && (!(guest || member || teammate_presence)
+            || matches!(&command, AgentSessionCommand::Permission(_)))
         && matches!(
             &command,
             AgentSessionCommand::Permission(_)

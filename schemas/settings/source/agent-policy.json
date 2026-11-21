@@ -1279,6 +1279,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "On, a teammate this Mac shares a chat with may send that they view it and type in it: only the person turns that on.",
+      "keys": [
+        "labs.chatMultiplayer"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "On, Settings edits the MCP servers, skills and commands in Claude Code's and Codex's own config files: only the person turns that on.",
       "keys": [
         "labs.agentCustomization"

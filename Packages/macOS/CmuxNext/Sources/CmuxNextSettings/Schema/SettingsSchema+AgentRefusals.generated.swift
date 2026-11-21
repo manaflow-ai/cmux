@@ -96,6 +96,8 @@ extension SettingsSchema {
         "labs.machineJoin": .network,
         // On, a live code build loads Swift patches into the running app: only the person turns that on.
         "labs.liveCode": .userOnly,
+        // On, a teammate this Mac shares a chat with may send that they view it and type in it: only the person turns that on.
+        "labs.chatMultiplayer": .userOnly,
         // On, Settings edits the MCP servers, skills and commands in Claude Code's and Codex's own config files: only the person turns that on.
         "labs.agentCustomization": .userOnly,
         // Whether cmux's own pages open developer tools, which read and change their live content: the person's call.
