@@ -375,7 +375,6 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                   title={t("settingsPage.theme.wholeApp")}
                   help={t("settingsPage.theme.wholeAppHelp")}
                   menu={themeMenu}
-                  reset={<ResetSpacer />}
                 >
                   <Switch
                     checked={wholeAppOn}
