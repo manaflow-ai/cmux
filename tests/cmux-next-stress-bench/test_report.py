@@ -1,10 +1,12 @@
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 SCRIPT = Path(__file__).parents[2] / "scripts/cmux-next-stress-bench/report.py"
 spec = importlib.util.spec_from_file_location("stress_report", SCRIPT)
 report = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = report
 spec.loader.exec_module(report)
 
 
