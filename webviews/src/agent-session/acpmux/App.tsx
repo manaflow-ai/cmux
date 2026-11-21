@@ -505,6 +505,7 @@ import { turnPreviewUrl, turnServedUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
 import {
   canFork,
+  canForkTurn,
   forkRefusal,
   forkToTarget,
   forksAnyTurn,
@@ -1648,6 +1649,16 @@ export function AcpmuxApp({ initialChat }: { initialChat?: InitialChat } = {}) {
 /// No projects known (a stable value, so memos keyed on it hold).
 const NO_PROJECTS: Project[] = [];
 
+/// Experiment switch for the spare's parked chat view (App `parkedVisible`), set by the bench before load.
+const spareParkVisible = () =>
+  typeof window !== "undefined" && (window as { __cmuxSparePark?: unknown }).__cmuxSparePark === "visible";
+const PARKED_STYLE = {
+  visibility: "hidden",
+  position: "absolute",
+  inset: 0,
+  pointerEvents: "none",
+} as const satisfies React.CSSProperties;
+
 function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -2255,6 +2266,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const revealRef = useRef(reveal);
   revealRef.current = reveal;
   const forkable = canFork(snapshot);
+  const turnForkable = canForkTurn(snapshot);
   // A turn end of the settled view acpmux opened the chat from stands in until the rows hold one
   // (cmuxterm-hq#9655): the fork is offered from the chat's first settled frame.
   const forkSeq = latestForkSeq(snapshot.rows) ?? newestSettledForkSeq(snapshot.settled);
@@ -2282,7 +2294,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [rowsForEdits, editFamily],
   );
   // Each prompt's own turn, for the Fork under its bubble; rebuilt only when the turns change.
-  const promptSeqsKey = editableKey(promptTurns(forkable ? snapshot.rows : []));
+  const promptSeqsKey = editableKey(promptTurns(turnForkable ? snapshot.rows : []));
   const stablePromptSeqs = useMemo(() => editableSeqs(promptSeqsKey), [promptSeqsKey]);
   // Retry with another model (cx-ncc.62): the models the composer's picker lists for the chat's
   // harness (user-hidden ones left out, aliases folded, the session's own choices added) that it can
@@ -4297,7 +4309,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           open: (sessionId: string) => void callNative("chat.select", { sessionId }).catch(() => undefined),
         },
       }),
-      ...(forkable && {
+      ...(turnForkable && {
         fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
         forkAny,
         promptTurns: stablePromptSeqs,
@@ -4547,7 +4559,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       snapshot.sessionId,
       stableBranches,
       runningBranchSessions,
-      forkable,
+      turnForkable,
       forkSeq,
       forkAny,
       stablePromptSeqs,
@@ -7246,7 +7258,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // right-click menu (`chat.quoteReply`, conversation/SelectionReply.tsx).
   useEffect(() => setQuoteReplySink(quoteReply), [quoteReply]);
   useComposerKeyboard(() => {
-    if (!prompt.current) return false;
+    // A composer parked under a New Tab page (inert, unseen) takes no keyboard: the page's field does.
+    if (!prompt.current || document.querySelector(".acpmux-dock[inert]")) return false;
     prompt.current.focus();
     return true;
   }, pageHostClient());
@@ -11471,6 +11484,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (handshaken || hostError === undefined);
   // The extension the person picked to draw the whole page (`tabs.newTabApp`), until it could not show.
   const newTabApp = showNewTab ? pickedNewTabApp(newTab, newTabAppGone, newTabAdoptions) : undefined;
+  /// The chat view (header, transcript, dock and composer) shows: no page or screen stands in its place.
+  const showsChatView =
+    !showNewTab && !harnessesOpen && !contextOpen && !(replaying && replaying === snapshot.sessionId);
+  /// A New Tab page (the prewarmed spare among them) keeps the chat view built and hidden under it
+  /// (`<Activity mode="hidden">`: rendered when React is idle, no effects), so a chat it takes
+  /// (`acpmux-session-adopt`, a start from the page) only shows it and draws the chat's rows: the
+  /// adopt event's task was one ~70 ms React pass building the whole view in New Tab's place. The
+  /// hidden view holds the (empty) transcript, not a new chat's hero and lists: a taken chat shows rows.
+  const premountsChatView = showNewTab && !harnessesOpen;
+  /// A chat view that showed and then went under a New Tab page (Cmd-T in this page, a host that
+  /// answered after its error) is built again: the hidden one is always a fresh mount, as the view
+  /// the adopt used to build, so no draft or picker state of the chat it showed carries over.
+  const chatViewMount = useRef({ shown: showsChatView, key: 0 });
+  if (chatViewMount.current.shown && !showsChatView) chatViewMount.current.key += 1;
+  chatViewMount.current.shown = showsChatView;
+  /// Experiment (bench `PARK=visible`): park the view drawn but invisible and inert instead of under
+  /// `<Activity mode="hidden">`, so its effects run while parked and its reveal runs none.
+  const [parkVisible] = useState(spareParkVisible);
+  const parkedVisible = premountsChatView && !showsChatView && parkVisible;
+  const parkStyle = parkedVisible ? PARKED_STYLE : undefined;
   if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
   /// The one-time Cloud hint shows on a new chat this Mac starts while Cloud is offered and is not
   /// its mode (cloudChatHintModel.ts); never in a quick chat or a chat on another machine.
@@ -14214,12 +14247,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 />
               )}
             />
-          ) : (
-            <>
+          ) : null}
+          {(showsChatView || premountsChatView) && (
+            <Activity key={chatViewMount.current.key} mode={showsChatView || parkVisible ? "visible" : "hidden"}>
               <div
                 className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
                 data-solo-tab={soloUnder ? "" : undefined}
-                style={inTabRow ? tabRowStyle(tabRow) : undefined}
+                style={parkStyle ?? (inTabRow ? tabRowStyle(tabRow) : undefined)}
+                inert={parkedVisible || undefined}
               >
                 {/* In the tab row the native tabs draw over this band, so a tooltip stays out of it
                     (ui/titleTooltips.ts `data-tooltip-covered`). */}
@@ -14518,7 +14553,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     // Sandboxed can't run here now: the person says how the message goes instead.
                     {...(sandboxRetryable(sandboxView) ? { onPersistent: () => sandbox.setMode("persistent") } : {})}
                   />
-                ) : freshView ? (
+                ) : freshView && !premountsChatView ? (
                   <EmptyState
                     project={projectName(composerSnapshot.summary?.cwd)}
                     picker={heroPicker}
@@ -14553,14 +14588,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   />
                 )}
               </div>
-              <div ref={setDock} className="acpmux-dock">
+              <div ref={setDock} className="acpmux-dock" style={parkStyle} inert={parkedVisible || undefined}>
                 {/* The pane's toasts stand on the stack's top edge, over the transcript (ToastLayer.tsx). */}
                 <ToastLayer queue={paneToasts} topHost={toastTop} />
                 {asks}
                 {/* Between the hero and the docked composer. */}
                 {/* A Sandboxed send holds the new chat: no recent chat replaces it while it is out.
                     Neither does a Cloud start's chat, which shows its sent message (CloudStartView). */}
-                {freshView && !sandboxHoldsChat && !viewedSandbox && !cloudStartShown && (
+                {freshView && !premountsChatView && !sandboxHoldsChat && !viewedSandbox && !cloudStartShown && (
                   <div className="acpmux-home-area">
                     <HomeLists
                       sessions={snapshot.sessions}
@@ -14585,7 +14620,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
                 {(!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && composer}
               </div>
-            </>
+            </Activity>
           )}
         </div>
         {!harnessesOpen &&
