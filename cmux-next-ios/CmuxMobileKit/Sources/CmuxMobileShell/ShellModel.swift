@@ -113,6 +113,13 @@ final class ShellModel {
         let id = UUID()
         let attention: CloudChatAttention?
     }
+    /// A Mac screen link being opened: Screen Sharing as a sheet, that device's share asked for.
+    var macScreenLink: MacScreenLinkPresentation?
+
+    struct MacScreenLinkPresentation: Identifiable {
+        let id = UUID()
+        let link: CmuxLink.MacScreenLink
+    }
     /// Debug-driven scroll target for the Settings list.
     var settingsScrollTarget: String?
     /// Where the user was, kept across launches (design/terminal P10).
