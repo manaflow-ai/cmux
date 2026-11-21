@@ -296,3 +296,15 @@ test("two chats of one agent session, reordered, link to the one now first", () 
   expect(store.byAgent("claude", "x")).toBe("s2");
   expect(store.byAgentSession("x")).toBe("s2");
 });
+
+test("a reorder that moves which chat an agent link opens tells the link", () => {
+  const store = new SessionHoverStore();
+  let told = 0;
+  store.subscribe(() => told++);
+  const a = counted(1, { agentSessionId: "x" });
+  const b = counted(2, { agentSessionId: "x" });
+  store.set([a, b]);
+  told = 0;
+  store.set([b, a]);
+  expect(told).toBeGreaterThan(0);
+});

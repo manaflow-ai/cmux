@@ -160,15 +160,21 @@ class Daemon:
                 self.changed.wait(min(left, 30))
 
     def stop(self):
-        # SIGTERM to the process group this script started, then wait.
-        if self.process.poll() is not None:
-            return
-        os.killpg(self.process.pid, signal.SIGTERM)
+        # SIGTERM to the process group this script started, a grace period, then SIGKILL to the group whether or
+        # not the leader exited: a child that ignores SIGTERM would outlive it (cmux#41767 review F1).
+        try:
+            os.killpg(self.process.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
         try:
             self.process.wait(timeout=600)
         except subprocess.TimeoutExpired:
+            pass
+        try:
             os.killpg(self.process.pid, signal.SIGKILL)
-            self.process.wait()
+        except (ProcessLookupError, PermissionError):
+            pass
+        self.process.wait()
 
 
 def digest(registry, out, compare=None):

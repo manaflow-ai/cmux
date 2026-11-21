@@ -334,3 +334,37 @@ fn an_all_bad_source_import_leaves_the_folder_intact() {
     assert_eq!(titles(&listing), ["Imported from Chrome", "A"]);
     mux.shutdown();
 }
+
+#[test]
+fn children_reads_one_level_or_a_bounded_subtree() {
+    let (mux, conn) = app();
+    ok(send(&mux, &conn, "bookmarks.apply", json!({"ops": create_ops()}), Some("k1")));
+    let read = |params: Value| ok(send(&mux, &conn, "bookmarks.children", params, None));
+    // The bar's own row: its folder, not what the folder holds.
+    let bar = read(json!({"browser_profile_id": "default", "parent": "bar"}));
+    assert_eq!(titles(&bar), ["Work"]);
+    assert_eq!(bar["total"], 1);
+    assert_eq!(bar["truncated"], false);
+    assert_eq!(bar["bookmarks"][0]["index"], 0);
+    let listing =
+        ok(send(&mux, &conn, "bookmarks.list", json!({"browser_profile_id": "default"}), None));
+    assert_eq!(bar["bookmarks_revision"], listing["bookmarks_revision"]);
+    // A folder menu's subtree, in listing order.
+    let deep = read(json!({"browser_profile_id": "default", "parent": "bar", "depth": 64}));
+    assert_eq!(titles(&deep), ["Work", "Rust docs"]);
+    // Other Bookmarks counted without its rows.
+    let other = read(json!({"browser_profile_id": "default", "parent": "other", "limit": 0}));
+    assert_eq!(titles(&other), Vec::<String>::new());
+    assert_eq!(other["total"], 1);
+    assert_eq!(other["truncated"], true);
+    // A cut subtree says so.
+    let cut =
+        read(json!({"browser_profile_id": "default", "parent": "bar", "depth": 2, "limit": 1}));
+    assert_eq!(titles(&cut), ["Work"]);
+    assert_eq!(cut["truncated"], true);
+    // An unknown parent has no children.
+    let none = read(json!({"browser_profile_id": "default", "parent": "bm_missing"}));
+    assert_eq!(none["total"], 0);
+    assert_eq!(titles(&none), Vec::<String>::new());
+    mux.shutdown();
+}

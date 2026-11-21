@@ -288,3 +288,34 @@ fn ids_too_long_for_the_ledger_are_not_keys() {
     let groups: Vec<&str> = window.groups.iter().map(|group| group.id.as_str()).collect();
     assert_eq!(groups, ["g"]);
 }
+
+/// A read save's scrollback is already the read-only text the new shell
+/// prints: a saved title or clipboard write never comes back, and a
+/// terminal with nothing printable has none.
+#[test]
+fn a_read_saves_scrollback_is_its_replay_text() {
+    let root = tempfile::tempdir().unwrap();
+    let support = root.path().join("support");
+    let panels = json!([
+        terminal(
+            PANEL_A,
+            json!({"scrollback": "\u{1b}]0;title\u{07}$ ls\r\n\u{1b}[32mok\u{1b}[0m\r\n"})
+        ),
+        terminal(PANEL_B, json!({"scrollback": "\u{1b}]52;c;eA==\u{07}\r\n"})),
+    ]);
+    write(
+        &support.join("cmux/session-com.cmuxterm.app.json"),
+        &String::from_utf8(session(
+            json!([{"stableId": "w", "currentDirectory": "/tmp", "panels": panels}]),
+        ))
+        .unwrap(),
+    );
+    let finder = Finder::new(&support, Some("com.cmuxterm.app"));
+    let save = read::read(&finder, None, root.path()).unwrap().unwrap();
+    let tabs = save.snapshot.windows[0].workspaces[0].layout.tabs();
+    assert_eq!(
+        tabs[0].scrollback.as_deref(),
+        Some("\u{1b}[0m$ ls\n\u{1b}[32mok\u{1b}[0m\u{1b}[0m\n")
+    );
+    assert_eq!(tabs[1].scrollback, None);
+}

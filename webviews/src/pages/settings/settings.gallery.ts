@@ -1,4 +1,5 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
+import { mockAgentKeys } from "./mockAgentKeys";
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import type {
   AccountsCmux,
@@ -9,11 +10,13 @@ import type {
   HostLists,
   ProviderAccount,
 } from "./ops";
+import { pageDensities, pageDensityPlay } from "../../gallery/pageDensityFixtures";
 import { minutesAgo } from "../../gallery/clock";
-import { categories, homes } from "./categories";
+import { categories, categoryOf, defaultCategory, isCategory } from "./categories";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
+import { mockDevicesState } from "./mockProvider";
 import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
 import FRIEDRICH_FOREST_MOONLIGHT from "../../gallery/fixtures/art/friedrich-forest-moonlight.jpg?inline";
 import VAN_GOGH_STARRY_NIGHT from "../../gallery/fixtures/art/van-gogh-starry-night.jpg?inline";
@@ -215,9 +218,31 @@ const input = (selector: string, value: string): PageFixtureStep => ({ selector,
 const wait = (selector: string): PageFixtureStep => ({ selector, action: "wait" });
 const row = (key: string) => `[data-row-key="${key}"]`;
 const focusComputerUse: PageFixtureStep = {
-  // Guided Setup's button (Restart Helper when the helper failed): it shows in every phase.
-  selector: '[data-card="computer-use"] [data-action-row] button',
+  // The mode picker's checked mode: it shows in every phase.
+  selector: '[data-card="computer-use"] [data-mode][data-checked] input',
   action: "focus",
+};
+const focusApprovals: PageFixtureStep = {
+  selector: '[data-card="computer-use"] [data-approval] button',
+  action: "focus",
+};
+const focusDenied: PageFixtureStep = {
+  selector: '[data-card="computer-use"] [data-denied-input]',
+  action: "focus",
+};
+const computerUseReady = {
+  phase: "ready" as const,
+  accessibility: true,
+  screen_recording: false,
+  helper: null,
+  engine: "cmux Computer Use 1.0",
+  worker: { state: "running" as const, pid: 4242 },
+  approvals: [],
+  running_apps: [
+    { id: "com.apple.Safari", name: "Safari" },
+    { id: "com.apple.Notes", name: "Notes" },
+    { id: "com.figma.Desktop", name: "Figma" },
+  ],
 };
 const customValues: Record<string, unknown> = Object.fromEntries(
   schema.rows.map((setting) => {
@@ -249,32 +274,87 @@ const customValues: Record<string, unknown> = Object.fromEntries(
     return [setting.key, value];
   }),
 );
-const variant = (section: string, extra: Omit<SettingsPageVariant, "section"> = {}): SettingsPageVariant => ({
-  section,
-  host,
-  accounts: accounts(),
-  ...extra,
-});
+const variant = (section: string, extra: Omit<SettingsPageVariant, "section"> = {}): SettingsPageVariant => {
+  // A section that is neither a category id nor one of its aliases opens General (categoryOf), so
+  // a state's steps wait for a card that is never drawn: say which section is wrong instead.
+  if (!isCategory(section) && categoryOf(section) === defaultCategory)
+    throw new Error(`settings gallery: ${JSON.stringify(section)} is not a Settings category or alias`);
+  return { section, host, accounts: accounts(), ...extra };
+};
+/** The Endpoint form captured in view (the tab sits below the Agents list), once `ready` shows. */
+const showEndpoint =
+  (ready = "[data-agents-endpoint]") =>
+  async (ctx: Parameters<NonNullable<SettingsPageVariant["play"]>>[0]) => {
+    await ctx.waitFor(() => ctx.document.querySelector(ready));
+    const form = ctx.find({ selector: "[data-agents-endpoint]" });
+    form.setAttribute("data-gallery-capture", "");
+    form.scrollIntoView({ block: "center" });
+  };
+/** States whose fixture steps change the page's height on purpose (the scope switch drops the
+ * All Workspaces tiles; a refused name opens its error line), so the rows below them move. They are
+ * measured in pages.settings-motion, whose layout shift is recorded, not held at 0 (#41237: on
+ * Appearance those rows are in view). */
+export const heightChangingVariants: Record<string, SettingsPageVariant> = {
+  "backdrops-workspace": variant("appearance", {
+    focus: "appearance.background",
+    workspace: "ws-1",
+    options: {
+      values: { "appearance.background": "starryNight" },
+      workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: null }],
+    },
+    host: {
+      ...host,
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    play: async (ctx) => {
+      const selector = ".backdrop-scope label:last-child";
+      await ctx.waitFor(() => ctx.document.querySelector(selector));
+      await ctx.click({ selector });
+      await ctx.waitFor(() => ctx.document.querySelector(`${selector} input:checked`));
+    },
+    note: "Change Background… on a workspace: This Workspace (Research) picked, following All Workspaces until it has its own.",
+  }),
+  "theme-file-refused": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Dracula" } },
+    steps: [
+      wait('[data-theme-files-action="save"]:not([disabled])'),
+      click('[data-theme-files-action="save"]'),
+      input('[data-theme-files-prompt="name"] input', "Dracula"),
+      click('[data-theme-files-prompt="name"] button[type="submit"]'),
+      wait("[data-theme-files-error]"),
+    ],
+    note: "A name a shipped theme uses is refused inline; the name prompt stays open.",
+  }),
+};
+
 const variants: Record<string, SettingsPageVariant> = {
-  "model-picker-placement-inherited": variant("agents", {
+  "model-picker-placement-inherited": variant("chat", {
     focus: "agentPane.display.harnessPlacement",
     host: { ...host, harness_placement: "left" },
     note: "The normal placement row shows the existing left rail preference before a new choice is saved.",
   }),
-  "model-picker-placement-symbols": variant("agents", {
+  "model-picker-placement-symbols": variant("chat", {
     focus: "agentPane.display.harnessPlacement",
     host: { ...host, harness_placement: "left" },
     options: { values: { "agentPane.display.harnessPlacement": "symbols" } },
     note: "An explicit top symbols choice wins over the old left rail and offers Reset.",
   }),
+  "agent-tools": variant("agents", {
+    focus: "agents.cmuxMcp",
+    note: "The onboarding step's question kept in Settings: cmux Tools for Agents in cmux, each coding agent on this Mac with Turn On, and the manual lines for agents started elsewhere.",
+  }),
 };
 for (const category of categories) {
-  const allThemes = category.id === "theme";
-  variants[category.id] = variant(category.id, { allThemes });
-  variants[`${category.id}-customized`] = variant(category.id, { allThemes, options: { values: customValues } });
+  // The theme studio (every bundled theme) is Appearance's since the Theme page moved there.
+  const allThemes = category.id === "appearance";
+  // Variant names are lower kebab case: the New Tab category's id is newTab.
+  const name = category.id.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+  variants[name] = variant(category.id, { allThemes });
+  variants[`${name}-customized`] = variant(category.id, { allThemes, options: { values: customValues } });
   // Every group gets a scroll/focus target, including controls below the initial viewport.
   for (const [index, group] of category.groups.entries())
-    variants[`${category.id}-group-${index + 1}`] = variant(category.id, {
+    variants[`${name}-group-${index + 1}`] = variant(category.id, {
       focus: group.rows[0]!.key,
       options: { values: customValues },
       note: `${group.title.text}: customized controls, focused and scrolled into view.`,
@@ -440,48 +520,7 @@ Object.assign(variants, {
       ],
     },
   }),
-  // Remove asks first, in the row. Three states of the one flow: the question open on an added
-  // Codex login (shadow home), on a Claude API-key account, and a signed-out account whose usage
-  // read before its sign-out is no longer shown.
-  "agents-harnesses-account-remove-confirm": variant("agents", {
-    note: "Remove on ChatGPT 2 asks first, in its row: only cmux's record goes; the login folder and the CLI's own sign-in stay.",
-    harnesses: { loading: false, problem: null, accounts: providerAccounts, harnesses: codexHarness },
-    steps: [
-      wait('[data-account="codex-2"] [data-account-action="remove"]'),
-      click('[data-account="codex-2"] [data-account-action="remove"]'),
-      wait('[data-account="codex-2"] [data-account-remove-confirm]'),
-    ],
-  }),
-  "agents-harnesses-account-remove-confirm-key": variant("agents", {
-    note: "Remove on a Claude API-key account asks the same question; says the API key stays where it is stored.",
-    harnesses: {
-      loading: false,
-      problem: null,
-      accounts: [
-        ...providerAccounts,
-        {
-          id: "claude-key",
-          family: "claude",
-          name: "Work key",
-          home: null,
-          defaultHome: "~/.claude",
-          shadowOf: null,
-          signedIn: true,
-          plan: null,
-          email: null,
-          enabled: true,
-          builtin: false,
-          key: true,
-        },
-      ],
-      harnesses: [{ id: "claude", name: null, kind: "claude-stdio", source: "path", problem: null, version: "2.0.9" }],
-    },
-    steps: [
-      wait('[data-account="claude-key"] [data-account-action="remove"]'),
-      click('[data-account="claude-key"] [data-account-action="remove"]'),
-      wait('[data-account="claude-key"] [data-account-remove-confirm]'),
-    ],
-  }),
+  // A signed-out account whose usage read before its sign-out is no longer shown.
   "agents-harnesses-account-signed-out": variant("agents", {
     note: "ChatGPT 2 after its sign-out: Sign In comes back and the usage read before it is no longer shown.",
     harnesses: {
@@ -503,6 +542,7 @@ Object.assign(variants, {
   }),
   // Change Background… (cx-t2x.4): the picker on Appearance, with its Opacity slider.
   backdrops: variant("appearance", {
+    focus: "appearance.background",
     options: { values: { "appearance.background": "starryNight", "appearance.backgroundOpacity": 0.6 } },
     host: {
       ...host,
@@ -521,9 +561,21 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
-  // Leo, 11-07: the profile menu's Personalization…, every visual choice on one page under a jump bar.
-  "personalization-background": variant("personalization", {
-    focus: "personalization.background",
+  // David Beyer (Nov 20) could not find a sidebar font size: General opens on one Text Size and density pick.
+  "general-text-size": variant("general", {
+    note: "General's first card: Text Size (five Aa steps) and density, the pick Set Up cmux offers too.",
+  }),
+  "general-text-size-larger": variant("general", {
+    options: { values: { "appearance.metrics.chromeFontSize": 16, "appearance.density": "comfortable" } },
+    note: "Text Size at Larger with Comfortable density: the steps follow the density's own body size.",
+  }),
+  // One settings area (David Beyer, 2026-11-20): the sidebar's short top level, then More opened.
+  "sidebar-more": variant("general", {
+    steps: [click(".sidebar-more"), wait('.sidebar-more[aria-expanded="true"]')],
+    note: "The sidebar's More opened from General: the pages a person opens less often, below the short top level.",
+  }),
+  "appearance-background": variant("appearance", {
+    focus: "appearance.background",
     workspace: "ws-1",
     options: {
       values: { "appearance.background": "starryNight", "appearance.backgroundOpacity": 0.6 },
@@ -533,25 +585,17 @@ Object.assign(variants, {
       ...host,
       backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
     },
-    steps: [wait('[data-part="background"] [data-card="backdrop"]')],
-    note: "Change Background… opens Personalization on its Background part: the same art picker, Material and Opacity as Appearance.",
+    steps: [wait('[data-card="backdrop"]')],
+    note: "Change Background… opens Appearance on its background picker: the art, Material and Opacity, for a workspace.",
   }),
-  "personalization-chief": variant("personalization", {
-    focus: "personalization.chief",
-    options: { values: { "home.chiefPetEnabled": true, "home.chiefPetMascot": "fox" } },
-    note: "Personalization on the Chief's look: the Chief Pet card, shown, with the Fox picked.",
-  }),
-  "personalization-text": variant("personalization", {
-    focus: "personalization.text",
-    options: { values: { "appearance.density": "cozy", "agentPane.display.transcriptView": "thinking" } },
-    note: "Personalization on Text and Density: the density tiles, the chat fonts and the transcript view.",
-  }),
-  "personalization-sounds": variant("personalization", {
-    focus: "personalization.sounds",
-    note: "Personalization on Sounds: the notification sound, its volume and when it plays.",
+  "appearance-density": variant("appearance", {
+    focus: "card.density",
+    options: { values: { "appearance.density": "cozy" } },
+    note: "Appearance on its density card: the density tiles and Text Size.",
   }),
   // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
   "appearance-undo-bar": variant("appearance", {
+    focus: "appearance.background",
     host: {
       ...host,
       derived: { "appearance.backgroundOpacity": 1 },
@@ -572,21 +616,22 @@ Object.assign(variants, {
     note: "Presets at the bottom right beside Undo, Redo and Reset: one pick sets the window's Opacity and Material and every surface's opacity, as one undoable step; Frosted is checked.",
   }),
   // The terminal font list open: recent fonts first under a Recent tag, every family in its own face.
-  "font-picker-open": variant("appearance", {
+  "font-picker-open": variant("terminal", {
     focus: "terminal.fontFamily",
     options: { values: { "terminal.fontFamily": "JetBrains Mono" } },
     steps: [click(`${row("terminal.fontFamily")} [data-font-picker]`), wait("[data-font-option]")],
     note: "Terminal Font Family's list: the default first, then the fonts picked lately with a Recent tag, then every installed family, each drawn in its own face. Arrow keys preview live; Return picks, Escape reverts.",
   }),
-  // Unset surface rows rest on the window's values, dimmed under an "Inherits window" badge.
+  // Unset surface opacities rest on the window's values, drawn as their own; colors keep their badge.
   "surfaces-inherit-window": variant("appearance", {
     focus: "appearance.surfaces.sidebar.opacity",
     options: { values: { "appearance.backgroundOpacity": 0.8 } },
     host: { ...host, derived: { "appearance.backgroundOpacity": 0.8 } },
     steps: [wait(row("appearance.surfaces.sidebar.opacity"))],
-    note: "Surfaces: each unset opacity rests on the window's 80% and each unset color on the window's color, dimmed with an Inherits window badge; no row reads a truncated default label.",
+    note: "Surfaces: each unset opacity shows the window's 80% as its value and each unset color the window's color under an Inherits window badge; no row reads a truncated default label.",
   }),
   "backdrops-pending": variant("appearance", {
+    focus: "appearance.background",
     options: { values: { "appearance.background": "system:/S/Sonoma.heic" } },
     host: {
       ...host,
@@ -634,6 +679,7 @@ Object.assign(variants, {
     note: "Backgrounds while macOS is still downloading one wallpaper: the selected tile is ready and the pending tile stays visibly dimmed with its download affordance.",
   }),
   "backdrops-empty": variant("appearance", {
+    focus: "appearance.background",
     options: { values: { "appearance.background": "none" } },
     host: { ...host, backdrops: [] },
     // With no artwork the picker hides (useBackdropsShown) and the setting draws as its plain row.
@@ -642,6 +688,7 @@ Object.assign(variants, {
   }),
   // Add from a Link (backgrounds plan phase 3): the link form open under the picker, a link typed.
   "backdrops-link": variant("appearance", {
+    focus: "appearance.background",
     host: {
       ...host,
       backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
@@ -654,26 +701,10 @@ Object.assign(variants, {
     note: "Add from a Link: an https image or movie downloads into the backgrounds folder and becomes the background.",
   }),
   // Change Background… on a workspace (cx-t2x.5): This Workspace, following All Workspaces.
-  "backdrops-workspace": variant("appearance", {
-    focus: "appearance.background",
-    workspace: "ws-1",
-    options: {
-      values: { "appearance.background": "starryNight" },
-      workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: null }],
-    },
-    host: {
-      ...host,
-      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
-    },
-    steps: [
-      wait('[data-card="backdrop"] .backdrop-scope'),
-      { selector: '[aria-label="This Workspace (Research)"]', action: "click" },
-    ],
-    note: "Change Background… on a workspace: This Workspace (Research) picked, following All Workspaces until it has its own.",
-  }),
   // The curated backdrop art (cx-t2x.7): the real thumbnails of three works from each picker
   // collection, labelled "Title — Artist" with the credit lines the app sends, one picked.
   "curated-art": variant("appearance", {
+    focus: "appearance.background",
     options: {
       values: { "appearance.background": "van-gogh-starry-night" },
     },
@@ -786,6 +817,7 @@ Object.assign(variants, {
   }),
   // Browse More Art (cx-t2x.8): a search across the open museum collections, sample answers.
   "art-browser": variant("appearance", {
+    focus: "appearance.background",
     options: {
       values: { "appearance.background": "starryNight" },
       museumArt: [
@@ -828,13 +860,12 @@ Object.assign(variants, {
           ),
       ]),
     ),
-    steps: [
-      wait('[data-card="backdrop"]'),
-      click('[data-card="backdrop"] button[aria-expanded]'),
-      input('[data-card="art-browser"] input[type="search"]', "night"),
-      click('[data-card="art-browser"] button[type="submit"]'),
-      wait('[data-card="art-browser"] .backdrop-grid'),
-    ],
+    play: async (ctx) => {
+      await ctx.click({ selector: '[data-card="backdrop"] button[aria-expanded]' });
+      await ctx.type("night", { selector: '[data-card="art-browser"] input[type="search"]' });
+      await ctx.click({ selector: '[data-card="art-browser"] button[type="submit"]' });
+      await ctx.waitFor(() => ctx.document.querySelector('[data-card="art-browser"] .backdrop-grid'));
+    },
     note: "Browse More Art: a search answered by three open collections, each work with its source.",
   }),
   "terminal-shell-unknown": variant("terminal", {
@@ -866,7 +897,7 @@ Object.assign(variants, {
       card.scrollIntoView({ block: "center" });
     },
   }),
-  "cloud-environments-row-shape": variant("accounts", {
+  "cloud-environments-row-shape": variant("cloud", {
     environments: rowShapeEnvironments,
     note: "One failed Cloud Environment row with status, repository, error log and actions.",
     play: async (ctx) => {
@@ -1040,24 +1071,7 @@ Object.assign(variants, {
     ],
     note: "Importing a file whose theme name is already in the themes folder asks inline before replacing it.",
   }),
-  "theme-file-refused": variant("theme", {
-    allThemes: true,
-    options: { values: { "appearance.theme": "Dracula" } },
-    steps: [
-      wait('[data-theme-files-action="save"]:not([disabled])'),
-      click('[data-theme-files-action="save"]'),
-      input('[data-theme-files-prompt="name"] input', "Dracula"),
-      click('[data-theme-files-prompt="name"] button[type="submit"]'),
-      wait("[data-theme-files-error]"),
-    ],
-    note: "A name a shipped theme uses is refused inline; the name prompt stays open.",
-  }),
-  "changed-only": variant("general", {
-    options: { values: customValues },
-    steps: [click("[data-changed-only]"), wait("[data-search-results]")],
-    note: "Show Only Changed lists every changed setting across categories.",
-  }),
-  "font-picker": variant("appearance", {
+  "font-picker": variant("terminal", {
     steps: [click(`${row("terminal.fontFamily")} .domain-button`), wait(".domain-panel")],
   }),
   "domains-unavailable": variant("appearance", { options: { domains: null } }),
@@ -1066,7 +1080,7 @@ Object.assign(variants, {
     focus: "browser.customSearchEngine.search",
     options: { values: { "browser.customSearchEngine.search": "https://search.example.test/" } },
   }),
-  "invalid-color": variant("appearance", {
+  "invalid-color": variant("tabs", {
     focus: "focusRing.color",
     steps: [
       input(`${row("focusRing.color")} .hex`, "not-a-color"),
@@ -1126,67 +1140,64 @@ Object.assign(variants, {
       ],
     },
   }),
-  // Agents > Computer Use Setup (ComputerUseCard): off (grants unknown), every grant given, none.
-  // Focusing the card's first button scrolls it into view.
-  "computer-use-off": variant("agents", {
-    host: { ...host, computer_use: { phase: "off", accessibility: null, screen_recording: null, helper: null } },
-    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
-    note: "Computer Use off: the switch, then Guided Setup offering to turn it on; no grant rows.",
+  // Settings > Computer Use (ComputerUseCard): the default (Full access, one grant missing, the
+  // engine's deny list), every grant given with saved approvals, Look only, Off, a failed worker,
+  // a policy lock and a short custom deny list. Focusing the mode picker scrolls the card into view.
+  "computer-use-default": variant("computerUse", {
+    host: { ...host, computer_use: computerUseReady },
+    steps: [wait('[data-card="computer-use"] [data-mode]'), focusComputerUse],
+    note: "Full access by default: status (engine, Accessibility allowed, Screen Recording with Grant Access, worker running), the five modes, the denied apps.",
   }),
-  "computer-use-failed": variant("agents", {
+  "computer-use-granted": variant("computerUse", {
+    host: {
+      ...host,
+      computer_use: {
+        ...computerUseReady,
+        screen_recording: true,
+        approvals: [
+          { app_id: "com.apple.Safari", name: "Safari", decision: "always" },
+          { app_id: "com.figma.Desktop", name: "Figma", decision: "always" },
+          { app_id: "com.apple.MobileSMS", name: "Messages", decision: "never" },
+        ],
+      },
+    },
+    options: { values: { "computerUse.mode": "approvedApps" } },
+    steps: [wait('[data-card="computer-use"] [data-approval]'), focusApprovals],
+    note: "Approved apps with every grant given: Saved Approvals lists Always Allow and Never, each with Forget.",
+  }),
+  "computer-use-look-only": variant("computerUse", {
+    host: { ...host, computer_use: { ...computerUseReady, screen_recording: true } },
+    options: { values: { "computerUse.mode": "lookOnly" } },
+    steps: [wait('[data-card="computer-use"] [data-mode="lookOnly"][data-checked]'), focusComputerUse],
+    note: "Look only: screenshots and reading, no clicks or typing.",
+  }),
+  "computer-use-off": variant("computerUse", {
+    host: { ...host, computer_use: { ...computerUseReady, phase: "off", worker: { state: "stopped" } } },
+    options: { values: { "computerUse.mode": "off" } },
+    steps: [wait('[data-card="computer-use"] [data-mode="off"][data-checked]'), focusComputerUse],
+    note: "Off: the status says pick a mode to turn it on; no grant or worker rows.",
+  }),
+  "computer-use-failed": variant("computerUse", {
     host: { ...host, computer_use: { phase: "failed", accessibility: null, screen_recording: null, helper: null } },
     steps: [
       wait('[data-card="computer-use"]'),
-      {
-        selector: '[data-card="computer-use"] [data-action="palette.computerUse.restart"]',
-        action: "focus",
-      },
+      { selector: '[data-card="computer-use"] [data-action="palette.computerUse.restart"]', action: "focus" },
     ],
-    note: "The helper did not respond. Restart Helper is the only action.",
+    note: "The worker did not respond: Restart is the only status action.",
   }),
-  "computer-use-granted": variant("agents", {
+  "computer-use-policy-locked": variant("computerUse", {
     host: {
       ...host,
-      computer_use: { phase: "ready", accessibility: true, screen_recording: true, helper: "cmux Computer Use" },
+      computer_use: { phase: "disabled_by_policy", accessibility: null, screen_recording: null, helper: null },
     },
-    steps: [wait('[data-card="computer-use"] [data-granted="true"]'), focusComputerUse],
-    note: "Computer Use ready: Accessibility and Screen Recording both allowed.",
+    steps: [wait('[data-card="computer-use"][data-phase="disabled_by_policy"]'), focusComputerUse],
+    note: "A managed policy turned Computer Use off on this Mac: no Grant or Restart; the rows still show.",
   }),
-  "computer-use-host-unverified": variant("agents", {
-    host: {
-      ...host,
-      computer_use: {
-        phase: "ready",
-        accessibility: true,
-        screen_recording: true,
-        helper: "cmux Computer Use",
-        host_unverified: true,
-      },
-    },
-    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
-    note: "The legacy helper can't verify this build (not team-signed): legacy Computer Use is off.",
-  }),
-  "computer-use-upstream-fallback": variant("agents", {
-    host: {
-      ...host,
-      computer_use: {
-        phase: "ready",
-        accessibility: true,
-        screen_recording: true,
-        helper: "cmux Computer Use",
-        upstream_fallback: true,
-      },
-    },
-    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
-    note: "Driver Upstream in a build without its helper: Legacy runs, and the status line says so.",
-  }),
-  "computer-use-not-granted": variant("agents", {
-    host: {
-      ...host,
-      computer_use: { phase: "ready", accessibility: false, screen_recording: false, helper: "cmux Computer Use" },
-    },
-    steps: [wait('[data-card="computer-use"] [data-granted="false"]'), focusComputerUse],
-    note: "Computer Use ready but neither grant given: both rows say Not Allowed.",
+  "computer-use-custom-deny-list": variant("computerUse", {
+    host: { ...host, computer_use: { ...computerUseReady, screen_recording: true } },
+    options: { values: { "computerUse.deniedApps": ["com.apple.Terminal", "com.1password.*", "name:Notes"] } },
+    steps: [wait('[data-card="computer-use"] [data-denied-app="name:Notes"]'), focusDenied],
+    note: "A short custom deny list: Restore Defaults is enabled; Add a Running App offers Safari, Notes and Figma.",
   }),
   // Settings > Agents > Agent Harnesses (BRING-YOUR-OWN-HARNESS).
   "agents-harnesses": variant("agents", {
@@ -1238,6 +1249,7 @@ Object.assign(variants, {
         },
       ],
     },
+    options: { values: { "labs.previewFeatures": true } },
     steps: [
       wait('[data-harness-update-card="codex"]'),
       { selector: '[data-harness-update-card="codex"] [data-harness-action="updateCard"]', action: "focus" },
@@ -1302,6 +1314,7 @@ Object.assign(variants, {
         },
       ],
     },
+    options: { values: { "labs.previewFeatures": true } },
     steps: [
       wait('[data-harness-update-card="claude"]'),
       { selector: "[data-harness-update-command]", action: "focus" },
@@ -1339,6 +1352,7 @@ Object.assign(variants, {
         },
       ],
     },
+    options: { values: { "labs.previewFeatures": true } },
     steps: [
       wait('[data-harness-update-card="codex"]'),
       { selector: '[data-agent-update-job="exited"]', action: "focus" },
@@ -1354,12 +1368,12 @@ Object.assign(variants, {
     steps: [click('[data-chief="agent_release"]'), wait('[data-card="chiefs"] section.chief-editor')],
     note: "A Chief row opens its editor in the card: backend, lock and history, never a dialog.",
   }),
-  // Settings > Chief > Chief Pet with the pet off (the default): the Chief's character stays checked.
+  // Settings > Chief's look with the pet off (the default): the Chief's character stays checked.
   "chief-pet-off": variant("chief", {
     focus: "home.chiefPetMascot",
     note: "Chief Pet, pet off: the chosen character (Orb) is checked; Show Pet floats it.",
   }),
-  // Settings > Chief > Chief Pet with Mochi, the first animated set, picked and the pet shown.
+  // Settings > Chief's look with Mochi, the first animated set, picked and the pet shown.
   "chief-pet-mochi": variant("chief", {
     focus: "home.chiefPetMascot",
     options: { values: { "home.chiefPetMascot": "mochi", "home.chiefPetEnabled": true } },
@@ -1379,6 +1393,90 @@ Object.assign(variants, {
     focus: "agents.registry",
     steps: [wait("[data-registry-agent]")],
     note: "Add Agent from ACP Registry…: one click per agent; Added when it is a harness, disabled when it cannot start here.",
+  }),
+  "agents-registry-overflow": variant("agents", {
+    focus: "agents.registry",
+    agents: {
+      registry: {
+        agents: Array.from({ length: 40 }, (_, index) => ({
+          id: `sample-agent-${index}`,
+          name: `Sample agent ${index}`,
+          description: "Sample coding agent",
+          version: "1.0.0",
+          launch: "path" as const,
+        })),
+      },
+    },
+    steps: [wait("[data-registry-agent]")],
+    note: "Forty ACP Registry agents in the capped add-agent list.",
+  }),
+  // Settings > Agents > Add > Endpoint (plan api-and-open-models gaps 3 and 6): an open-weight model
+  // or your own endpoint, picked from a preset.
+  "agents-endpoint-empty": variant("agents", {
+    focus: "agents.endpoint",
+    steps: [wait("[data-agents-endpoint]")],
+    play: showEndpoint(),
+    note: "Endpoint tab as it opens: the model server on this Mac preset, its URL filled, no key field, no models yet (Check and Add waits for one).",
+  }),
+  "agents-endpoint-gateway-filled": variant("agents", {
+    focus: "agents.endpoint",
+    steps: [
+      wait("[data-agents-endpoint]"),
+      { selector: "[data-agents-endpoint] select", action: "change", value: "gateway" },
+      input('[data-endpoint-field="baseUrl"] input', "https://gateway.example.com"),
+      input('[data-endpoint-field="models"] input', "model-large, model-medium, model-small"),
+      input('[data-endpoint-field="apiKey"] input', "sample-key"),
+    ],
+    play: showEndpoint(),
+    note: "The Anthropic-compatible gateway preset filled in: it runs Claude Code, three models fill its Opus, Sonnet and Haiku slots, and the key field says where the key goes.",
+  }),
+  "agents-endpoint-fetched": variant("agents", {
+    focus: "agents.endpoint",
+    steps: [
+      wait("[data-agents-endpoint]"),
+      click('[data-endpoint-field="models"] button'),
+      wait("[data-endpoint-fetched]"),
+    ],
+    play: showEndpoint("[data-endpoint-fetched]"),
+    note: "Fetch Models on the local model server: the endpoint's three models fill the list and the line under it says how many it found.",
+  }),
+  "agents-endpoint-doctor-failed": variant("agents", {
+    focus: "agents.endpoint",
+    endpoint: {
+      doctor: {
+        ok: false,
+        steps: [
+          { name: "launch", ok: true },
+          {
+            name: "prompt",
+            ok: false,
+            detail: "401 Unauthorized",
+            fix: "check the key: the endpoint refused it. Store it again with `cmux harness secret set hosted-models CMUX_BYO_API_KEY`",
+          },
+        ],
+      },
+    },
+    steps: [
+      wait("[data-agents-endpoint]"),
+      { selector: "[data-agents-endpoint] select", action: "change", value: "hosted" },
+      input('[data-endpoint-field="baseUrl"] input', "https://api.example.com/v1"),
+      input('[data-endpoint-field="models"] input', "model-large"),
+      input('[data-endpoint-field="apiKey"] input', "sample-key"),
+      click("[data-endpoint-add]"),
+      wait('[data-endpoint-status="failed"]'),
+    ],
+    play: showEndpoint('[data-endpoint-status="failed"]'),
+    note: "Check and Add on a hosted provider whose key is refused: the failing step, its detail and fix; the form stays open and the key field is empty again.",
+  }),
+  "agents-endpoint-insecure": variant("agents", {
+    focus: "agents.endpoint",
+    steps: [
+      wait("[data-agents-endpoint]"),
+      { selector: "[data-agents-endpoint] select", action: "change", value: "team-server" },
+      input('[data-endpoint-field="baseUrl"] input', "http://inference.example.com/v1"),
+    ],
+    play: showEndpoint(),
+    note: "Your team's server over plain http to another machine: the line under the URL asks for https, and Check and Add waits.",
   }),
   "agents-stable-check-idle": variant("agents", {
     note: "Check actions at rest, reserving their translated Checking label width.",
@@ -1567,34 +1665,12 @@ Object.assign(variants, {
   }),
 } satisfies Record<string, SettingsPageVariant>);
 
-// The Reset control never moves the row (P1 fix, Lawrence 2026-10-07): for a row of each editor
-// kind, start customized and press its Reset; the matrix measures layout shift (strict 0) and the
-// anchors (the row's title, the next row's title) on each.
-const RESET_SAMPLES: Record<string, string> = {
-  toggle: "history.terminalCommands",
-  segmented: "navigation.historyScope",
-  number: "layout.defaultColumnWidth",
-  url: "browser.newTabPage",
-  color: "layout.paneBorderColor",
-  sound: "notifications.sound",
-  "time-range": "notifications.quietHours",
-};
-for (const [kind, key] of Object.entries(RESET_SAMPLES))
-  variants[`play-reset-${kind}`] = variant(homes.get(key)!.category, {
-    focus: key,
-    options: { values: customValues },
-    note: `Reset on a ${kind} row: the control fades out in its reserved slot.`,
-    play: async (ctx) => {
-      // Input lands at the control's page position: bring the row into view first.
-      ctx.find({ selector: row(key) }).scrollIntoView({ block: "center" });
-      await ctx.click({ selector: `${row(key)} [data-reset]` });
-      await ctx.waitFor(() => !ctx.document.querySelector(`${row(key)} [data-reset]`));
-    },
-  });
 // One scroller (cx-jh7kq): a select opened near the bottom edge, then the content scrolled under
 // it. The pop-up stays at its row (or waits hidden while the row is out of view); the document
 // never scrolls, so the column never slides up under the window.
-variants["play-select-scroll"] = variant("appearance", {
+// sidebar.sectionLook is a More Options row on Sidebar: the focus opens its card's More Options.
+variants["play-select-scroll"] = variant("sidebar", {
+  focus: "sidebar.sectionLook",
   note: "A select opened near the bottom, then the content scrolled: one scroller, the pop-up stays at its row.",
   play: async (ctx) => {
     const content = ctx.find({ selector: ".content" });
@@ -1618,17 +1694,13 @@ variants["play-section-change"] = variant("accounts", {
   },
 });
 
-const resetAnchors = Object.values(RESET_SAMPLES).flatMap((key) => [
-  { selector: `${row(key)} .row-title` },
-  { selector: `${row(key)} + [data-row-key] .row-title` },
-]);
-
 const githubConnection = {
   title: "GitHub",
   detail: "Connected",
   busy: false,
   connect: "Connect GitHub",
   disconnect: "Disconnect",
+  reconfigure: "Reconfigure",
   confirm: "Disconnect GitHub? Agents will lose access through this connection.",
   cancel: "Cancel",
   refresh: "Refresh",
@@ -1637,6 +1709,7 @@ const githubConnection = {
     {
       id: "sample-github",
       canDisconnect: true,
+      canReconfigure: true,
       account: "sample-team",
       status: "Connected",
       permissions: ["contents:write", "pull_requests:write"],
@@ -1678,6 +1751,19 @@ variants["github-connect-empty"] = variant("accounts", {
     },
   ),
 });
+// Settings > Accounts > Team agent keys (TeamAgentKeysCard.tsx): admin, member, signed out,
+// personal team and a conflict refusal, each with the app's copy (mockAgentKeys.ts).
+for (const [state, agentKeys] of Object.entries(mockAgentKeys)) {
+  // Variant names are lower kebab case: the mock's `signedOut` is `signed-out` here.
+  const name = state.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+  variants[`team-agent-keys-${name}`] = variant("accounts", {
+    accounts: accounts({}, { agentKeys }),
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector('[data-card="team-agent-keys"]'));
+      ctx.document.querySelector<HTMLElement>('[data-card="team-agent-keys"]')!.scrollIntoView({ block: "center" });
+    },
+  });
+}
 variants["github-connect-pending"] = variant("accounts", {
   accounts: accounts(
     {},
@@ -1700,9 +1786,66 @@ variants["github-connect-confirm"] = variant("accounts", {
   },
 });
 
+const screenSharingDevices = mockDevicesState();
+const localFirstUseDevices = {
+  ...screenSharingDevices,
+  thisDevice: screenSharingDevices.thisDevice ? { ...screenSharingDevices.thisDevice, sharesText: null } : null,
+  sharing: screenSharingDevices.sharing
+    ? {
+        ...screenSharingDevices.sharing,
+        on: false,
+        permissions: screenSharingDevices.sharing.permissions.map((permission) => ({ ...permission, granted: false })),
+      }
+    : null,
+};
+variants["devices-screen-sharing-local"] = variant("devices", {
+  devices: localFirstUseDevices,
+  note: "First use: Share is visible while Mac Screen is off and Screen Recording plus Accessibility still need permission.",
+});
+variants["devices-screen-sharing-remote"] = variant("devices", {
+  devices: {
+    ...localFirstUseDevices,
+    others: localFirstUseDevices.others.map((device) =>
+      device.id === "dev-macbook"
+        ? {
+            ...device,
+            name: "Research MacBook Pro — Office Display",
+            online: true,
+            presence: "Online",
+            sharesText: "Shares Mac Screen",
+            screenAction: { kind: "view", title: "View screen", disabled: false },
+          }
+        : device,
+    ),
+  },
+  note: "An online Mac has a direct View screen action; phones retain their access picker.",
+});
+variants["devices-screen-sharing-offline"] = variant("devices", {
+  devices: screenSharingDevices,
+  note: "An offline Mac keeps its disabled View screen affordance while its name and captions remain readable.",
+});
+
+for (const { name, scale } of pageDensities) {
+  variants[`density-${name}`] = variant("appearance", {
+    note: `${name}: scaled content, controls and navigation, with centered disclosure content and concentric corners on hover.`,
+    play: async (ctx) => {
+      await pageDensityPlay(scale)(ctx);
+      await ctx.hover({ selector: ".content .more-options" });
+    },
+  });
+  variants[`density-${name}-disclosure-open`] = variant("appearance", {
+    note: `${name}: centered disclosure content with its rows open.`,
+    play: async (ctx) => {
+      await pageDensityPlay(scale)(ctx);
+      await ctx.click({ selector: ".content .more-options" });
+      await ctx.hover({ selector: ".content .more-options" });
+    },
+  });
+}
+
 export default settingsPageEntry({
   id: "pages.settings",
-  anchors: [{ selector: "[data-settings-search]" }, { selector: '[data-section-link="general"]' }, ...resetAnchors],
+  anchors: [{ selector: "[data-settings-search]" }, { selector: '[data-section-link="general"]' }],
   title: "Settings",
   area: "Settings",
   height: 760,
@@ -1710,11 +1853,18 @@ export default settingsPageEntry({
   widths: { narrow: 480, normal: 1000, wide: 1440 },
   covers: [
     "page:cmux.settings",
+    "pages/shared/pageDensity.css",
+    "pages/settings/look.css",
+    "pages/settings/refined.css",
+    "pages/settings/layout.css",
+    "pages/settings/styles.css",
     "pages/settings/components/AccentPicker.tsx",
     "pages/settings/components/AccountsSection.tsx",
     "pages/settings/components/AccountsTeams.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/AgentIntegrations.tsx",
+    "pages/settings/components/AgentToolsCard.tsx",
+    "pages/settings/components/McpServersCard.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
     "pages/settings/components/DevicesCard.tsx",
     "pages/settings/components/ChiefsCard.tsx#ChiefsCard",
@@ -1734,9 +1884,9 @@ export default settingsPageEntry({
     "pages/settings/components/Highlight.tsx",
     "pages/settings/components/HostCards.tsx",
     "pages/settings/components/HostSections.tsx",
+    "pages/settings/components/MoreOptions.tsx",
     "pages/settings/components/PlaceholderSection.tsx",
     "pages/settings/components/ReadOnlyBanner.tsx",
-    "pages/settings/components/ResetButton.tsx",
     "pages/settings/components/RowNotice.tsx",
     "pages/settings/components/SearchField.tsx",
     "pages/settings/components/SearchResults.tsx",
@@ -1758,6 +1908,7 @@ export default settingsPageEntry({
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",
     "pages/settings/editors/ColorEditor.tsx",
     "pages/settings/editors/DomainListEditor.tsx",
+    "pages/settings/editors/DurationEditor.tsx",
     "pages/settings/editors/Editor.tsx",
     "pages/settings/editors/FolderListEditor.tsx",
     "pages/settings/editors/HostListEditor.tsx",
@@ -1766,7 +1917,6 @@ export default settingsPageEntry({
     "pages/settings/editors/NumberField.tsx",
     "pages/settings/editors/SearchTemplateEditor.tsx",
     "pages/settings/editors/ThemeRowEditor.tsx",
-    "pages/settings/editors/SegmentedEditor.tsx",
     "pages/settings/editors/Select.tsx",
     "pages/settings/editors/SoundEditor.tsx",
     "pages/settings/editors/StringMapEditor.tsx",

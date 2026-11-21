@@ -7,6 +7,9 @@ use std::collections::BTreeMap;
 use std::process::Stdio;
 
 impl Hub {
+    /// Starts workflow `name` of chat `owner`. `caller_subagent` is the Claude Code subagent
+    /// (`{id, type}`) whose MCP call starts it, when one does (`subagent_call.rs`): the run's
+    /// commands and its runner's tool calls run as that subagent (`RunRecord::caller_subagent`).
     pub async fn workflow_start(
         self: &Arc<Self>,
         owner: &Arc<Session>,
@@ -14,6 +17,7 @@ impl Hub {
         source: String,
         args: Value,
         local_principal: bool,
+        caller_subagent: Option<Value>,
     ) -> Result<RunRecord> {
         let meta = owner.meta();
         anyhow::ensure!(!meta.remote_origin, "a remote chat starts no local workflow");
@@ -35,6 +39,7 @@ impl Hub {
             state: State::Running,
             activities: BTreeMap::new(),
             outcome: None,
+            caller_subagent,
         })?;
         let _gate = self.workflow_runs.gate(&run.id).lock_owned().await;
         self.workflow_launch(&run).await?;
@@ -284,7 +289,7 @@ impl Hub {
             &run.generation.to_string(),
         ]);
         command.env_clear();
-        for key in ["PATH", "HOME", "USER", "TMPDIR", "XDG_RUNTIME_DIR", "ACPMUX_HOME"] {
+        for key in RUNNER_ENV {
             if let Some(value) = std::env::var_os(key) {
                 command.env(key, value);
             }
@@ -295,6 +300,11 @@ impl Hub {
         command.env("ACPMUX_SESSION_ID", &run.owner_session_id);
         command.env(crate::agent_tools::AGENT_SESSION_ENV, &run.owner_session_id);
         command.env(crate::workflow_runs::RUNNER_TOKEN_ENV, token);
+        // The subagent that started the run, as its Bash would be marked (`bg_hook.rs`): the
+        // acpmux MCP server the runner starts names it on the script's sends and tasks.
+        if let Some(mark) = workflow_subagent_mark(run) {
+            command.env(crate::cli::sender::SUBAGENT_ENV, mark);
+        }
         command.env(crate::agent_tools::UPSTREAMS_ENV, self.workflow_upstreams(run).await?);
         if let Some(tools) = self.workflow_allowed_tools(run).await? {
             command.env(crate::agent_tools::MCP_TOOLS_ENV, tools.join(","));
@@ -361,6 +371,21 @@ fn workflow_profile_tools(
         value.split(',').map(str::trim).filter(|name| !name.is_empty()).map(str::to_owned).collect()
     })
 }
+
+/// `TYPE:ID` of the subagent that started `run` (`cli::sender::SUBAGENT_ENV`), when its words are
+/// plain (`cli::sender::subagent_word`).
+fn workflow_subagent_mark(run: &RunRecord) -> Option<String> {
+    let sub = run.caller_subagent.as_ref()?;
+    let word = |key: &str| {
+        sub.get(key).and_then(Value::as_str).filter(|w| crate::cli::sender::subagent_word(w))
+    };
+    Some(format!("{}:{}", word("type")?, word("id")?))
+}
+
+/// What a workflow runner keeps of the daemon's environment; `CMUX_BUILD_SPACE` keeps its
+/// Cloud calls in the daemon's build space.
+const RUNNER_ENV: [&str; 7] =
+    ["PATH", "HOME", "USER", "TMPDIR", "XDG_RUNTIME_DIR", "ACPMUX_HOME", "CMUX_BUILD_SPACE"];
 
 fn workflow_runner_command() -> Result<tokio::process::Command> {
     let own = crate::self_command::SelfCommand::current()?;
@@ -465,6 +490,7 @@ mod tests {
                 state: State::Running,
                 activities: BTreeMap::new(),
                 outcome: None,
+                caller_subagent: None,
             })
             .unwrap();
         (dir, hub, run)
@@ -552,6 +578,7 @@ mod tests {
                 },
             )]),
             outcome: None,
+            caller_subagent: None,
         };
         hub.workflow_cancel_children(&run).await.unwrap();
     }
@@ -582,6 +609,8 @@ mod tests {
             doing: Default::default(),
             notice: false,
             persons: true,
+            accepted: true,
+            device: None,
         });
         let before = session.cancels.load(Ordering::SeqCst);
         // The activity ended before pause arrived; it must not change even the
@@ -589,5 +618,15 @@ mod tests {
         hub.cancel_prompt(&session, "already-ended-workflow-prompt").await.unwrap();
         assert_eq!(session.cancels.load(Ordering::SeqCst), before);
         assert_eq!(session.turn().unwrap().prompt_id, "person-prompt");
+    }
+}
+
+#[cfg(test)]
+mod build_space_tests {
+    /// A workflow runner (`acpmux workflow __run`) calls the daemon's Cloud in the daemon's
+    /// build space.
+    #[test]
+    fn a_workflow_runner_keeps_the_build_space() {
+        assert!(super::RUNNER_ENV.contains(&"CMUX_BUILD_SPACE"));
     }
 }

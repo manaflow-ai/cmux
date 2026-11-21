@@ -63,6 +63,7 @@ test("Return reveals the row in its section and focuses its control; Esc clears,
   page = await renderPage({ path: "/settings/general" });
   await changeValue(search(page), "appearance.backgroundOpacity");
   await fire(search(page), "keydown", { key: "Enter" });
+  // Appearance draws the background rows: Return opens it on the row.
   expect(page.history.location.pathname).toBe("/settings/appearance");
   expect(page.history.location.search).toBe("?focus=appearance.backgroundOpacity");
   expect(search(page).value).toBe("");
@@ -74,7 +75,7 @@ test("Return reveals the row in its section and focuses its control; Esc clears,
   await fire(search(page), "keydown", { key: "Escape" });
   expect(search(page).value).toBe("");
   await fire(search(page), "keydown", { key: "Escape" });
-  expect((document.activeElement as HTMLElement).getAttribute("data-section-link")).toBe("appearance");
+  expect(document.activeElement?.getAttribute("data-section-link")).toBe("appearance");
 });
 
 test("Up/Down move between rows, Space toggles; dispatcher commands reset, go back and find; chords do nothing", async () => {

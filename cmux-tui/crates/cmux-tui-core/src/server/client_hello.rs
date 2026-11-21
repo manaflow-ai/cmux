@@ -406,3 +406,7 @@ pub(super) mod tests;
 #[cfg(all(test, unix))]
 #[path = "untrusted_mint_tests.rs"]
 mod untrusted_mint_tests;
+
+#[cfg(all(test, unix))]
+#[path = "connection_panic_tests.rs"]
+mod connection_panic_tests;

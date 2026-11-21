@@ -38,6 +38,14 @@ import Testing
         #expect(!ConversationKeyboardFocusPolicy.composerResigns(after: state))
     }
 
+    /// Back from the app switcher, UIKit can post the trip's hide after the
+    /// scene is active again: the field keeps focus and the keyboard returns.
+    @Test func aLateHideAfterReturningKeepsTheFieldFocused() {
+        var state = dismissed
+        state.sceneLeftSinceKeyboardShown = true
+        #expect(!ConversationKeyboardFocusPolicy.composerResigns(after: state))
+    }
+
     /// iOS 27 hides and reshows the keyboard around a rotation.
     @Test func rotationKeepsTheFieldFocused() {
         var state = dismissed

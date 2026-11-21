@@ -41,6 +41,20 @@ impl Snapshot {
         }
         opened
     }
+
+    /// This snapshot with each terminal's scrollback as the text its new
+    /// shell prints ([`crate::replay::replay`]); none when nothing printable
+    /// is left.
+    pub fn replaying_scrollback(mut self) -> Snapshot {
+        for window in &mut self.windows {
+            for workspace in &mut window.workspaces {
+                workspace.layout.for_each_tab(&mut |tab| {
+                    tab.scrollback = tab.scrollback.as_deref().and_then(crate::replay::replay);
+                });
+            }
+        }
+        self
+    }
 }
 
 /// A window's frame in screen coordinates.
@@ -251,6 +265,17 @@ impl Layout {
                 let mut tabs = first.tabs_mut();
                 tabs.extend(second.tabs_mut());
                 tabs
+            }
+        }
+    }
+
+    /// Calls `change` on every tab, in pane order.
+    pub fn for_each_tab(&mut self, change: &mut dyn FnMut(&mut Tab)) {
+        match self {
+            Layout::Pane(pane) => pane.tabs.iter_mut().for_each(&mut *change),
+            Layout::Split { first, second, .. } => {
+                first.for_each_tab(change);
+                second.for_each_tab(change);
             }
         }
     }

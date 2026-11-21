@@ -1,6 +1,5 @@
 import MessagesLabHome
 
-
 /// The stop button's Option-click and tooltip (Stop All Agents, HomeHostView+StopAll).
 extension HomeNativeTranscriptView {
     /// The host's Stop all agents, run by Option-click on the stop button; nil

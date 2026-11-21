@@ -7,8 +7,12 @@
 // said, never a stack of rows cut to two lines. A sender's name is short (the name after its
 // machine), with its family's mark and, when acpmux could not verify it, the small marker
 // (UnverifiedMark.tsx), never words in the name. Four other senders at most, then "+N more"
-// counting the rest of the messages. The looks beside the default are gallery versions
-// (AgentMessageRowKinds.gallery.tsx, `hover`).
+// counting the rest of the messages. Leo, 2026-11-14, on that digest with a second sender's name
+// and no way to read what it said: "this has no transparency at all + is not scrollable". The
+// default is now `threads`: each sender once, newest first, with its count and its newest message
+// whole, a hairline between, in a card that scrolls past the window's height (desktop.css
+// .ui-tooltip.ui-card). The looks beside the default are gallery versions
+// (AgentMessageRowKinds.gallery.tsx, `hover`; ReceivedMessages.gallery.ts, the card over a chat).
 import { createContext, useContext } from "react";
 import { useT } from "../i18n";
 import { SenderMark } from "./IncomingMessageCard";
@@ -21,12 +25,13 @@ import { UnverifiedMark } from "./UnverifiedMark";
 import "./MessageGroupHover.css";
 import { signed } from "../../../ui/Typography";
 
-/// How the hover lays its messages out. `digest`, the default: the newest message whole, then the
-/// other senders with their counts. `messages`: each message's sender, then two lines of it, five
+/// How the hover lays its messages out. `threads`, the default: each sender once, newest first,
+/// with its count and its newest message whole. `digest`: the newest message whole, then the other
+/// senders' names with their counts. `messages`: each message's sender, then two lines of it, five
 /// at most. `lines`: one line each, "sender  first line". `names`: the senders only, each once,
 /// with their marks (the list it was, without the noise).
-export type GroupHoverLook = "digest" | "messages" | "lines" | "names";
-export const GroupHoverLookContext = createContext<GroupHoverLook>("digest");
+export type GroupHoverLook = "threads" | "digest" | "messages" | "lines" | "names";
+export const GroupHoverLookContext = createContext<GroupHoverLook>("threads");
 
 /// The most messages the `messages` and `lines` looks list before "+N more".
 export const GROUP_HOVER_MAX = 5;
@@ -165,7 +170,7 @@ function SenderWho({ message, unverified }: { message: IncomingMessage; unverifi
         <SenderMark message={message} />
       </span>
       <span className="cv-group-hover__name">{shortSender(message.name)}</span>
-      {unverified && <UnverifiedMark />}
+      {unverified && <UnverifiedMark program={message.program} claimed={message.name} />}
     </>
   );
 }
@@ -202,6 +207,53 @@ function Digest({ list }: { list: GroupHoverList }) {
   );
 }
 
+/// The threads look's senders: each once, newest first (by its newest message), with its newest
+/// message and how many messages it sent in all.
+export function hoverThreads(list: GroupHoverList): { message: IncomingMessage; count: number; unverified: boolean }[] {
+  const threads: { message: IncomingMessage; count: number; unverified: boolean }[] = [];
+  const index = new Map<string, number>();
+  list.messages.forEach((message, at) => {
+    const count = Math.max(1, list.counts?.[at] ?? 1);
+    const key = senderName(message.name);
+    const seen = index.get(key);
+    if (seen === undefined) {
+      index.set(key, threads.length);
+      threads.push({ message, count, unverified: message.unverified === true });
+      return;
+    }
+    const thread = threads[seen]!;
+    thread.count += count;
+    thread.unverified ||= message.unverified === true;
+  });
+  return threads;
+}
+
+function Threads({ list }: { list: GroupHoverList }) {
+  const t = useT();
+  const threads = hoverThreads(list);
+  // The newest sender and four others, as the digest names; "+N more" counts the rest's messages.
+  const shown = threads.slice(0, GROUP_HOVER_SENDERS + 1);
+  const counted = shown.reduce((sum, thread) => sum + thread.count, 0);
+  const rest = Math.max(0, list.total - counted, threads.length > shown.length ? 1 : 0);
+  return (
+    <div className="cv-group-hover" data-look="threads">
+      {shown.map((thread, index) => {
+        const body = wholeText(thread.message.text);
+        return (
+          <div key={`${senderName(thread.message.name)}:${index}`} className="cv-group-hover__thread">
+            <div className="cv-group-hover__who">
+              <SenderWho message={thread.message} unverified={thread.unverified} />
+              {thread.count > 1 && <span className="cv-group-hover__count">{thread.count}</span>}
+            </div>
+            {body && <div className="cv-group-hover__body">{body}</div>}
+          </div>
+        );
+      })}
+      {rest > 0 && <div className="cv-group-hover__more">{signed(t("tools.more", { n: rest }))}</div>}
+    </div>
+  );
+}
+
 /// A message's first lines as they read, for two lines in the hover: each line's Markdown marks out
 /// (messagePreview), the broker's label out, joined.
 function hoverText(text: string): string {
@@ -217,6 +269,7 @@ export function MessageGroupHover({ list }: { list: GroupHoverList }) {
   const t = useT();
   const messages = list.messages;
   const look = useContext(GroupHoverLookContext);
+  if (look === "threads") return <Threads list={list} />;
   if (look === "digest") return <Digest list={list} />;
   const shown =
     look === "names"
@@ -237,7 +290,7 @@ export function MessageGroupHover({ list }: { list: GroupHoverList }) {
                 <SenderMark message={message} />
               </span>
               <span className="cv-group-hover__name">{shortSender(message.name)}</span>
-              {message.unverified && <UnverifiedMark />}
+              {message.unverified && <UnverifiedMark program={message.program} claimed={message.name} />}
               {look === "lines" && preview && <span className="cv-group-hover__line">{preview}</span>}
             </div>
             {look === "messages" && preview && <div className="cv-group-hover__text">{preview}</div>}

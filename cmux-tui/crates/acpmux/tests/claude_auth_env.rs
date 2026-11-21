@@ -330,27 +330,37 @@ async fn the_daemons_prompt_cache_switches_never_reach_an_agent() {
 }
 
 /// The values of one turn or session of whoever started the daemon (a Chief
-/// turn's subrouter session key and seal, 2026-10-19) never reach an agent
+/// turn's subrouter session key and seal, 2026-10-19; a terminal Claude's
+/// CMUX_AGENT_TOOLS_ANSWER) never reach an agent
 /// the daemon spawns; a profile that sets one on purpose still passes it.
 #[tokio::test]
 async fn the_daemons_turn_values_never_reach_an_agent() {
     let dir = scratch("turnenv", "export EDITOR=vi\n");
     let signed_in = json!({"ANTHROPIC_API_KEY": "sk-test"});
     let keyed = json!({"ANTHROPIC_API_KEY": "sk-test", "SUBROUTER_SESSION_KEY": "preset-sub"});
-    let harnesses = json!({"claude": claude(signed_in), "keyed": claude(keyed)});
+    // Cut off from cmux's tools: it passes the answer `off` to its own stdio servers (a person's
+    // `cmux` entry), whatever the daemon inherited.
+    let cut_off = json!({"ANTHROPIC_API_KEY": "sk-test", "ACPMUX_AGENT_TOOLS": "0"});
+    let harnesses =
+        json!({"claude": claude(signed_in), "keyed": claude(keyed), "cutoff": claude(cut_off)});
     let turn = [
         ("SUBROUTER_SESSION_KEY", "optchat-home-turn"),
         ("CODEX_PROMPT_CACHE_KEY", "optchat-home-turn"),
         ("OPTCHAT_TURN_SEAL", "00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff"),
         ("OPTCHAT_SUBAGENT", "1"),
         ("AI_AGENT", "claude-code"),
+        // A terminal Claude's answer to cmux's tools (the `claude` shim): a daemon its shell
+        // started must not hold it for its lifetime over the live setting.
+        ("CMUX_AGENT_TOOLS_ANSWER", "on"),
     ];
     let inside: Vec<(&str, &str)> =
         [("CLAUDECODE", "1")].into_iter().chain(turn.iter().copied()).collect();
     for (case, extra) in [("inside a turn", inside.as_slice()), ("own env", turn.as_slice())] {
-        for (harness, want) in
-            [("claude", json!({})), ("keyed", json!({"SUBROUTER_SESSION_KEY": "preset-sub"}))]
-        {
+        for (harness, want) in [
+            ("claude", json!({})),
+            ("keyed", json!({"SUBROUTER_SESSION_KEY": "preset-sub"})),
+            ("cutoff", json!({"CMUX_AGENT_TOOLS_ANSWER": "off"})),
+        ] {
             let d = start(&dir, harnesses.clone(), extra).await;
             let (reply, _) = ask(&d, harness).await;
             assert_eq!(found(&reply)["turnScoped"], want, "{case}, {harness}: {reply:?}");
@@ -1081,6 +1091,22 @@ async fn vertex_from_the_login_shell_keeps_its_regions() {
     assert_eq!(v["auth"], json!(["vertex"]), "{v}");
     assert_eq!(v["cloudMlRegion"], "us-east5", "{v}");
     assert_eq!(v["vertexRegions"], json!(["VERTEX_REGION_CLAUDE_OPUS"]), "{v}");
+    drop(d);
+    // Claude Code on Vertex reads the Google credentials the login shell exports: the scrub of
+    // another family's keys (`agent/foreign_login.rs`) keeps what the allow-list gives Claude.
+    let google = "export GOOGLE_API_KEY=g-login\nexport GOOGLE_GENERATIVE_AI_API_KEY=g-ai\n";
+    let dir = scratch("vertex-key", &format!("export CLAUDE_CODE_USE_VERTEX=1\n{google}"));
+    let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
+    let (reply, _) = ask(&d, "claude").await;
+    let v = found(&reply);
+    assert_eq!(v["googleKeys"], json!(["GOOGLE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"]), "{v}");
+    drop(d);
+    // Without the person's Vertex switch they stay Gemini's.
+    let dir = scratch("novertex-key", &format!("export ANTHROPIC_API_KEY=sk-login\n{google}"));
+    let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
+    let (reply, _) = ask(&d, "claude").await;
+    let v = found(&reply);
+    assert_eq!(v["googleKeys"], json!([]), "{v}");
     drop(d);
     let dir = scratch("novertex", &format!("export ANTHROPIC_API_KEY=sk-login\n{regions}"));
     let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;

@@ -634,9 +634,16 @@ impl ClientConnection {
                             actual,
                         });
                     }
-                    // Replayable traffic was retained and recovery sent it
-                    // with the original sequence on the new generation.
-                    return Ok(sequence);
+                    // Replayable traffic the old session took (its sequence was used) was
+                    // retained, and recovery sent it with the original sequence on the new
+                    // generation. A send that found the old session already closed took
+                    // nothing: send it now, or it is lost and the next frame takes its
+                    // sequence (a 16 MiB transfer lost a frame at each reconnect).
+                    let session = self.by_deadline(deadline, self.session.read()).await?.clone();
+                    if session.next_outbound_sequence(lane) > sequence {
+                        return Ok(sequence);
+                    }
+                    continue;
                 }
                 Err(error) => {
                     session.rollback_unscheduled(lane, sequence);
@@ -1135,6 +1142,10 @@ impl ClientConnection {
             self.set_diagnostics_state(ConnectionState::Reconnecting);
             let attempt_timeout = remaining(policy.attempt_timeout);
             let attempt_started = tokio::time::Instant::now();
+            // The attempt's report, owed even when this recovery is dropped:
+            // a reader whose `select!` sees the published generation first
+            // cancels the receive that runs it, after the new carrier is up.
+            let mut report = AttemptReport::new(self, attempt_started);
             // This dial starts on the network as it is now; only a change
             // while it is in flight abandons it.
             network.borrow_and_update();
@@ -1169,9 +1180,7 @@ impl ClientConnection {
             if self.closed.load(Ordering::Acquire) && result.is_ok() {
                 return Err(ConnectionError::Closed);
             }
-            if let Some(hooks) = self.resume_hooks() {
-                hooks.attempt_ended(result.as_ref().map(|_| ()), attempt_started.elapsed());
-            }
+            report.ended(result.as_ref().map(|_| ()));
             // Every failed redial is the reason the link reports, a gone session too.
             self.set_last_failure(result.as_ref().err().map(ToString::to_string));
             match result {
@@ -1315,6 +1324,39 @@ impl ClientConnection {
         match result_rx.await {
             Ok(result) => result,
             Err(_) => wait_for_close(self.close_state.subscribe()).await,
+        }
+    }
+}
+
+/// One resume attempt's [`ResumeHooks::attempt_ended`] call, made once:
+/// with the attempt's result, or, when the attempt is dropped before it
+/// ends (its caller was cancelled), `Ok` if it had already published a new
+/// generation and nothing otherwise.
+struct AttemptReport<'a> {
+    connection: &'a ClientConnection,
+    started: tokio::time::Instant,
+    generation: u64,
+    done: bool,
+}
+
+impl<'a> AttemptReport<'a> {
+    fn new(connection: &'a ClientConnection, started: tokio::time::Instant) -> Self {
+        let generation = *connection.generation.borrow();
+        Self { connection, started, generation, done: false }
+    }
+
+    fn ended(&mut self, result: Result<(), &ConnectionError>) {
+        self.done = true;
+        if let Some(hooks) = self.connection.resume_hooks() {
+            hooks.attempt_ended(result, self.started.elapsed());
+        }
+    }
+}
+
+impl Drop for AttemptReport<'_> {
+    fn drop(&mut self) {
+        if !self.done && *self.connection.generation.borrow() != self.generation {
+            self.ended(Ok(()));
         }
     }
 }
@@ -1676,15 +1718,31 @@ impl ConnectionError {
     pub fn is_retryable_carrier_failure(&self) -> bool {
         match self {
             Self::Provider(error) => error.is_retryable_carrier_failure(),
-            Self::Crypto(CryptoError::LinkError(LinkError::Closed | LinkError::Transport(_)))
+            Self::Crypto(CryptoError::LinkError(
+                LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_),
+            ))
             | Self::Crypto(CryptoError::UnexpectedEof)
             | Self::Crypto(CryptoError::HandshakeTimeout { .. })
-            | Self::Link(LinkError::Closed | LinkError::Transport(_))
-            | Self::Session(SessionError::Link(LinkError::Closed | LinkError::Transport(_)))
+            | Self::Link(LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_))
+            | Self::Session(SessionError::Link(
+                LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_),
+            ))
             | Self::Session(SessionError::LinkMessage(_))
             | Self::Session(SessionError::SchedulerClosed)
             | Self::ReconnectAttemptTimedOut { .. } => true,
             _ => false,
+        }
+    }
+
+    /// The far side's refusal, when a dial ended on one no redial cures
+    /// ([`LinkError::Refused`]).
+    pub fn refusal(&self) -> Option<&crate::link::Refusal> {
+        match self {
+            Self::Provider(error) => error.refusal(),
+            Self::Link(error)
+            | Self::Crypto(CryptoError::LinkError(error))
+            | Self::Session(SessionError::Link(error)) => error.refusal(),
+            _ => None,
         }
     }
 }

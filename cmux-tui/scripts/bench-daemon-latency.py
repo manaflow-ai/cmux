@@ -132,6 +132,36 @@ def log(*parts):
     print(time.strftime("%H:%M:%S"), *parts, file=sys.stderr, flush=True)
 
 
+def run_child(argv, timeout=30, **kwargs):
+    """`subprocess.run` for a timed child, with a blocking wait.
+
+    `subprocess.run(timeout=...)` waits by polling waitpid with sleeps that
+    double from 1 ms (it looks at about 1, 3, 7, 15 and 31 ms), so it rounds a
+    child's time up to the next look: a 5 ms CLI call measured 10 ms and a
+    16 ms one 29 ms. Here the wait blocks in waitpid and a timer kills a child
+    that runs past `timeout`. Raises `subprocess.TimeoutExpired` as `run` does.
+    """
+    if kwargs.pop("capture_output", False):
+        kwargs.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    child = subprocess.Popen(argv, **kwargs)
+    expired = threading.Event()
+
+    def kill():
+        expired.set()
+        child.kill()
+
+    timer = threading.Timer(timeout, kill)
+    timer.daemon = True
+    timer.start()
+    try:
+        stdout, stderr = child.communicate()
+    finally:
+        timer.cancel()
+    if expired.is_set():
+        raise subprocess.TimeoutExpired(argv, timeout, stdout, stderr)
+    return subprocess.CompletedProcess(argv, child.returncode, stdout, stderr)
+
+
 class Conn:
     def __init__(self, path, timeout=60):
         self.sock = socket.socket(socket.AF_UNIX)
@@ -511,7 +541,7 @@ class Bench:
         for name, candidates in cmds.items():
             chosen = None
             for argv in candidates:
-                p = subprocess.run([self.args.bin, *argv], env=env, capture_output=True, timeout=30)
+                p = run_child([self.args.bin, *argv], env=env, capture_output=True)
                 if p.returncode == 0:
                     chosen = argv
                     break
@@ -522,15 +552,15 @@ class Bench:
             vals = []
             for _ in range(n):
                 t = time.perf_counter()
-                p = subprocess.run([self.args.bin, *chosen], env=env, stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.DEVNULL, timeout=30)
+                p = run_child([self.args.bin, *chosen], env=env, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL)
                 vals.append((time.perf_counter() - t) * 1000)
             out[name] = {**stats(vals), "argv": " ".join(chosen)}
         vals = []
         for _ in range(n):
             t = time.perf_counter()
-            subprocess.run([self.args.bin, "--version"], env=env, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, timeout=30)
+            run_child([self.args.bin, "--version"], env=env, stdout=subprocess.DEVNULL,
+                      stderr=subprocess.DEVNULL)
             vals.append((time.perf_counter() - t) * 1000)
         out["cli-version-no-socket"] = stats(vals)
         return out
@@ -728,8 +758,8 @@ class Bench:
         env = {"HOME": self.env["HOME"], "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_QUIET": "1"}
         t = time.perf_counter()
         try:
-            p = subprocess.run([self.args.bin, "--socket", self.sock_path, "--json", *args], env=env,
-                               stdin=subprocess.DEVNULL, capture_output=True, timeout=30)
+            p = run_child([self.args.bin, "--socket", self.sock_path, "--json", *args], env=env,
+                          stdin=subprocess.DEVNULL, capture_output=True)
             ok, out = p.returncode == 0, p.stdout.decode(errors="replace")
             if not ok:
                 out += p.stderr.decode(errors="replace")
@@ -813,8 +843,7 @@ class Bench:
         t = []
         for _ in range(reps):
             t0 = time.perf_counter()
-            subprocess.run([self.args.bin, "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                           timeout=30)
+            run_child([self.args.bin, "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             t.append((time.perf_counter() - t0) * 1000)
         out[f"{label}-cli-version-no-socket"] = stats(t)
         return out

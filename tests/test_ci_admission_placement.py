@@ -12,6 +12,8 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 SCRIPT = ROOT / "scripts/ci/admission_placement.py"
 WORKFLOWS = ROOT / ".github/workflows"
 ROOT_STD = "glaeda-root-std-xcode-26.6"
@@ -177,9 +179,11 @@ class Workflow(unittest.TestCase):
         self.assertEqual(admission["needs"], ["admission-placement"])
         self.assertTrue(admission["if"].startswith("${{ !cancelled() && "), admission["if"])
         # Only the pin made in this attempt: a re-run of failed jobs keeps the earlier attempt's outputs.
+        cells = workflow_jobs.runs_on_cells(admission)
+        self.assertIsNotNone(cells, "macos-compile-admission: runs-on matrix does not resolve")
         self.assertIn("needs.admission-placement.outputs.attempt == github.run_attempt && "
                       "needs.admission-placement.outputs.runner && fromJSON(needs.admission-placement.outputs.runner)",
-                      admission["runs-on"])
+                      "\n".join(cells))
 
     def test_the_picker_hands_the_warm_names_through(self):
         ci = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]

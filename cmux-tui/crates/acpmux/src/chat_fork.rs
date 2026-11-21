@@ -12,11 +12,9 @@
 use crate::config::{Config, HarnessKind, HarnessProfile};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
 
 /// Start to answer. An agent forks in well under a few seconds once it runs; this bounds a hung
 /// one or one that waits for a sign-in.
@@ -35,10 +33,11 @@ pub fn profile_for<'c>(cfg: &'c Config, harness: &str) -> Option<(&'c str, &'c H
         .map(|(name, p)| (name.as_str(), p))
 }
 
-/// Forks session `id` of the agent `profile` runs, in folder `cwd`; the fork's session id.
+/// Forks session `id` of the agent `profile` (named `profile_name`) runs, in folder `cwd`; the
+/// fork's session id.
 pub async fn fork(
     harness: &str,
-    family: &str,
+    profile_name: &str,
     profile: &HarnessProfile,
     id: &str,
     cwd: &Path,
@@ -46,7 +45,7 @@ pub async fn fork(
     if !crate::adopt::is_bare_id(id) {
         return Err(RpcError::invalid_params("agentSessionId must be one plain session id"));
     }
-    match tokio::time::timeout(FORK_TIMEOUT, run(harness, family, profile, id, cwd)).await {
+    match tokio::time::timeout(FORK_TIMEOUT, run(harness, profile_name, profile, id, cwd)).await {
         Ok(forked) => forked,
         Err(_) => Err(RpcError::internal(format!(
             "{harness} did not fork the chat within {} s",
@@ -57,49 +56,24 @@ pub async fn fork(
 
 async fn run(
     harness: &str,
-    family: &str,
+    profile_name: &str,
     profile: &HarnessProfile,
     id: &str,
     cwd: &Path,
 ) -> Result<String, RpcError> {
-    let (program, rest) =
-        profile.argv.split_first().ok_or_else(|| RpcError::internal("no program"))?;
-    let env: &BTreeMap<String, String> = &profile.env;
     // As `agent.rs` spawns: never on stale or revoked delivered secrets.
     if !crate::login_env::machine_env_fresh_before_spawn().await {
         return Err(RpcError::internal("machine environment changed; login env refresh failed"));
     }
-    let build = || {
-        let mut cmd = Command::new(program);
-        // The daemon starter's turn values are not this agent's (config::TURN_SCOPED_ENV).
-        for k in crate::config::inherited_caller_scoped_keys() {
-            cmd.env_remove(k);
-        }
-        // The app the daemon follows is not the harness's (`daemon/owner_exit.rs`).
-        cmd.env_remove(crate::daemon::owner_exit::OWNER_APP_PID_ENV);
-        crate::login_env::apply_tokio_for(&mut cmd, Some(family), Some(env));
-        crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, Some(family));
-        // Never another harness's login (`agent/foreign_login.rs`); the profile's env still wins.
-        crate::agent::foreign_login::scrub(&mut cmd, harness, profile);
-        cmd.args(rest)
-            .envs(env)
-            .current_dir(cwd)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .kill_on_drop(true);
-        cmd
-    };
-    // As `agent.rs` spawns: the login values its final env plan takes (`login_env::ChildEnv`).
-    let mut plan =
-        crate::login_env::ChildEnv { family, profile: Some(env), remote: false, explicit: None };
-    let mut cmd = crate::login_env::build_ready(
-        &mut plan,
-        || Ok(build()),
-        crate::agent::explicit_env,
-        RpcError::internal,
-    )
-    .await?;
+    // The harness command every spawn path builds (`agent::harness_command_ready`): the login
+    // allow-list, scrubs and the profile's env with its `${env:X}` and Keychain references
+    // resolved, once the login values its final env plan takes are here. No session: the fork is
+    // the agent's own, outside acpmux's sessions.
+    let mut cmd = crate::agent::harness_command_ready(profile_name, profile, cwd, None, None)
+        .await
+        .map_err(|e| RpcError::internal(format!("{e:#}")))?;
+    // Nothing reads its stderr, so it never fills a pipe.
+    cmd.stderr(std::process::Stdio::null());
     // As `agent.rs` spawns: never the daemon's OOM protection (`oom_rank.rs`).
     crate::oom_rank::agent_at_exec(&mut cmd);
     let mut child =

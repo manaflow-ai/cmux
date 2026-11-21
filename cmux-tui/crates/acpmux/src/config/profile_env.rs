@@ -92,6 +92,13 @@ pub fn resolve_env_refs(
     lookup_env: &dyn Fn(&str) -> Option<String>,
     lookup_keychain: &dyn Fn(&str, Option<&str>) -> Result<String, String>,
 ) -> Result<(), String> {
+    // An endpoint harness (its marker in the env) reads cmux's own items only by exact account.
+    let endpoint = crate::byo_endpoint::Kind::of_env(env).is_some();
+    let gated = |service: &str, account: Option<&str>| {
+        crate::byo_endpoint::endpoint_keychain_lookup(None, service, account, lookup_keychain)
+    };
+    let lookup_keychain: &dyn Fn(&str, Option<&str>) -> Result<String, String> =
+        if endpoint { &gated } else { lookup_keychain };
     for (key, value) in env.iter_mut() {
         if !is_reference(value) {
             continue;

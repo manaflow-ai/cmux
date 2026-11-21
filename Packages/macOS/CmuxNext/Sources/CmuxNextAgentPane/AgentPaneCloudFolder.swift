@@ -59,7 +59,7 @@ public nonisolated enum AgentPaneCloudFolderRefusal: Error, Equatable {
     }
 
     /// The reply: the secret's message is the folder's `~/` spelling, which the page's words name.
-    var reply: [String: Any] {
+    public var reply: [String: Any] {
         if case .secret(let folder) = self { return AgentPaneReply.failure(code: code, message: folder) }
         return AgentPaneReply.failure(code: code, message: code)
     }
@@ -91,6 +91,38 @@ extension AgentPaneCloudStart {
             if case .failure(let refusal) = await copyableFolder(gitFolder, home: home) { return .failure(refusal) }
         }
         return .success((folder, root))
+    }
+
+    /// Whether a new chat's first Send in Cloud needs the person's gesture: a Send needs none (#45429; Leo, 2026-11-17:
+    /// "go remove this"), except where the gesture is the person's pick of a folder to copy off this Mac, one that is not
+    /// the tab's own (``isTabsOwn(_:roots:home:)``). No folder: the App uses the tab's. Reads the disk off the main thread.
+    @MainActor static func picksFolder(_ start: AgentPaneCloudStart, transport: AgentPaneTransport) async -> Bool {
+        guard let upload = start.uploadRoot else { return false }
+        let roots = transport.roots()
+        let home = transport.homeFolder
+        return await Task.detached(priority: .userInitiated) { !isTabsOwn(upload, roots: roots, home: home) }.value
+    }
+
+    /// Whether every one of `root`'s ``gitFolders(of:)`` is `root` or below it (by canonical path
+    /// components): a folder copied with no pane check behind it (a tab's own folder) never uploads
+    /// a repository a `.git` file or `commondir` names elsewhere. Reads the disk.
+    public nonisolated static func gitFoldersAreInside(_ root: String) -> Bool {
+        let base = ((AcpmuxPathPolicy.canonical(root) ?? root) as NSString).pathComponents
+        return gitFolders(of: root).allSatisfy { folder in
+            let parts = ((AcpmuxPathPolicy.canonical(folder) ?? (folder as NSString).standardizingPath) as NSString).pathComponents
+            return parts.count >= base.count && Array(parts.prefix(base.count)) == base
+        }
+    }
+
+    /// Whether a Cloud start's upload root (``checkedFolder(_:home:)``'s `root`, canonical) is the tab's own, so its
+    /// Send needs no gesture: under one of `roots` that is not home or above it (a terminal at `~` lists `~`; the same
+    /// rule as ``AcpmuxPathPolicy``), with every git folder it copies inside it (a linked worktree's are not).
+    /// Reads the disk: call it off the main thread.
+    nonisolated static func isTabsOwn(_ upload: String, roots: [String], home: String?) -> Bool {
+        let userHome = home.flatMap(AcpmuxPathPolicy.canonical)
+        let homeOrAbove = { (path: String) in path == "/" || userHome.map { AcpmuxPathPolicy.contains(root: path, path: $0) } == true }
+        let own = roots.compactMap(AcpmuxPathPolicy.canonical).filter { !homeOrAbove($0) }
+        return own.contains { AcpmuxPathPolicy.contains(root: $0, path: upload) } && gitFoldersAreInside(upload)
     }
 
     /// `path` canonical when it is a real folder that is not the home folder or above it, and neither

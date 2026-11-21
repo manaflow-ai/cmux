@@ -6,6 +6,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "cmux-agent://pane/index.html",
@@ -47,12 +48,9 @@ Object.assign(scope, replacements);
 const host = dom.window.document.getElementById("root")!;
 let root: Root | undefined;
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const PAGE = "<title>Desk clamp</title><canvas></canvas><script>draw()</script>";
@@ -117,14 +115,17 @@ test("only a fence that closed draws as a card: not one in a streaming list, nor
 });
 
 test("a page a reply rewrites under the same title is its next version in the side panel", async () => {
-  const { artifactVersions } = await import("../src/agent-session/acpmux/conversation/artifactVersions");
+  const { artifactVersions, replyDocuments } =
+    await import("../src/agent-session/acpmux/conversation/artifactVersions");
   const page = (body: string) => `<title>Desk clamp</title>${body}`;
   const fence = (body: string) => `\`\`\`cmux-render\n${page(body)}\n\`\`\``;
   const replies = [`First try:\n\n${fence("<p>v1</p>")}`, `Thicker jaw:\n\n${fence("<p>v2</p>")}`];
   // What a render card's Open hands the panel.
   const opened = { kind: "html" as const, lang: "html", code: page("<p>v2</p>") };
-  expect(artifactVersions(replies, opened).map((version) => version.code)).toEqual([
-    page("<p>v1</p>"),
-    page("<p>v2</p>"),
-  ]);
+  expect(
+    artifactVersions(
+      replies.flatMap((text) => replyDocuments({ text })),
+      opened,
+    ).map((version) => version.code),
+  ).toEqual([page("<p>v1</p>"), page("<p>v2</p>")]);
 });

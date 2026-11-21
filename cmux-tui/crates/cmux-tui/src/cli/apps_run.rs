@@ -260,12 +260,26 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             return 2;
         }
     };
-    let socket = match super::wire::resolve_socket_or_report(global) {
-        Ok((socket, _)) => socket,
+    let outcome = match execute(global, &request) {
+        Ok(outcome) => outcome,
         Err(code) => return code,
     };
+    let (stdout, stderr, code) = report(&outcome, global.output);
+    if let Some(text) = stdout {
+        println!("{text}");
+    }
+    if let Some(text) = stderr {
+        eprintln!("{text}");
+    }
+    code
+}
+
+/// Runs `request` on this session's daemon (as origin `cli`), with Ctrl-C cancel: the outcome, or
+/// the exit code of a failure it already reported (no socket, no connection).
+pub(super) fn execute(global: &GlobalArgs, request: &AppOp) -> Result<Outcome, i32> {
+    let socket = super::wire::resolve_socket_or_report(global).map(|(socket, _)| socket)?;
     let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
-        return 3;
+        return Err(3);
     };
     let outcome = runtime.block_on(async {
         let connect_failed = |error: String| {
@@ -286,21 +300,10 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         }
         let interrupts = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
             .map_err(|error| error.to_string())?;
-        Ok::<_, String>(run_app_op(stream, &request, SigInt(interrupts), CANCEL_WAIT).await)
+        Ok::<_, String>(run_app_op(stream, request, SigInt(interrupts), CANCEL_WAIT).await)
     });
-    let outcome = match outcome {
-        Ok(outcome) => outcome,
-        Err(message) => {
-            eprintln!("cmux: {message}");
-            return 3;
-        }
-    };
-    let (stdout, stderr, code) = report(&outcome, global.output);
-    if let Some(text) = stdout {
-        println!("{text}");
-    }
-    if let Some(text) = stderr {
-        eprintln!("{text}");
-    }
-    code
+    outcome.map_err(|message| {
+        eprintln!("cmux: {message}");
+        3
+    })
 }

@@ -6,30 +6,10 @@ import {
   failureKind,
   failureRecovery,
   isAuthenticationFailure,
-  isCloudRejectedCredential,
   isTeamMachineSignIn,
   offersOwnRoute,
 } from "./failureCopy";
 import { type Translate, translatorFor } from "./i18n";
-
-test("only the Cloud provider rejection is eligible for cached-login recovery", () => {
-  const route = { hostKind: "cloud" as const, harness: "claude" };
-  expect(
-    isCloudRejectedCredential(
-      "The provider rejected Claude Code's credentials on this Cloud machine (HTTP 403).",
-      route,
-    ),
-  ).toBe(true);
-  expect(
-    isCloudRejectedCredential("The provider rejected Claude Code's credentials on this Cloud machine (HTTP 403).", {
-      hostKind: "local",
-    }),
-  ).toBe(false);
-  expect(isCloudRejectedCredential("Claude Code login required", route)).toBe(false);
-  expect(
-    isCloudRejectedCredential("The provider rejected Codex's credentials on this Cloud machine (HTTP 403).", route),
-  ).toBe(false);
-});
 
 // The connection drops acpmux retries by itself (hub/turn_errors.rs `says_connection_dropped`) read
 // as "could not reach its server", not the generic "ran into a problem" (cmuxterm-hq#4879, finding 10).
@@ -133,7 +113,7 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
   expect(failureKind(undefined, claude, "insufficient_quota")).toBe("no-credit");
   expect(failureRecovery("no-credit")).toBe("switch-model");
   expect(offersOwnRoute("no-credit", claude)).toBe(true);
-  expect(t("turn.failure.noCredit", { harness: "Claude Code" })).toContain("Add credit to that account");
+  expect(t("turn.failure.noCredit", { harness: "Claude Code" })).toContain("Add credit and retry");
   // The cmux model router's free-tier and daily limits are 429s typed `insufficient_quota`
   // (backend inference/free.ts, Router.ts): they are rate limits, waiting helps.
   for (const message of [
@@ -322,4 +302,35 @@ test("no cmux model router code reads as an own key's empty account", () => {
     expect(failureKind(`402 Payment Required: insufficient credits, url: https://${host}/v1`, claude)).toBe(
       "no-credit",
     );
+});
+
+test("the team's spending cap on a model call reads as its own kind, never the chat key's credit", () => {
+  // backend inference/route.ts at the team's cap (cmux#39915): a 402 `team.cap_reached`, typed `insufficient_quota`.
+  const body =
+    'API Error: 402 {"error":{"code":"team.cap_reached","message":"Your team reached its spending cap for this billing period. A team admin can raise it.","type":"insufficient_quota"}}';
+  expect(failureKind(body)).toBe("team-cap");
+  expect(failureKind("Your team reached its spending cap for this billing period. A team admin can raise it.")).toBe(
+    "team-cap",
+  );
+  // acpmux's typed reason alone would read as the key's credit: the message names the cap first.
+  expect(failureKind(body, undefined, "insufficient_quota")).toBe("team-cap");
+  expect(failureRecovery("team-cap")).toBe("switch-model");
+  expect(offersOwnRoute("team-cap")).toBe(false);
+  const copy = failureCopy(translatorFor("en"), body, { name: "Claude Code" });
+  expect(copy).toContain("spending cap");
+  expect(copy).toContain("Ask an admin to raise it");
+});
+
+// The user's OpenCode Go chat (Nov 19): the provider expired its API key and said a sign-in would not
+// renew it. Its card is a key failure, never "signed out or its sign-in expired" with Sign in again.
+test("a provider's expired API key is a key failure, not a sign-in", () => {
+  for (const message of [
+    "Internal error: This API key has expired. Create a new API key in OpenCode Console and replace it in your client or secret store. Signing in again will not renew this key.",
+    'Internal error: turn failed: 401: {"type":"authentication_error","code":"api_key_expired","message":"This API key has expired."}',
+  ]) {
+    expect(failureKind(message), message).toBe("invalid-key");
+    expect(failureRecovery(failureKind(message)), message).not.toBe("sign-in");
+  }
+  // Claude Code's own sign-in still reads as its login.
+  expect(failureKind("Invalid API key · Please run /login")).toBe("subscription-login");
 });

@@ -66,6 +66,12 @@ pub(super) fn registry_screen_from_layout(
         zoomed_pane: layout.zoomed_pane.map(public_pane).transpose()?,
         auto_layout,
         viewport: RegistryViewport { base_width: layout.viewport_base_width, columns },
+        floating: floating_panes::registry_floating_panes(
+            state,
+            &layout.root,
+            &layout.layout_columns,
+            &layout.floating,
+        )?,
     };
     let expected_panes = topology
         .panes
@@ -90,7 +96,7 @@ pub(super) fn registry_layout_node(
                 .cloned()
                 .with_context(|| format!("pane {pane} has no public identity"))?,
         },
-        Node::Split { id, dir, ratio, a, b } => RegistryLayoutNode::Split {
+        Node::Split { id, dir, ratio, a, b, divider_hidden } => RegistryLayoutNode::Split {
             split: state
                 .resource_indexes
                 .split_ids
@@ -105,6 +111,7 @@ pub(super) fn registry_layout_node(
             ratio: *ratio,
             first: Box::new(registry_layout_node(state, a)?),
             second: Box::new(registry_layout_node(state, b)?),
+            divider_hidden: *divider_hidden,
         },
         Node::Stack { panes, expanded } => RegistryLayoutNode::Stack {
             panes: panes
@@ -168,6 +175,38 @@ pub(super) fn set_layout_split_ratio(
     Ok(())
 }
 
+/// `split-divider-visibility-v1`: hide or show split `split`'s divider in
+/// `layout`, in the column tree that owns it and in the screen's compat
+/// projection. A viewport column boundary or a row boundary is refused: the
+/// projection rebuilds those splits, so the flag would not stay.
+pub(super) fn set_layout_divider_hidden(
+    layout: &mut ScreenLayoutSnapshot,
+    split: SplitId,
+    hidden: bool,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !layout
+            .layout_columns
+            .iter()
+            .any(|column| column.id == split || column.is_row_split(split)),
+        "split {split} is a viewport column or row boundary"
+    );
+    let found = if layout.layout_columns.is_empty() {
+        layout.root.set_divider_hidden(split, hidden).is_some()
+    } else {
+        let found = layout
+            .layout_columns
+            .iter_mut()
+            .any(|column| column.root.set_divider_hidden(split, hidden).is_some());
+        if found {
+            layout.root.set_divider_hidden(split, hidden);
+        }
+        found
+    };
+    anyhow::ensure!(found, "unknown split");
+    Ok(())
+}
+
 pub(super) fn swap_layout_panes(
     layout: &mut ScreenLayoutSnapshot,
     first: PaneId,
@@ -208,6 +247,9 @@ pub(super) fn swap_layout_panes(
             layout.zoomed_pane = Some(first);
         }
     }
+    // `floating-panes-v1`: a floating pane that the swap put into a stack, a docked column or a column with rows
+    // is tiled.
+    layout.settle_floating_panes();
     Ok(())
 }
 
@@ -225,6 +267,7 @@ pub(super) fn overwrite_layout_snapshot(screen: &mut Screen, layout: ScreenLayou
     screen.viewport_splits = layout.viewport_splits;
     screen.viewport_base_width = layout.viewport_base_width;
     screen.layout_columns = layout.layout_columns;
+    screen.set_floating_panes(layout.floating);
 }
 
 pub(super) fn sync_layout_column_widths(layout: &mut ScreenLayoutSnapshot) {

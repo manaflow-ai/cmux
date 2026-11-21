@@ -65,7 +65,7 @@ extension AgentPaneGitPullRequest {
     /// A draft, a check not passed, or GitHub's merge state not clean (a review, conflicts).
     nonisolated static var mergeNotReadyMessage: String {
         String(localized: "agentPane.error.gitMergeNotReady",
-               defaultValue: "GitHub says this pull request isn't ready to merge: a check, a review or a conflict is still open.",
+               defaultValue: "GitHub says this pull request can't merge yet.",
                bundle: .module)
     }
 

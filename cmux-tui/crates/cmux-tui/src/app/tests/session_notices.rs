@@ -678,6 +678,41 @@ fn prepared_machine_session_events_stay_paused_until_commit_activation() {
     worker.stop_and_join();
 }
 
+/// A paused worker waits for its activation without waking on a timer.
+#[test]
+fn a_paused_session_worker_does_not_poll_for_its_activation() {
+    let mux = Mux::new("prepared-session-no-poll", SurfaceOptions::default());
+    let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
+    let (events, receiver) = crossbeam_channel::bounded(4_096);
+    let (_session, mut worker, _, _) =
+        prepare_ordered_session(Session::Local(mux.clone()), pty_input.sender(), events, 7, None)
+            .unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    let wakes = worker.paused_wakes.load(Ordering::Relaxed);
+    // A spurious return from park is allowed; a timer is not.
+    assert!(wakes <= 2, "the paused worker woke {wakes} times in 100 ms");
+
+    mux.new_workspace(None, None).unwrap();
+    worker.activate();
+    assert!(matches!(
+        receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
+        AppEvent::SessionScoped { generation: 7, .. }
+    ));
+    worker.stop_and_join();
+}
+
+/// Stopping a worker that was never activated ends it at once.
+#[test]
+fn a_paused_session_worker_stops_without_activation() {
+    let mux = Mux::new("prepared-session-stop", SurfaceOptions::default());
+    let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
+    let (events, _receiver) = crossbeam_channel::bounded(4_096);
+    let (_session, mut worker, _, _) =
+        prepare_ordered_session(Session::Local(mux), pty_input.sender(), events, 7, None).unwrap();
+    worker.stop_and_join();
+    assert!(worker.mux.is_none());
+}
+
 #[test]
 fn presented_local_owner_applies_one_reload_for_both_event_paths() {
     let owner = Mux::new("owner-reload-deduplication", SurfaceOptions::default());
@@ -847,6 +882,7 @@ fn remote_tree_refresh_keeps_restored_zoom_and_focus_aligned() {
     second.tabs[0].surface = 12;
     screen.panes.push(second);
     screen.layout = Node::Split {
+        divider_hidden: false,
         id: 9,
         dir: SplitDir::Right,
         ratio: 0.5,

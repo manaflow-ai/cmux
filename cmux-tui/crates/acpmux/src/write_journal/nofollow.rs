@@ -214,6 +214,12 @@ impl Dir {
     }
 }
 
+/// Swaps the names `a` and `b` in folder `dir` atomically (both must exist): for a writer that must
+/// see what its rename took the place of (`desktop_link_write.rs`).
+pub(crate) fn exchange_in(dir: &Path, a: &str, b: &str) -> io::Result<()> {
+    Dir::open_root(dir)?.exchange(a, b)
+}
+
 #[derive(Clone, Copy)]
 enum Flag {
     Exchange,

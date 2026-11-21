@@ -9,13 +9,17 @@
 //!   the platform takes its public half first (`POST
 //!   /v1/machines/credentials/{machineId}/wg-key`), then the pending key file is renamed over the
 //!   key file, and the holder starts its mesh again with it. A refused or failed platform call
-//!   leaves the key here as it was; one whose answer was lost keeps its candidate in the pending
-//!   key file and is refused `indeterminate`, and the next rekey or attach sends that candidate
-//!   again (never the old key). A second rekey while one runs is refused `busy`; a key lock
-//!   another process holds (the cmux link) is refused `key_held` with its pid. A new rotation
-//!   while a configured WireGuard peer or the hub carrier's registration reaches this machine
-//!   by its current key is refused `machine.rotate_strands_peers`, naming them: peers have no
-//!   way yet to learn a rotated key from the platform.
+//!   leaves the key here as it was; one whose answer was lost or unreadable keeps its candidate
+//!   in the pending key file and is refused `indeterminate`, and the next rekey or attach sends
+//!   that candidate again (never the old key). A second rekey while one runs is refused
+//!   `busy`; a key lock another process holds (the cmux link) is refused `key_held` with its
+//!   pid. A new rotation while a configured WireGuard peer or the hub carrier's registration
+//!   reaches this machine by its current key is refused `machine.rotate_strands_peers`, naming
+//!   them: peers have no way yet to learn a rotated key from the platform. Any rekey, a pending
+//!   one included, is refused `node_key.adopted` while the cmux link's adoption, current or
+//!   archived with a signed-out install, depends on the key (`mesh_node_key::adoption_depends`,
+//!   asked under the key lock): the link's paired peers know it by that key alone, and until the
+//!   link rekeys them itself a rotation would cut them all off.
 //!
 //! The person's cmux access token comes in the app's call (`server/machine_tunnel.rs`: the unix
 //! socket with the person proof only). It is the bearer of that one request, never stored,
@@ -35,8 +39,6 @@ use crate::wireguard::Transport;
 
 /// The longest token the app may send (a Stack access token is far shorter).
 const MAX_TOKEN_BYTES: usize = 16 * 1024;
-/// The longest platform answer read.
-const MAX_REPLY_BYTES: usize = 64 * 1024;
 
 /// The one rekey this daemon runs at a time.
 pub(crate) static REKEYS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -217,10 +219,12 @@ pub(crate) async fn rotate(
 ///
 /// The pending file is what makes a lost answer safe: the platform may have taken the key even
 /// when its answer never came, and it never takes a key the team had before (this machine's
-/// old one included). So a transport failure or a 500, 502 or 504 keeps the candidate and is
-/// refused `indeterminate`, and the next rekey or attach sends that same candidate again (the
-/// platform answers its current key with the same record). Only a definite no to that key
-/// (`machine.wg_key_in_use`, `machine.wg_key_invalid`, or an answer naming another key) drops it.
+/// old one included). So a transport failure, a 500, 502 or 504, or a success whose answer
+/// names no key keeps the candidate and is refused `indeterminate`, and the next rekey or
+/// attach sends that same candidate again (the platform answers its current key with the same
+/// record). Only a definite no to that key (`machine.wg_key_in_use`, `machine.wg_key_invalid`,
+/// or an answer naming another key) drops it; every other refusal keeps it too. A crash
+/// anywhere before the rename leaves it for the next rekey or attach the same way.
 pub(crate) async fn rekey(
     machine: &Machine,
     state_dir: &Path,
@@ -234,6 +238,14 @@ pub(crate) async fn rekey(
             "this Mac could not write a new WireGuard key; its key is unchanged",
         )
     };
+    // Before a candidate is written or sent: the lock is held from here to the rename, so no
+    // adoption begins in between (`promote_pending_held` asks again under it).
+    let depends = holder
+        .with_lock(|lock| Ok(crate::cli::mesh_node_key::adoption_depends_held(state_dir, lock)))
+        .map_err(|_| unwritten())?;
+    if depends {
+        return Err(adopted());
+    }
     let private = match holder
         .with_lock(|lock| crate::cli::mesh_node_key::read_pending_held(state_dir, lock))
         .map_err(|_| unwritten())?
@@ -258,14 +270,16 @@ pub(crate) async fn rekey(
             holder.with_lock(|lock| crate::cli::mesh_node_key::drop_pending_held(state_dir, lock));
     };
     let path = format!("/v1/machines/credentials/{}/wg-key", machine.id);
+    let indeterminate = |message: &str| {
+        refusal("indeterminate", message)
+            .with_data(json!({"reason": "indeterminate", "retryable": true}))
+    };
     let answer = match post(machine, &path, token, Some(json!({"wgPublicKey": public}))).await {
         Ok(answer) => answer,
         Err(error) if ambiguous(&error) => {
-            return Err(refusal(
-                "indeterminate",
+            return Err(indeterminate(
                 "the platform may have taken the new WireGuard key but its answer was lost; rekey again to finish",
-            )
-            .with_data(json!({"reason": "indeterminate", "retryable": true})));
+            ));
         }
         Err(error) => {
             if matches!(
@@ -277,12 +291,23 @@ pub(crate) async fn rekey(
             return Err(error);
         }
     };
-    if answer.get("wgPublicKey").and_then(Value::as_str) != Some(public.as_str()) {
-        drop_pending();
-        return Err(refusal(
-            "platform",
-            "the platform answered another WireGuard key; the key on this Mac is unchanged",
-        ));
+    // A success that names no key (a body that is not JSON, cut short, or without
+    // `wgPublicKey`) is as unsettled as a lost answer: the platform said yes, so it may hold
+    // this candidate now, and only the candidate's private half can match it.
+    match answer.get("wgPublicKey").and_then(Value::as_str) {
+        Some(key) if key == public => {}
+        Some(_) => {
+            drop_pending();
+            return Err(refusal(
+                "platform",
+                "the platform answered another WireGuard key; the key on this Mac is unchanged",
+            ));
+        }
+        None => {
+            return Err(indeterminate(
+                "the platform took the new WireGuard key but its answer could not be read; rekey again to finish",
+            ));
+        }
     }
     // The pending key over the key file; with this daemon's transport, every other user of the
     // node key (the hub carrier) takes it in the same step (`Transport::put_key`).
@@ -336,6 +361,17 @@ fn refuse_stranding(state_dir: &Path, stranded: &[String]) -> Result<(), RpcErro
         "code": "machine.rotate_strands_peers",
         "peers": stranded,
     })))
+}
+
+/// The refusal of a rekey while the cmux link's adoption depends on this machine's node key.
+fn adopted() -> RpcError {
+    let code = crate::cli::mesh_node_key::ADOPTED;
+    RpcError::new(
+        -32000,
+        "the cmux link serves this Mac's WireGuard key, and the Macs paired with it know it by \
+         that key alone; it is not rotated until the link can tell them a new one",
+    )
+    .with_data(json!({"reason": code, "code": code}))
 }
 
 /// Whether a refused platform call may still have happened there: no answer at all, or a 500,
@@ -394,11 +430,8 @@ async fn post(
     let response = request.send().await.map_err(|_| unreachable())?;
     let status = response.status().as_u16();
     let bytes = response.bytes().await.map_err(|_| unreachable())?;
-    let answer: Value = if bytes.len() <= MAX_REPLY_BYTES {
-        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-    } else {
-        Value::Null
-    };
+    // The whole answer is read: a long one that names the key still settles the rekey.
+    let answer: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
     if (200..300).contains(&status) {
         return Ok(answer);
     }

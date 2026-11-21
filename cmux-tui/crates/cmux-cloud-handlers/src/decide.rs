@@ -56,12 +56,6 @@ pub fn machine(lookup: &Lookup) -> Result<Pick, Said> {
     if lookup.cloud_count == 1 { Ok(Pick::Only) } else { Err(Said::key("noMachine")) }
 }
 
-/// Whether a machine can take an attach now or after a resume: not changing state, and either
-/// answering or with no app link (a legacy machine may be paused behind a stale record).
-pub fn attachable(changing: bool, connected: bool, has_app_link: bool) -> bool {
-    !changing && (connected || !has_app_link)
-}
-
 /// What New Cloud Workspace does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -221,54 +215,133 @@ pub fn settled(settled: &Settled) -> Result<Fields, Failure> {
     }
 }
 
-/// How Open Desktop shows a machine's desktop.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Desktop {
-    /// The remote view pane on the machine's `cmux-rd` host, watching the agent.
-    Rd,
-    /// The pane on the app's own VNC client (development builds).
-    Native,
-    /// The noVNC page in a Chromium tab.
-    Web,
-}
-
-/// The facts of an Open Desktop.
+/// A Cloud machine row supplied to the palette target picker.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-pub struct DesktopFacts {
-    /// `--viewer`, else the machine's default.
-    pub viewer: Option<String>,
-    pub default_viewer: String,
-    /// The machine allows a desktop at all.
-    pub allows: bool,
-    /// Its capabilities declare `desktop` (the rd host).
-    pub capability: bool,
-    /// It has a private IPv4 address and a desktop URL that names it.
-    pub reachable: bool,
-    /// This build has the native viewer.
-    pub native_available: bool,
+pub struct PaletteMachine {
+    pub id: String,
     pub title: String,
+    pub status: String,
+    /// Whether the machine advertises the desktop service.
+    pub desktop: bool,
 }
 
-pub fn desktop(facts: &DesktopFacts) -> Result<Desktop, Said> {
-    let refused = || Said::with("desktopUnavailable", [facts.title.clone()]);
-    if !facts.allows {
-        return Err(refused());
-    }
-    let viewer = facts.viewer.as_deref().unwrap_or(&facts.default_viewer);
-    if viewer == "rd" {
-        return if facts.capability { Ok(Desktop::Rd) } else { Err(refused()) };
-    }
-    if !facts.reachable {
-        return Err(refused());
-    }
-    if viewer == "native" {
-        return if facts.native_available { Ok(Desktop::Native) } else { Err(refused()) };
-    }
-    Ok(Desktop::Web)
+/// The machine state shown by the shared palette target picker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PaletteTargetState {
+    Ready,
+    Resume,
+    DesktopUnavailable,
+    Starting,
+    Unavailable,
+    Empty,
 }
 
+/// The inline action offered by a target row. The app supplies localized labels and performs it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PaletteTargetIntent {
+    Choose,
+    StartDesktop,
+    CreateDesktop,
+}
+
+/// One row returned to a palette target picker.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaletteTargetRow {
+    pub id: String,
+    pub title: String,
+    pub state: PaletteTargetState,
+    pub intent: Option<PaletteTargetIntent>,
+}
+
+fn palette_status(
+    status: &str,
+    desktop: bool,
+    wants_desktop: bool,
+) -> (PaletteTargetState, Option<PaletteTargetIntent>) {
+    let status = status.trim().to_ascii_lowercase();
+    match status.as_str() {
+        // These are in-flight transitions. Keep the row visible with its transition state,
+        // but do not offer setup/recovery until the Cloud control plane settles it.
+        "pausing" => (
+            PaletteTargetState::Resume,
+            if wants_desktop { None } else { Some(PaletteTargetIntent::Choose) },
+        ),
+        "paused" | "suspended" => {
+            if wants_desktop && !desktop {
+                (PaletteTargetState::Resume, Some(PaletteTargetIntent::StartDesktop))
+            } else {
+                (PaletteTargetState::Resume, Some(PaletteTargetIntent::Choose))
+            }
+        }
+        "starting" | "creating" | "provisioning" | "resuming" | "booting" => {
+            (PaletteTargetState::Starting, (!wants_desktop).then_some(PaletteTargetIntent::Choose))
+        }
+        "running" | "ready" | "connected" | "active" => {
+            if wants_desktop && !desktop {
+                (PaletteTargetState::DesktopUnavailable, Some(PaletteTargetIntent::StartDesktop))
+            } else {
+                (PaletteTargetState::Ready, Some(PaletteTargetIntent::Choose))
+            }
+        }
+        "deleting" => (
+            PaletteTargetState::Unavailable,
+            if wants_desktop { None } else { Some(PaletteTargetIntent::Choose) },
+        ),
+        _ => (
+            PaletteTargetState::Unavailable,
+            if wants_desktop && !desktop {
+                Some(PaletteTargetIntent::CreateDesktop)
+            } else {
+                (!wants_desktop).then_some(PaletteTargetIntent::Choose)
+            },
+        ),
+    }
+}
+
+/// Build stable, GUI-ready rows for a machine target picker.
+///
+/// Machines advertising a desktop always precede machines without that capability. Within each
+/// capability group rows are ordered by actionability (ready, resume, starting, unavailable)
+/// while preserving the inventory order for ties. The empty desktop case offers the create path.
+pub fn palette_targets(wants_desktop: bool, machines: &[PaletteMachine]) -> Vec<PaletteTargetRow> {
+    if wants_desktop && machines.is_empty() {
+        return vec![PaletteTargetRow {
+            id: "create-desktop".into(),
+            title: String::new(),
+            state: PaletteTargetState::Empty,
+            intent: Some(PaletteTargetIntent::CreateDesktop),
+        }];
+    }
+    let mut rows: Vec<(usize, PaletteTargetRow, bool, u8)> = machines
+        .iter()
+        .enumerate()
+        .map(|(index, machine)| {
+            let (state, intent) = palette_status(&machine.status, machine.desktop, wants_desktop);
+            let actionability = match state {
+                PaletteTargetState::Ready => 0,
+                PaletteTargetState::Resume => 1,
+                PaletteTargetState::Starting => 2,
+                PaletteTargetState::DesktopUnavailable => 3,
+                PaletteTargetState::Unavailable | PaletteTargetState::Empty => 4,
+            };
+            let title = machine.title.trim();
+            (
+                index,
+                PaletteTargetRow { id: machine.id.clone(), title: title.to_owned(), state, intent },
+                machine.desktop,
+                actionability,
+            )
+        })
+        .collect();
+    rows.sort_by_key(|(index, _, desktop, actionability)| (!*desktop, *actionability, *index));
+    rows.into_iter().map(|(_, row, _, _)| row).collect()
+}
+
+/// How Open Desktop shows a machine's desktop.
 /// A Cloud machine's state, as the diagnostics summary reads it.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -353,18 +426,6 @@ pub fn github_confirm(name: Option<&str>, email: Option<&str>, app: GitHubApp) -
         GitHubApp::Unknown => "gitHubFallbackUnknown",
     };
     vec![Said::key(reason), body("gitHubConfirmBody", "gitHubConfirmNoIdentity")]
-}
-
-/// The question a destructive Cloud action asks before it runs (its title, body and button are
-/// the app's strings `<prompt>Title`, `<prompt>Body`, `<prompt>Button`); none for any other action.
-pub fn confirmation(action: &str) -> Option<&'static str> {
-    match action {
-        "cloudKillMachine" => Some("killMachine"),
-        "palette.cloud.deleteSnapshot" => Some("deleteSnapshot"),
-        "cloudFileRemove" => Some("removeFile"),
-        "cloudFirewallDelete" => Some("deleteFirewallRule"),
-        _ => None,
-    }
 }
 
 /// An error's own words, without a trailing period (it sits inside a sentence).

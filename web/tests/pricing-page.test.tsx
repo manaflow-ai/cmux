@@ -142,7 +142,7 @@ describe("localized pricing page", () => {
     try {
       const first = await readInitialMain(reader);
       expect(first.includes("$50") && first.includes("$200")).toBe(true);
-      expect(first.includes("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM")).toBe(true);
+      expect(first.includes("Cloud VMs with no count cap, metered beyond the included usage; Max unlocks")).toBe(true);
       expect(first.includes("animate-pulse")).toBe(false);
       expect(first.includes("Current plan")).toBe(false);
     } finally {
@@ -182,14 +182,14 @@ describe("localized pricing page", () => {
     expect(fallbackContentLocales).toEqual(["en", "ja"]);
   });
 
-  test("keeps paid-plan copy flat: no metering, trials, or CodeRouter", () => {
+  test("says paid machines have no count and are metered past the included usage; no trials or CodeRouter", () => {
     expect(enMessages.pricing.team.features).toEqual([
-      "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
+      "Cloud VMs with no count cap for everyone on the team, metered beyond the included usage; the team's spending cap is the stop",
       "Centralized billing for your whole team",
       "Priority support",
     ]);
     expect(jaMessages.pricing.team.features).toEqual([
-      "有料シートごとに最大 5 台の Cloud VM、有料シートごとの 20 vCPU と 40 GB RAM をチーム全体で共有",
+      "チーム全員が使える台数上限のない Cloud VM。含まれる使用量を超えた分は計測され、チームの支出上限が停止点です",
       "チーム全体の一元請求",
       "優先サポート",
     ]);
@@ -214,9 +214,9 @@ describe("localized pricing page", () => {
       label: "Saved Cloud VMs, including paused machines",
       go: "1",
       free: "false",
-      pro: "5",
-      max: "5",
-      team: "5 per paid seat",
+      pro: "No cap",
+      max: "No cap",
+      team: "No cap",
       enterprise: "Custom",
     });
     expect(enMessages.dashboard.billing.free.upsellTitle).toBe(
@@ -317,7 +317,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$200");
     expect(html).toContain("$160");
     expect(html).toContain("Yearly");
-    expect(html).toContain("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM");
+    expect(html).toContain("Cloud VMs with no count cap, metered beyond the included usage; Max unlocks");
     expect(html).toContain("Get Plus");
     expect(html).toContain("$15");
     expect(html).toContain("No monthly hour cap");
@@ -541,7 +541,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$50");
     expect(html).toContain("$60");
     expect(html).toContain(
-      "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM",
+      "Cloud VMs with no count cap, metered beyond the included usage; one VM can use up to 16 GB RAM / 8 vCPU",
     );
     expect(html).toContain("Unlimited workspaces");
     expect(html).not.toContain("Unlimited active Cloud VMs");

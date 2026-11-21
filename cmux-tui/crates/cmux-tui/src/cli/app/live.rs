@@ -49,7 +49,7 @@ pub(crate) enum Command {
     Start { worktree: Option<PathBuf>, port: Option<u16> },
     /// Stop the dev server `start` ran; the app goes back to its shipped web UI.
     Stop { worktree: Option<PathBuf> },
-    /// What the app loads from, and the Live Web Reload setting; and the Swift live mode line.
+    /// What the app loads its web UI from and why (the cmux Live setting, web-dev.json, the server); and the Swift live mode line.
     Status { worktree: Option<PathBuf> },
     /// `start|stop|status --rust`: the Rust daemon loop of `worktree`'s [`RUST_SCRIPT`].
     Rust {

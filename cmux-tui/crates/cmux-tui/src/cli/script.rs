@@ -38,11 +38,15 @@ pub(super) const CANCEL_WAIT: Duration = Duration::from_secs(3);
 pub(super) const EXIT_CANCELLED: i32 = 130;
 
 /// `cmux script types`: the generated app global, then the script additions.
-pub(super) const TYPES: &str = concat!(
-    include_str!("../../../cmux-app-host/generated/cmux-app.d.ts"),
-    "\n",
-    include_str!("../../../cmux-app-host/js/script-globals.d.ts"),
-);
+/// The app global is the one compressed copy in the binary
+/// (`cmux_app_manifest::capabilities::APP_TYPES`).
+pub(super) fn types() -> String {
+    format!(
+        "{}\n{}",
+        cmux_app_manifest::capabilities::APP_TYPES.get(),
+        include_str!("../../../cmux-app-host/js/script-globals.d.ts"),
+    )
+}
 
 /// Codes after which the daemon has ended the cell's session.
 const SESSION_ENDED: [&str; 5] =
@@ -83,6 +87,11 @@ pub(super) enum Outcome {
 
 fn timeout_value(value: Option<&String>) -> Result<u64, String> {
     let value = value.ok_or_else(|| messages().usage.to_string())?;
+    // A duration with its unit (`30s`, `5m`, `1500ms`), as every other
+    // `--timeout` takes; a bare number keeps its old meaning, milliseconds.
+    if value.contains(|character: char| character.is_ascii_alphabetic()) {
+        return super::command::parse_duration_ms("--timeout", value).map_err(|error| error.0);
+    }
     value
         .parse::<u64>()
         .ok()
@@ -90,8 +99,8 @@ fn timeout_value(value: Option<&String>) -> Result<u64, String> {
         .ok_or_else(|| messages().bad_timeout.replace("{value}", value))
 }
 
-/// `run (FILE | -e CODE | -) [KEY=VALUE ...] [--args JSON] [--timeout MS]`,
-/// `repl [--timeout MS]`, `types`.
+/// `run (FILE | -e CODE | -) [KEY=VALUE ...] [--args JSON] [--timeout DURATION]`,
+/// `repl [--timeout DURATION]`, `types` (a bare `--timeout` number is ms).
 pub(super) fn parse(args: &[String]) -> Result<Action, String> {
     let usage = || messages().usage.to_string();
     match args {
@@ -565,9 +574,21 @@ fn read_stdin() -> std::io::Result<String> {
 fn run(global: &GlobalArgs, args: &[String]) -> i32 {
     let action = match parse(args) {
         Ok(action) => action,
+        Err(message) if message == messages().usage => {
+            let usage = message.strip_prefix("usage: ").unwrap_or(&message);
+            return super::scope_usage_failure(
+                global.output,
+                "script",
+                &super::unknown_words("script", args),
+                usage,
+            );
+        }
         Err(message) => {
-            eprintln!("cmux: {message}");
-            return 2;
+            return super::wire::print_local_error(
+                &json!({"code": "usage.invalid", "message": format!("cmux: {message}"), "details": {}, "retryable": false}),
+                global.output,
+                2,
+            );
         }
     };
     let (code, args, timeout_ms) = match action {
@@ -576,14 +597,17 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             return 0;
         }
         Action::Types => {
-            print!("{TYPES}");
+            print!("{}", types());
             return 0;
         }
         Action::Run { source, args, timeout_ms } => match load(&source, read_stdin) {
             Ok(code) => (Some(code), args, timeout_ms),
             Err(message) => {
-                eprintln!("cmux: {message}");
-                return 2;
+                return super::wire::print_local_error(
+                    &json!({"code": "usage.invalid", "message": format!("cmux: {message}"), "details": {}, "retryable": false}),
+                    global.output,
+                    2,
+                );
             }
         },
         Action::Repl { timeout_ms } => (None, Value::Null, timeout_ms),

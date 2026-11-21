@@ -8,7 +8,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { measureComposerAlignment, type ComposerAlignment } from "./support/composerAlignment";
+import { ALIGNMENT_SELECTORS, measureComposerAlignment, type ComposerAlignment } from "./support/composerAlignment";
 
 await requireBrowserLane("composer-alignment-measure.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -53,7 +53,7 @@ await requireBrowserLane("composer-alignment-measure.test.ts", async () => {
           await page.locator(".acpmux-composer-box .acpmux-md-placeholder").first().waitFor();
           await page.evaluate(() => document.fonts.ready);
           await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-          const measured: ComposerAlignment = await page.evaluate(measureComposerAlignment);
+          const measured: ComposerAlignment = await page.evaluate(measureComposerAlignment, ALIGNMENT_SELECTORS);
           const stem = `${variant}-${width}-${scheme}`;
           writeFileSync(path.join(outDir, `${stem}.json`), `${JSON.stringify(measured, null, 2)}\n`);
           await page

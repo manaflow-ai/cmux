@@ -304,6 +304,49 @@ extension CEFSparePageSuites {
             #expect(SpareSpy.added.isEmpty && SpareSpy.closed.isEmpty)
         }
 
+        /// manaflow-ai/cmuxterm-hq#9264: NIGHTLY eb6aad6 made spare pages whose `tab_add` held the main thread
+        /// 7.1 s, 3.3 s and 2.6 s within 18 minutes (blocked on page-ins in Chromium's new-browser setup). A page
+        /// made ahead saves a new tab about 12 ms; once one stalls past `stallBudget`, no idle moment makes
+        /// another for `stallRest`, and new tabs make their own. The stalled page itself is still taken.
+        @Test func aStalledSparePageMakesNoneAheadUntilTheRestEnds() throws {
+            let (runtime, root) = try Self.runtime()
+            defer { Self.tearDown(runtime, root) }
+            let (host, _, container) = try Self.liveHost(runtime)
+            runtime.spareWindow.now = { SpareSpy.clock }
+            SpareSpy.addCost = .seconds(7)
+            let page = try Self.spareWithPage(runtime)
+            SpareSpy.addCost = .milliseconds(12)
+            let needed = Count()
+            runtime.spareWindow.onNeeded = { needed.value += 1 }
+
+            let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+            host.add(link)
+            host.present(link, in: container)
+            host.createDeferred()
+            #expect(link.browserID == page, "the stalled page is still the next tab's")
+            #expect(SpareSpy.added.isEmpty)
+            #expect(needed.value == 1, "a take still asks: the first idle moment after the rest makes the next page")
+
+            runtime.spareWindow.prepare(runtime: runtime)
+            #expect(SpareSpy.added.isEmpty, "after a stalled spare page the next idle moment makes none")
+            SpareSpy.clock = SpareSpy.clock.advanced(by: CEFSpareWindow.stallRest - .seconds(1))
+            runtime.spareWindow.prepare(runtime: runtime)
+            #expect(SpareSpy.added.isEmpty, "nor any idle moment of the rest")
+
+            SpareSpy.clock = SpareSpy.clock.advanced(by: .seconds(1))
+            runtime.spareWindow.prepare(runtime: runtime)
+            #expect(SpareSpy.added.map(\.anchor) == [20], "after the rest the next idle moment makes one again")
+            runtime.spareWindow.closePage(in: try #require(runtime.spareWindow.host))
+            SpareSpy.addCost = .milliseconds(900)
+            SpareSpy.clearRecords()
+            runtime.spareWindow.prepare(runtime: runtime)
+            #expect(SpareSpy.added.count == 1)
+            runtime.spareWindow.closePage(in: try #require(runtime.spareWindow.host))
+            SpareSpy.clearRecords()
+            runtime.spareWindow.prepare(runtime: runtime)
+            #expect(SpareSpy.added.count == 1, "a slow cold page within the budget sets no rest")
+        }
+
         /// Memory pressure (Chrome's Memory Saver drops spare renderers first): a warning closes the waiting
         /// spare page and no idle moment makes another until the level is normal again; then the spare window
         /// asks for its page, and the next idle moment makes it.

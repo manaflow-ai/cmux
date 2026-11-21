@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 extension SettingsController {
@@ -36,6 +37,10 @@ extension SettingsController {
             do {
                 try FileManager.default.createDirectory(at: target.url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try Data((document.prettyText() + "\n").utf8).write(to: target.url, options: .atomic)
+                // The file older builds left in classic's `cmux` folder would read as stale.
+                if target.url == ManagedStatusReport.defaultURL(bundleID: target.context.bundleID) {
+                    try? FileManager.checked.removeItem(at: ManagedStatusReport.classicURL(bundleID: target.context.bundleID))
+                }
             } catch {
                 // Best effort: the file is a convenience for local tooling; the backend report is the record.
             }

@@ -5,13 +5,14 @@ export function watchedApp(family: string): string {
   return family === "codex" ? "Codex" : family === "claude" ? "Claude Code" : family;
 }
 
-/// Whether a watched chat (acpmux's session summary) is a Claude desktop session acpmux lists and delivers messages into
-/// (acpmux `hub/desktop_bridge.rs`, `hub/bridge.rs`): a reply goes to the app, so it takes nothing
+/// Whether a watched chat (acpmux's session summary) is a Claude or Codex desktop session acpmux lists and delivers
+/// messages into (acpmux `hub/desktop_bridge.rs`, `hub/bridge.rs`): a reply goes to the app, so it takes nothing
 /// over, whichever entrypoint the bridge lists. The daemon's bridge sets the tag, never a sender.
 export function bridgedWatch(
   summary: { watching?: string | null; tags?: Record<string, string> } | undefined,
 ): boolean {
-  return summary?.watching === "claude" && summary.tags?.bridge === "claude";
+  const family = summary?.watching;
+  return (family === "claude" || family === "codex") && summary?.tags?.bridge === family;
 }
 
 /// A bridged reply acpmux refused as read-only: the app no longer runs the session (or the bridge

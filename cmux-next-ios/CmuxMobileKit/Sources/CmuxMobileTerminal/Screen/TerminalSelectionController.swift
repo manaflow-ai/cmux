@@ -29,10 +29,13 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     var autoscrollBegan: () -> Void = {}
     var autoscrollEnded: () -> Void = {}
     /// The web link that covers a cell (nil: none): a long press on a link offers
-    /// Open Link and Open in Safari beside Copy, as iOS text does.
+    /// Open Link, the other device and Open in Safari beside Copy, as iOS text does.
     var linkAt: (TerminalCellPoint) -> URL? = { _ in nil }
-    /// Opens a link: in a cmux browser tab, or (`external`) in Safari.
-    var openLink: ((URL, _ external: Bool) -> Void)?
+    /// Opens a link the way the menu row says (``TerminalLinkRoute``).
+    var openLink: ((URL, TerminalLinkAction) -> Void)?
+    /// The menu's row for the device Open Link does not open the link on (Open on Mac or
+    /// Open on iPhone), nil for none.
+    var otherLinkDevice: (URL) -> TerminalLinkAction? = { _ in nil }
     /// The link under the long press that made the selection.
     private var pressedLink: URL?
 
@@ -298,13 +301,26 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         guard let link = pressedLink, openLink != nil else { return UIMenu(children: [copy, all]) }
         let open = UIAction(title: String(localized: "Open Link"), image: UIImage(systemName: "globe")) { [weak self] _ in
             self?.clear()
-            self?.openLink?(link, false)
+            self?.openLink?(link, .openLink)
         }
         let safari = UIAction(title: String(localized: "Open in Safari"), image: UIImage(systemName: "safari")) { [weak self] _ in
             self?.clear()
-            self?.openLink?(link, true)
+            self?.openLink?(link, .openInSafari)
         }
-        return UIMenu(children: [open, safari, copy, all])
+        let other: [UIAction] = switch otherLinkDevice(link) {
+        case .openOnMac?:
+            [UIAction(title: String(localized: "Open on Mac"), image: UIImage(systemName: "desktopcomputer")) { [weak self] _ in
+                self?.clear()
+                self?.openLink?(link, .openOnMac)
+            }]
+        case .openOnPhone?:
+            [UIAction(title: String(localized: "Open on iPhone"), image: UIImage(systemName: "iphone")) { [weak self] _ in
+                self?.clear()
+                self?.openLink?(link, .openOnPhone)
+            }]
+        default: []
+        }
+        return UIMenu(children: [open] + other + [safari, copy, all])
     }
 
     func editMenuInteraction(_ interaction: UIEditMenuInteraction, targetRectFor configuration: UIEditMenuConfiguration) -> CGRect {

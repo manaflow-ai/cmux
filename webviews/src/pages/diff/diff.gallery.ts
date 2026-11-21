@@ -2,6 +2,18 @@
 // The diff viewer page (cmux-page://cmux.diff/) on fixed patches: the real page entry (main.tsx)
 // over an in-page cmuxPage host that serves the patch (src/gallery/frame/pages.ts).
 import { diffPageEntry } from "../../gallery/format";
+import { pageDensities, pageDensityPlay } from "../../gallery/pageDensityFixtures";
+import type { PlayContext } from "../../gallery/play";
+
+/** Plain English is a row of the "..." menu (toolbar-model.ts): open the menu, choose it once it can run. */
+async function turnOnPlainEnglish(ctx: PlayContext): Promise<void> {
+  await ctx.waitFor(() => ctx.document.querySelector("#options-button"), { capMs: 10_000 });
+  await ctx.click({ selector: "#options-button" });
+  await ctx.waitFor(() => ctx.document.querySelector('[data-option="plain-english"]:not([aria-disabled="true"])'), {
+    capMs: 10_000,
+  });
+  await ctx.click({ selector: '[data-option="plain-english"]' });
+}
 
 const before = `export function request(url: string) {
   return fetch(url).then((response) => response.json());
@@ -84,6 +96,52 @@ const review = Array.from({ length: 120 }, (_, index) => {
   };
 });
 
+// A rename with an edit, a pure rename, a binary change and a mode change, as `git diff` writes them.
+const renamesAndBinary = `diff --git a/src/net/http.ts b/src/net/client-http.ts
+similarity 88%
+rename from src/net/http.ts
+rename to src/net/client-http.ts
+index 3b18e51..a1f3c2d 100644
+--- a/src/net/http.ts
++++ b/src/net/client-http.ts
+@@ -1,3 +1,3 @@
+ export function request(url: string) {
+-  return fetch(url);
++  return fetch(url, { credentials: "include" });
+ }
+diff --git a/docs/old-name.md b/docs/new-name.md
+similarity 100%
+rename from docs/old-name.md
+rename to docs/new-name.md
+diff --git a/assets/logo.png b/assets/logo.png
+index 5f2c1a0..9e8d7b6 100644
+Binary files a/assets/logo.png and b/assets/logo.png differ
+diff --git a/scripts/release.sh b/scripts/release.sh
+old mode 100644
+new mode 100755
+`;
+
+// Lines far wider than the pane: the wrap toggle's case.
+const longBefore = `export const query = { select: ["id", "name", "email", "createdAt"], where: { team: "core" }, orderBy: "createdAt", limit: 50 };
+export const message = "short";
+`;
+const longAfter = `export const query = { select: ["id", "name", "email", "createdAt", "updatedAt", "lastSeenAt", "plan", "seats"], where: { team: "core", archived: false, region: { in: ["us-east-1", "eu-west-1"] } }, orderBy: [{ createdAt: "desc" }, { id: "asc" }], limit: 200 };
+export const message = "A much longer message that keeps going well past the edge of any reasonable diff pane width so it must scroll or wrap";
+`;
+
+// One large file: 400 lines with edits spread through it, so several hunks and the gaps between them show.
+const bigLines = Array.from({ length: 400 }, (_, k) => `  step${k}: () => run(${k}, { retries: ${k % 5} }),`);
+const bigBefore = `export const steps = {\n${bigLines.join("\n")}\n};\n`;
+const bigAfter = `export const steps = {\n${bigLines
+  .map((line, k) =>
+    k % 37 === 3
+      ? line.replace("retries", "attempts")
+      : k % 53 === 10
+        ? `${line}\n  extra${k}: () => skip(${k}),`
+        : line,
+  )
+  .join("\n")}\n};\n`;
+
 function reviewComment(id: string, filePath: string, line: number, message: string) {
   return {
     id,
@@ -115,12 +173,16 @@ export default diffPageEntry({
     "diff-viewer/Loading.tsx",
     "diff-viewer/Toolbar.tsx",
     "diff-viewer/WorkerRenderOptionsSync.tsx",
+    "diff-viewer/PlainEnglishView.tsx",
   ],
   variants: {
     "jump-file-overflow": {
-      note: "Thirty changed files scroll under soft edges in the open jump-to-file palette.",
+      note: "Thirty changed files scroll under soft edges in the open jump-to-file palette (files list hidden).",
       files: many,
       play: async (ctx) => {
+        // Jump to file shows while the files list is hidden (toolbar-model.ts jumpToFileShown).
+        await ctx.waitFor(() => ctx.document.querySelector('#files-toggle[aria-pressed="true"]'), { capMs: 10_000 });
+        await ctx.click({ selector: "#files-toggle" });
         await ctx.waitFor(() => ctx.document.querySelector("#jump-to-file-button"), { capMs: 10_000 });
         await ctx.click({ selector: "#jump-to-file-button" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".jump-palette-row").length === many.length);
@@ -175,12 +237,53 @@ export default diffPageEntry({
         );
       },
     },
+    loading: {
+      note: "The diff has not arrived yet: the skeleton.",
+      mode: "loading",
+      files: [{ path: "src/net/client.ts", before, after }],
+    },
+    error: {
+      note: "Opening the diff failed.",
+      mode: "error",
+      files: [{ path: "src/net/client.ts", before, after }],
+    },
+    "no-changes": {
+      note: "The source has no changes.",
+      patch: "",
+    },
+    "renamed-binary": {
+      note: "A rename with an edit, a pure rename, a binary file and a mode change.",
+      patch: renamesAndBinary,
+    },
+    "long-lines": {
+      note: "Lines wider than the pane, unified.",
+      layout: "unified",
+      files: [{ path: "src/db/query.ts", before: longBefore, after: longAfter }],
+    },
+    "large-file": {
+      note: "One 400-line file with edits spread through it: several hunks and the gaps between them.",
+      height: 760,
+      files: [{ path: "src/pipeline/steps.ts", before: bigBefore, after: bigAfter }],
+    },
     "small-split": {
       note: "Two files, split layout: one changed, one added.",
       files: [
         { path: "src/net/client.ts", before, after },
         { path: "src/net/retry.ts", after: retry },
       ],
+    },
+    "density-compact": {
+      note: "The same change at Compact: the toolbar, the file bars and the files list draw at the density's size, the code at its own (diff-viewer/density.ts).",
+      files: [
+        { path: "src/net/client.ts", before, after },
+        { path: "src/net/retry.ts", after: retry },
+      ],
+      play: async (ctx) => {
+        // As the host's scale script does: the density on the root, then the change event.
+        await pageDensityPlay(pageDensities.find((density) => density.name === "compact")!.scale)(ctx);
+        ctx.document.defaultView?.dispatchEvent(new Event("cmux-ui-scale-change"));
+        await ctx.waitFor(() => ctx.document.querySelector(".file-header"), { capMs: 10_000 });
+      },
     },
     unified: {
       note: "The same change, unified layout.",
@@ -226,6 +329,81 @@ export default diffPageEntry({
       ],
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector("#comments-send"), { capMs: 10_000 });
+      },
+    },
+    "plain-english": {
+      note: "Plain English on: each hunk is one sentence an agent wrote, its code folded beneath. Sentences arrive in place while the first changed line holds the row, so nothing moves.",
+      height: 640,
+      files: [
+        { path: "src/net/client.ts", before, after },
+        { path: "src/net/retry.ts", after: retry },
+        { path: "src/config.ts", before: config, after: configAfter },
+      ],
+      summaries: {
+        delayMs: 300,
+        sentences: {
+          // The first key a hunk's patch contains names its sentence: the helper's own file first.
+          "attempt >= attempts": "Adds a helper that reruns a failing task until it runs out of attempts.",
+          withRetry: "Retries each request up to three times before giving up.",
+          "retries: 5": "Raises retries to five, the timeout to 15 seconds, and moves to the v2 API.",
+          describeConfig: "Renames describe to describeConfig and can add the timeout to its text.",
+        },
+      },
+      play: async (ctx) => {
+        await turnOnPlainEnglish(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.plain-english-row[data-state="ready"]').length >= 3, {
+          capMs: 10_000,
+        });
+      },
+    },
+    "plain-english-open-hunk": {
+      note: "One click unfolds a hunk's code under its sentence; Open in diff goes back to it in the full diff.",
+      height: 640,
+      files: [
+        { path: "src/net/client.ts", before, after },
+        { path: "src/net/retry.ts", after: retry },
+      ],
+      summaries: {
+        sentences: {
+          // The first key a hunk's patch contains names its sentence: the helper's own file first.
+          "attempt >= attempts": "Adds a helper that reruns a failing task until it runs out of attempts.",
+          withRetry: "Retries each request up to three times before giving up.",
+        },
+      },
+      play: async (ctx) => {
+        await turnOnPlainEnglish(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector('.plain-english-row[data-state="ready"]'), {
+          capMs: 10_000,
+        });
+        await ctx.click({ selector: ".plain-english-row" });
+        await ctx.waitFor(() => ctx.document.querySelector(".plain-english-code"), { capMs: 10_000 });
+      },
+    },
+    "plain-english-many-files": {
+      note: "Thirty files read as a page: only the rows on screen or a screen away ask for a sentence; the rest keep their code preview.",
+      files: many,
+      summaries: {
+        delayMs: 150,
+        sentences: { "export const added": "Doubles the value and adds a new string export." },
+      },
+      play: async (ctx) => {
+        await turnOnPlainEnglish(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector('.plain-english-row[data-state="ready"]'), {
+          capMs: 10_000,
+        });
+      },
+    },
+    "plain-english-unavailable": {
+      note: "No agent here can write summaries: the menu's Plain English row is off, and its tooltip says why.",
+      files: [{ path: "src/net/client.ts", before, after }],
+      summaries: { refused: "complete.not_installed" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("#options-button"), { capMs: 10_000 });
+        await ctx.click({ selector: "#options-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('[data-option="plain-english"][aria-disabled="true"]'), {
+          capMs: 10_000,
+        });
+        await ctx.hover({ selector: '[data-option="plain-english"]' });
       },
     },
     "review-brief": {

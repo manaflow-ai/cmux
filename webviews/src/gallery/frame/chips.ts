@@ -45,6 +45,10 @@ export function installChipHost(fixture: ChipHostFixture | undefined): void {
       const url = typeof src === "string" ? fixture.media?.[src] : undefined;
       return typeof url === "string" ? { src: url } : null;
     }
+    if (method === "video.info") {
+      const src = params.src;
+      return (typeof src === "string" ? fixture.videos?.[src] : undefined) ?? null;
+    }
     if (method === "pr.inspect") {
       const url = typeof params.url === "string" ? params.url : "";
       const answer = fixture.pullRequests?.[url];

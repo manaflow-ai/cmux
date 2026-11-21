@@ -1,4 +1,4 @@
-// A watched Claude desktop session acpmux delivers into takes a reply where it runs; every other
+// A watched Claude or Codex desktop session acpmux delivers into takes a reply where it runs; every other
 // watched chat is taken over by a reply, as before.
 import { describe, expect, test } from "bun:test";
 import { bridgeGone, bridgedWatch } from "./watchBannerModel";
@@ -7,6 +7,11 @@ describe("bridgedWatch", () => {
   test("a watched Claude chat the desktop bridge listed", () => {
     expect(bridgedWatch({ watching: "claude", tags: { bridge: "claude", origin: "claude-desktop" } })).toBe(true);
     expect(bridgedWatch({ watching: "claude", tags: { bridge: "claude", origin: "cli" } })).toBe(true);
+  });
+
+  test("a watched Codex chat the desktop bridge listed", () => {
+    expect(bridgedWatch({ watching: "codex", tags: { bridge: "codex", origin: "codex_desktop" } })).toBe(true);
+    expect(bridgedWatch({ watching: "claude", tags: { bridge: "codex" } })).toBe(false);
   });
 
   test("any other watched chat, or no watch, is not bridged", () => {

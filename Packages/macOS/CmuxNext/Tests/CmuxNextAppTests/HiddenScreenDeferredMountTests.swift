@@ -6,7 +6,8 @@ import Testing
 
 /// A workspace's hidden screens mount when they first show or at idle, not in the frame that shows the workspace
 /// (Leo 2026-11-04: the visible window comes first, off-screen work is deferred). A screen mounted late shows as
-/// one mounted with the shown screen did: hidden at its place, then slid in by the switch, with no pop-in.
+/// one mounted with the shown screen does: made hidden at its place with its panes at rest, then shown by the switch
+/// in the same turn (a change of screen has no transition, Lawrence 2026-11-10).
 @MainActor
 @Suite(.closesItsWindows)
 struct HiddenScreenDeferredMountTests {
@@ -47,7 +48,9 @@ struct HiddenScreenDeferredMountTests {
         #expect(layout.root.deferredScreens == ["s2"])
     }
 
-    @Test func aWaitingScreenSlidesInOnItsFirstShow() throws {
+    /// The switch that first shows a waiting screen makes it and shows it at rest in the same turn, as it shows a
+    /// screen made earlier: filling the root at full alpha, its panes laid out, the old screen hidden, no frame asked for.
+    @Test func aWaitingScreenShowsAtRestOnItsFirstShow() throws {
         let layout = Layout()
         defer { layout.window.closeAfterTest() }
         let root = layout.root
@@ -56,21 +59,14 @@ struct HiddenScreenDeferredMountTests {
         let incoming = try #require(root.screenViews["s2"], "the shown screen was not made")
         #expect(Set(layout.provider.made) == ["p1", "p2", "p3"])
         #expect(root.deferredScreens.isEmpty)
-        // It starts where a screen made with the shown one starts a switch: clear, one step to its side.
         #expect(!incoming.isHidden)
-        #expect(incoming.alphaValue == 0)
-        #expect(incoming.frame.origin.x > root.bounds.minX)
-        #expect(root.driver.isRunning)
-        let frames = try #require(incoming.paneFrames.values.first)
-        #expect(frames.rect == frames.targetRect, "its panes spring in a screen that was hidden")
-        let scheduler = FrameScheduler.forWindow(layout.window)
-        for tick in 0..<240 {
-            if !root.driver.isRunning { break }
-            scheduler.frameDidFire(timestamp: Double(tick) / 120)
-        }
         #expect(incoming.alphaValue == 1)
-        #expect(incoming.frame.origin == root.bounds.origin)
-        #expect(root.screenViews["s1"]?.isHidden == true)
+        #expect(incoming.frame == root.bounds, "the screen made for its first show is not in place (\(incoming.frame))")
+        #expect(incoming.paneFrames.count == 2 && incoming.paneFrames.values.allSatisfy { $0.rect == $0.targetRect },
+                "its panes spring in a screen that was hidden")
+        #expect(!incoming.hasMotion)
+        #expect(root.screenViews["s1"]?.isHidden == true, "the old screen is hidden in the same turn")
+        #expect(!root.driver.isRunning, "the first show asked for display frames")
     }
 
     @Test func anIdleMountMakesTheScreenHiddenAtRest() throws {

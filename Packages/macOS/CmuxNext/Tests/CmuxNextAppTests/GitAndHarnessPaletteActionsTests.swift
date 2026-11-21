@@ -53,8 +53,22 @@ struct GitAndHarnessPaletteActionsTests {
         AppActions.bind(services)
         var presented: [ActionID] = []
         services.registry.confirmationPresenter = { id, _, _ in presented.append(id) }
+        // No tab with a folder here: the row is disabled and the run never reaches the question.
         _ = services.registry.perform("git.worktree.remove", invocation: ActionInvocation())
+        #expect(presented.isEmpty, "a remove with no folder asked")
+        #expect(ActionTargetReasons.reason(for: "git.worktree.remove", invocation: ActionInvocation(), in: services.registry) == GitRepositoryStrings.noFolder)
+
+        // A tab in a folder: the palette run asks first, and a script without `confirm` is refused.
+        let registry = ActionRegistry(catalog: ActionCatalog.all)
+        let link = AgentPaneGitLink(daemon: DaemonService())
+        GitRepositoryActions(place: { _ in GitRepositoryActions.Place(link: link, cwd: "/repo/worktree-a") }, announce: { _ in }).bind(into: registry)
+        registry.confirmationPresenter = { id, _, _ in presented.append(id) }
+        _ = registry.perform("git.worktree.remove", invocation: ActionInvocation())
         #expect(presented == ["git.worktree.remove"], "the palette run did not ask")
+        let reason = registry.capturingRefusal {
+            _ = registry.perform("git.worktree.remove", invocation: ActionInvocation(origin: .cli))
+        }
+        #expect(reason == ActionRegistry.confirmationRequiredReason(for: "git.worktree.remove"))
 
         let folder: [String: ActionValue] = [GitRepositoryActions.pinnedPathName: .string("/repo/worktree-a")]
         let plain = await DestructiveConfirmation.prompt(for: "git.worktree.remove", ActionInvocation(arguments: folder), services)
@@ -67,11 +81,6 @@ struct GitAndHarnessPaletteActionsTests {
         #expect(discarding != nil)
         #expect(plain?.body != discarding?.body, "discarding says it deletes uncommitted changes too")
         #expect(plain?.returnConfirms == false, "Return must not remove a worktree")
-
-        let reason = services.registry.capturingRefusal {
-            _ = services.registry.perform("git.worktree.remove", invocation: ActionInvocation(origin: .cli))
-        }
-        #expect(reason == ActionRegistry.confirmationRequiredReason(for: "git.worktree.remove"))
     }
 
     /// Review (codex) F1: the confirmed run re-read the selected tab's folder, so a tab switch or a
@@ -114,6 +123,24 @@ struct GitAndHarnessPaletteActionsTests {
         #expect(checkpoint?.params == ["reason": .string("manual")])
         #expect(checkpoint?.localOnly == false)
         #expect(GitRepositoryActions.Request.make("git.status", arguments: [:]) == nil)
+    }
+
+    /// #38631 review follow-up: before the harness list is read, the pick awaits a read instead of
+    /// answering the empty list (the palette froze it, so the picker stayed empty until reopened).
+    @Test func theIconPickReadsAListNotReadYetBeforeItAnswers() async throws {
+        let registry = ActionRegistry(catalog: ActionCatalog.all)
+        var state: CmuxNextSettings.JSONValue = ["status": "loading", "harnesses": []]
+        var reads = 0
+        AgentHarnessIconAction(setIcon: { _, _ in }, state: { state }, refresh: {
+            reads += 1
+            state = ["status": "ready", "harnesses": [["id": "acme", "name": "Acme Agent", "removable": true]]]
+        }, failure: { _ in "" }).bind(into: registry)
+        #expect(registry.argumentSuggestions?(ActionSuggestions.agentHarnessProfiles) == [], "nothing read yet")
+        let load = try #require(registry.argumentSuggestionsLoad?(ActionSuggestions.agentHarnessProfiles))
+        #expect(await load() == [ActionEnumCase(value: "acme", title: "Acme Agent")])
+        #expect(reads == 1)
+        #expect(registry.argumentSuggestionsLoad?(ActionSuggestions.agentHarnessProfiles) == nil, "read: the list shows at once")
+        #expect(registry.argumentSuggestionsLoad?("other.source") == nil)
     }
 
     @Test func theIconPickListsOnlyTheUsersOwnProfiles() {

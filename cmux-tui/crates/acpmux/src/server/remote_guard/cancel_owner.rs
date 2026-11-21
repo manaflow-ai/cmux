@@ -16,6 +16,10 @@
 //! notification form) admitted the request only for a chat of the grant by the exact id of a
 //! session here, before this check; any other chat never reaches it.
 //!
+//! The person's own phone (a live `Role::Phone` pairing of this machine, `Pairing::own_phone`,
+//! the device that sent the request by its own credential, `sending_device`) stops a chat started
+//! here too: it controls this machine's chats (D13, `hub/web_control.rs`). Removed, it is refused.
+//!
 //! A forwarded `personStop` (the person's Stop, `requests/person_stop.rs`) rides on the same
 //! link, so it passes for the owner and is refused with the rest for anyone else.
 
@@ -32,12 +36,14 @@ pub(in crate::server) fn check(
     origin: crate::server::Origin,
     auth: crate::server::ConnAuth,
     params: &Value,
+    sender: Option<&str>,
 ) -> Result<(), RpcError> {
     let key = crate::server::session_key(params)?;
     match hub.resolve(key) {
         Ok(session) if session.meta().remote_origin => Ok(()),
         Ok(_) if owner(origin, auth, params) => Ok(()),
         Ok(_) if auth == crate::server::ConnAuth::CarrierTeam => Ok(()),
+        Ok(_) if sender.is_some_and(|d| hub.pairing.own_phone(d)) => Ok(()),
         Ok(_) => Err(refused()),
         Err(_) if hub.resolve_remote(key).is_some() => Ok(()),
         Err(e) => Err(RpcError::invalid_params(format!(
@@ -49,8 +55,13 @@ pub(in crate::server) fn check(
 
 /// The person's own daemon on another machine, by the proof its link presented: the peer token,
 /// not forwarding for its Web client (`Control::Peer`) nor for a paired machine (`via: device`).
-/// A paired device's own credential (`ConnAuth::Device`) is never the owner here.
-fn owner(origin: crate::server::Origin, auth: crate::server::ConnAuth, params: &Value) -> bool {
+/// A paired device's own credential (`ConnAuth::Device`) is never the owner here. The side
+/// session guard (`_acpmux/btw`, `remote_guard.rs`) asks the same question.
+pub(super) fn owner(
+    origin: crate::server::Origin,
+    auth: crate::server::ConnAuth,
+    params: &Value,
+) -> bool {
     origin == crate::server::Origin::Peer
         && auth.peer_daemon()
         && crate::hub::vm_boundary::owner(auth, super::control_of(origin, auth, params), params)
@@ -109,14 +120,14 @@ mod tests {
         let hub = crate::hub::Hub::new(cfg, store);
         let params = json!({"sessionId": "local-1"});
         assert!(!hub.resolve("local-1").unwrap().meta().remote_origin);
-        assert!(super::check(&hub, Origin::Web, ConnAuth::CarrierTeam, &params).is_ok());
+        assert!(super::check(&hub, Origin::Web, ConnAuth::CarrierTeam, &params, None).is_ok());
         for auth in [ConnAuth::ListenerToken, ConnAuth::Device, ConnAuth::ReadOnlyDevice] {
-            let e = super::check(&hub, Origin::Web, auth, &params).unwrap_err();
+            let e = super::check(&hub, Origin::Web, auth, &params, None).unwrap_err();
             assert_eq!(e.data.unwrap()["reason"], super::REASON, "{auth:?}");
         }
         let via_web = json!({"sessionId": "local-1", "_meta": {"acpmux": {"via": "web"}}});
         for auth in [ConnAuth::PeerToken, ConnAuth::CarrierOwner] {
-            let e = super::check(&hub, Origin::Peer, auth, &via_web).unwrap_err();
+            let e = super::check(&hub, Origin::Peer, auth, &via_web, None).unwrap_err();
             assert_eq!(e.data.unwrap()["reason"], super::REASON, "{auth:?}");
         }
     }
