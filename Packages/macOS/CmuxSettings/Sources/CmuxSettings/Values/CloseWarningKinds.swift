@@ -32,3 +32,19 @@ public struct CloseWarningKinds: OptionSet, Sendable, Hashable {
     /// `app.alwaysConfirmWorkspaceClose`: every workspace close, idle or not.
     public static let alwaysConfirmWorkspace = CloseWarningKinds(rawValue: 1 << 6)
 }
+
+extension CloseWarningKinds {
+    /// The warnings behind a close prompt: `setting` only while it is on and
+    /// asks for this close, plus `.safety` for a running process. Offering a
+    /// setting that is already off would show a checkbox that changes nothing,
+    /// since the running process asks anyway.
+    public static func offered(
+        _ setting: CloseWarningKinds,
+        settingWarns: Bool,
+        hasActiveProcess: Bool
+    ) -> CloseWarningKinds {
+        var kinds: CloseWarningKinds = settingWarns ? setting : []
+        if hasActiveProcess { kinds.insert(.safety) }
+        return kinds
+    }
+}

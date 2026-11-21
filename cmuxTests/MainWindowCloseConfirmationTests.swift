@@ -188,6 +188,34 @@ final class MainWindowCloseConfirmationTests: XCTestCase {
         XCTAssertEqual(requests.values.count, 0)
     }
 
+    func testWindowPromptForRunningProcessDoesNotOfferWindowWarningThatIsOff() throws {
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let targetWindow = try makeMainWindow(appDelegate)
+        try setShellActivity(.commandRunning, appDelegate)
+        let defaults = UserDefaults.standard
+        let key = AppCatalogSection().warnBeforeClosingWindow.userDefaultsKey
+        let original = defaults.object(forKey: key)
+        defer {
+            if let original {
+                defaults.set(original, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        defaults.set(false, forKey: key)
+
+        var offered: [CloseWarningKinds] = []
+        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in false }
+        appDelegate.debugCloseMainWindowDontAskAgainHandler = { kinds in
+            offered.append(kinds)
+            return true
+        }
+
+        appDelegate.closeWindowWithConfirmation(targetWindow)
+        XCTAssertEqual(offered, [[.safety]])
+        XCTAssertTrue(targetWindow.isVisible)
+    }
+
     func testUnconfirmedWindowCloseStillReachesShouldCloseUnconfirmed() throws {
         let appDelegate = try XCTUnwrap(AppDelegate.shared)
         let targetWindow = try makeMainWindow(appDelegate)
