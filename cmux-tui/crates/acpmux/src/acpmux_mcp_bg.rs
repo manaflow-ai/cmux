@@ -544,6 +544,7 @@ esac
     // Shell-script stand-ins for gh and glaeda-gh run through `sh`: unix only.
     #[cfg(unix)]
     #[test]
+    #[cfg(unix)]
     fn run_wait_waits_through_glaeda_gh_and_falls_back_to_gh() {
         let dir = cmux_unix_socket::short_test_dir("run-wait-glaeda");
         let calls = dir.path().join("calls");
