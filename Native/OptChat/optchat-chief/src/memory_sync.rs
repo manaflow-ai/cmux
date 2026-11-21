@@ -70,6 +70,9 @@ pub struct Plan {
     /// Estimated model tokens the target's compactor reads / writes to build the side's summaries.
     pub est_input_tokens: u64,
     pub est_output_tokens: u64,
+    /// New items left for a later run: this run's share stops at --max-cost (and --max-items), oldest first,
+    /// and the next run skips what this one wrote by its keys.
+    pub remaining: usize,
 }
 
 /// Dollars per million tokens (input, output) of the compactor model.
@@ -108,7 +111,11 @@ impl Plan {
             self.est_input_tokens,
             self.est_output_tokens,
             self.cost(price)
-        )
+        ) + &if self.remaining > 0 {
+            format!("; {} more on the next run", self.remaining)
+        } else {
+            String::new()
+        }
     }
 }
 
@@ -133,14 +140,62 @@ pub fn make_plan(source: &str, items: Vec<Item>, known: &HashSet<String>) -> (Pl
         }
     }
     fresh.sort_by_key(|i| date_ms(&i.date));
-    plan.new = fresh.len();
-    plan.new_bytes = fresh.iter().map(|i| i.text.len()).sum();
-    plan.first = fresh.first().map(|i| i.date.clone());
-    plan.last = fresh.last().map(|i| i.date.clone());
-    // Leaf summaries read each message once; the levels above read the summaries (about +50%).
-    plan.est_input_tokens = (plan.new_bytes as u64 / 4) * 3 / 2;
-    plan.est_output_tokens = plan.est_input_tokens / 7;
+    plan.count(&fresh);
     (plan, fresh)
+}
+
+/// Leaf summaries read each message once; the levels above read the summaries (about +50%).
+fn est_input_tokens(bytes: usize) -> u64 {
+    (bytes as u64 / 4) * 3 / 2
+}
+
+impl Plan {
+    /// The new items' counts, dates and estimate, for `fresh` (oldest first).
+    fn count(&mut self, fresh: &[Item]) {
+        self.new = fresh.len();
+        self.new_bytes = fresh.iter().map(|i| i.text.len()).sum();
+        self.first = fresh.first().map(|i| i.date.clone());
+        self.last = fresh.last().map(|i| i.date.clone());
+        self.est_input_tokens = est_input_tokens(self.new_bytes);
+        self.est_output_tokens = self.est_input_tokens / 7;
+    }
+}
+
+/// This run's share of `fresh` (oldest first): the longest prefix whose estimate stays within `max_cost` and
+/// `max_items`. A history too big for one run is imported over several instead of refused: each run spends at most
+/// `max_cost`, and the next one starts where it stopped (written keys are known). The oldest item is always taken,
+/// even alone over `max_cost`, so a source whose first item is huge still moves forward one item per run instead of
+/// writing nothing forever. `plan` then describes the share, with `remaining` the items left.
+pub fn within_budget(
+    plan: &mut Plan,
+    fresh: &mut Vec<Item>,
+    price: Price,
+    max_cost: f64,
+    max_items: Option<usize>,
+) {
+    let mut bytes = 0usize;
+    let mut keep = 0usize;
+    for it in fresh.iter() {
+        if max_items.is_some_and(|m| keep >= m) {
+            break;
+        }
+        let input = est_input_tokens(bytes + it.text.len());
+        let cost = Plan {
+            est_input_tokens: input,
+            est_output_tokens: input / 7,
+            ..Plan::default()
+        }
+        .cost(price);
+        if cost > max_cost && keep > 0 {
+            break;
+        }
+        bytes += it.text.len();
+        keep += 1;
+    }
+    let total_new = fresh.len();
+    fresh.truncate(keep);
+    plan.count(fresh);
+    plan.remaining = total_new - keep;
 }
 
 /// The keys of the messages a memory holds, from its text export's `main/` lines.
@@ -639,21 +694,11 @@ pub fn run(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<Str
             );
         }
         let known = local_known(&paths)?;
-        let (plan, mut fresh) = make_plan(source, items, &known);
+        let (mut plan, mut fresh) = make_plan(source, items, &known);
+        within_budget(&mut plan, &mut fresh, price, max_cost, max_items);
         let cost = plan.cost(price);
-        if json_out {
-            // fall through to the common print below
-        }
         if !write {
             return Ok(render(&plan, price, json_out));
-        }
-        if cost > max_cost {
-            return Err(format!(
-                "refused: estimated ${cost:.2} is over --max-cost {max_cost}"
-            ));
-        }
-        if let Some(m) = max_items {
-            fresh.truncate(m);
         }
         let (before, n, backup) = crate::memory_sync_state::with_host_stopped(
             &paths,
@@ -836,6 +881,55 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         Paths::new(&dir)
+    }
+
+    #[test]
+    fn a_history_over_the_cost_cap_imports_its_oldest_share_and_leaves_the_rest() {
+        // Each item is 4 MB: about $2.57 apiece at the default price ($1.50 in, $1.07 out), so $8 holds three.
+        let big = "x".repeat(4_000_000);
+        let list: Vec<Item> = (0..10)
+            .map(|n| {
+                item(
+                    "chat",
+                    &format!("{n}{big}"),
+                    &format!("2026-10-{:02}T10:00:00.000Z", n + 1),
+                    "t",
+                )
+            })
+            .collect();
+        let (mut plan, mut fresh) = make_plan("t", list, &HashSet::new());
+        assert_eq!(plan.new, 10);
+        within_budget(&mut plan, &mut fresh, Price::default(), 8.0, None);
+        assert_eq!((plan.new, plan.remaining, fresh.len()), (3, 7, 3));
+        assert!(plan.cost(Price::default()) <= 8.0);
+        assert_eq!(plan.first.as_deref(), Some("2026-10-01T10:00:00.000Z"));
+        assert!(
+            plan.line(Price::default())
+                .ends_with("; 7 more on the next run")
+        );
+        // --max-items still bounds the share.
+        let (mut plan, mut fresh) = make_plan(
+            "t",
+            items(&[("a", "one"), ("b", "two"), ("c", "three")]),
+            &HashSet::new(),
+        );
+        within_budget(&mut plan, &mut fresh, Price::default(), 20.0, Some(2));
+        assert_eq!((plan.new, plan.remaining), (2, 1));
+        // An oldest item alone over the cap is still taken, so the import moves on.
+        let (mut plan, mut fresh) = make_plan(
+            "t",
+            vec![
+                item("chat", &big, "2026-10-01T10:00:00.000Z", "t"),
+                item("chat", "small", "2026-10-02T10:00:00.000Z", "t"),
+            ],
+            &HashSet::new(),
+        );
+        within_budget(&mut plan, &mut fresh, Price::default(), 1.0, None);
+        assert_eq!((plan.new, plan.remaining), (1, 1));
+        // Under the cap nothing is held back.
+        let (mut plan, mut fresh) = make_plan("t", items(&[("a", "one")]), &HashSet::new());
+        within_budget(&mut plan, &mut fresh, Price::default(), 20.0, None);
+        assert_eq!((plan.new, plan.remaining), (1, 0));
     }
 
     #[test]

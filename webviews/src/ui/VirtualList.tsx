@@ -5,6 +5,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { cx } from "./cx";
+import { useScrollEdges } from "./scrollEdges";
 
 export interface VirtualListProps {
   count: number;
@@ -14,7 +15,14 @@ export interface VirtualListProps {
   activeIndex?: number;
   /** Changes when the same index names a different result set or active item. */
   activeScrollKey?: string;
-  renderRow(index: number, style: CSSProperties): ReactNode;
+  /** `measure` is set when `measureRows` is on: the row passes it as its `ref`, with `data-index={index}`. */
+  renderRow(index: number, style: CSSProperties, measure?: (element: Element | null) => void): ReactNode;
+  /** Rows size to their content: each is measured once rendered, and `estimateSize` is only the first guess. */
+  measureRows?: boolean;
+  /** The row's own identity (a task id). Measured heights are kept by it, so a row keeps its height when rows
+   * before it leave or move. Without it they are kept by index, and the rows after a change are placed with
+   * their old neighbors' heights until measured again (TanStack Virtual `getItemKey`). */
+  itemKey?(index: number): string | number;
   className?: string;
   id?: string;
   /** The list's ARIA role and name (listbox, grid, ...); rows set theirs in renderRow. */
@@ -23,6 +31,8 @@ export interface VirtualListProps {
   overscan?: number;
   /** Use the closest matching ancestor as the viewport instead of creating a nested scroller. */
   scrollParent?: string;
+  /** Fade overflowing rows on this list's own viewport. */
+  fade?: boolean;
 }
 
 /** The active result can change without changing its numeric index (a filtered folder). */
@@ -51,8 +61,19 @@ export function VirtualList({
   label,
   overscan = 6,
   scrollParent,
+  fade = false,
+  measureRows = false,
+  itemKey,
 }: VirtualListProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
+  const scrollEdges = useScrollEdges();
+  const mounted = useCallback(
+    (node: HTMLDivElement | null) => {
+      scroller.current = node;
+      scrollEdges(fade && !scrollParent ? node : null);
+    },
+    [fade, scrollParent, scrollEdges],
+  );
   const space = useRef<HTMLDivElement | null>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
   const parent = useCallback(
@@ -87,6 +108,7 @@ export function VirtualList({
     getScrollElement: parent,
     scrollMargin,
     estimateSize,
+    ...(itemKey ? { getItemKey: itemKey } : {}),
     overscan,
     rangeExtractor: (range: Range) => {
       const indexes = defaultRangeExtractor(range);
@@ -97,8 +119,7 @@ export function VirtualList({
       return indexes;
     },
   });
-  useScrollToIndex(activeIndex, activeScrollKey, (index) => virtualizer.scrollToIndex(index, { align: "auto" }));
-  // The range extractor adds the active row to a measured range; before the first measure (no
+  useScrollToIndex(activeIndex, activeScrollKey, (index) => virtualizer.scrollToIndex(index, { align: "auto" })); // The range extractor adds the active row to a measured range; before the first measure (no
   // viewport yet) there is no range, so the active row is added here from its estimated place.
   const items = virtualizer
     .getVirtualItems()
@@ -120,9 +141,9 @@ export function VirtualList({
     // The layout the absolute rows need is inline, not only in ui.css: a page that does not load
     // ui.css (the agent pane) otherwise places the rows against the page and draws them over it.
     <div
-      ref={scroller}
+      ref={mounted}
       id={id}
-      className={cx("ui-virtual", className)}
+      className={cx("ui-virtual", fade && !scrollParent && "ui-scroll-edge-fade", className)}
       style={{ overflow: scrollParent ? "visible" : "auto" }}
       role={role}
       aria-label={label}
@@ -133,16 +154,37 @@ export function VirtualList({
         style={{ position: "relative", width: "100%", height: virtualizer.getTotalSize() }}
       >
         {items.map((item) =>
-          renderRow(item.index, {
-            position: "absolute",
-            top: 0,
-            insetInlineStart: 0,
-            width: "100%",
-            transform: `translateY(${item.start - scrollMargin}px)`,
-            height: item.size,
-          }),
+          renderRow(
+            item.index,
+            virtualRowStyle(item.start - scrollMargin, measureRows ? undefined : item.size),
+            measureRows ? virtualizer.measureElement : undefined,
+          ),
         )}
       </div>
     </div>
   );
+}
+
+const ROW_STYLES_KEPT = 4096;
+const rowStyles = new Map<string, CSSProperties>();
+
+/** A row's style is the same object for the same place and size, so a memoized row (one that takes
+ * `style` as a prop) does not re-render when the list scrolls, a sibling is hovered or the caller
+ * re-renders. A pure function of the geometry (no ref read at render, so the compiler keeps the
+ * component); the oldest entries go past ROW_STYLES_KEPT. The objects are frozen: shared by lists. */
+export function virtualRowStyle(offset: number, height: number | undefined): CSSProperties {
+  const key = `${offset}|${height ?? ""}`;
+  const kept = rowStyles.get(key);
+  if (kept) return kept;
+  const style: CSSProperties = Object.freeze({
+    position: "absolute",
+    top: 0,
+    insetInlineStart: 0,
+    width: "100%",
+    transform: `translateY(${offset}px)`,
+    ...(height === undefined ? {} : { height }),
+  });
+  if (rowStyles.size >= ROW_STYLES_KEPT) rowStyles.delete(rowStyles.keys().next().value!);
+  rowStyles.set(key, style);
+  return style;
 }

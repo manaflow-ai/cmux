@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample prompts and harness names), not shipped UI.
 // Compaction and failover notes in the transcript (CompactionNote.tsx): a compaction running, one
-// that failed and why, one whose end was never heard, one subrouter ran to move the chat to another account, acpmux moving the chat to its fallback
+// that failed and why, one whose end was never heard, one acpmux's cache timer ran, one subrouter ran to move the chat to another account, acpmux moving the chat to its fallback
 // harness after a usage limit, and a permission policy the chat's harness cannot keep (OpenCode, Pi).
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -21,6 +21,26 @@ export default agentPaneEntry({
         }),
         assistant("Picking up where we left off: the migration is applied, running the tests now.", 4),
         summary(4, { status: "completed", durationMs: 41_000, toolCount: 2 }),
+      ]),
+    },
+    "cache-expiry": {
+      note: 'acpmux\'s Compact Before the Cache Expires timer compacted the idle chat: no /compact bubble, the note says why it ran (Leo, 2026-11-12: "i didnt send it myself").',
+      snapshot: chat([
+        user("Fix the sidebar spacing", 6),
+        assistant("Fixed: the rows now use the 8 pt grid.", 5),
+        summary(5, { status: "completed", durationMs: 23_000, toolCount: 3 }),
+        row("compaction", 1, {
+          compaction: { state: "completed", reason: "cache_expiry", preTokens: 412_000, postTokens: 31_000 },
+        }),
+      ]),
+    },
+    "cache-expiry-running": {
+      note: "The timer's compaction while it runs.",
+      snapshot: chat([
+        user("Fix the sidebar spacing", 6),
+        assistant("Fixed: the rows now use the 8 pt grid.", 5),
+        summary(5, { status: "completed", durationMs: 23_000, toolCount: 3 }),
+        row("compaction", 1, { compaction: { state: "running", reason: "cache_expiry" } }),
       ]),
     },
     running: {

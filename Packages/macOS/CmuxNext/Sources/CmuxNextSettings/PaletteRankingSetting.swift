@@ -1,11 +1,12 @@
 import Foundation
 
-/// The palette's user aliases and pins in cmux.json (cx-9ce.43):
+/// The palette's user aliases, pins and search memory in cmux.json (cx-9ce.43):
 ///
 /// ```jsonc
 /// "palette": {
 ///   "aliases": { "vs": "splitRight", "nt": "newTab.default" },
-///   "pins": ["newTab.default", "splitRight"]
+///   "pins": ["newTab.default", "splitRight"],
+///   "searchHistory": true
 /// }
 /// ```
 ///
@@ -13,13 +14,12 @@ import Foundation
 /// that command first. Pinned commands lead the empty palette in this order. A bad entry is
 /// dropped.
 public nonisolated struct PaletteRankingSetting: Sendable, Hashable {
-    public static let aliasesPath = ["palette", "aliases"]
-    public static let pinsPath = ["palette", "pins"]
-
     /// The aliases of each action id, in alias order.
     public var aliases: [String: [String]] = [:]
     /// Pinned action ids, in the user's order, each once.
-    public var pins: [String] = []
+    public var pins = PaletteRankingSetting.pinsDefault
+    /// Whether the palette learns from what the person runs (`palette.searchHistory`, default on).
+    public var remembersSearches = PaletteRankingSetting.searchHistoryDefault
 
     /// The setting in `root` (the file's whole JSON).
     public init(_ root: JSONValue) {
@@ -32,30 +32,6 @@ public nonisolated struct PaletteRankingSetting: Sendable, Hashable {
         if case .array(let items) = root.value(at: Self.pinsPath) {
             pins = items.compactMap { $0.stringValue }.filter { !$0.isEmpty && seen.insert($0).inserted }
         }
-    }
-
-    /// Raw action ids mean nothing on the Settings page; the user writes them in cmux.json.
-    private static let cmuxJSONOnly = "action ids; cmux.json only"
-
-    /// The settings rows, in the palette's Settings group.
-    static func descriptors(group: SettingText) -> [SettingDescriptor] {
-        [
-            SettingDescriptor(
-                aliasesPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.palette.aliases", "Command Aliases"),
-                help: SettingsText.keyed("settings.palette.aliases.help",
-                                         "A word that names a command by its action id (\"vs\": \"splitRight\"). Typing the whole word in the command palette puts that command first."),
-                kind: .stringMap, default: .object([:]), keywords: ["palette", "alias", "shortcut", "command"]
-            )
-            .hiddenFromSettingsPage(Self.cmuxJSONOnly),
-            SettingDescriptor(
-                pinsPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.palette.pins", "Pinned Commands"),
-                help: SettingsText.keyed("settings.palette.pins.help",
-                                         "Commands shown first when the command palette opens, in this order, by action id."),
-                kind: .stringList, default: .array([]), keywords: ["palette", "pin", "favorite", "command"]
-            )
-            .hiddenFromSettingsPage(Self.cmuxJSONOnly),
-        ]
+        if case .bool(let on) = root.value(at: Self.searchHistoryPath) { remembersSearches = on }
     }
 }

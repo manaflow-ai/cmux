@@ -158,12 +158,76 @@ fn resource_clients_use_opaque_ids_and_preserve_exact_nullable_metadata() {
     disconnect_client(&mux, second, false);
 }
 
+/// The operations that need the connection (its streams, its principal, its client record), named
+/// so that a spec change names what it adds or removes. Every `cloud.*` operation also needs it: it
+/// runs with the connection's own Cloud session (#37350).
+const CONNECTION_OPERATIONS: [&str; 58] = [
+    "browser.attach",
+    "browser.viewer.release",
+    "browser.viewer.resize",
+    "chief.continue",
+    "chief.engine.get",
+    "chief.engine.set",
+    "chief.profile.adopt",
+    "chief.profile.avatar.get",
+    "chief.profile.avatar.set",
+    "chief.profile.create",
+    "chief.profile.delete",
+    "chief.profile.get",
+    "chief.profile.history",
+    "chief.profile.list",
+    "chief.profile.undo",
+    "chief.profile.update",
+    "chief.retry",
+    "chief.stop",
+    "client.cell_pixels.set",
+    "client.detach",
+    "client.get",
+    "client.list",
+    "client.metadata.update",
+    "client.sizing.release",
+    "client.sizing.set",
+    "conversation.draft",
+    "conversation.events",
+    "conversation.get",
+    "conversation.history",
+    "conversation.list",
+    "conversation.search",
+    "conversation.send",
+    "conversation.typing",
+    "origin.confirmation.issue",
+    "pairing_request.list",
+    "pairing_request.resolve",
+    "participant.avatar.get",
+    "participant.avatar.set",
+    "request.cancel",
+    "session.events",
+    "session.journal.append",
+    "session.journal.checkpoint.create",
+    "session.journal.checkpoint.list",
+    "session.journal.hook.list",
+    "session.journal.hook.put",
+    "session.journal.producer.list",
+    "session.journal.producer.put",
+    "session.journal.restore.preview",
+    "session.journal.segment.list",
+    "session.journal.segment.seal",
+    "session.journal.subscribe",
+    "session.shutdown",
+    "sidebar_view.attach",
+    "stream.cancel",
+    "terminal.attach",
+    "terminal.renderer_grant.create",
+    "terminal.viewer.release",
+    "terminal.viewer.resize",
+];
+
 #[test]
 fn connection_handler_owns_every_router_connection_operation() {
     let catalog: Value =
         serde_json::from_str(include_str!("../../../../../spec/resource-operations-v2.json"))
             .unwrap();
-    let mut connection_operations = 0usize;
+    let mut connection_operations = std::collections::BTreeSet::new();
     for name in catalog["operations"].as_object().unwrap().keys() {
         let operation: ResourceOperation =
             serde_json::from_value(Value::String(name.clone())).unwrap();
@@ -173,9 +237,27 @@ fn connection_handler_owns_every_router_connection_operation() {
             requires_connection,
             "{name} has inconsistent connection ownership"
         );
-        connection_operations += usize::from(requires_connection);
+        if requires_connection {
+            connection_operations.insert(name.as_str());
+        }
     }
-    assert_eq!(connection_operations, 58);
+    let expected = catalog["operations"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .filter(|name| name.starts_with("cloud."))
+        .chain(CONNECTION_OPERATIONS)
+        .collect::<std::collections::BTreeSet<_>>();
+    let added = connection_operations.difference(&expected).collect::<Vec<_>>();
+    let removed = expected.difference(&connection_operations).collect::<Vec<_>>();
+    assert!(
+        added.is_empty() && removed.is_empty(),
+        "the connection handler owns operations that CONNECTION_OPERATIONS does not name: \
+         {added:?}; it does not own operations that CONNECTION_OPERATIONS names (or a cloud.* \
+         operation): {removed:?}. Name a new connection operation here after you check that \
+         handle_resource_connection_message answers it with the connection's context."
+    );
 }
 
 #[test]
@@ -662,6 +744,7 @@ fn exported_stack_layout_is_accepted_as_an_apply_request() {
 #[test]
 fn swapping_across_a_stack_boundary_keeps_exported_expansion_valid() {
     let mut root = Node::Split {
+        divider_hidden: false,
         id: 10,
         dir: SplitDir::Right,
         ratio: 0.5,

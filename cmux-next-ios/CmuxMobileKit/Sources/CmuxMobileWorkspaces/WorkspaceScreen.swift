@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxSpinner
 import CmuxTabsKit
 import CmuxMobileDesign
 import CmuxMobileModel
@@ -25,8 +26,9 @@ extension TabsKitTheme {
     }
 }
 
-/// A workspace: its tabs in the Safari-style TabsKit chrome, opened on the
-/// last tab used on this device. Pushed full screen from the Workspaces
+/// A workspace: its tabs in the Safari-style TabsKit chrome, opened where
+/// `AppStore.openingTab` says (the tab left on screen when it was open before in this
+/// launch, else its layout's top-left pane's). Pushed full screen from the Workspaces
 /// list with the navigation bar hidden and, by the shell, the root tab bar (SPEC 3.1: full
 /// screen surfaces own the bottom edge). Ways back to the list: the
 /// toolbar's back chevron (a tab without page history), the system edge
@@ -42,6 +44,7 @@ public struct WorkspaceScreen: View {
     @State private var renameID: String?
     @State private var renamePlaceholder = "Name"
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     #if DEBUG
     private let director = WorkspaceDemoDirector.shared
     #endif
@@ -55,6 +58,7 @@ public struct WorkspaceScreen: View {
         makeSource = {
             let source = WorkspaceTabsSource(store: store, workspaceID: workspaceID, terminal: terminal, creator: creator)
             source.offersScreenSharing = screenSharing != nil
+            source.screenSharing = screenSharing
             return source
         }
         _showsGrid = State(initialValue: startsInGrid)
@@ -71,8 +75,9 @@ public struct WorkspaceScreen: View {
         TabsView(source: source, isShowingOverview: $showsGrid)
             .tabsKitTheme(.mobile)
             .overlay(alignment: .top) {
-                if showsGrid {
-                    WorkspaceGridHeader(source: source).transition(.opacity.animation(.easeOut(duration: 0.2)))
+                // Select Tabs puts its Close | More where Back is.
+                if showsGrid, !source.isSelectingTabs {
+                    WorkspaceGridHeader(source: source).transition(.opacity.animation(.easeOut(duration: 0.2).unlessReduceMotion))
                 }
             }
             // The workspace's own toast (TabsKit's is never fed: it covers the title and
@@ -99,9 +104,16 @@ public struct WorkspaceScreen: View {
                 if CommandLine.arguments.contains("-cmux-mobile-toast-demo") { source.showDemoToast() }
                 #endif
             }
+            // The grid's view stays "visible" in the background: its refresh stops here.
+            // Inactive (Control Center, the app switcher's first moment) still shows it.
+            .onChange(of: scenePhase) { _, phase in source.sceneActiveChanged(phase != .background) }
             #if DEBUG
             .onChange(of: director.serial) { run(director.command) }
             #endif
+            // The page is one container element that holds its own identifier: on the bare
+            // content the identifier went to every element inside, and the agent tab's
+            // composer field read `workspace.<id>` instead of `chat.composer.field`.
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("workspace.\(source.workspaceID)")
             // New Agent Chat With…: the Mac's agents and models.
             .sheet(isPresented: Binding(get: { source.choosingAgent }, set: { source.choosingAgent = $0 })) {
@@ -118,6 +130,12 @@ public struct WorkspaceScreen: View {
                                 ToolbarItem(placement: .cancellationAction) {
                                     Button("Done") { source.showingScreenSharing = false }
                                         .accessibilityIdentifier("screenSharing.done")
+                                }
+                                // Screen Sharing as a tab of this workspace (user 2026-11-05).
+                                ToolbarItem(placement: .primaryAction) {
+                                    Button("Open as Tab", systemImage: "plus.rectangle.on.rectangle") { source.openScreenSharingTab() }
+                                        .labelStyle(.titleOnly)
+                                        .accessibilityIdentifier("screenSharing.openAsTab")
                                 }
                             }
                     }
@@ -167,7 +185,7 @@ public struct WorkspaceScreen: View {
             if let title = source.pendingTabTitle {
                 // A tab on its way: the grid keeps its cards until the Mac lists it.
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    CmuxSpinner().controlSize(.small)
                     Text(Self.openingText(title))
                 }
                 .font(theme.type.meta.weight(.semibold))
@@ -195,7 +213,7 @@ public struct WorkspaceScreen: View {
                 .dynamicTypeSize(...DynamicTypeSize.accessibility3)
                 .accessibilityElement(children: .combine)
                 .cmuxMobileDismissibleToast(entry: placement.entry, announcement: text) {
-                    withAnimation(theme.motion.snappy.animation) { source.clearNotice() }
+                    withAnimation(theme.motion.snappy.animation.unlessReduceMotion) { source.clearNotice() }
                 }
                 .padding(.horizontal, 20)
                 .padding(showsGrid ? .bottom : .top, placement.inset)
@@ -204,9 +222,9 @@ public struct WorkspaceScreen: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: showsGrid ? .bottom : .top)
-        .animation(theme.motion.snappy.animation, value: source.toastText)
-        .animation(theme.motion.snappy.animation, value: source.pendingTabTitle)
-        .animation(theme.motion.snappy.animation, value: showsGrid)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: source.toastText)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: source.pendingTabTitle)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: showsGrid)
     }
 
     /// "Opening a Claude chat…" for "New Claude Chat".
@@ -330,6 +348,8 @@ private struct InteractivePopEnabler: UIViewControllerRepresentable {
 /// on a Mac publish, not the workspace screen and the tabs under it.
 struct WorkspaceGridHeader: View {
     let source: WorkspaceTabsSource
+    /// TabsKit's top-control metrics, so Back matches More and the bottom bar.
+    private let metrics = TabsKitTheme.mobile.metrics
 
     var body: some View {
         ZStack {
@@ -344,12 +364,12 @@ struct WorkspaceGridHeader: View {
                     source.exit()
                 } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: metrics.toolbarGlyph, weight: .medium))
                         .foregroundStyle(theme.colors.label.color)
-                        .frame(width: 36, height: 36)
+                        .frame(width: metrics.overviewTopControl, height: metrics.overviewTopControl)
                         .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressGlass)
                 .glassEffect(.regular.interactive(), in: .circle)
                 .accessibilityLabel("Workspaces")
                 Spacer()

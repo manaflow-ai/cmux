@@ -1,7 +1,9 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
+import CmuxNextLayout
 import CmuxNextPages
 
 /// The docked Home's two views over `HomeDockSwitchView` (cx-ebm.59.5, cx-frn2y): Messages, the native MessagesLab
@@ -50,7 +52,7 @@ final class HomeDockView: HomeDockSwitchView, PageWebViewContainer {
             guard let shown = messages?.shown else { return nil }
             // A Cloud conversation keeps its message too: with no owner resolver, the page pages its own
             // timeline to the message and opens its thread (store.ts openKnown), as the native view does.
-            let thread = messages?.host.flatMap { HomePageTab.transcript(in: $0) }?.openThreadMessage
+            let thread = messages?.host.flatMap { HomeNativeTranscriptView.first(in: $0) }?.openThreadMessage
             return Selection(conversation: shown.rawValue, message: thread)
         case .channels:
             guard let channels, let ask = channelsSelection else { return nil }
@@ -88,3 +90,4 @@ final class HomeDockView: HomeDockSwitchView, PageWebViewContainer {
         channels?.close()
     }
 }
+extension HomeDockView: ChiefPanelContent { var chiefIsAnswering: Bool { mode == .messages && messages?.host?.chiefIsAnswering == true }; var chiefShowsThrough: Bool { get { messages?.host?.chiefShowsThrough == true } set { messages?.host?.chiefShowsThrough = newValue } }; var chiefHeaderHeight: CGFloat { messages?.host?.chiefHeaderHeight ?? 0 } }

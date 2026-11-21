@@ -57,15 +57,17 @@ import Testing
         /// The card the browser offers now, as the import offer service shows it.
         func offer() -> NSView? {
             let offer = BrowserCookieImportOffer(icons: [], title: "Import bookmarks, history and passwords from Google Chrome",
-                                                 detail: "", importTitle: "Import…", notNowTitle: "Not Now")
+                                                 importTitle: "Import…", notNowTitle: "Not Now")
             chrome.showCookieImportOffer(offer) { _ in }
             pane.layoutSubtreeIfNeeded()
             return chrome.currentCookieImportCard
         }
 
-        /// Whether `card` is on screen: presented on this window's overlay host.
+        /// Whether `card` is on screen: presented on this window's overlay host, and not hidden there
+        /// in place while its tab is off screen.
         func shows(_ card: NSView?) -> Bool {
-            card?.window?.parent === window
+            guard let card else { return false }
+            return card.window?.parent === window && !card.isHiddenOrHasHiddenAncestor
         }
 
         func tearDown() {
@@ -83,6 +85,7 @@ import Testing
         let card = try #require(tab.offer())
         #expect(tab.shows(card), "the card shows over its browser tab")
 
+        let clip = try #require(card.superview, "presented in its overlay clip")
         let other = NSView()
         tab.pane.show(other)
         tab.pane.layoutSubtreeIfNeeded()
@@ -91,6 +94,9 @@ import Testing
         tab.pane.show(tab.chrome)
         tab.pane.layoutSubtreeIfNeeded()
         #expect(tab.shows(card), "its tab shows again, and so does the card")
+        // Leo, 2026-11-08: "the import cookies from google chrome card flickers sometimes". A card
+        // presented again moves its page to a new view, which draws a blank frame at full opacity.
+        #expect(card.superview === clip, "it waited hidden in place: the same present, no blank frame")
     }
 
     /// Cmd-T: the New Tab page draws nothing until it paints, so the browser stays on screen

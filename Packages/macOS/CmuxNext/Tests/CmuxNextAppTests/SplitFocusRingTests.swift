@@ -92,7 +92,9 @@ import CmuxNextFocus
         #expect(rings.count == 2, "\(rings.count) pane overlays for 2 panes")
         #expect(rings.first { $0.pane == old.rawValue }?.showsRing == false,
                 "the old pane kept the focus ring at its new frame after the split: \(rings)")
-        #expect(rings.first { $0.pane == new.rawValue }?.showsRing == true, "the new pane has no focus ring: \(rings)")
+        // Focus a split moves is not a key move between panes: it earns no ring (Leo 2026-11-06: "i need
+        // the freaking focus ring to STOP FIRING SO OFTEN"; `LayoutModel.focusRingEarned`).
+        #expect(rings.first { $0.pane == new.rawValue }?.showsRing == false, "the split's new pane drew a ring: \(rings)")
         // Every overlay is on its pane's current frame: nothing is left where the pane was.
         #expect(rings.allSatisfy { $0.ringInSync }, "a ring is off its pane's content: \(rings)")
     }

@@ -9,7 +9,74 @@
 if [ "$#" -eq 1 ]; then
   case "$1" in --version|-v|--help|-h) exec /usr/local/libexec/cmux-claude-real "$@" ;; esac
 fi
+# The last --settings, which Claude applies over every settings file: the
+# sign-in check reads it (agent-auth.sh cmux_claude_settings_has).
+cmux_claude_flag_settings_given=0
+cmux_claude_flag_settings=
+cmux_cl_next=0
+for cmux_cl_arg in "$@"; do
+  if [ "$cmux_cl_next" = 1 ]; then
+    cmux_claude_flag_settings=$cmux_cl_arg
+    cmux_cl_next=0
+    continue
+  fi
+  case "$cmux_cl_arg" in
+    --) break ;;
+    --settings) cmux_claude_flag_settings_given=1; cmux_cl_next=1 ;;
+    --settings=*) cmux_claude_flag_settings_given=1; cmux_claude_flag_settings=${cmux_cl_arg#--settings=} ;;
+  esac
+done
 . /etc/cmux/agent-config.sh
 . /etc/cmux/agent-auth.sh
 cmux_claude_apply_auth_mode || exit $?
+if [ "${cmux_claude_team_settings-0}" = 1 ]; then
+  # Team mode: one --settings, first (every subcommand takes it there), that
+  # merges the launch's own last --settings (inline JSON or a file; Claude
+  # keeps only the last) with the model-plane pair and empty personal
+  # credentials (only the x-cmux-* usage headers), over any settings file's env. One that does not read stops
+  # the launch rather than send a credential it names to CodeRouter.
+  exec python3 -I -c '
+import json, os, sys
+real = "/usr/local/libexec/cmux-claude-real"
+clears = ["ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
+          "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"]
+args, rest, last, i = sys.argv[1:], [], None, 0
+while i < len(args):
+    a = args[i]
+    if a == "--":
+        rest.extend(args[i:])
+        break
+    if a == "--settings":
+        last = args[i + 1] if i + 1 < len(args) else last
+        i += 2
+        continue
+    if a.startswith("--settings="):
+        last = a[len("--settings="):]
+    else:
+        rest.append(a)
+    i += 1
+settings = {}
+if last is not None:
+    try:
+        text = last if last.lstrip().startswith("{") else open(last).read()
+        settings = json.loads(text)
+    except Exception as e:
+        sys.exit("claude: --settings does not read (%s); team mode cannot start" % e)
+    if not isinstance(settings, dict):
+        sys.exit("claude: --settings is not a JSON object; team mode cannot start")
+env = settings.get("env") if isinstance(settings.get("env"), dict) else {}
+for k in clears:
+    env[k] = ""
+# No personal credential helper answers in team mode either.
+for k in ("apiKeyHelper", "awsCredentialExport", "awsAuthRefresh"):
+    settings[k] = ""
+for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"):
+    env[k] = os.environ.get(k, "")
+# Only the usage attribution headers (x-cmux-*): any other is the user own.
+env["ANTHROPIC_CUSTOM_HEADERS"] = "\n".join(
+    l for l in os.environ.get("ANTHROPIC_CUSTOM_HEADERS", "").splitlines() if l.lower().startswith("x-cmux-"))
+settings["env"] = env
+os.execv(real, [real, "--settings", json.dumps(settings)] + rest)
+' "$@"
+fi
 exec /usr/local/libexec/cmux-claude-real "$@"

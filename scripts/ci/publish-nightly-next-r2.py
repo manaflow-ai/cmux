@@ -11,6 +11,11 @@ follow-up job that never holds the feed.
       Writes each file to <prefix><name>, write-once, all at once (one thread
       per file), then reads each back from R2 and checks its size and SHA-256
       against the local file's, and checks the public base serves it at that size.
+  signature --feed F [--feed ...] --name N --out PATH
+      Writes PATH: the EdDSA signature and length the enclosure named N carries
+      in the feeds (every feed that names N must agree), as JSON. Uploaded beside the DMG as <N>.signature.json, it outlives
+      the feed's two items, so an app that installs an older build by number
+      (UpdaterService.switchToBuild) checks the same signature Sparkle would.
   rewrite --feed F --name N [--name ...]
       Points every enclosure <github-prefix><N> in F at <public-base>/<N>.
       --if-public rewrites only names the public base serves at the enclosure's
@@ -172,6 +177,28 @@ def upload(files: list[Path]) -> int:
 
 
 ENCLOSURE_URL = re.compile(r'(url=")([^"]+)(")')
+
+
+def signature(feeds: list[Path], name: str, out: Path) -> int:
+    """Writes out from the item enclosures (not deltas) in feeds whose URL ends in /name."""
+    found = set()
+    for feed in feeds:
+        if not feed.is_file():
+            continue
+        for item in ET.parse(feed).getroot().iter("item"):
+            for element in item.findall("enclosure"):
+                if (element.get("url") or "").rsplit("/", 1)[-1] == name:
+                    found.add((element.get(f"{{{SPARKLE_NS}}}edSignature") or "", element.get("length") or ""))
+    if len(found) != 1:
+        print(f"{len(found)} different enclosures name {name}, expected 1: {sorted(found)}", file=sys.stderr)
+        return 1
+    signed, length = found.pop()
+    if not signed or not length.isdigit():
+        print(f"the enclosure {name} has no sparkle:edSignature or length", file=sys.stderr)
+        return 1
+    out.write_text(json.dumps({"name": name, "edSignature": signed, "length": int(length)}) + "\n", encoding="utf-8")
+    print(f"{out.name}: {name}, {length} bytes")
+    return 0
 
 
 def rewrite(feed: Path, names: set[str], if_public: bool) -> int:
@@ -565,6 +592,10 @@ def main(argv: list[str]) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     up = sub.add_parser("upload")
     up.add_argument("--file", action="append", type=Path, required=True)
+    sg = sub.add_parser("signature")
+    sg.add_argument("--feed", action="append", type=Path, required=True)
+    sg.add_argument("--name", required=True)
+    sg.add_argument("--out", type=Path, required=True)
     rw = sub.add_parser("rewrite")
     rw.add_argument("--feed", type=Path, required=True)
     rw.add_argument("--name", action="append", default=[])
@@ -577,6 +608,8 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     if args.command == "upload":
         return upload(args.file)
+    if args.command == "signature":
+        return signature(args.feed, args.name, args.out)
     if args.command == "rewrite":
         if not args.name and not args.if_public:
             parser.error("rewrite needs --name or --if-public")

@@ -114,6 +114,15 @@ final class CEFMediaBridge {
 extension CEFTab: BrowserAudioMuting {
     public func setAudioMuted(_ muted: Bool) {
         machine.apply(.audioMutedChanged(muted))
+        applyAudioMute()
         Task { await media(.muteTab(state.isAudioMuted)) }
+    }
+
+    /// Chromium's own mute of the browser (`WebContents::SetAudioMuted`, Chrome's Mute site): every
+    /// sound of the page, Web Audio and out-of-process frames too, which the media script cannot
+    /// reach. A browser made later (`attach`) hears it there.
+    func applyAudioMute() {
+        guard let browserID else { return }
+        runtime.shim?.setAudioMuted?(browserID, state.isAudioMuted ? 1 : 0)
     }
 }

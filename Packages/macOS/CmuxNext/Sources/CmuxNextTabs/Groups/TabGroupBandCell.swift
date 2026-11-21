@@ -52,8 +52,9 @@ final class TabGroupBandCell {
     private func updateColors() {
         themeScope.perform {
             // The group's swatch and its wash, or the custom color, as the sidebar's groups draw it (GroupTint.headerFill).
-            // No color: no wash (`.clear` with an alpha is a faint black, not nothing).
-            washLayer.backgroundColor = color.isNone ? NSColor.clear.cgColor : color.headerFill.withAlphaComponent(0.09).cgColor
+            // No color: the theme's faint neutral step, no hue, so the members still read as one group (Leo 2026-11-05:
+            // "a grouped up thing"); `.clear` with an alpha would be a faint black.
+            washLayer.backgroundColor = color.isNone ? Palette.sidebarStep.cgColor : color.headerFill.withAlphaComponent(0.09).cgColor
             lineLayer.backgroundColor = color.headerFill.cgColor
         }
     }

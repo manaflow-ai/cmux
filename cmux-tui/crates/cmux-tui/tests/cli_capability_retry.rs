@@ -156,3 +156,78 @@ fn newtab_agent_identity_keeps_old_daemon_reads_after_hello_rejection() {
     );
     assert_eq!(serde_json::from_slice::<Value>(&output.stdout).unwrap(), json!([]));
 }
+
+/// From a cmux terminal (`CMUX_WORKSPACE_ID` set), `workspace create` and
+/// `agents workspace create` (the MCP `agents_workspace_create` grammar)
+/// against a daemon without `workspace-created-by-v1` send no `created_by`,
+/// which that daemon would refuse as an unknown field.
+#[test]
+fn workspace_create_drops_created_by_for_an_old_daemon() {
+    use std::sync::{Arc, Mutex};
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let dir =
+        std::env::temp_dir().join(format!("cmux-old-created-by-{}-{stamp}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let creates = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let seen = Arc::clone(&creates);
+    std::thread::spawn(move || {
+        while let Ok(mut stream) = listener.accept() {
+            let seen = Arc::clone(&seen);
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone_box().unwrap());
+                let mut line = String::new();
+                while reader.read_line(&mut line).is_ok_and(|read| read > 0) {
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    line.clear();
+                    let reply = match request["cmd"].as_str() {
+                        // An older daemon: no `identify` capability list.
+                        Some("identify") => {
+                            json!({"id": request["id"], "ok": false, "error": "unknown command"})
+                        }
+                        Some(_) => json!({"id": request["id"], "ok": true, "data": {}}),
+                        None => {
+                            let result = if request["operation"] == "workspace.create" {
+                                seen.lock().unwrap().push(request["params"].clone());
+                                json!({"workspace_id": "ws_0123456789abcdef0123456789abcdef"})
+                            } else {
+                                json!([])
+                            };
+                            json!({"protocol": "cmux.protocol/2", "type": "response",
+                                "id": request["id"], "ok": true, "result": result})
+                        }
+                    };
+                    if writeln!(stream, "{reply}").and_then(|()| stream.flush()).is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    let creator = "0123456789ABCDEF0123456789ABCDEF";
+    for words in [
+        &["workspace", "create", "--empty", "--name", "old"][..],
+        &["agents", "workspace", "create", "--empty", "--name", "old"][..],
+    ] {
+        let before = creates.lock().unwrap().len();
+        let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .args(["--json", "--socket"])
+            .arg(&socket)
+            .args(words)
+            .env("CMUX_WORKSPACE_ID", creator)
+            .env("CMUX_CLI_NO_RETRY", "1")
+            .env_remove("CMUX_TUI_SOCKET")
+            .output()
+            .unwrap();
+        let sent = creates.lock().unwrap()[before..].to_vec();
+        assert_eq!(
+            sent.len(),
+            1,
+            "{words:?} sent no workspace.create: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(sent[0].get("created_by").is_none(), "{words:?} sent created_by: {}", sent[0]);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

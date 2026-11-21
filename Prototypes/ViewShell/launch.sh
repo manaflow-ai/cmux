@@ -31,19 +31,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if (( ! uses_dist )) && ! curl -fsS -o /dev/null "http://127.0.0.1:$port/gallery/app.html"; then
+if (( ! uses_dist )) && ! curl -fsS -o /dev/null "http://127.0.0.1:$port/gallery/mock-app.html"; then
   echo "view shell: starting the gallery dev server on :$port (hot reload)" >&2
   (cd "$root/webviews" && exec bun run gallery:dev) >"${TMPDIR:-/tmp}/cmux-view-shell-gallery.log" 2>&1 &
   server_pid=$!
   ready=0
   for _ in $(seq 1 120); do
-    if curl -fsS -o /dev/null "http://127.0.0.1:$port/gallery/app.html"; then ready=1; break; fi
+    if curl -fsS -o /dev/null "http://127.0.0.1:$port/gallery/mock-app.html"; then ready=1; break; fi
     kill -0 "$server_pid" 2>/dev/null || break
     sleep 0.5
   done
   if (( ! ready )); then
     echo "view shell: the gallery dev server did not answer on :$port (log: ${TMPDIR:-/tmp}/cmux-view-shell-gallery.log)." >&2
-    echo "  Is another server on :$port from a checkout without gallery/app.html? Set CMUX_GALLERY_DEV_PORT." >&2
+    echo "  Is another server on :$port from a checkout without gallery/mock-app.html? Set CMUX_GALLERY_DEV_PORT." >&2
     exit 1
   fi
 fi
@@ -53,4 +53,4 @@ binary="$(swift build -c release --package-path "$package" --show-bin-path)/cmux
 if (( uses_dist )); then
   exec "$binary" "$@"
 fi
-"$binary" --url "http://127.0.0.1:$port/gallery/app.html" "$@"
+"$binary" --url "http://127.0.0.1:$port/gallery/mock-app.html" "$@"

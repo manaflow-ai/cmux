@@ -3,7 +3,8 @@ use super::*;
 #[test]
 fn every_catalog_operation_is_a_tool_or_excluded_with_a_reason() {
     let catalog: Value =
-        serde_json::from_str(v2_tools::CATALOG_JSON).expect("the checked-in catalog");
+        serde_json::from_str(cmux_tui_core::packed_catalogs::RESOURCE_OPERATIONS_V2)
+            .expect("the checked-in catalog");
     let operations = catalog["operations"].as_object().expect("operations");
     let tools = v2_tools::tools().iter().map(|tool| tool.wire).collect::<BTreeSet<_>>();
     let excluded = v2_tools::exclusions()
@@ -59,6 +60,11 @@ fn every_tool_is_reachable_from_the_cmux_cli_and_no_excluded_operation_is() {
             continue;
         }
         if let Some((args, _)) = cases.iter().find(|(_, operation)| operation == wire) {
+            // The `session` and `client` scopes are on `cmux` too since #38290, and their
+            // operations stay off MCP (v2_tools.rs, SESSION_REASON and its siblings).
+            if matches!(args.first(), Some(&"session" | &"client")) {
+                continue;
+            }
             assert_eq!(
                 sends(args.as_slice()),
                 None,

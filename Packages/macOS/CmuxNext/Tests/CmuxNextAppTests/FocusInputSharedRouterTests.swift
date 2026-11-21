@@ -1,0 +1,151 @@
+import CCmuxLayoutReducerFFI
+@testable import CmuxNextFocus
+import Foundation
+import Testing
+
+/// R-INPUT stage S2, step B: every window's focus machine keeps its focus in the app's one input router (``FocusInput``,
+/// `cmux_input_*`) under a window key of its own. Each machine must reduce exactly as a machine alone does (byte-equal
+/// replies: the same state and effects after every event), whatever another window does in the same router between its
+/// events; a new machine never meets a freed one's focus; and every request the machine makes goes through the input handle
+/// (review of #35641: the C ABI test did not call every export, and a refused checkpoint must leave the state as it was).
+struct FocusInputSharedRouterTests {
+    /// What `checkpoint()` gives when the router exports nothing.
+    private static let emptyCheckpoint = FocusCheckpoint(json: "{}")
+
+    /// Two terminal panes and a browser pane in one workspace.
+    private static func topology(_ workspace: String) -> FocusTopology {
+        FocusTopology(workspace: workspace, panes: [
+            .init(id: "a", tabs: [.init(id: "a-tab", kind: .terminal)], selected: "a-tab"),
+            .init(id: "b", tabs: [.init(id: "b-tab", kind: .terminal), .init(id: "b-page", kind: .browser)], selected: "b-tab"),
+            .init(id: "c", tabs: [.init(id: "c-page", kind: .browser)], selected: "c-page"),
+        ])
+    }
+
+    /// A sequence that runs focus moves, a selection, a person's click report, an intent with its wait and landing, the
+    /// address bar memory, a topology change and a close-focus policy.
+    private static let events: [FocusEvent] = [
+        .topology(topology("w")),
+        .focusPane("a", source: .programmatic),
+        .focusPane("b", source: .mouse),
+        .selectTab(pane: "b", tab: "b-page", workspace: "w", source: .keyboard),
+        .focusTarget(.addressBar, source: .keyboard),
+        .responder(.content(pane: "c"), source: .mouse),
+        .beginIntent,
+        .focusPane("a", source: .cli),
+        .topology(FocusTopology(workspace: "w", panes: [
+            .init(id: "a", tabs: [.init(id: "a-tab", kind: .terminal)], selected: "a-tab"),
+            .init(id: "c", tabs: [.init(id: "c-page", kind: .browser)], selected: "c-page"),
+        ])),
+        .focusPane("c", source: .palette),
+    ]
+
+    @Test func aMachineInTheSharedRouterReducesAsAMachineAlone() throws {
+        let shared = FocusInput()
+        let alone = FocusMachine(), inRouter = FocusMachine(input: shared), other = FocusMachine(input: shared)
+        let otherAlone = FocusMachine()
+        var aloneState = FocusState(), routerState = FocusState(), otherState = FocusState(), otherAloneState = FocusState()
+        _ = other.send(.topology(Self.topology("other")), into: &otherState)
+        _ = otherAlone.send(.topology(Self.topology("other")), into: &otherAloneState)
+        for (step, event) in Self.events.enumerated() {
+            let expected = alone.send(event, into: &aloneState)
+            // Another window of the same router acts between this window's events (and the same events go to a machine
+            // alone, which says what that window's own focus must be).
+            let otherMove = FocusEvent.focusPane(step.isMultiple(of: 2) ? "b" : "c", source: .mouse)
+            _ = other.send(otherMove, into: &otherState)
+            _ = otherAlone.send(otherMove, into: &otherAloneState)
+            let got = inRouter.send(event, into: &routerState)
+            #expect(got?.changed == expected?.changed && got?.effects == expected?.effects
+                    && got?.omnibarReturn == expected?.omnibarReturn && got?.returnsToOmnibar == expected?.returnsToOmnibar,
+                    "step \(step) (\(event)): the shared router's reply differs from a machine alone")
+            #expect(routerState == aloneState, "step \(step) (\(event)): the shared router's state differs from a machine alone")
+        }
+        #expect(inRouter.checkpoint().matches(alone.checkpoint()), "the shared router's checkpoint differs from a machine alone")
+        #expect(inRouter.recentPanes() == alone.recentPanes())
+        #expect(inRouter.remembered() == alone.remembered())
+        // What a machine alone reads must be there at all: both sides empty would also be equal (review of #35875).
+        #expect(!inRouter.recentPanes(in: "w").isEmpty, "the focus history is empty")
+        // The shown workspace's history (no workspace named: pane and link placement, directional focus read it).
+        #expect(inRouter.recentPanes() == inRouter.recentPanes(in: "w"), "the shown workspace's history is not w's: \(inRouter.recentPanes())")
+        #expect(inRouter.remembered()["w"] != nil, "the remembered panes do not hold the workspace: \(inRouter.remembered())")
+        #expect(!inRouter.checkpoint().matches(Self.emptyCheckpoint), "the checkpoint is empty")
+        // The other window of the router kept its own focus: what a machine alone made of the same events.
+        #expect(otherState == otherAloneState, "the other window's state took this window's events")
+        #expect(other.checkpoint().matches(otherAlone.checkpoint()), "the other window's checkpoint took this window's events")
+        #expect(other.recentPanes(in: "other") == otherAlone.recentPanes(in: "other") && !other.recentPanes(in: "other").isEmpty,
+                "the other window's history took this window's events: \(other.recentPanes(in: "other"))")
+    }
+
+    /// Each machine has a window key of its own in the router: a new machine never meets the focus of one freed before
+    /// it (the app reuses a window id when it restores a closed window), and the window still open keeps its own.
+    @Test func aNewMachineNeverMeetsAFreedMachinesFocus() throws {
+        let shared = FocusInput()
+        let kept = FocusMachine(input: shared)
+        var keptState = FocusState()
+        _ = kept.send(.topology(Self.topology("kept")), into: &keptState)
+        _ = kept.send(.focusPane("b", source: .mouse), into: &keptState)
+        var closedKey: [UInt8] = []
+        do {
+            let closing = FocusMachine(input: shared)
+            closedKey = closing.window
+            var closingState = FocusState()
+            _ = closing.send(.topology(Self.topology("closing")), into: &closingState)
+            _ = closing.send(.focusPane("c", source: .mouse), into: &closingState)
+            #expect(Self.isOpen(closedKey, in: shared), "the machine's window is not open in the router")
+        }
+        // A freed machine closed its window: the router has no state left under its key (review of #35875: the new
+        // machine below has a new key, so it alone does not show that the close ran).
+        #expect(!Self.isOpen(closedKey, in: shared), "a freed machine's window is still open in the router")
+        let fresh = FocusMachine(input: shared)
+        #expect(fresh.recentPanes().isEmpty, "a new machine met a freed machine's focus history: \(fresh.recentPanes())")
+        #expect(fresh.remembered().isEmpty, "a new machine met a freed machine's remembered panes: \(fresh.remembered())")
+        _ = kept.send(.focusPane("a", source: .keyboard), into: &keptState)
+        #expect(kept.recentPanes(in: "kept").prefix(2) == ["a", "b"], "the window still open lost its focus history: \(kept.recentPanes(in: "kept"))")
+    }
+
+    /// Whether `window` is open in `input`'s router: an open window has a current state, a closed one none.
+    private static func isOpen(_ window: [UInt8], in input: FocusInput) -> Bool {
+        window.withUnsafeBufferPointer { cmux_input_focus_current(input.handle, $0.baseAddress, $0.count) } != nil
+    }
+
+    /// Every request a machine makes reaches the router through the input handle: the close-focus policy, the Close Tab
+    /// aim (pane emptied, pane moved, frame presented, aimed at), the focus history, the remembered panes and the journal
+    /// checkpoint, each with the answer a machine alone gives. A checkpoint that does not decode is refused and leaves the
+    /// state as it was.
+    @Test func everyRequestGoesThroughTheInputHandle() throws {
+        let alone = FocusMachine(), inRouter = FocusMachine(input: FocusInput())
+        var answers: [String: [String]] = [:]
+        for (name, machine) in [("alone", alone), ("router", inRouter)] {
+            var state = FocusState(), seen: [String] = []
+            _ = machine.send(.topology(Self.topology("w")), into: &state)
+            _ = machine.send(.focusPane("b", source: .mouse), into: &state)
+            _ = machine.send(.focusPane("a", source: .mouse), into: &state)
+            machine.setCloseFocus(mostRecent: true)
+            // Absolute answers, not only the two sides alike (both read through `cmux_input_*`; review of #35875).
+            #expect(machine.recentPanes(in: "w").prefix(2) == ["a", "b"], "\(name): the focus history is \(machine.recentPanes(in: "w"))")
+            #expect(machine.remembered()["w"] == "a", "\(name): the remembered panes are \(machine.remembered())")
+            #expect(!machine.checkpoint().matches(Self.emptyCheckpoint), "\(name): the checkpoint is empty")
+            seen.append("history \(machine.recentPanes(in: "w"))")
+            seen.append("remembered \(machine.remembered().sorted { $0.key < $1.key })")
+            // The Close Tab aim as `PaneCloseAim` documents it: a close empties "a", the focus moves to "b", its frame shows.
+            let aim = PaneCloseAim(machine: machine)
+            aim.paneEmptied("a", by: .init(time: 10, isKey: true, isRepeat: false))
+            _ = machine.send(.focusPane("b", source: .programmatic), into: &state)
+            let move = aim.paneMoved(from: "a")
+            aim.presented(move, at: 10.02)
+            seen.append("before the frame \(aim.aimsAtEmptiedPane(.init(time: 10.01, isKey: true, isRepeat: false)))")
+            seen.append("after the frame \(aim.aimsAtEmptiedPane(.init(time: 10.30, isKey: true, isRepeat: false)))")
+            let before = machine.checkpoint()
+            seen.append("bad checkpoint refused \(machine.restore(FocusCheckpoint(json: "{ not json")) == nil)")
+            seen.append("state kept \(machine.checkpoint().matches(before))")
+            let restored = try #require(machine.restore(before), "\(name): the machine's own checkpoint was refused")
+            seen.append("restored \(String(describing: restored.typingTab))")
+            answers[name] = seen
+        }
+        #expect(answers["router"] == answers["alone"], "the input handle answered differently from a machine alone: \(answers)")
+        let router = answers["router"] ?? []
+        #expect(router.contains("before the frame true") && router.contains("after the frame false"),
+                "the Close Tab aim did not answer as PaneCloseAim documents: \(router)")
+        #expect(router.contains("bad checkpoint refused true") && router.contains("state kept true"),
+                "a checkpoint that does not decode was taken or changed the state: \(router)")
+    }
+}

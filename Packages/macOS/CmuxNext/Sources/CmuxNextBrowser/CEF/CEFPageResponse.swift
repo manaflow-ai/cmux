@@ -1,3 +1,4 @@
+public import CmuxNextPages
 public import Foundation
 
 /// A cmux page's generated file, as its tab's ``CEFTab/pageResources`` answers it. The shim adds
@@ -12,19 +13,30 @@ public nonisolated struct CEFPageResponse: Sendable, Equatable {
     /// A byte-range answer's `Content-Range` and `Accept-Ranges` (206 or 416 for a video's range);
     /// empty for a whole file. The shim keeps only those two.
     public var rangeHeaders: [String: String]
+    /// The page's CSP for this answer, nil for the page's own: the live web loop's dev server policy
+    /// (``PageDevServer/csp(for:)``), which lets the page's HMR socket connect.
+    public var csp: String?
 
     /// - Parameters:
     ///   - status: The HTTP status.
     ///   - mimeType: The body's MIME type.
     ///   - body: The body.
     ///   - rangeHeaders: A byte-range answer's `Content-Range` and `Accept-Ranges`.
-    public init(status: Int, mimeType: String, body: Data, rangeHeaders: [String: String] = [:]) {
+    public init(status: Int, mimeType: String, body: Data, rangeHeaders: [String: String] = [:], csp: String? = nil) {
         self.status = status
         self.mimeType = mimeType
         self.body = body
         self.rangeHeaders = rangeHeaders
+        self.csp = csp
     }
 
     /// No such file.
     public static let notFound = CEFPageResponse(status: 404, mimeType: "text/plain", body: Data())
+}
+
+public extension CEFPageResponse {
+    /// The page host's answer (``PageChromiumResponse``) as the shim takes it.
+    init(_ answer: PageChromiumResponse) {
+        self.init(status: answer.status, mimeType: answer.mimeType, body: answer.body, rangeHeaders: answer.rangeHeaders, csp: answer.csp)
+    }
 }

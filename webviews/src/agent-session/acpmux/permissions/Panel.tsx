@@ -3,13 +3,17 @@ import { pathName } from "../chips/paths";
 import { ChevronRight } from "../conversation/icons";
 import { mcpTitleName } from "../conversation/mcpCalls";
 import { ShellBlock } from "../conversation/ShellBlock";
-import { toolIcon } from "../conversation/ToolRow";
+import { toolIcon } from "../conversation/toolRowModel";
 import { permissionDiffs, shellCommand } from "../direct";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import { errorMessage } from "../transportErrors";
 import type { PermissionClientState, PermissionDecision, PermissionGroupItem } from "./protocol";
+import { permissionKeyAction } from "./prompt";
 import { ProposedEdits } from "./ProposedEdits";
+
+/// Each answer's letter, as the single card's (prompt.ts PERMISSION_LETTERS).
+const LETTERS: Record<PermissionDecision, string> = { allow_once: "y", allow_chat: "a", deny: "n" };
 
 /// What a receipt says was answered.
 const choices: Record<PermissionDecision, StringKey> = {
@@ -135,7 +139,7 @@ function AskRow({
           aria-controls={open ? detailsId : undefined}
           onClick={() => setOpen((value) => !value)}
         >
-          <ChevronRight size={12} strokeWidth={1.4} className={`acpmux-ask-chevron${open ? " is-open" : ""}`} />
+          <ChevronRight size={12} className={`acpmux-ask-chevron${open ? " is-open" : ""}`} />
           <span className="acpmux-ask-icon" aria-hidden="true">
             {toolIcon(ask.kind)}
           </span>
@@ -194,6 +198,7 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
   pendingRef.current = state.groups.filter((group) => group.state === "pending" || group.state === "collecting");
   const callbacks = useRef({ onRespond, onRetry, onRevoke, onRefresh });
   callbacks.current = { onRespond, onRetry, onRevoke, onRefresh };
+  const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     const handlers = new Map<string, EventListener>([
       ["permissionAllowOnce", () => respondToPending("allow_once")],
@@ -204,15 +209,28 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
       ["permissionRefresh", runRefresh],
       ["permissionExpand", () => setExpandSignal((value) => value + 1)],
     ]);
-    function respondToPending(decision: PermissionDecision) {
+    /// Whether a pending group took `decision`.
+    function respondToPending(decision: PermissionDecision): boolean {
       const current = stateRef.current;
-      if (!current.supported || current.busy || current.loading || current.ready === false || current.uncertain) return;
-      if (decision !== "deny" && current.allowRefused) return;
+      if (!current.supported || current.busy || current.loading || current.ready === false || current.uncertain)
+        return false;
+      if (decision !== "deny" && current.allowRefused) return false;
       const group = pendingRef.current.find(
         (candidate) => candidate.state === "pending" && candidate.decisions.includes(decision),
       );
       if (group) callbacks.current.onRespond(group.groupId, group.revision, decision);
+      return group !== undefined;
     }
+    // The single card's keys (prompt.ts permissionKeyAction): y, a and n, Return and Esc, with
+    // nothing focused, focus in the panel or in an empty composer. Capture, as the card's.
+    const onKey = (event: KeyboardEvent) => {
+      const action = permissionKeyAction(event, panel.current, false);
+      if (!action || action === "closeFeedback") return;
+      if (!respondToPending(action === "allow_always" ? "allow_chat" : action)) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    document.addEventListener("keydown", onKey, true);
     function runRetry() {
       const current = stateRef.current;
       if (current.supported && current.uncertain && !current.busy && !current.loading) callbacks.current.onRetry();
@@ -235,6 +253,7 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
     }
     for (const [name, handler] of handlers) window.addEventListener(`cmux-acpmux-${name}`, handler);
     return () => {
+      document.removeEventListener("keydown", onKey, true);
       for (const [name, handler] of handlers) window.removeEventListener(`cmux-acpmux-${name}`, handler);
     };
   }, []);
@@ -251,6 +270,9 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
   const receipt = pending.length === 0 && working && answered !== ended ? last : undefined;
   if (!pending.length && !receipt && !state.error) return null;
   const disabled = state.busy || state.loading || state.ready === false || !!state.uncertain;
+  // The group the keys answer (respondToPending): the first one waiting, whose answers list the
+  // letters. No keycap is drawn: the pending command is one quiet row (Leo 2026-10-14), its answers small.
+  const keyed = pending.find((group) => group.state === "pending");
   // acpmux refuses this reader's group allows (a chat on another machine, whose daemon allows only
   // from its own app): no Allow or Always that cannot count, and the reason in plain words.
   const allowRefused = state.allowRefused
@@ -258,6 +280,7 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
     : undefined;
   return (
     <section
+      ref={panel}
       className="acpmux-permission acpmux-permission-panel"
       aria-label={t("permission.title")}
       aria-busy={state.busy}
@@ -273,7 +296,9 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
                     key={decision}
                     type="button"
                     className={`acpmux-ask-action${decision === "allow_once" ? " is-primary" : decision === "allow_chat" ? " is-secondary" : ""}`}
-                    aria-keyshortcuts={shortcuts[decision] || undefined}
+                    aria-keyshortcuts={
+                      [group === keyed && LETTERS[decision], shortcuts[decision]].filter(Boolean).join(" ") || undefined
+                    }
                     disabled={disabled}
                     onClick={() => onRespond(group.groupId, group.revision, decision)}
                   >

@@ -1,13 +1,13 @@
-// Every transcript disclosure chevron sits right after its label's words, the way ChatGPT draws
-// "Worked for 11s ⌄" (Leo, 2026-11-03: "this how chatgpt does their chevrons"): small, muted,
-// pointing down while closed and up while open, never parked at the row's far edge. A label cut with
-// an ellipsis keeps its chevron right after the visible words. design/chat-transcript.md "Chevron
-// after the label".
+// Every transcript disclosure chevron sits right after its label's words (Leo, 2026-11-03: "this how
+// chatgpt does their chevrons"): small, muted, never parked at the row's far edge. For Codex parity
+// (Lucas, 2026-11-06) it points right while closed and down while open. A label cut with an ellipsis
+// keeps its chevron right after the visible words. design/chat-transcript.md "Chevron after the label".
 //
 // Measured in Chromium over the transcript gallery scenes, at a wide and a narrow pane:
 // - every laid-out chevron (an opened group's inner steps too, whose chevron shows on hover) starts
 //   within MAX_GAP px of the right edge of the last visible words before it on its line;
-// - every chevron's glyph is wider than tall (it points down or up, never right).
+// - a closed chevron's glyph is taller than wide (it points right), an open one's wider than tall
+//   (it points down).
 //
 // CMUX_CHEVRON_LOG=1 logs every chevron measured.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -77,6 +77,7 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
     width: number;
     height: number;
     edge: number;
+    open: boolean;
   };
   /** A row's trailing status or duration column, which goes after the chevron. */
   const TRAIL = ".cv-tool__trail, .cv-command__meta, .cv-agent-activity__trail, .cv-subagent-done__trail";
@@ -160,6 +161,7 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
           width: glyph.width,
           height: glyph.height,
           edge: line.right - glyph.right,
+          open: chevron.classList.contains("is-open"),
         });
       }
       return out;
@@ -211,9 +213,11 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
         );
         expect(far).toEqual([]);
       });
-      test(`${name}: every chevron points down or up, never right`, async () => {
-        const sideways = (await of(scene, width)).filter(({ width: wide, height }) => wide <= height);
-        expect(sideways).toEqual([]);
+      test(`${name}: a closed chevron points right and an open one down`, async () => {
+        const wrong = (await of(scene, width)).filter(({ width: wide, height, open }) =>
+          open ? wide <= height : height <= wide,
+        );
+        expect(wrong).toEqual([]);
       });
     }
 });

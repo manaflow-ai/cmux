@@ -30,7 +30,7 @@ extension SSHService {
             let status = (try? JSONSerialization.jsonObject(with: Data(started.stdout.utf8))) as? [String: Any]
             guard started.status == 0, status?["personKey"] as? Bool == true,
                   let instance = status?["personInstance"] as? String else {
-                return .daemonTookNoKey(Self.lastLine(started.stderr))
+                return .daemonTookNoKey(started.lastStderrLine)
             }
             // The answer only a run that holds this key can give; whatever else answers on the
             // socket path cannot (a `person_prove` reply alone would prove nothing). A dropped ssh
@@ -110,9 +110,5 @@ extension SSHService {
     /// `.checkStatus`; see ``restartWithApprovalsIfIdle``).
     private func idleAgentDaemon(_ session: SSHMachineSession) async -> Bool {
         await RemoteAgentDaemonStatus.read(session.host, environment: await Self.environment())?.idleForKeyedRestart == true
-    }
-
-    private static func lastLine(_ text: String) -> String? {
-        text.split(separator: "\n").last.map(String.init)
     }
 }

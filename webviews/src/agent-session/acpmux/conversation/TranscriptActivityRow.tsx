@@ -48,7 +48,7 @@ export function TranscriptActivityRow({
       {meta !== undefined && <span className="cv-tool__trail cv-agent-activity__trail">{meta}</span>}
       {chevron && (
         <span className="cv-tool__chevron cv-agent-activity__chevron" aria-hidden="true">
-          <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${expanded ? " is-open" : ""}`} />
+          <ChevronRight size={14} className={`cv-rotor${expanded ? " is-open" : ""}`} />
         </span>
       )}
     </>

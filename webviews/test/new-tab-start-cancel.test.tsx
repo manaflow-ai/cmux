@@ -6,6 +6,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -70,6 +71,7 @@ afterEach(async () => {
 afterAll(async () => {
   // The pane marked the page as the mock daemon's (App.tsx): later files see a plain page again.
   (await import("../src/agent-session/acpmux/newtab/chatStore")).markMockPage(false);
+  await settleReact();
   dom.window.close();
   for (const [key, entry] of saved) {
     if (entry.had) scope[key] = entry.value;
@@ -213,12 +215,12 @@ test("a stale folder reply ends its New Tab send without using its folder, so th
       return undefined;
     },
   );
-  // The person picks project A on the page (Choose folder…): a send there goes through the host first.
+  // The person picks project A on the page (Add folder…): a send there goes through the host first.
   await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Folder"]')!.click());
   const browse = [...dom.window.document.querySelectorAll<HTMLElement>('[role="option"]')].find(
-    (node) => node.textContent === t("composer.chooseFolderMenu"),
+    (node) => node.textContent === t("composer.addFolder"),
   );
-  expect(browse, "Choose folder…").toBeDefined();
+  expect(browse, "Add folder…").toBeDefined();
   await act(async () => {
     browse!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
     browse!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, detail: 1 }));

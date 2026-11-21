@@ -5,7 +5,9 @@ Usage: python3 scripts/cmux-next/art/chief_mascot_animated.py [--check]
 
 Each set (`cmux-avatar/1`, webviews `avatars/sets/<id>`, drawn by Codex sessions in #25213) is the
 one source. Its sheet and manifest are copied into CmuxNextFloating's Resources as
-`ChiefMascot<Name>Sheet.png` and `ChiefMascot<Name>.json`, which the floating pet steps. Its still,
+`ChiefMascot<Name>Sheet.png` and `ChiefMascot<Name>.json`, which the floating pet steps. The sheet's
+direction rows (look and drag, rows 6 to 13) and the manifest's `directions` come from
+`chief_mascot_directions.py`, which this runs first, so one run (and one `--check`) covers both. Its still,
 for every surface that never animates, is the idle row's first frame drawn 7x on a 252 px square
 (14 px in from each side, standing on the top edge, as Mochi's was): `ChiefMascot<Name>.png` and the
 identical `…Avatar.png` in Resources, and `ChiefMascot<Name>.png` in the webviews' mascots folder.
@@ -16,6 +18,7 @@ import struct
 import sys
 import zlib
 
+import chief_mascot_directions
 from chief_mascot_series2 import RESOURCES, ROOT, WEB, png_bytes
 
 SETS = ROOT / "webviews/src/agent-session/acpmux/avatars/sets"
@@ -86,12 +89,14 @@ def still(sheet_path, manifest):
 
 
 def outputs():
+    made = dict(chief_mascot_directions.outputs())
+    yield from made.items()
     for name in NAMES:
         folder = SETS / name
         manifest = json.loads((folder / "avatar.json").read_text())
         resource = "ChiefMascot" + name.capitalize()
-        yield RESOURCES / f"{resource}Sheet.png", (folder / "sheet.png").read_bytes()
-        yield RESOURCES / f"{resource}.json", (folder / "avatar.json").read_bytes()
+        yield RESOURCES / f"{resource}Sheet.png", made[folder / "sheet.png"]
+        yield RESOURCES / f"{resource}.json", made[folder / "avatar.json"]
         data = still(folder / "sheet.png", manifest)
         for target in (RESOURCES / f"{resource}.png", RESOURCES / f"{resource}Avatar.png", WEB / f"{resource}.png"):
             yield target, data

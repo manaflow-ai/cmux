@@ -73,6 +73,24 @@ public final class ChatDiffCache {
         var value: Value?
     }
 
+    /// Drops the diffs of turns that left memory (`AgentChatStore.spillOlder`): they are
+    /// computed again if the turns come back.
+    func forget(_ turns: [AgentTurn]) {
+        for turn in turns {
+            turnSets["t-\(turn.id)"] = nil
+            running["t-\(turn.id)"]?.cancel()
+            running["t-\(turn.id)"] = nil
+            for case .tool(let call) in turn.items {
+                callFiles["c-\(call.id)"] = nil
+                running["c-\(call.id)"]?.cancel()
+                running["c-\(call.id)"] = nil
+            }
+        }
+    }
+
+    /// Diffs held (tests).
+    var heldCount: Int { callFiles.count + turnSets.count }
+
     // MARK: Lookups
 
     /// One file per diff of `call` (its snippet), or nil while it computes.

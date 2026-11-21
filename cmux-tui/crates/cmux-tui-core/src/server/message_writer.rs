@@ -8,6 +8,7 @@ use super::RenderService;
 use super::VtStateMessage;
 use super::api_revision_wire;
 use super::conversation_tabs_wire;
+use super::tree_reply_text::TreeReply;
 use crate::AttachFrame;
 use crate::SurfaceId;
 use crate::mux::ResourceWaitWake;
@@ -23,6 +24,48 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+use std::time::Instant;
+
+pub(super) mod long_connection;
+
+#[cfg(test)]
+mod overflow_tests {
+    use super::super::bounded_outbound::{BoundedOutbound, QueuedSink};
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn serialization_overflow_closes_the_stream_with_one_replay_notice() {
+        let service = Arc::new(RenderService::new_with_outbound_budget(256));
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new_with_render_service(
+            QueuedSink { outbound: outbound.clone(), control: None },
+            service.clone(),
+        );
+        let overflow = json!({"event": "agent-session-closed", "surface": 7, "reason": "overflow"});
+        let stream = writer.start_stream(&overflow).unwrap();
+        let first = json!({"event": "agent-session-record", "surface": 7, "record": {"seq": 1}});
+        writer.send_stream(&first, &stream).unwrap();
+        let too_large = json!({"event": "agent-session-record", "surface": 7,
+            "record": {"seq": 2, "data": "x".repeat(1024)}});
+
+        assert_eq!(
+            writer.send_stream(&too_large, &stream).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        assert!(!stream.is_open(), "a record was lost: the client must replay");
+        let notice = outbound.try_pop().expect("the live connection must report the closed stream");
+        assert_eq!(serde_json::from_str::<Value>(&notice).unwrap(), overflow);
+        assert!(outbound.try_pop().is_none(), "queued records must not follow the replay notice");
+        assert!(writer.send_stream(&too_large, &stream).is_err());
+        assert!(outbound.try_pop().is_none(), "one notice per stream");
+        assert_eq!(service.outbound_budget.retained_bytes.load(Ordering::Acquire), 0);
+
+        writer.send_control(&json!({"id": 7, "ok": true})).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&outbound.try_pop().unwrap()).unwrap()["id"], 7);
+        assert!(writer.is_open(), "only the overflowed stream needs replay");
+    }
+}
 
 #[derive(Clone)]
 pub(super) struct OutboundStream {
@@ -75,6 +118,16 @@ pub(super) trait MessageSink: Send + Sync {
         self.send_stream(text, stream)
     }
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()>;
+    /// [`Self::send_control`] for a sender that may wait until `deadline`
+    /// for room in a control queue that is full. A sink with no such queue
+    /// sends at once.
+    fn send_control_backpressured(
+        &self,
+        text: Arc<BudgetedText>,
+        _deadline: Instant,
+    ) -> std::io::Result<()> {
+        self.send_control(text)
+    }
     fn send_terminal(
         &self,
         text: Arc<BudgetedText>,
@@ -122,6 +175,12 @@ pub(super) struct MessageWriter {
     /// Whether this connection carries the person's keys: its threads then run at user-interactive QoS
     /// (server/input_qos.rs).
     pub(super) input_lane: Arc<super::input_qos::InputLane>,
+    /// What the daemon knows about the client at the other end, for the request counters
+    /// (diagnostics/command_stats.rs): a request reads it here, never in the client registry.
+    pub(super) kind: Arc<crate::diagnostics::ConnectionKind>,
+    /// The connection's way out of the terminals' short lane when it starts a stream, a wait or
+    /// a follow (server/message_writer/long_connection.rs).
+    pub(super) long: Arc<long_connection::LongGate>,
 }
 
 impl MessageWriter {
@@ -144,10 +203,16 @@ impl MessageWriter {
             conversation_tabs: Arc::default(),
             api_revision: Arc::default(),
             input_lane: Arc::default(),
+            kind: Arc::default(),
+            long: Arc::default(),
         }
     }
 
+    /// A stream outlives its request, so a terminal's connection becomes a long one first
+    /// (server/message_writer/long_connection.rs). At the bound of the long connections no stream starts: the
+    /// error holds a `LongConnectionsFull`.
     pub(super) fn start_stream(&self, overflow: &Value) -> std::io::Result<OutboundStream> {
+        self.long.hold().map_err(std::io::Error::other)?;
         Ok(OutboundStream::new(
             self.next_stream_id.fetch_add(1, Ordering::Relaxed),
             self.render_service.serialize_control(overflow)?,
@@ -171,10 +236,21 @@ impl MessageWriter {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result = self
-            .render_service
-            .serialize(value)
-            .and_then(|text| self.sink.send_stream(text, stream));
+        let result = match self.render_service.serialize(value) {
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                // Serialization is charged against the normal outbound budget before the
+                // sink sees the item.  Report that overflow through the preallocated control
+                // budget so the client can replay from its last held sequence.
+                let overflow = stream.overflow_text.lock().recover_poison().clone();
+                if let Err(terminal_error) = self.sink.send_terminal(overflow, stream) {
+                    self.close();
+                    return Err(terminal_error);
+                }
+                Err(error)
+            }
+            Ok(text) => self.sink.send_stream(text, stream),
+            Err(error) => Err(error),
+        };
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }
@@ -258,6 +334,29 @@ impl MessageWriter {
         result
     }
 
+    /// [`MessageWriter::send_stream_backpressured`] of a snapshot viewer's
+    /// `output` event ([`RenderService::serialize_snapshot_output`]).
+    pub(super) fn send_snapshot_output_backpressured(
+        &self,
+        surface: SurfaceId,
+        output: &[u8],
+        (generation, offset): (u64, u64),
+        colors: Option<&Value>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self
+            .render_service
+            .serialize_snapshot_output(surface, output, generation, offset, colors)
+            .and_then(|text| self.sink.send_stream_backpressured(text, stream));
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
     pub(super) fn send_terminal<T: Serialize + ?Sized>(
         &self,
         value: &T,
@@ -295,17 +394,98 @@ impl MessageWriter {
     }
 
     pub(super) fn send_control<T: Serialize + ?Sized>(&self, value: &T) -> std::io::Result<()> {
+        self.send_control_with_room_by(value, None)
+    }
+
+    /// [`Self::send_control`] for a thread that may wait: a control queue
+    /// with no room for the message has until `deadline` to get it, where
+    /// `send_control` closes the connection at once. For more than one large
+    /// message to one connection at one time, off its reader thread.
+    pub(super) fn send_control_backpressured<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        deadline: Instant,
+    ) -> std::io::Result<()> {
+        self.send_control_with_room_by(value, Some(deadline))
+    }
+
+    fn send_control_with_room_by<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        deadline: Option<Instant>,
+    ) -> std::io::Result<()> {
+        self.send_rendered_control(deadline, false, |render| render.serialize_control(value))
+    }
+
+    /// [`Self::send_control`] of a message that this call owns (a v2 response). A connection
+    /// that did not negotiate each tab capability gets its projection on the value, before the
+    /// message's one text. The text path (`project_conversation_tabs`) parses the whole message
+    /// and writes it a second time, which for a `session.snapshot` is the whole session.
+    pub(super) fn send_control_value(&self, mut value: Value) -> std::io::Result<()> {
+        let projection = self.tab_projection();
+        if !projection.is_canonical() {
+            projection.project(&mut value);
+        }
+        self.send_rendered_control(None, true, |render| render.serialize_control(&value))
+    }
+
+    /// A `list-workspaces` reply written from its build's shared tree text:
+    /// the bytes [`Self::send_control`] sends of its `Response`, through the
+    /// same projections for this connection's capabilities.
+    pub(super) fn send_tree_reply(
+        &self,
+        tree: &TreeReply,
+        id: Option<&Value>,
+    ) -> std::io::Result<()> {
+        // The tree's text has this connection's tab projection (`TreeReply`). An `id` that is
+        // an array or an object is the one part of the reply that the tree's text does not
+        // hold and that the projection reads: such a reply takes the text path, which changes
+        // nothing more in a tree that is projected.
+        let tabs_projected = !id.is_some_and(|id| id.is_array() || id.is_object());
+        self.send_rendered_control(None, tabs_projected, |render| {
+            render.write_control(tree.text.reply_bytes(), |out| {
+                tree.text.write_reply(out, id, tree.lines_written_before_read)
+            })
+        })
+    }
+
+    /// Sends the control message that `render` makes, as [`Self::send_control`] does.
+    /// `tabs_projected`: the message already is what this connection reads of the tab kinds, so
+    /// its text is not parsed for them.
+    fn send_rendered_control(
+        &self,
+        deadline: Option<Instant>,
+        tabs_projected: bool,
+        render: impl FnOnce(&RenderService) -> std::io::Result<Arc<BudgetedText>>,
+    ) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result = self.render_service.serialize_control(value).and_then(|text| {
-            self.sink
-                .send_control(self.project_api_revision(self.project_conversation_tabs(text)?)?)
+        let result = render(&self.render_service).and_then(|text| {
+            let text = if tabs_projected { text } else { self.project_conversation_tabs(text)? };
+            let text = self.project_api_revision(text)?;
+            let text = self.mark_reply(text);
+            match deadline {
+                Some(deadline) => self.sink.send_control_backpressured(text, deadline),
+                None => self.sink.send_control(text),
+            }
         });
         if result.is_err() {
             self.close();
         }
         result
+    }
+
+    /// Marks `text` as the reply of the request this thread handles for this connection, if it
+    /// handles one and no other connection shares the text (diagnostics/request_log.rs).
+    fn mark_reply(&self, mut text: Arc<BudgetedText>) -> Arc<BudgetedText> {
+        if let Some(unique) = Arc::get_mut(&mut text)
+            && unique.reply.is_none()
+        {
+            unique.reply =
+                crate::diagnostics::request_log::reply_mark(&self.open, unique.text.len());
+        }
+        text
     }
 
     pub(super) fn send_serialized_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
@@ -315,7 +495,7 @@ impl MessageWriter {
         let result = self
             .project_conversation_tabs(text)
             .and_then(|text| self.project_api_revision(text))
-            .and_then(|text| self.sink.send_control(text));
+            .and_then(|text| self.sink.send_control(self.mark_reply(text)));
         if result.is_err() {
             self.close();
         }

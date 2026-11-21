@@ -128,12 +128,21 @@ impl Storage for FsStorage {
     }
 }
 
-/// The lock file, locked; closing it releases the lock.
+/// The lock file, locked until this drops. The drop unlocks before the file
+/// closes: a child another thread started meanwhile keeps a copy of the open
+/// file until it execs or exits, and a close alone would leave the lock held
+/// in that copy.
 struct FsLock {
     _file: std::fs::File,
 }
 
 impl StorageLock for FsLock {}
+
+impl Drop for FsLock {
+    fn drop(&mut self) {
+        let _ = self._file.unlock();
+    }
+}
 
 /// A file and its size, so an append writes at a known offset with no seek.
 struct FsFile {
@@ -163,7 +172,24 @@ impl StorageFile for FsFile {
     }
 
     fn sync(&mut self, level: SyncLevel) -> io::Result<()> {
+        #[cfg(debug_assertions)]
+        slow_disk_for_tests();
         sync_file(&self.file, level)
+    }
+}
+
+/// Debug builds only: `ACPMUX_TEST_SYNC_DELAY_MS` makes every log sync of a real journal take that
+/// long first, as a slow disk's fsync does (the `slow-disk` fault, hq
+/// `docs/design/remote-cloud-durability.md` F8). Read once; at most 30 s.
+#[cfg(debug_assertions)]
+fn slow_disk_for_tests() {
+    static DELAY: std::sync::OnceLock<Option<std::time::Duration>> = std::sync::OnceLock::new();
+    let delay = DELAY.get_or_init(|| {
+        let ms = std::env::var("ACPMUX_TEST_SYNC_DELAY_MS").ok()?.parse::<u64>().ok()?;
+        Some(std::time::Duration::from_millis(ms.min(30_000)))
+    });
+    if let Some(delay) = delay {
+        std::thread::sleep(*delay);
     }
 }
 
@@ -216,7 +242,7 @@ fn write_all_at(file: &std::fs::File, mut offset: u64, mut bytes: &[u8]) -> io::
 /// durable. A call a signal interrupts (EINTR) is made again, as std does. std's `sync_data` and
 /// `sync_all` are both `F_FULLFSYNC` here, so they are not used.
 #[cfg(target_os = "macos")]
-fn sync_file(file: &std::fs::File, level: SyncLevel) -> io::Result<()> {
+pub fn sync_file(file: &std::fs::File, level: SyncLevel) -> io::Result<()> {
     use std::os::fd::AsRawFd;
     let fd = file.as_raw_fd();
     let command = match level {
@@ -256,7 +282,7 @@ fn retry_interrupted(call: impl Fn() -> libc::c_int) -> io::Result<()> {
 /// [`SyncLevel`] elsewhere: `fdatasync` (Linux; it also flushes a volatile drive cache) or `fsync`;
 /// `FlushFileBuffers` on Windows for both.
 #[cfg(not(target_os = "macos"))]
-fn sync_file(file: &std::fs::File, level: SyncLevel) -> io::Result<()> {
+pub fn sync_file(file: &std::fs::File, level: SyncLevel) -> io::Result<()> {
     match level {
         SyncLevel::Barrier => file.sync_data(),
         SyncLevel::Full => file.sync_all(),
@@ -278,3 +304,7 @@ fn sync_directory(dir: &Path) -> io::Result<()> {
 fn sync_directory(_dir: &Path) -> io::Result<()> {
     Ok(())
 }
+
+#[cfg(all(test, unix))]
+#[path = "storage_lock_tests.rs"]
+mod lock_tests;

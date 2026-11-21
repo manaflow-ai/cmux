@@ -25,6 +25,11 @@ pub(super) const APP_SEND: &str = "app_chat_send";
 /// sender's app when no harness environment says (chief/caller.rs).
 static CLIENT: OnceLock<String> = OnceLock::new();
 
+/// The MCP client's name, once `initialize` gave one.
+pub(super) fn client_name() -> Option<&'static str> {
+    CLIENT.get().map(String::as_str)
+}
+
 /// Keeps the client's name from an `initialize` request's params.
 pub(super) fn remember_client(params: &Value) {
     let info = params.get("clientInfo");
@@ -36,6 +41,15 @@ pub(super) fn remember_client(params: &Value) {
     if let Some(name) = name {
         let _ = CLIENT.set(name.to_owned());
     }
+}
+
+/// The sender's app of a client that gave no name: a program speaks MCP, never the person, so
+/// its message is still an agent's (chief/caller.rs), shown as an unnamed client's.
+const UNNAMED_CLIENT: &str = "MCP client";
+
+/// The app a `chat_send` names as its sender: the client's name, else [`UNNAMED_CLIENT`].
+fn sender_app(client: Option<&String>) -> &str {
+    client.map(String::as_str).unwrap_or(UNNAMED_CLIENT)
 }
 
 /// The longest a `chat_send` waits for a Chief's reply.
@@ -184,9 +198,7 @@ fn run(words: &[String], applied: bool) -> Value {
     let mut command = Command::new(program);
     command.arg("--json").args(words).stdin(Stdio::null()).stdout(Stdio::piped());
     command.stderr(Stdio::piped());
-    if let Some(name) = CLIENT.get() {
-        command.env(super::super::chief::caller::SENDER_APP_ENV, name);
-    }
+    command.env(super::super::chief::caller::SENDER_APP_ENV, sender_app(CLIENT.get()));
     let output = command.output();
     let output = match output {
         Ok(output) => output,
@@ -219,59 +231,5 @@ fn failed(message: &str, state: &str) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn args(value: Value) -> Map<String, Value> {
-        value.as_object().cloned().unwrap_or_default()
-    }
-
-    #[test]
-    fn a_send_is_the_clis_chat_send_with_its_wait_and_sender() {
-        let words = words(
-            SEND,
-            &args(json!({"to": "codex", "text": "status?", "wait": true,
-            "timeout_seconds": 99_999, "class": "question"})),
-        );
-        assert_eq!(
-            words,
-            Some(Ok([
-                "chat",
-                "send",
-                "--to",
-                "codex",
-                "--text",
-                "status?",
-                "--wait",
-                "--timeout",
-                "1800",
-                "--class",
-                "question"
-            ]
-            .map(str::to_owned)
-            .to_vec()))
-        );
-        // The app's Send Message To… takes the same path.
-        let app = words_of(APP_SEND, json!({"to": "Austin", "text": "hi"}));
-        assert_eq!(
-            app,
-            ["chat", "send", "--to", "Austin", "--text", "hi"].map(str::to_owned).to_vec()
-        );
-    }
-
-    fn words_of(name: &str, value: Value) -> Vec<String> {
-        words(name, &args(value)).and_then(Result::ok).unwrap_or_default()
-    }
-
-    #[test]
-    fn read_and_list_are_the_clis_and_bad_arguments_are_refused() {
-        assert_eq!(
-            words_of(READ, json!({"to": "muse", "last": 5})),
-            ["chat", "read", "--to", "muse", "--last", "5"].map(str::to_owned).to_vec()
-        );
-        assert_eq!(words_of(LIST, json!({})), ["chat", "list"].map(str::to_owned).to_vec());
-        assert!(matches!(words(SEND, &args(json!({"to": "chief"}))), Some(Err(_))));
-        assert!(matches!(words(LIST, &args(json!({"x": 1}))), Some(Err(_))));
-        assert_eq!(words("agents_snapshot", &args(json!({}))), None);
-    }
-}
+#[path = "chat_tools_tests.rs"]
+mod tests;

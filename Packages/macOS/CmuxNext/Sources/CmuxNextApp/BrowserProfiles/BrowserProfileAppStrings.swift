@@ -15,6 +15,10 @@ nonisolated enum BrowserProfileAppStrings {
                             "Its cookies, logins, history, extensions and site permissions are deleted. Its open tabs reopen in “%@”."), fallback)
     }
     static var delete: String { text("browserProfiles.delete", "Delete") }
+    /// The palette row that makes a profile from the typed name.
+    static func createNamed(_ name: String) -> String {
+        String(format: text("browserProfiles.createNamed", "Create Browser Profile “%@”"), name)
+    }
     static func movedNotice(to target: String, from source: String) -> String {
         String(format: text("browserProfiles.movedNotice", "Opened in “%1$@”. Cookies, logins and page state stayed in “%2$@”."), target, source)
     }
@@ -34,6 +38,8 @@ nonisolated enum BrowserProfileAppStrings {
     static var invalidName: String { text("browserProfiles.refusal.invalidName", "the name must have 1 to 64 characters") }
     static var invalidIcon: String { text("browserProfiles.refusal.invalidIcon", "the icon must be an SF Symbol name or one emoji") }
     static var urlRequired: String { text("browserProfiles.refusal.urlRequired", "a url argument is required") }
+    static var positionRequired: String { text("browserProfiles.refusal.positionRequired", "an index argument is required") }
+    static var invalidProxy: String { text("browserProfiles.refusal.invalidProxy", "a proxy needs a scheme (http, https or socks5), a host and a port") }
 
     /// The typed reason of a refused edit.
     static func message(_ error: BrowserProfileBookError) -> String {

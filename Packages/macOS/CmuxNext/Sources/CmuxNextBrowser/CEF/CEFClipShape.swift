@@ -80,8 +80,7 @@ nonisolated enum CEFClipShape {
     /// Whether `clip` leaves part of `bounds` out past one of its sides: the
     /// column strip's clip on a pane that scrolled under a docked column or
     /// past the strip's edge, or the rounded main pane's straight edge across a
-    /// page held at another width than it through a sidebar slide (`MainPaneCardView.contentHold`),
-    /// whose corners may not reach the page. The page is a child window, so
+    /// page wider than it, whose corners may not reach the page. The page is a child window, so
     /// this layer mask never reaches it and the fork's visible-rect clip does
     /// not see masks.
     static func cutsSide(of clip: RoundedRect, into bounds: CGRect) -> Bool {
@@ -153,8 +152,8 @@ nonisolated enum CEFClipShape {
                     clipVisible(to: rect)
                 }
             }
-            if let mask = current.layer?.mask, mask.name == CALayer.cmuxStripClipName {
-                result.append(RoundedRect(rect: view.convert(mask.frame, from: current), radius: 0))
+            if let mask = current.layer?.mask, mask.name == CALayer.cmuxStripClipName || mask.name == CALayer.cmuxCardClipName {
+                result.append(RoundedRect(rect: view.convert(mask.frame, from: current), radius: mask.cornerRadius))
             }
             ancestor = current.superview
         }

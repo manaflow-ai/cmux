@@ -20,4 +20,13 @@ public struct ParkedWorkspaceBudget: Hashable, Sendable {
         guard over > 0 else { return [] }
         return parked.filter { !kept.contains($0.id) }.sorted { $0.serial < $1.serial }.prefix(over).map(\.id)
     }
+
+    /// The parked workspaces to tear down once `parkedNow` parked, from each parked id's park serial: past ``capacity``
+    /// the least recently parked leave (``evictions(parked:kept:)``), never `parkedNow` or one that `keeps`; `leaving`
+    /// (the workspace about to show, taken out next) neither counts nor leaves.
+    public func evictions(parked: [String: UInt64], parkedNow: String, leaving: String?, keeps: (String) -> Bool) -> [String] {
+        let entries = parked.compactMap { $0.key == leaving ? nil : (id: $0.key, serial: $0.value) }
+        guard entries.count > capacity else { return [] }
+        return evictions(parked: entries, kept: Set(parked.keys.filter(keeps)).union([parkedNow]))
+    }
 }

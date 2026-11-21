@@ -1,4 +1,5 @@
-/* Full-height workflow side tab: glass surface, instant open, and no motion that delays the click.
+/* Full-height workflow side tab: glass surface (the popover level, as Session Info), instant open, and
+   no motion that delays the click.
    The timeline is the shipped layout; lanes and table are gallery-only alternatives. */
 .acpmux-workflow-side-tab {
   position: absolute;
@@ -10,10 +11,10 @@
   min-width: 0;
   box-sizing: border-box;
   color: var(--agent-text);
-  background: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) 78%, transparent);
+  background: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) var(--ds-glass-popover-tint), transparent);
   border-left: var(--cmux-hairline, .5px) solid var(--agent-border);
-  -webkit-backdrop-filter: blur(24px) saturate(1.2);
-  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
 }
 /* Leave the native shared tab row and its trailing-tools hole clear. */
 .acpmux-shell[data-tab-row] .acpmux-workflow-side-tab {

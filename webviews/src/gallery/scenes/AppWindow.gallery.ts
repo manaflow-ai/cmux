@@ -22,6 +22,7 @@ import {
   tool,
   user,
 } from "../fixtures/acpmux";
+import { MODEL_PICKER } from "../../agent-session/acpmux/composerSelectors";
 
 /// The New Tab page as the app opens it: the host's `ready` answer names the tab a New Tab page,
 /// with no template stored yet (the app's unset key, Minimal), and the person's recent chats.
@@ -130,7 +131,7 @@ const transcriptWithContext = {
 /// The app offers Session Info (Debug Settings `agent.sessionInfo`, on by default).
 const native = { "pane.tabState": { inspector: true } };
 
-const MODEL_BUTTON = { selector: ".acpmux-model .acpmux-picker-button" };
+const MODEL_BUTTON = { selector: MODEL_PICKER };
 
 /// Clicks the composer's one model button (model and effort) and waits for its menu's models.
 async function openModelMenu(ctx: PlayContext) {
@@ -164,8 +165,8 @@ async function openEffortLevels(ctx: PlayContext) {
   );
 }
 
-/// Session Info open beside the chat: it opens by default for a first chat; if this pane has it
-/// closed, the header's toggle opens it, as a person would.
+/// Session Info open beside the chat: a new pane starts with it closed, so the header's toggle opens
+/// it, as a person would.
 async function showSessionInfo(ctx: PlayContext) {
   const shown = () => ctx.document.querySelector(".acpmux-session-info[data-presence=shown]");
   await ctx.waitFor(() => shown() ?? ctx.document.querySelector('[aria-label="Session Info"]'), { capMs: 5000 });

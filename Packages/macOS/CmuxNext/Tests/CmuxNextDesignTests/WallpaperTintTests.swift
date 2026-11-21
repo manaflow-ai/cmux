@@ -155,6 +155,24 @@ import Testing
         #expect(watch.tint == Self.blue, "the left picture's sample returned and did not land")
     }
 
+    /// Router review F2: the Wallpaper group palette (`sidebar.groupPalette`) samples the picture even with
+    /// `appearance.wallpaperTint` off, and its color reaches the sidebar through the observed `DesignSettings`.
+    @Test func theWallpaperGroupPaletteSamplesWithTheWindowTintOff() async throws {
+        let folder = try Self.folder()
+        _ = try Self.writePicture(Self.blue, named: "blue.png", in: folder)
+        let shown = folder.appendingPathComponent("blue.png")
+        let watch = DesktopWallpaperWatch(read: { Self.reading(shown, folder: folder) }, sample: DesktopWallpaperWatch.sample)
+        defer { DesignSettings.shared.groupWallpaperTint = nil }
+        #expect(!watch.tintEnabled)
+        watch.samplesForGroups = true
+        await watch.refreshed()
+        await watch.settled()
+        let tint = try #require(DesignSettings.shared.groupWallpaperTint, "no color reached the groups")
+        #expect(abs(tint.blue - Self.blue.blue) < 0.05 && abs(tint.red - Self.blue.red) < 0.05)
+        watch.samplesForGroups = false
+        #expect(DesignSettings.shared.groupWallpaperTint == nil, "another palette keeps no wallpaper color")
+    }
+
     /// Turning the tint off while a sample runs: the sample ends, but its color is not shown.
     @Test func aSampleEndingAfterTheTintWentOffShowsNothing() async throws {
         let folder = try Self.folder()

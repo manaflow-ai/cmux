@@ -133,6 +133,22 @@ fn owner_stop_ends_the_background_processes_of_the_subagents_it_stops() {
             .expect("a1's session");
         format!("s{}", k + 1)
     };
+    // spawn answers before the brain has stepped a1's session input; a stop
+    // before that takes the no-session path (no cancel). Wait for its task.
+    let until = std::time::Instant::now() + Duration::from_secs(5);
+    while !h
+        .agents
+        .inner
+        .lock()
+        .unwrap()
+        .prompt_sessions
+        .contains(&session)
+        && std::time::Instant::now() < until
+    {
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(10)) {
+            h.brain.step(input);
+        }
+    }
     let (reply, answer) = channel();
     h.brain.step(Input::StopSubagent {
         name: "a1".into(),

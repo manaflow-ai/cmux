@@ -6,9 +6,9 @@ extension GlobalHotKeyService {
     /// `app.startAgentGlobalHotKey`, from the live settings.
     static func app(_ services: AppServices) -> GlobalHotKeyService {
         GlobalHotKeyService(registry: services.registry, showHideEnabled: { [weak services] in
-            services?.settings?.snapshot.globalHotKey ?? CmuxConfigSnapshot.globalHotKeyFallback
+            services?.settings?.snapshot.globalHotKey ?? CmuxConfigSnapshot.globalHotKeyDefault
         }, startAgentEnabled: { [weak services] in
-            services?.settings?.snapshot.startAgentGlobalHotKey ?? CmuxConfigSnapshot.startAgentGlobalHotKeyFallback
+            services?.settings?.snapshot.startAgentGlobalHotKey ?? CmuxConfigSnapshot.startAgentGlobalHotKeyDefault
         })
     }
 }

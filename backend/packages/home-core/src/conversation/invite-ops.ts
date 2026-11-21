@@ -53,7 +53,9 @@ export const closeExpired = (head: ConversationHead, next: Draft, now: string): 
 /** `invite.create`: adds (or re-adds) the address participant and a pending invite. */
 export const createInvite = (head: ConversationHead, next: Draft, request: OpRequest, actor: Participant, op: OpOf<"invite.create">): Commit => {
   if (head.kind === "chief") fail("kind_forbids")
-  if (actor.kind !== "human") fail("forbidden")
+  // Invites are a person's act; the one agent that invites is a channel's own Chief, into its channel
+  // (plans/cmux-next/chief-channels-DESIGN.md gap 3), on its owner's word (the Worker's effect policy).
+  if (actor.kind !== "human" && !(actor.kind === "agent" && head.channel_chief === actor.id)) fail("forbidden")
   const shortToken = (value: unknown) => typeof value === "string" && validToken(value) && value.length <= 16
   const valid =
     typeof op.invite_id === "string" &&

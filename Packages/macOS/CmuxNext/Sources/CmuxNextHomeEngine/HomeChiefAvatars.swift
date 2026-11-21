@@ -1,4 +1,4 @@
-public import CmuxNextHome
+public import CmuxNextHomeModel
 public import Foundation
 
 /// Each of this Mac's Chiefs' own avatar, keyed by participant id, for the Home list and each

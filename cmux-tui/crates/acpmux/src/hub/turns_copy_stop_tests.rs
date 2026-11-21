@@ -50,6 +50,63 @@ fn stopped(r: Result<Value, RpcError>) {
     assert_eq!(e.data.as_ref().map(|d| d["reason"].clone()), Some(json!("stopped")), "{e:?}");
 }
 
+/// Stop is visible and its deadline runs even when a previous transport handoff is stuck.
+/// Once recovery has ended that generation, releasing the writer cannot cancel a new turn.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stop_with_a_blocked_input_handoff_recovers_before_the_writer_is_released() {
+    let (hub, s) = chat(&[], false).await;
+    let mut events = hub.subscribe();
+    let running = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move {
+            hub.prompt(&s, vec![json!({"type": "text", "text": "hang"})], "test", false).await
+        })
+    };
+    tokio::time::timeout(WAIT, async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event.record.msg["params"]["update"]["content"]["text"] == "working" {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("the prompt reached the harness");
+    let old_child = s.child.lock().await.clone().unwrap();
+    let conversation = s.meta().agent_session_id;
+    let blocked_writer = s.input_handoff.clone().lock_owned().await;
+    let cancel = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move { hub.cancel(&s).await })
+    };
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if events.recv().await.unwrap().record.kind == "stopping" {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("Stop must be visible before the writer is released");
+    tokio::time::timeout(Duration::from_secs(12), cancel)
+        .await
+        .expect("the cancel request waited indefinitely on the writer")
+        .unwrap()
+        .unwrap();
+    let result = tokio::time::timeout(WAIT, running)
+        .await
+        .expect("recovery waited for the blocked writer")
+        .unwrap()
+        .unwrap();
+    assert_eq!(result["_meta"]["acpmux"]["restarted"], true, "{result}");
+    assert!(!old_child.is_alive().await, "the wedged generation survived recovery");
+    assert_eq!(s.meta().agent_session_id, conversation);
+    drop(blocked_writer);
+    let next = hub.prompt(&s, vec![json!({"type": "text", "text": "slow"})], "test", false);
+    let result = tokio::time::timeout(WAIT, next).await.unwrap().unwrap();
+    assert_eq!(result["stopReason"], "end_turn", "the stale cancel reached the new turn");
+}
+
 /// A forced compaction Stop can finish while its session-wide cancel is still waiting
 /// for writer capacity. Continue may start a logical turn, but its prompt must reach the
 /// harness after that cancel, never before it.

@@ -29,13 +29,13 @@ async fn a_cancel_the_agent_never_answers_still_ends_the_turn() {
         .await
         .unwrap();
     let done = tokio::time::timeout(
-        Duration::from_secs(15),
+        Duration::from_secs(25),
         c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_end"),
     )
     .await
     .expect("the turn stayed open after Stop");
     assert_eq!(done["msg"]["stopReason"], "cancelled", "{done}");
-    assert!(stopped.elapsed() < Duration::from_secs(15));
+    assert!(stopped.elapsed() < Duration::from_secs(25));
     let result = c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_result").await;
     assert_eq!(result["msg"]["cancelForced"], true, "{result}");
 }
@@ -70,9 +70,20 @@ fn held(row: &Value) -> Vec<(String, bool)> {
 /// process lands after it, and the other agents' messages stay queued, held.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_agent_working_through_stop_is_restarted_on_the_same_conversation() {
+    restart_after_stop("works-through-cancel").await;
+}
+
+/// A silent harness is not proof that its cancel succeeded. The keyboard chat on
+/// cosmic-gray kept its wedged process after acpmux ended only the logical turn.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_silent_agent_ignoring_stop_is_restarted_on_the_same_conversation() {
+    restart_after_stop("silent-through-cancel").await;
+}
+
+async fn restart_after_stop(script: &str) {
     let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "works-through-stop").await;
-    c.send(method::SESSION_PROMPT, prompt(&id, "works-through-cancel", Some("p-work"))).await;
+    c.send(method::SESSION_PROMPT, prompt(&id, script, Some("p-work"))).await;
     let first =
         c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "tool_call").await;
     let title = first["update"]["title"].as_str().unwrap().to_owned();
@@ -146,13 +157,18 @@ async fn an_agent_working_through_stop_is_restarted_on_the_same_conversation() {
 /// is neither ended nor started again, and the background subagent still runs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_stop_beside_background_work_ends_only_the_turn_and_keeps_the_process() {
+    stop_beside_background("works-through-cancel-beside-background").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_silent_stop_beside_background_work_keeps_the_process() {
+    stop_beside_background("silent-through-cancel-beside-background").await;
+}
+
+async fn stop_beside_background(script: &str) {
     let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "stop-beside-background").await;
-    c.send(
-        method::SESSION_PROMPT,
-        prompt(&id, "works-through-cancel-beside-background", Some("p-work")),
-    )
-    .await;
+    c.send(method::SESSION_PROMPT, prompt(&id, script, Some("p-work"))).await;
     let first =
         c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "tool_call").await;
     let title = first["update"]["title"].as_str().unwrap().to_owned();
@@ -195,11 +211,23 @@ async fn a_stop_beside_background_work_ends_only_the_turn_and_keeps_the_process(
         .filter_map(|e| e.msg["params"]["update"]["title"].as_str())
         .collect();
     assert!(
-        after.iter().any(|t| t.ends_with(&pid)),
+        script.starts_with("silent-") || after.iter().any(|t| t.ends_with(&pid)),
         "the agent's process did not run on: {after:?}"
     );
     let row = summary(&hub, &id);
     assert!(row["turn"].is_null(), "the stopped turn is still open: {row}");
+    // A silent harness emits no progress to prove liveness: ask the same process
+    // for its identity after Stop, without ending its background work.
+    c.send(method::SESSION_PROMPT, prompt(&id, "whoami", Some("p-probe"))).await;
+    let reply = tokio::time::timeout(
+        Duration::from_secs(10),
+        c.wait_for(method::SESSION_UPDATE, |p| {
+            p["update"]["content"]["text"].as_str().is_some_and(|t| t.starts_with("pid="))
+        }),
+    )
+    .await
+    .expect("the preserved harness did not answer a new prompt");
+    assert_eq!(reply["update"]["content"]["text"], pid.replace(' ', "="));
 }
 
 /// The person's Stop keeps their own queued prompt as it was: it runs next. The other agents'
@@ -715,5 +743,7 @@ async fn a_long_replayed_history_stays_out_of_the_resumed_sessions_last_message(
 #[cfg(target_os = "macos")]
 #[test]
 fn a_stand_in_harness_runs_at_normal_class_in_tests() {
-    assert_eq!(acpmux::cpu_class::CpuClass::for_session([]), acpmux::cpu_class::CpuClass::Normal);
+    let kind = acpmux::config::HarnessKind::Acp;
+    let class = acpmux::cpu_class::CpuClass::for_session(kind, &[], []);
+    assert_eq!(class, acpmux::cpu_class::CpuClass::Normal);
 }

@@ -18,7 +18,9 @@ its secret-free verify job tested. No secret is needed.
 Usage: republish-verified-nightly.py --run-id N --attempt N [--out DIR]
 Env: GITHUB_REPOSITORY, GITHUB_SHA, GITHUB_REF, GITHUB_EVENT_NAME, GH_TOKEN (actions: read),
 CHANNEL_DMG_PREFIX; GITHUB_OUTPUT receives run_id, attempt, build, build_sha, tip_sha, behind,
-behind_hours and cef.
+behind_hours, cef (the source signed a Chromium runtime pack, so its app's pin names one) and
+source_archive (the source made a cmux-next source tarball; its artifact always carries the
+license trees, and the tarball only while CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE was 1).
 """
 from __future__ import annotations
 
@@ -186,6 +188,11 @@ def restore(receipt, root: Path, prefix: str):
     return check_bytes(root, receipt["build"], prefix)
 
 
+def has_source_tarball(root: Path) -> bool:
+    """github-source-archive.sh publishes exactly one cmux-next-source-*.tar.gz from source-archive/."""
+    return len(list((root / ARTIFACTS["cmux-next-source-archive"][1]).glob("cmux-next-source-*.tar.gz"))) == 1
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--run-id", required=True)
@@ -198,6 +205,7 @@ def main():
     count = restore(receipt, args.out, os.environ.get("CHANNEL_DMG_PREFIX", ""))
     outputs = {key: receipt[key] for key in ("run_id", "attempt", "build", "build_sha", "tip_sha", "behind", "behind_hours")}
     outputs["cef"] = "true" if "cef-runtime-pack" in receipt["artifacts"] else "false"
+    outputs["source_archive"] = "true" if has_source_tarball(args.out) else "false"
     (args.out / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         for key, value in outputs.items():

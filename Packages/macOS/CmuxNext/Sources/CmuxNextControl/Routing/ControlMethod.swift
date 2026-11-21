@@ -60,6 +60,10 @@ public struct ControlMethod: Sendable {
     /// person's input (``injectingInput()``).
     public private(set) var workClass: MainWorkClass = .automation
 
+    /// Whether a frame that ran this `mainActor` body marks the control snapshot stale (the next read builds it). True
+    /// unless ``leavingSnapshotFresh()``.
+    public private(set) var marksSnapshotStale = true
+
     /// ``name`` interned on the app's main-thread board, once, when the router registers the
     /// method (nil before, or without a board): each request starts its task with no lock.
     public internal(set) var owner: MainTaskOwner?
@@ -70,6 +74,16 @@ public struct ControlMethod: Sendable {
     public func injectingInput() -> ControlMethod {
         var method = self
         method.workClass = .input
+        return method
+    }
+
+    /// This method, whose `mainActor` body changes nothing the control snapshot shows in its own frame (`debug.mouse`:
+    /// it posts events, which run after the frame, and moves the synthesized pointer): its frame leaves the snapshot as
+    /// fresh as it was, so the next request builds no topology for it. A drag bench sends one such request per display
+    /// frame, and each mapped the topology again (0.4-1.0 ms of main thread per drag frame, RESIZE MAIN BUDGET).
+    public func leavingSnapshotFresh() -> ControlMethod {
+        var method = self
+        method.marksSnapshotStale = false
         return method
     }
 

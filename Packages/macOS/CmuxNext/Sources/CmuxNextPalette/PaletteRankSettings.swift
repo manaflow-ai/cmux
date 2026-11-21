@@ -7,16 +7,22 @@ public nonisolated struct PaletteRankSettings: Sendable, Equatable {
     public var aliases: [String: [String]]
     /// Action ids shown first on the empty query, in this order.
     public var pins: [String]
+    /// Whether the palette learns from what the person runs (cmux.json `palette.searchHistory`): uses,
+    /// learned picks per query start and frecency. Off, nothing is recorded and nothing ranks by it.
+    public var remembersSearches: Bool
 
-    public init(aliases: [String: [String]] = [:], pins: [String] = []) {
+    public init(aliases: [String: [String]] = [:], pins: [String] = [], remembersSearches: Bool = true) {
         self.aliases = aliases
         self.pins = pins
+        self.remembersSearches = remembersSearches
     }
 }
 
 extension PaletteRankSettings {
     /// These settings with the catalog's built-in aliases (`ActionDescriptor.paletteAliases`)
-    /// added after the user's own words for the same action.
+    /// added after the user's own words for the same action. The ranker also reads them from each
+    /// catalog row (`PaletteItem.aliases`); this merge serves app FFI pins older than that ranker,
+    /// and goes once the pin carries it.
     public func addingBuiltInAliases() -> PaletteRankSettings {
         var merged = self
         for (id, words) in ActionDescriptor.paletteAliases {

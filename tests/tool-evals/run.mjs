@@ -51,7 +51,7 @@ const AUTH = process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?
 const OVERLAY = arg("overlay", null) ? JSON.parse(readFileSync(arg("overlay"), "utf8")) : null;
 const PROMPT_ARM = arg("prompt-arm", "none");
 if (!["none", "baseline", "guidance"].includes(PROMPT_ARM)) throw new Error("--prompt-arm must be none, baseline, or guidance");
-const CMUX_GUIDANCE = "Read relevant instructions and likely source files early. Batch independent reads and searches into parallel tool calls; sequence dependent work. Start long-running builds, tests, and waits in the background when the tools support it, then continue useful independent work. Rejoin and inspect the results before relying on them. Keep reports concise: explain the outcome, verification, and remaining blockers.";
+const CMUX_GUIDANCE = "Before each tool step, privately list what you need next, then request every read, search and command that does not depend on another's result in that one response, starting with the first: the files and instructions the task names or implies. Run long builds, tests and waits in the background when the tool allows it, and check the result before relying on it.";
 const COMPACT_ASKING_RULE = "Asking the person: Full access already permits harness tool calls; never ask them to allow or confirm one. Decide, say why, continue. This never widens the task: respect user-only skill steps and consent cards; never bypass refusals. Ask only unresolved product taste, not permission.";
 const TEMPLATE = JSON.parse(gunzipSync(readFileSync(join(HERE, "templates/claude.json.gz"))).toString());
 const PREFIX = "mcp__cmux__";

@@ -3,12 +3,17 @@
 // cap while the header said "1 failed"). A line needs the person when it waits on them or failed;
 // the rest keep their order (runningTray.ts: what runs newest first, then what ended, latest first).
 // A nested subagent moves with the top-level line it sits under, so a tree never breaks apart.
-import { subagentStatus } from "../summary/SubagentStatusList";
+import { subagentStatus } from "../summary/subagentStatusListModel";
 import { sessionRetry } from "./retryState";
 import type { TrayItem } from "./runningTray";
+import type { StartedSession } from "../started/startedSessions";
 
 /// One line of the open list: the item, and whether it ended (its `data-finished` card).
 export type TrayCard = { readonly item: TrayItem; readonly finished: boolean };
+
+/// A started chat waits on the person: it reads "waiting" and is not only queued for a run slot
+/// (`waitsForSlot`), which waits on cmux and starts on its own.
+export const asksPerson = (session: StartedSession): boolean => session.state === "waiting" && !session.waitsForSlot;
 
 /// The item waits on the person or failed.
 export function needsPerson(item: TrayItem, waiting: ReadonlySet<string>): boolean {
@@ -18,7 +23,7 @@ export function needsPerson(item: TrayItem, waiting: ReadonlySet<string>): boole
   }
   // A failed chat acpmux is retrying (or deciding to) is about to run again, as a retrying
   // subagent reads "running" (retryState.ts): only one that stays failed needs the person.
-  if (item.kind === "session") return item.session.state === "waiting" || sessionRetry(item.session).kind === "failed";
+  if (item.kind === "session") return asksPerson(item.session) || sessionRetry(item.session).kind === "failed";
   return false;
 }
 

@@ -2,7 +2,7 @@
 // path is (inside the session's folders, outside, on the deny list, missing) and the favicon and
 // title cmux already has for each URL. Requests from one render are batched into one call; the
 // answers are kept for the page's life. The host never fetches anything for this.
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { callChipHost } from "./host";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 
@@ -25,6 +25,15 @@ type Inspect = {
 
 const MAX_BATCH = 64;
 const MAX_KEPT = 2000;
+/// The host's limits for one `link.inspect` entry, in UTF-8 bytes (AgentPaneReplyRequest.swift
+/// `maximumURL`, AgentPaneReplyPaths.swift `maximumLength`). It refuses the whole call when any
+/// entry is past them, empty or holds a NUL, so such an entry is answered here, as one the host
+/// has nothing for, and never sent: one oversized link would leave every other one unanswered.
+const MAX_URL_BYTES = 2048;
+const MAX_PATH_BYTES = 4096;
+const utf8 = new TextEncoder();
+const sendable = (value: string, limit: number) =>
+  value.length > 0 && !value.includes("\u0000") && utf8.encode(value).length <= limit;
 
 const paths = new Map<string, PathInfo | null>();
 const sites = new Map<string, SiteInfo | null>();
@@ -93,12 +102,14 @@ function ask(path?: string, url?: string) {
   }
   if (path !== undefined && !paths.has(path)) {
     paths.set(path, null);
-    asking.add(path);
-    queuedPaths.push(path);
+    if (sendable(path, MAX_PATH_BYTES)) {
+      asking.add(path);
+      queuedPaths.push(path);
+    }
   }
   if (url !== undefined && !sites.has(url)) {
     sites.set(url, null);
-    queuedUrls.push(url);
+    if (sendable(url, MAX_URL_BYTES)) queuedUrls.push(url);
   }
   if (!scheduled && (!policyAsked || queuedPaths.length || queuedUrls.length)) {
     scheduleFlush();
@@ -124,6 +135,15 @@ export function usePathInfo(path: string): { info: PathInfo | undefined; answere
   const info = useStore(() => paths.get(path) ?? undefined);
   const answered = useStore(() => !readOnly && !asking.has(path));
   return { info, answered, policy: useStore(() => policy) };
+}
+
+/// Which of `list` the host says are gone (a file the agent made, then deleted): asked as a path chip
+/// asks (one batched `link.inspect`), and the same set while the answer is the same.
+export function useMissingPaths(list: readonly string[]): ReadonlySet<string> {
+  const readOnly = useTranscriptReadOnly();
+  if (!readOnly) for (const path of list) ask(path);
+  const key = useStore(() => list.filter((path) => paths.get(path)?.place === "missing").join("\u0000"));
+  return useMemo(() => new Set(key ? key.split("\u0000") : []), [key]);
 }
 
 /// What cmux already has for `url` (nothing while it is asked, or when it has nothing).

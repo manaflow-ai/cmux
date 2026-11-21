@@ -25,6 +25,7 @@ import argparse, base64, glob, json, os, plistlib, subprocess, sys, tempfile, ti
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_cli_storm import Client  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 # openBrowser takes http(s) and file URLs, not data: URLs ("is not a URL cmux can open").
 PAGE_HTML = ("<!doctype html><title>start</title><script>document.title='js-ran-'+(6*7)</script>"
@@ -174,14 +175,16 @@ def main():
         time.sleep(opts.settle)  # renderers that die do so ~0.6 s after launch; let any crash loop show
         rows = [(pid, kind_of(cmd), cmd) for pid, cmd in children(proc.pid)]
         renderer_suffix = " Helper (Renderer).app/Contents/MacOS/"
-        gpu_suffix = " Helper (GPU).app/Contents/MacOS/"
+        # Chromium 156 (gpu_process_host.cc) starts the GPU process from the " (GPU)" helper only when SwiftShader
+        # is allowed, and from the plain helper otherwise (the default). Both are right; the Renderer helper is not.
+        gpu_helpers = (" Helper.app/Contents/MacOS/", " Helper (GPU).app/Contents/MacOS/")
         res["processes"] = [{"pid": p, "type": k, "exe": c.split(" --")[0]} for p, k, c in rows if k]
         renderers = [r for r in res["processes"] if r["type"] == "renderer"]
         gpus = [r for r in res["processes"] if r["type"] == "gpu-process"]
         c = res["checks"]
         c["renderer_running"] = bool(renderers)
         c["renderers_use_renderer_helper"] = bool(renderers) and all(renderer_suffix in r["exe"] for r in renderers)
-        c["gpu_uses_gpu_helper"] = all(gpu_suffix in r["exe"] for r in gpus)
+        c["gpu_uses_plain_or_gpu_helper"] = all(any(h in r["exe"] for h in gpu_helpers) for r in gpus)
         c["javascript_ran"] = title == "js-ran-42"
         log_hits = 0
         for log in glob.glob(os.path.join(home, "Library/Application Support/*", "Chromium", "cef.log")):
@@ -205,9 +208,9 @@ def main():
     os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
     with open(opts.json, "w") as f:
         json.dump(res, f, indent=1)
-    print(json.dumps({k: v for k, v in res.items() if k not in ("processes", "window_png_base64")}, indent=1))
+    safe_print(json.dumps({k: v for k, v in res.items() if k not in ("processes", "window_png_base64")}, indent=1))
     for p in res.get("processes", []):
-        print(f"  {p['pid']:>7} {p['type']:<12} {p['exe']}")
+        safe_print(f"  {p['pid']:>7} {p['type']:<12} {p['exe']}")
     return 0 if res["ok"] else 1
 
 

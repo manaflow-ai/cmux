@@ -1,8 +1,10 @@
 // l10n-allow-file: gallery-only sample labels, not shipped UI.
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import { ChatMenu, menuGroups, type ChatMenuItem } from "./ChatHeaderTools";
+import { ChatMenu } from "./ChatHeaderTools";
+import { menuGroups, type ChatMenuItem } from "./chatHeaderToolsModel";
 import { ThreadTitle } from "./ThreadTitle";
+import { FORK_ICON } from "../icons/forkIcon";
 
 // The ⋮ menu's rows the title menu used to hold (the rest of the real menu is left out here).
 const menuRows = (move: "local" | "cloud", targets: readonly string[]): ChatMenuItem[] =>
@@ -11,7 +13,7 @@ const menuRows = (move: "local" | "cloud", targets: readonly string[]): ChatMenu
     [
       { key: "newTerminal", label: "New terminal", icon: "terminal", onSelect: () => undefined },
       { key: "newBrowser", label: "New browser", icon: "browser", onSelect: () => undefined },
-      { key: "fork", label: "Fork", icon: "agent.fork", accelerator: "F", onSelect: () => undefined },
+      { key: "fork", label: "Fork", icon: FORK_ICON, accelerator: "F", onSelect: () => undefined },
     ],
     [
       {

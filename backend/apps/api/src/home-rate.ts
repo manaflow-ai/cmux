@@ -65,10 +65,6 @@ export const homeRateTakeSql = (sql: SqlStore, actor: string, op: HomeRateOp, no
   return { ok: true }
 }
 
-interface RateStub {
-  homeRateTake(entity: string, actor: string, op: HomeRateOp): Promise<HomeRateGate>
-}
-
 /**
  * Takes one attempt from the caller's budget for `op`. A principal with no user has no UserDO
  * and no reach (home-reach.ts answers it with no facts and no RPCs), so it is not counted here.
@@ -77,6 +73,6 @@ export const takeHomeRate = async (env: Env, principal: Principal, actor: string
   const raw = principal.user
   if (!raw) return { ok: true }
   const user = raw.startsWith("user_") ? raw : `user_${raw}`
-  const stub = env.USER_DO.get(env.USER_DO.idFromName(user)) as unknown as RateStub
+  const stub = env.USER_DO.get(env.USER_DO.idFromName(user))
   return stub.homeRateTake(user, actor, op)
 }

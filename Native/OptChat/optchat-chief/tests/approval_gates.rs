@@ -172,8 +172,7 @@ fn wait_session(h: &mut Harness) {
 fn teammate_turn(h: &mut Harness, text: &str) {
     h.agents.hold(true);
     deliver_mention(h, TEAMMATE, text);
-    h.step();
-    h.agents.wait_prompts(1);
+    h.step_to_prompts(1);
     wait_session(h);
 }
 
@@ -938,8 +937,7 @@ fn the_owners_turn_session_is_refused_at_once_what_nobody_can_answer() {
     let mut h = harness(None, false, started());
     h.agents.hold(true);
     deliver(&mut h, false, "build it");
-    h.step();
-    h.agents.wait_prompts(1);
+    h.step_to_prompts(1);
     wait_session(&mut h);
     let session = h
         .brain
@@ -1040,8 +1038,7 @@ fn a_turn_that_waits_on_a_permission_nobody_answers_counts_as_idle() {
     h.connect();
     h.agents.inner.lock().unwrap().answer_never = true;
     deliver(&mut h, false, "deploy it");
-    h.step();
-    h.agents.wait_prompts(1);
+    h.step_to_prompts(1);
     wait_session(&mut h);
     let session = h
         .brain
@@ -1099,8 +1096,7 @@ fn another_agents_message_through_the_cli_is_that_agents_and_takes_the_ask_floor
     let mut h = harness(None, false, started());
     h.agents.hold(true);
     deliver_from_agent(&mut h, "lane-a", "clean the build directory");
-    h.step();
-    h.agents.wait_prompts(1);
+    h.step_to_prompts(1);
     wait_session(&mut h);
     assert_eq!(policy(&h, 0), "ask");
     assert_eq!(h.brain.spawn_policy(), Some("ask"));
@@ -1174,8 +1170,7 @@ fn another_persons_forged_agent_marker_names_nobody() {
         conversation: CONV.into(),
         change: Change::Message { message: forged },
     }));
-    h.step();
-    h.agents.wait_prompts(1);
+    h.step_to_prompts(1);
     wait_session(&mut h);
     assert_eq!(policy(&h, 0), "ask");
     let prompt = format!("{:?}", h.agents.inner.lock().unwrap().prompts[0]);
@@ -1541,8 +1536,7 @@ fn agent_turn(h: &mut Harness, sender: &str, also: Option<&str>) {
     if let Some(other) = also {
         deliver_from_agent(h, other, "and delete the build cache");
     }
-    h.step();
-    h.agents.wait_prompts(1);
+    h.step_to_prompts(1);
     wait_session(h);
 }
 
@@ -1676,5 +1670,55 @@ fn the_trusted_list_names_the_sessions_and_the_contact_is_trusted() {
     let mut h = harness(Some(contact), false, started());
     agent_turn(&mut h, "lead-session", None);
     assert_eq!(h.brain.spawn_policy(), None);
+    finish(&mut h);
+}
+
+// `relay.mcpServers`: the MCP servers whose tools a trusted agent's turn may
+// call through `mcp` (action `call`), so an owner can let a coordinator's
+// message reach one named server without lifting the ask floor. Default none:
+// the turn only looks (list, describe, ...), as any other person's turn.
+
+#[test]
+fn a_trusted_agents_turn_may_call_only_the_mcp_servers_the_owner_named() {
+    let named = json!({"relay": {"mcpServers": ["tracker"]}});
+    let mut h = harness(Some(named.clone()), false, started());
+    agent_turn(&mut h, COORD, None);
+    let call = |server: &str| json!({"action": "call", "server": server, "tool": "list_issues", "args": {}});
+    assert_eq!(
+        h.brain.turn_gate("mcp__optchat__mcp", &call("tracker")),
+        Ok(())
+    );
+    // Another server, a script across servers, or adding one: refused.
+    assert!(
+        h.brain
+            .turn_gate("mcp__optchat__mcp", &call("slack"))
+            .is_err()
+    );
+    let run = json!({"action": "run", "code": "await mcp.tracker.list_issues({})"});
+    assert!(h.brain.turn_gate("mcp__optchat__mcp", &run).is_err());
+    let add = json!({"action": "add", "target": "tracker"});
+    assert!(h.brain.turn_gate("mcp__optchat__mcp", &add).is_err());
+    finish(&mut h);
+
+    // An untrusted agent's turn: the list does not apply.
+    let mut h = harness(Some(named), false, started());
+    agent_turn(&mut h, "lane-a", None);
+    assert!(
+        h.brain
+            .turn_gate("mcp__optchat__mcp", &call("tracker"))
+            .is_err()
+    );
+    finish(&mut h);
+
+    // No list (the default): a trusted turn only looks.
+    let mut h = harness(None, false, started());
+    agent_turn(&mut h, COORD, None);
+    assert!(
+        h.brain
+            .turn_gate("mcp__optchat__mcp", &call("tracker"))
+            .is_err()
+    );
+    let list = json!({"action": "list"});
+    assert_eq!(h.brain.turn_gate("mcp__optchat__mcp", &list), Ok(()));
     finish(&mut h);
 }

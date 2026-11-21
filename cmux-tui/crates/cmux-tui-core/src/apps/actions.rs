@@ -17,8 +17,6 @@ use std::sync::OnceLock;
 
 use serde_json::Value;
 
-const ACTIONS_JSON: &str = include_str!("../../../../../plans/cmux-next/action-surfaces.json");
-
 /// Agent-surface exemptions an app may never run.
 const REFUSED: &[&str] = &[
     "credentials",
@@ -44,7 +42,8 @@ pub enum ActionDecision {
 fn catalog() -> &'static HashMap<String, String> {
     static CATALOG: OnceLock<HashMap<String, String>> = OnceLock::new();
     CATALOG.get_or_init(|| {
-        let doc: Value = serde_json::from_str(ACTIONS_JSON).expect("action catalog is JSON");
+        let text = crate::packed_catalogs::ACTION_SURFACES.inflate();
+        let doc: Value = serde_json::from_str(&text).expect("action catalog is JSON");
         doc["actions"]
             .as_array()
             .into_iter()
@@ -59,6 +58,27 @@ fn catalog() -> &'static HashMap<String, String> {
     })
 }
 
+/// The registry id prefix of the person's own cmux-next.json actions.
+const CONFIG_ACTION_PREFIX: &str = "cmuxConfig.";
+
+/// The decision for `action.run {id}` from `app`. The person's own config
+/// actions (`cmuxConfig.<name>`, which run the command they wrote) are not in
+/// the catalog; only their own customize folder app (`local/customize`) may
+/// run them, from a gesture in its pane, the same as any action. Any other
+/// app's click must not run a command the person wrote for themselves.
+pub fn decide_for(app: &str, id: Option<&str>) -> ActionDecision {
+    if app == super::catalog::CUSTOMIZE_APP
+        && let Some(name) = id.and_then(|id| id.strip_prefix(CONFIG_ACTION_PREFIX))
+    {
+        return if name.is_empty() {
+            ActionDecision::Unknown
+        } else {
+            ActionDecision::NeedsGesture
+        };
+    }
+    decide(id)
+}
+
 /// The decision for `action.run {id}` from an app.
 pub fn decide(id: Option<&str>) -> ActionDecision {
     let Some(mcp) = id.and_then(|id| catalog().get(id)) else { return ActionDecision::Unknown };
@@ -69,18 +89,5 @@ pub fn decide(id: Option<&str>) -> ActionDecision {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn agent_exemptions_bind_apps_and_everything_else_needs_a_gesture() {
-        assert_eq!(decide(Some("palette.auth.signIn")), ActionDecision::Refused("credentials"));
-        assert_eq!(decide(Some("quit")), ActionDecision::Refused("endsApp"));
-        assert_eq!(decide(Some("keepMacAwake")), ActionDecision::Refused("systemChange"));
-        assert_eq!(decide(Some("taskManager.killProcess")), ActionDecision::Refused("liveInput"));
-        assert_eq!(decide(Some("newWindow")), ActionDecision::NeedsGesture);
-        assert_eq!(decide(Some("openSettings")), ActionDecision::NeedsGesture);
-        assert_eq!(decide(Some("made.up")), ActionDecision::Unknown);
-        assert_eq!(decide(None), ActionDecision::Unknown);
-    }
-}
+#[path = "actions_tests.rs"]
+mod tests;

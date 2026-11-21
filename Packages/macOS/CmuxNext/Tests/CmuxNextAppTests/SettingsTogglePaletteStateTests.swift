@@ -24,6 +24,8 @@ struct SettingsTogglePaletteStateTests {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
+        // The glass lens and latency HUD rows are debug-only: Internal Developer Mode on.
+        services.registry.debugActions = DebugActionGate(devTools: true, isOn: { true })
         var context = AppActionContext(services: services)
         context.design = design
         let tunables = TunableStore()
@@ -106,7 +108,13 @@ struct SettingsTogglePaletteStateTests {
             case .panePadding: chrome.padding = on ? 6 : 0; design.setPaneChrome(chrome)
             case .paneCorners: chrome.cornerRadius = on ? 6 : 0; design.setPaneChrome(chrome)
             case .thickPaneBorders: chrome.borderWidth = on ? 2 : nil; design.setPaneChrome(chrome)
-            case .focusRing: design.focusRing.enabled = on
+            case .focusRing:
+                // The row covers every pane ring (`DesignSettings.showsAnyPaneRing`): off is no ring of any kind.
+                design.focusRing.enabled = on
+                if !on {
+                    design.attention.terminalRing = .none
+                    design.attention.agentChatRing = .none
+                }
             case .singlePaneFocusRing: design.focusRing.showsForSinglePane = on
             case .glassLens: GlassLensMode.choose(on ? .lens : .plain, in: f.tunables)
             case .actionLatencyHUD: on ? f.services.actionLatencyHUD.show(over: nil) : f.services.actionLatencyHUD.hide()

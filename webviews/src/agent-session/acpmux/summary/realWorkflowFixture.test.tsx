@@ -85,7 +85,7 @@ test("the replay renders in the transcript card, Session Info tasks and summary"
   const card = renderToStaticMarkup(<WorkflowCard node={{ ...workflowNode!, endedAt: NOW }} />);
   const tasks = renderToStaticMarkup(<WorkflowTasks workflows={[workflow!]} />);
   const summary = renderToStaticMarkup(<WorkflowSummaries workflows={[workflow!]} />);
-  expect(text(card)).toContain("count-files-fixture Done Report 3/3 10s 84.1K tokens");
+  expect(text(card)).toContain("count-files-fixture Done 3/3 10s 84.1K tokens");
   expect(card).toContain('aria-valuemax="3" aria-valuenow="3"');
   expect(text(tasks)).toContain("count-files-fixture 10s Finished · 3 agents · 84k tokens");
   expect(text(tasks)).toContain("Count 2/2 Report 1/1");

@@ -58,7 +58,9 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use cmux_remote::client::{ProcessEventStream, WorkspaceClient};
-use cmux_remote::connection::{ClientConnection, ClientConnectionConfig, ReconnectPolicy};
+use cmux_remote::connection::{
+    ClientConnection, ClientConnectionConfig, ReconnectPolicy, RedialBudget,
+};
 use cmux_remote::crypto::{ClientAuthMode, StaticIdentity};
 use cmux_remote::daemon::{
     DaemonSessionPolicy, DirectWebSocketOptions, DirectWebSocketServer, RemoteDaemon,
@@ -800,6 +802,9 @@ fn reconnect_policy() -> ReconnectPolicy {
         heartbeat_timeout: HEARTBEAT_TIMEOUT,
         maximum_attempts: None,
         maximum_duration: None,
+        attempts_per_recovery: 3,
+        // Real-clock fixture: redial as fast as its delays allow.
+        redial_budget: RedialBudget { capacity: 1_000, refill_interval: Duration::from_millis(1) },
     }
 }
 

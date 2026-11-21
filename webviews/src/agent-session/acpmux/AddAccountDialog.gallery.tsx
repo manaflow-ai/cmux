@@ -10,10 +10,19 @@ export default componentEntry({
   covers: ["agent-session/acpmux/AddAccountDialog.tsx#AddAccountDialog"],
   load: async () => {
     const { AddAccountDialog } = await import("./AddAccountDialog");
-    return ({ kind, unavailable }: { kind: "direct-subscription" | "direct-api-key"; unavailable?: boolean }) => (
+    return ({
+      family = "claude",
+      kinds = ["direct-subscription", "direct-api-key"],
+      unavailable,
+    }: {
+      family?: string;
+      kinds?: ("direct-subscription" | "direct-api-key")[];
+      unavailable?: boolean;
+    }) => (
       <AddAccountDialog
-        family="claude"
-        kinds={[kind]}
+        family={family}
+        kinds={kinds}
+        existing={["coderouter", "chatgpt-2"]}
         add={async () => {
           if (unavailable) throw new Error("The local agent service is unavailable.");
         }}
@@ -24,8 +33,10 @@ export default componentEntry({
   },
   styles: () => Promise.all([import("../../ui/ui.css"), import("../../ui/popupSurface.css")]),
   variants: {
-    subscription: { props: { kind: "direct-subscription" } },
-    "api-key": { props: { kind: "direct-api-key" } },
-    unavailable: { props: { kind: "direct-subscription", unavailable: true } },
+    subscription: { props: { family: "claude" } },
+    codex: { props: { family: "codex" } },
+    "api-key": { props: { kinds: ["direct-api-key"] } },
+    "other-family": { props: { family: "gemini", kinds: ["direct-subscription"] } },
+    unavailable: { props: { family: "codex", unavailable: true } },
   },
 });

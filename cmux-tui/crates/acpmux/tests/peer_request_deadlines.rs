@@ -4,9 +4,11 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-// A short forwarded-start deadline, so a hung peer's `session/new` times out in seconds.
-const HERMETIC: daemon_env::Process =
-    daemon_env::Process::stand_in().with_env(&[("ACPMUX_PEER_START_SECS", "3")]);
+// A short forwarded-start deadline, so a hung peer's `session/new` times out in seconds. A
+// forwarded start waits the larger of the start and the generic request budget (#35215), so
+// both are short here.
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in()
+    .with_env(&[("ACPMUX_PEER_START_SECS", "3"), ("ACPMUX_PEER_REQUEST_SECS", "3")]);
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;

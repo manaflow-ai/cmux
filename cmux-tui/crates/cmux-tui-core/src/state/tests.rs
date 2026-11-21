@@ -819,6 +819,47 @@ fn saved_tab_groups_are_personal_and_reopen_after_their_live_group_closes() {
     );
 }
 
+/// A pane close leaves the row of the group it emptied until a strip edit
+/// prunes it, and `tab.update` is not a strip edit (it writes one tab's
+/// record). That row holds no open tab: it is not the saved group's live
+/// group, and the saved group opens again.
+#[test]
+fn a_saved_tab_group_reopens_when_only_the_row_of_its_closed_group_is_left() {
+    let mux = Mux::new_for_test("state-saved-groups-left-row", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 1);
+    let first_pane = mux.with_state(|state| state.pane_of(tabs[0])).unwrap();
+    let grouped = mux.split(first_pane, crate::SplitDir::Right, None).unwrap().id;
+    let group = mutate(
+        &mux,
+        "tab_group.create",
+        json!({"tabs": [tab_id(&mux, grouped)], "name": "Docs", "color": "green"}),
+        "g",
+    );
+    let group_id = group["id"].as_str().unwrap().to_string();
+    let saved = mutate(&mux, "saved_tab_group.save", json!({"tab_group": group_id}), "save");
+    let saved_id = saved["id"].as_str().unwrap().to_string();
+
+    send(&mux, "pane.close", json!({"pane": pane_id(&mux, grouped)}), Some("pane-close")).unwrap();
+    mutate(&mux, "tab.update", json!({"tab": tab_id(&mux, tabs[0]), "zoom": 1.5}), "zoom");
+
+    let reopened = mutate(
+        &mux,
+        "saved_tab_group.reopen",
+        json!({"saved_tab_group": saved_id, "pane_id": pane_id(&mux, tabs[0])}),
+        "reopen",
+    );
+    assert_eq!(reopened["saved_tab_group_id"], saved_id);
+    assert_eq!(reopened["tab_group"]["name"], "Docs");
+    assert_eq!(reopened["tab_group"]["saved_tab_group_id"], saved_id);
+    // The group holds an open tab again: the member came back in the pane.
+    assert_eq!(pane_tab_ids(&mux, tabs[0]).len(), 2, "the reopened member is in the pane");
+    let live = reopened["tab_group"]["id"].as_str().unwrap();
+    assert_eq!(
+        read(&mux, "tab_group.get", json!({"tab_group": live}))["saved_tab_group_id"],
+        saved_id
+    );
+}
+
 #[test]
 fn shared_saved_tab_groups_move_to_the_personal_table_once_at_open() {
     let session = Session::new("saved-migration");
@@ -1494,6 +1535,7 @@ fn kept_tabs_restate_relaunch_on_the_snapshot_and_the_event_stream() {
         cwd: Some("/tmp/project".into()),
         title: None,
         on_show: false,
+        last_command: None,
     }])
     .unwrap();
     assert!(revision(&mux) > before, "a keep-layout record advances the resource revision");
@@ -1520,6 +1562,37 @@ fn kept_tabs_restate_relaunch_on_the_snapshot_and_the_event_stream() {
     let before = revision(&mux);
     mux.forget_kept_tabs(std::slice::from_ref(&other)).unwrap();
     assert!(changes_after(&mux, before).iter().all(|change| change["resource"] != "tab"));
+    mux.shutdown();
+}
+
+/// A parked tab's last command (`kept_tabs.last_command_json`) is read back
+/// whole for its restored marker line, and a later record replaces it.
+#[test]
+fn a_kept_tab_keeps_its_last_command() {
+    use crate::state::kept_tab_store::{KeptTab, LastCommand};
+    let mux = Mux::new_for_test("state-kept-last-command", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 1);
+    let kept = tab_id(&mux, tabs[0]);
+    let last = LastCommand {
+        command: "npm test -- --watch=false".into(),
+        exit_code: Some(1),
+        started_at_ms: 1_700_000_000_000,
+        ended_at_ms: 1_700_000_180_000,
+    };
+    let record = |last_command: Option<LastCommand>| KeptTab {
+        tab_id: kept.clone(),
+        cwd: Some("/tmp/project".into()),
+        title: None,
+        on_show: true,
+        last_command,
+    };
+    mux.commit_kept_tabs(&[record(Some(last.clone()))]).unwrap();
+    let read = |mux: &Mux| {
+        mux.workspace_registry.lock().unwrap().kept_tabs_of(std::slice::from_ref(&kept)).unwrap()
+    };
+    assert_eq!(read(&mux), vec![record(Some(last))]);
+    mux.commit_kept_tabs(&[record(None)]).unwrap();
+    assert_eq!(read(&mux), vec![record(None)], "a newer record without one clears it");
     mux.shutdown();
 }
 
@@ -1706,4 +1779,37 @@ fn a_status_commit_frees_the_session_lock_while_it_writes_the_registry() {
     mux.set_state_commit_after_apply_hook_for_test(None);
     assert!(waited.is_ok(), "a key's session lookup waited for a status commit's registry write");
     assert_eq!(set["entries"][0]["text"], "slow write", "{set}");
+}
+
+/// A list decorates its rows on cached statements (`values::query_row_cached`,
+/// on the registry's read-only connections): read again it is the same, it
+/// equals the snapshot, and a change made between two lists is in the second.
+#[test]
+fn repeated_tab_lists_decorate_as_the_snapshot_and_show_each_change() {
+    let session = Session::new("cached-decorations");
+    let mux = session.open();
+    let tabs = terminal_tabs(&mux, 3);
+    let marked = tab_id(&mux, tabs[1]);
+    mutate(
+        &mux,
+        "tab.update",
+        json!({"tab": marked, "marked_unread": true, "zoom": 1.5}),
+        "deco-1",
+    );
+    let tab_of = |list: &Value| {
+        list.as_array().unwrap().iter().find(|tab| tab["id"] == marked).cloned().unwrap()
+    };
+
+    let first = read(&mux, "tab.list", json!({}));
+    assert_eq!(read(&mux, "tab.list", json!({})), first, "a list read again is the same");
+    assert_eq!(first, snapshot(&mux)["tabs"], "the list is the snapshot's tabs");
+    assert_eq!(tab_of(&first)["extra"]["marked_unread"], true);
+    assert_eq!(tab_of(&first)["extra"]["zoom"], 1.5);
+
+    mutate(&mux, "tab.update", json!({"tab": marked, "marked_unread": false}), "deco-2");
+    let after = read(&mux, "tab.list", json!({}));
+    assert!(tab_of(&after)["extra"].get("marked_unread").is_none(), "the cleared mark is gone");
+    assert_eq!(tab_of(&after)["extra"]["zoom"], 1.5);
+    assert_eq!(after, snapshot(&mux)["tabs"]);
+    mux.shutdown();
 }

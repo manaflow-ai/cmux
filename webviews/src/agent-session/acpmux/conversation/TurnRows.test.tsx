@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { toolGroups } from "./toolGroups";
 import { renderToStaticMarkup } from "react-dom/server";
-import { runStretches, ToolRows, shouldFoldToolRun } from "./TurnRows";
+import { runStretches } from "./toolGroups";
+import { ToolRows } from "./TurnRows";
+import { shouldFoldToolRun } from "./turnRowsModel";
 import { Globe, MultiTool } from "./icons";
 
 const command = (id: string, text: string): AcpmuxActivity => ({
@@ -31,6 +33,22 @@ const row = (items: AcpmuxActivity[], foldRun = true): AcpmuxRow => ({
   settled: true,
   foldRun,
   items,
+});
+
+test("discovery-only activity leaves no child for RowFrame's empty-row spacing rule", () => {
+  const discovery: AcpmuxActivity = {
+    kind: "tool",
+    text: "ToolSearch",
+    tool: {
+      id: "discovery",
+      title: "ToolSearch",
+      status: "completed",
+      provenance: { claudeTool: "ToolSearch" },
+      output: "Loaded 2 tools",
+    },
+  };
+  expect(renderToStaticMarkup(<ToolRows row={row([discovery])} />)).toBe("");
+  expect(renderToStaticMarkup(<ToolRows row={row([])} />)).toContain("cv-tools");
 });
 
 test("folds a run the Codex-style runs settled, made only of tool groups", () => {
@@ -63,7 +81,7 @@ test("a folded run of one kind of work keeps that kind's glyph", () => {
   const items = [fetchCall("one", "https://example.com/a"), fetchCall("two", "https://example.com/b")];
   expect(shouldFoldToolRun(row(items), toolGroups(items))).toBe(true);
   const html = renderToStaticMarkup(<ToolRows row={row(items)} />);
-  expect(html).toContain(renderToStaticMarkup(<Globe size={16} strokeWidth={1.1} />));
+  expect(html).toContain(renderToStaticMarkup(<Globe size={16} />));
   expect(html).not.toContain(renderToStaticMarkup(<MultiTool />));
 });
 

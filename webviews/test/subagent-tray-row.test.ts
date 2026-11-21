@@ -13,6 +13,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { RUNNING_TRAY_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 await requireBrowserLane("subagent-tray-row.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -46,7 +47,10 @@ await requireBrowserLane("subagent-tray-row.test.ts", async () => {
         try {
           await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant, theme })}`);
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-          await page.locator(".acpmux-running-tray .acpmux-agent-line").first().waitFor();
+          // One item heads the hat folded (Leo, 2026-11-07): its header expands it to show the line.
+          const head = page.locator(".acpmux-running-tray__head");
+          if ((await head.getAttribute("aria-expanded")) === "false") await head.click();
+          await page.locator(RUNNING_TRAY_LINE).first().waitFor();
           const row = await page.evaluate(() => {
             for (const animation of document.getAnimations()) {
               if (Number.isFinite(animation.effect?.getComputedTiming().endTime as number)) animation.finish();
@@ -61,7 +65,7 @@ await requireBrowserLane("subagent-tray-row.test.ts", async () => {
             return {
               title: line.querySelector(".acpmux-summary-agent__name")?.textContent ?? "",
               state: box(line.querySelector(".acpmux-agent-line__meta")!),
-              stateText: line.querySelector(".acpmux-summary-agent__state")?.textContent ?? "",
+              stateText: line.querySelector(".acpmux-summary-agent__state, [data-hat-done]")?.textContent ?? "",
               time: box(line.querySelector(".acpmux-agent-line__time")!),
               timeText: line.querySelector(".acpmux-agent-line__time")?.textContent ?? "",
               tray: box(tray),
@@ -77,7 +81,7 @@ await requireBrowserLane("subagent-tray-row.test.ts", async () => {
               ? "Review the subagent tray row"
               : "Audit the bottom stack for motion that skips the tokens",
           );
-          // The state word, then its time: "Done · 36s". A running line shows its time alone, with
+          // The state (a done line's check, its word for screen readers), then its time. A running line shows its time alone, with
           // no Running word (Leo, 2026-11-03: "do we really need a running symbol vs just having the
           // time and a square stop button?").
           expect(row.stateText).toBe(variant === "done-task-label" ? "Done" : "");

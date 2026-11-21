@@ -394,6 +394,137 @@
         }
       }
     },
+    "action.app.menu.run" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تشغيل عنصر قائمة التطبيق"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokreni stavku menija aplikacije"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kør app-menupunkt"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App-Menüeintrag ausführen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run App Menu Item"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ejecutar elemento de menú de app"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exécuter un élément de menu d’app"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esegui voce di menu app"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appのメニュー項目を実行"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ដំណើរការធាតុម៉ឺនុយកម្មវិធី"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "앱 메뉴 항목 실행"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kjør app-menyelement"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uruchom element menu aplikacji"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Executar item de menu de app"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выполнить пункт меню приложения"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เรียกใช้รายการเมนูของแอป"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uygulama Menü Öğesini Çalıştır"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Виконати пункт меню застосунку"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chạy mục menu ứng dụng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运行 App 菜单项"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "執行 App 選單項目"
+          }
+        }
+      }
+    },
     "action.app.open" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -521,6 +652,137 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "開啟 App…"
+          }
+        }
+      }
+    },
+    "action.app.reloadCustomViews" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تحميل العروض المخصصة"
+          }
+        },
+        "bs" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponovo učitaj prilagođene prikaze"
+          }
+        },
+        "da" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genindlæs tilpassede visninger"
+          }
+        },
+        "de" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigene Ansichten neu laden"
+          }
+        },
+        "en" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload Custom Views"
+          }
+        },
+        "es" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recargar vistas personalizadas"
+          }
+        },
+        "fr" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recharger les vues personnalisées"
+          }
+        },
+        "it" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ricarica viste personalizzate"
+          }
+        },
+        "ja" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムビューを再読み込み"
+          }
+        },
+        "km" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទុកទិដ្ឋភាពផ្ទាល់ខ្លួនឡើងវិញ"
+          }
+        },
+        "ko" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 보기 다시 불러오기"
+          }
+        },
+        "nb" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last inn egendefinerte visninger på nytt"
+          }
+        },
+        "pl" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wczytaj ponownie widoki własne"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recarregar visualizações personalizadas"
+          }
+        },
+        "ru" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезагрузить пользовательские представления"
+          }
+        },
+        "th" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหลดมุมมองที่กำหนดเองใหม่"
+          }
+        },
+        "tr" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özel Görünümleri Yeniden Yükle"
+          }
+        },
+        "uk" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезавантажити власні подання"
+          }
+        },
+        "vi" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tải lại chế độ xem tùy chỉnh"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新加载自定义视图"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新載入自訂檢視"
           }
         }
       }
@@ -1307,6 +1569,137 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "部署到"
+          }
+        }
+      }
+    },
+    "argument.app.menuItem" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "عنصر القائمة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stavka menija"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menupunkt"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menüeintrag"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menu Item"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elemento de menú"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Élément de menu"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Voce di menu"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メニュー項目"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ធាតុម៉ឺនុយ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "메뉴 항목"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menyelement"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Element menu"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Item de menu"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пункт меню"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "รายการเมนู"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menü Öğesi"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пункт меню"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mục menu"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "菜单项"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選單項目"
           }
         }
       }

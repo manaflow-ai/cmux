@@ -140,6 +140,54 @@ its landing wait; a spring the drag did not start keeps the pane deadline. Below
 open: the split_resize numbers for `resizeSync` against `live`, `hold` and `synced` on one host, which need the
 API 27 pin and the harness's variants, before it can be the default.
 
+### FRAME OWNER S5: live page pixels in key resizes and drags (`motion.frameOwner.pages`)
+
+Contract (cmux-ad m14, Lawrence 2026-11-05): during key resizes and divider drags, in every frame every browser shows live
+pixels rendered at that frame's pane size. Not frozen, not stretched, not the old frame anchored at top-left.
+
+Chromium's model: the page is a layer in the embedder's compositor tree, and a resize produces a frame at the new size
+that the embedder presents with its own frame (viz surface synchronization). On macOS Chrome does this for its own
+windows with `CATransactionCoordinator`: the UI thread's Core Animation commit waits, with a deadline, for the GPU frame
+at the new size. cmux gets the same with the fork's two calls, pinned since cef-156.0.15-cmux.44:
+
+- API 26 hosts the page's compositor output in the window's own layer tree (`CEFHostedPageView`), so its pixels commit
+  in the same transaction as the pane.
+- API 27 makes a page window's resize hold that commit for its frame at the new size, up to the embedder's deadline.
+
+With the switch on (Debug Settings, default off; read when each resize begins and when a page is shown):
+
+1. Every page window is hosted (`CEFLayerHosting.isEnabled` is `layerHosting || framesOwnedByCommit`).
+2. A key resize no longer holds the page (`CEFTabContentView.holdPage(for:)`): the chrome follows its pane (S3) and the
+   page lays out at its page area in every frame (`beginPageSync(.keyResize)` until the spring lands).
+3. A divider drag lays the page out live (`beginPageSync(.drag)`), whatever `dragResize` says. This is #26595's
+   `resizeSync` path (Austin Wang; carried by Leo's #29679), made the S5 path.
+4. The main thread never waits for the page. Chromium's resize wait is its `CATransactionCoordinator` pre-commit handler,
+   which runs on Chromium's UI thread, and in cmux that is the app's main thread (`CEFMessagePump`). So with S5 on every
+   resize deadline (`syncDeadline`, `dragResizeDeadline`, and the window's `liveResizeDeadline`) is replaced by
+   `motion.frameOwner.pagesWait`, 0 by default
+   (`CEFLayerHosting.waitMs`). API 27's 0 means no pre-commit wait, no GPU CA transaction and no post-commit wait. The
+   main thread commits each frame at once; the page window's resize reaches Chromium in that turn; the GPU's frame at the
+   new size shows through the hosted context when it is drawn, with no app commit needed. Until then the page shows its
+   last frame inside its pane (the hosted root takes the page window's size; the GPU layer keeps the frame's size), not
+   stretched; the next frame catches up. `pagesWait` above 0 is for measurement films only (the cost of a same-frame page).
+
+Window frame sync (fork API 32, `cmux_browser_resize_fence`, fork version 34 on the Chromium 157 line; hq#11877): a
+page frame drawn after the pane's commit used to show one or more refreshes later, so S5 showed the page at its pane's
+size from Chromium's next frame, not in the pane's own frame. With an engine that has API 32, every resize of a hosted
+page's view in a page sync (`CEFLayerHosting.pageViewResized`, from `CEFHostView.setFrameSize`) joins the window's Core
+Animation fence for that turn (`CEFResizeFence`: one `-[CAContext createFencePort]` per window per turn). The fork sends
+a send right of it to the page's GPU process, which sets it on the commit of the page's first frame at the new size
+(Chromium's surface synchronization, with the render server as the display compositor that waits). The render server
+then shows the pane's commit and the page's frame together. The main thread never waits: the app drops its own right
+when every page's `done` came, or at its own deadline (the GPU's deadline, one refresh of the fastest display and at
+least 8 ms, plus one refresh). A page that misses the GPU's deadline shows its last frame for that step, as before, and
+the window's commit is late by at most that deadline. `CMUX_CEF_RESIZE_FENCE=0` keeps it off and
+`CMUX_CEF_RESIZE_FENCE_MS` sets the GPU's deadline, for A/B runs on one engine; `debug.cef` `tracker` counts `fences`,
+`fence_joined`, `fence_presented`, `fence_missed` and `fences_expired`. Below fork version 34 nothing changes. Before/after
+numbers: hq#11877 and the cmux PR that wired it.
+
+Red test: `CEFPageFrameOwnerTests` (switch by key, so it compiles before it exists). Evidence and dates: the S5 PR.
+
 ## 3. Features, status
 
 | Feature | Expected with hosting | Status |

@@ -263,16 +263,19 @@ impl AgentTransfers {
         entry.files.get(path).cloned().ok_or(Refusal::BadRequest)
     }
 
-    fn move_epoch(&self, transfer_id: &str) -> Result<u64, Refusal> {
+    /// The epoch the move's begin carried, or None for a move this daemon does not hold.
+    fn move_epoch(&self, transfer_id: &str) -> Result<Option<u64>, Refusal> {
         let mut moves = lock(&self.moves);
         let Some(entry) = moves.get_mut(transfer_id) else {
             // The move table is intentionally in-memory; after a daemon restart the source
             // acpmux remains authoritative and the commit/abort path refreshes its epoch via
             // `_acpmux/info` before issuing the fenced write.
-            return Ok(0);
+            return Ok(None);
         };
         entry.touched = Instant::now();
-        Ok(entry.epoch)
+        // A held move's begin answer is the epoch: 0 is an acpmux that does not fence, which
+        // `_acpmux/info` would only confirm at the cost of a round trip.
+        Ok(Some(entry.epoch))
     }
 
     /// Ends the receive `receive_id`, keeping what a receive-abort asks.
@@ -698,16 +701,17 @@ enum Prepared {
     },
     /// Answered by the daemon itself (a scrubbed page, a dropped receive).
     Answer(Value),
+    /// `epoch` is None for a move this daemon does not hold (`move_epoch`).
     Commit {
         session: String,
         transfer_id: String,
         to: Value,
-        epoch: u64,
+        epoch: Option<u64>,
     },
     Abort {
         session: String,
         transfer_id: String,
-        epoch: u64,
+        epoch: Option<u64>,
     },
 }
 
@@ -787,7 +791,7 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
             match transfers.listed(&transfer_id, &path)? {
                 Some(bytes) => Prepared::Answer(page_of(&bytes, offset, limit)),
                 None => Prepared::Read {
-                    epoch: transfers.move_epoch(&transfer_id)?,
+                    epoch: transfers.move_epoch(&transfer_id)?.unwrap_or(0),
                     transfer_id,
                     path,
                     offset,
@@ -911,8 +915,8 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
         }
         params
     };
-    let refresh_epoch = |session: &str, epoch: u64| -> Result<u64, Failure> {
-        if epoch != 0 {
+    let refresh_epoch = |session: &str, epoch: Option<u64>| -> Result<u64, Failure> {
+        if let Some(epoch) = epoch {
             return Ok(epoch);
         }
         let info =

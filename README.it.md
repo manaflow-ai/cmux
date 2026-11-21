@@ -14,7 +14,6 @@
 </p>
 
 <p align="center">
-  <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
   <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
@@ -427,7 +426,7 @@ Vogliamo saperlo. Apri una [issue](https://github.com/manaflow-ai/cmux/issues) o
 
 Modi per partecipare:
 
-- Seguici su X per aggiornamenti [@manaflowai](https://x.com/manaflowai), [@lawrencecchen](https://x.com/lawrencecchen), e [@austinywang](https://x.com/austinywang)
+- Seguici su X per aggiornamenti [@lawrencecchen](https://x.com/lawrencecchen) e [@austinywang](https://x.com/austinywang)
 - Unisciti alla conversazione su [Discord](https://discord.gg/xsgFEVrWCZ)
 - Crea e partecipa alle [issue su GitHub](https://github.com/manaflow-ai/cmux/issues) e alle [discussioni](https://github.com/manaflow-ai/cmux/discussions)
 - Facci sapere cosa stai costruendo con cmux
@@ -437,7 +436,6 @@ Modi per partecipare:
 - [Discord](https://discord.gg/xsgFEVrWCZ)
 - [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
-- [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)

@@ -20,5 +20,10 @@ pub(crate) fn current() -> Result<Option<Selection>, String> {
     }
     let home = std::env::var_os("HOME").ok_or("HOME is unavailable.")?;
     let resolver = Resolver::new(bundle, std::path::Path::new(&home))?;
-    resolver.resolve(std::env::var("CMUX_NEXT_CLOUD_ENV").ok().as_deref()).map(Some)
+    let selection = resolver.resolve(std::env::var("CMUX_NEXT_CLOUD_ENV").ok().as_deref())?;
+    // The daemon starts synchronously, so it cannot fetch client-config here.
+    // Apply the last validated per-backend response when one is available; the
+    // async app bootstrap refreshes it and atomically replaces the cache.
+    let cached = resolver.cached_client_config(selection.clone())?;
+    Ok(Some(cached.unwrap_or(selection)))
 }

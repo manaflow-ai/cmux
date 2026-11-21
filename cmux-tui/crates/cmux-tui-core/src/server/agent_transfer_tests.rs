@@ -516,6 +516,10 @@ fn source_verbs_take_the_chat_from_the_surface_tab() {
     let abort = client.request(json!({"cmd":"agent-transfer-abort","surface":surface,
                                       "transfer_id":"xfer_1"}));
     ok_data(&abort);
+    // The commit ended the move here, so the abort asks acpmux for the chat's epoch first.
+    let info = fake.frame();
+    assert_eq!(info["method"], json!("_acpmux/info"));
+    assert_eq!(info["params"], json!({"sessionId":SESSION,"waitLogs":false}));
     assert_eq!(fake.frame()["params"], json!({"sessionId":SESSION,"transferId":"xfer_1"}));
 }
 

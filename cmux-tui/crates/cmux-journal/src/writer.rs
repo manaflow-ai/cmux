@@ -7,12 +7,22 @@
 //! full one, or, when no batch comes, a full sync runs alone. So an ack waits for a drive cache
 //! flush at most once per interval, and never after an idle time.
 //!
-//! Sync markers (`format.rs`): after each successful sync that covered records, the writer appends
-//! a marker that vouches for them, before anything else it writes to that segment, after the
-//! durable listeners ran (so no reply waits for it). The next sync covers the marker; at a seal and
-//! at a rotation one more full sync covers it, so a sealed or full segment ends vouched for on
-//! the disk. Recovery trusts the last segment only up to its last marker and writes the records
-//! after it again into a new segment.
+//! Sync markers (`format.rs`): after each successful sync that covered records, the writer owes a
+//! marker that vouches for them. It appends it in the same write as the next records it writes to
+//! that segment, ahead of them, after the durable listeners ran (so no reply waits for it), and
+//! the next sync covers both; at a seal and at a rotation it appends it at once and one more full
+//! sync covers it, so a sealed or full segment ends vouched for on the disk. Recovery trusts the
+//! last segment only up to its last marker and writes the records after it again into a new
+//! segment.
+//!
+//! The marker waits for the next records because the kernel charges a write by the pages it
+//! dirties (macOS 16 KiB, Linux 4 KiB, each time a clean page becomes dirty), and a sync cleans
+//! the pages it wrote. A marker appended right after its sync dirtied the page again on its own;
+//! the full sync of the power-loss window, or the kernel's writeback, then cleaned it, and the next
+//! batch dirtied it a third time: two pages charged for a lone acked change instead of one
+//! (cmuxterm-hq#11322, `page_charge_tests.rs`). Written with the next records, it shares their
+//! pages. A kill in between only means recovery writes the last synced batch again (step 4 of
+//! `recovery.rs`), as it does for a marker an OS crash lost; nothing acked is lost.
 //!
 //! Failures:
 //! - A failed write (a full disk): the segment is cut back to its size before the write, and the
@@ -34,9 +44,25 @@
 //! While it backs off, the writer takes no new records; appends end in `AppendError::Backlog`
 //! once `Config::max_pending_bytes` wait. Nothing waits for the disk except this thread.
 //!
+//! Kept records ([`crate::Journal::append_kept`]) are synced in idle time: once no record was
+//! taken for `Config::kept_sync_quiet` after the last write. A burst of them (a person typing, a
+//! script renaming) writes each batch at once and syncs none until it pauses, and the next acked
+//! batch then syncs only its own records: before, it synced the whole burst in its turn (316
+//! records, 1.17 MB: 7.3 ms against 2.3 ms, probe job 01189fd6, aws-m4pro-8). The quiet time is
+//! longer than the gap between two typed keys: at 10 ms every key was a sync of its own.
+//!
+//! Group commit of acked batches: an acked batch that comes within `Config::ack_group_window` of
+//! the last sync that held an acked record is written at once and synced when that window ends,
+//! with whatever came meanwhile. A turn's end and the next prompt append about ten acked records
+//! within two milliseconds; each used to get a sync of its own (cmuxterm-hq#11322). The first
+//! acked batch after a quiet time is synced at once, so a prompt or a click waits for no window,
+//! and so is a sync a waiter asked for (`wait_durable`), so a chain of waits pays none per hop.
+//! The window runs from the start of the last acked sync: on a slow disk the records that came
+//! during it wait for no window after it.
+//!
 //! The thread sleeps on a condition variable while nothing is owed. It sets a timer only while
-//! written stream records wait for their sync, synced records for their full sync, or a failure
-//! for its retry.
+//! written stream or kept records wait for their sync, synced records for their full sync, or a
+//! failure for its retry.
 
 use std::io;
 use std::path::PathBuf;
@@ -81,6 +107,7 @@ impl Drop for Ended {
     fn drop(&mut self) {
         let panicked = std::thread::panicking();
         self.0.listeners.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        self.0.written_listeners.lock().unwrap_or_else(PoisonError::into_inner).clear();
         {
             let mut state = self.0.lock();
             state.ended = true;
@@ -108,10 +135,14 @@ pub(crate) struct Writer {
     /// The LSN of the last record in `retained`.
     retained_last: Lsn,
     retained_ack: bool,
+    /// `retained` holds a kept record: synced once the journal is quiet ([module docs](self)).
+    retained_kept: bool,
     /// Bytes of `retained` written to `active`.
     written: usize,
     /// When the oldest written and unsynced byte was written.
     unsynced_since: Option<Instant>,
+    /// When the newest written and unsynced byte was written.
+    written_at: Option<Instant>,
     /// Records were written to `active` after its last marker.
     unmarked: bool,
     /// A marker `active` owes, for this LSN.
@@ -122,6 +153,11 @@ pub(crate) struct Writer {
     full_durable: Lsn,
     /// When a barrier sync first made records durable that no full sync covers yet.
     unfull_since: Option<Instant>,
+    /// When the last sync that held an acked record started ([module docs](self)).
+    acked_sync_started: Option<Instant>,
+    /// A waiter asked for the sync of what is held ([`crate::Journal::wait_durable`]): it waits
+    /// for no group window.
+    sync_asked: bool,
     retry_at: Option<Instant>,
     backoff: Duration,
 }
@@ -146,14 +182,18 @@ impl Writer {
             retained: Vec::new(),
             retained_last: durable,
             retained_ack: false,
+            retained_kept: false,
             written: 0,
             unsynced_since: None,
+            written_at: None,
             unmarked: false,
             marker: None,
             marker_unsynced: false,
             durable,
             full_durable: durable,
             unfull_since: None,
+            acked_sync_started: None,
+            sync_asked: false,
             retry_at: None,
             backoff,
         }
@@ -194,7 +234,15 @@ impl Writer {
             }
             let took = self.take(&mut state);
             let owed = !self.retained.is_empty() || self.durable > self.full_durable;
-            if took || (state.closed && owed) || self.sync_due(now) || self.full_due(now) {
+            let asked = self.take_sync_ask(&mut state);
+            if took
+                || asked
+                || (state.closed && owed)
+                || self.sync_due(now)
+                || self.kept_due(now)
+                || self.ack_due(now)
+                || self.full_due(now)
+            {
                 return Job { close: state.closed, last: false };
             }
             let deadline = self.deadline();
@@ -235,9 +283,25 @@ impl Writer {
         }
         self.retained_last = state.pending_last;
         self.retained_ack |= state.pending_ack;
+        self.retained_kept |= state.pending_kept;
         state.pending_last = 0;
         state.pending_records = 0;
         state.pending_ack = false;
+        state.pending_kept = false;
+        true
+    }
+
+    /// A waiter asked for a sync ([`crate::Journal::wait_durable`]): the records held now are
+    /// synced in the next job, as an acked batch is. An ask with nothing held is spent.
+    fn take_sync_ask(&mut self, state: &mut State) -> bool {
+        if !std::mem::take(&mut state.sync_asked) {
+            return false;
+        }
+        if self.retained.is_empty() {
+            return false;
+        }
+        self.retained_ack = true;
+        self.sync_asked = true;
         true
     }
 
@@ -248,6 +312,29 @@ impl Writer {
             && self
                 .unsynced_since
                 .is_some_and(|since| passed(since, self.shared.config.stream_sync_delay, now))
+    }
+
+    /// Written kept records, and the journal was quiet for `Config::kept_sync_quiet` since the
+    /// last write ([module docs](self)).
+    fn kept_due(&self, now: Instant) -> bool {
+        self.retained_kept
+            && self.written == self.retained.len()
+            && self.written_at.is_some_and(|at| passed(at, self.shared.config.kept_sync_quiet, now))
+    }
+
+    /// Written acked records, and the group window of the last acked sync has ended (or none
+    /// ran): they are synced now ([module docs](self)).
+    fn ack_due(&self, now: Instant) -> bool {
+        self.retained_ack && self.written == self.retained.len() && self.ack_window_over(now)
+    }
+
+    /// No acked sync started within the group window, or a waiter asked for the sync: a chain
+    /// of waits (each one asks once the one before it is durable) pays no window per hop.
+    fn ack_window_over(&self, now: Instant) -> bool {
+        self.sync_asked
+            || self
+                .acked_sync_started
+                .is_none_or(|at| passed(at, self.shared.config.ack_group_window, now))
     }
 
     /// Synced records waited out the full-sync interval.
@@ -264,11 +351,18 @@ impl Writer {
         } else {
             None
         };
+        let kept = if written && self.retained_kept {
+            self.written_at.and_then(|at| at.checked_add(config.kept_sync_quiet))
+        } else {
+            None
+        };
+        let acked = if written && self.retained_ack {
+            self.acked_sync_started.and_then(|at| at.checked_add(config.ack_group_window))
+        } else {
+            None
+        };
         let full = self.unfull_since.and_then(|since| since.checked_add(config.full_sync_interval));
-        match (stream, full) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+        [stream, kept, acked, full].into_iter().flatten().min()
     }
 
     fn work(&mut self, close: bool) -> Result<(), Failure> {
@@ -284,25 +378,48 @@ impl Writer {
             // records the failed segment holds through `durable` become fully durable too.
             self.create_segment().map_err(Failure::Segment)?;
         }
-        // A marker that a failed write left owed goes first.
-        self.write_marker()?;
         let now = Instant::now();
         if self.written < self.retained.len() {
             let Some(active) = self.active.as_mut() else {
                 return Err(Failure::Segment(no_segment()));
             };
             let unwritten = self.retained.get(self.written..).unwrap_or_default();
-            if let Err(error) = active.file.append(unwritten) {
-                return Err(cut_back(active, error));
+            // The marker the last sync owes goes first, in the same write and the same dirty
+            // pages as the records after it ([module docs](self)).
+            let appended = match self.marker {
+                Some(lsn) => {
+                    let mut bytes = Vec::with_capacity(RECORD_HEADER_LEN + unwritten.len());
+                    format::encode_marker(&mut bytes, lsn);
+                    bytes.extend_from_slice(unwritten);
+                    active.file.append(&bytes).map(|()| bytes.len())
+                }
+                None => active.file.append(unwritten).map(|()| unwritten.len()),
+            };
+            let appended = match appended {
+                Ok(appended) => appended,
+                Err(error) => return Err(cut_back(active, error)),
+            };
+            active.size = active.size.saturating_add(len64(appended));
+            if self.marker.take().is_some() {
+                self.marker_unsynced = true;
             }
-            active.size = active.size.saturating_add(len64(unwritten.len()));
             self.written = self.retained.len();
             self.unmarked = true;
             if self.unsynced_since.is_none() {
                 self.unsynced_since = Some(now);
             }
+            self.written_at = Some(now);
             let last = self.retained_last;
             self.publish(|stats| stats.written_lsn = last);
+            let listeners = self
+                .shared
+                .written_listeners
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            for listener in listeners {
+                listener(last);
+            }
         }
         let segment_bytes = self.shared.config.segment_bytes;
         let full_segment = self.active.as_ref().is_some_and(|active| active.size >= segment_bytes);
@@ -311,18 +428,21 @@ impl Writer {
         let held = !self.retained.is_empty();
         let stream_delay = self.shared.config.stream_sync_delay;
         let due = held
-            && (self.retained_ack
+            && ((self.retained_ack && self.ack_window_over(now))
                 || self.retained.len() >= MAX_UNSYNCED_BYTES
-                || self.unsynced_since.is_some_and(|since| passed(since, stream_delay, now)));
+                || self.unsynced_since.is_some_and(|since| passed(since, stream_delay, now))
+                || self.kept_due(now));
         if due || (full && owed) {
             let level = if full { SyncLevel::Full } else { SyncLevel::Barrier };
             self.sync(level).map_err(Failure::Segment)?;
-            self.write_marker()?;
         }
-        if (close || full_segment) && self.marker_unsynced {
+        if close || full_segment {
             // A sealed or full segment ends with its marker on the disk, so the next open finds
             // every record vouched for and writes none again.
-            self.sync_marker().map_err(Failure::Segment)?;
+            self.write_marker()?;
+            if self.marker_unsynced {
+                self.sync_marker().map_err(Failure::Segment)?;
+            }
         }
         if full_segment && self.retained.is_empty() {
             // Fully synced: the next record makes the next segment.
@@ -333,6 +453,9 @@ impl Writer {
 
     fn sync(&mut self, level: SyncLevel) -> io::Result<()> {
         let Some(active) = self.active.as_mut() else { return Err(no_segment()) };
+        // The group window runs from the sync's start: on a slow disk, the acked records that
+        // come during a sync share the next one anyway, which then waits for no window.
+        let started = Instant::now();
         active.file.sync(level)?;
         self.marker_unsynced = false;
         let now = Instant::now();
@@ -354,10 +477,16 @@ impl Writer {
                 }
             }
         }
+        if self.retained_ack {
+            self.acked_sync_started = Some(started);
+        }
         self.retained.clear();
         self.retained_ack = false;
+        self.sync_asked = false;
+        self.retained_kept = false;
         self.written = 0;
         self.unsynced_since = None;
+        self.written_at = None;
         self.backoff = self.shared.config.retry_min;
         let (durable, full_durable) = (self.durable, self.full_durable);
         let advanced = self.publish(|stats| {
@@ -382,8 +511,9 @@ impl Writer {
         Ok(())
     }
 
-    /// Appends the marker `active` owes ([module docs](self)). It is not synced here: the next
-    /// sync covers it, and recovery syncs the last segment before it reads it.
+    /// Appends the marker `active` owes on its own, at a seal or a rotation (otherwise it goes in
+    /// the next records' write: [module docs](self)). It is not synced here: the caller's full sync
+    /// covers it, and recovery syncs the last segment before it reads it.
     fn write_marker(&mut self) -> Result<(), Failure> {
         let Some(lsn) = self.marker else { return Ok(()) };
         let Some(active) = self.active.as_mut() else { return Ok(()) };
@@ -440,6 +570,7 @@ impl Writer {
                 self.active = None;
                 self.written = 0;
                 self.unsynced_since = None;
+                self.written_at = None;
                 self.unmarked = false;
                 self.marker = None;
                 self.marker_unsynced = false;

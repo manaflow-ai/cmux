@@ -125,7 +125,7 @@ extension TabCell {
         // pinned tab closes from its menu (Lawrence msg 19392).
         let hover = TabChromeVisibility.resolve(
             width: layer.bounds.width, isPinned: item.isPinned, isSelected: isSelected,
-            isHovered: true, isClosable: item.isClosable, style: style, metrics: m)
+            isHovered: true, isClosable: item.isClosable, hasStatus: hasStatusMark, style: style, metrics: m)
         let hoverRect = hover.closeButtonOriginX(pillWidth: pill.width, metrics: m).map { x in
             CGRect(x: pixel(x), y: pixel(pill.height / 2 - side / 2), width: side, height: side)
         }

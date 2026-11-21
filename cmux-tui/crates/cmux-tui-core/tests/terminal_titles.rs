@@ -40,7 +40,7 @@ printf '\033]2;done\007'; sleep 30
     let mut seen: Vec<String> = Vec::new();
     let drain = |seen: &mut Vec<String>| {
         for event in events.try_iter() {
-            if let MuxEvent::TitleChanged { surface: id, title } = event
+            if let MuxEvent::TitleChanged { surface: id, title, .. } = event
                 && id == surface.id
             {
                 seen.push(title.to_string());
@@ -65,5 +65,47 @@ printf '\033]2;done\007'; sleep 30
         "the same title was announced twice in a row: {seen:?}"
     );
     assert_eq!(seen.last().map(String::as_str), Some("done"));
+    let _ = mux.close_surface(surface.id);
+}
+
+/// A spinner only animates (plans/cmux-next/main-thread-scheduling.md, D2):
+/// 20 frames of one working title change what the tab shows once, so the
+/// daemon announces one `TitleChanged`, not one per frame. The app's tab
+/// observers then wake once per change of the words, as Chrome steps its tab
+/// throbber without touching the tab's title (C7).
+#[test]
+fn twenty_spinner_frames_of_one_text_announce_one_title() {
+    let script = r#"
+for f in ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏ ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠿; do
+  printf '\033]0;%s Fix the login bug\007' "$f"; sleep 0.1
+done
+sleep 30
+"#;
+    let mux = Mux::new(unique_session("test-spinner-titles"), shell_opts(script));
+    let events = mux.subscribe();
+    let surface = mux.new_workspace(None, Some((40, 6))).unwrap();
+    let mut announced = 0usize;
+    let drain = |announced: &mut usize| {
+        for event in events.try_iter() {
+            if let MuxEvent::TitleChanged { surface: id, title, .. } = event
+                && id == surface.id
+                && title.contains("Fix the login bug")
+            {
+                *announced += 1;
+            }
+        }
+    };
+    let reached = wait_for(
+        || {
+            drain(&mut announced);
+            (surface.title() == "⠿ Fix the login bug").then_some(())
+        },
+        Duration::from_secs(20),
+    );
+    assert!(reached.is_some(), "the spinner never reached its last frame: {:?}", surface.title());
+    // Let the daemon publish whatever the last frame causes.
+    std::thread::sleep(Duration::from_millis(300));
+    drain(&mut announced);
+    assert_eq!(announced, 1, "20 spinner frames of one text must announce one title");
     let _ = mux.close_surface(surface.id);
 }

@@ -29,6 +29,8 @@ env:
   # as unset).
   CMUX_GHOSTTY_SRC: ""
   RUST_TOOLCHAIN: "1.95.0"
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 concurrency:
   group: sdk-publish-python-${{ github.ref }}
@@ -37,6 +39,7 @@ concurrency:
 jobs:
   version:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -161,6 +164,7 @@ jobs:
   build:
     needs: bindings-e2e-python
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    timeout-minutes: 30
     permissions:
       contents: read
     outputs:

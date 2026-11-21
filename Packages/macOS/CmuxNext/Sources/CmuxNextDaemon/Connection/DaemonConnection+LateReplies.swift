@@ -3,7 +3,8 @@ import Foundation
 import os
 
 /// A change the person already sees (Cmd-N's workspace shows at the press) must not be taken back
-/// because the daemon answered it after the 2 s control deadline: a busy daemon still commits it
+/// because the daemon answered it after the request deadline (``DaemonConnection/defaultRequestTimeout``,
+/// 30 s since #35075; it was 2 s when this was written): a busy daemon still commits it
 /// (cx-tzlqb), and taking it back closed a workspace the person was looking at. Sent again with the
 /// same mutation identity, a committed change replays its result instead of committing twice (as
 /// ``NewFrontendBrowserTabRequest/send(on:)`` does for keyed browser tabs).
@@ -11,8 +12,10 @@ extension DaemonConnection {
     private static let lateReplyLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
 
     /// When a change that starts now stops asking again: one budget for every step of it (Cmd-N's
-    /// pin, create and first tab share one), so a daemon that never answers holds the window's
-    /// create lane about this long, not this long per step.
+    /// pin, create and first tab share one). With the 30 s request deadline (#35075) a missed
+    /// reply comes after this 10 s budget and ends the change, so a daemon that never answers
+    /// holds the window's create lane one request deadline; the budget bounds the re-sends after a
+    /// lost connection.
     public static func lateReplyDeadline() -> ContinuousClock.Instant {
         ContinuousClock.now + NewFrontendBrowserTabRequest.lateReplyBudget
     }
@@ -47,7 +50,22 @@ extension DaemonConnection {
     /// returned and none is started twice (``requestWaitingForStart(_:)``).
     @discardableResult
     public func createTerminalWaitingForStart(in key: WorkspaceKey, cwd: String?) async throws -> CreateTerminalResult {
-        try await requestWaitingForStart(await createTerminalRequest(in: key, cwd: cwd))
+        try await createTerminalWaitingForStart(await createTerminalRequest(in: key, cwd: cwd))
+    }
+
+    /// Whether `create-terminal` can make its workspace (`create-terminal-workspace-v1`): a new terminal workspace
+    /// is then one request (``makesWorkspace(with:)``).
+    public var makesWorkspaceWithTerminal: Bool { identity?.supports(DaemonCapability.createTerminalWorkspace.rawValue) == true }
+
+    /// Takes `new` when this daemon makes a workspace with its first terminal: the next first-terminal request for
+    /// its key (``createTerminalWaitingForStart(_:)``) then asks for the workspace too, and the caller sends no
+    /// `create-workspace`.
+    ///
+    /// - Returns: false on a daemon without `create-terminal-workspace-v1`: the caller sends `create-workspace` first.
+    public func makesWorkspace(with new: NewTerminalWorkspace) -> Bool {
+        guard makesWorkspaceWithTerminal else { return false }
+        workspacesToMake[new.key] = new
+        return true
     }
 
     /// Sends `request`, a terminal start cmux-tui replays (a keyed `create-terminal`, or a `split`,
@@ -82,7 +100,10 @@ extension DaemonConnection {
     /// workspace the person already saw while the daemon still made the terminal (P0 2026-10-30).
     @discardableResult
     public func createTerminalWaitingForStart(_ request: CreateTerminalRequest) async throws -> CreateTerminalResult {
-        try await requestWaitingForStart(request)
+        guard case .key(let key) = request.workspace, let new = workspacesToMake.removeValue(forKey: key) else {
+            return try await requestWaitingForStart(request)
+        }
+        return try await requestWaitingForStart(new.applied(to: request))
     }
 
     /// `create-workspace` for workspace `key` that waits through late replies under one mutation identity
@@ -97,6 +118,18 @@ extension DaemonConnection {
             Self.checkNoLateStart(error, CreateWorkspaceRequest.command) // R3 (DEBUG)
             throw error
         }
+    }
+
+    /// `create-workspace {first_tab}` (`workspace-first-tab-v1`): workspace `key` and its first browser tab in one
+    /// request, waited for through late replies under one mutation identity and one tab key (the daemon replays
+    /// both), as ``createWorkspaceWaitingForReply(name:key:)`` waits. A refusal made nothing.
+    public func createWorkspaceWithFirstTabWaitingForReply(name: String? = nil, key: WorkspaceKey,
+                                                           firstTab: WorkspaceFirstBrowserTab) async throws -> WorkspaceMutationResult {
+        guard identity?.supports(DaemonCapability.workspaceFirstTab.rawValue) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapability.workspaceFirstTab.rawValue])
+        }
+        let request = CreateWorkspaceRequest(name: name, key: key, firstTab: firstTab, mutation: mutation())
+        return try await Self.waitingThroughLateReplies(CreateWorkspaceRequest.command) { try await self.request(request) }
     }
 
     /// Runs `send` again while it misses its reply or start deadline, and repeats one keyed change the daemon

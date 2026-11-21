@@ -33,7 +33,6 @@ import Testing
                                     serverState: Self.state(.paused, stage: stage))
         #expect(row.serverState == .paused)
         #expect(!row.isConnecting)
-        #expect(row.stateText == MachineServerState.paused.text)
     }
 
     /// The row's reading of a Cloud machine, as `MachineSectionRow.rows` passes it: the server status

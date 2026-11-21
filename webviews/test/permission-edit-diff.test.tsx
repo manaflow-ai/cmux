@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { PermissionClientState, PermissionGroup } from "../src/agent-session/acpmux/permissions/protocol";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -63,14 +64,15 @@ beforeAll(async () => {
   host = window.document.getElementById("root")!;
   // Match the app's chunk preload. Pierre still paints asynchronously; waitForLines below observes
   // that paint, independently of whether an earlier test has warmed the syntax highlighter.
-  const { loadEditDiffHunks } = await import("../src/agent-session/acpmux/conversation/EditDiff");
+  const { loadEditDiffHunks } = await import("../src/agent-session/acpmux/conversation/editDiffModel");
   await loadEditDiffHunks();
 });
 
-afterAll(() => {
+afterAll(async () => {
   for (const observer of renderObservers) observer.disconnect();
   renderObservers.clear();
   act(() => root?.unmount());
+  await settleReact();
   dom.window.close();
   for (const key of added) delete scope[key];
   for (const [key, had, value] of saved) {

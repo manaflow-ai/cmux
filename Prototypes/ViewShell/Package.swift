@@ -4,7 +4,7 @@ import PackageDescription
 
 // The view shell: cmux NEXT's UI in real native windows, without the app. A window is an
 // NSWindow with the system titlebar, traffic lights and vibrancy; its content is the webviews
-// mock app (webviews/src/gallery/app.html, `chrome=native`) on the in-page mock daemon, loaded
+// mock app (webviews/src/gallery/mock-app.html, `chrome=native`) on the in-page mock daemon, loaded
 // from the gallery dev server (hot reload) or a built gallery folder. It links nothing of the
 // app, so it builds in seconds and only when this file's folder changes. See README.md.
 let package = Package(

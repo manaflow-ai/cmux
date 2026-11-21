@@ -195,6 +195,15 @@ final class ChromiumQuestionKeyChannel {
         return reply["annotations"].map { $0 is [String: Any] } ?? true
     }
 
+    /// The main frame committed a new document: its isolated world went with the old one. As for
+    /// Chromium's `Runtime.executionContextsCleared`, which the page host's session gets only while
+    /// its Runtime domain is on (``ChromiumPageHostBridge`` turns it off between navigations), the
+    /// proof ends and the owner is told so it installs again for the new document.
+    func documentReplaced() {
+        invalidate()
+        onInvalidated?()
+    }
+
     /// Navigation, a pending-question change, session switch, close, or renderer death ends the
     /// proof before any async cleanup. There are no timers or polling loops.
     func invalidate() {

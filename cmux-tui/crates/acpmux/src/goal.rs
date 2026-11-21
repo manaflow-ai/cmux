@@ -14,6 +14,9 @@ pub enum GoalProvider {
     Claude,
     Gemini,
     Muse,
+    /// A goal the agent set through the `acpmux` MCP server's `goal_set` (`generic_goal.rs`), on a
+    /// harness with no goal of its own; acpmux keeps it going at each turn's end.
+    Generic,
     Unknown(String),
 }
 
@@ -49,6 +52,7 @@ impl GoalProvider {
             "claude" | "anthropic" => Self::Claude,
             "gemini" | "google" => Self::Gemini,
             "muse" => Self::Muse,
+            "generic" => Self::Generic,
             other => Self::Unknown(other.to_owned()),
         }
     }
@@ -59,6 +63,7 @@ impl GoalProvider {
             Self::Claude => "claude",
             Self::Gemini => "gemini",
             Self::Muse => "muse",
+            Self::Generic => "generic",
             Self::Unknown(value) => value,
         }
     }

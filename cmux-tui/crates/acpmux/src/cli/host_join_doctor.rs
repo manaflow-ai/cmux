@@ -25,8 +25,9 @@ use serde_json::{Value, json};
 
 use super::host_steps::StepState;
 
-/// The platform the join line comes from until joining is on elsewhere.
-pub const DEV_ORIGIN: &str = "https://cmux-platform-development.debussy.workers.dev";
+/// The platform the join line comes from when the status names none: the
+/// join's own default hub.
+pub const JOIN_ORIGIN: &str = super::cloud_join::DEFAULT_HUB;
 /// A heartbeat older than this means the machine has dropped off the mesh
 /// (the hub's own limit, cmux#27079).
 pub const HEARTBEAT_WITHIN_MS: u64 = 90_000;
@@ -42,19 +43,34 @@ pub struct JoinStep {
     pub state: StepState,
     pub detail: String,
     pub fix: Option<String>,
+    /// Structured readiness data for callers such as the app. Sensitive command output is
+    /// reduced to booleans before it reaches this field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
 }
 
 impl JoinStep {
     pub fn new(step: &'static str, state: StepState, detail: impl Into<String>) -> Self {
-        Self { step, state, detail: detail.into(), fix: None }
+        Self { step, state, detail: detail.into(), fix: None, data: None }
     }
 
     pub fn fail(step: &'static str, detail: impl Into<String>, fix: impl Into<String>) -> Self {
-        Self { step, state: StepState::Fail, detail: detail.into(), fix: Some(fix.into()) }
+        Self {
+            step,
+            state: StepState::Fail,
+            detail: detail.into(),
+            fix: Some(fix.into()),
+            data: None,
+        }
     }
 
     pub fn with_fix(mut self, fix: impl Into<String>) -> Self {
         self.fix = Some(fix.into());
+        self
+    }
+
+    pub fn with_data(mut self, data: Value) -> Self {
+        self.data = Some(data);
         self
     }
 
@@ -130,10 +146,10 @@ fn origin(facts: &Facts) -> String {
         Status::Json(v) => v["hubOrigin"]
             .as_str()
             .filter(bare)
-            .unwrap_or(DEV_ORIGIN)
+            .unwrap_or(JOIN_ORIGIN)
             .trim_end_matches('/')
             .to_owned(),
-        _ => DEV_ORIGIN.to_owned(),
+        _ => JOIN_ORIGIN.to_owned(),
     }
 }
 
@@ -242,6 +258,21 @@ fn service_step(facts: &Facts) -> JoinStep {
         )
         .with_fix("loginctl enable-linger $USER"),
         Service::Active { .. } => JoinStep::new("service", StepState::Ok, format!("{what} runs")),
+        // The daemon answers, only not under the service: this join works now and stops at the
+        // next reboot, which is a warning (a headless user with no systemd user session, or a
+        // daemon someone started by hand), never a failed join.
+        Service::Inactive { installed: true } if facts.daemon_running => JoinStep::new(
+            "service",
+            StepState::Warn,
+            format!("{what} is installed but not running; the daemon runs without it"),
+        )
+        .with_fix(start),
+        Service::Inactive { installed: false } if facts.daemon_running => JoinStep::new(
+            "service",
+            StepState::Warn,
+            format!("{what} is not installed; the daemon runs without it"),
+        )
+        .with_fix(rejoin(facts)),
         Service::Inactive { installed: true } => {
             JoinStep::fail("service", format!("{what} is installed but not running"), start)
         }
@@ -357,7 +388,9 @@ fn consent_step(facts: &Facts, status: Option<&Value>) -> JoinStep {
         detail.push_str(&format!("; a {surface} request was last refused here"));
     }
     if !on("screen") || !on("control") {
-        detail.push_str("; to allow, run here: acpmux host consent grant --screen (or --control)");
+        detail.push_str(
+            "; to allow, turn it on in the cmux app here, or as this Mac's admin: sudo acpmux machine consent grant --control (or --screen)",
+        );
     }
     JoinStep::new("consent", StepState::Ok, detail)
 }
@@ -577,15 +610,28 @@ fn systemd_service(home: &Path) -> Service {
     let Some((_, state)) = output(Path::new("systemctl"), &["--user", "is-active", SERVICE]) else {
         return Service::NoManager;
     };
-    if state.trim() == "active" {
+    let installed = home.join(".config/systemd/user").join(SERVICE).is_file();
+    let service = systemd_state(&state, installed);
+    if service == (Service::Active { linger: None }) {
         let user = std::env::var("USER").unwrap_or_default();
         let linger =
             output(Path::new("loginctl"), &["show-user", &user, "--property=Linger", "--value"])
                 .map(|(_, v)| v.trim() == "yes");
         return Service::Active { linger };
     }
-    let installed = home.join(".config/systemd/user").join(SERVICE).is_file();
-    Service::Inactive { installed }
+    service
+}
+
+/// `systemctl --user is-active`'s stdout read as a service state. A user manager that answers
+/// prints a state word (`active`, `inactive`, `failed`, ...); with no systemd user session (a
+/// headless user without linger, a container) it prints nothing and fails on stderr ("Failed
+/// to connect to bus"): no manager here, not a stopped service.
+pub fn systemd_state(stdout: &str, installed: bool) -> Service {
+    match stdout.trim() {
+        "active" => Service::Active { linger: None },
+        "" => Service::NoManager,
+        _ => Service::Inactive { installed },
+    }
 }
 
 #[cfg(unix)]
@@ -700,6 +746,12 @@ pub fn run_here(fix: bool, print: Print, out: &mut dyn std::io::Write) -> i32 {
         checked = mark_fixed(&checked, steps(&probe(), now()));
     }
     let name = crate::cli::hosts::short_name(&crate::hand::pair::hostname());
+    if let Some(step) = super::host_sandbox::local_step(fix) {
+        checked.push(step);
+    }
+    if let Some(step) = super::host_agents::local_step(&name) {
+        checked.push(step);
+    }
     let (text, ok) = render(&name, "this machine", &checked, print);
     let _ = out.write_all(text.as_bytes());
     let _ = out.flush();

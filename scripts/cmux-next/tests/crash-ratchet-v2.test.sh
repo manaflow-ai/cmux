@@ -371,4 +371,117 @@ if out="$(ratchet)"; then fail "an array or Data index, or an inferred read, pas
 g reset -q
 reset
 
+# 20. The receiver decides which declaration a member subscript uses (tip red after
+#     4897e1224dc: `public var tasks: [String]?` in ConversationRunTool.swift made
+#     CloudLinkLauncher's `state.tasks[id] = Task { ... }` on its own
+#     `[UUID: Task<Void, Never>]` an array index). A receiver declared in this file
+#     (a property, local, parameter or closure parameter) uses this file's declaration of
+#     the member; a receiver from elsewhere keeps the module rule, so a module-wide array
+#     still counts there, and a true array member in this file still counts.
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+final class Launcher {
+    private struct State {
+        var tasks: [UUID: Task<Void, Never>] = [:]
+        var order: [UUID] = []
+    }
+    private let state = Mutex(State())
+    func serve(id: UUID) {
+        let started = state.withLock { state -> Bool in
+            state.tasks[id] = Task { }
+            return true
+        }
+        state.withLock { state in state.tasks[id] = nil }
+    }
+}
+SWIFT
+printf 'public struct Input {\n    public var tasks: [String]?\n}\n' > "$shared/Sources/MessagesLabHome/G.swift"
+g add -A
+out="$(ratchet)" || fail "a dictionary member written through a receiver of this file counted because another file has a same-named array: $out"
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+final class Launcher {
+    private struct State {
+        var tasks: [UUID: Task<Void, Never>] = [:]
+        var order: [UUID] = []
+    }
+    private let state = Mutex(State())
+    func serve(id: UUID, i: Int) {
+        state.withLock { state in state.tasks[id] = nil }
+        state.withLock { state in state.order[i] = id }
+        input.tasks[i] = "x"
+    }
+}
+SWIFT
+g add -A
+if out="$(ratchet)"; then fail "an array member of this file, or a module-wide array through another receiver, passed: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 2"* ]] || fail "state.order[i] = id or input.tasks[i] = \"x\" was exempt, or state.tasks[id] = nil counted: $out"
+g reset -q
+reset
+
+# 21. The receiver's TYPE must be declared in this file (coordinator, after #36143: a miss is
+#     silent, a false hit is loud). F declares `rows` only as a dictionary, in its own Local;
+#     G's Model has `rows` as an array. `model.rows[i]` on a parameter of type Model, a closure
+#     parameter of a lock from elsewhere, or an untyped local still counts; a receiver typed with
+#     F's own Local (annotated, built with Local(), or the closure parameter of a
+#     Mutex(Local()) declared here) uses F's dictionary.
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+struct Local {
+    var rows: [String: Int] = [:]
+}
+final class Reader {
+    private let guarded = Mutex(Local())
+    func read(model: Model, other: Mutex<Model>, i: Int, key: String) {
+        let a = model.rows[i]
+        other.withLock { model in model.rows[i] = 1 }
+        let made = makeModel()
+        let b = made.rows[i]
+        let local = Local()
+        let c = local.rows[key]
+        let d = guarded.withLock { local in local.rows[key] }
+        func g(_ typed: Local) -> Int? { typed.rows[key] }
+    }
+}
+SWIFT
+printf 'struct Model {\n    var rows: [Int] = []\n}\n' > "$shared/Sources/MessagesLabHome/G.swift"
+g add -A
+if out="$(ratchet)"; then fail "an index through a receiver whose type is from another file passed: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 3"* ]] || fail "model.rows[i], model.rows[i] = 1 (closure of a lock from elsewhere) or made.rows[i] was exempt, or a receiver typed with this file's Local counted: $out"
+g reset -q
+reset
+
+# 22. Review of #36236: a receiver is local only when its whole value is this file's type.
+#     A lock reached through another value (`peer.state.withLock`), a value that only starts
+#     with a constructor (`Local(seed: 1).model`, `Local().build()`) and `self.model` in a
+#     file with no `model` property (an extension file; only a function local is named
+#     model) are not local, so each subscript counts. A pattern binding (`let (model, n)`,
+#     `case .loaded(let model)`) and a labeled closure parameter (`(_ model: Model)`) hide an
+#     outer `let model = Local()`, so their subscripts count too.
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+struct Local {
+    var rows: [String: Int] = [:]
+}
+extension Reader {
+    private static let state = Mutex(Local())
+    func read(peer: Peer, i: Int) {
+        peer.state.withLock { s in s.rows[i] = 1 }
+        let model = Local(seed: 1).model
+        let a = model.rows[i]
+        let built = Local().build()
+        let b = built.rows[i]
+    }
+    func again(i: Int, pair: (Model, Int), event: Event, others: [Model]) {
+        let model = Local()
+        let c = self.model.rows[i]
+        do { let (model, n) = pair; let d = model.rows[i] }
+        if case .loaded(let model) = event { let e = model.rows[i] }
+        others.forEach { (_ model: Model) in model.rows[i] = 1 }
+    }
+}
+SWIFT
+printf 'struct Model {\n    var rows: [Int] = []\n}\n' > "$shared/Sources/MessagesLabHome/G.swift"
+g add -A
+if out="$(ratchet)"; then fail "an index through another value's lock, a value built from a constructor, or self.x without a property passed: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 7"* ]] || fail "peer.state.withLock, Local(seed: 1).model, Local().build(), self.model, a tuple or case pattern, or a labeled closure parameter was exempt: $out"
+g reset -q
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"

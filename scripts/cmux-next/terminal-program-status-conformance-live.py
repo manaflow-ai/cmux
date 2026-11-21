@@ -337,8 +337,11 @@ try:
     step("bidi", term, lambda r: r.get("", {}).get("msg") == "okgnp.exe")
 
     # 7. The support query, ST and BEL.
-    for name, end, expected in (("query-st", "\\033\\\\", "033]7501;?033\\"), ("query-bel", "\\007", "033]7501;?\\a")):
-        run(term, f"stty raw -echo min 0 time 20; printf '\\033]7501;?{end}'; r=$(dd bs=1 count=16 "
+    # The reply is `?` plus the accepted states and kinds (upstream revision 0.4).
+    caps = "?:states=idle,working,done,blocked,error:kinds=permission,question,auth"
+    for name, end, expected, count in (("query-st", "\\033\\\\", f"033]7501;{caps}033\\", 80),
+                                       ("query-bel", "\\007", f"033]7501;{caps}\\a", 79)):
+        run(term, f"stty raw -echo min 0 time 20; printf '\\033]7501;?{end}'; r=$(dd bs=1 count={count} "
                   f"2>/dev/null | od -An -c | tr -d ' \\n'); stty sane; printf '%s\\n' \"Q{name}=$r\"")
         line = output_line(term, f"Q{name}=")
         ok = expected in line

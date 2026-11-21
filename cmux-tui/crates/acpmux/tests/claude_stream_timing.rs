@@ -50,10 +50,36 @@ impl TestClient {
             }
         }
     }
+
+    /// [`Self::request`]'s answer, an error included.
+    async fn answer(&mut self, m: &str, params: Value) -> Result<Value, Value> {
+        self.next += 1;
+        let id = self.next;
+        self.tx.send(Message::request(id, m, params).to_line()).await.unwrap();
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(400), self.rx.recv())
+                .await
+                .expect("timeout waiting for response")
+                .expect("connection closed");
+            if let Message::Response { id: rid, result, error } = Message::parse(&line).unwrap()
+                && rid == id
+            {
+                return match error {
+                    Some(e) => Err(serde_json::to_value(e).unwrap()),
+                    None => Ok(result.unwrap_or(Value::Null)),
+                };
+            }
+        }
+    }
 }
 
 /// A client of a hub whose only harness runs `fake_claude.py` as Claude Code.
 async fn claude_client() -> TestClient {
+    claude_client_with(BTreeMap::new()).await
+}
+
+/// [`claude_client`], whose fake Claude gets `env`.
+async fn claude_client_with(env: BTreeMap<String, String>) -> TestClient {
     let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
     let mut harnesses = BTreeMap::new();
     harnesses.insert(
@@ -61,7 +87,7 @@ async fn claude_client() -> TestClient {
         HarnessProfile {
             kind: acpmux::config::HarnessKind::ClaudeStdio,
             argv: vec!["python3".into(), fake_claude.into()],
-            env: BTreeMap::new(),
+            env,
             description: None,
             fallback: None,
             family: None,
@@ -176,4 +202,55 @@ async fn a_claude_api_retry_logs_turn_retrying_until_the_model_answers() {
     let at = |kind: &str| kinds.iter().position(|k| *k == kind).unwrap_or(usize::MAX);
     let last_retry = kinds.iter().rposition(|k| *k == "turn_retrying").unwrap();
     assert!(last_retry < at("turn_heard") && at("turn_heard") < at("turn_result"), "{kinds:?}");
+}
+
+/// A model API that refuses the agent's sign-in (401): Claude Code retries it on its own backoff,
+/// about 160 s over 10 retries, before it fails the turn, and the person saw only "retrying"
+/// (cloud-chaos staging run 42292894478: seven retries, then the relay timed out). acpmux ends the
+/// turn at the second such retry (`hub/turn_retry.rs`), failed with the sign-in's kind and its
+/// recovery text, after 0.5 s of Claude's backoff. ACPMUX_TEST_RETRY_SCALE scales the fake's
+/// waits (default 0.01); the test prints how long the typed error took.
+#[tokio::test]
+async fn a_claude_sign_in_the_model_api_refuses_fails_the_turn_typed_at_its_second_retry() {
+    let scale = std::env::var("ACPMUX_TEST_RETRY_SCALE").unwrap_or_else(|_| "0.01".into());
+    let env = BTreeMap::from([("FAKE_CLAUDE_RETRY_SCALE".to_owned(), scale.clone())]);
+    let mut c = claude_client_with(env).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                   "_meta": {"acpmux": {"harness": "fakeclaude", "name": "auth-retry"}}}),
+        )
+        .await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let sent = std::time::Instant::now();
+    let answer = c
+        .answer(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "auth-retry-probe"}]}),
+        )
+        .await;
+    let waited = sent.elapsed();
+    let page = c
+        .request(method::MUX_EVENTS, json!({"sessionId": id, "afterSeq": 0, "limit": 10_000}))
+        .await;
+    let events = page["events"].as_array().unwrap();
+    let retries: Vec<&Value> = events.iter().filter(|e| e["kind"] == "turn_retrying").collect();
+    // Claude's backoff the person sat through: every logged retry's wait but the one cut short.
+    let backoff_ms: u64 = retries
+        .iter()
+        .take(retries.len().saturating_sub(1))
+        .filter_map(|r| r["msg"]["retryDelayMs"].as_u64())
+        .sum();
+    eprintln!(
+        "auth-retry-probe (scale {scale}): typed error after {} ms wall, {} retries, {backoff_ms} ms of Claude backoff",
+        waited.as_millis(),
+        retries.len()
+    );
+    let error = answer.expect_err("the refused sign-in fails the turn");
+    assert_eq!(error["data"]["errorKind"], "auth.signed_out", "{error}");
+    assert!(error["data"]["recovery"].as_str().is_some_and(|r| r.contains("sign")), "{error}");
+    assert_eq!(retries.len(), 2, "the turn ends at its second refused retry: {retries:?}");
+    assert_eq!(retries[1]["msg"]["errorStatus"], 401);
+    assert_eq!(backoff_ms, 500, "the person waits 0.5 s of Claude's backoff, not 160 s");
 }

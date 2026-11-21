@@ -83,6 +83,10 @@ public final class AgentCursorWindowSlot: AgentCursorRendering {
         }
     }
 
+    public func leaseEnded(target: String, session: String) {
+        stack?.model.leaseEnded(target: target, session: session)
+    }
+
     public func placementsDidChange(target: String) {
         stack?.model.placementsDidChange(target: target)
     }

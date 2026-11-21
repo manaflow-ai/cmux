@@ -1,6 +1,6 @@
 public import CmuxHomeCore
 public import CmuxNextDaemon
-public import CmuxNextHome
+public import CmuxNextHomeModel
 public import Foundation
 
 /// New Chief on this Mac's Chief owner, for an engine whose Chiefs are this Mac's

@@ -7,13 +7,14 @@
 import { useEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { activity, chat, CWD, tool } from "../../../gallery/fixtures/acpmux";
-import { ArtifactPanel, useArtifactCoversPane } from "../conversation/ArtifactPanel";
+import { ArtifactPanel } from "../conversation/ArtifactPanel";
+import { useArtifactCoversPane } from "../conversation/artifactPanelModel";
 import { ChatFindBar } from "../conversation/ChatFindBar";
 import { useChatFind } from "../conversation/chatFind";
 import { diffHunks, diffLines, type TurnFile } from "../diff";
 import { ChatHeaderTools } from "../header/ChatHeaderTools";
 import { setHeaderState } from "../header/headerState";
-import { useSessionInfo } from "./SessionInfo";
+import { useSessionInfo } from "./useSessionInfo";
 import { setSessionInfoOpen } from "./sessionInfoState";
 
 const BEFORE = "#!/bin/bash\nexport PATH=/usr/local/bin:$PATH\n";

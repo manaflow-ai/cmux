@@ -1,0 +1,359 @@
+[
+ {
+  "name": "an owner at its connection limit offers Restart, and is busy for the watch",
+  "op": "classify_error",
+  "request": {
+   "error": {
+    "kind": "launch_failed",
+    "detail": "exit 3: {\"code\":\"server.busy\",\"message\":\"m\",\"details\":{},\"retryable\":false}",
+    "description": "d"
+   }
+  },
+  "expect": {
+   "stuck": true,
+   "diskFull": false,
+   "watch": {
+    "kind": "busy"
+   },
+   "failure": {
+    "kind": "failed",
+    "detail": "d"
+   }
+  }
+ },
+ {
+  "name": "no owner became ready is stuck",
+  "op": "classify_error",
+  "request": {
+   "error": {
+    "kind": "launch_failed",
+    "detail": "exit 3: {\"code\":\"server.unavailable\",\"message\":\"m\",\"details\":{},\"retryable\":false}",
+    "description": "d"
+   }
+  },
+  "expect": {
+   "stuck": true,
+   "diskFull": false,
+   "watch": {
+    "kind": "stuck"
+   },
+   "failure": {
+    "kind": "failed",
+    "detail": "d"
+   }
+  }
+ },
+ {
+  "name": "a spawn failure does not offer Restart",
+  "op": "classify_error",
+  "request": {
+   "error": {
+    "kind": "launch_failed",
+    "detail": "exit 3: {\"code\":\"server.spawn_failed\",\"message\":\"m\",\"details\":{},\"retryable\":false}",
+    "description": "d"
+   }
+  },
+  "expect": {
+   "stuck": false,
+   "diskFull": false,
+   "watch": {
+    "kind": "failed"
+   },
+   "failure": {
+    "kind": "failed",
+    "detail": "d"
+   }
+  }
+ },
+ {
+  "name": "another session does not offer Restart",
+  "op": "classify_error",
+  "request": {
+   "error": {
+    "kind": "launch_failed",
+    "detail": "exit 3: {\"code\":\"server.different_session\",\"message\":\"m\"}",
+    "description": "d"
+   }
+  },
+  "expect": {
+   "stuck": false,
+   "diskFull": false,
+   "watch": {
+    "kind": "failed"
+   },
+   "failure": {
+    "kind": "failed",
+    "detail": "d"
+   }
+  }
+ },
+ {
+  "name": "a restore past its bound is stuck",
+  "op": "classify_error",
+  "request": {
+   "error": {
+    "kind": "restore_timeout",
+    "description": "slow"
+   }
+  },
+  "expect": {
+   "stuck": true,
+   "diskFull": false,
+   "watch": {
+    "kind": "stuck"
+   },
+   "failure": {
+    "kind": "failed",
+    "detail": "slow"
+   }
+  }
+ },
+ {
+  "name": "no answer in time is stuck",
+  "op": "classify_error",
+  "request": {
+   "error": {
+    "kind": "timed_out",
+    "description": "timed out"
+   }
+  },
+  "expect": {
+   "stuck": true,
+   "diskFull": false,
+   "watch": {
+    "kind": "stuck"
+   },
+   "failure": {
+    "kind": "failed",
+    "detail": "timed out"
+   }
+  }
+ },
+ {
+  "name": "a full disk in the words",
+  "op": "classify_error",
+  "request": {
+   "error": {
+    "kind": "launch_failed",
+    "detail": "exit 1: No space left on device (os error 28)",
+    "description": "launchFailed(No space left on device)"
+   }
+  },
+  "expect": {
+   "stuck": false,
+   "diskFull": true,
+   "watch": {
+    "kind": "failed"
+   },
+   "failure": {
+    "kind": "disk_full",
+    "detail": "launchFailed(No space left on device)"
+   }
+  }
+ },
+ {
+  "name": "low free space reads as a full disk",
+  "op": "classify_error",
+  "request": {
+   "error": {
+    "kind": "launch_failed",
+    "detail": "exit 1: the detached session owner did not become ready",
+    "description": "x"
+   },
+   "freeBytes": 1048576
+  },
+  "expect": {
+   "stuck": false,
+   "diskFull": false,
+   "watch": {
+    "kind": "failed"
+   },
+   "failure": {
+    "kind": "disk_full",
+    "detail": "x"
+   }
+  }
+ },
+ {
+  "name": "enough free space is a plain failure",
+  "op": "classify_error",
+  "request": {
+   "error": {
+    "kind": "launch_failed",
+    "detail": "e",
+    "description": "x"
+   },
+   "freeBytes": 67108864
+  },
+  "expect": {
+   "stuck": false,
+   "diskFull": false,
+   "watch": {
+    "kind": "failed"
+   },
+   "failure": {
+    "kind": "failed",
+    "detail": "x"
+   }
+  }
+ },
+ {
+  "name": "a command refusal names the disk in its reason",
+  "op": "classify_error",
+  "request": {
+   "error": {
+    "kind": "command",
+    "message": "refused",
+    "reason": "database or disk is full",
+    "description": "c"
+   }
+  },
+  "expect": {
+   "stuck": false,
+   "diskFull": true,
+   "watch": {
+    "kind": "failed"
+   },
+   "failure": {
+    "kind": "failed",
+    "detail": "c"
+   }
+  }
+ },
+ {
+  "name": "SQLITE_FULL",
+  "op": "says_disk_full",
+  "request": {
+   "text": "database or disk is full"
+  },
+  "expect": true
+ },
+ {
+  "name": "ENOSPC",
+  "op": "says_disk_full",
+  "request": {
+   "text": "write: ENOSPC"
+  },
+  "expect": true
+ },
+ {
+  "name": "other words",
+  "op": "says_disk_full",
+  "request": {
+   "text": "permission denied"
+  },
+  "expect": false
+ },
+ {
+  "name": "a failed ensure counts and changes the gate",
+  "op": "note_outcome",
+  "request": {
+   "state": {
+    "ownerLooksStuck": false,
+    "failure": null,
+    "failedInARow": 0
+   },
+   "error": {
+    "kind": "timed_out",
+    "description": "t"
+   }
+  },
+  "expect": {
+   "state": {
+    "ownerLooksStuck": true,
+    "failure": {
+     "kind": "failed",
+     "detail": "t"
+    },
+    "failedInARow": 1
+   },
+   "changed": true,
+   "watch": {
+    "kind": "stuck"
+   }
+  }
+ },
+ {
+  "name": "a second failure counts again",
+  "op": "note_outcome",
+  "request": {
+   "state": {
+    "ownerLooksStuck": true,
+    "failure": {
+     "kind": "failed",
+     "detail": "t"
+    },
+    "failedInARow": 1
+   },
+   "error": {
+    "kind": "timed_out",
+    "description": "t"
+   }
+  },
+  "expect": {
+   "state": {
+    "ownerLooksStuck": true,
+    "failure": {
+     "kind": "failed",
+     "detail": "t"
+    },
+    "failedInARow": 2
+   },
+   "changed": true,
+   "watch": {
+    "kind": "stuck"
+   }
+  }
+ },
+ {
+  "name": "an ensure that worked resets the gate",
+  "op": "note_outcome",
+  "request": {
+   "state": {
+    "ownerLooksStuck": true,
+    "failure": {
+     "kind": "failed",
+     "detail": "t"
+    },
+    "failedInARow": 2
+   },
+   "pid": 7
+  },
+  "expect": {
+   "state": {
+    "ownerLooksStuck": false,
+    "failure": null,
+    "failedInARow": 0
+   },
+   "changed": true,
+   "watch": {
+    "kind": "ready",
+    "pid": 7
+   }
+  }
+ },
+ {
+  "name": "a second success changes nothing",
+  "op": "note_outcome",
+  "request": {
+   "state": {
+    "ownerLooksStuck": false,
+    "failure": null,
+    "failedInARow": 0
+   },
+   "pid": 7
+  },
+  "expect": {
+   "state": {
+    "ownerLooksStuck": false,
+    "failure": null,
+    "failedInARow": 0
+   },
+   "changed": false,
+   "watch": {
+    "kind": "ready",
+    "pid": 7
+   }
+  }
+ }
+]

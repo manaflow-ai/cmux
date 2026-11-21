@@ -31,18 +31,4 @@ enum FocusResponderClassifier {
     }
 
     static func isText(_ view: NSView) -> Bool { view is NSText || view is NSTextField }
-
-    /// Stable name of an AppKit responder for `debug.focus`.
-    static func describe(_ responder: FocusEvent.Responder) -> String {
-        switch responder {
-        case .content(let pane): "content:\(pane)"
-        case .addressBar(let pane): "addressBar:\(pane)"
-        case .findBar(let pane): "findBar:\(pane)"
-        case .devTools(let pane): "devTools:\(pane)"
-        case .sidebar: "sidebar"
-        case .sidebarField: "sidebarField"
-        case .textField: "textField"
-        case .windowOrNone: "windowOrNone"
-        }
-    }
 }

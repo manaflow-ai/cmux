@@ -27,10 +27,13 @@ const chief = entry("cloud-chief", ["vm:read"]);
 const merged = apply([dev, chief]);
 assert.equal(merged.exitCode, 0, merged.stderr.toString());
 const keys = JSON.parse(merged.stdout.toString());
-assert.deepEqual(keys, [{ ...dev, scopes: ["acl:read", "acl:write", "mesh:read", "vm:read"] }, chief]);
+assert.deepEqual(keys, [{ ...dev, scopes: ["acl:read", "acl:write", "mesh:read", "snapshot:read", "snapshot:write", "vm:read"] }, chief]);
 const parsed = parseServiceKeys(JSON.stringify(keys));
 assert.ok(parsed.ok);
 assert.ok(parsed.keys[0]?.scopes.has("acl:write"));
+assert.ok(parsed.keys[0]?.scopes.has("snapshot:write"));
+// Each Cloud platform key captures snapshots (cloud.snapshot.create); production was refused without it.
+for (const id of ["cloud-platform-dev", "cloud-platform-staging", "cloud-platform-production"]) assert.ok(grants[id]?.includes("snapshot:write"), `${id} lacks snapshot:write`);
 
 const dir = mkdtempSync(join(tmpdir(), "key-grants-"));
 for (const [name, body] of [["admin", { x: ["admin"] }], ["empty", { x: [] }], ["list", ["acl:read"]]] as const) {

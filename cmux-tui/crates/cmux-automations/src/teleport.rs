@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 use crate::automation::{Automation, AutomationSpec, Body, Handoff};
 use crate::catch_up::CatchUp;
 use crate::clock::Zone;
+use crate::gate::Gate;
 use crate::trigger::Trigger;
 
 /// Where an automation can move.
@@ -25,6 +26,10 @@ pub enum Destination {
     Ssh { host: String, dir: Option<String> },
     /// A folder on this machine (the Chief teleport's form; automations refuse it).
     Local { dir: String },
+    /// A program on this machine that imports the spec somewhere else (`exec:PROGRAM`, run by
+    /// `/bin/sh -c`): the spec on its stdin; exit 0 with `{id}` on stdout accepts the move,
+    /// exit 2 refuses it, anything else leaves its outcome unknown.
+    Exec { program: String },
 }
 
 impl fmt::Display for Destination {
@@ -35,11 +40,12 @@ impl fmt::Display for Destination {
             Destination::Ssh { host, dir: None } => write!(f, "ssh:{host}"),
             Destination::Ssh { host, dir: Some(dir) } => write!(f, "ssh:{host}:{dir}"),
             Destination::Local { dir } => write!(f, "local:{dir}"),
+            Destination::Exec { program } => write!(f, "exec:{program}"),
         }
     }
 }
 
-const DESTINATION_RULE: &str = "--to takes \"cloud\", \"home\", \"ssh:<host>[:<dir>]\" or \"local:<absolute dir>\": at most 256 characters, no control characters";
+const DESTINATION_RULE: &str = "--to takes \"cloud\", \"home\", \"ssh:<host>[:<dir>]\", \"exec:<program>\" or \"local:<absolute dir>\": at most 256 characters, no control characters";
 
 /// Parses a destination the way the Chief teleport checks one
 /// (`destinationError` in `brain-teleport.ts`), plus `cloud`.
@@ -52,6 +58,13 @@ pub fn parse_destination(text: &str) -> Result<Destination, String> {
         "cloud" => return Ok(Destination::Cloud),
         "home" => return Ok(Destination::Home),
         _ => {}
+    }
+    if let Some(program) = text.strip_prefix("exec:") {
+        return if program.trim().is_empty() {
+            bad()
+        } else {
+            Ok(Destination::Exec { program: program.trim().to_string() })
+        };
     }
     if let Some(dir) = text.strip_prefix("local:") {
         return if dir.starts_with('/') {
@@ -113,6 +126,9 @@ pub struct ImportSpec {
     pub timeout_seconds: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sharing: Option<String>,
+    /// The condition and guardrails (a machine's import keeps them).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate: Option<Gate>,
     pub handoff: ImportHandoff,
 }
 
@@ -138,6 +154,7 @@ pub fn export_spec(a: &Automation, handoff: &Handoff, local_zone: &str) -> Impor
         catch_up: Some(a.catch_up.name().to_string()),
         timeout_seconds: Some(a.timeout_seconds),
         sharing: None,
+        gate: (a.gate != Gate::default()).then(|| a.gate.clone()),
         handoff: ImportHandoff {
             id: handoff.id.clone(),
             from: a.home.clone(),
@@ -222,6 +239,7 @@ impl ImportSpec {
             catch_up,
             timeout_seconds: self.timeout_seconds.unwrap_or(30 * 60),
             enabled: self.enabled,
+            gate: self.gate.clone().unwrap_or_default(),
         })
     }
 }

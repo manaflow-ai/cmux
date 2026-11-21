@@ -17,6 +17,7 @@ import {
   UserProfile
 } from "./schemas.ts"
 import { automationOps } from "./automation-ops.ts"
+import { automationSecretOps } from "./automation-secret-ops.ts"
 import { integrationOps } from "./integrations.ts"
 import { googleOps } from "./google-ops.ts"
 import { feedOps } from "./feed.ts"
@@ -32,10 +33,13 @@ import { hostNetworkOps } from "./host-network-ops.ts"
 import { usageOps } from "./usage.ts"
 import { teamAiLimitOps } from "./team-ai-limit-ops.ts"
 import { teamGroupOps } from "./team-group-ops.ts"
+import { teamCloudSessionOps } from "./team-cloud-session-ops.ts"
 import { UserTeamsList } from "./team-member-ops.ts"
 import { teamVmOps } from "./team-vm-ops.ts"
 import { teamMemberOps } from "./team-member-ops.ts"
 import { teamSshOps } from "./team-ssh-ops.ts"
+import { teamAgentKeyOps } from "./team-agent-key-ops.ts"
+import { teamModelsPolicyOps } from "./team-models-policy-ops.ts"
 import { cloudMachineOps } from "./cloud-machine-ops.ts"
 import { cloudEnvironmentOps } from "./cloud-environment-ops.ts"
 import { cloudVmOps } from "./cloud-vm-ops.ts"
@@ -256,6 +260,7 @@ export const cloudOps = [
   HostRemove,
   HostReplicaPurge,
   ...automationOps,
+  ...automationSecretOps,
   ...usageOps,
   ...integrationOps,
   ...googleOps,
@@ -272,7 +277,10 @@ export const cloudOps = [
   ...teamMemberOps,
   ...teamAiLimitOps,
   ...teamGroupOps,
+  ...teamCloudSessionOps,
   ...teamSshOps,
+  ...teamAgentKeyOps,
+  ...teamModelsPolicyOps,
   ...cloudMachineOps,
   ...cloudEnvironmentOps,
   ...cloudVmOps,

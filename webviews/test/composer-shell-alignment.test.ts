@@ -16,6 +16,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { COMPOSER_MD, COMPOSER_MD_FIELD } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-shell-alignment.test.ts", async () => {
   /** Half a pixel: the subpixel rounding a scaled inset and a text range can show. */
@@ -57,9 +58,9 @@ await requireBrowserLane("composer-shell-alignment.test.ts", async () => {
   // nothing draws. The glyph is absolutely positioned, so its own box is its line box.
 
   /** The line and the column the prompt's caret sits on. */
-  const promptLine = () => {
+  const promptLine = ({ COMPOSER_MD_FIELD }: { COMPOSER_MD_FIELD: string }) => {
     const box = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
-    const field = document.querySelector(".acpmux-composer-box .acpmux-md-field")!;
+    const field = document.querySelector(COMPOSER_MD_FIELD)!;
     const rect = field.getBoundingClientRect();
     const style = getComputedStyle(field);
     const placeholder = document.querySelector(".acpmux-composer-box .acpmux-md-placeholder")!;
@@ -110,20 +111,23 @@ await requireBrowserLane("composer-shell-alignment.test.ts", async () => {
 
   /** Pastes one PNG into the prompt, as ⌘V of a copied image does: the attachments' band shows. */
   const pasteImage = (page: Page) =>
-    page.evaluate(async () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = 120;
-      canvas.height = 80;
-      const context = canvas.getContext("2d")!;
-      context.fillStyle = "#101114";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
-      const data = new DataTransfer();
-      data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
-      document
-        .querySelector(".acpmux-composer-box .acpmux-md")!
-        .dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-    });
+    page.evaluate(
+      async ({ COMPOSER_MD }) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 120;
+        canvas.height = 80;
+        const context = canvas.getContext("2d")!;
+        context.fillStyle = "#101114";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+        const data = new DataTransfer();
+        data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
+        document
+          .querySelector(COMPOSER_MD)!
+          .dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      },
+      { COMPOSER_MD },
+    );
 
   // The chrome sizes the app offers (1 the default, 1.25 the largest the gallery allows,
   // gallery/env.ts), the Chat Display sizes composer-content-font.test.ts exercises (the glyph's
@@ -164,10 +168,10 @@ await requireBrowserLane("composer-shell-alignment.test.ts", async () => {
         }
         await page.evaluate(() => document.fonts.ready);
         await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-        const prompt = await page.evaluate(promptLine);
+        const prompt = await page.evaluate(promptLine, { COMPOSER_MD_FIELD });
 
         // `!` as the first character of an empty prompt: shell mode, in place (Composer.tsx).
-        await page.locator(".acpmux-composer-box .acpmux-md").first().click();
+        await page.locator(COMPOSER_MD).first().click();
         await page.keyboard.type("!");
         await page.locator(".acpmux-shell-field").waitFor();
         await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
