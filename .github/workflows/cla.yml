@@ -43,11 +43,15 @@ jobs:
       )
     # A fork pull request, or a comment on one, runs this job with a write
     # token. Neither event says whether the head is a fork, so the job must
-    # run on a VM that is destroyed after one job. CI_TRUSTED_RUNNER can pick
-    # only GitHub-hosted ubuntu-24.04 or a Blacksmith Ubuntu VM, never an
-    # owned host, so either provider can carry this check while the other is
-    # down. validate-cla-policy.rb pins these exact bytes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: write token on fork pull requests
+    # run on a VM that is destroyed after one job. It leads with the required
+    # gates' reserved label cmux-gcp-gate-jit-x64: one-job JIT VMs named
+    # cmux-gha-runner-gt-*, deleted after the job, that no persistent runner
+    # registers, so this required check neither waits behind the PR backlog
+    # nor lands on the persistent pool. CI_GATE_SKIP_FLEET=1 skips the label.
+    # After it, CI_TRUSTED_RUNNER can pick only GitHub-hosted ubuntu-24.04 or
+    # a Blacksmith Ubuntu VM, never an owned host. validate-cla-policy.rb pins
+    # these exact bytes.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: write token on fork pull requests
     timeout-minutes: 10
     # One run at a time per pull request so two signature events cannot write
     # the ledger from different snapshots. Independent pull requests proceed.
@@ -66,13 +70,15 @@ jobs:
       # Read the trusted merge status on catch-up merge commits.
       statuses: read
     steps:
-      # Blacksmith reports itself as self-hosted. Refuse any runner that is
-      # neither GitHub-hosted nor a Blacksmith VM for the labels above.
-      - name: Require GitHub-hosted or Blacksmith runner
-        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) || contains(runner.name, 'glaeda')
+      # Blacksmith and the gate JIT VMs report themselves as self-hosted.
+      # Refuse any runner that is not GitHub-hosted, a Blacksmith VM for the
+      # labels above or a gate JIT VM (cmux-gha-runner-gt-*); the persistent
+      # pool's runners (cmux-runner-pool-*) are refused.
+      - name: Require GitHub-hosted, Blacksmith or gate JIT runner
+        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-') && !startsWith(runner.name, 'cmux-gha-runner-gt-')) || contains(runner.name, 'glaeda')
         run: |
           set -euo pipefail
-          echo "::error::CLA policy requires a GitHub-hosted or Blacksmith runner"
+          echo "::error::CLA policy requires a GitHub-hosted, Blacksmith or gate JIT runner"
           exit 1
       - name: Mint the glaeda-route read token
         id: glaeda-token

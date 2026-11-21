@@ -66,12 +66,15 @@ check_cla_guard_runner() {
   # name a persistent machine (its allowlist lives in this base-branch file,
   # and anything else falls back to Blacksmith). validate-cla-policy.rb holds
   # the same exact allowlist and is the authority; this keeps it visible.
-  local hosted selector runs_on
+  # The gate selector leads the same selector with the required gates' reserved
+  # one-job label (tests/test_ci_required_gate_label.py).
+  local hosted selector gate_selector runs_on
   hosted="    runs-on: ubuntu-24.04"
   selector="    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+  gate_selector="    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
   runs_on="$(grep -E '^    runs-on:' "$CLA_GUARD_FILE" || true)"
-  if [[ "$runs_on" != "$hosted" && "$runs_on" != "$selector" ]]; then
-    echo "FAIL: cla-policy-guard.yml must use ubuntu-24.04 or the CI_TRUSTED_RUNNER ephemeral selector"
+  if [[ "$runs_on" != "$hosted" && "$runs_on" != "$selector" && "$runs_on" != "$gate_selector" ]]; then
+    echo "FAIL: cla-policy-guard.yml must use ubuntu-24.04, the CI_TRUSTED_RUNNER ephemeral selector or the gate selector"
     exit 1
   fi
 
@@ -127,6 +130,14 @@ check_cla_guard_runner() {
   fi
   if [[ "$runs_on" == "$selector" ]] && ! grep -Fqx "$ephemeral_guard" "$CLA_GUARD_FILE"; then
     echo "FAIL: cla-policy-guard.yml must refuse a runner that is neither GitHub-hosted nor Blacksmith"
+    exit 1
+  fi
+  # On the gate selector the guard also admits the gate JIT VMs
+  # (cmux-gha-runner-gt-*), never the shared fleet, repair or nightly VMs.
+  local gate_guard
+  gate_guard="        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-') && !startsWith(runner.name, 'cmux-gha-runner-gt-')) || contains(runner.name, 'glaeda')"
+  if [[ "$runs_on" == "$gate_selector" ]] && ! grep -Fqx "$gate_guard" "$CLA_GUARD_FILE"; then
+    echo "FAIL: cla-policy-guard.yml on the gate selector must refuse a runner that is not GitHub-hosted, Blacksmith or a gate JIT VM"
     exit 1
   fi
 
