@@ -7639,6 +7639,7 @@ jobs:
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-tag-outcome.sh
       - *x101
       - *release-the-nightly-next-publi
+      # Not the rolling-name DMG, a second copy of the build's DMG. Why: docs/ci/nightly-workflow-notes.md#note-32
       - name: Upload nightly variant artifacts
         if: ${{ !env.LEFT_SLOT }}
         id: one-up-variant
@@ -7646,14 +7647,16 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-variant-arm64
-          path: final-dmg/*
+          path: |
+            final-dmg/*
+            !final-dmg/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg
           if-no-files-found: error
           retention-days: 3
           overwrite: true
       - name: Upload nightly variant artifacts (retry)
         if: "!cancelled() && steps.one-up-variant.outcome == 'failure' && (!env.LEFT_SLOT)"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with: {name: cmux-nightly-variant-arm64, path: "final-dmg/*", if-no-files-found: error, retention-days: 3, overwrite: true}
+        with: {name: cmux-nightly-variant-arm64, path: "final-dmg/*\n!final-dmg/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg", if-no-files-found: error, retention-days: 3, overwrite: true}
       - name: Upload tested DMG digests
         if: ${{ !env.LEFT_SLOT }}
         id: one-up-tested
