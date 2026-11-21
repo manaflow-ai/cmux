@@ -306,6 +306,16 @@ extension AppearanceSettingsSchema {
                 keywords: ["experimental", "tuning", "tint", "transparency", "hue", "saturation", "labs"]
             ),
             SettingDescriptor(
+                AppearanceSettingsSchema.settingsBetaChipsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.settingsBetaChips", "Beta Chips in Settings"),
+                help: SettingsText.keyed("settings.appearance.settingsBetaChips.help", "Marks experimental settings with a Beta chip."),
+                kind: .toggle,
+                default: .bool(AppearanceSettingsSchema.settingsBetaChipsDefault),
+                keywords: ["beta", "chip", "badge", "new", "experimental", "labs", "preview"]
+            ),
+            SettingDescriptor(
                 WindowBackgroundSetting.opacityPath,
                 section: .appearance,
                 group: group,

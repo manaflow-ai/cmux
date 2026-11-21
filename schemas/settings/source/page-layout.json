@@ -542,7 +542,7 @@
           "title": {"key": "settings.category.experimental", "text": "Experimental"},
           "symbol": "flask",
           "groups": [
-            {"group": "settings.group.labs", "keys": ["appearance.experimentalControls"]},
+            {"group": "settings.group.labs", "keys": ["appearance.experimentalControls", "appearance.settingsBetaChips"]},
             {"group": "settings.group.appearanceTuning"}
           ]
         },

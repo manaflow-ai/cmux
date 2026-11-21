@@ -115,6 +115,12 @@ extension ExperimentalAppearanceSetting {
     public nonisolated static let fallback = false
 }
 
+extension AppearanceSettingsSchema {
+    /// `appearance.settingsBetaChips`: Taste prototype (Taste Board #15): the Settings page draws a small Beta chip beside the title of each experimental row (the Experimental category, labs.* keys, rows tagged labs or experimental) and beside the Experimental sidebar entry (webviews/src/pages/settings/betaChips.ts). Off by default: the page is unchanged.
+    nonisolated static let settingsBetaChipsPath = ["appearance", "settingsBetaChips"]
+    nonisolated static let settingsBetaChipsDefault = false
+}
+
 extension WindowBackgroundSetting {
     /// `appearance.backgroundOpacity`.
     public nonisolated static let opacityPath = ["appearance", "backgroundOpacity"]
