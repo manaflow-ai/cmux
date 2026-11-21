@@ -69,6 +69,7 @@ import { useBesideStack } from "./conversation/useBesideStack";
 import { attachUserScrollIntent, userScrollIntent } from "./conversation/userScroll";
 import {
   clearScrollOrigin,
+  holdRoomFraction,
   layoutScrollTop,
   physicalScrollTop,
   retainScrollOrigin,
@@ -867,6 +868,9 @@ type RowFramesView = {
   rows: readonly AcpmuxRow[];
   mountedRanges: readonly { first: number; last: number }[];
   geometry: { topAt(index: number): number; gapAt(index: number): number };
+  /// The room held above the loaded rows for older history (ConversationLayout.origin): the thread
+  /// stands under it, so each row's `top` counts from the loaded rows, not from the room.
+  roomAbove: number;
   frameKey: string;
   registry: NativeRegistry;
   setSizeRef: React.MutableRefObject<string>;
@@ -929,7 +933,7 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
       const frameId = rowFrameKey(row);
       const inputs = cache.scratch;
       inputs.index = absoluteIndex;
-      inputs.top = geometry.topAt(absoluteIndex);
+      inputs.top = geometry.topAt(absoluteIndex) - view.roomAbove;
       inputs.gapBelow = absoluteIndex + 1 < rows.length ? geometry.gapAt(absoluteIndex + 1) : 0;
       inputs.expanded = isExpanded;
       inputs.active = view.activeRowId === row.id;
@@ -3105,6 +3109,9 @@ function TranscriptView({
     // Read before a length is written below, where it was read to choose the anchor.
     const scrolled = end ? scroller.scrollTop : 0;
     const live = liveResize.current;
+    // The thread stands under the room held for older history (`threadRoom`): the lengths written
+    // here are in its coordinates, so the room comes off the rows' places.
+    const room = latestLayout.current.layout.origin ?? 0;
     if (end) {
       live.hold = undefined;
       const at = geometry.topAt(placed.last - 1) + geometry.heightAt(placed.last - 1);
@@ -3112,12 +3119,12 @@ function TranscriptView({
       // taller of the placed height and the view). Over a chat taller than the view that is the
       // latest row's placed bottom; over one that fits, the same room above the view's lower edge.
       const under = latestLayout.current.layout.totalHeight - THREAD_TOP - at;
-      writeFlow(live, threadNode, "end", `calc(100% - ${under}px)`);
+      writeFlow(live, threadNode, "end", `calc(100% - ${under + room}px)`);
       // The first row's place when the view holds the whole chat, in the thread's coordinates at
       // this scroll offset. No such place while older rows are unmounted above the first mounted
       // one: the strut then gets the box's own length, which leaves the rows at its end.
       const whole = placed.first === 0 ? geometry.topAt(0) + scrolled : at;
-      writeFlow(live, threadNode, "start", `${THREAD_TOP + whole}px`);
+      writeFlow(live, threadNode, "start", `${THREAD_TOP + whole - room}px`);
     } else {
       // The same mounted rows under the same held row keep the padding `holdFlow` gave them.
       if (live.hold?.row.isConnected && live.hold.first === placed.first && threadNode.classList.contains(FLOW_CLASS))
@@ -3140,7 +3147,7 @@ function TranscriptView({
           break;
         }
       }
-      const pad = THREAD_TOP + geometry.topAt(placed.first);
+      const pad = THREAD_TOP + geometry.topAt(placed.first) - room;
       if (live.hold) Object.assign(live.hold, { pad, first: placed.first });
       writeFlow(live, threadNode, "start", `${pad}px`);
       writeFlow(live, threadNode, "end", undefined);
@@ -4514,6 +4521,22 @@ function TranscriptView({
     }),
     [measured, rowsEnd, keptEnd, draggedHeight],
   );
+  // Rows are placed under the room held for older history (ConversationLayout.origin) by the thread,
+  // never one by one: that room changes as pages land and as the reader rises while room is owed
+  // (conversation/olderReserve.ts), a frame at a time, and placing each row under it rewrote the top
+  // of every mounted row, and missed every kept frame (RowFrameCache), on every such frame (Leo,
+  // 2026-11-11: "scrolling up is slow and it layout shift and everythng lag"). Now such a frame moves
+  // one element. Its whole pixels go in the thread's `top`; the fraction a payment leaves joins the
+  // scroll origin in the thread's margin (scrollCoordinates.ts `holdRoomFraction`), as the rows split
+  // theirs (RowFrame), since WebKit drops fractional bits of large offsets.
+  const roomAbove = layout.origin ?? 0;
+  const threadRoom = Math.floor(roomAbove);
+  const threadRoomFraction = roomAbove - threadRoom;
+  // Declared before the placement and flow passes' layout effects, so they read the thread where it
+  // draws (a stale margin is up to a pixel off in what they measure).
+  useLayoutEffect(() => {
+    if (ref.current) holdRoomFraction(ref.current, threadRoomFraction);
+  }, [threadRoomFraction]);
   // Each commit: what this pass kept for the reader (`readerKept`), and whether it followed, for the next.
   useLayoutEffect(() => {
     const followed = following && !sessionSwitched;
@@ -5463,12 +5486,13 @@ function TranscriptView({
     // The glide reads where the rows lie from this placement (each frame's `top` is set from it), not
     // from every mounted row's box. Rows that flow (a live resize) lie where the page puts them: read.
     const placedGeometry = layout.geometry;
+    const placedRoom = layout.origin ?? 0;
     const placedRows: PlacedRows | undefined = thread.current?.classList.contains(FLOW_CLASS)
       ? undefined
       : {
           idAt: (index) => rows[index]?.id,
           indexOf: (id) => mountedIndexOf(rows, mountedRanges, id),
-          topAt: (index) => THREAD_TOP + placedGeometry.topAt(index),
+          topAt: (index) => THREAD_TOP + placedGeometry.topAt(index) - placedRoom,
           heightAt: (index) => placedGeometry.heightAt(index),
           mounted: mountedRanges,
         };
@@ -7239,6 +7263,7 @@ function TranscriptView({
     rows,
     mountedRanges,
     geometry: layout.geometry,
+    roomAbove,
     frameKey,
     registry,
     setSizeRef,
@@ -7405,7 +7430,7 @@ function TranscriptView({
                 <div
                   ref={thread}
                   className="acpmux-thread"
-                  style={{ top: lift + topInset }}
+                  style={{ top: lift + topInset + threadRoom }}
                   onPointerOver={(event) => pointAt(event.target)}
                   onPointerLeave={() => pointAt(null)}
                 >
