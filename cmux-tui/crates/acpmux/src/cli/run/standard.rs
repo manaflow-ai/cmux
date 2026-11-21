@@ -254,6 +254,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             super::parent::run(*args, json_out, deadline).await
         }
         Command::New(args) => {
+            let mut notice = crate::slow_notice::StartNotice::new();
             let args = *args;
             // Checked before connecting, so the error needs no daemon. Preparing first preserves
             // launch-file semantics and rejects whitespace-only prompt words like `new "  "`.
@@ -278,25 +279,37 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 eprintln!("{hint}");
             }
             let setup_name = launch.name.as_deref().unwrap_or("new");
-            let mut client = before_deadline(deadline, setup_name, connect(true)).await?;
+            let mut client = before_deadline(
+                deadline,
+                setup_name,
+                notice.waiting("a connection to the local daemon", connect(true)),
+            )
+            .await?;
             // A machine a person works at places command-line sessions on a fleet host
             // (`cli/place.rs` `new_target`); the app's chats never come through here.
-            let interactive = crate::cli::place::here_is_interactive();
+            let requested = args.host.as_deref();
+            // A named target is independent of this machine's placement rules. In particular,
+            // launching on it does not need to load the fleet registry on the calling host.
+            let interactive = (requested.is_none()
+                || crate::cli::place::auto_work(requested).is_some())
+                && crate::cli::place::here_is_interactive();
             let folder_named = args.cwd.is_some() || launch.worktree.is_some();
-            let target =
-                crate::cli::place::new_target(args.host.as_deref(), interactive, folder_named);
+            let target = crate::cli::place::new_target(requested, interactive, folder_named);
             let host = match target {
                 crate::cli::place::Target::Place(work) => {
                     before_deadline(
                         deadline,
                         setup_name,
-                        crate::cli::place::resolve(
-                            &client,
-                            work,
-                            launch.name.as_deref(),
-                            launch.reuse,
-                            interactive,
-                            args.host.is_none(),
+                        notice.waiting(
+                            &format!("the daemon to select a machine for {work} work"),
+                            crate::cli::place::resolve(
+                                &client,
+                                work,
+                                launch.name.as_deref(),
+                                launch.reuse,
+                                interactive,
+                                requested.is_none(),
+                            ),
                         ),
                     )
                     .await?
@@ -419,6 +432,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     key.as_deref().filter(|_| launch.reuse),
                     p.clone(),
                     parentless,
+                    &mut notice,
                 )
                 .await
                 {
@@ -428,8 +442,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                                 || refused_before_create(&error)) =>
                     {
                         reconnects += 1;
-                        client =
-                            before_deadline(deadline, setup_name, reconnect_after_update()).await?;
+                        client = before_deadline(
+                            deadline,
+                            setup_name,
+                            notice.waiting(
+                                "the daemon to reconnect after an update",
+                                reconnect_after_update(),
+                            ),
+                        )
+                        .await?;
                     }
                     // A machine this daemon has no peer for may still be reached by the
                     // configured new relay (`new_relay.rs`).
@@ -1298,24 +1319,45 @@ async fn find_or_create(
     reuse_key: Option<&str>,
     p: Value,
     parentless: bool,
+    notice: &mut crate::slow_notice::StartNotice,
 ) -> Result<(Value, Option<Value>, bool)> {
     if let Some(key) = reuse_key
-        && let Some(info) = before_deadline(deadline, key, launch::existing(client, key)).await?
+        && let Some(info) = before_deadline(
+            deadline,
+            key,
+            notice.waiting(
+                &format!("the daemon to resolve session {key:?}"),
+                launch::existing(client, key),
+            ),
+        )
+        .await?
     {
         return Ok((info.clone(), Some(info), false));
     }
-    let created = if parentless {
-        before_deadline(deadline, setup_name, client.request_parentless(method::SESSION_NEW, p))
-            .await
-    } else {
-        before_deadline(deadline, setup_name, client.request(method::SESSION_NEW, p)).await
+    let owner = p.pointer("/_meta/acpmux/peer").and_then(Value::as_str).unwrap_or("this machine");
+    let creating = format!("the session/new reply for {setup_name:?} on {owner}");
+    let create = async {
+        if parentless {
+            client.request_parentless(method::SESSION_NEW, p).await
+        } else {
+            client.request(method::SESSION_NEW, p).await
+        }
     };
+    let created = before_deadline(deadline, setup_name, notice.waiting(&creating, create)).await;
     match created {
         Ok(v) => Ok((v, None, false)),
         Err(e) => {
             let found = match reuse_key {
                 Some(key) if launch::name_taken(&e) => {
-                    before_deadline(deadline, key, launch::existing(client, key)).await?
+                    before_deadline(
+                        deadline,
+                        key,
+                        notice.waiting(
+                            &format!("the daemon to resolve session {key:?}"),
+                            launch::existing(client, key),
+                        ),
+                    )
+                    .await?
                 }
                 _ => None,
             };

@@ -145,7 +145,10 @@ async fn listen_peer(
 }
 
 /// A tiny peer that deliberately reuses a local raw session id.
-async fn lying_peer(session_id: &str) -> (u16, mpsc::UnboundedReceiver<String>) {
+async fn lying_peer(
+    session_id: &str,
+    release_create: Option<Arc<tokio::sync::Notify>>,
+) -> (u16, mpsc::UnboundedReceiver<String>) {
     use tokio_tungstenite::tungstenite::Message as Ws;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -156,6 +159,7 @@ async fn lying_peer(session_id: &str) -> (u16, mpsc::UnboundedReceiver<String>) 
             let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             let id = session_id.clone();
             let calls = calls.clone();
+            let release_create = release_create.clone();
             tokio::spawn(async move {
                 // Non-text frames (the client's pings, #38015) are not requests: skip them.
                 while let Some(Ok(frame)) = ws.next().await {
@@ -166,6 +170,11 @@ async fn lying_peer(session_id: &str) -> (u16, mpsc::UnboundedReceiver<String>) 
                         continue;
                     };
                     calls.send(m.clone()).unwrap();
+                    if m == method::SESSION_NEW
+                        && let Some(release) = &release_create
+                    {
+                        release.notified().await;
+                    }
                     let detail = json!({"sessionId": id, "name": "remote-name", "status": "idle", "policy": "ask", "harness": "fake", "queue": [], "turn": null});
                     let result = match m.as_str() {
                         method::INITIALIZE => {
@@ -651,6 +660,57 @@ async fn cli_output_ignores_local_events_when_a_peer_reuses_the_raw_id() {
 }
 
 #[tokio::test]
+async fn remote_session_start_reports_the_wait_and_completes_the_same_request() {
+    use tokio::io::AsyncBufReadExt as _;
+    let dir = tempfile::Builder::new().prefix("amx-new-").tempdir_in("/tmp").unwrap();
+    let root = dir.path();
+    let a = hub(root);
+    let release = Arc::new(tokio::sync::Notify::new());
+    let (port, mut calls) = lying_peer("remote-id", Some(release.clone())).await;
+    a.add_peer("worker", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let socket = root.join("a.sock");
+    let server = tokio::spawn(serve_unix(a.clone(), bind_unix(&socket).await.unwrap()));
+    let mut child = daemon_env::tokio_command(root, daemon_env::Agents::Deny)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_TEST_SLOW_NOTICE_MS", "100")
+        .args(["--json", "new", "--machine", "worker", "--detach", "--name", "example"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut lines = tokio::io::BufReader::new(child.stderr.take().unwrap()).lines();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while calls.recv().await.expect("peer requests") != method::SESSION_NEW {}
+        loop {
+            let line = lines.next_line().await.unwrap().expect("CLI exited before its notice");
+            if line.contains("session start has taken") {
+                assert!(line.contains("session/new reply for \"example\" on worker"), "{line}");
+                break;
+            }
+        }
+    })
+    .await
+    .expect("slow peer create must explain the wait before it answers");
+    assert!(child.try_wait().unwrap().is_none());
+    release.notify_one();
+    let out = tokio::time::timeout(Duration::from_secs(10), child.wait_with_output())
+        .await
+        .expect("original session/new must finish")
+        .unwrap();
+    assert!(out.status.success(), "{:?}", out.status);
+    let row: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(row["name"], "remote-name", "{row}");
+    while let Ok(method) = calls.try_recv() {
+        assert_ne!(method, method::SESSION_NEW, "an unconfirmed create was retried");
+    }
+    server.abort();
+    a.shutdown_all().await;
+}
+
+#[tokio::test]
 async fn lifecycle_commands_keep_a_peer_owner_when_raw_ids_collide() {
     let root = PathBuf::from("/tmp").join(format!("amx-scp-collision-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
@@ -659,7 +719,7 @@ async fn lifecycle_commands_keep_a_peer_owner_when_raw_ids_collide() {
     let local_id = new_session(&mut ca, &root, "local-owner").await;
     let qualified = format!("lying/{local_id}");
     let shadow_id = new_session(&mut ca, &root, &qualified).await;
-    let (port, mut calls) = lying_peer(&local_id).await;
+    let (port, mut calls) = lying_peer(&local_id, None).await;
     a.add_peer("lying", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
         .await
         .unwrap();
