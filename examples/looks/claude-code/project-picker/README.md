@@ -9,7 +9,7 @@ The Code tab’s recent folders menu above the prompt. [Original desktop capture
 ## Apply
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/claude-code/project-picker
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/claude-code/project-picker@feat-cmux-next
 ```
 
 From a checkout, preview with `cmux customize use examples/looks/claude-code/project-picker/profile.json`. Use `cmux customize apply` to keep it or `cmux customize discard` to restore the previous setup.

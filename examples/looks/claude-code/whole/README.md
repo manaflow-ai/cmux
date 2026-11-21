@@ -9,7 +9,7 @@ The Code home with a narrow session sidebar and the prompt docked below the conv
 ## Apply
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/claude-code/whole
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/claude-code/whole@feat-cmux-next
 ```
 
 From a checkout, preview with `cmux customize use examples/looks/claude-code/whole/profile.json`. Use `cmux customize apply` to keep it or `cmux customize discard` to restore the previous setup.

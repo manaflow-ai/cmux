@@ -9,7 +9,7 @@ The prompt field and permission and model controls in the Code tab. [Original de
 ## Apply
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/claude-code/composer
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/claude-code/composer@feat-cmux-next
 ```
 
 From a checkout, preview with `cmux customize use examples/looks/claude-code/composer/profile.json`. Use `cmux customize apply` to keep it or `cmux customize discard` to restore the previous setup.

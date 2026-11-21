@@ -9,7 +9,7 @@ A collapsed command group in the desktop transcript. [Original desktop capture](
 ## Apply
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/claude-code/transcript
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/claude-code/transcript@feat-cmux-next
 ```
 
 From a checkout, preview with `cmux customize use examples/looks/claude-code/transcript/profile.json`. Use `cmux customize apply` to keep it or `cmux customize discard` to restore the previous setup.

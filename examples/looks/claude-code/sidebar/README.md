@@ -9,7 +9,7 @@ Code sessions arranged beneath project headings. [Original desktop capture](http
 ## Apply
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/claude-code/sidebar
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/claude-code/sidebar@feat-cmux-next
 ```
 
 From a checkout, preview with `cmux customize use examples/looks/claude-code/sidebar/profile.json`. Use `cmux customize apply` to keep it or `cmux customize discard` to restore the previous setup.
