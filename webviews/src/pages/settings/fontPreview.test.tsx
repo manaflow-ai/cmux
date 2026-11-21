@@ -62,6 +62,35 @@ describe("font pictures", () => {
     expect(picture(markdown()).style.fontFamily).toContain("Georgia");
   });
 
+  test("the Chat Font choices that follow the interface face draw in the Interface Font", async () => {
+    page = await renderPage({ path: "/settings/chat" });
+    const preset = "agentPane.display.font.preset";
+    const tile = (choice: string) => picture(tiles(preset).find((t) => t.dataset.fontChoice === choice)!);
+    // On the default Interface Font both System and a system-preset Markdown draw the system face.
+    expect(tile("system").style.fontFamily).toContain("system-ui");
+    await run(() => page!.store.set("agentPane.display.font.ui", "cmux-sans"));
+    // The chat draws these in `var(--font-ui)`, which the Interface Font sets: so does the picture.
+    expect(tile("system").style.fontFamily).toContain("cmux Sans");
+    expect(tile("markdown").style.fontFamily).toContain("cmux Sans");
+    // The faces that do not follow it are unmoved.
+    expect(tile("serif").style.fontFamily).toContain("Georgia");
+    expect(tile("mono").style.fontFamily).not.toContain("cmux Sans");
+  });
+
+  test("the mono tiles draw in the configured code family, the chat's before the viewer's before the terminal's", async () => {
+    page = await renderPage({ path: "/settings/chat" });
+    const preset = "agentPane.display.font.preset";
+    const mono = () => picture(tiles(preset).find((t) => t.dataset.fontChoice === "mono")!);
+    expect(mono().style.fontFamily).toContain("ui-monospace");
+    await run(() => page!.store.set("terminal.fontFamily", "Menlo"));
+    // Code follows the terminal font unless a code font is set (chatDisplay.ts).
+    expect(mono().style.fontFamily).toContain("Menlo");
+    await run(() => page!.store.set("markdown.code.family", "Iosevka"));
+    expect(mono().style.fontFamily).toContain("Iosevka");
+    await run(() => page!.store.set("agentPane.display.code.family", "Berkeley Mono"));
+    expect(mono().style.fontFamily).toContain("Berkeley Mono");
+  });
+
   test("the terminal's font row draws a sample of the picked family at its size", async () => {
     page = await renderPage({ path: "/settings/terminal" });
     const sample = () => rowElement(page!.container, "terminal.fontFamily").querySelector<HTMLElement>(".font-sample")!;
