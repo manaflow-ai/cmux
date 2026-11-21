@@ -230,12 +230,41 @@ public final class FeedStore {
             return
         }
         reindex()
-        derivedRuns += 1
         recordReadMarks()
-        refreshDerived()
         #if DEBUG
         if FeedStressRig.shared.config.logsChurn { FeedStore.logChange(from: oldValue, to: items) }
         #endif
+        scheduleDerived()
+    }
+
+    /// Runs the derived pass later (live mode: at the next display frame), so every Feed write of
+    /// a frame (a ledger read, a tree change, a Needs You set, a notification, an answer) shares
+    /// one pass: the screen shows one state a frame. Nil: at once (tests, previews, mock mode).
+    @ObservationIgnored public var derivedScheduler: (@MainActor (@escaping @MainActor () -> Void) -> Void)?
+    @ObservationIgnored private var derivedScheduled = false
+
+    private func scheduleDerived() {
+        guard let derivedScheduler else {
+            derivedPass()
+            return
+        }
+        guard !derivedScheduled else { return }
+        derivedScheduled = true
+        derivedScheduler { [weak self] in self?.flushDerived() }
+    }
+
+    /// Runs a scheduled derived pass now (the frame came, or a caller reads the lists at once).
+    public func flushDerived() {
+        guard derivedScheduled else { return }
+        derivedScheduled = false
+        derivedPass()
+    }
+
+    /// The filtered list, the counts and `onItemsChange`: once per frame's changes.
+    // perf-hot: 1/frame feed-derived-pass
+    private func derivedPass() {
+        derivedRuns += 1
+        refreshDerived()
         onItemsChange?(items)
     }
 
@@ -426,6 +455,8 @@ public final class FeedStore {
         let open = Set(items.lazy.filter { $0.needsYou && !$0.isDone }.map(\.id))
         if open != needsYouIDs { needsYouIDs = open }
         if open.count != needsYouCount { needsYouCount = open.count }
+        let unread = items.contains { !$0.isRead }
+        if unread != hasUnread { hasUnread = unread }
     }
 
     /// Needs you first: the asks still waiting on the person lead the list, newest first among
@@ -570,6 +601,9 @@ public final class FeedStore {
     public private(set) var visibleItems: [FeedItem] = []
 
     public private(set) var needsYouCount = 0
+    /// Some event is unread (Mark All Notifications as Read is enabled): kept with the derived
+    /// lists, so the menu reads a flag that changes rarely instead of scanning every event.
+    public private(set) var hasUnread = false
     /// The ids of the asks still waiting on the person (`needsYou`, not done). It changes only
     /// when an ask opens or closes: the notification sync keys on it, so a re-render or a re-read
     /// of the same asks does nothing.
@@ -658,6 +692,9 @@ public final class FeedStore {
     public func clearForSignOut() {
         onItemsChange = nil
         actions = nil
+        // Signed out: the emptied Feed shows at once, and no frame's pass is left for it.
+        derivedScheduler = nil
+        derivedScheduled = false
         replaceAll([])
         useSpill(nil)
         evictedDoneIDs = []

@@ -16,11 +16,58 @@ public final class AppStore {
             return workspaceStorage
         }
         set {
-            guard newValue != workspaceStorage else { return }
+            // One pass: equal lists change nothing; rows changed where they were are noted by
+            // id (`rowsChanged(since:)`), so what reads the list can update those rows alone.
+            var inPlace: Set<String>? = []
+            if newValue.count == workspaceStorage.count {
+                for (new, old) in zip(newValue, workspaceStorage) where new != old {
+                    guard new.id == old.id, new.macID == old.macID else {
+                        inPlace = nil
+                        break
+                    }
+                    inPlace?.insert(new.id)
+                }
+                if inPlace?.isEmpty == true { return }
+            } else {
+                inPlace = nil
+            }
             withMutation(keyPath: \.workspaces) { workspaceStorage = newValue }
             workspacesRevision &+= 1
+            noteRowChange(inPlace)
             refreshAttentionCount()
         }
+    }
+
+    /// One change of `workspaces` that only changed rows where they were (no row came, went or
+    /// moved): the revision it made and the rows' ids.
+    public struct RowChange: Equatable, Sendable {
+        public var revision: Int
+        public var ids: Set<String>
+    }
+
+    /// The newest in-place changes, oldest first, with consecutive revisions; emptied by any
+    /// other change. A few frames' worth: a reader further behind rebuilds.
+    @ObservationIgnored public private(set) var rowChanges: [RowChange] = []
+
+    private func noteRowChange(_ ids: Set<String>?) {
+        guard let ids else {
+            rowChanges.removeAll()
+            return
+        }
+        rowChanges.append(RowChange(revision: workspacesRevision, ids: ids))
+        if rowChanges.count > 8 { rowChanges.removeFirst(rowChanges.count - 8) }
+    }
+
+    /// The rows changed in place since `revision` (`workspacesRevision` as a reader last saw
+    /// it), or nil when the list changed otherwise since (rows came, went or moved) or the
+    /// changes are older than the few kept.
+    public func rowsChanged(since revision: Int) -> Set<String>? {
+        if revision == workspacesRevision { return [] }
+        guard revision < workspacesRevision, let first = rowChanges.first, first.revision <= revision &+ 1,
+              rowChanges.last?.revision == workspacesRevision else { return nil }
+        var ids: Set<String> = []
+        for change in rowChanges where change.revision > revision { ids.formUnion(change.ids) }
+        return ids
     }
     @ObservationIgnored private var workspaceStorage: [Workspace]
     /// Moves on every change of `workspaces`: what reads them can key a memo
@@ -227,6 +274,7 @@ public final class AppStore {
         rowWrites += changes.count
         let indexWasCurrent = workspaceIndexRevision == workspacesRevision
         workspacesRevision &+= 1
+        noteRowChange(Set(changes.map(\.row.id)))
         // Rows changed in place: every row is still where it was.
         if indexWasCurrent { workspaceIndexRevision = workspacesRevision }
         if attention != attentionCount { attentionCount = attention }

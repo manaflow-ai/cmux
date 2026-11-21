@@ -62,6 +62,14 @@ struct OnMinute<Content: View>: View {
 struct WorkspacesListModel: Equatable {
     var sections: [ListSectionIDs] = []
     var items: [String: WorkspacesListItem] = [:]
+    /// Which model this is (the inbox memo's build), and, for a model updated from another one
+    /// with the same sections, that model's version and the items it changed: the list applies
+    /// those items alone instead of comparing every section and item.
+    var version = 0
+    var patchedFrom: Int?
+    var patchedItems: Set<String> = []
+
+    static func == (a: Self, b: Self) -> Bool { a.sections == b.sections && a.items == b.items }
 
     static func rowID(_ workspaceID: String) -> String { "ws.\(workspaceID)" }
 }
@@ -303,6 +311,16 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     private(set) var unanimatedWhileScrollingCount = 0
     /// Snapshots and reconfigures applied (tests and the rig read them).
     private(set) var applyCount = 0
+    /// Passes that applied waiting changes (one per run-loop turn however many updates came).
+    private(set) var applyPasses = 0
+    /// Passes that applied only a model's changed items (tests).
+    private(set) var patchedApplyCount = 0
+    /// The items the last pass redrew in place (tests).
+    private(set) var lastReconfigured: [String] = []
+    private var shownVersion = 0
+    private var pendingItems: Set<String>?
+    /// Applies that kept the row being read in place (tests).
+    private(set) var anchoredApplyCount = 0
     private(set) var reconfigureCount = 0
 
     init(control: WorkspacesListControl) {
@@ -413,6 +431,14 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         if let previous = self.membershipKey, previous != membershipKey { pendingAnimated = true }
         self.membershipKey = membershipKey
         if animated { pendingAnimated = true }
+        // A model updated from the one shown (or from the one already waiting), with the same
+        // sections: only its changed items need applying. Anything else compares the whole list.
+        let base = pending?.version ?? shownVersion
+        if let from = model.patchedFrom, from == base, pending == nil || pendingItems != nil {
+            pendingItems = (pendingItems ?? []).union(model.patchedItems)
+        } else {
+            pendingItems = nil
+        }
         pending = model
         guard !applyScheduled else { return }
         applyScheduled = true
@@ -424,9 +450,13 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
 
     private func applyPending() {
         applyScheduled = false
+        applyPasses += 1
         heights.textSize = collectionView?.traitCollection.preferredContentSizeCategory ?? .large
         guard let next = pending, let dataSource else { return }
         pending = nil
+        let changedItems = pendingItems
+        pendingItems = nil
+        shownVersion = next.version
         var animated = pendingAnimated && !UIAccessibility.isReduceMotionEnabled && collectionView?.window != nil
         pendingAnimated = false
         // Never an animated whole-list snapshot under a moving list (a new workspace or a Needs
@@ -440,10 +470,27 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         #if DEBUG
         ListApplyProbe.shared.applied("workspaces")
         #endif
-        let sections = ListSectionIDs.unique(next.sections)
-        let plan = ListApplyPlan.make(old: shownSections, oldItems: items, new: sections, newItems: next.items)
+        let sections: [ListSectionIDs]
+        let plan: ListApplyPlan
+        if let changedItems, dataSource.snapshot().numberOfSections != 0 {
+            // The same sections as shown: the changed items alone (O(changed)).
+            sections = shownSections
+            plan = ListApplyPlan(orderChanged: false, membershipChanged: false,
+                                 reconfigure: changedItems.filter { id in
+                                     guard let before = items[id], let after = next.items[id] else { return false }
+                                     return before != after
+                                 })
+            patchedApplyCount += 1
+        } else {
+            sections = ListSectionIDs.unique(next.sections)
+            plan = ListApplyPlan.make(old: shownSections, oldItems: items, new: sections, newItems: next.items)
+        }
         items = next.items
+        lastReconfigured = plan.reconfigure
         guard !plan.isEmpty || dataSource.snapshot().numberOfSections == 0 && !sections.isEmpty else { return }
+        // The row being read stays where it is when rows above it come, go or move without
+        // animation (a busy Mac mid-scroll): only the rows it does not read move.
+        let anchor = animated ? nil : readingAnchor()
         if plan.orderChanged || dataSource.snapshot().numberOfSections == 0 {
             if !animated, !plan.membershipChanged, let moves = Self.moves(from: shownSections, to: sections) {
                 // A live reorder (a row went to the top): moved items only, in place.
@@ -466,6 +513,7 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
                 dataSource.apply(snapshot, animatingDifferences: animated)
             }
             applyCount += 1
+            if let anchor { restore(anchor) }
         }
         shownSections = sections
         // Changed rows: the cells on screen take their new value in place (only a
@@ -572,6 +620,46 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
 
     /// How long after the last offset change the list still counts as moving.
     static let movingWindow: CFTimeInterval = 0.1
+
+    // MARK: The row being read
+
+    struct ReadingAnchor { var ids: [(id: String, delta: CGFloat)] }
+
+    /// The rows on screen, top first, and where each starts relative to the scroll offset; nil at
+    /// the top of the list (there a new row shows at the top). The first one that is still listed
+    /// after an apply keeps its place (the row being read, or the next one when it left).
+    func readingAnchor() -> ReadingAnchor? {
+        guard let collectionView, let dataSource, collectionView.window != nil else { return nil }
+        let offset = collectionView.contentOffset.y
+        let top = offset + collectionView.adjustedContentInset.top
+        guard top > 0.5 else { return nil }
+        var ids: [(id: String, delta: CGFloat)] = []
+        for indexPath in collectionView.indexPathsForVisibleItems.sorted() {
+            guard let frame = collectionView.layoutAttributesForItem(at: indexPath)?.frame, frame.maxY > top,
+                  let id = dataSource.itemIdentifier(for: indexPath) else { continue }
+            ids.append((id, frame.minY - offset))
+        }
+        return ids.isEmpty ? nil : ReadingAnchor(ids: ids)
+    }
+
+    private func restore(_ anchor: ReadingAnchor) {
+        guard let collectionView, let dataSource else { return }
+        collectionView.layoutIfNeeded()
+        for (id, delta) in anchor.ids {
+            guard let indexPath = dataSource.indexPath(for: id),
+                  let frame = collectionView.layoutAttributesForItem(at: indexPath)?.frame else { continue }
+            let minY = -collectionView.adjustedContentInset.top
+            let maxY = max(minY, collectionView.contentSize.height - collectionView.bounds.height
+                + collectionView.adjustedContentInset.bottom)
+            let y = min(max(frame.minY - delta, minY), maxY)
+            // Not `setContentOffset(_:animated:)`: a plain offset keeps a finger's drag and a coast going.
+            if abs(y - collectionView.contentOffset.y) > 0.25 {
+                collectionView.contentOffset.y = y
+                anchoredApplyCount += 1
+            }
+            return
+        }
+    }
 
     func scrollViewDidChangeAdjustedContentInset(_ scrollView: UIScrollView) {
         pullToRefresh?.scrolled()

@@ -128,4 +128,51 @@ import Testing
         store.batch { store.upsert(FeedStoreChurnTests.item("a"), atTop: true) }
         #expect(changes == 0)
     }
+    // MARK: One Feed pass a display frame (FEED-6)
+
+    /// Separate Feed writes in one frame (a notification's ledger read, a tree change, a Needs You
+    /// set, a mark read): none runs the derived lists until the frame, then one pass for all.
+    @Test func separateFeedWritesInOneFrameShareOneDerivedPass() {
+        let store = FeedStore(items: [])
+        var frames: [@MainActor () -> Void] = []
+        store.derivedScheduler = { frames.append($0) }
+        var changes = 0
+        store.onItemsChange = { _ in changes += 1 }
+        let runs = store.derivedRuns
+        store.upsert(FeedStoreChurnTests.item("a"), atTop: true)
+        store.batch {
+            for index in 0..<5 { store.upsert(FeedStoreChurnTests.item("b\(index)", ago: Double(index)), atTop: true) }
+        }
+        store.upsert(FeedStoreChurnTests.item("c", kind: .needsInput), atTop: true)
+        store.markRead(["a"])
+        #expect(store.item(id: "c") != nil, "lookups stay right before the frame")
+        #expect(frames.count == 1, "one frame scheduled for the frame's writes")
+        #expect(store.derivedRuns == runs, "a write ran the derived lists before the frame")
+        #expect(changes == 0)
+        for frame in frames { frame() }
+        #expect(store.derivedRuns == runs + 1)
+        #expect(changes == 1)
+        #expect(store.visibleItems.count == 7)
+        #expect(store.needsYouCount == 1)
+        #expect(store.hasUnread)
+    }
+
+    // MARK: Watch events: one pending sync a frame
+
+    /// A burst of acpmux watch events (a busy Mac's agents streaming) maps every session's asks
+    /// and titles into the workspace rows once, at the next frame (each one mapped them all).
+    @Test func watchEventsInOneFrameMapPendingAsksOnce() {
+        let link = LinkController(transport: .wireGuard, dialer: MockDialer(fail: false), accessToken: { _ in "t" })
+        let session = MacSession(macID: "m", name: "Mac", link: link, deviceID: "d", deviceName: "iPhone",
+                                 feedStore: FeedStore(items: []))
+        var frames: [@MainActor () -> Void] = []
+        session.nextFrame = { frames.append($0) }
+        for _ in 0..<50 { session.schedulePendingSync() }
+        #expect(frames.count == 1, "one frame for 50 watch events")
+        #expect(session.pendingSyncs == 0, "mapped before the frame")
+        for frame in frames { frame() }
+        #expect(session.pendingSyncs == 1)
+        session.schedulePendingSync()
+        #expect(frames.count == 2, "the next frame's events schedule again")
+    }
 }

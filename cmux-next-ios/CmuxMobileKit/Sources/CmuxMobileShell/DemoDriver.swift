@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-feed-empty", "retry-feed-filtered-empty", "retry-feed-connecting", "retry-feed-offline", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -72,6 +72,19 @@ struct DemoDriver {
             // A failed real refresh is the fixture; no private connection is used.
             FeedStore.shared.actions = nil
             FeedStore.shared.setRefreshErrorForDemo()
+        // The Feed's other states, each from one launch argument (a shots step renders them
+        // without reaching them live): nothing yet, nothing for the filter, waiting for the Mac,
+        // and the phone offline with the events it kept.
+        case "retry-feed-empty", "retry-feed-filtered-empty", "retry-feed-connecting":
+            shell.tab = .feed
+            FeedStore.shared.actions = nil
+            FeedStore.shared.replaceAll([])
+            if name == "retry-feed-filtered-empty" { FeedStore.shared.filter = .errors }
+            FeedStore.shared.syncState = name == "retry-feed-connecting" ? .connecting : .live
+        case "retry-feed-offline":
+            shell.tab = .feed
+            FeedStore.shared.actions = nil
+            shell.store.isOffline = true
         case "retry-home-offline":
             // CMUX-489: Home's Mac is not connected; the rows this phone kept show under the
             // top bar (no link is dialed: the mock store marks the Mac's link failed).

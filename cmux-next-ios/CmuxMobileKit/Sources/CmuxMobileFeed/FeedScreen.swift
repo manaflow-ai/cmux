@@ -292,7 +292,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
 /// sections that do are their own views, built when the menu shows them, so a busy Mac's
 /// tree updates (titles, status, several a second) and new Feed items never rebuild the
 /// navigation bar's menu, or a toggle per workspace, while the Feed scrolls.
-private struct FeedFilterMenu: View {
+struct FeedFilterMenu: View {
     @Bindable var store: FeedStore
     /// Why Clear All Notifications failed (the screen's alert).
     @Binding var clearFailure: String?
@@ -300,6 +300,9 @@ private struct FeedFilterMenu: View {
     @Binding var markFailure: String?
 
     var body: some View {
+        #if DEBUG
+        let _ = FeedMenuProbe.shared.menuBodies += 1
+        #endif
         Menu {
             Picker("Show", selection: $store.filter) {
                 ForEach(FeedFilter.allCases, id: \.self) { Text($0.rawValue) }
@@ -333,13 +336,16 @@ private struct FeedFilterMenu: View {
     }
 }
 
-/// Mark All Notifications as Read, disabled with nothing unread: its own view, so the scan of
-/// every item runs only for the open menu, not for each Feed change.
-private struct FeedMarkAllReadButton: View {
+/// Mark All Notifications as Read, disabled with nothing unread: its own view, reading the
+/// store's `hasUnread` flag (kept with the derived lists), never a scan of every event.
+struct FeedMarkAllReadButton: View {
     let store: FeedStore
     @Binding var markFailure: String?
 
     var body: some View {
+        #if DEBUG
+        let _ = FeedMenuProbe.shared.markAllBodies += 1
+        #endif
         Button("Mark All Notifications as Read", systemImage: "checkmark.circle") {
             store.markAllRead()
             guard let mark = FeedRouting.shared.markAllNotificationsRead else { return }
@@ -349,7 +355,7 @@ private struct FeedMarkAllReadButton: View {
                 }
             }
         }
-        .disabled(store.items.allSatisfy(\.isRead) && FeedRouting.shared.markAllNotificationsRead == nil)
+        .disabled(!store.hasUnread && FeedRouting.shared.markAllNotificationsRead == nil)
         .accessibilityIdentifier("feed.markAllRead")
     }
 }
@@ -373,6 +379,15 @@ private struct FeedWorkspaceToggles: View {
 }
 
 #if DEBUG
+/// How often the Feed's filter menu and its Mark All Read button built their bodies (tests: a
+/// Feed change that moves neither the filter, the mutes nor the unread flag builds neither).
+@MainActor
+final class FeedMenuProbe {
+    static let shared = FeedMenuProbe()
+    var menuBodies = 0
+    var markAllBodies = 0
+}
+
 @MainActor
 enum FeedScreenRig {
     static let scroller = FeedAutoScroller(config: FeedStressRig.shared.config)

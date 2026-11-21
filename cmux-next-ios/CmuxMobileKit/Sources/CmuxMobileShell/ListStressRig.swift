@@ -86,7 +86,9 @@ final class ListStressRig: NSObject {
     // MARK: Seeding and navigation
 
     private func open(_ screen: String) async {
-        ListApplyProbe.shared.codeDrivenScroll = true
+        // Only while the rig scrolls the list itself: a UI test that drives the list with a finger
+        // (no passes) keeps the real scrolling check.
+        ListApplyProbe.shared.codeDrivenScroll = settings.passes > 0
         let store = shell.store
         if let agents = settings.flood { await startFlood(agents) }
         switch screen {
@@ -494,6 +496,7 @@ final class ListStressRig: NSObject {
 
     private func finish() {
         logMemory("\(settings.screen ?? "-")-done")
+        ListApplyProbe.shared.codeDrivenScroll = false
         live?.cancel()
         flood?.logSummary()
         Self.running = nil

@@ -198,8 +198,13 @@
     },
     "workspace-sync-publish": {
       "what": "the iPhone app's live workspace publication (cmux-next-ios WorkspaceSync.flushPublication): every Mac event of a display frame published to AppStore, the lists and the terminal Feed once",
-      "bench": "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --arg listperf --arg cases=ws-heavy-live,feed-live (hitch ms/s, max frame, main CPU ms/s under a busy Mac on the real live path)",
-      "owner": "iOS (Aziz)"
+      "bench": "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --arg listperf --arg cases=ws-500-live8,ws-200-live4 --arg base=<base sha> (POOLED hitch ms/s, max frame ms, main CPU ms/s and main CPU p99 per frame, base vs head); LiveBurstCoalescingTests (publications per frame)",
+      "owner": "iOS"
+    },
+    "feed-derived-pass": {
+      "what": "the iPhone Feed's derived pass (cmux-next-ios FeedStore.derivedPass): the filtered list, the Needs You and unread counts and onItemsChange, once per display frame however many Feed writes the frame brought",
+      "bench": "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --arg listperf --arg cases=feed-ref --arg base=<base sha> (POOLED hitch, max frame, main CPU p99); LiveBurstCoalescingTests (derived runs per frame)",
+      "owner": "iOS"
     }
   }
 }
