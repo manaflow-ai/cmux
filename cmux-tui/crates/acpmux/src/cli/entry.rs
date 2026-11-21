@@ -95,6 +95,10 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         crate::qos::enter(crate::qos::Role::BackgroundTaskRunner);
         return crate::bg_run::main();
     }
+    // A bench's sized chat, written by this build's store (`god_fixture.rs`): no daemon, no CLI.
+    if args.first().is_some_and(|a| a == crate::god_fixture::SEED_CHAT_ARG) {
+        return crate::god_fixture::seed_chat_main(args.get(1..).unwrap_or_default());
+    }
     // Claude Code's PreToolUse hook for background shells (`bg_hook.rs`).
     if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
         return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
@@ -553,6 +557,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::HostedMcp) => crate::hosted_mcp::run().await,
         Some(Command::GithubMcp) => crate::github_mcp::run().await,
         Some(Command::AcpmuxMcp) => crate::acpmux_mcp::run().await,
+        Some(Command::InboxRelay) => crate::claude_inbox_relay::serve().await,
         Some(Command::ToolsMcp) => crate::cli::tools_mcp::run().await,
         Some(Command::Skill) => {
             use std::io::Write;

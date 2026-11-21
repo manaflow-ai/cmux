@@ -319,8 +319,9 @@ test("Return during a sign-in check that never answers asks at once", async () =
   }
 });
 
-test("an Ask row click and New chat during the sign-in check ask at once", async () => {
-  for (const selector of ['.nt-row[data-type="ask"]', '.nt-row[data-type="create"]']) {
+// The prompt for the chip's own agent is no row (David Beyer 2026-11-20): Send is its click.
+test("a Send click and New chat during the sign-in check ask at once", async () => {
+  for (const selector of [".nt-send", '.nt-row[data-type="create"]']) {
     const page = await newTabPage();
     try {
       if (selector.includes("create")) await page.type("new chat");
