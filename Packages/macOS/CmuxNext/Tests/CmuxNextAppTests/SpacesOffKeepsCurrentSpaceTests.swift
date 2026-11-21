@@ -73,6 +73,31 @@ struct SpacesOffKeepsCurrentSpaceTests {
         windows.moveWorkspaces(["k4"], toWindow: fixture.state.id)
         #expect(windows.registry.value.owner(of: "k4") == fixture.state.id)
         #expect(fixture.state.profileID == Fixture.work, "a move swapped this window's sidebar")
+        // The pin lands (the fixture's daemon has no connection: its reply is applied here): k4 shows in Work and is selected.
+        fixture.store.apply(snapshot: Fixture.tree(k4In: Fixture.work))
+        windows.reconcileMembership()
+        #expect(fixture.shown == ["k2", "k3", "k4"])
+        #expect(fixture.state.workspaceID == "k4", "the moved workspace was not selected once it showed")
+        #expect(windows.pinSelections.isEmpty)
+    }
+
+    /// Merge All Windows while Spaces is off: the other window's workspaces join this window's view; it keeps its space.
+    @Test func mergeAllKeepsThisWindowsViewAndShowsTheMergedWorkspaces() async throws {
+        let fixture = try await Fixture(settings: #"{"sidebar":{"showSpaces":true}}"#)
+        defer { fixture.close() }
+        let windows = fixture.services.windows
+        windows.switchProfile(Fixture.work, in: fixture.state)
+        let other = try #require(windows.openWindow(workspaces: ["k4"], frame: CGRect(x: 200, y: 200, width: 900, height: 600)))
+        defer { other.teardown(); other.window?.close() }
+        #expect(other.state.profileID == .defaultProfile)
+        try await fixture.write("{}")
+
+        try windows.mergeWindows(into: fixture.state)
+        #expect(fixture.state.profileID == Fixture.work, "Merge All swapped this window's sidebar")
+        #expect(windows.registry.value.owner(of: "k4") == fixture.state.id)
+        fixture.store.apply(snapshot: Fixture.tree(k4In: Fixture.work))
+        windows.reconcileMembership()
+        #expect(fixture.shown == ["k2", "k3", "k4"], "a merged workspace is hidden in this window's space")
     }
 
     /// Spaces on again: the switcher's actions come back and the window moves between spaces as before.
@@ -144,7 +169,7 @@ struct SpacesOffKeepsCurrentSpaceTests {
         }
 
         /// The default space holds k1 and k4 (no window lists k4); Work holds k2 and k3.
-        static func tree() -> DaemonTree {
+        static func tree(k4In k4Space: ProfileID? = nil) -> DaemonTree {
             let keys = ["k1", "k2", "k3", "k4"]
             var tree = DaemonTree(registryID: "s-local", workspaces: keys.enumerated().map { index, key in
                 WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: WorkspaceKey(rawValue: key), name: key, screens: [])
@@ -152,7 +177,8 @@ struct SpacesOffKeepsCurrentSpaceTests {
             tree.personal = PersonalState(
                 sessions: [SessionRecord(id: "s-local")],
                 profiles: [ProfileSnapshot(id: .defaultProfile, name: "Default", index: 0), ProfileSnapshot(id: work, name: "Work", index: 1)],
-                pins: ["k2", "k3"].map { WorkspacePin(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: $0), profile: work) },
+                pins: ["k2", "k3"].map { WorkspacePin(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: $0), profile: work) }
+                    + (k4Space.map { [WorkspacePin(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: "k4"), profile: $0)] } ?? []),
                 workspaces: keys.enumerated().map { PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: $1), index: $0) })
             return tree
         }

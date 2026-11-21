@@ -63,12 +63,25 @@ extension WindowManager {
     /// `sidebar.showSpaces` (https://github.com/manaflow-ai/cmux/issues/48355, off by default): no space is made or
     /// switched to by the person. No settings layer (a headless host) keeps the daemon's spaces reachable.
     var spacesOn: Bool { services.settings.map { $0.snapshot.sidebarSections.showSpaces } ?? true }
-    /// Pins the workspaces `room` does not show there, as Move to Space does (Spaces off, #48355).
-    func pin(_ ids: [String], to room: ProfileID) {
+    /// Pins the workspaces `room` does not show there, as Move to Space does (Spaces off, #48355). One membership read for
+    /// the batch. `window` selects the first once its pin lands (`landedPins`), when the move asked to select it.
+    func pin(_ ids: [String], to room: ProfileID, selectIn window: String? = nil) {
         let machines = services.machines
-        for workspace in ids.filter({ WindowProfiles.room(of: $0, current: room, machines: machines) != nil }).compactMap({ WindowProfiles.qualified($0, machines: machines) }) {
+        guard let membership = WindowProfiles.membership(machines) else { return }
+        let moving = ids.compactMap { id in WindowProfiles.qualified(id, machines: machines).map { (id, $0) } }.filter { !membership.contains($0.1, in: room) }
+        if let window, let first = moving.first, first.0 == ids.first { pinSelections[first.0] = window }
+        for (_, workspace) in moving {
             machines.local.send("pin-workspace") { try await $0.pinWorkspace(session: workspace.session, key: WorkspaceKey(rawValue: workspace.key), to: room) }
         }
+    }
+    /// The moved workspaces whose pin now shows them in their window's space, by window; each is taken once.
+    func landedPins() -> [String: [String]] {
+        var landed: [String: [String]] = [:]
+        for (id, window) in pinSelections {
+            guard let state = states[window], registry.value.owner(of: id) == window else { pinSelections[id] = nil; continue }
+            if WindowProfiles.visible([id], profile: state.profileID, machines: services.machines) == [id] { landed[window, default: []].append(id); pinSelections[id] = nil }
+        }
+        return landed
     }
 
     /// Next (+1) or previous (-1) profile of the local daemon, clamped at
@@ -163,6 +176,8 @@ extension WindowManager {
         guard !sources.isEmpty else { return }
         try refuseClosingCreating(sources.map(\.id))
         try refuseLocalTabs((moving.isEmpty ? [] : [state.id]) + sources.map(\.id))
+        // Spaces off (#48355): this window keeps its view, and the merged workspaces join it (a pin, as Move to Space).
+        if !spacesOn { pin(moving, to: state.profileID) }
         let order = Dictionary(value.recency.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         for source in sources.sorted(by: { order[$0.id, default: .max] < order[$1.id, default: .max] }) {
             guard let other = states[source.id] else { continue }

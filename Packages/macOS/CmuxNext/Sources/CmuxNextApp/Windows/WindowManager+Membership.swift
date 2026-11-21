@@ -306,7 +306,7 @@ extension WindowManager {
         // A window on its own incognito space never leaves it (`switchProfile`).
         // Spaces off (#48355): the window keeps its view, and workspaces of another space join it (a pin, as Move to Space).
         if !spacesOn, incognitoSpaces[windowID] == nil, let state = states[windowID] {
-            pin(ids, to: state.profileID)
+            pin(ids, to: state.profileID, selectIn: select ? windowID : nil)
         } else if select, incognitoSpaces[windowID] == nil, let state = states[windowID],
            let room = ids.lazy.compactMap({ WindowProfiles.room(of: $0, current: state.profileID, machines: self.services.machines) }).first {
             state.enterProfile(room)
@@ -532,8 +532,9 @@ extension WindowManager {
             restoreClosed.keepClosed(&registry)
             return changes
         }
-        // A workspace that changed profile leaves no trace in membership.
-        if registry.value == before, preferred.isEmpty { repairSelections(previous: [:]) }
+        // A workspace that changed profile leaves no trace in membership; one moved in while Spaces is off is selected once its pin lands.
+        let pinned = pinSelections.isEmpty ? [:] : landedPins()
+        if registry.value == before, preferred.isEmpty { repairSelections(previous: [:], preferred: pinned, gesture: !pinned.isEmpty) }
         if let launch = launchWindowID, restored, registry.value.window(launch) != nil { launchWindowID = nil }
         settleRestoreClosed()
         rememberIncognitoTabs()
