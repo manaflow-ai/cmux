@@ -14,6 +14,7 @@ import { useT } from "./i18n";
 
 import { experimentArm } from "../../experiments/experiment";
 import { composerPlusCommands } from "./composerPlusCommands.experiment";
+import type { PageClient } from "../../pages/shared/pageClient";
 import { Tooltip } from "../../ui/Tooltip";
 import { Button } from "../../ui/Button";
 import { useComposerContribution } from "./composer/extensionCommands";
@@ -30,6 +31,7 @@ const NO_BUTTONS: readonly ToolbarButton[] = [];
 export type ComposerPlusMenuProps = {
   /** The rows, from composerPlusRegistry, already narrowed to what this composer can run. */
   entries: readonly ComposerPlusEntry[];
+  client?: PageClient | null;
   /** The trigger's extra classes (New Tab's `acpmux-newtab-plus`). */
   className?: string;
   /** Plan is on: its row draws the Build glyph, as its title says Build. */
@@ -55,6 +57,7 @@ export function ComposerPlusMenu(props: ComposerPlusMenuProps) {
 const MemoPlusMenu = memo(function PlusMenu({
   entries,
   className,
+  client,
   planning = false,
   onCommand,
   onExtension,
@@ -80,7 +83,7 @@ const MemoPlusMenu = memo(function PlusMenu({
         : undefined,
     [planEntry, onCommand, onSlash],
   );
-  const buttons = useComposerContribution<readonly ToolbarButton[]>(toolbarButtonsFrom, NO_BUTTONS);
+  const buttons = useComposerContribution<readonly ToolbarButton[]>(toolbarButtonsFrom, NO_BUTTONS, client);
   const handlers = { command: onCommand, extension: onExtension, slash: onSlash };
   // Untitled groups: a hairline splits them (styles.css), with no header band between.
   const sections: Section[] = composerPlusMenuSections(
