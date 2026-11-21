@@ -225,6 +225,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("environment", self.pick)
         self.assertEqual(self.pick.get("permissions"), {"actions": "read", "contents": "read"})
         self.assertIn("pick-nightly-next-signer", self.one["needs"])
+        self.assertIn("vars.CI_NIGHTLY_MINI == ''", self.pick["if"])
         self.assertTrue(self.pick.get("continue-on-error"))
         self.assertLessEqual(int(self.pick.get("timeout-minutes", 99)), 5)
         self.assertIn("nightly_next_signer_pick.py", text)

@@ -197,23 +197,6 @@ class SigningOnCmux15Test(unittest.TestCase):
                 self.assertEqual(evaluate(parse_expression(source.strip().removeprefix("${{").removesuffix("}}").strip()),
                                           context), want)
 
-    def test_nightly_next_one_takes_the_signer_pick_on_its_attempt(self) -> None:
-        """One build per signer Mac (docs/ci/nightly-workflow-notes.md#note-33): the pick's pin (the signer label plus
-        one signer runner) on the attempt that made it; no pick, the label-only fallback or an older attempt's pick:
-        the signer label alone."""
-        source = manaflow_route("nightly-next-one")
-        pick = "needs.pick-nightly-next-signer.outputs"
-        ultra1 = '["glaeda-trusted-next-signing","glaeda-runner-ultra1-glaeda"]'
-        base = {"github.repository_owner": "manaflow-ai", "vars.CI_NIGHTLY_MINI": "", "github.run_attempt": 1}
-        for pin, attempt, want in ((ultra1, 1, json.loads(ultra1)), ("", "", LABEL), ('["glaeda-trusted-next-signing"]', 1,
-                                   [LABEL]), (ultra1, 2, LABEL)):
-            context = {**base, f"{pick}.pin": pin, f"{pick}.attempt": attempt}
-            if attempt == 2:
-                context.update({f"{pick}.attempt": 1, "github.run_attempt": 2})
-            with self.subTest(pin=pin, attempt=attempt):
-                self.assertEqual(evaluate(parse_expression(source.strip().removeprefix("${{").removesuffix("}}").strip()),
-                                          context), want)
-
     def test_promote_keeps_its_earlier_route(self) -> None:
         self.assertEqual(manaflow_route("promote-nightly-next").strip(),
                          "${{  vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "

@@ -7077,7 +7077,7 @@ jobs:
   # The signer Mac for this run's nightly-next-one, one build per Mac. Why: docs/ci/nightly-workflow-notes.md#note-33
   pick-nightly-next-signer:
     needs: [decide, resolve-nightly-cmux-tui-client]
-    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && needs.decide.result == 'success' && needs.decide.outputs.one_job == 'true' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'"
+    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && vars.CI_NIGHTLY_MINI == '' && github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && needs.decide.result == 'success' && needs.decide.outputs.one_job == 'true' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'"
     # Any failure leaves the outputs empty: nightly-next-one then takes the signer label alone and cmux15's group.
     continue-on-error: true
     # No secret and no signing key: decide's runner.

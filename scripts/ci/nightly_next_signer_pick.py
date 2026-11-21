@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 import pr_runner_pool as pool  # noqa: E402
 from signing_runner import SIGNER_LABEL, member  # noqa: E402
 
@@ -172,8 +173,8 @@ def api_get(repo: str, token: str) -> Callable[[str], Any]:
         request = urllib.request.Request(f"https://api.github.com/repos/{repo}/{path}", headers={
             "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-nightly-next-signer-pick"})
-        with urllib.request.urlopen(request, timeout=READ_TIMEOUT) as response:  # noqa: S310 - fixed https host
-            return json.load(response)
+        _, body, _ = deadline_http.request(request, READ_TIMEOUT, follow_redirects=False, raise_errors=True)
+        return json.loads(body)
     return get
 
 
