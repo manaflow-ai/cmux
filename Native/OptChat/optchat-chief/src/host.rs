@@ -1298,6 +1298,7 @@ fn start(
     // Each installed brain's turn preset: the Chief's own home for it, cmux's Chief tools only.
     let mut brains = crate::brain_home::BrainTurns {
         root: Some(paths.root.clone()),
+        model: Some(crate::brain_home::BrainSetup::from_choice(&engine_choice_file, paths).model),
         ..Default::default()
     };
     for brain in &crate::brain_home::BRAINS {
@@ -2015,7 +2016,6 @@ fn start(
         membership: membership.clone(),
         keep_turn_session: env("CHIEF_KEEP_TURN_SESSION").as_deref() != Some("0"),
         chief_inbox,
-        screen_share: Some(paths.screen.clone()),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.
