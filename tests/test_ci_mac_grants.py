@@ -213,8 +213,16 @@ class Workflows(unittest.TestCase):
 
     def test_placement_jobs_stand_down_when_granted(self):
         jobs = load("ci-macos.yml")["jobs"]
-        for name in ("admission-placement", "late-placement"):
-            self.assertIn("inputs.pr_grant == ''", jobs[name]["if"], name)
+        # admission-placement needs a glaeda root, and a grant leaves pr_root_runner "".
+        self.assertIn("startsWith(inputs.pr_root_runner, 'glaeda-root-')", jobs["admission-placement"]["if"])
+        # Job conditions stay free of pr_grant: test_ci_gate_absent_signal.py's seeded walk reads them.
+        self.assertNotIn("pr_grant", jobs["admission-placement"]["if"])
+        self.assertNotIn("pr_grant", jobs["late-placement"]["if"])
+        # late-placement runs, but places nothing: its outputs fall back to {} and "".
+        steps = {step.get("id"): step for step in jobs["late-placement"]["steps"]}
+        for step_id in ("route-token", "place"):
+            self.assertEqual(steps[step_id]["if"], "${{ inputs.pr_grant == '' }}", step_id)
+        self.assertIn("steps.place.outputs.runners || '{}'", jobs["late-placement"]["outputs"]["runners"])
 
     def test_the_reusable_grant_workflow_reads_the_switch_only_for_same_repository_pull_requests(self):
         grant = load("mac-grant.yml")
