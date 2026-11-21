@@ -14,6 +14,6 @@ test("the harnesses this Mac has lead the rail; the missing ones follow, each in
 });
 
 test("a rail with every harness installed keeps its order", () => {
-  const rail = [{ id: "codex" }, { id: "claude" }];
+  const rail: { id: string; notInstalled?: boolean }[] = [{ id: "codex" }, { id: "claude" }];
   expect(installedFirst(rail).map((entry) => entry.id)).toEqual(["codex", "claude"]);
 });
