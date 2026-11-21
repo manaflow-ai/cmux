@@ -315,12 +315,17 @@ class Planner:
             self.units.append({"name": name, "kind": "python", "why": f"{len(chosen)} Python tests ({LINUX_PYTHON_LANE})",
                                "argv": ["test", "--setup", "none", "--", *cmd]})
 
-    def guards(self) -> None:
-        """Every guard step of ci-guards.yml (the "CI fast guards" runner). Most guards read the whole
-        tree (ratchets, "every macOS job names its class"), so any change can turn one red and no path
-        map can say which: they always run, in about a minute."""
-        self.units.append({"name": "guards", "kind": "guards", "why": "every ci-guards.yml guard (they read the whole tree)",
-                           "argv": ["test", "--setup", "none", "--", "bash", GUARDS_SCRIPT, "--all", "--keep-going", "--no-stamp"]})
+    def guards(self, everything: bool) -> None:
+        """The ci-guards.yml guard steps (the "CI fast guards" runner) the change reaches. Most guards read
+        the whole tree (ratchets, "every macOS job names its class") and always run; a step whose inputs
+        guard_step_inputs.py can read runs only when the change touches one (run_ci_guards.py --affected)."""
+        argv = ["test", "--setup", "none", "--", "bash", GUARDS_SCRIPT, "--all", "--keep-going", "--no-stamp"]
+        if everything or not self.base:
+            self.units.append({"name": "guards", "kind": "guards", "why": "every ci-guards.yml guard", "argv": argv})
+            return
+        self.units.append({"name": "guards", "kind": "guards",
+                           "why": "the ci-guards.yml guards whose inputs the change reaches, and every whole-tree guard",
+                           "argv": [*argv, "--affected", self.base]})
 
     def native(self, manifests: list[str], workspaces: set[str] = frozenset()) -> None:
         """Each Cargo workspace outside cmux-tui: optchat-chief's step mode, a rust-workspaces.yml
@@ -426,7 +431,7 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
         workspaces = rust_workspaces(root, None)
     p = Planner(root, base, head, shards)
     if files or reasons:
-        p.guards()  # docs too: guards read docs (plans/*.md ratchets) as much as code
+        p.guards(bool(reasons))  # docs too: guards read docs (plans/*.md ratchets) as much as code
     if reasons:
         p.rust(everything=True)
         p.swift({pkg: swift_test_targets(root, pkg) for pkg in swift_packages(root)}, "every Swift package test target")
