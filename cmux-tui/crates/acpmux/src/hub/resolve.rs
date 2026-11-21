@@ -317,6 +317,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         name: String::new(),
         handle: None,
         name_given: false,
+        former_names: Vec::new(),
         harness: d.agent.into(),
         harness_argv: d.profile.argv.clone(),
         spawn_argv: None,

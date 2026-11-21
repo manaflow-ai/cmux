@@ -283,7 +283,8 @@ jobs:
     if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) }}
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
-    timeout-minutes: 4
+    # Placement's 4 minutes and the hot-only route's (the merge commit's checkout and the router).
+    timeout-minutes: 8
     permissions:
       # The queue janitor's pool snapshot (nightly jobs waiting on a pool).
       actions: read
@@ -296,6 +297,8 @@ jobs:
       # A re-run of failed jobs carries this job's outputs from an earlier attempt; a job takes them
       # only in the attempt that placed it, so a stale reading never sends it to a busy mini.
       placed_attempt: ${{ github.run_attempt }}
+      # Whether this pull request is hot-only (the route steps below); empty when they did not run.
+      hot_only: ${{ steps.hot-route.outputs.hot_only }}
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
@@ -336,6 +339,43 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         continue-on-error: true
         run: if [ -x scripts/ci/reset-stale-submodules.sh ]; then scripts/ci/reset-stale-submodules.sh; fi
+
+      # Leo, 2026-11-15: "if it's only needing to swap out the app, isn't there like a more minimal set of CI that we
+      # can get it to do". Whether this pull request is hot-only: scripts/ci/cmux_next_route.py --hot-only on the merge
+      # commit's diff, the verdict cmux-next.yml skips its Mac app jobs by (every file a running app takes live through
+      # hot-apply.py, or one that reaches no app tier; no full-ci or dev-build label). A hot-only pull request runs
+      # tooling-tests on Linux, never on a mini. Any failure here reads as not hot: tooling-tests keeps its mini route.
+      # A step of this job since 2026-11-21, not a job of its own (cmuxterm-hq#16094: the hot-only route job had
+      # never been red, so it folds into the workflow's one router job). Only a same-repository pull request
+      # routes; the merge commit goes to hot-route/, beside the trusted placement checkout.
+      - name: Check out the merge commit and its base (hot-only route)
+        if: ${{ github.event_name == 'pull_request' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: hot-route
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+
+      - name: Route the pull request (cmux_next_route.py --hot-only)
+        id: hot-route
+        if: ${{ github.event_name == 'pull_request' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        working-directory: hot-route
+        env:
+          EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -uo pipefail
+          git diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          if ! python3 scripts/ci/cmux_next_route.py --hot-only --event pull_request \
+              --changed-files "$RUNNER_TEMP/changed.txt" --labels "$EVENT_LABELS" --base-rev HEAD^1 \
+              --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"; then
+            echo "::warning title=hot-only route::cmux_next_route.py --hot-only failed; tooling-tests keeps its mini route."
+            echo "hot_only=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Mint the owned-pool routing token
         id: route-token
@@ -1018,67 +1058,6 @@ jobs:
     with:
       own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
-  # Leo, 2026-11-15: "if it's only needing to swap out the app, isn't there like a more minimal set of CI that we
-  # can get it to do". Whether this pull request is hot-only: scripts/ci/cmux_next_route.py --hot-only on the merge
-  # commit's diff, the verdict cmux-next.yml skips its Mac app jobs by (every file a running app takes live through
-  # hot-apply.py, or one that reaches no app tier; no full-ci or dev-build label). A hot-only pull request runs
-  # tooling-tests on Linux, never on a mini. Any failure here reads as not hot: tooling-tests keeps its mini route.
-  hot-route:
-    name: hot-only route
-    if: ${{ github.repository_owner == 'manaflow-ai' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    outputs:
-      hot_only: ${{ steps.route.outputs.hot_only }}
-    steps:
-      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
-      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
-      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
-      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
-        working-directory: ${{ github.workspace }}
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
-          cd "$GITHUB_WORKSPACE"
-          why=""
-          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
-            why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
-            why="skip-worktree entries"
-          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
-            why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
-            why="a ref names a missing object"
-          else
-            exit 0
-          fi
-          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
-          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-
-      - name: Checkout the merge commit and its base
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          submodules: false
-          fetch-depth: 2
-
-      - name: Route the pull request (cmux_next_route.py --hot-only)
-        id: route
-        env:
-          EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
-        run: |
-          set -uo pipefail
-          git diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
-          if ! python3 scripts/ci/cmux_next_route.py --hot-only --event pull_request \
-              --changed-files "$RUNNER_TEMP/changed.txt" --labels "$EVENT_LABELS" --base-rev HEAD^1 \
-              --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"; then
-            echo "::warning title=hot-only route::cmux_next_route.py --hot-only failed; tooling-tests keeps its mini route."
-            echo "hot_only=false" >> "$GITHUB_OUTPUT"
-          fi
-
   # The tests of feat-cmux-next's own CI tooling (nightly-next's App ID, the
   # cmux-tui republish path, the crash ratchet, the red-checks comment, the
   # backdrop art generator). Each is stdlib Python with fakes for the network
@@ -1086,10 +1065,10 @@ jobs:
   tooling-tests:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER. Others take fleet Linux, then a free
     # mini (portable-placement: stdlib Python with fakes, and bun), then Blacksmith. A hot-only pull request
-    # (hot-route) skips the mini: fleet Linux, else Blacksmith.
-    needs: [portable-placement, hot-route]
+    # (portable-placement's hot-only route) skips the mini: fleet Linux, else Blacksmith.
+    needs: [portable-placement]
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' tooling-tests ') && needs.portable-placement.outputs.linux_runner || needs.hot-route.outputs.hot_only != 'true' && needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' tooling-tests ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' tooling-tests ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.hot_only != 'true' && needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' tooling-tests ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
