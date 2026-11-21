@@ -352,6 +352,12 @@ pub enum Command {
         session: Option<String>,
         /// Prompt text. Reads stdin when omitted or "-".
         prompt: Vec<String>,
+        /// Read the prompt from this file instead of the words; `-` reads stdin, the same as a
+        /// `-` prompt. `--prompt-file` is the same flag, as `new` spells it, and the MCP `send`
+        /// tool's `file` is the same thing. A missing or empty file fails before anything is sent.
+        #[arg(long = "file", visible_alias = "prompt-file", value_name = "FILE",
+              conflicts_with_all = ["status", "dry_run"])]
+        file: Option<PathBuf>,
         /// Send to every session, on every host, that carries this tag (`key` or `key=value`)
         /// and is not closed, as `--no-wait` messages: one delivery each, one line each. The
         /// sender's own session is skipped. Give the prompt without a SESSION. Exit 1 when any
@@ -2229,6 +2235,31 @@ mod help_contract_tests {
         assert!(parse(&["acpmux", "send", "c", "x", "--pr", "12"]).is_ok());
         assert!(parse(&["acpmux", "send", "c", "x", "--thread", "rollout"]).is_ok());
         assert!(parse(&["acpmux", "send", "c", "x", "--pr", "12", "--thread", "t"]).is_err());
+    }
+
+    /// `send --file PATH` is the prompt, spelled as `new --prompt-file` too.
+    ///
+    /// 2026-11-21: `acpmux send SESSION --file PATH` exited 2 with "tip: a similar argument
+    /// exists: '--title'", which is close in spelling and nothing like it in meaning: it sent the
+    /// caller off to name a notice. The flag now exists and does the obvious thing, so no
+    /// near-miss tip is reached at all.
+    #[test]
+    fn send_takes_the_prompt_from_a_file() {
+        use super::{Command, flatten};
+        let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
+        for spelling in ["--file", "--prompt-file"] {
+            let parsed = parse(&["acpmux", "send", "coord", spelling, "/tmp/body.md"]);
+            let Ok(Command::Send { file, prompt, session, .. }) = parsed else {
+                panic!("{spelling} did not parse");
+            };
+            assert_eq!(file.as_deref(), Some(std::path::Path::new("/tmp/body.md")), "{spelling}");
+            assert_eq!(session.as_deref(), Some("coord"), "{spelling}");
+            assert!(prompt.is_empty(), "{spelling}: the file is the prompt");
+        }
+        // `-` still means stdin, as the positional does.
+        assert!(parse(&["acpmux", "send", "coord", "--file", "-"]).is_ok());
+        // Nothing to read a prompt for.
+        assert!(parse(&["acpmux", "send", "--status", "id", "--file", "/tmp/b"]).is_err());
     }
 
     /// `send --notice`: --severity and --title with it, its other flags only with it.

@@ -28,8 +28,42 @@ impl Hub {
         RpcError::not_found(format!("no session matches {key:?} ({text})")).with_data(data)
     }
 
+    /// (`HOST`, `NAME`) when `key` is `HOST/NAME` naming a machine this daemon does not have:
+    /// neither one of its machines nor this machine's own name. No session on such a machine
+    /// could be found here, whether or not it exists there, so its absence is not the cause and
+    /// its name is not what the sender should doubt.
+    pub fn host_not_a_peer<'k>(&self, key: &'k str) -> Option<(String, &'k str)> {
+        let (host, name) = key.split_once('/')?;
+        (!host.is_empty()
+            && !name.is_empty()
+            && self.peer(host).is_none()
+            && !super::own_host::is_own_machine_name(host))
+        .then(|| (host.to_owned(), name))
+    }
+
     /// (`no session NAME on HOST; did you mean: a, b, c`, the refusal's data) for `key`.
     pub fn no_session_text(&self, key: &str) -> (String, Value) {
+        // A machine this daemon does not have is the whole cause: say that, and say it first.
+        // Before this, such a key fell through `names_on_host_of` to this machine, so the
+        // refusal read `no session HOST/NAME on <this machine>; did you mean: <local names>`:
+        // it blamed the session name, and offered local sessions that could never be the remote
+        // one asked for (2026-11-21, `acpmux send gcp-agent-lane-8/efficiency-scout` on big-red,
+        // where the machine was reachable, its daemon up and the session live).
+        if let Some((host, name)) = self.host_not_a_peer(key) {
+            let text = not_a_peer_text(&host, name, "acpmux");
+            // The reason stays `no_session` so a delivery still fails at once instead of being
+            // tried again for a day (`server/outbox.rs` `Next::NoSession`); `hostNotAPeer` is
+            // what tells a reader, and `cli/errors.rs`, that the machine is the cause.
+            let data = json!({
+                "reason": "no_session",
+                "session": key,
+                "host": host,
+                "name": name,
+                "candidates": Vec::<String>::new(),
+                "hostNotAPeer": true,
+            });
+            return (text, data);
+        }
         let (host, name, names) = self.names_on_host_of(key);
         let close = closest(&names, name);
         let mut text = format!("no session {name} on {host}");
@@ -151,6 +185,20 @@ impl Hub {
     }
 }
 
+/// The refusal for `HOST/NAME` whose `HOST` is not one of this daemon's machines, rendered in
+/// one place so the daemon's text and the one `cli/errors.rs` rebuilds from the refusal's data
+/// cannot drift. It names the machine first, because that is the cause, and ends with the two
+/// next steps: add the machine, or run the send on it (the route that works meanwhile). It
+/// suggests no session names: a name on this machine can never be the one asked for on another.
+pub fn not_a_peer_text(host: &str, name: &str, program: &str) -> String {
+    format!(
+        "{host} is not a machine of this daemon, so no session {name} on it can be found here, \
+         whether or not it exists there; add it with `{program} machine add ssh://{host}` \
+         (`{program} machine ls` lists them), or send from that machine: \
+         ssh {host} '{program} send {name} -'"
+    )
+}
+
 /// The names in `names` closest to `key`, nearest first: those it is a segment, prefix or part
 /// of (`session_name::candidates`), then the rest by edit distance, at most [`CLOSEST_SHOWN`].
 pub fn closest(names: &[String], key: &str) -> Vec<String> {
@@ -246,6 +294,75 @@ mod tests {
         assert!(hub.resolve_remote("b/review/child").is_some(), "the row is still cached");
         assert!(hub.host_unreachable_for("b/review/child"));
         assert!(!hub.host_unreachable_for("nobody"), "a name here is no peer's");
+    }
+
+    /// A machine this daemon does not have is the refusal's subject: named first, with no session
+    /// names suggested, and never read as a name on this machine.
+    ///
+    /// 2026-11-21 12:25Z on big-red: `acpmux send gcp-agent-lane-8/efficiency-scout -` answered
+    /// `no_session: no session gcp-agent-lane-8/efficiency-scout on big-red; did you mean:
+    /// ci-fleet-v2-design, actions-queue-stall, fleet-capacity-routing`. Every part of that was
+    /// wrong. The machine was reachable, its daemon up and `efficiency-scout` live there; it was
+    /// simply not one of big-red's machines, so the session could never be found from there. The
+    /// three names offered were big-red's own, and a name here can never be the one asked for on
+    /// another machine. Four calls were spent before the working route was found.
+    #[test]
+    fn a_machine_this_daemon_does_not_have_is_named_as_the_cause() {
+        let cfg: crate::config::Config =
+            serde_json::from_value(serde_json::json!({"store": {"mode": "memory"}})).unwrap();
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        // A live session here, of the kind that used to be suggested for a remote target.
+        let meta: crate::store::SessionMeta = serde_json::from_value(serde_json::json!({
+            "schema": crate::store::META_SCHEMA, "id": "s1", "name": "ci-fleet-v2-design",
+            "harness": "claude", "cwd": "/w", "status": "idle", "createdAt": 1, "updatedAt": 1,
+        }))
+        .unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert("s1".into(), session.clone());
+        hub.update_live_session_index(&session);
+
+        let key = "gcp-agent-lane-8/efficiency-scout";
+        assert_eq!(
+            hub.host_not_a_peer(key),
+            Some(("gcp-agent-lane-8".to_owned(), "efficiency-scout"))
+        );
+        let (text, data) = hub.no_session_text(key);
+        // The machine, first: not the session name, and not this machine's name.
+        assert!(text.starts_with("gcp-agent-lane-8 is not a machine of this daemon"), "{text}");
+        assert_eq!(data["hostNotAPeer"], serde_json::json!(true));
+        assert_eq!(data["host"], serde_json::json!("gcp-agent-lane-8"));
+        assert_eq!(data["name"], serde_json::json!("efficiency-scout"));
+        // Nothing suggested, and above all nothing of this machine's (defect 2).
+        assert_eq!(data["candidates"], serde_json::json!([]));
+        assert!(!text.contains("did you mean"), "{text}");
+        assert!(
+            !text.contains("ci-fleet-v2-design"),
+            "a name here is never the one asked for: {text}"
+        );
+        // Both next steps: add the machine, or send from it.
+        assert!(text.contains("machine add ssh://gcp-agent-lane-8"), "{text}");
+        assert!(
+            text.contains("ssh gcp-agent-lane-8 'acpmux send efficiency-scout -'"),
+            "the route that works meanwhile: {text}"
+        );
+        // Still final, so a delivery fails at once instead of being retried for a day.
+        assert!(hub.no_session_is_final(key));
+        assert!(hub.peer_unlisted_for(key).is_none());
+        assert!(!hub.host_unreachable_for(key));
+
+        // A bare name, and this machine's own name, are unchanged: its own sessions are suggested.
+        let (bare, bare_data) = hub.no_session_text("ci-fleet-v2-desgin");
+        assert!(bare.contains("did you mean: ci-fleet-v2-design"), "{bare}");
+        assert_eq!(bare_data["hostNotAPeer"], Value::Null);
+        assert!(hub.host_not_a_peer("ci-fleet-v2-desgin").is_none());
+        // A peer's own name still reads as that peer's (`a_peers_names_keep_their_path...`).
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new("b", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("b".into(), peer.clone());
+        assert!(hub.host_not_a_peer("b/anything").is_none());
+        let (peer_text, _) = hub.no_session_text("b/anything");
+        assert!(peer_text.starts_with("no session anything on b"), "{peer_text}");
     }
 
     #[test]
