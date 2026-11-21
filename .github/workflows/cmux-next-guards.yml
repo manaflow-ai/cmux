@@ -563,7 +563,7 @@ jobs:
           GUARDS_AT_TIP: ${{ steps.changes.outputs.tip }}
         run: |
           # The job ends at 25 minutes; the base pass gets what the head pass leaves of 23, so a slow base ends in a
-          # verdict (with unfinished base steps deferred to the merge gate) instead of a cancelled job that merge_hold waits on.
+          # verdict (with unfinished base steps deferred to the merge gate) instead of a cancelled job that land-judge waits on.
           # The head pass is bound too, to 15 minutes, so a slow head leaves 8 for the base's re-run and the verdict. Unbound,
           # a head pass still running 23 minutes into the step (442 steps, 4 workers) was cancelled by the job timeout with
           # no verdict. A cut head is red, never green: its unfinished steps have no result to compare.
