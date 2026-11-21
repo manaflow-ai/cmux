@@ -31,8 +31,8 @@ pub(super) async fn run(
                 args.host
             )
         })?;
-    let daemon = machine["daemonId"].as_str().unwrap_or_default().to_owned();
-    let host = machine["host"].as_str().unwrap_or(&args.host).to_owned();
+    let daemon = field(&machine, "daemonId").as_str().unwrap_or_default().to_owned();
+    let host = field(&machine, "host").as_str().unwrap_or(&args.host).to_owned();
     let mut outcomes = Vec::new();
     for key in ids {
         let mut o = Outcome {
@@ -103,7 +103,7 @@ async fn steps(
     let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await?;
     o.name = info.get("name").and_then(Value::as_str).unwrap_or(&id).to_owned();
     if info.get("peer").is_some_and(|p| !p.is_null()) {
-        bail!("it runs on {}, not here: move it from there", info["peer"]);
+        bail!("it runs on {}, not here: move it from there", field(&info, "peer"));
     }
     if let Some(why) = plan::refusal(&info, args.interrupt || args.after_turn) {
         bail!("{why}");
@@ -150,19 +150,19 @@ async fn steps(
         }
         done => done?,
     };
-    let moved = &answer["moved"];
+    let moved = field(&answer, "moved");
     let mut to_meta = json!({"host": host, "via": "hub", "daemonId": daemon,
                              "sessionId": moved.get("sessionId").cloned().unwrap_or(json!(id)),
                              "cwd": moved["cwd"]});
     for key in ["branch", "commit", "uncommittedLeftOn"] {
         if let Some(v) = sent.get(key) {
-            to_meta[key] = v.clone();
+            to_meta.set(key, v.clone());
         }
     }
     src.request(
         "_acpmux/transfer_commit",
-        json!({"sessionId": id, "transferId": sent["transferId"], "to": to_meta,
-               "epoch": sent["epoch"]}),
+        json!({"sessionId": id, "transferId": field(&sent, "transferId"), "to": to_meta,
+               "epoch": field(&sent, "epoch")}),
     )
     .await?;
     o.moved = true;
@@ -191,9 +191,9 @@ async fn precopy(src: &Client, id: &str, daemon: &str) -> Option<Staged> {
     let ask = json!({"sessionId": id, "stage": {"daemon": daemon}});
     let staged = src.request("_acpmux/transfer_hub", ask).await.ok()?;
     Some(Staged {
-        prepare_id: staged["prepareId"].as_str()?.to_owned(),
-        after_seq: staged["afterSeq"].as_u64()?,
-        stage_id: staged["stageId"].as_str()?.to_owned(),
+        prepare_id: field(&staged, "prepareId").as_str()?.to_owned(),
+        after_seq: field(&staged, "afterSeq").as_u64()?,
+        stage_id: field(&staged, "stageId").as_str()?.to_owned(),
     })
 }
 
@@ -229,7 +229,7 @@ impl Moving<'_> {
                                   "epoch": begun.epoch, "manifest": begun.begin,
                                   "folder": folder_value(&folder, home, args.cwd.is_some())?});
             if let Some(stage_id) = &begun.stage_id {
-                sent["stageId"] = json!(stage_id);
+                sent.set("stageId", json!(stage_id));
             }
             if let (Folder::Worktree { branch, dirty, .. }, Some(c)) = (&folder, &checkout) {
                 let commit = tokio::task::spawn_blocking({
@@ -237,10 +237,10 @@ impl Moving<'_> {
                     move || push_branch(&top, &branch)
                 })
                 .await??;
-                sent["branch"] = json!(branch);
-                sent["commit"] = json!(commit);
+                sent.set("branch", json!(branch));
+                sent.set("commit", json!(commit));
                 if *dirty {
-                    sent["uncommittedLeftOn"] = json!(crate::pairing::machine_name());
+                    sent.set("uncommittedLeftOn", json!(crate::pairing::machine_name()));
                 }
             }
             Ok::<Value, anyhow::Error>(sent)
@@ -268,6 +268,11 @@ impl Moving<'_> {
             }
         }
     }
+}
+
+/// `v[k]` without the indexing lint: Null when absent.
+fn field<'a>(v: &'a Value, k: &str) -> &'a Value {
+    v.get(k).unwrap_or(&Value::Null)
 }
 
 #[cfg(test)]

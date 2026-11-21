@@ -49,7 +49,7 @@ impl Hub {
         let session =
             self.resolve(params.get("sessionId").and_then(Value::as_str).unwrap_or(""))?;
         let prepared = self.transfer_prepare(&session, None)?;
-        let prepare_id = prepared["prepareId"].as_str().unwrap_or_default().to_owned();
+        let prepare_id = field(&prepared, "prepareId").as_str().unwrap_or_default().to_owned();
         let root = inside(&transfers_dir(), &prepare_id)?;
         let noted = crate::home_fs::write(root.join(super::transfer_pull::TO_HUB), daemon);
         if let Err(e) = noted {
@@ -64,7 +64,7 @@ impl Hub {
             let _ = crate::home_fs::remove_dir_all(&root);
         }
         let stage_id = staged?;
-        Ok(json!({"prepareId": prepare_id, "afterSeq": prepared["afterSeq"],
+        Ok(json!({"prepareId": prepare_id, "afterSeq": field(&prepared, "afterSeq"),
                   "stageId": stage_id}))
     }
 
@@ -84,7 +84,7 @@ impl Hub {
         match self.hub_control(daemon, op, body, key, STAGE_WAIT).await? {
             Ok(result) => result
                 .and_then(|r| serde_json::from_str::<Value>(&r).ok())
-                .and_then(|r| r["stageId"].as_str().map(str::to_owned))
+                .and_then(|r| field(&r, "stageId").as_str().map(str::to_owned))
                 .ok_or_else(|| pull_error("stage", "the target answered no stageId")),
             Err(why) => Err(pull_error("stage_refused", why)),
         }
@@ -110,10 +110,10 @@ impl Hub {
         source: &str,
         body: &Value,
     ) -> Result<Value, RpcError> {
-        let manifest = body["stage"]["manifest"].clone();
-        let prepare_id = manifest["prepareId"].as_str().unwrap_or("");
-        let session_id = manifest["sessionId"].as_str().unwrap_or("");
-        if manifest["schema"] != PREFIX_SCHEMA
+        let manifest = field(field(body, "stage"), "manifest").clone();
+        let prepare_id = field(&manifest, "prepareId").as_str().unwrap_or("");
+        let session_id = field(&manifest, "sessionId").as_str().unwrap_or("");
+        if *field(&manifest, "schema") != PREFIX_SCHEMA
             || !prepare_id.starts_with("pre-")
             || !super::transfer::is_plain_id(prepare_id)
             || !super::transfer::is_plain_id(session_id)
@@ -138,7 +138,7 @@ impl Hub {
         })?;
         let mut pages = dial.open(source).await.map_err(|e| pull_error("unreachable", e))?;
         let staged = self.transfer_stage(&json!({"manifest": manifest}))?;
-        let stage_id = staged["stageId"].as_str().unwrap_or_default().to_owned();
+        let stage_id = field(&staged, "stageId").as_str().unwrap_or_default().to_owned();
         let dir = inside(&transfers_dir(), &format!("in-{stage_id}"))?;
         let filled = async {
             crate::home_fs::write(dir.join(CONTROL_FILE), guard.control.as_str())
@@ -158,4 +158,9 @@ impl Hub {
 pub(super) fn stage_control(dir: &Path) -> Option<Control> {
     let text = std::fs::read_to_string(dir.join(CONTROL_FILE)).ok()?;
     [Control::Peer, Control::Web].into_iter().find(|c| c.as_str() == text.trim())
+}
+
+/// `v[k]` without the indexing lint: Null when absent.
+fn field<'a>(v: &'a Value, k: &str) -> &'a Value {
+    v.get(k).unwrap_or(&Value::Null)
 }
