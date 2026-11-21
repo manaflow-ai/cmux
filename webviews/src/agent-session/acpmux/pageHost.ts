@@ -132,6 +132,8 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyShortcuts?.(value);
     case "preview":
       return bridge?.applyPreview?.(event.value === true);
+    case "liveTree":
+      return bridge?.applyLiveTree?.(event.value === true);
     case "workflowLabs":
       // Separate from the existing preview environment toggle. The host can opt the
       // experimental workflow summary in without changing preview semantics.
