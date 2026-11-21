@@ -1,0 +1,19 @@
+{
+  "status": "Original vector experiments only. Unaccepted; no release assets, app icons or theme changes.",
+  "replaces": "places.json app.cmux (prompt chevron and underscore)",
+  "common": {
+    "grid": 24,
+    "stroke_width": 1.5,
+    "color": "currentColor",
+    "fill": "none",
+    "linecap": "round",
+    "linejoin": "round",
+    "renderer": "nekoRounds.json through Icon (shared renderer)"
+  },
+  "provenance": "First-party cmux geometry drawn for this round. No third-party SVG copied, traced or modified.",
+  "variants": [
+    {"file": "head/app.cmux.svg", "intent": "Cat head outline (two ears, rounded jaw) with a smaller prompt as its face."},
+    {"file": "tile/app.cmux.svg", "intent": "Rounded tile with ear corners around a smaller prompt; reads as an app tile."},
+    {"file": "tail/app.cmux.svg", "intent": "Default prompt geometry; the underscore continues up into a tail that hooks at the tip."}
+  ]
+}
