@@ -4874,6 +4874,16 @@ def late_placement_route(workflow: dict, name: str, runs_on: str) -> str:
     return runs_on.replace(prefix.removeprefix("${{ "), "", 1)
 
 
+# The Mac grant (cmuxterm-hq#16502): with scripts/ci/mac-grants.json on, the producer and every
+# consumer take the same `cmux-<run_id>-<run_attempt>-mac` label and Xcode label (the producer's
+# CMUX_PRODUCT_RUNNER restates its first item), so the routes compare without it.
+MAC_GRANT = "github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant)"
+
+
+def without_mac_grant(runs_on: str) -> str:
+    return runs_on.replace(MAC_GRANT + "[0] || ", "").replace(MAC_GRANT + " || ", "")
+
+
 def product_consumer_route_violations(workflow: dict) -> list[str]:
     """Consumers of the admission product whose pool or Xcode can differ from it.
 
@@ -4883,9 +4893,10 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
     overflow's MACOS_RUNNER_DISPLAY in place of MACOS_RUNNER_15.
     """
     producer = workflow["jobs"]["macos-compile-admission"]
+    producer_runs_on = without_mac_grant(producer["runs-on"])
     violations = []
-    if (producer["env"].get("CMUX_PRODUCT_RUNNER") or "").replace(WARM_ADMISSION_FIRST, WARM_ADMISSION) \
-            .replace(OVERFLOW_ADMISSION_FIRST, OVERFLOW_ADMISSION) != producer["runs-on"]:
+    if without_mac_grant(producer["env"].get("CMUX_PRODUCT_RUNNER") or "").replace(WARM_ADMISSION_FIRST, WARM_ADMISSION) \
+            .replace(OVERFLOW_ADMISSION_FIRST, OVERFLOW_ADMISSION) != producer_runs_on:
         violations.append("macos-compile-admission: CMUX_PRODUCT_RUNNER does not restate runs-on")
     outputs = producer.get("outputs", {})
     if outputs.get("runner") != "${{ env.CMUX_PRODUCT_RUNNER }}":
@@ -4893,7 +4904,7 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
     if outputs.get("xcode_app") != "${{ env.CMUX_CI_XCODE_APP }}":
         violations.append("macos-compile-admission: missing xcode_app output")
     for name, job in app_host_product_consumers(workflow).items():
-        runs_on = late_placement_route(workflow, name, job.get("runs-on", ""))
+        runs_on = without_mac_grant(late_placement_route(workflow, name, job.get("runs-on", "")))
         xcode = (job.get("env") or {}).get("CMUX_CI_XCODE_APP")
         if name in PRODUCT_RUNNER_KEYS and runs_on == product_runner_output(PRODUCT_RUNNER_KEYS[name]) \
                 and xcode == PRODUCT_XCODE_OUTPUT:
@@ -4905,7 +4916,7 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
             # pr_gui_runner is the gui label of admission's own pick (same Xcode).
             and runs_on.replace("vars.MACOS_RUNNER_DISPLAY", "vars.MACOS_RUNNER_15").replace(
                 "' lag '", "' admission '").replace("inputs.pr_gui_runner || ", "")
-            == admission_route(producer["runs-on"])
+            == admission_route(producer_runs_on)
             and xcode == producer["env"]["CMUX_CI_XCODE_APP"]
         ):
             continue
@@ -4927,7 +4938,7 @@ def test_app_host_product_consumers_run_on_the_producers_pool_and_xcode() -> Non
     # The app-host shards read the outputs, so a route added to the admission
     # moves them without an edit here.
     shards = workflow["jobs"]["app-host-unit-tests"]
-    assert late_placement_route(workflow, "app-host-unit-tests", shards["runs-on"]) == PRODUCT_RUNNER_OUTPUT
+    assert without_mac_grant(late_placement_route(workflow, "app-host-unit-tests", shards["runs-on"])) == PRODUCT_RUNNER_OUTPUT
     assert shards["env"]["CMUX_CI_XCODE_APP"] == PRODUCT_XCODE_OUTPUT
 
 
