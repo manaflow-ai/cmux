@@ -45,6 +45,26 @@ mod shared_value;
 mod text_index;
 pub use shared_value::{SharedRows, SharedText, SharedValue};
 
+/// A chat's rolling summary (`hub/rolling_summary.rs`): one short line on where it stands and
+/// the next action, kept current after each turn a person started (or one that ended on a
+/// `wrap_up`). The sidebar and the chat header draw it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RollingSummary {
+    /// Where the chat stands, one or two short sentences.
+    pub text: String,
+    /// The next action, for the person or the agent; absent when there is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub next: Option<String>,
+    /// Who wrote it: `wrap_up` (the agent's own recap and ask, no model call) or `model`.
+    pub source: String,
+    /// The chat's turn count it covers.
+    pub turn: u64,
+    /// When it was written, Unix ms.
+    pub at: u64,
+}
+
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -428,6 +448,10 @@ pub struct SessionMeta {
     /// None until the first recap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub away_recap: Option<AwayRecap>,
+    /// The chat's rolling summary and next action (`hub/rolling_summary.rs`); None until the
+    /// first turn that makes one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rolling_summary: Option<RollingSummary>,
     /// Each person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they had on
     /// screen while they attended the chat, keyed by person id (`_meta.acpmux.author` id,
     /// [`crate::hub::seen::OWNER_READER`] for the owner). Only `_acpmux/seen` moves it forward; a
@@ -464,6 +488,12 @@ pub struct SessionMeta {
     /// adopts that host (`hub/idle_census.rs`, `StoredLaunch`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idle_launch: Option<crate::sidecar_census::StoredLaunch>,
+    /// The level (`agent_host::HOST_LEVEL`) at which this daemon's build started the chat's live
+    /// host, by that host's incarnation (`hub/host_level.rs` `note_start_level`): what the start
+    /// asked of the agent (whether it suggests next prompts) is decided there, by the daemon, not
+    /// by the host's binary. None: an older daemon started it, or none yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_level: Option<StartLevel>,
     /// Where the chat went when it moved to another daemon (`hub/transfer_out.rs` commit:
     /// `{host?, sessionId, cwd?, branch?, commit?, socket?}`). Set once, never cleared here: a
     /// moved chat takes no prompt and never starts its agent on this daemon again (one writer),
@@ -690,6 +720,13 @@ pub struct Lineage {
     /// The parent's tool call that started it, when acpmux could tell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+}
+
+/// `SessionMeta::start_level`: the level a daemon started host `incarnation` at.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StartLevel {
+    pub incarnation: String,
+    pub level: u32,
 }
 
 /// Who created a session (`hub/created_by.rs`), the shape cmux-tui's
@@ -2020,6 +2057,8 @@ impl LocalStore {
             anyhow::bail!("no segment writer for session {id}");
         };
         w.used = clock;
+        #[cfg(debug_assertions)]
+        disk_fault::write()?;
         #[cfg(test)]
         let wrote = match test_write_fault::take() {
             Some(kept) => w.file.write_all(&line[..kept.min(line.len())]).and(Err(
@@ -2104,33 +2143,10 @@ fn cut_torn_tail(file: &File, path: &Path) -> Result<u64> {
     Ok(end)
 }
 
-/// The next log append on this thread writes only its first `kept` bytes and then fails as a
-/// full disk does (`ENOSPC`), the partial write a full disk or a killed process leaves.
+#[cfg(debug_assertions)]
+pub(crate) mod disk_fault;
 #[cfg(test)]
-pub(crate) mod test_write_fault {
-    use std::cell::Cell;
-
-    thread_local!(static NEXT: Cell<Option<usize>> = const { Cell::new(None) });
-    thread_local!(static FAIL_CUT: Cell<bool> = const { Cell::new(false) });
-
-    pub(crate) fn partial(kept: usize) {
-        NEXT.with(|n| n.set(Some(kept)));
-    }
-
-    /// `partial`, and the cut back after it fails too (the disk refuses the truncate).
-    pub(crate) fn partial_and_failed_cut(kept: usize) {
-        partial(kept);
-        FAIL_CUT.with(|f| f.set(true));
-    }
-
-    pub(super) fn take() -> Option<usize> {
-        NEXT.with(Cell::take)
-    }
-
-    pub(super) fn take_cut_failure() -> bool {
-        FAIL_CUT.with(|f| f.replace(false))
-    }
-}
+pub(crate) mod test_write_fault;
 
 /// [`LocalStore::history_writer`]'s segment `000000`.
 struct SegmentZero {
@@ -2452,6 +2468,7 @@ impl Store for LocalStore {
     /// Through the copies of the kinds (`store/kind_index.rs`), past `after`: a scan of the log
     /// from the segment that holds `after + 1` parses that whole segment, for each fold of a
     /// load, and read more than the copies do (`a_restored_chats_log_load_reads_the_copies_not_its_log`).
+    /// Only the copies from the segment that holds `after + 1` on (`scan_kinds_past`).
     fn scan_kinds_after(
         &self,
         id: &str,
@@ -2459,7 +2476,7 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_kinds_in(id, kinds, false, &mut |rec| rec.seq <= after || visit(rec))
+        self.scan_kinds_past(id, after, kinds, false, visit)
     }
 
     fn scan_kinds_after_strict(
@@ -2469,7 +2486,7 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_kinds_in(id, kinds, true, &mut |rec| rec.seq <= after || visit(rec))
+        self.scan_kinds_past(id, after, kinds, true, visit)
     }
 
     fn scan_kinds_keyed(
