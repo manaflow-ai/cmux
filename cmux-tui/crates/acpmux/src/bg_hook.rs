@@ -234,16 +234,20 @@ pub fn route_of_word(word: &str) -> Option<Route> {
     }
 }
 
-/// The call that reads task `id`'s output through the chat's own route to acpmux's MCP server.
+/// The call that reads task `id`'s output through the chat's own route to acpmux's MCP server,
+/// and the shell command that reads the same task from the daemon directly. The MCP server is
+/// not the only thing that can be down (2026-11-21 on big-red it would not connect while the
+/// daemon served the CLI fine), so this next step never names only a route that can be dead.
 pub fn read_call(route: Option<&Route>, id: &str) -> String {
     let args = json!({"id": id});
+    let cli = format!("`acpmux bg output {id}` in a shell, which reads the daemon directly");
     match route {
-        Some(Route::Direct) => format!("mcp__acpmux__bg_output {args}"),
-        Some(Route::Listed) => format!("mcp__cmux__acpmux_bg_output {args}"),
+        Some(Route::Direct) => format!("mcp__acpmux__bg_output {args}, or {cli}"),
+        Some(Route::Listed) => format!("mcp__cmux__acpmux_bg_output {args}, or {cli}"),
         Some(Route::CodeMode) => {
-            format!("cmux_exec with: return await cmux.acpmux_bg_output({args});")
+            format!("cmux_exec with: return await cmux.acpmux_bg_output({args}); or {cli}")
         }
-        None => format!("bg_output {args}"),
+        None => format!("bg_output {args}, or {cli}"),
     }
 }
 
@@ -814,12 +818,21 @@ mod tests {
 
     #[test]
     fn the_read_call_follows_the_chats_route() {
-        assert_eq!(read_call(Some(&Route::Direct), "t1"), r#"mcp__acpmux__bg_output {"id":"t1"}"#);
         assert_eq!(
-            read_call(Some(&Route::Listed), "t1"),
-            r#"mcp__cmux__acpmux_bg_output {"id":"t1"}"#
+            read_call(Some(&Route::Direct), "t1"),
+            r#"mcp__acpmux__bg_output {"id":"t1"}, or `acpmux bg output t1` in a shell, which reads the daemon directly"#
+        );
+        assert!(
+            read_call(Some(&Route::Listed), "t1")
+                .starts_with(r#"mcp__cmux__acpmux_bg_output {"id":"t1"}, or `acpmux bg output t1`"#)
         );
         assert!(read_call(Some(&Route::CodeMode), "t1").contains("cmux.acpmux_bg_output("));
+        // No route the agent has can be the only one named: the MCP server can be down while the
+        // daemon serves the CLI, so every answer names the shell route too.
+        for route in [None, Some(&Route::Direct), Some(&Route::Listed), Some(&Route::CodeMode)] {
+            let call = read_call(route, "t1");
+            assert!(call.contains("acpmux bg output t1"), "{call}");
+        }
         for route in [Route::Direct, Route::Listed, Route::CodeMode] {
             assert_eq!(route_of_word(route_word(&route)), Some(route));
         }
