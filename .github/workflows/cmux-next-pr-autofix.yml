@@ -721,6 +721,23 @@ jobs:
         if: steps.areas.outputs.fmt == 'true' || steps.areas.outputs.clippy == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # cargo clippy --fix builds what the clippy gate builds (cmux-tui-spec.yml): clang for bindgen,
+      # and zig with the ghostty-next submodule for ghostty-vt-sys. Without them the build fails and
+      # clippy leaves every lint for a person.
+      - name: Install Linux build dependencies for clippy
+        if: steps.areas.outputs.clippy == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Init the ghostty-next submodule for clippy
+        if: steps.areas.outputs.clippy == 'true'
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
+      - name: Install zig for clippy
+        if: steps.areas.outputs.clippy == 'true'
+        run: ./scripts/install-zig-ci.sh
+
       - name: Cache cargo build
         if: steps.areas.outputs.clippy == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2

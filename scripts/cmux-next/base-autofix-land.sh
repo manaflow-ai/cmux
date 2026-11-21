@@ -278,12 +278,25 @@ none" >/dev/null; then
       echo "::error::making the repair again on ${tip:0:12} failed" >&2
       exit 1
     }
-    if [[ -z "$(git status --porcelain)" ]]; then
+    # A submodule the job initialized (ghostty-next, for cargo clippy --fix) stays at the commit it
+    # was checked out at, so a tip that moved its gitlink shows it modified: a repair never writes a
+    # gitlink, and staging it would undo that move on the branch.
+    git add -A
+    while IFS= read -r -d '' gitlink; do
+      git reset --quiet -- "$gitlink"
+    done < <(git diff --cached --raw -z --no-renames | python3 -I -c '
+import sys
+parts = sys.stdin.buffer.read().split(b"\0")
+for meta, path in zip(parts[0::2], parts[1::2]):
+    modes = meta.split()[:2]
+    if b"160000" in (m.lstrip(b":") for m in modes):
+        sys.stdout.buffer.write(path + b"\0")
+')
+    if git diff --cached --quiet; then
       echo "$branch at ${tip:0:12} needs none of it again."
       status=0
       break
     fi
-    git add -A
     git commit --quiet -m "chore(next): base autofix at ${tip:0:12}" \
       -m "$(grep '^fixed: ' "$work/repair.txt" | sed 's/^fixed: /- /')" \
       -m "Made again on ${tip:0:12}: it moved the inputs of a repair made at ${base:0:12}." \
