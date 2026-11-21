@@ -121,6 +121,8 @@ on:
       - webviews/reactCompiler.mjs
       - webviews/vite.config.ts
       - Resources/markdown-viewer/marked.min.js
+      # CmuxNextAppsTests reads the sample apps (AppOpenTargetTests).
+      - samples/apps/**
       - scripts/build-webviews-app.sh
       - scripts/check-webviews-bun-version.sh
       - scripts/webviews_bun_version.py
@@ -484,6 +486,8 @@ on:
       - webviews/reactCompiler.mjs
       - webviews/vite.config.ts
       - Resources/markdown-viewer/marked.min.js
+      # CmuxNextAppsTests reads the sample apps (AppOpenTargetTests).
+      - samples/apps/**
       - scripts/build-webviews-app.sh
       - scripts/check-webviews-bun-version.sh
       - scripts/webviews_bun_version.py
