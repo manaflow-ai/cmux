@@ -5,7 +5,8 @@
 // `:root[data-page-inactive]`). The box itself looks the same focused or not.
 //
 // The page is key when `document.hasFocus()` and visible; the window's `focus` and `blur`, the
-// document's visibility, and a key or press on the page (the user is here) keep it current.
+// document's visibility, a field taking focus, and a key or press on the page (the user is here) keep
+// it current.
 //
 // It is the page's one projection of "the person is at this page": code that must wait for that
 // (the one-time Cloud hint's claim, cloudChatHintModel.ts) reads `pageIsKey` and `watchPageKey`,
@@ -45,6 +46,10 @@ export function installPageKey(doc: Document = document): () => void {
   view.addEventListener("focus", key);
   view.addEventListener("blur", away);
   doc.addEventListener("visibilitychange", check);
+  // A field taking focus re-reads the page: a focus the page gives back itself (the composer's
+  // after its window's key bounce, the host's focusContent with no window focus event) shows its
+  // caret when the page has the keys again (#48590).
+  doc.addEventListener("focusin", check);
   doc.addEventListener("pointerdown", key, true);
   // ui-allow: a key press only marks the page key; it handles no key.
   doc.addEventListener("keydown", key, true);
@@ -52,6 +57,7 @@ export function installPageKey(doc: Document = document): () => void {
     view.removeEventListener("focus", key);
     view.removeEventListener("blur", away);
     doc.removeEventListener("visibilitychange", check);
+    doc.removeEventListener("focusin", check);
     doc.removeEventListener("pointerdown", key, true);
     doc.removeEventListener("keydown", key, true);
     delete root.dataset.pageInactive;
