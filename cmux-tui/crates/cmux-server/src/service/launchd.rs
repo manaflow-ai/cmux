@@ -48,8 +48,7 @@ pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
     // folder is this account's and not a symlink).
     let logs = fsx::local(&s.layout.logs());
     fsx::ensure_dir(&logs, 0o700)?;
-    fsx::set_mode(&logs, 0o700).map_err(|e| Error::io(logs.display(), e))?;
-    private_log(&logs.join("server.log"))?;
+    private_log(&logs)?;
     let changed = fsx::write_if_changed(&plist, text.as_bytes(), 0o644)?;
     s.wrote(&[(plist.clone(), text)])?;
     let mut report = ServiceReport { unit: plist.clone(), changed, ..ServiceReport::default() };
@@ -89,33 +88,98 @@ pub fn check_log(log: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Creates the service log, or keeps the one there, readable only by this
-/// account, without following a symlink put there since the check.
-fn private_log(log: &Path) -> Result<()> {
-    let mut options = std::fs::OpenOptions::new();
-    options.append(true).create(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+/// Makes the service log folder 0700 and creates `server.log` in it, or
+/// keeps the one there, as 0600. The folder is opened once without
+/// following a symlink and the log is opened through it (`openat`), so a
+/// folder or log swapped for a symlink after the checks is refused, not
+/// written through.
+#[cfg(unix)]
+fn private_log(logs: &Path) -> Result<()> {
+    use std::ffi::CString;
+    use std::os::fd::{FromRawFd as _, OwnedFd};
+    use std::os::unix::ffi::OsStrExt as _;
+    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+    let changed = |what: &Path| {
+        Error::rejected(format!(
+            "{} changed while cmux set it up (a symlink, a second name of another file, or not yours); run `cmux server install` again",
+            what.display()
+        ))
+    };
+    let dir_name = CString::new(logs.as_os_str().as_bytes()).map_err(|_| changed(logs))?;
+    // SAFETY: a valid C string; the result is checked before use.
+    let dir_fd = unsafe {
+        libc::open(
+            dir_name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if dir_fd < 0 {
+        return Err(Error::io(logs.display(), std::io::Error::last_os_error()));
     }
-    let file = options.open(log).map_err(|e| Error::io(log.display(), e))?;
+    // SAFETY: dir_fd is a new descriptor this function owns.
+    let dir = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(dir_fd) });
+    let meta = dir.metadata().map_err(|e| Error::io(logs.display(), e))?;
+    if !meta.is_dir() || meta.uid() != crate::sys::euid() {
+        return Err(changed(logs));
+    }
+    dir.set_permissions(std::fs::Permissions::from_mode(0o700))
+        .map_err(|e| Error::io(logs.display(), e))?;
+    let log = logs.join("server.log");
+    // SAFETY: a valid descriptor and a constant C string.
+    let log_fd = unsafe {
+        libc::openat(
+            dir_fd,
+            c"server.log".as_ptr(),
+            libc::O_WRONLY
+                | libc::O_APPEND
+                | libc::O_CREAT
+                | libc::O_NOFOLLOW
+                | libc::O_CLOEXEC
+                | libc::O_NONBLOCK,
+            0o600 as libc::c_uint,
+        )
+    };
+    if log_fd < 0 {
+        return Err(Error::io(log.display(), std::io::Error::last_os_error()));
+    }
+    // SAFETY: log_fd is a new descriptor this function owns.
+    let file = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(log_fd) });
     let meta = file.metadata().map_err(|e| Error::io(log.display(), e))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
-        if !meta.is_file() || meta.uid() != crate::sys::euid() || meta.nlink() != 1 {
-            return Err(Error::rejected(format!(
-                "{} changed while cmux set it up; run `cmux server install` again",
-                log.display()
-            )));
-        }
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))
-            .map_err(|e| Error::io(log.display(), e))?;
+    if !meta.is_file() || meta.uid() != crate::sys::euid() || meta.nlink() != 1 {
+        return Err(changed(&log));
     }
-    #[cfg(not(unix))]
-    let _ = meta;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))
+        .map_err(|e| Error::io(log.display(), e))?;
     Ok(())
+}
+
+#[cfg(not(unix))]
+fn private_log(_logs: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// Refuses a `com.cmux.server` job launchd runs from another plist than
+/// the one cmux writes (or from none it names): install would replace it
+/// and uninstall would boot it out. Not loaded (`launchctl print` fails):
+/// fine.
+pub fn check_source(s: &Services<'_>) -> Result<()> {
+    let ours = s.unit_path()?;
+    let cmd = launchctl().args(["print", &target(s)]);
+    let Ok(out) = s.runner.run(&cmd) else { return Ok(()) };
+    if !out.ok() {
+        return Ok(());
+    }
+    let text = out.stdout_text();
+    let path = text.lines().find_map(|l| l.trim().strip_prefix("path = ")).map(str::trim);
+    if path.map(Path::new) == Some(ours.as_path()) {
+        return Ok(());
+    }
+    Err(Error::rejected(format!(
+        "launchd runs {LAUNCHD_LABEL} from {}, not from {} (the plist cmux writes), so cmux leaves it, and everything it may use, alone; nothing was changed. Remove that job yourself (launchctl bootout {}), then run the command again",
+        path.unwrap_or("a plist it does not name"),
+        ours.display(),
+        target(s)
+    )))
 }
 
 pub fn restart(s: &Services<'_>) -> Result<()> {
