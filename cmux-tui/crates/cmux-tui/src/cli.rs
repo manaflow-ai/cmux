@@ -251,6 +251,9 @@ mod terminal_talk;
 mod theme_file;
 #[cfg(unix)]
 mod theme_scheme;
+// `cmux tmux attach`: one tmux pane in this terminal through control mode (experiment).
+#[cfg(unix)]
+mod tmux_attach;
 // `cmux wallpaper`: the window picture and how it switches by itself.
 mod topology_help;
 #[cfg(unix)]
@@ -559,6 +562,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "chat",
     "vm",
     "customize",
+    "agent-config",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -973,6 +977,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| remote_host::run_if_requested(args))
         .or_else(|| computer_use::run_if_requested(args))
         .or_else(|| attention::run_if_requested(args))
+        .or_else(|| tmux_attach::run_if_requested(args))
         .or_else(|| notification_banners::run_if_requested(args))
         .or_else(|| status::run_args(args))
     {

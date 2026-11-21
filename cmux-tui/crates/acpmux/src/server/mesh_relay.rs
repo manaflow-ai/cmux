@@ -1068,7 +1068,19 @@ pub async fn deliver(
         }
         // No such session here is the lease's to bring back too, as before (`Next::NoSession`
         // settles only an outbox delivery).
-        Err((why, Next::Retry | Next::Unsent | Next::NoSession | Next::Stale)) => {
+        // A chat moved away or mid-move: the lease brings it back too. A relayed prompt runs
+        // as a peer's (`Origin::Peer`), so it is not handed to this daemon's own outbox, whose
+        // attempts go as the local socket's.
+        Err((
+            why,
+            Next::Retry
+            | Next::Unsent
+            | Next::NoSession
+            | Next::Stale
+            | Next::Moved(_)
+            | Next::MovedToSocket { .. }
+            | Next::Moving,
+        )) => {
             tracing::info!(
                 "mesh relay: {prompt_id} not delivered yet ({why}); its lease brings it back"
             );

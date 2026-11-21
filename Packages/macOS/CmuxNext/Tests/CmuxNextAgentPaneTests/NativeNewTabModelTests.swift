@@ -30,6 +30,31 @@ struct NativeNewTabModelTests {
         #expect(ranker.rows(for: "hacker", kind: .browser, omnibar: omnibar).map(\.id) == ["open", "page:https://news.ycombinator.com/"])
     }
 
+    @Test func bookmarkWebsiteRowsKeepTheirFaviconAndFixedIdentity() throws {
+        var page = Self.page()
+        page.omnibar.bookmarks = [AgentPaneOmnibar.Page(url: "https://swift.org/", title: "Swift",
+                                                        icon: "data:image/png;base64,AAAA")]
+        let row = try #require(NativeNewTabRanker().rows(for: "swift", kind: .browser, omnibar: page.omnibar).last)
+        guard case .bookmark(let bookmark) = row else { Issue.record("the matching bookmark was not ranked as a bookmark"); return }
+        #expect(bookmark.icon == "data:image/png;base64,AAAA")
+        #expect(row.id == "bookmark:https://swift.org/")
+        let content = NativeNewTabRowContent(row, strings: NativeNewTabStrings())
+        #expect(content.icon == bookmark.icon)
+    }
+
+    @Test func faviconRefreshChangesOnlyTheHostSnapshot() {
+        var page = Self.page()
+        page.omnibar.history = [AgentPaneOmnibar.Page(url: "https://swift.org/", title: "Swift")]
+        let model = NativeNewTabModel(page: page, actions: NativeNewTabActions(), favicons: NativeNewTabFavicons(revision: { 0 }, page: { current in
+            var refreshed = current
+            refreshed.omnibar.history[0].icon = "data:image/png;base64,AAAA"
+            return refreshed
+        }))
+        model.refreshFaviconPage()
+        #expect(model.page.omnibar.history[0].icon == "data:image/png;base64,AAAA")
+        #expect(model.text.isEmpty)
+    }
+
     @Test func thePalettesActionsAreAskedForOnceAtTheFirstKeystrokeAndComeLater() {
         var empty = Self.page()
         empty.omnibar.actions = []
