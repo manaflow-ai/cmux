@@ -401,6 +401,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.topBandMaxShare` | real | `0.3333333333333333` | 0.1 to 0.9 | Top Sections Height. The share of the sidebar the top sections fill before they scroll. |
 | `sidebar.bottomBandMaxShare` | real | `0.25` | 0.1 to 0.9 | Bottom Sections Height. The share of the sidebar the bottom sections fill before they scroll. |
 | `sidebar.pinnedBandsScroll` | boolean | `true` |  | Scroll Tall Sections. Off: the top and bottom sections never scroll and the workspace list gets smaller. |
+| `sidebar.reorderHaptics` | boolean | `true` |  | Haptic Feedback When Reordering. A Force Touch trackpad taps as a dragged workspace, group or item moves to a new place in the sidebar, and once more as it drops. |
 | `sidebar.showChats` | boolean | `true` |  | Show All Chats on New Tab. New Tab lists every agent chat on this computer, not only recent ones. |
 | `sidebar.sessionTree` | boolean | `false` |  | Session Tree. Lists workspaces an agent started under the workspace that started them. |
 | `sidebar.showProjects` | boolean | `true` |  | Show Projects |
