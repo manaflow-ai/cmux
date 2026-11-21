@@ -154,17 +154,41 @@ extension CloudService {
             changedTeam: { ActionFailure(message: CloudStrings.createRetryOtherTeam) }, ops: ops)
     }
 
+    /// The native Cloud page has confirmed the burst for this user and Cloud team.
+    func appServerSurge(scope: CloudPageProvider.SurgeScope, args: JSONValue, key: String) async throws -> JSONValue {
+        let token = try await installIdentity.installToken()
+        guard mayCallCloud, auth.user?.id == scope.user, carrierTeam == scope.team,
+              MacInstallIdentity.team(ofToken: token) == scope.team else {
+            throw CloudAppOpFailure(code: "cmux.cloud.surge_stale_preview", message: "Review the Cloud Surge estimate again.")
+        }
+        let ensure: @Sendable () async -> Void = { [appOps] in
+            _ = try? await appOps("user.ensure", .object([:]), "user-ensure-" + UUID().uuidString.lowercased(), .user)
+        }
+        await ensure()
+        guard mayCallCloud, auth.user?.id == scope.user, carrierTeam == scope.team else {
+            throw CloudAppOpFailure(code: "cmux.cloud.surge_stale_preview", message: "Review the Cloud Surge estimate again.")
+        }
+        let run = CloudPersonCreate.ops(sessionCall(team: scope.team, user: scope.user), after: Self.noSurgePreparation)
+        let result = try await run("cloud.surge.create", args, key, .user)
+        _ = await refresh()
+        return result
+    }
+
+    private nonisolated static func noSurgePreparation() async {}
+
     /// POSTs to the API Worker as the signed-in person (Stack session), the way the feed does, in `team` (`x-cmux-team`)
     /// when given: only to answer a G8 approval after the person's native confirmation, and for a person's own create
     /// (``CloudPersonCreate``). The session never goes to the daemon or the relay. Every call carries this build's
     /// space (a misconfigured dev build's call throws).
-    private func sessionCall(team: String? = nil) -> CloudApprovalAnswer.Call {
+    private func sessionCall(team: String? = nil, user: String? = nil) -> CloudApprovalAnswer.Call {
         let base = FeedService.apiBaseURL(auth: auth)
         // A create (the call with a team) waits for the provider to make the machine; an approval's calls answer at once.
         let auth = auth, session = team == nil ? Self.sessionTransport : Self.createTransport, timeout = team == nil ? CloudPersonCreate.callTimeout : CloudPersonCreate.createTimeout
         let buildSpace = configuration.buildSpace
         return { path, body in
-            var request = CloudPersonCreate.post(base.appendingPathComponent(path), body: body, bearer: try await auth.tokens().access, team: team, timeout: timeout)
+            let bearer = try await auth.tokens().access
+            if let user, await auth.user?.id != user { throw CloudPersonCreate.Unavailable(reason: "account_changed") }
+            var request = CloudPersonCreate.post(base.appendingPathComponent(path), body: body, bearer: bearer, team: team, timeout: timeout)
             try buildSpace.apply(to: &request)
             return try await CloudConnectHedge().data(for: request, on: session).0
         }
