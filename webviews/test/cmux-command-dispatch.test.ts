@@ -4,7 +4,9 @@ import {
   cmuxCommandRefusal,
   CMUX_COMMANDS,
   harnessTakesToo,
+  mergedCommands,
 } from "../src/agent-session/acpmux/cmuxCommands";
+import { withoutCliOnly } from "../src/agent-session/acpmux/cliOnlyCommands";
 
 const state = {
   summary: true,
@@ -57,9 +59,49 @@ test("valid commands retain their actions", () => {
 });
 
 test("Claude terminal-only commands retain their harness and attachment boundary", () => {
-  expect(composerCommand("/logout", "claude")?.kind).toBe("cliOnly");
+  expect(composerCommand("/logout", "claude")).toMatchObject({ kind: "cliOnly", use: "terminal", name: "logout" });
   expect(composerCommand("/logout", "codex")).toBeUndefined();
   expect(composerCommand("/logout", "claude", 1)).toBeUndefined();
+  // Typed in full, these open the access menu next to + instead of being refused.
+  for (const text of ["/permissions", "/allowed-tools"])
+    expect(composerCommand(text, "claude")).toMatchObject({ kind: "cliOnly", use: "access" });
+});
+
+// Leo, 2026-11-17: "just... stop showijg the toggle on gui". A row the chat cannot run is not offered.
+test("the / menu leaves out Claude's terminal-only commands, in Claude chats only", () => {
+  const advertised = [
+    "permissions",
+    "allowed-tools",
+    "logout",
+    "doctor",
+    "terminal-setup",
+    "vim",
+    "theme",
+    "ide",
+    "statusline",
+    "privacy-settings",
+    "color",
+    "focus",
+    "exit",
+    "quit",
+    "config",
+    "review",
+    "mcp",
+  ].map((name) => ({ name, description: name, source: "agent" as const }));
+  for (const harness of ["claude", "claude-sr"]) {
+    const names = mergedCommands(advertised, undefined, harness).map((command) => command.name);
+    expect(names).toContain("review");
+    expect(names).toContain("mcp");
+    expect(names).toContain("model");
+    for (const name of advertised.map((command) => command.name).filter((name) => !["review", "mcp"].includes(name)))
+      expect(names).not.toContain(name);
+    // Every row the menu offers is one the composer sends or runs.
+    for (const name of names) expect(composerCommand(`/${name}`, harness)?.kind).not.toBe("cliOnly");
+  }
+  // Another harness's commands of the same names are its own, and stay.
+  const codex = mergedCommands(advertised, undefined, "codex").map((command) => command.name);
+  for (const name of advertised.map((command) => command.name)) expect(codex).toContain(name);
+  expect(withoutCliOnly(advertised, "claude").map((command) => command.name)).toEqual(["review", "mcp"]);
 });
 
 test("GUI commands the harness also takes are cmux's, never refused, and sent as typed without a host", () => {
@@ -76,5 +118,6 @@ test("GUI commands the harness also takes are cmux's, never refused, and sent as
   }
   // A bare Claude `/model` opens cmux's picker; it is no longer a terminal-only command.
   expect(composerCommand("/model", "claude")?.kind).toBe("cmux");
-  expect(composerCommand("/config", "claude")?.kind).toBe("cliOnly");
+  expect(composerCommand("/config", "claude")).toMatchObject({ kind: "cliOnly", use: "terminal" });
+  expect(composerCommand("/config theme=dark", "claude")).toBeUndefined();
 });
