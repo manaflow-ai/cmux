@@ -10312,7 +10312,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       notifyDraftActionsChanged();
     };
     // These are stable for the pane's life (state, provider client, a memoized bridge callback, and
-    // the early New Tab flag, one object from a useState initializer).
+    // the early New Tab flag and the pending pane draw, objects from useState initializers).
   }, [
     connectedClients,
     folderContinuation,
@@ -10330,6 +10330,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     notices,
     quoteReply,
     inheritedFolderRef,
+    pendingPaneDraw,
   ]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
