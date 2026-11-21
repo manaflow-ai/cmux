@@ -154,6 +154,9 @@ test("a retained New Tab start rejects Trust refusal when this remote origin can
 });
 
 test("an offline peer start retries the same session/new target until it is accepted", async () => {
+  // The held start is opt-in (`showPeerReconnectStatus`); off, a start fails fast.
+  const { setComposerSettings } = await import("./composerSettings");
+  setComposerSettings({ showPeerReconnectStatus: true });
   const fixture = await startFixture(false, false, false);
   const { client, daemon, requests } = fixture;
   const { sendsHeldForHost } = await import("./sendWhenReady");
@@ -180,11 +183,15 @@ test("an offline peer start retries the same session/new target until it is acce
     expect(client.shownSession()?.sessionId).toBe(session);
     expect(sendsHeldForHost.get()).toBe(false);
   } finally {
+    setComposerSettings({ showPeerReconnectStatus: false });
     client.close();
   }
 });
 
 test("canceling an offline peer start stops before a retry and clears the held start", async () => {
+  // The held start is opt-in (`showPeerReconnectStatus`); off, a start fails fast.
+  const { setComposerSettings } = await import("./composerSettings");
+  setComposerSettings({ showPeerReconnectStatus: true });
   const fixture = await startFixture(false, false, false);
   const { client, daemon, requests } = fixture;
   const answer = daemon.answer.bind(daemon);
@@ -223,6 +230,7 @@ test("canceling an offline peer start stops before a retry and clears the held s
     expect(requests.filter((request) => request.method === "session/prompt")).toEqual([]);
     expect(sendsHeldForHost.get()).toBe(false);
   } finally {
+    setComposerSettings({ showPeerReconnectStatus: false });
     unsubscribe();
     client.close();
   }
