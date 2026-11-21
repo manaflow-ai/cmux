@@ -155,6 +155,25 @@ fn fake_unit_in_state(
     systemctl
 }
 
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn missing_custom_home_is_refused_before_managed_unit_start() {
+    let scratch = cmux_unix_socket::short_test_dir("managed-missing");
+    let dir = scratch.path();
+    std::fs::create_dir_all(dir).unwrap();
+    let home = dir.join("removed");
+    let socket = crate::config::socket_path_for(&home, None);
+    let systemctl = fake_unit_in_state(dir, &home, "inactive");
+
+    let result: Result<()> = connect_with_systemctl(&systemctl, &home, &socket, true, || async {
+        Err(anyhow!("no daemon"))
+    })
+    .await;
+
+    assert!(result.unwrap_err().to_string().contains("does not exist"));
+    assert!(!dir.join("probes").exists(), "the CLI attempted to start the unit");
+}
+
 /// A fleet lane host, 11-06: a review box ran `acpmux` while `acpmux.service` was stopping for
 /// a restart. A unit still `deactivating` keeps the command waiting for the unit's next daemon:
 /// a detached one would run in the review box's scope, under its task and CPU limits.
