@@ -233,7 +233,16 @@ def check_lease():
            f"a feat-cmux-next owner inside its lease still holds the key ({out.strip()!r})")
     result, out, log = run_wait("4", FAKE_OWNER_MINUTES="40", REF="refs/heads/op-next-other")
     _check(result.returncode == 0 and "takeover=false" in out,
-           f"only a feat-cmux-next push takes a stuck owner's key over ({out.strip()!r})")
+           f"only a feat-cmux-next or nightly-next push takes a stuck owner's key over ({out.strip()!r})")
+    # 2026-11-20: nightly 44818589315 failed behind a feat-cmux-next owner queued 140 min on the lane label.
+    for status in ("in_progress", "queued"):
+        result, out, log = run_wait("4", FAKE_OWNER_STATUS=status, FAKE_OWNER_MINUTES="40",
+                                    REF="refs/heads/nightly-next")
+        _check(result.returncode == 0 and "takeover=true" in out and "deferred=false" in out,
+               f"a nightly-next push takes over a key whose {status} owner is past its lease ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="10", REF="refs/heads/nightly-next")
+    _check(result.returncode == 0 and "takeover=false" in out and "deferred=true" in out,
+           f"a nightly-next push still defers to an owner inside its lease ({out.strip()!r})")
     result, out, log = run_wait("4", FAKE_OWNER_MINUTES="40", FAKE_TREE_PUBLISHED="1")
     _check(result.returncode == 0 and "takeover=false" in out,
            f"a stuck owner that published anyway: no build ({out.strip()!r})")
