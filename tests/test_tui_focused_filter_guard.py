@@ -367,40 +367,32 @@ def _run_full_step(
             capture_output=True,
             text=True,
             cwd=work,
-            env={"PATH": f"{root}:/usr/bin:/bin", "MODE": "full", "TEST_FILTER": "", "RUNNER_TEMP": str(root)},
+            env={
+                "PATH": f"{root}:/usr/bin:/bin",
+                "MODE": "full",
+                "TEST_FILTER": "",
+                "RUNNER_TEMP": str(root),
+                "SHARD": "core",
+            },
         )
         calls = log.read_text(encoding="utf-8") if log.exists() else ""
     return result.returncode, calls
 
 
-def test_a_red_workspace_still_runs_the_core_tests_and_fails_the_step() -> None:
-    """Full mode runs the workspace with --no-fail-fast, then the cmux-tui-core tests.
-
-    Under `bash -e` a red workspace (a base red in any crate) ended the step before the
-    cmux-tui-core unit and doc tests, so a PR shipped without them ever running. The core
-    tests must still run, and the step must still fail with the workspace status.
-    """
-    code, calls = _run_full_step(workspace_fails=True)
-    assert code == 101, (code, calls)
-    assert "python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py" in calls, calls
-    assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
-
+def test_the_core_leg_runs_the_core_tests_and_not_the_workspace() -> None:
+    """The core leg runs the isolated core runner and the core doc tests; the workspace's
+    test binaries run in the shard legs, so the core leg never builds or runs them."""
     code, calls = _run_full_step(workspace_fails=False)
     assert code == 0, (code, calls)
+    assert "python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py" in calls, calls
     assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
+    assert "--workspace" not in calls, calls
 
 
 def test_a_red_core_runner_still_runs_the_core_doc_tests_and_fails_the_step() -> None:
-    """A red isolated core runner must not skip the core doc tests, and the step fails.
-
-    With a red workspace too, the step fails with the first red status (the workspace).
-    """
+    """A red isolated core runner must not skip the core doc tests, and the step fails."""
     code, calls = _run_full_step(workspace_fails=False, core_fails=True)
     assert code == 1, (code, calls)
-    assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
-
-    code, calls = _run_full_step(workspace_fails=True, core_fails=True)
-    assert code == 101, (code, calls)
     assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
 
 
@@ -409,9 +401,9 @@ def test_a_red_doc_test_fails_the_step() -> None:
     assert code == 3, (code, calls)
     assert "python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py" in calls, calls
 
-    # The first red status wins: the workspace before the doc tests.
-    code, calls = _run_full_step(workspace_fails=True, doc_fails=True)
-    assert code == 101, (code, calls)
+    # The first red status wins: the core runner before the doc tests.
+    code, calls = _run_full_step(workspace_fails=False, core_fails=True, doc_fails=True)
+    assert code == 1, (code, calls)
 
 
 def test_a_failed_core_build_skips_the_core_runner_and_still_runs_the_doc_tests() -> None:
@@ -421,9 +413,222 @@ def test_a_failed_core_build_skips_the_core_runner_and_still_runs_the_doc_tests(
     assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
 
 
+# The workspace's test targets the fake cargo reports, as `package/kind[/name]`: two libs, a
+# bin and three integration tests, each a fake test binary; `doc` is the workspace's doc tests.
+# `cmux-tui-core` is the core leg's.
+SHARD_UNITS = [
+    "alpha/lib", "alpha/test/one",
+    "beta/bin/tool", "beta/test/three", "beta/test/two",
+    "gamma/lib", "doc",
+]
+SHARDS = ("1", "2", "3")
+
+
+def _shard_messages(root: Path, log: Path, red: tuple[str, ...] = ()) -> str:
+    """The `cargo test --no-run --message-format=json` lines of SHARD_UNITS' test targets.
+
+    Each test target is a fake test binary under ROOT that logs its unit, its working
+    directory and its `CARGO_MANIFEST_DIR`, and exits 101 when its unit is in RED.
+    """
+    import json
+
+    def artifact(package: str, kind: str, name: str, test: bool = True) -> str:
+        package_dir = root / "crates" / package
+        package_dir.mkdir(parents=True, exist_ok=True)
+        unit = f"{package}/lib" if kind == "lib" else f"{package}/{kind}/{name}"
+        binary = root / "deps" / f"{name}-0000"
+        if test:
+            binary.parent.mkdir(exist_ok=True)
+            binary.write_text(
+                "#!/usr/bin/env bash\n"
+                f'echo "ran {unit} $PWD $CARGO_MANIFEST_DIR" >> "{log}"\n'
+                + ("exit 101\n" if unit in red else ""),
+                encoding="utf-8",
+            )
+            binary.chmod(0o755)
+        return json.dumps({
+            "reason": "compiler-artifact",
+            "package_id": f"path+file://{package_dir}#{package}@1.0.0",
+            "manifest_path": str(package_dir / "Cargo.toml"),
+            "profile": {"test": test},
+            "target": {"kind": [kind], "name": name, "src_path": str(package_dir / "src" / "lib.rs")},
+            "executable": str(binary) if test else None,
+        })
+
+    lines = [
+        artifact("alpha", "lib", "alpha"),
+        artifact("alpha", "test", "one"),
+        artifact("beta", "bin", "tool"),
+        artifact("beta", "test", "two"),
+        artifact("beta", "test", "three"),
+        artifact("gamma", "lib", "gamma"),
+        # A built example and a non-test build of a lib are no test targets.
+        artifact("beta", "example", "demo", test=False),
+        artifact("gamma", "lib", "gamma", test=False),
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _units_of(calls: str) -> list[str]:
+    """The SHARD_UNITS that ran, from the fake binaries' and the fake cargo's log lines."""
+    units = []
+    for line in calls.splitlines():
+        words = line.split()
+        if words[:1] == ["ran"]:
+            units.append(words[1])
+        elif words[:2] == ["cargo", "test"] and "--doc" in words:
+            units.append("doc")
+    return units
+
+
+def _run_shard_step(shard: str, red: tuple[str, ...] = ()) -> tuple[int, str, str]:
+    """Run the test job's full-mode `cargo test` step for SHARD against a fake cargo.
+
+    The fake cargo answers the workspace's `--no-run` listing with SHARD_UNITS' fake test
+    binaries and logs every call; a unit in RED exits 101. Python is real: the shard plan runs as
+    it does in CI. Returns the exit code, the log, and the step's output.
+    """
+    steps = {step.get("name"): step for step in _test_job()["steps"]}
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "scripts").symlink_to(ROOT / "scripts")
+        (root / ".github").symlink_to(ROOT / ".github")
+        work = root / "cmux-tui"
+        work.mkdir()
+        log = root / "calls.log"
+        messages = root / "messages.jsonl"
+        messages.write_text(_shard_messages(work, log, red), encoding="utf-8")
+        doc_red = "exit 101\n" if "doc" in red else ""
+        cargo = root / "cargo"
+        cargo.write_text(
+            "#!/usr/bin/env bash\n"
+            f'echo "cargo $*" >> "{log}"\n'
+            f'case "$*" in *--no-run*) cat "{messages}"; exit 0 ;; esac\n'
+            f'case "$*" in *--doc*) {doc_red or "exit 0"} ;; esac\n',
+            encoding="utf-8",
+        )
+        cargo.chmod(0o755)
+        script = root / "step.sh"
+        script.write_text(steps["cargo test"]["run"], encoding="utf-8")
+        result = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=work,
+            env={
+                "PATH": f"{root}:/usr/bin:/bin",
+                "MODE": "full",
+                "TEST_FILTER": "",
+                "RUNNER_TEMP": str(root),
+                "SHARD": shard,
+            },
+        )
+        calls = log.read_text(encoding="utf-8") if log.exists() else ""
+    return result.returncode, calls, result.stdout + result.stderr
+
+
+def test_the_shards_together_run_every_workspace_test_target_once() -> None:
+    """Each shard leg runs its part of the workspace's test binaries (and one leg the doc
+    tests); the three legs together run every one exactly once, so a target cannot fall out
+    of the run or run twice. Each binary runs in its package's directory with its
+    `CARGO_MANIFEST_DIR`, as `cargo test` runs it. Before the split, one job ran the whole
+    workspace and passed its 90-minute limit."""
+    ran: list[str] = []
+    for shard in SHARDS:
+        code, calls, output = _run_shard_step(shard)
+        assert code == 0, (shard, code, output)
+        part = _units_of(calls)
+        assert part, (shard, calls)
+        assert "cmux-tui-core" not in calls.replace("--exclude cmux-tui-core", ""), (shard, calls)
+        for line in calls.splitlines():
+            words = line.split()
+            if words[:1] == ["ran"]:
+                package_dir = words[2]
+                assert package_dir.endswith(f"/crates/{words[1].split('/')[0]}"), line
+                assert words[3] == f"{package_dir}", line
+        ran += part
+    assert sorted(ran) == sorted(SHARD_UNITS), ran
+
+
+def test_a_red_target_in_a_shard_still_runs_the_rest_of_the_shard_and_fails_it() -> None:
+    for shard in SHARDS:
+        code, calls, output = _run_shard_step(shard)
+        if "beta/test/two" in _units_of(calls):
+            break
+    else:
+        raise AssertionError("no shard ran beta/test/two")
+    every = _units_of(calls)
+    code, calls, output = _run_shard_step(shard, red=("beta/test/two",))
+    assert code == 101, (code, output)
+    assert sorted(_units_of(calls)) == sorted(every), (calls, every)
+
+
+def _run_plan(weights: dict[str, int]) -> tuple[int, str]:
+    import json
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        messages = root / "messages.jsonl"
+        messages.write_text(_shard_messages(root, root / "calls.log"), encoding="utf-8")
+        weights_file = root / "weights.json"
+        weights_file.write_text(json.dumps({"seconds": weights}), encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "ci" / "cmux-tui-test-shards.py"), "plan",
+             "--messages", str(messages), "--weights", str(weights_file), "--of", "3"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    return result.returncode, result.stdout + result.stderr
+
+
+def test_the_shard_plan_shows_each_shards_time_and_refuses_one_past_45_minutes() -> None:
+    """The plan prints each shard's predicted seconds; a shard predicted past 45 minutes fails
+    the plan, so a slower suite shows before a shard reaches its job limit."""
+    code, output = _run_plan({"lib/alpha": 600, "test/two": 500})
+    assert code == 0, output
+    for shard in SHARDS:
+        assert f"shard {shard}/3:" in output, output
+
+    code, output = _run_plan({"lib/alpha": 2_800})
+    assert code != 0, output
+    assert "45 min" in output, output
+
+
+def _run_test_linux_gate(result: str) -> tuple[int, str]:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["test-linux"]
+    [step] = [s for s in job["steps"] if "run" in s]
+    with tempfile.TemporaryDirectory() as tmp:
+        script = Path(tmp) / "gate.sh"
+        script.write_text(step["run"], encoding="utf-8")
+        run = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)],
+            env={"PATH": "/usr/bin:/bin", "TEST_RESULT": result},
+            capture_output=True,
+            text=True,
+        )
+    return run.returncode, run.stdout + run.stderr
+
+
+def test_test_linux_passes_only_when_every_shard_and_the_core_leg_succeeded() -> None:
+    """`test (linux)` stays the one name people and the merge queue read; it runs always and
+    fails when any leg failed, was cancelled or was skipped (a skipped leg is no green)."""
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["test-linux"]
+    assert job["name"] == "test (linux)"
+    assert str(job["if"]).replace("${{", "").replace("}}", "").strip() == "always()"
+    code, output = _run_test_linux_gate("success")
+    assert code == 0, output
+    for result in ("failure", "cancelled", "skipped", ""):
+        code, output = _run_test_linux_gate(result)
+        assert code != 0, (result, output)
+
+
 def test_tui_status_names_remain_stable() -> None:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    assert workflow["jobs"]["test"]["name"] == "test (${{ matrix.os }})"
+    assert workflow["jobs"]["test-linux"]["name"] == "test (linux)"
     assert (
         workflow["jobs"]["hosted-verification"]["name"]
         == "${{ inputs.mode == 'full' && 'hosted verification' || 'focused hosted verification' }}"
