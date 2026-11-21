@@ -48,6 +48,7 @@ env:
 
 jobs:
   swift-linux-packages:
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || vars.CI_DRAFT_CHEAP_TIER == '0') }}
     name: Swift packages on Linux (${{ matrix.group }})
     # 32 vCPU: swift build compiles a package's modules in parallel (tests/test_ci_linux_compile_runners.py);
     # 16 vCPU while the Blacksmith outage switch is on (tests/test_ci_blacksmith_linux_failover.py).

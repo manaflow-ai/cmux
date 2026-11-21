@@ -1019,6 +1019,8 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         mac = PR_AUTOFIX["jobs"]["action-exports"]
         self.assertIn("generated-exports", mac["needs"])
         condition = mac["if"].removeprefix("${{ ").removesuffix(" }}")
+        # The draft-head term (tests/test_head_tier.py) is tested there; this test is about the pack.
+        condition = condition.split(") && ", 1)[1]
 
         def runs(hit: str, result: str = "success", actions: str = "true") -> bool:
             values = {"needs.generated-exports.outputs.hit": hit, "needs.action-areas.result": result,
