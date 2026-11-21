@@ -1,10 +1,12 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextCompat
+import CmuxVisibleRows
 
 /// The result list: an `NSTableView` with reused row views. Only visible
-/// rows exist. Results reload in place without animation (no flicker);
-/// selection and hover update just the affected row views.
+/// rows exist. Results apply in place by id without animation (no flicker),
+/// configuring only mounted rows whose content changed; selection and hover
+/// update just the affected row views.
 final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableViewDelegate {
     enum DisplayRow {
         case header(String)
@@ -18,11 +20,21 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
     /// A middle-click on a row: close it, as Cmd-W does (Tab Search: the row's tab).
     var onMiddleClick: ((String) -> Void)?
 
-    private let table = PaletteTableView()
+    /// Internal for the render count tests.
+    let table = PaletteTableView()
     /// The row a middle press went down on (`onMiddleClick`).
     private var middlePressID: String?
     private var rows: [DisplayRow] = []
+    /// Each row's stable id (an item's id, a header's section id), by row.
+    private var rowKeys: [String] = []
     private var rowIndexByID: [String: Int] = [:]
+    /// The toggle style rows were configured in (a change configures every mounted row again).
+    private var appliedToggleStyle = PaletteTunables.toggleStyle.value
+    /// The row heights the table holds (`relayoutRows`).
+    private var appliedRowHeights = PaletteListView.rowHeights
+    /// Rows configured (`viewFor`), heights asked (`heightOfRow`) and results read (`setSections`): the
+    /// visible-rows contract (`PaletteListVisibleRowsTests`).
+    let listWork = ListWorkMeter()
     private var selectedID: String?
     private var hoveredID: String?
     /// No rubber band while every result fits.
@@ -75,23 +87,99 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
 
     // MARK: Updates from the model
 
+    /// Applies new results by stable id: rows that left are removed, new or moved rows are
+    /// inserted, and a kept row is configured again only when it is mounted and what it draws
+    /// changed. A keystroke that keeps the visible rows configures none of them, and the table
+    /// asks the heights of inserted rows only, at 100 results as at 10,000.
     func setSections(_ sections: [PaletteResultSection]) {
         var rows: [DisplayRow] = []
+        var keys: [String] = []
         var index: [String: Int] = [:]
         for section in sections {
-            if !section.title.isEmpty { rows.append(.header(section.title)) }
+            if !section.title.isEmpty {
+                rows.append(.header(section.title))
+                keys.append(Self.headerKey(section.id))
+            }
             for row in section.rows {
                 index[row.id] = rows.count
                 rows.append(.item(row))
+                keys.append(row.id)
             }
         }
+        // The model hands every result each version: mapping them to rows and ids is the one pass over N
+        // (an index update; no row is configured or measured for it). The diff adds the ids it hashed.
+        listWork.walked(rows.count)
+        let oldRows = self.rows
+        let oldKeys = rowKeys
         self.rows = rows
+        rowKeys = keys
         rowIndexByID = index
-        table.reloadData()
+        let toggleStyle = PaletteTunables.toggleStyle.value
+        if toggleStyle != appliedToggleStyle || !apply(from: oldKeys, oldRows: oldRows) {
+            table.reloadData()
+        }
+        appliedToggleStyle = toggleStyle
         syncTableSelection()
         // Size the table now, not at the next display, so the rubber band
         // matches the new results before the next scroll event.
         table.tile()
+    }
+
+    /// Moves the table from `oldKeys` to `rowKeys` in place (`ListIDDiff`); false when a full reload is
+    /// the same work (nothing kept) or a changed key repeats.
+    private func apply(from oldKeys: [String], oldRows: [DisplayRow]) -> Bool {
+        guard let diff = ListIDDiff.between(oldKeys, rowKeys) else { return false }
+        listWork.walked(diff.hashed)
+        if !diff.removed.isEmpty || !diff.inserted.isEmpty {
+            // No animation: rows land in place, as a reload drew them.
+            table.beginUpdates()
+            // Removals name old rows; insertions name the rows' final places.
+            if !diff.removed.isEmpty { table.removeRows(at: IndexSet(diff.removed), withAnimation: []) }
+            if !diff.inserted.isEmpty { table.insertRows(at: IndexSet(diff.inserted), withAnimation: []) }
+            table.endUpdates()
+        }
+        // A kept row that is mounted is configured again only if what it draws changed.
+        var mounted: [Int] = []
+        table.enumerateAvailableRowViews { _, row in mounted.append(row) }
+        let changed = diff.rowsToReconfigure(mounted) { old, new in !Self.drawsSame(oldRows[old], rows[new]) }
+        if !changed.isEmpty { table.reloadData(forRowIndexes: IndexSet(changed), columnIndexes: IndexSet(integer: 0)) }
+        return true
+    }
+
+    private static func headerKey(_ sectionID: String) -> String { "\u{1}header:\(sectionID)" }
+
+    /// Whether two rows draw the same (what `PaletteRowCell.configure` reads).
+    private static func drawsSame(_ a: DisplayRow, _ b: DisplayRow) -> Bool {
+        switch (a, b) {
+        case (.header(let x), .header(let y)): x == y
+        case (.item(let x), .item(let y)): RowLook(x) == RowLook(y)
+        default: false
+        }
+    }
+
+    /// What a result row draws.
+    private struct RowLook: Equatable {
+        var title: String, subtitle: String?, accessory: String?, symbol: String?, brand: String?
+        var image: ObjectIdentifier?, keycaps: [String]?, swatches: [ThemeRGB], fontFamily: String?
+        var ball: PaletteBall?, highlights: [Int], subtitleHighlights: [Int], toggleState: Bool?, isEnabled: Bool
+
+        init(_ row: PaletteRow) {
+            let item = row.item
+            title = item.title
+            subtitle = item.subtitle
+            accessory = item.accessory
+            symbol = item.symbol
+            brand = item.brand
+            image = item.image.map { ObjectIdentifier($0) }
+            keycaps = item.keycaps
+            swatches = item.swatches
+            fontFamily = item.fontFamily
+            ball = item.ball
+            highlights = row.highlights
+            subtitleHighlights = item.subtitleHighlights
+            toggleState = item.toggleState
+            isEnabled = item.isEnabled
+        }
     }
 
     func setSelection(_ id: String?) {
@@ -129,13 +217,21 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
 
     /// Configures every row again, in the current text size (#26606).
     func reloadRows() {
+        appliedRowHeights = Self.rowHeights
         table.reloadData()
         syncTableSelection()
     }
 
+    /// Tells the table the row heights changed, only when they did (a density or text size
+    /// change); a window size change alone leaves every height as it was.
     func relayoutRows() {
+        let heights = Self.rowHeights
+        guard heights != appliedRowHeights else { return }
+        appliedRowHeights = heights
         table.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<rows.count))
     }
+
+    private static var rowHeights: [CGFloat] { [PaletteLayout.rowHeight, PaletteLayout.headerRowHeight] }
 
     private func refresh(_ id: String?, hoverAnimated: Bool = true) {
         guard let id, let row = rowIndexByID[id] else { return }
@@ -177,6 +273,7 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        listWork.laidOut()
         if case .header = rows[row] { return PaletteLayout.headerRowHeight }
         return PaletteLayout.rowHeight
     }
@@ -201,6 +298,7 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        listWork.configured()
         switch rows[row] {
         case .header(let title):
             let cell = tableView.makeView(withIdentifier: PaletteSectionHeaderCell.identifier, owner: nil) as? PaletteSectionHeaderCell
@@ -214,6 +312,11 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
             return cell
         }
     }
+}
+
+extension PaletteListView: VisibleRowsList {
+    /// The table's row views, shown and parked for reuse.
+    var rowViewsAlive: Int { table.subviews.count { $0 is NSTableRowView } }
 }
 
 /// Table that never takes keyboard focus (the search field keeps it) and
