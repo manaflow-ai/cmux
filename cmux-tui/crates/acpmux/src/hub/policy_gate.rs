@@ -133,10 +133,14 @@ fn deny_reason(policy: PermissionPolicy, by_rule: bool) -> String {
     )
 }
 
-/// Whether `meta`'s agent has the PreToolUse gate: acpmux's own Claude Code backend, started by
-/// a build that registers it (`claude_stdio::has_tool_gate`).
-pub(super) fn has_gate(meta: &SessionMeta) -> bool {
-    crate::claude_stdio::has_tool_gate(meta.agent_info.as_ref())
+/// Whether `meta`'s agent has the PreToolUse gate: acpmux's own Claude Code backend (the config
+/// entry its harness names in `cfg` is kind `claude-stdio`), started by a build that registers
+/// it (`claude_stdio::has_tool_gate`). The entry kind comes first: any ACP agent can write
+/// `agentInfo._meta.acpmux.toolGate`, and one that says it has the gate holds no policy
+/// (cmux#40568).
+pub(super) fn has_gate(meta: &SessionMeta, cfg: &crate::config::Config) -> bool {
+    cfg.profile(&meta.harness).is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
+        && crate::claude_stdio::has_tool_gate(meta.agent_info.as_ref())
 }
 
 /// The policy the gate holds for `meta` under default policy `default`, or `None`: nothing to
