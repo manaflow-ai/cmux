@@ -64,11 +64,14 @@ export function frameStats(timestamps: number[], nominal: number): FrameStats {
 }
 
 /** p50/p95/max of `values` (unsorted), rounded. */
-export function summary(values: number[]): { p50_ms: number; p95_ms: number; max_ms: number } {
+export function summary(values: number[]): { p50_ms: number; p95_ms: number; p99_ms: number; max_ms: number } {
   const sorted = [...values].sort((a, b) => a - b);
   return {
     p50_ms: round2(percentile(sorted, 0.5)),
     p95_ms: round2(percentile(sorted, 0.95)),
+    // The tail the under-load harnesses report beside p95 (cmuxterm-hq docs/design/chat-instant-under-load.md,
+    // "The bench": "key to frame p50, p95, p99 and max").
+    p99_ms: round2(percentile(sorted, 0.99)),
     max_ms: round2(sorted.at(-1) ?? 0),
   };
 }
