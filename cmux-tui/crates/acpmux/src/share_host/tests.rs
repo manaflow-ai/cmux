@@ -762,6 +762,7 @@ fn the_enable_runs_cmux_rd_with_the_daemons_home() {
         &args,
         &acpmux_home,
         &env,
+        &[],
         Duration::from_secs(30),
         &AtomicBool::new(false),
     );
@@ -778,6 +779,7 @@ fn the_enable_runs_cmux_rd_with_the_daemons_home() {
             &args,
             &acpmux_home,
             &[],
+            &[],
             Duration::from_secs(30),
             &AtomicBool::new(false)
         ),
@@ -792,12 +794,61 @@ fn the_enable_runs_cmux_rd_with_the_daemons_home() {
             &args,
             &acpmux_home,
             &[],
+            &[],
             Duration::from_secs(30),
             &AtomicBool::new(false)
         )
         .state(),
         "enable_failed"
     );
+}
+
+/// Leo, 2026-11-21: "most of our vms (if we even have any lanes on freestyle vms yet!?) dont have
+/// screns...". A lane VM's user manager publishes `DISPLAY=:99`, its host's own Xvfb; the daemon
+/// inherited it, cmux-rd's enable took it for a graphical session and tied the host to
+/// `graphical-session.target`, so the host never started again. The enable runs without it.
+#[test]
+fn the_enable_never_sees_the_hosts_own_virtual_display_as_a_desktop() {
+    use super::linux::{self, drops_display, virtual_display};
+    use std::ffi::{OsStr, OsString};
+    let unit = "[Service]\nExecStart=/usr/bin/Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp\n";
+    // The daemon's own CMUX_VIRTUAL_DISPLAY first, else the display the Xvfb unit serves.
+    assert_eq!(virtual_display(Some(OsString::from(":101")), Some(unit)).as_deref(), Some(":101"));
+    assert_eq!(virtual_display(None, Some(unit)).as_deref(), Some(":99"));
+    assert_eq!(virtual_display(Some(OsString::new()), Some(unit)).as_deref(), Some(":99"));
+    assert_eq!(virtual_display(None, None), None);
+    assert_eq!(virtual_display(None, Some("[Service]\nExecStart=/usr/bin/Xvfb\n")), None);
+    assert_eq!(virtual_display(Some(OsString::from("junk")), Some(unit)), None);
+    // Only that display is dropped: a person's desktop display, or none, is left alone.
+    assert!(drops_display(Some(OsStr::new(":99")), Some(":99")));
+    assert!(drops_display(Some(OsStr::new(":99.0")), Some(":99")));
+    assert!(!drops_display(Some(OsStr::new(":0")), Some(":99")));
+    assert!(!drops_display(Some(OsStr::new(":990")), Some(":99")));
+    assert!(!drops_display(Some(OsStr::new(":99")), None));
+    assert!(!drops_display(None, Some(":99")));
+    // What is taken out never reaches cmux-rd, even when the daemon's env would set it.
+    let dir = tempfile::tempdir().unwrap();
+    let seen = dir.path().join("display");
+    let rd = fake_cmux_rd(
+        dir.path(),
+        &format!("printf '%s' \"${{DISPLAY-unset}}\" > '{}'\necho shared", seen.display()),
+    );
+    let env = [("DISPLAY", OsString::from(":99"))];
+    let run = |remove: &[&str]| {
+        linux::run_enable(
+            &rd,
+            &linux::enable_args("https://hub.example"),
+            dir.path(),
+            &env,
+            remove,
+            Duration::from_secs(30),
+            &AtomicBool::new(false),
+        )
+    };
+    run(&["DISPLAY"]);
+    assert_eq!(std::fs::read_to_string(&seen).unwrap(), "unset");
+    run(&[]);
+    assert_eq!(std::fs::read_to_string(&seen).unwrap(), ":99");
 }
 
 #[test]
@@ -812,6 +863,7 @@ fn an_enable_past_its_wait_is_stopped_with_everything_it_started() {
         &rd,
         &linux::enable_args("https://hub.example"),
         dir.path(),
+        &[],
         &[],
         Duration::from_millis(500),
         &AtomicBool::new(false),
@@ -848,6 +900,7 @@ fn a_cancelled_enable_is_stopped_with_everything_it_started() {
         &rd,
         &linux::enable_args("https://hub.example"),
         dir.path(),
+        &[],
         &[],
         Duration::from_secs(60),
         &cancel,

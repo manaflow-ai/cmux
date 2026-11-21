@@ -13,6 +13,10 @@
 //! - The enable runs once per join: a host unit already running for this join (the record in
 //!   [`MARK`]) is left alone, so a daemon restart or upgrade never cuts a live share. A new
 //!   join (another machine id or credential generation) runs it again.
+//! - It runs without `DISPLAY` when that is the host's own virtual display ([`drops_display`]):
+//!   cmux-rd reads any `DISPLAY` as a graphical session, and a user manager that publishes the
+//!   virtual display to every service would make it set the host up for a desktop that never
+//!   starts.
 //! - It runs in the background, at most [`ENABLE_WAIT`], and never fails the daemon: one log
 //!   line says how it went, and `acpmux share-host status` says it too.
 
@@ -77,6 +81,44 @@ pub(crate) fn user_manager_env(
         }
     }
     env
+}
+
+/// The host's own virtual display unit (cmux-rd-host's `linux_host/setup.rs`, `DISPLAY_UNIT`):
+/// the Xvfb a machine with no graphical session shares.
+pub(crate) const DISPLAY_UNIT: &str = "cmux-screen-display.service";
+/// Set in the host unit's environment by cmux-rd's virtual-display drop-in: the display it owns.
+pub(crate) const VIRTUAL_DISPLAY_ENV: &str = "CMUX_VIRTUAL_DISPLAY";
+
+/// The virtual display this machine's host owns, `:N`: `CMUX_VIRTUAL_DISPLAY` when the daemon
+/// has it, else the display the host's Xvfb unit (`display_unit`, its text) serves.
+pub(crate) fn virtual_display(own: Option<OsString>, display_unit: Option<&str>) -> Option<String> {
+    let display = |n: &str| n.parse::<u32>().ok().map(|n| format!(":{n}"));
+    if let Some(value) =
+        own.as_ref().and_then(|v| v.to_str()).map(str::trim).filter(|v| !v.is_empty())
+    {
+        return display(value.strip_prefix(':')?);
+    }
+    let exec = display_unit?.lines().find_map(|l| l.strip_prefix("ExecStart="))?;
+    exec.split_whitespace().find_map(|w| display(w.strip_prefix(':')?))
+}
+
+/// Whether the enable must not see `display` (the daemon's `DISPLAY`): it names the host's own
+/// virtual display. A user manager that publishes that display (so agents' X apps open on it)
+/// hands it to every service, this daemon too; cmux-rd's enable reads any `DISPLAY` as a
+/// graphical session, ties the host unit to `graphical-session.target`, which never starts on a
+/// machine with no desktop, and drops the virtual-display drop-in: every later start of the host
+/// failed with "Dependency failed" (Leo, 2026-11-21: "most of our vms ... dont have screns").
+pub(crate) fn drops_display(
+    display: Option<&std::ffi::OsStr>,
+    virtual_display: Option<&str>,
+) -> bool {
+    let (Some(display), Some(virtual_display)) =
+        (display.and_then(|d| d.to_str()), virtual_display)
+    else {
+        return false;
+    };
+    let display = display.trim();
+    display == virtual_display || display.strip_suffix(".0") == Some(virtual_display)
 }
 
 /// The arguments of the enable for the join at device hub `hub`.
@@ -191,20 +233,24 @@ fn read_pipe(pipe: Option<impl std::io::Read + Send + 'static>) -> mpsc::Receive
 }
 
 /// Runs cmux-rd's enable and waits for it (blocking): `rd` with `args`, `ACPMUX_HOME` =
-/// `acpmux_home` and `env` added to the daemon's own, as the leader of its own process group.
-/// Past `wait` the whole group is ended ([`cmux_process::Child`]'s drop).
+/// `acpmux_home` and `env` added to the daemon's own and `remove` taken out of both, as the leader
+/// of its own process group. Past `wait` the whole group is ended ([`cmux_process::Child`]'s drop).
 pub(crate) fn run_enable(
     rd: &Path,
     args: &[&str],
     acpmux_home: &Path,
     env: &[(&'static str, OsString)],
+    remove: &[&str],
     wait: Duration,
     cancel: &AtomicBool,
 ) -> Outcome {
-    let spawned = cmux_process::Command::new(rd)
-        .args(args)
-        .env("ACPMUX_HOME", acpmux_home)
-        .envs(env.iter().map(|(k, v)| (*k, v)))
+    let mut command = cmux_process::Command::new(rd);
+    command.args(args).env("ACPMUX_HOME", acpmux_home).envs(env.iter().map(|(k, v)| (*k, v)));
+    // Last, so a variable taken out stays out.
+    for key in remove {
+        command.env_remove(key);
+    }
+    let spawned = command
         .stdin(cmux_process::Stdio::null())
         .stdout(cmux_process::Stdio::piped())
         .stderr(cmux_process::Stdio::piped())
@@ -394,6 +440,21 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
         std::env::var_os("DBUS_SESSION_BUS_ADDRESS"),
         |p| p.exists(),
     );
+    let display_unit = dirs::config_dir()
+        .and_then(|c| std::fs::read_to_string(c.join("systemd/user").join(DISPLAY_UNIT)).ok());
+    let own_virtual =
+        virtual_display(std::env::var_os(VIRTUAL_DISPLAY_ENV), display_unit.as_deref());
+    let remove: Vec<&'static str> =
+        if drops_display(std::env::var_os("DISPLAY").as_deref(), own_virtual.as_deref()) {
+            tracing::info!(
+                "{}: the enable runs without DISPLAY: it is this host's own virtual display {}",
+                super::LOG,
+                own_virtual.as_deref().unwrap_or_default()
+            );
+            vec!["DISPLAY"]
+        } else {
+            Vec::new()
+        };
     super::state::linux(status_json("setting_up", "cmux-rd linux-host enable runs", &rd, &hub));
     scope.spawn_named("share-host-linux", async move {
         // The thread outlives an aborted task: dropping this cancels its enable (stopped with
@@ -409,7 +470,7 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
         let (done, ended) = tokio::sync::oneshot::channel::<()>();
         let spawned =
             std::thread::Builder::new().name("share-host-linux".into()).spawn(move || {
-                set_up(&home, &folder, &mark, &rd, &hub, &env, &cancel);
+                set_up(&home, &folder, &mark, &rd, &hub, &env, &remove, &cancel);
                 let _ = done.send(());
             });
         match spawned {
@@ -430,6 +491,7 @@ fn set_up(
     rd: &Path,
     hub: &str,
     env: &[(&'static str, OsString)],
+    remove: &[&'static str],
     cancel: &AtomicBool,
 ) {
     // A unit that runs is left alone only when cmux-rd's own record says it is this join's: a
@@ -441,7 +503,7 @@ fn set_up(
         super::state::linux(status_json("already_set_up", &detail, rd, hub));
         return;
     }
-    let outcome = run_enable(rd, &enable_args(hub), home, env, ENABLE_WAIT, cancel);
+    let outcome = run_enable(rd, &enable_args(hub), home, env, remove, ENABLE_WAIT, cancel);
     // The join it ran for, read again now: a leave or a new join may have come meanwhile.
     let current = super::joined().is_ok_and(|(credential, _)| &mark_of(&credential) == mark);
     let after = after_enable(&outcome, cancel.load(Ordering::SeqCst), current);
