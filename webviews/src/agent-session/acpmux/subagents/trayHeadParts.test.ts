@@ -17,8 +17,8 @@ const command = (id: string, line: string): BackgroundCommand => ({
 });
 
 const commands = [
-  command("send", 'acpmux send cosmic-gray/tray-plan "status?"'),
-  command("wait", "glaeda-gh wait pr manaflow-ai/cmux#48268 --timeout 900"),
+  command("send", 'acpmux send studio-mac/review "status?"'),
+  command("wait", "gh pr checks 1234 --watch"),
 ];
 
 test("each kind has its mark, its count and the items it counts", () => {

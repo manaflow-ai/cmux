@@ -46,8 +46,8 @@ const scene = (agents: Subagent[], commands: ReturnType<typeof command>[]) =>
 const leoTray = scene(
   [],
   [
-    command('acpmux send cosmic-gray/tray-plan "status?"', "Ask the tray lane for its status", 2),
-    command("glaeda-gh wait pr manaflow-ai/cmux#48268 --timeout 900", "Wait for the tray PR's checks", 1.5),
+    command('acpmux send studio-mac/review "status?"', "Ask the reviewer for its status", 2),
+    command("gh pr checks 1234 --watch", "Wait for the PR checks", 1.5),
   ],
 );
 
@@ -55,8 +55,8 @@ const leoTray = scene(
 const mixed = scene(
   [running("Find where the tray header sets its height", 4, "Grep ui-row-height")],
   [
-    command('acpmux send cosmic-gray/tray-plan "status?"', "Ask the tray lane for its status", 3),
-    command("glaeda-gh wait pr manaflow-ai/cmux#48268 --timeout 900", "Wait for the tray PR's checks", 2.5),
+    command('acpmux send studio-mac/review "status?"', "Ask the reviewer for its status", 3),
+    command("gh pr checks 1234 --watch", "Wait for the PR checks", 2.5),
     command("cmux-ci test -- bun test src/agent-session", "Run the agent pane tests", 2),
     command("pgrep -f nightly | head -3; ps -o etime= -p 1", undefined, 0.5),
   ],
@@ -105,7 +105,7 @@ export default agentPaneEntry({
         await folded(ctx);
         const read = kinds(ctx).join(" · ");
         if (read !== "1 message · 1 wait") throw new Error(`unexpected header: ${read}`);
-        await hoverNames(ctx, "waits", "Wait for the tray PR's checks");
+        await hoverNames(ctx, "waits", "Wait for the PR checks");
       },
       snapshot: leoTray,
     },
