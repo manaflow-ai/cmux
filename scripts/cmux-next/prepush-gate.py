@@ -114,6 +114,11 @@ key no head source declares. Git objects only, keys only, so it is never red on 
 (2026-11-15) carried exports regenerated at an older tree that dropped tabs.newTabApp; the Mac export comparison was
 red on the base all day, so its signal was ignored.
 
+Also on every local run, the same way: "The CEF pin names one dist" (cef_pin_problems): when the push changes
+scripts/cmux-next/cef-manifest.json, each artifact (the top level and the x86_64 object) must have an r2_key that
+contains its sha256 and ends in its asset, and a url that names its asset. 2026-11-20: a dogfood pin with a staging
+sha256 kept cmux.52's url and r2_key, and the Linux pool's fetch-pinned failed on it. Git objects only.
+
 Also on every local run, the same way: "Cargo.lock adds no new crate versions" (cargo-lock-new-versions.py): when the
 push changes a Cargo.lock, every downloaded (crate, version) in each changed lock must be in some Cargo.lock at the
 base, unless a pushed commit has a `Cargo-Lock-New-Versions: <why>` line (#42155 said it added no versions and added
@@ -191,6 +196,7 @@ import sys
 import sysconfig
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -2082,6 +2088,17 @@ def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_
 # A job with no timeout-minutes runs for GitHub's 6 h default when it hangs; a job-level always() with no !cancelled()
 # still queues on a cancelled run and holds its group on a label with no free runner (boneheaded-designs section 11).
 # Local only, like the twin check (CLAUDE.md: no new CI gates); tests/test_ci_workflow_job_bounds.py is the manual check.
+# A CEF pin names one dist four times: asset, url, sha256 and r2_key (and debug_asset, debug_sha256, debug_r2_key).
+# 2026-11-20: a dogfood pin moved sha256 to a staging dist but kept the previous release's url and r2_key
+# (cef-157.0.0-cmux.52); only the fleet controller store held those bytes, so the Linux pool's fetch-pinned failed
+# with a checksum mismatch (job a217815294ce09cd160f2169) after the build had waited 11.5 hours in the Mac queue.
+# A push that changes the manifest is refused when, in the top-level (arm64) artifact or the x86_64 object, an
+# r2_key does not contain its sha256 or does not end in its asset, or the url names another asset. Local only
+# (CLAUDE.md: no new CI gates). Fix: publish the dist (publish-cef-r2.sh --manifest writes matching R2 fields).
+CEF_PIN_CHECK = "The CEF pin names one dist (url, sha256 and r2_key agree with asset)"
+CEF_PIN_MANIFEST = "scripts/cmux-next/cef-manifest.json"
+
+
 JOB_BOUNDS_CHECK = "Workflow jobs are bounded (a timeout-minutes; no always() on a cancelled run)"
 JOB_BOUNDS_ALLOW = ".github/workflow-job-bounds.json"
 
@@ -2129,6 +2146,49 @@ def job_bounds_drift(repo: Path, base: str, head: str) -> list[str]:
             if where not in old_unguarded and where not in allow:
                 problems.append(f"{where}: if: {cond} still queues on a cancelled run; use !cancelled(), or list it in "
                                 f"{JOB_BOUNDS_ALLOW} with why it must run on a cancel")
+    return problems
+
+
+def cef_pin_artifact_problems(where: str, artifact: dict) -> list[str]:
+    """CEF_PIN_CHECK's findings for one artifact of the manifest (the top level, or the x86_64 object)."""
+    problems = []
+    for prefix in ("", "debug_"):
+        asset, sha, key = (artifact.get(prefix + k) for k in ("asset", "sha256", "r2_key"))
+        if key is None:
+            continue
+        if not isinstance(sha, str) or not sha or sha not in str(key).split("/"):
+            problems.append(f"{where}{prefix}r2_key {key} does not contain {prefix}sha256 {sha}: the R2 object holds "
+                            "other bytes, so a host that reads R2 (the Linux pool) fails fetch-pinned")
+        if isinstance(asset, str) and str(key).rsplit("/", 1)[-1] != asset:
+            problems.append(f"{where}{prefix}r2_key {key} names another asset than {prefix}asset {asset}")
+    url, asset = artifact.get("url"), artifact.get("asset")
+    if isinstance(url, str) and isinstance(asset, str):
+        named = urllib.parse.unquote(urllib.parse.urlsplit(url).path.rsplit("/", 1)[-1])
+        if named != asset:
+            problems.append(f"{where}url {url} names {named}, not asset {asset}")
+    return problems
+
+
+def cef_pin_problems(repo: Path, base: str, head: str) -> list[str]:
+    """CEF_PIN_CHECK's findings in head's scripts/cmux-next/cef-manifest.json, when the push changes it."""
+    if not git(repo, "diff", "--name-only", "--no-renames", base, head, "--", CEF_PIN_MANIFEST,
+               check=False).strip():
+        return []
+    data = blob_at(repo, head, CEF_PIN_MANIFEST)
+    if data is None:
+        return []
+    try:
+        manifest = json.loads(data)
+    except ValueError as error:
+        return [f"{CEF_PIN_MANIFEST}: not JSON ({error})"]
+    if not isinstance(manifest, dict):
+        return [f"{CEF_PIN_MANIFEST}: not a JSON object"]
+    problems = cef_pin_artifact_problems(f"{CEF_PIN_MANIFEST}: ", manifest)
+    if isinstance(manifest.get("x86_64"), dict):
+        problems += cef_pin_artifact_problems(f"{CEF_PIN_MANIFEST}: x86_64.", manifest["x86_64"])
+    if problems:
+        problems.append("publish the pinned dist where every host reads it (scripts/cmux-next/publish-cef-r2.sh "
+                        "--manifest writes matching r2 fields) and pin its own url and r2_key")
     return problems
 
 
@@ -3063,6 +3123,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         unbounded = job_bounds_drift(repo, base, head)
         if unbounded:
             reserved.append((JOB_BOUNDS_CHECK, unbounded))
+    # Local only, like the twin check (CLAUDE.md: no new CI gates): git objects only, and only when the pin changes.
+    if (highlights_layer if only is None else "cef-pin" in only) and restrict is None:
+        mismatched = cef_pin_problems(repo, base, head)
+        if mismatched:
+            reserved.append((CEF_PIN_CHECK, mismatched))
     if only is None or "sidebar" in only:
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
@@ -3854,7 +3919,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
-                                       "settings-export-keys,main-twin,job-bounds")
+                                       "settings-export-keys,main-twin,job-bounds,cef-pin")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child
