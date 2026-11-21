@@ -1,0 +1,100 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44887619396",
+  "recorded_at": "2026-11-21T09:11:31Z",
+  "reason": "cmux-tui 6675251cde51 changes the image's cmux-tui (pinned dc6f7a40fec6)",
+  "dry_run": false,
+  "cmux_tui": "6675251cde517491cf507f0c16ff0e398104bf33",
+  "fixes": [
+    {
+      "sha": "da318d451e32cba4ac2078b0c4790e4db89c6153",
+      "mergedAt": "2026-11-21T00:08:13-08:00",
+      "subject": "acpmux: protocol IR and web types for the chat task list (taskList, _acpmux/task_list/*)"
+    },
+    {
+      "sha": "2642372be86c879998c6eac74993d04398a310c6",
+      "mergedAt": "2026-11-21T00:08:13-08:00",
+      "subject": "acpmux: a fork and a resolved chat start with no task list"
+    },
+    {
+      "sha": "914ddaa6dff00cf860ae92fcd00ea255a2c9b184",
+      "mergedAt": "2026-11-21T00:08:12-08:00",
+      "subject": "Chief: control tasks keeps a subagent chat's task list"
+    },
+    {
+      "sha": "400389748775b40bd19f5047b286ca6f7a74ef68",
+      "mergedAt": "2026-11-21T00:08:12-08:00",
+      "subject": "acpmux: a chat's task list, kept across turns, in the chat and the sidebar"
+    },
+    {
+      "sha": "77ecf135382700564721ecda6af1c7eebe8b769e",
+      "mergedAt": "2026-11-21T00:08:12-08:00",
+      "subject": "acpmux: red test, a chat's task list stays on the chat across turns"
+    },
+    {
+      "sha": "d7bfb10a9df487cf18937fc369f8ef691da14ee8",
+      "mergedAt": "2026-11-21T08:07:08Z",
+      "subject": "acpmux process owner, left-behind, kill --pid: which session owns a process, end only yours or left-behind (#48459)"
+    },
+    {
+      "sha": "fca3bff70b480b2673d4e65ea60aaa3a783b6cfa",
+      "mergedAt": "2026-11-20T23:51:33-08:00",
+      "subject": "acpmux: deliver into a Claude Code chat through its own child (inbox relay) (#48563)"
+    },
+    {
+      "sha": "f104658c9f3a09550f6eecfcfa6dc3179a8cf520",
+      "mergedAt": "2026-11-20T23:41:39-08:00",
+      "subject": "acpmux: session names follow their task, former names still resolve (#48403)"
+    },
+    {
+      "sha": "4cc0f0d86fdfae9f53cf6dec5b71c04dd42da305",
+      "mergedAt": "2026-11-20T23:39:59-08:00",
+      "subject": "who_else card: a topic match says what the session works on, never the matched words (#48551)"
+    },
+    {
+      "sha": "b46b4dac1c64ffe377958c084d011fc50ffde70c",
+      "mergedAt": "2026-11-21T07:39:33Z",
+      "subject": "cmux-tui: an abandoned terminal host counts the time the Mac slept (#48608)"
+    },
+    {
+      "sha": "22e6b92ea5464ba94fcbfeb1e3681a052f377d04",
+      "mergedAt": "2026-11-20T23:26:39-08:00",
+      "subject": "Merge origin/feat-cmux-next (58956955eee3) into feat-cmux-next"
+    },
+    {
+      "sha": "f02f3067fad110dd5689af2f2cb9358feafb0a65",
+      "mergedAt": "2026-11-20T20:55:47-08:00",
+      "subject": "safe-push train: merge 1cc8c18a331f (feat-cmux-next-oss-brains-land)"
+    },
+    {
+      "sha": "cc128ef8d8cd60202afafa857a9afbec03453635",
+      "mergedAt": "2026-11-20T20:41:15-08:00",
+      "subject": "cloud: Environment Secrets Playground, three directions of the env variables and secrets page (DEV only)"
+    },
+    {
+      "sha": "8d68fefabc9dece1af52aa6796fcf3e052532ef2",
+      "mergedAt": "2026-11-20T20:40:17-08:00",
+      "subject": "acpmux: one acpmux MCP process per chat (5 -> 1), the rest served by the daemon; a test holds the budget (#48374)"
+    },
+    {
+      "sha": "d19e222f2bde5cdf2dbdf1fa00f5e9250a1d44ba",
+      "mergedAt": "2026-11-20T20:40:05-08:00",
+      "subject": "fix(cmux-tui): an owner no client reached for a day stops, so its terminal hosts can end (#48370)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-21T09:11:31Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
