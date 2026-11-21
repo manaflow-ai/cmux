@@ -99,6 +99,81 @@ public final class OnboardingWindowPresenter {
         next()
     }
 
+    /// What a launch shows before the person's own work, read from the launch's environment and arguments.
+    public enum LaunchSteps: Sendable, Equatable {
+        /// Capture builds, the showcase, `CMUX_NEXT_SKIP_ONBOARDING=1` or `--skip-onboarding`: nothing.
+        case none
+        /// The default: the long first-run onboarding stays off (Lawrence 2026-11-09: no Agents window, card or
+        /// history page); a new person gets only the one short Make cmux Yours screen (cmux#48416) and then their
+        /// first chat, and the cmux Tools question still comes once. It is no first-run step: until it is answered, agents cmux
+        /// starts get no cmux MCP server (`agents.cmuxMcp` stays `ask`), and a NIGHTLY that never asked left a
+        /// teammate's Codex with no `cmux` (2026-11-19).
+        case agentToolsOnly
+        /// `CMUX_NEXT_ONBOARDING=1` or `--onboarding`: the first-run steps, the cmux Tools question among them.
+        case firstRun
+
+        /// `showcase` is the DEBUG showcase profile, which never shows onboarding.
+        public init(environment: [String: String], arguments: [String], showcase: Bool = false) {
+            if showcase || environment["CMUX_NEXT_SKIP_ONBOARDING"] == "1" || arguments.contains("--skip-onboarding") {
+                self = .none
+            } else if environment["CMUX_NEXT_ONBOARDING"] == "1" || arguments.contains("--onboarding") {
+                self = .firstRun
+            } else {
+                self = .agentToolsOnly
+            }
+        }
+
+        /// No first-run windows, card or history page this launch.
+        public var skipsFirstRun: Bool { self != .firstRun }
+    }
+
+    /// The launch's steps before the person's own work: none; on a first run Make cmux Yours
+    /// (``showMakeItYoursAtFirstRun(isFirstRun:defaults:)``), then only the cmux Tools question
+    /// (``askAgentToolsOnce(source:defaults:)``); or, with onboarding on, the first run, for which this
+    /// returns true (the first run asks the question among its steps).
+    public func showLaunchSteps(_ steps: LaunchSteps, isFirstRun: Bool = false, agentTools: (any AgentToolsSource)?,
+                                defaults: UserDefaults = .standard) async -> Bool {
+        switch steps {
+        case .none: return false
+        case .agentToolsOnly:
+            await showMakeItYoursAtFirstRun(isFirstRun: isFirstRun, defaults: defaults)
+            await untilClosed()
+            await askAgentToolsOnce(source: agentTools, defaults: defaults)
+            return false
+        case .firstRun:
+            await showMakeItYoursAtFirstRun(isFirstRun: isFirstRun, defaults: defaults)
+            await untilClosed()
+            return true
+        }
+    }
+
+    /// Set once a first run opened its new agent chat, or a launch was no first run (cmux#48416).
+    public static let firstChatOpenedKey = "home.firstRun.firstChatOpened"
+
+    /// Whether this launch opens the first-run agent chat, marking it decided when so: a first run, not a capture
+    /// build or the showcase (`.none`), not a person who picked terminal-first. An upgrade marks it and gets none.
+    public static func claimFirstChat(isFirstRun: Bool, steps: LaunchSteps, terminalFirst: Bool, defaults: UserDefaults = .standard) -> Bool {
+        guard steps != .none, !defaults.bool(forKey: firstChatOpenedKey) else { return false }
+        defaults.set(true, forKey: firstChatOpenedKey)
+        return isFirstRun && !terminalFirst
+    }
+
+    /// Make cmux Yours' once flag.
+    public static let makeItYoursShownKey = "home.firstRun.makeItYoursShown"
+
+    /// A new person's one setup screen (cmux#48416): how they work (GUI-first, recommended, or
+    /// terminal-first), the density and a background, once per app channel (`defaults`) and only on a
+    /// first run: an existing installation (`isFirstRun` false) keeps its settings and never sees it.
+    public func showMakeItYoursAtFirstRun(isFirstRun: Bool, defaults: UserDefaults = .standard) async {
+        let key = Self.makeItYoursShownKey
+        guard !defaults.bool(forKey: key) else { return }
+        // An upgrade is no first run; a first run marks it only once the step showed.
+        guard isFirstRun else { return defaults.set(true, forKey: key) }
+        guard controller == nil else { return }
+        show(step: .makeItYours)
+        defaults.set(true, forKey: key)
+    }
+
     /// Set once the cmux Tools step was shown under the launch-only rule (agents cmux starts, its
     /// terminals and agent chats, get cmux's server only with the person's yes), so a person who
     /// closes it without answering is not asked at every launch (Settings > Agents keeps the row). A

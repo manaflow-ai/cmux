@@ -32,8 +32,6 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case mobile
         case devices
         case chiefPet
-        /// Personalization, the profile menu's fast path to every visual choice: the theme studio, the background picker, the Chief's look, chat text and density, and sounds, each drawing the same keys as its home category.
-        case personalization
         /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
         case density
         /// What this Mac has that cmux can bring over (CmuxNextImportCards), every card found.
@@ -58,10 +56,12 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case tailnet
         /// Settings > Privacy and Security > Shared Links: every chat this Mac shared by link or invite, with Revoke and Revoke All (design chat-multiplayer.md 2); `cmux.settings.shares.*`. Deep link: #/settings/privacy?focus=card.sharedLinks.
         case sharedLinks
-        /// Personalization > Customization Library: everything the person applied (an ask, a profile, a kept try-on, an import), kept as entries that turn on and off and stack top first, the higher winning (cmux-customize library.rs); the bundled CLI's `cmux customize library`, `cmux.settings.customize.library`.
+        /// Appearance > Customization Library: everything the person applied (an ask, a profile, a kept try-on, an import), kept as entries that turn on and off and stack top first, the higher winning (cmux-customize library.rs); the bundled CLI's `cmux customize library`, `cmux.settings.customize.library`.
         case customizeLibrary
         /// Settings > Keys: the keys agents keep on this Mac (`cmux keys ls`, never a value) with Revoke, and the key requests waiting for the person (`cmux keys request`, answered with Store or Decline; design/settings-keys.md); `cmux.settings.keys.*`. Deep link: #/settings/keys.
         case keys
+        /// Settings > Agents > Claude Code & Codex (labs.agentCustomization, off by default: the card draws nothing): every Claude Code and Codex hook (Claude settings files, ~/.codex/hooks.json) by agent and event, with its matcher and command, Turn Off / Turn On and Remove on the person's own hooks; `cmux.settings.agentHooks.*`, which the app runs through the bundled `cmux --json agent-config hooks`.
+        case agentCustomization
         /// Settings > MCP Servers: the services the person connected for their agents (a connect card in a chat, or a Chief), from the Mac's one store of connections (docs/chief-mcp-hub.md), with Sign In and Remove; `cmux.settings.mcp.*`, which the app runs through the bundled `optchat-chief integrations --json`. Deep link: #/settings/mcpServers.
         case mcpServers
         /// Settings > Agents > Worktree Setup: a project's worktree recipe (setup, run and teardown scripts, files to copy) over the repository's .worktreeinclude and .cmux/worktree.toml (design/worktree-setup.md); `cmux.project.list`, `cmux.project.update` and `cmux.git.worktree.setup` through the page relay.
@@ -110,6 +110,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
         public var title: SettingText?
         /// The categories of the run, in sidebar order.
         public var categories: [CategorySpec]
+        /// The page draws the run closed under its header (More) until a person opens it, and
+        /// opens it while one of its categories is shown: the sidebar's top level stays short.
+        public var collapsed = false
     }
 
     /// A resolved group card: its rows in display order.

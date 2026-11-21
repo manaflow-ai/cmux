@@ -204,6 +204,11 @@ path = "tests/test_ci_gallery_health_merge_ref.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_gh_attestation_has_gh.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_gh_attestation_has_gh.py yourself after changing the workflow or script it reads."
+
+[[test]]
 path = "tests/test_ci_git_seed.py"
 lane = "linux-guard"
 
@@ -330,6 +335,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_merge_receipt.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_needs_skip_propagation.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_needs_skip_propagation.py yourself after changing the workflow or script it reads."
 
 [[test]]
 path = "tests/test_ci_next_macos_cascade.py"
@@ -696,6 +706,11 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_setup_bun_cache_layout.py yourself after changing the workflow steps it reads."
 
 [[test]]
+path = "tests/test_ci_shed_superseded_runs.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_shed_superseded_runs.py yourself after changing the workflow or script it reads."
+
+[[test]]
 path = "tests/test_ci_side_lane_capability_labels.py"
 lane = "linux-guard"
 
@@ -802,6 +817,10 @@ path = "tests/test_ci_tip_test_compile.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_tree_result.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_tui_routes_avoid_nightly_label.py"
 lane = "linux-guard"
 
@@ -837,6 +856,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_workflow_guards_are_wired.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_job_bounds.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). The pre-push hook refuses a push that adds a job with no timeout-minutes or an unlisted job-level always() (prepush-gate.py JOB_BOUNDS_CHECK); run python3 tests/test_ci_workflow_job_bounds.py yourself after changing scripts/ci/workflow_job_bounds.py or .github/workflow-job-bounds.json (under a second, no build)."
 
 [[test]]
 path = "tests/test_ci_workflow_path_filter_parity.py"
@@ -877,13 +901,3 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_xcodebuild_noninteractive_helper.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_shed_superseded_runs.py"
-lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_shed_superseded_runs.py yourself after changing the workflow or script it reads."
-
-[[test]]
-path = "tests/test_cmux_next_push_roots_on_nightly_jit.py"
-lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_cmux_next_push_roots_on_nightly_jit.py yourself after changing the workflow or script it reads."

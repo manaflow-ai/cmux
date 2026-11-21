@@ -15,10 +15,11 @@ type Harness = Awaited<ReturnType<typeof makeHarness>>;
 
 const TEAM = "team_alpha";
 const LABELS = { "cmux.team-key": "lanes" };
+const NO_HASHES: string[] = [];
 const ROW = {
   id: "tk-lanes",
   team: TEAM,
-  sha256: [] as string[],
+  sha256: NO_HASHES,
   scopes: ["vm:read", "vm:write", "vm:exec"],
   labels: LABELS,
   maxVms: 2,

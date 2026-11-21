@@ -510,8 +510,9 @@ pub fn render_counted(
             .map(|((_, label), n)| format!("{n} {label}"))
             .collect();
         out.push_str(&format!(
-            "{hidden_total} more hidden ({}): acpmux ls --all\n",
-            parts.join(", ")
+            "{hidden_total} more hidden ({}): {} ls --all\n",
+            parts.join(", "),
+            crate::cli::entry::program()
         ));
     }
     out

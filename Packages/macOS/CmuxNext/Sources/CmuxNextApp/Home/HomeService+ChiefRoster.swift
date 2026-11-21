@@ -201,18 +201,18 @@ extension HomeService {
     }
 
     // MARK: Teleport: Home follows this Mac's Chief wherever `cmux chief move` took it, with no step
-    // from the person (a963, 2026-11-03), and the location chip shows on its conversation.
+    // from the person (a963, 2026-11-03), and its Chief card shows the Runs On row.
 
     /// Where this Mac's Chief went (`AppServices.chiefTeleport`, which follows its home's
     /// `moved.json` with a file watch) and the conversation Home follows it to: a hosted Chief's
     /// main conversation for cmux Cloud. A Chief moved to an SSH host or a Mac mini stays "away":
     /// Home has no path to a Chief home on another machine yet (`host serve` splices only the main
-    /// session, chief-migration-DESIGN.md 7), so no host is reachable and the chip says where it is.
+    /// session, chief-migration-DESIGN.md 7), so no host is reachable and the Runs On chip says where it is.
     var chiefFollow: HomeChiefFollow {
         HomeChiefFollow(whereabouts: services.chiefTeleport.whereabouts, chiefs: directory.chiefs, reachableHost: nil)
     }
 
-    /// The conversations that show the Chief's location chip and teleport row: this Mac's default Chief (the one
+    /// The conversations whose Chief card shows the Runs On (teleport) row: this Mac's default Chief (the one
     /// `cmux chief move` moves), and the conversation Home followed it to.
     var teleportConversations: [String] { [HomeChiefName.select(from: conversations)?.id, chiefFollow.conversation].compactMap { $0 } }
     func showsTeleport(conversation: String) -> Bool { teleportConversations.contains(conversation) }

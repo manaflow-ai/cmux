@@ -46,9 +46,13 @@ pub(super) fn tools() -> Vec<Value> {
                 "description": {"type": "string", "description": "A few words: what the task is for. Kept with the task; bg_list, bg_output and the end message name it by this."},
                 "notify": {"type": "boolean", "description": "Send this chat one message when the task ends (default true). It waits for a running turn to end; it never interrupts one."}},
                 "required": ["command"]}}),
-        json!({"name": "bg_list", "description": "Your background tasks (the ones you started; a subagent sees its own), oldest first: id, state (running, exited, stopped, killed, lost), exit code and the tail of the output. Tasks other subagents or the lead started are counted, not listed, unless all is true; they are not yours to stop.",
+        json!({"name": "bg_list", "description": "Your background tasks (the ones you started; a subagent sees its own), newest first, one line each: id, state (running, exited, stopped, killed, lost), exit code, age and the command, cut. A bare call lists the newest 30; the last line says how many more there are and the argument that lists them. Tasks other subagents or the lead started are counted, not listed, unless all is true; they are not yours to stop.",
             "inputSchema": {"type": "object", "properties": {"description": description,
-                "all": {"type": "boolean", "description": "List every task of this chat, whoever started it, each with who started it (default false: only yours)."}}}}),
+                "all": {"type": "boolean", "description": "List every task of this chat, whoever started it, each with who started it (default false: only yours)."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "description": "How many tasks to list (default 30)."},
+                "offset": {"type": "integer", "minimum": 0, "description": "How many of the newest to skip first (default 0): the last line's offset lists the next page."},
+                "state": {"type": "string", "enum": ["running", "exited", "stopped", "killed", "lost", "ok", "failed"], "description": "Only tasks in this state, or with this outcome (ok, failed)."},
+                "full": {"type": "boolean", "description": "Each task's whole command and the tail of its output (default false). bg_output reads one task's output."}}}}),
         json!({"name": "bg_output", "description": "Read a background task's output: by default its last 64 KiB; with fromByte, from there (pass the last nextByte to read only what is new). Each task keeps its newest 8 MiB of output; skippedBytes says how much before fromByte is gone.",
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
                 "fromByte": {"type": "integer", "minimum": 0},
@@ -72,7 +76,7 @@ pub(super) fn tools() -> Vec<Value> {
 /// What a Claude Code subagent's start (`callerSubagent`) adds to its answer: when its end comes.
 const SUBAGENT_END: &str = "You get its end after your next Bash or acpmux tool call; if you end first, it goes to your lead. bg_output reads it now.";
 
-pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: &Value) -> Value {
+pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: &Value) -> Value {
     let by_subagent = args.get("callerSubagent").is_some_and(Value::is_object);
     let mut params = match args {
         Value::Object(_) => args.clone(),
@@ -80,6 +84,23 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
         _ => return error_result("arguments must be an object".to_owned()),
     };
     params.set("sessionId", json!(session));
+    // A background task's id given to run_wait (`{"id": "bg-..."}`): run_wait waits for GitHub,
+    // and a bg task's end already comes as a message, so read it as bg_output does and say so.
+    let mut note = None;
+    let name = match bg_task_given_to_run_wait(name, &params) {
+        Some(task) => {
+            note = Some(format!(
+                "run_wait waits for a GitHub run or pull request (repo with run or pr); {task} is a background task, whose end comes to this chat as one message, so there is nothing to wait on. Its output so far, as bg_output {{\"id\": \"{task}\"}} reads it:"
+            ));
+            let sub = params.get("callerSubagent").cloned();
+            params = json!({"sessionId": session, "id": task});
+            if let Some(sub) = sub {
+                params.set("callerSubagent", sub);
+            }
+            "bg_output"
+        }
+        None => name,
+    };
     if name == "run_wait" {
         let wait = match RunWait::of(&params) {
             Ok(wait) => wait,
@@ -131,13 +152,31 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
         "bg_stop" => method::MUX_BG_STOP,
         other => return error_result(crate::mcp_hint::unknown_tool(other, TOOLS)),
     };
+    // A list's page (`acpmux_mcp_bg_list.rs`): the daemon answers the whole chat.
+    let page = match name {
+        "bg_list" => match super::bg_list::Page::take(&mut params) {
+            Ok(page) => Some(page),
+            Err(why) => return error_result(why),
+        },
+        _ => None,
+    };
     match daemon.request(m, params).await {
         Ok(r) => {
             let (line, status) = outcome(name, &r);
+            if let Some(page) = page {
+                let (mut structured, text) = page.apply(r, crate::store::now_ms());
+                structured.set("summary", json!(line));
+                structured.set("status", json!(status));
+                return ok(format!("{line}\n{text}").trim_end().to_owned(), structured);
+            }
             let mut structured = r;
             structured.set("summary", json!(line));
             structured.set("status", json!(status));
             let mut text = format!("{line}\n{}", summary(name, &structured)).trim_end().to_owned();
+            if let Some(note) = &note {
+                text = format!("{note}\n{text}");
+                structured.set("redirectedFrom", json!("run_wait"));
+            }
             if by_subagent && name == "bg_start" && structured.get("notify") == Some(&json!(true)) {
                 text.push_str(&format!("\n{SUBAGENT_END}"));
                 // Claude Code shows the structured result, not the text, when there is one.
@@ -145,8 +184,23 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
             }
             ok(text, structured)
         }
-        Err(e) => refusal(e),
+        Err(e) => match &note {
+            Some(note) => error_result(format!("{note}\n{e:#}")),
+            None => refusal(e),
+        },
     }
+}
+
+/// The background task id a `run_wait` call gives instead of a repo: a `bg-` value under
+/// `id`, `task`, `taskId`, `task_id` or `run`.
+fn bg_task_given_to_run_wait(name: &str, params: &Value) -> Option<String> {
+    if name != "run_wait" || params.get("repo").is_some_and(|r| !r.is_null()) {
+        return None;
+    }
+    ["id", "task", "taskId", "task_id", "run"].iter().find_map(|k| {
+        let v = params.get(*k)?.as_str()?.trim();
+        v.starts_with("bg-").then(|| v.to_owned())
+    })
 }
 
 /// The result's one-line outcome and status (module docs): a task's own (`bg_run::outcome`, as
@@ -214,10 +268,6 @@ fn task_line(t: &Value) -> String {
 fn summary(name: &str, r: &Value) -> String {
     let field = |k: &str| r.get(k).unwrap_or(&Value::Null);
     match name {
-        "bg_list" => {
-            let tasks = field("tasks").as_array().map(Vec::as_slice).unwrap_or_default();
-            tasks.iter().map(task_line).collect::<Vec<_>>().join("\n\n")
-        }
         "bg_output" => format!(
             "{}\n[{} bytes {}..{} of {}; next fromByte {}]",
             field("text").as_str().unwrap_or_default(),
@@ -344,6 +394,8 @@ esac
     /// With glaeda-gh on PATH the wait is its daemon's (one poller for every session, PR events where GitHub
     /// grants them), pinned to the head it read; a daemon that is down (exit 3) or a glaeda-gh too old for the
     /// arguments (64) falls back to the gh watch, so the wait never gets less reliable.
+    // Shell-script stand-ins for gh and glaeda-gh run through `sh`: unix only.
+    #[cfg(unix)]
     #[test]
     fn run_wait_waits_through_glaeda_gh_and_falls_back_to_gh() {
         let dir = cmux_unix_socket::short_test_dir("run-wait-glaeda");
