@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226.
+// cmux-tui mux protocol 12, IR c39fee82b0590b607169a2a47d4b5d583870ac0922077569227a45292e40daef.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1296,6 +1296,22 @@ pub struct ConversationOpResult {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub transaction: Option<String>,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationQuestionDecisionRequest {
+    /// What the person chose; only \`selections\` is read (the owner sets \`respondent\` and \`answered_at\`).
+    pub answer: T::ConversationQuestionAnswer,
+    pub conversation: String,
+    pub message_id: String,
+    /// true returns only {question}: the stored tool-approval card, for the record after the app answered acpmux natively.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub native_record: Option<bool>,
+    pub part_index: u64,
+}
+
+#[rustfmt::skip]
+pub type ConversationQuestionDecisionResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4876,6 +4892,10 @@ impl CmuxClient {
 
     pub fn conversation_op(&mut self, request: ConversationOpRequest) -> Result<ConversationOpResult> {
         self.execute(&CONVERSATION_OP_METADATA, &request)
+    }
+
+    pub fn conversation_question_decision(&mut self, request: ConversationQuestionDecisionRequest) -> Result<ConversationQuestionDecisionResult> {
+        self.execute(&CONVERSATION_QUESTION_DECISION_METADATA, &request)
     }
 
     pub fn conversation_run(&mut self, request: ConversationRunRequest) -> Result<ConversationRunResult> {

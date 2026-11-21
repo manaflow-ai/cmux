@@ -2596,6 +2596,43 @@ Params: `surface`, `session` (1 to 128 letters, digits or `_ . : -`),
 
 Result: `object{surface, conversation, replayed}`
 
+### conversation-question-decision
+
+| Field | Value |
+| --- | --- |
+| name | `conversation-question-decision` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `conversation-question-decision-v1` |
+
+Read-only. Trusted local connections only, and only where the daemon reaches
+acpmux (a Unix socket). Home's native card calls it to learn what the person
+signs before answering a Chief question. The daemon reads the stored question
+(`conversation`, `message_id`, `part_index`) and the live acpmux prompt it
+names, checks they are the same question, and returns the unsigned decision:
+the prompt's run (`instance`), its one-use `decision_nonce`, the answer's
+`option_id`, and the exact `answers` the daemon will send, plus the stored
+`question`, the live `request` with its `request_json` (canonical text) and
+`digest` (sha256 of that text). The app checks the run, nonce and digest
+against its own read of the prompt, signs with a key it keeps in memory, and
+sends the proof as the `question.answer` op's `decision`. The daemon holds no
+key and the reply grants nothing: acpmux alone verifies and spends the proof.
+
+With `native_record: true` the reply is `{question}` only: the stored
+tool-approval card while it is pending, for the record the app sends after it
+answered acpmux natively. No prompt is read and no decision is built.
+
+A refusal carries a stable `question.*` code (for example `question.not_found`,
+`question.not_local`, `question.native_approval`, `question.not_approval`,
+`question.closed`, `question.no_request`, `question.agent_gone`,
+`question.agent_busy`, `question.refused`, `question.unsupported_platform`).
+
+Params: `conversation`, `message_id`, `part_index`, `answer`
+(`object{selections}`; only `selections` is read), `native_record`
+(optional boolean, default false).
+
+Result: the unsigned decision with `question`, `request`, `request_json` and
+`digest`; with `native_record`, `object{question}`.
+
 ### new-frontend-browser-tab
 
 | Field | Value |

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226";
+pub const ir_sha256 = "c39fee82b0590b607169a2a47d4b5d583870ac0922077569227a45292e40daef";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -616,6 +616,32 @@ pub const ConversationParticipant = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "acp_session",
         "agent_class",
+    };
+};
+
+pub const ConversationQuestionAnswer = struct {
+    answered_at: wire.Field([]const u8) = .absent,
+    respondent: wire.Field(ConversationQuestionRespondent) = .absent,
+    selections: wire.Map(ConversationQuestionSelection),
+};
+
+pub const ConversationQuestionRespondent = struct {
+    device: wire.Field([]const u8) = .absent,
+    display_name: []const u8,
+    participant: []const u8,
+    remote: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "remote",
+    };
+};
+
+pub const ConversationQuestionSelection = struct {
+    option_ids: ?[]const []const u8 = null,
+    other: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "option_ids",
     };
 };
 
@@ -5732,6 +5758,35 @@ pub fn conversationOp(client: anytype, request: ConversationOpRequest) !wire.Dec
             .authority = "local-admin",
             .since = 12,
             .capability = "local-conversations-v1",
+        },
+        request,
+    );
+}
+
+pub const ConversationQuestionDecisionRequest = struct {
+    /// What the person chose; only `selections` is read (the owner sets `respondent` and `answered_at`).
+    answer: ConversationQuestionAnswer,
+    conversation: []const u8,
+    message_id: []const u8,
+    /// true returns only {question}: the stored tool-approval card, for the record after the app answered acpmux natively.
+    native_record: ?bool = null,
+    part_index: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "native_record",
+    };
+};
+
+pub const ConversationQuestionDecisionResult = JsonValue;
+
+pub fn conversationQuestionDecision(client: anytype, request: ConversationQuestionDecisionRequest) !wire.Decoded(ConversationQuestionDecisionResult) {
+    return client.callTyped(
+        ConversationQuestionDecisionResult,
+        .{
+            .name = "conversation-question-decision",
+            .authority = "control",
+            .since = 12,
+            .capability = "conversation-question-decision-v1",
         },
         request,
     );
@@ -12759,7 +12814,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 308;
+pub const command_count: usize = 309;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12845,6 +12900,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "conversation-live", .authority = "local-admin", .since = 12, .capability = "chief-live-v1", .stream = null },
     .{ .name = "conversation-live-publish", .authority = "local-admin", .since = 12, .capability = "chief-live-v1", .stream = null },
     .{ .name = "conversation-op", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
+    .{ .name = "conversation-question-decision", .authority = "control", .since = 12, .capability = "conversation-question-decision-v1", .stream = null },
     .{ .name = "conversation-run", .authority = "local-admin", .since = 12, .capability = "conversation-runs-v1", .stream = null },
     .{ .name = "conversation-run-append", .authority = "local-admin", .since = 12, .capability = "conversation-runs-v1", .stream = null },
     .{ .name = "conversation-runs", .authority = "local-admin", .since = 12, .capability = "conversation-runs-v1", .stream = null },

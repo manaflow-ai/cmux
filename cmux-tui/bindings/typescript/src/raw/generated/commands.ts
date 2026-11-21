@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226. */
+/* cmux-tui mux protocol 12, IR c39fee82b0590b607169a2a47d4b5d583870ac0922077569227a45292e40daef. */
 
 
 import type * as T from "./types.js";
@@ -913,6 +913,19 @@ export type ConversationOpResult = {
   "seq"?: bigint;
   "transaction"?: string;
 };
+
+/** Protocol v12; authority: control. */
+export interface ConversationQuestionDecisionRequest extends CmuxRequestBase {
+  cmd: "conversation-question-decision";
+  /** What the person chose; only `selections` is read (the owner sets `respondent` and `answered_at`). */
+  "answer": T.ConversationQuestionAnswer;
+  "conversation": string;
+  "message_id": string;
+  /** true returns only {question}: the stored tool-approval card, for the record after the app answered acpmux natively. */
+  "native_record"?: boolean;
+  "part_index": bigint;
+}
+export type ConversationQuestionDecisionResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationRunRequest extends CmuxRequestBase {
@@ -3201,6 +3214,7 @@ export type CmuxRequest =
   | ConversationLiveRequest
   | ConversationLivePublishRequest
   | ConversationOpRequest
+  | ConversationQuestionDecisionRequest
   | ConversationRunRequest
   | ConversationRunAppendRequest
   | ConversationRunsRequest
@@ -4098,6 +4112,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-question-decision": {
+    request: ConversationQuestionDecisionRequest;
+    result: ConversationQuestionDecisionResult;
+    authority: "control";
+    since: 12;
+    capability: "conversation-question-decision-v1";
     stream: null;
   };
   "conversation-run": {

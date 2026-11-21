@@ -21,7 +21,7 @@ use crate::mux::Mux;
 pub const CAPABILITY: &str = "conversation-question-decision-v1";
 
 #[derive(Deserialize)]
-pub(in crate::server) struct DecisionParams {
+pub(super) struct DecisionParams {
     conversation: String,
     message_id: String,
     part_index: usize,

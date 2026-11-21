@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226";
+inline constexpr std::string_view kProtocolIrSha256 = "c39fee82b0590b607169a2a47d4b5d583870ac0922077569227a45292e40daef";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -60,6 +60,9 @@ struct ConversationMessage;
 struct ConversationPart;
 struct ConversationPartRef;
 struct ConversationParticipant;
+struct ConversationQuestionAnswer;
+struct ConversationQuestionRespondent;
+struct ConversationQuestionSelection;
 struct ConversationReaction;
 struct ConversationReactionKind;
 struct ConversationSearchHit;
@@ -378,6 +381,7 @@ struct ConversationLiveResult;
 struct ConversationLivePublishRequest;
 struct ConversationOpRequest;
 struct ConversationOpResult;
+struct ConversationQuestionDecisionRequest;
 struct ConversationRunRequest;
 struct ConversationRunResult;
 struct ConversationRunAppendRequest;
@@ -2544,6 +2548,36 @@ struct ConversationOpResult {
     std::optional<std::uint64_t> seq{};
     std::optional<std::string> transaction{};
     friend bool operator==(const ConversationOpResult&, const ConversationOpResult&) = default;
+};
+
+struct ConversationQuestionRespondent {
+    Field<std::string> device{};
+    std::string display_name{};
+    std::string participant{};
+    std::optional<bool> remote{};
+    friend bool operator==(const ConversationQuestionRespondent&, const ConversationQuestionRespondent&) = default;
+};
+
+struct ConversationQuestionSelection {
+    std::optional<std::vector<std::string>> option_ids{};
+    Field<std::string> other{};
+    friend bool operator==(const ConversationQuestionSelection&, const ConversationQuestionSelection&) = default;
+};
+
+struct ConversationQuestionAnswer {
+    Field<std::string> answered_at{};
+    Field<ConversationQuestionRespondent> respondent{};
+    std::map<std::string, ConversationQuestionSelection, std::less<>> selections{};
+    friend bool operator==(const ConversationQuestionAnswer&, const ConversationQuestionAnswer&) = default;
+};
+
+struct ConversationQuestionDecisionRequest {
+    ConversationQuestionAnswer answer{};
+    std::string conversation{};
+    std::string message_id{};
+    std::optional<bool> native_record{};
+    std::uint64_t part_index{};
+    friend bool operator==(const ConversationQuestionDecisionRequest&, const ConversationQuestionDecisionRequest&) = default;
 };
 
 struct ConversationRunAppendRequest {
@@ -6978,6 +7012,24 @@ struct Codec<ConversationParticipant> {
 };
 
 template <>
+struct Codec<ConversationQuestionAnswer> {
+    static Result<Json> encode(const ConversationQuestionAnswer& value);
+    static Result<ConversationQuestionAnswer> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationQuestionRespondent> {
+    static Result<Json> encode(const ConversationQuestionRespondent& value);
+    static Result<ConversationQuestionRespondent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationQuestionSelection> {
+    static Result<Json> encode(const ConversationQuestionSelection& value);
+    static Result<ConversationQuestionSelection> decode(const Json& value);
+};
+
+template <>
 struct Codec<ConversationReaction> {
     static Result<Json> encode(const ConversationReaction& value);
     static Result<ConversationReaction> decode(const Json& value);
@@ -8883,6 +8935,12 @@ template <>
 struct Codec<ConversationOpResult> {
     static Result<Json> encode(const ConversationOpResult& value);
     static Result<ConversationOpResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationQuestionDecisionRequest> {
+    static Result<Json> encode(const ConversationQuestionDecisionRequest& value);
+    static Result<ConversationQuestionDecisionRequest> decode(const Json& value);
 };
 
 template <>

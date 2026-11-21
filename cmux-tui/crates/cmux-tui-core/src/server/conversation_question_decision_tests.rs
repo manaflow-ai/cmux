@@ -89,7 +89,8 @@ fn only_a_trusted_local_connection_asks_and_a_missing_part_is_not_found() {
     assert_eq!(response_error_code(&error).as_deref(), Some("question.not_found"));
     let remote = mux.control_clients.register(ClientTransport::Remote, writer());
     let error = run(remote).expect_err("a remote peer is refused");
-    assert!(error.to_string().contains("trusted local connection"), "{error}");
+    // The exact-name remote allowlist refuses it before the handler runs.
+    assert_eq!(error.to_string(), "remote_denied");
 }
 
 #[test]
