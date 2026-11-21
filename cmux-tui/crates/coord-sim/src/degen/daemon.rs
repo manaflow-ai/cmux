@@ -212,10 +212,7 @@ impl Daemon {
     }
 
     pub fn alive(&mut self) -> bool {
-        match self.child.as_mut().map(|c| c.try_wait()) {
-            Some(Ok(None)) => true,
-            _ => false,
-        }
+        matches!(self.child.as_mut().map(|c| c.try_wait()), Some(Ok(None)))
     }
 
     /// Waits up to `within` for the daemon to exit on its own (nothing is sent to it): the ms it
