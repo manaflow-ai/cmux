@@ -1,3 +1,4 @@
+import { PendingEntrances } from "./conversation/pendingEntrances";
 import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP, transcriptLiveVars } from "./transcriptGrid";
 import React, {
   useCallback,
@@ -824,7 +825,7 @@ const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string |
 /// The transcript's own sets of rows that enter, fade in as the chat loads, or fade in from a late
 /// page of older history: read when the frames are drawn, so the render reads no ref itself.
 type RowFrameSources = {
-  entering: { readonly current: ReadonlySet<string> };
+  entering: { readonly current: { has(key: string): boolean } };
   loadFade: LoadFadeWindow;
   older: OlderRowFade;
 };
@@ -2507,17 +2508,22 @@ function TranscriptView({
     // handed to the follow chase, held as it holds), and the card grows on over them, as `cardHold`
     // does. Played on, the rise moved the rows while the reader scrolled up. Two style reads, on input
     // only while a rise plays.
+    // The stack's own moves (below) freeze the same way.
+    const stackMoves = new Set<Animation>();
     freezeGrowthRise.current = () => {
       const rows = thread.current;
       const move = rowsMove;
-      if (!rows || !move || move.playState === "finished" || move.playState === "idle") return;
+      const playing = (one: Animation | undefined) => one && one.playState !== "finished" && one.playState !== "idle";
+      if (!rows || (!playing(move) && stackMoves.size === 0)) return;
       const drawnY = () => {
         const value = getComputedStyle(rows).translate;
         return value && value !== "none" ? Number.parseFloat(value.split(" ")[1] ?? "") || 0 : 0;
       };
       const before = drawnY();
-      move.cancel();
+      move?.cancel();
       rowsMove = undefined;
+      for (const one of stackMoves) one.cancel();
+      stackMoves.clear();
       followChase.current?.carry(rows, before - drawnY());
     };
     /// What the field has yet to grow (px), 0 once it rests (and the growth is over).
@@ -2558,7 +2564,33 @@ function TranscriptView({
           setDockNotice(nextNotice);
         });
     };
-    const observer = new ResizeObserver(take);
+    // The stack changed height on its own (an ask that left or came, the trust question answered
+    // over the permission card under it): the room takes the new height at once, as above, and the
+    // rows the room moved start where they were drawn and glide home on the fold's clock, one move
+    // for every row (the same move the field's growth plays). A move the room did not make (the
+    // tray, notice and card holds keep the rows still) has no delta and plays nothing.
+    // A second change while one plays adds its own move on top (composite add), so the rows never
+    // jump to where the first was headed.
+    const resized = () => {
+      const rows = thread.current;
+      if (!rows || growth) {
+        take();
+        return;
+      }
+      const before = rows.getBoundingClientRect().top;
+      take();
+      const delta = before - rows.getBoundingClientRect().top;
+      const ms = Math.abs(delta) < 0.5 ? 0 : foldMs(rows);
+      if (!(ms > 0)) return;
+      const move = rows.animate([{ translate: `0 ${delta}px` }, { translate: "0 0" }], {
+        duration: ms,
+        easing: foldMotion.easing(rows),
+        composite: "add",
+      });
+      stackMoves.add(move);
+      move.addEventListener("finish", () => stackMoves.delete(move));
+    };
+    const observer = new ResizeObserver(resized);
     // perf-hot: one render and two layout reads per growth (not per frame) composer-field-growth
     const grew = (event: Event) => {
       const { detail, target } = event as FieldGrowthEvent;
@@ -2603,6 +2635,7 @@ function TranscriptView({
       dock.removeEventListener("click", toggled, { capture: true });
       dock.removeEventListener(FIELD_GROWTH_EVENT, grew);
       rowsMove?.cancel();
+      for (const move of stackMoves) move.cancel();
       freezeGrowthRise.current = () => {};
     };
   }, [dock, noteQueue]);
@@ -2718,7 +2751,9 @@ function TranscriptView({
   if (frameSession.session !== sessionKey) setFrameSession({ session: sessionKey, key: frameKey });
   /// A row can be newly arrived but outside the mounted virtual range. Pending entrances are
   /// page-scoped: hiding or switching chats must drop them before that row can mount later.
-  const enteringRows = useRef(new Set<string>());
+  /// Each entry is kept with its arrival time, and a row that mounts long after it arrived (scrolled
+  /// back to) draws in place (conversation/pendingEntrances.ts).
+  const enteringRows = useRef(new PendingEntrances());
   /// Where the tab stop and the selection's ends were found last (rowPresence `hints`).
   const presenceHints = useRef<RowPresenceHints>({});
   useEffect(() => {
@@ -2900,7 +2935,7 @@ function TranscriptView({
     for (let index = from; index < rows.length; index += 1) chatRowsDrawn.add(drawnKey(rows[index]!));
     committedRows.current = { drawn: chatRowsDrawn, rows };
   }, [rows, chatRowsDrawn]);
-  const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
+  const onEntered = useCallback((id: string) => enteringRows.current.delete(id), []);
   const onLoadFaded = useCallback((id: string) => loadFade.shown(id), [loadFade]);
   const onOlderShown = useCallback((id: string) => olderRows.shown(id), [olderRows]);
   useEffect(() => () => olderRows.disconnect(), [olderRows]);
