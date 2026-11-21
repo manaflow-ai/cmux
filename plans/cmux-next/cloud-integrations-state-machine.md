@@ -186,4 +186,20 @@ covers the repo (one repo, at most 1 h, never at rest); the person's own login s
 6. **Webhook fan-out stops at one failure.** `provider-hook.ts:35-39` awaits each team's ingest in turn without a
    per-link catch. GitHub's redelivery recovers it (ingest is idempotent by delivery id).
 
+7. **A Cloud chat from the CLI never starts until a GUI-only consent is answered.** On Leo's account (2026-11-21,
+   NIGHTLY on air-blue) `cmux chat --on vm:new --harness claude --no-folder --wait` was refused in 393 ms with no
+   machine made: the harness has no login, and "do my Cloud machines get my login" is unanswered and answerable only
+   in the app. The air-blue Cloud chat probe failed the same way in all 6 runs since 11-20 16:51Z. Fix: the choice
+   is answerable from the CLI and MCP (settings on every surface) and the refusal names that command. The default
+   stays unchosen; the choice is the person's.
+8. **The cmux MCP is never offered to agents until asked.** `cmux setup mcp` reported `needs_user` with
+   `agents.cmuxMcp: "ask"` on the same account, so agents he starts get no cmux MCP tools until he answers. This is
+   by design (a consent), recorded here as an edge: the state is `ask → yes | no`, and `ask` should be visible
+   where the agent's tools are listed, not only in setup.
+
+Measured on the same account, no GitHub link: `GET /v1/integrations/github/status` answers `connection: null`
+(the unlinked state of section 1); `GET /v1/integrations/github/repos` answers 404 `integration.not_found` in
+283 ms, which the picker must show as the Connect row of section 5, never as an error. Screenshots and video of the
+GUI flows wait on air-blue's screen being unlocked.
+
 Fixes merged or open are listed with their PRs in this file's PR and its follow-ups.
