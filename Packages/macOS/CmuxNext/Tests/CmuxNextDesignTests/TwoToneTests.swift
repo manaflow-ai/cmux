@@ -5,15 +5,53 @@ import Foundation
 import Testing
 
 /// `appearance.twoTone` (``TwoTone``) mirrors Rust's cmux-config `theme_file::two_tone`: the same pairing table and
-/// the same colors for every value and sample theme in schemas/settings/two-tone-fixture.json, which Rust writes.
+/// the same colors for every value and sample theme in Rust's fixture (`two_tone::fixture`), which this test has Rust
+/// write to a temporary file (`cargo test -p cmux-config two_tone::tests::writes_the_swift_fixture`): the fixture is
+/// generated where it is used, never committed.
 /// Leo, 2026-11-19: "the two-tone ... that's just one of the toggles you can have ... what would actually look good
 /// and not eyesore-ish".
 struct TwoToneTests {
+    struct CargoFailed: Error, CustomStringConvertible, Sendable {
+        let description: String
+    }
+
+    /// Rust's fixture, written once per test process.
+    private static let written: Result<Data, CargoFailed> = Result { try write() }
+        .mapError { $0 as? CargoFailed ?? CargoFailed(description: "\($0)") }
+
+    private static func write() throws -> Data {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 { root.deleteLastPathComponent() }
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("two-tone-fixture-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: out) }
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_TWO_TONE_FIXTURE"] = out.path
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        environment["PATH"] = [environment["PATH"], "\(home)/.cargo/bin", "/opt/homebrew/bin", "/usr/local/bin"]
+            .compactMap { $0 }.joined(separator: ":")
+        let cargo = Process()
+        cargo.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        cargo.arguments = ["cargo", "test", "--quiet",
+                           "--manifest-path", root.appendingPathComponent("cmux-tui/Cargo.toml").path,
+                           "-p", "cmux-config", "--lib", "two_tone::tests::writes_the_swift_fixture"]
+        cargo.environment = environment
+        cargo.standardOutput = FileHandle.nullDevice
+        let errors = Pipe()
+        cargo.standardError = errors
+        try cargo.run()
+        let stderr = errors.fileHandleForReading.readDataToEndOfFile()
+        cargo.waitUntilExit()
+        guard cargo.terminationStatus == 0, FileManager.default.fileExists(atPath: out.path) else {
+            let status = cargo.terminationStatus
+            throw CargoFailed(description: "cargo could not write the two-tone fixture (exit \(status)): "
+                + String(decoding: stderr.suffix(4000), as: UTF8.self))
+        }
+        return try Data(contentsOf: out)
+    }
+
     private static func fixture() throws -> [String: Any] {
-        var url = URL(fileURLWithPath: #filePath)
-        for _ in 0..<6 { url.deleteLastPathComponent() }
-        let data = try Data(contentsOf: url.appendingPathComponent("schemas/settings/two-tone-fixture.json"))
-        return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        try #require(try JSONSerialization.jsonObject(with: written.get()) as? [String: Any])
     }
 
     private static func color(_ text: Any?) throws -> ThemeRGB {

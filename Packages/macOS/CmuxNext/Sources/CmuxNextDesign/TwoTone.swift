@@ -6,7 +6,7 @@ import Foundation
 /// that's just one of the toggles you can have ... what would actually look good and not eyesore-ish".
 ///
 /// The colors and the pairing table are Rust's (cmux-config `theme_file::two_tone`); this is its mirror, checked
-/// against the Rust output in schemas/settings/two-tone-fixture.json (`TwoToneTests`). Every tone keeps the theme's
+/// against the Rust output (`TwoToneTests` has Rust write its fixture at test time). Every tone keeps the theme's
 /// text at 4.5:1 and the accent at 3:1 on both tones, moving only OKLCH lightness. An explicit
 /// `appearance.surfaces.<surface>.color` still wins (``SurfaceBackgrounds``).
 ///
