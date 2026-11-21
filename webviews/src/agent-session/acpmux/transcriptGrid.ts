@@ -114,8 +114,14 @@ export const MARK_LIVE_STEP = 12;
 /// does, so it never reads as the tail of the subagent or tool row above (Leo, 2026-11-08: "the
 /// text in this situation isn't from the subagent?"). Toward the rows after it, it is its own mark.
 export const MARK_OPENS_TURN = 64;
-/// A mark without its MARK_OPENS_TURN bit.
-export const baseMark = (mark: number): number => mark & ~MARK_OPENS_TURN;
+/// Added to the running turn's live line ("Thinking", "Working") when it is the row right under the
+/// notice or another agent's message that opened its turn (model.ts `gridMark`): the line heads that
+/// turn's work as "Working for" does, so it stands the same gap over it (`workedHeadGap`), the block
+/// gap a person's prompt gives it, not the run gap it has under a tool run. Toward the rows after it,
+/// it is its own mark.
+export const MARK_HEADS_TURN = 128;
+/// A mark without its MARK_OPENS_TURN and MARK_HEADS_TURN bits.
+export const baseMark = (mark: number): number => mark & ~(MARK_OPENS_TURN | MARK_HEADS_TURN);
 
 type MarkedRow = {
   kind: string;
@@ -172,6 +178,10 @@ const workedHeadGap = (): number => {
 /// (The composer gap is the stack's, tailGap below.) Gaps never add.
 export function transcriptGap(previous: number, next: number): number {
   if ((next & MARK_OPENS_TURN) !== 0) return TRANSCRIPT_TURN_GAP;
+  // The live line under the notice or message that opened its turn: "Thinking" sat 16 under it, where
+  // under a person's prompt it stands 24 (the same class as the "Working for" rule below).
+  if ((next & MARK_HEADS_TURN) !== 0) return workedHeadGap();
+  next = baseMark(next);
   previous = baseMark(previous);
   if (previous === MARK_PLAN_LINE && next === MARK_FOOTER_ROW) return TRANSCRIPT_FOOTER_GAP;
   if (previous === MARK_PLAN_LINE) previous = MARK_OTHER;

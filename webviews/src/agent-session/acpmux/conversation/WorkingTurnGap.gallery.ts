@@ -19,10 +19,10 @@ const running = () => {
   };
 };
 
-const variant = (note: string, look?: string): AgentPaneVariant => ({
+const variant = (note: string, look?: string, steps = OPENED_BY_MESSAGE): AgentPaneVariant => ({
   note,
   snapshot: running(),
-  recording: recordingOf(CHAT, OPENED_BY_MESSAGE),
+  recording: recordingOf(CHAT, steps),
   ...(look && { documentAttributes: { "worked-head-gap": look } }),
 });
 
@@ -39,5 +39,16 @@ export default agentPaneEntry({
     flush: variant("Before: flush (0); the line reads as the message's own tail.", "flush"),
     run: variant("Alternative: a run gap (16), as between two tool runs.", "run"),
     turn: variant("Alternative: the turn gap (32), as under a person's prompt.", "turn"),
+    // Before the turn's first call: the live line is the row right under the message.
+    thinking: variant(
+      "Shipped, before the first call: the live line stands the same block gap (24) under the message, as under a person's prompt.",
+      undefined,
+      OPENED_BY_MESSAGE.slice(0, 8),
+    ),
+    "thinking-before": variant(
+      "Before: the live line stood a run gap (16) under the message, as under a tool run.",
+      "run",
+      OPENED_BY_MESSAGE.slice(0, 8),
+    ),
   },
 });

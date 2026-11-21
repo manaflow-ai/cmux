@@ -14,6 +14,7 @@ import {
   MARK_STATUS,
   MARK_STEP,
   MARK_OPENS_TURN,
+  MARK_HEADS_TURN,
   MARK_WORKED,
   rowMark,
   gridScale,
@@ -1710,7 +1711,12 @@ export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
 /// A live line under a step is MARK_LIVE_STEP, not another step, which would sit flush.
 export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
   (wokenUnderFooter(row, prev) && wokenGapLook() === "tail" ? MARK_STATUS : rowGridMark(row, prev)) |
-  (opensBackgroundTurn(row, prev) ? MARK_OPENS_TURN : 0);
+  (opensBackgroundTurn(row, prev) ? MARK_OPENS_TURN : 0) |
+  (headsIncomingTurn(row, prev) ? MARK_HEADS_TURN : 0);
+/// Whether `row` is the running turn's live line right under the notice or another agent's message
+/// that opened the turn (transcriptGrid.ts MARK_HEADS_TURN). O(1).
+const headsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
+  prev !== undefined && prev.kind === "user" && isLiveLine(row) && isStatusRow(prev);
 /// Whether `row` is the first tool row of a turn the agent ran on its own, right under the footer
 /// row of the turn before it: a background task's end woke the agent after that turn ended, and the
 /// task's line between them draws nothing (backgroundTurns.ts `drawsBackgroundLine`). O(1).
@@ -3637,7 +3643,11 @@ export function layoutConversation(
   let prevDrawn = prevDrawnRow(rows, start);
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
-    marks[index] = gridMark(row, prevDrawn);
+    // The mark is taken against the row the gap is taken from (`previousContent`, the last row with
+    // height), not the last row that is not bookkeeping: a run that draws 0 px (only a thought, a call
+    // the live line names, a run split by a steer) between a steer and "Thinking" marked the line a
+    // live step while its gap came from the steer, the turn gap (32) where 24 is due.
+    marks[index] = gridMark(row, previousContent >= 0 ? rows[previousContent] : prevDrawn);
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;

@@ -124,3 +124,50 @@ for (const fold of [undefined, "runs"] as const)
     const rows: AcpmuxRow[] = done.view;
     expect(rows.some((row) => row.kind === "activity" && row.foldRun)).toBe(false);
   });
+
+// Before any tool call, the running turn's live line ("Thinking", or "Working" with no thought yet)
+// is the row right under the notice or message that opened the turn. It stood the run gap (16 px)
+// there, as under a tool run, where a person's prompt gets the block gap (24 px) over it.
+const think = (text: string): Step => [
+  "in",
+  "agent_thought_chunk",
+  update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text } }),
+];
+for (const kind of ["message", "notice"] as const)
+  test(`user_message(turnId, ${kind}) > turn_started [> thought]: the live line has a block gap over it`, async () => {
+    const opener =
+      kind === "message"
+        ? fromAgent("m-2", "hq#16160 merged", { turnId: "t2" })
+        : {
+            text: "hq#16160 merged at 23b3c1da6",
+            turnId: "t2",
+            _meta: {
+              provenance: {
+                kind: "notice",
+                from: "acp:child-3",
+                fromName: "notice-flood-fix",
+                to: "acp:x",
+                display: "line",
+                notice: { sender: "notice-flood-fix", severity: "info", title: "hq#16160 merged" },
+              },
+            },
+          };
+    const steps: Step[] = [
+      ...opened.slice(0, 4),
+      ["mux", "user_message", opener],
+      ["mux", "turn_started", { turnId: "t2" }],
+      think("Checking whether restarting the broker is safe."),
+    ];
+    // turn_started: the live line is the row right under the opener.
+    const started = await after(steps, 6, true);
+    const live = started.view.at(-1)!;
+    expect(live.below).toBe(true);
+    const above = started.view.at(-2)!;
+    expect(above.kind).toBe("user");
+    expect(above.incoming).toBeDefined();
+    expect(started.gap(live.id)).toBe(TRANSCRIPT_BLOCK_GAP);
+    // The first thought: "Working for" heads the turn there, with the same gap (the rule above).
+    const thought = await after(steps, 7, true);
+    const at = thought.view.findLastIndex((row) => row.kind === "user");
+    expect(thought.gap(thought.view[at + 1]!.id)).toBe(TRANSCRIPT_BLOCK_GAP);
+  });
