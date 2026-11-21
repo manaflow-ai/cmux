@@ -1352,7 +1352,7 @@
 /* Return's row (NewTabScreen): a ↩ keycap at its end, in the shortcut keycaps' dress, so the highlight
    reads as "Return does this" before Return is pressed (David Beyer 2026-11-20: words he typed ran as a
    shell command). It takes no room from the title: the row's end, after any shortcut. */
-.nt-row-return{flex:none;margin-left:auto;padding:var(--grid-half-step) var(--ds-space-1);border-radius:max(0px,calc(var(--ds-radius-control,8px) - var(--ds-space-1,4px)));background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:inherit;font-size:var(--nt-row-detail,var(--text-detail));line-height:1}
+.nt-row-return{flex:none;margin-left:auto;padding:var(--grid-half-step) var(--ds-space-1);border-radius:max(0px,calc(var(--ds-radius-control,8px) - var(--ds-space-1,4px)));background:var(--ds-surface-inset);color:var(--agent-soft);font:inherit;font-size:var(--nt-row-detail,var(--text-detail));line-height:1}
 .nt-row-shortcut + .nt-row-return{margin-left:var(--ds-space-1)}
 /* Signed out (NewTabScreen `signedOut`): the cause in one line, then its two fixes as quiet text
    buttons (the trust ask's), wrapping under the text on a narrow pane. */
