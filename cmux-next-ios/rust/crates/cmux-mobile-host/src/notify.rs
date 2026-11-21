@@ -1142,6 +1142,18 @@ mod tests {
     /// Lawrence, 2026-11-20: a Chief reply's push banner said its raw Markdown (a before/after table read
     /// "| | Before | After ||---|…"). The banner says its words, as the apps preview the same reply.
     #[test]
+    fn a_finished_turn_push_says_its_last_lines_in_words() {
+        // a1317, 2026-11-21: an agent's finished-turn push showed its last lines as Markdown.
+        let mut c = Classifier::default();
+        let preview = "Done. See [PR 12](https://github.com/manaflow-ai/cmux/pull/12).\n| | Before | After |\n|---|---|---|\n| Light | ![b](/tmp/b.png) | ![a](/tmp/a.png) |\n**All** 31 pass.";
+        let done = c
+            .handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"turn_result","session":{"sessionId":"s7","harness":"claude-code","cwd":"/x/repo","lastTurn":{"turnId":"t1","status":"completed"},"preview":preview}}}))
+            .unwrap();
+        assert_eq!(done.kind, "completed");
+        assert_eq!(done.tail, ["Done. See PR 12.", "Table: Before / After", "All 31 pass."]);
+    }
+
+    #[test]
     fn a_chief_reply_push_says_its_words_not_its_markdown() {
         let mut c = Classifier::default();
         let preview = "**Done.** See [PR 12](https://github.com/manaflow-ai/cmux/pull/12).\n\n| | Before | After |\n|---|---|---|\n| Light | ![b](/tmp/b.png) | ![a](/tmp/a.png) |";

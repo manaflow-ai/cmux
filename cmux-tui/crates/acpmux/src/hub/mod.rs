@@ -22,6 +22,7 @@ pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
 mod prompt_coach;
+mod rolling_summary;
 pub(crate) mod stop_condition;
 pub use prompt_coach::CoachRewriter;
 mod message_events;
@@ -119,7 +120,7 @@ mod harness_view;
 mod harness_watch;
 mod health_view;
 mod held_asks;
-mod host_level;
+pub(crate) mod host_level;
 pub(super) mod idle;
 mod idle_census;
 mod person_prompt_at;
@@ -376,7 +377,7 @@ mod peers;
 mod remote_rows;
 mod remote_table;
 pub(crate) use peers::{
-    PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET, is_permission_ask,
+    PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_ROWS_CHANGED, PEER_SETTLE_BUDGET, is_permission_ask,
 };
 mod permission_groups;
 mod permissions;
@@ -572,6 +573,10 @@ pub struct HubEvent {
     /// The list position its row change took (`row_log.rs`), stamped as it is sent; 0 for an
     /// event that changes no row.
     pub list_seq: u64,
+    /// A row of one peer's burst, sent as a batch (`Events::send_remote_batch`): a watcher that
+    /// asked for batches (`peerRowBatches`, `server::deliver`) hears the burst as one
+    /// `_acpmux/peer_rows_changed` after its last row instead of each row's `session_changed`.
+    pub peer_batch: bool,
 }
 
 /// A [`HubEvent`]'s cells its receivers share: its row, without and with its tools, and the clock
@@ -1143,6 +1148,9 @@ pub struct Hub {
     pub(super) recap_due: StdMutex<HashMap<String, u64>>,
     /// Chats whose host below the level moved, or will not, in this daemon's run (`host_level.rs`).
     pub(super) host_moved: StdMutex<HashSet<String>>,
+    /// Per chat: the start nonce of its host below the level and what this daemon last set on it
+    /// about suggestions (`host_level.rs`, `old_host_suggestions`).
+    pub(super) suggestions_told: StdMutex<HashMap<String, (String, host_level::Told)>>,
     /// Wakes the recap loop when `recap_due` changes.
     pub(super) recap_wake: Arc<Notify>,
     /// What writes prompt coach rewrites instead of the small model (tests; `prompt_coach.rs`).
@@ -1566,6 +1574,7 @@ impl Hub {
             session_recap: AtomicBool::new(away_recap::saved_setting()),
             recap_due: StdMutex::new(HashMap::new()),
             host_moved: StdMutex::new(HashSet::new()),
+            suggestions_told: StdMutex::new(HashMap::new()),
             recap_wake: Arc::new(Notify::new()),
             coach_rewriter: StdMutex::new(None),
             start_mode_state,
@@ -2071,6 +2080,7 @@ impl Hub {
             sent_seam: Default::default(),
             turn: StdMutex::new(None),
             away: StdMutex::new(Default::default()),
+            rolling: StdMutex::new(Default::default()),
             coach: StdMutex::new(Default::default()),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
@@ -2934,6 +2944,7 @@ impl Hub {
                 update_line: Default::default(),
                 row: Default::default(),
                 list_seq: 0,
+                peer_batch: false,
             };
             // A live chat's streamed text changes only its own row, which is never cached, so the
             // closed rows keep their bytes while agents stream. Read after the metadata update
