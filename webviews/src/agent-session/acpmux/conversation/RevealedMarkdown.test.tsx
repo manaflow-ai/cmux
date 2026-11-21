@@ -443,3 +443,41 @@ test("wordEdge ends at a whole word, keeps what shows, and lets a long word thro
   // Once part of a long word shows, the rest grows as it arrives, not in 48-character jumps.
   expect(wordEdge(url, 60, false, 53)).toBe(60);
 });
+
+// Many replies revealing at once run on one display-frame callback (revealedMarkdownModel.ts
+// revealClock), not one loop each, and it stops once nothing reveals: a page streaming into ten
+// chats asked for ten frame callbacks a frame, each with its own commit (chat-instant-under-load.md
+// piece 4).
+test("every revealing reply shares one frame callback, which stops when all are shown", () => {
+  const { pending, frame } = cancellableFrames();
+  let requests = 0;
+  const request = revealFrames.request;
+  revealFrames.request = (callback) => {
+    requests += 1;
+    return request(callback);
+  };
+  root = createRoot(container);
+  const replies = (texts: string[]) =>
+    act(() => {
+      root!.render(
+        <>
+          {texts.map((text, index) => (
+            <RevealedMarkdown key={index} text={text} streaming artifactIdentity={`reply-${index}`} />
+          ))}
+        </>,
+      );
+    });
+  replies(["", "", "", "", ""]);
+  const words = "Each of these replies streams the same long sentence at the same time as the others do.";
+  replies([words, words, words, words, words]);
+  expect(pending.size).toBe(1);
+  for (let index = 0; index < 10; index++) {
+    requests = 0;
+    frame(index * 16);
+    expect(pending.size).toBeLessThanOrEqual(1);
+    expect(requests).toBeLessThanOrEqual(1);
+  }
+  for (let index = 10; index < 200 && pending.size; index++) frame(index * 16);
+  expect(pending.size).toBe(0);
+  for (const node of container.querySelectorAll(".cv-md")) expect(node.textContent).toBe(words);
+});

@@ -320,13 +320,42 @@ function parseList(lines: string[], start: number, depth: number, commonmark = f
   return [{ type: "list", ordered, start: startNum, items }, i];
 }
 
+/// Whether `source` can hold a footnote reference. A reference is "[^" in the text left once code
+/// is cut out. A fence starts at a line's start, so cutting one never puts a "[" next to anything
+/// but the line break before it; only a code span can join "[" to a "^" (`[` + "`x`" + `^1]`), and
+/// then the source has "[`". Without either pair there is no reference.
+export function mayHaveFootnote(source: string, from = 0): boolean {
+  return source.includes("[^", from) || source.includes("[`", from);
+}
+
+/// footnoteOrder for a text that grows at its end (a streaming reply, revealed a frame at a time):
+/// the pairs mayHaveFootnote looks for are searched in the new text only (and the character before
+/// it), so a reply with no footnote costs its new characters per frame, not its whole length. Once
+/// one may be there, each new text is scanned whole, as footnoteOrder always did.
+export class FootnoteScan {
+  private source = "";
+  private ids: readonly string[] = [];
+  private possible = false;
+  // perf-hot: O(new text) per reveal frame chat-100k-flat
+  update(source: string): readonly string[] {
+    if (source === this.source) return this.ids;
+    const grew = source.length > this.source.length && source.startsWith(this.source);
+    this.possible = grew
+      ? this.possible || mayHaveFootnote(source, Math.max(0, this.source.length - 1))
+      : mayHaveFootnote(source);
+    this.source = source;
+    this.ids = this.possible ? footnoteOrder(source) : [];
+    return this.ids;
+  }
+}
+
 /// Footnotes are numbered in the order the reply first refers to them, so a number never
 /// changes as the reply streams (a note's definition usually arrives last). Code is skipped, and
 /// so is a label shaped like a regex class (`[^a-z]`), which prose writes outside code too.
 export function footnoteOrder(source: string): string[] {
   // A reference needs "[" and "^"; the scan below only deletes text, so without both there is none.
   // A streaming reply runs this on every reveal frame, and most replies have no footnote.
-  if (!source.includes("^") || !source.includes("[")) return [];
+  if (!mayHaveFootnote(source)) return [];
   const prose = source.replace(/^\s*```[\s\S]*?(?:^\s*```|(?![\s\S]))/gm, "").replace(/(`+)[^`]*?\1/g, "");
   const ids: string[] = [];
   for (const match of prose.matchAll(/\[\^([\w-]+)\](?!:)/g)) {
