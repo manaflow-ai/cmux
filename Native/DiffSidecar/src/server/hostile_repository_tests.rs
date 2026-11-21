@@ -137,7 +137,7 @@ async fn open(scratch: &Scratch, source: &DiffSource, repo: &Path) -> Session {
         run_git_patch_with_limit(source, Whitespace::Show, &git, &patch_path, 1024 * 1024).await;
     let patch = written
         .ok()
-        .map(|()| std::fs::read_to_string(&patch_path).expect("read the patch"));
+        .map(|_| std::fs::read_to_string(&patch_path).expect("read the patch"));
     let generated = git_generated_paths(source, Whitespace::Show, &git).await;
     Session { patch, generated }
 }

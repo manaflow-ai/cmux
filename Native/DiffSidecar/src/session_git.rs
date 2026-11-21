@@ -14,6 +14,7 @@ use cmux_git::Repository;
 use cmux_git::run::{Override, PROGRAM, confine_read};
 use tokio::process::Command;
 
+#[derive(Clone)]
 pub(crate) struct SessionGit {
     repo: PathBuf,
     overrides: Vec<Override>,
@@ -40,6 +41,11 @@ impl SessionGit {
             repo: repo.to_path_buf(),
             overrides,
         })
+    }
+
+    /// The repository these runs are in.
+    pub(crate) fn repo(&self) -> &Path {
+        &self.repo
     }
 
     /// `git -C <repo>`, confined; the caller adds the subcommand. It is the
