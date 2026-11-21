@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 645,
+  "count": 641,
   "sections": [
     {
       "id": "general",
@@ -299,6 +299,14 @@
           "help": "A line on where a Claude chat stands when you come back. Each is a small model call.",
           "kind": "toggle",
           "default": true,
+          "group": "Chats"
+        },
+        {
+          "key": "agents.chats.terminalChatWritable",
+          "title": "Write to a Chat a Terminal Runs",
+          "help": "When Toggle Terminal and Chat moves a Claude Code or Codex chat to a terminal, keep the chat's composer: what you send goes into that terminal's session, and Stop stops its turn. Off, the chat is View Only while the terminal runs it.",
+          "kind": "toggle",
+          "default": false,
           "group": "Chats"
         },
         {
@@ -1505,6 +1513,10 @@
           "group": "Tabs",
           "values": [
             "minimal",
+            "cards",
+            "default",
+            "threads",
+            "console",
             "classic",
             "terminal"
           ]
@@ -1727,7 +1739,7 @@
           "title": "Show Feature Tips",
           "help": "A small tip now and then points at a feature an update added.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Updates"
         },
         {
@@ -2557,14 +2569,6 @@
           "group": "Window Background"
         },
         {
-          "key": "appearance.backgroundMemory",
-          "title": "Background Mode Memory",
-          "help": "The folder and picture each background mode last showed, so switching back restores them.",
-          "kind": "string_map",
-          "default": null,
-          "group": "Window Background"
-        },
-        {
           "key": "appearance.backgroundOpacity",
           "title": "Opacity",
           "help": "How much of the theme color covers the material behind the window.",
@@ -2891,13 +2895,13 @@
         {
           "key": "appearance.metrics.chromeFontSize",
           "title": "Text Size",
-          "help": "Text size of the sidebar, tabs, menus and chat. Terminals have their own size.",
+          "help": "Text size of tabs, the sidebar and chat. Terminals have their own size.",
           "kind": "number",
           "default": null,
           "group": "Density and Motion",
           "range": {
             "min": 10,
-            "max": 20,
+            "max": 16,
             "unit": "points"
           }
         },
@@ -3896,7 +3900,7 @@
           "title": "Show Tips",
           "help": "A daily card shows one cmux feature you have not used yet.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Sidebar"
         },
         {
@@ -4151,7 +4155,7 @@
           "title": "Workspace Card Layout",
           "help": "What a workspace's hover card shows.",
           "kind": "choice",
-          "default": "compact",
+          "default": "timeline",
           "group": "Sidebar",
           "values": [
             "timeline",
@@ -4320,14 +4324,6 @@
           "group": "Sidebar"
         },
         {
-          "key": "sidebar.settleFinished",
-          "title": "Settle Finished Chats",
-          "help": "A chat whose answer you have read folds into Settled at the end of its list until its next turn.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Sidebar"
-        },
-        {
           "key": "sidebar.showChats",
           "title": "Show All Chats on New Tab",
           "help": "New Tab lists every agent chat on this computer, not only recent ones.",
@@ -4380,13 +4376,13 @@
           "title": "Show Search Button",
           "help": "A search button after the profile button. Off: search from the palette.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Sidebar"
         },
         {
           "key": "sidebar.showSpaces",
           "title": "Show Spaces",
-          "help": "Spaces show once you have more than one. New Space is in the command palette.",
+          "help": "",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
@@ -6018,7 +6014,7 @@
     },
     {
       "id": "home",
-      "title": "Chief",
+      "title": "Home",
       "rows": [
         {
           "key": "chief.autoRouteSubagents",
@@ -6209,14 +6205,6 @@
           "key": "home.chiefDock.openBeside",
           "title": "Show Chief When Opening Workspaces",
           "help": "Links in the Chief open their workspace with the Chief over it. Esc hides it.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Chief Dock"
-        },
-        {
-          "key": "home.chiefDock.sidePanel",
-          "title": "Chief in Side Panel",
-          "help": "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it.",
           "kind": "toggle",
           "default": false,
           "group": "Chief Dock"
@@ -6956,17 +6944,9 @@
           "group": "Developer Tools"
         },
         {
-          "key": "experiments.glassToolbarGroups",
-          "title": "Glass Toolbar Groups",
-          "help": "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Experiments"
-        },
-        {
           "key": "labs.agentCustomization",
           "title": "Claude Code and Codex Customization",
-          "help": "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files.",
+          "help": "Show and edit the MCP servers Claude Code and Codex use, in their own config files.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"
@@ -6975,14 +6955,6 @@
           "key": "labs.liveCode",
           "title": "Live Code",
           "help": "Swift changes you compile apply to the running app. Takes effect after cmux restarts.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Labs"
-        },
-        {
-          "key": "labs.liveTree",
-          "title": "Live Tree",
-          "help": "Show the shared live-tree path and compile lanes in the agent pane.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"
@@ -6998,7 +6970,7 @@
         {
           "key": "labs.previewFeatures",
           "title": "Show Preview Features",
-          "help": "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view.",
+          "help": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

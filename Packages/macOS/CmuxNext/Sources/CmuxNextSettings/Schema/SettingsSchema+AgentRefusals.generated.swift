@@ -4,8 +4,6 @@
 extension SettingsSchema {
     /// Keys an agent may not set or reset, with the reason.
     public static let agentRefusedKeys: [String: AgentRefusal] = [
-        // The live-tree preview changes how the person's shared editing workflow is presented; only the person turns it on.
-        "labs.liveTree": .userOnly,
         // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
         "freeModel.enabled": .privacy,
         // The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.
@@ -21,6 +19,8 @@ extension SettingsSchema {
         "agents.chats.enabled": .privacy,
         // Each recap is an extra model call on the person's usage: theirs to turn on or off.
         "agents.chats.sessionRecap": .userOnly,
+        // Whether a chat writes into the person's own terminal session (its harness runs with that terminal's permissions): theirs to turn on or off.
+        "agents.chats.terminalChatWritable": .userOnly,
         "picker.pinned": .userOnly,
         // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
@@ -96,7 +96,7 @@ extension SettingsSchema {
         "labs.machineJoin": .network,
         // On, a live code build loads Swift patches into the running app: only the person turns that on.
         "labs.liveCode": .userOnly,
-        // On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.
+        // On, Settings edits the MCP servers in Claude Code's and Codex's own config files: only the person turns that on.
         "labs.agentCustomization": .userOnly,
         // Whether cmux's own pages open developer tools, which read and change their live content: the person's call.
         "developerTools.appPages": .userOnly,

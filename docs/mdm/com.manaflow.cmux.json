@@ -521,6 +521,12 @@
       "title" : "Session Recap",
       "type" : "boolean"
     },
+    "agents.chats.terminalChatWritable" : {
+      "default" : false,
+      "description" : "When Toggle Terminal and Chat moves a Claude Code or Codex chat to a terminal, keep the chat's composer: what you send goes into that terminal's session, and Stop stops its turn. Off, the chat is View Only while the terminal runs it.",
+      "title" : "Write to a Chat a Terminal Runs",
+      "type" : "boolean"
+    },
     "agents.cmuxMcp" : {
       "default" : "ask",
       "description" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings.",
@@ -1434,14 +1440,6 @@
       "title" : "Sun Location",
       "type" : "string"
     },
-    "appearance.backgroundMemory" : {
-      "description" : "The folder and picture each background mode last showed, so switching back restores them.",
-      "properties" : {
-
-      },
-      "title" : "Background Mode Memory",
-      "type" : "object"
-    },
     "appearance.backgroundOpacity" : {
       "description" : "How much of the theme color covers the material behind the window.",
       "maximum" : 1,
@@ -1732,8 +1730,8 @@
       "type" : "object"
     },
     "appearance.metrics.chromeFontSize" : {
-      "description" : "Text size of the sidebar, tabs, menus and chat. Terminals have their own size.",
-      "maximum" : 20,
+      "description" : "Text size of tabs, the sidebar and chat. Terminals have their own size.",
+      "maximum" : 16,
       "minimum" : 10,
       "title" : "Text Size",
       "type" : "number"
@@ -2869,7 +2867,7 @@
       "type" : "boolean"
     },
     "contextMenus.showCustomizeItem" : {
-      "default" : false,
+      "default" : true,
       "description" : "Adds Customize Menu… to the end of every right-click menu.",
       "title" : "Show Customize Menu…",
       "type" : "boolean"
@@ -3387,12 +3385,6 @@
       "title" : "EnrollmentToken",
       "type" : "string"
     },
-    "experiments.glassToolbarGroups" : {
-      "default" : false,
-      "description" : "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
-      "title" : "Glass Toolbar Groups",
-      "type" : "boolean"
-    },
     "feed.agentPermissionPrompts" : {
       "default" : false,
       "description" : "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it.",
@@ -3596,12 +3588,6 @@
       "title" : "Show Chief When Opening Workspaces",
       "type" : "boolean"
     },
-    "home.chiefDock.sidePanel" : {
-      "default" : false,
-      "description" : "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it.",
-      "title" : "Chief in Side Panel",
-      "type" : "boolean"
-    },
     "home.chiefEngine" : {
       "default" : "auto",
       "description" : "Auto uses this Mac's Chief while it runs, else the Hosted Chief.",
@@ -3688,7 +3674,7 @@
     },
     "labs.agentCustomization" : {
       "default" : false,
-      "description" : "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files.",
+      "description" : "Show and edit the MCP servers Claude Code and Codex use, in their own config files.",
       "title" : "Claude Code and Codex Customization",
       "type" : "boolean"
     },
@@ -3696,12 +3682,6 @@
       "default" : false,
       "description" : "Swift changes you compile apply to the running app. Takes effect after cmux restarts.",
       "title" : "Live Code",
-      "type" : "boolean"
-    },
-    "labs.liveTree" : {
-      "default" : false,
-      "description" : "Show the shared live-tree path and compile lanes in the agent pane.",
-      "title" : "Live Tree",
       "type" : "boolean"
     },
     "labs.machineJoin" : {
@@ -3712,7 +3692,7 @@
     },
     "labs.previewFeatures" : {
       "default" : false,
-      "description" : "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view.",
+      "description" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
       "title" : "Show Preview Features",
       "type" : "boolean"
     },
@@ -4804,7 +4784,7 @@
       "type" : "number"
     },
     "sidebar.cards.tips" : {
-      "default" : false,
+      "default" : true,
       "description" : "A daily card shows one cmux feature you have not used yet.",
       "title" : "Show Tips",
       "type" : "boolean"
@@ -5006,7 +4986,7 @@
       "type" : "boolean"
     },
     "sidebar.hoverCards.layout" : {
-      "default" : "compact",
+      "default" : "timeline",
       "description" : "What a workspace's hover card shows.",
       "enum" : [
         "timeline",
@@ -5139,12 +5119,6 @@
       "title" : "Session Tree",
       "type" : "boolean"
     },
-    "sidebar.settleFinished" : {
-      "default" : false,
-      "description" : "A chat whose answer you have read folds into Settled at the end of its list until its next turn.",
-      "title" : "Settle Finished Chats",
-      "type" : "boolean"
-    },
     "sidebar.showChats" : {
       "default" : true,
       "description" : "New Tab lists every agent chat on this computer, not only recent ones.",
@@ -5182,14 +5156,14 @@
       "type" : "boolean"
     },
     "sidebar.showSearchButton" : {
-      "default" : false,
+      "default" : true,
       "description" : "A search button after the profile button. Off: search from the palette.",
       "title" : "Show Search Button",
       "type" : "boolean"
     },
     "sidebar.showSpaces" : {
       "default" : false,
-      "description" : "Spaces show once you have more than one. New Space is in the command palette.",
+      "description" : "sidebar.showSpaces",
       "title" : "Show Spaces",
       "type" : "boolean"
     },
@@ -5837,6 +5811,10 @@
       "description" : "The layout of the New Tab page. Terminal opens a terminal instead.",
       "enum" : [
         "minimal",
+        "cards",
+        "default",
+        "threads",
+        "console",
         "classic",
         "terminal"
       ],
@@ -6181,7 +6159,7 @@
       "type" : "boolean"
     },
     "updates.showFeatureTips" : {
-      "default" : false,
+      "default" : true,
       "description" : "A small tip now and then points at a feature an update added.",
       "title" : "Show Feature Tips",
       "type" : "boolean"
