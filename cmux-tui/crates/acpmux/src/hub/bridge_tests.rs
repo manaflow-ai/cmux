@@ -1097,7 +1097,15 @@ async fn a_desktop_chat_the_rate_limit_stopped_holds_its_messages_and_sends_them
     assert!(events.iter().any(|e| e.kind == "rate_limit_held"), "the chat is held");
 
     // Two more messages while it is held: neither reaches the app now.
+    // The third is sent once the second is held, so "in the order they came" has one order.
     let (second, second_accepted) = send("p-two", "second report");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while second_accepted.lock().unwrap().is_none() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the second message is held within 5 s");
     let (third, _) = send("p-three", "third report");
     tokio::time::sleep(Duration::from_millis(400)).await;
     assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 1, "held, not sent into the app");
