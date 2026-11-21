@@ -32,10 +32,29 @@ extension NSTextView {
         let character = atEnd ? at - 1 : at
         let glyph = lm.glyphIndexForCharacter(at: character)
         let line = lm.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil, withoutAdditionalLayout: true)
+        // The line's own insertion point for AT: right for right-to-left text, where a glyph's
+        // origin is the caret's place after it, not before it.
+        if let x = Self.insertionPoint(lm, line: character, at: at) {
+            return CGRect(x: line.minX + x, y: line.minY, width: 0, height: line.height)
+        }
         let x = atEnd
             ? lm.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: tc).maxX
             : line.minX + lm.location(forGlyphAt: glyph).x
         return CGRect(x: x, y: line.minY, width: 0, height: line.height)
+    }
+
+    /// The x of the caret at AT, from its line's start, on the line holding character LINE (TextKit
+    /// 1's insertion points in logical order, the primary place at a direction change); nil when the
+    /// line has no point for AT.
+    private static func insertionPoint(_ lm: NSLayoutManager, line: Int, at: Int) -> CGFloat? {
+        let count = lm.getLineFragmentInsertionPoints(forCharacterAt: line, alternatePositions: false, inDisplayOrder: false,
+                                                      positions: nil, characterIndexes: nil)
+        guard count > 0 else { return nil }
+        var positions = [CGFloat](repeating: 0, count: count)
+        var indexes = [Int](repeating: 0, count: count)
+        _ = lm.getLineFragmentInsertionPoints(forCharacterAt: line, alternatePositions: false, inDisplayOrder: false,
+                                              positions: &positions, characterIndexes: &indexes)
+        return indexes.lastIndex(of: at).map { positions[$0] }
     }
 
     /// The box of the characters in `range`, in text container coordinates (TextKit 1), or nil.
