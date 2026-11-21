@@ -49,8 +49,6 @@ import {
   type IntegrationsState,
   type McpServersRun,
   type McpServersState,
-  type AgentMcpRun,
-  type AgentMcpState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -66,6 +64,8 @@ import {
   type LibraryRun,
   type ModelsRun,
   type ModelsState,
+  type AgentMcpRun,
+  type AgentMcpState,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -971,6 +971,12 @@ export class MockSettingsProvider {
     }
     this.libraryRuns.push(run);
     if (this.libraryRefusal) return { code: "customize.library", message: this.libraryRefusal };
+    const code = this.library.entries.find((item) => item.name === run.name)?.code;
+    if (run.verb === "on" && code && !code.web) {
+      const lines = code.needs_build?.join("; ");
+      const why = lines ? `needs a build: ${lines}` : "it needs a build";
+      return { code: "customize.library", message: `${run.name} has nothing that applies to a running cmux; ${why}` };
+    }
     const next = runLibrary(this.library, run);
     if (!next) return { code: "customize.library", message: `there is no library entry "${run.name}"` };
     this.library = next;

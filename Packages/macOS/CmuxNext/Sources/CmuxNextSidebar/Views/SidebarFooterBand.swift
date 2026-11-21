@@ -266,6 +266,31 @@ final class SidebarFooterBand {
                                                  scale: scale)
     }
 
+    // MARK: Experiments mark
+
+    /// Places the experiments mark (`host.experimentsMark`) over the sidebar like app health's line: at the
+    /// avatar's leading edge, just above the bottom stack (`ceiling`), and above app health's chip when that
+    /// floats there too, so neither covers the other. It is never in the footer row's flow: its arrival and
+    /// departure move nothing in the row, and app health's line keeps its place.
+    func placeExperimentsMark(above ceiling: CGFloat) {
+        guard let host, let mark = host.experimentsMark, !mark.isHidden else { return }
+        let size = mark.fittingSize
+        let row = bandFirstRow
+        let x = row?.frame.minX ?? Metrics.space4
+        var top = min(ceiling, row?.frame.minY ?? ceiling)
+        if let line = host.healthIndicator, !line.isHidden, line.frame.height > 0,
+           (line as? any AvatarBadgePlacing)?.sitsOnAvatar != true {
+            top = min(top, line.frame.minY)
+        }
+        let width = min(size.width, host.bounds.width - x - Metrics.space4)
+        guard width >= Self.searchButtonSide * 2 else {
+            mark.frame = .zero
+            return
+        }
+        mark.frame = WindowTitlebar.alignedFrame(NSRect(x: x, y: top - Metrics.space2 - size.height, width: width, height: size.height),
+                                                 scale: host.window?.backingScaleFactor ?? 2)
+    }
+
     // MARK: Update Available button
 
     /// Places the quiet Update Available button (`showUpdateAvailable`) on the footer line's trailing end,
