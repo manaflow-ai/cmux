@@ -29,6 +29,7 @@ pub mod disk;
 mod finished_memo;
 mod git;
 pub mod inventory;
+mod park;
 pub mod pass;
 pub mod policy;
 pub mod procs;

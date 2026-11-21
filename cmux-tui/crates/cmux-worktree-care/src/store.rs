@@ -33,6 +33,9 @@ pub struct Manifest {
     /// Build output dropped with the folder (relative paths).
     pub dropped: Vec<String>,
     pub reason: String,
+    /// The linked checkout was moved intact under parked/<id>/checkout.
+    #[serde(default)]
+    pub parked: bool,
     /// Bytes the disk gained.
     pub freed: u64,
     /// Set once the worktree is back.
@@ -206,6 +209,7 @@ pub(crate) mod care_tests {
             submodules: vec![],
             dropped: vec![],
             reason: "test".into(),
+            parked: false,
             freed: 0,
             restored_ms: None,
         };

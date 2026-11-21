@@ -103,7 +103,7 @@ pub(crate) fn rules(doc: Option<&Value>) -> Rules {
     }
 }
 
-fn read_rules() -> Rules {
+pub(super) fn read_rules() -> Rules {
     match crate::user_settings::read() {
         crate::user_settings::Settings::Parsed(doc) => rules(Some(&doc)),
         _ => Rules::default(),
@@ -497,6 +497,9 @@ impl Hub {
             None,
         )?;
         if settled {
+            if matches!(reason, Reason::Merged | Reason::Closed) {
+                self.care_wake("pull_request_archive");
+            }
             tracing::info!(session = %session.id, reason = reason.as_str(), "chat settled");
         }
         Ok(settled)
