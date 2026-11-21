@@ -84,11 +84,12 @@ nonisolated enum AcpmuxStrayDaemon {
         // The join's LaunchAgent keeps the daemon alive with no app (remote-screen-share-zero-touch
         // Z1), so it is kept, now running this app's acpmux: `daemon service install` from the
         // bundle points the job at it and reloads it (launchd's SIGTERM detaches the agents, the
-        // bundled daemon launchd starts adopts them). Another job is booted out as before. Either
-        // that fails falls back to the shutdown request.
+        // bundled daemon launchd starts adopts them). Another job is booted out as before, and so
+        // is the join's job when its install fails (still checked against the pid), or KeepAlive
+        // would start the old program again after the shutdown request below.
         let stopped: Bool
-        if let kept = await keepsLaunchAgent(runningPID: pid, environment: environment) {
-            stopped = kept
+        if let kept = await keepsLaunchAgent(runningPID: pid, environment: environment), kept {
+            stopped = true
         } else {
             stopped = await bootOutLaunchdJob(runningPID: pid)
         }
