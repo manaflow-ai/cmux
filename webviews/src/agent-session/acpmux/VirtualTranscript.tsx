@@ -19,6 +19,7 @@ import { isAgentMotionOff } from "../shared/motion";
 import { LOAD_FADE_CLASS, LoadFadeWindow } from "../shared/loadFade";
 import { entranceAllowed, pageAway } from "../shared/pageReveal";
 import { holdEntranceForFirstFrame } from "./conversation/entranceClock";
+import { holdUntilSettled } from "./conversation/unsettledHeights";
 import {
   layoutConversation,
   type ConversationLayout,
@@ -3473,18 +3474,31 @@ function TranscriptView({
     },
     [],
   );
+  /// Ends the hold of an opening chat whose parts are still settling (`holdUntilSettled`).
+  const openHold = useRef<(() => void) | undefined>(undefined);
   useLayoutEffect(() => {
     if (coldOpen === undefined || rows.length === 0 || fadedOpen.current === coldOpen) return;
     fadedOpen.current = coldOpen;
     openFade.current?.cancel();
+    openHold.current?.();
     // A switch under a chat switch motion (chatSwitch.ts) is drawn by its own play instead. A chat
     // this page already drew, or already faded in since it was opened, shows at once: a reload over
     // it (a reconnect, a cleared and refilled transcript) is not a first load (openBreakpoint.ts).
     const shownBefore = opened.drewBefore || fadedSession.current === opened;
     fadedSession.current = opened;
-    openFade.current = switchPending.current || shownBefore ? undefined : fadeInOpenedChat(ref.current);
-    onColdOpenShown?.(coldOpen);
+    const show = () => {
+      openHold.current = undefined;
+      openFade.current = switchPending.current || shownBefore ? undefined : fadeInOpenedChat(ref.current);
+      onColdOpenShown?.(coldOpen);
+    };
+    // A chat read cold shows once the parts of its rows that draw a moment late (math, diagrams,
+    // images the host reads) have their height, so its first shown frame is its last: held unseen
+    // until then, it is placed at its latest row as they land, and fades in once, in place
+    // (https://github.com/manaflow-ai/cmux/issues/48498). One shown before is not held again.
+    if (shownBefore || switchPending.current) show();
+    else openHold.current = holdUntilSettled(ref.current, show);
   }, [coldOpen, rows.length, onColdOpenShown, opened]);
+  useLayoutEffect(() => () => openHold.current?.(), []);
   const previousSession = useRef(sessionId);
   // A layout effect: the first measure lands before the first paint, so a mounted transcript (a page
   // load, a new chat's first send, back from Harnesses) never draws a frame at a guessed size.

@@ -2,6 +2,7 @@ import { composerHealthHarness } from "./composerPickerEntries";
 import { forkMenuRows } from "./header/forkMenu";
 import { openFork, openInOwnTab } from "./conversation/openFork";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
+import { useHeightsSettledFor } from "./conversation/unsettledHeights";
 import { useStopThroughReconnect } from "./stopThroughReconnect";
 import React, {
   Activity,
@@ -7507,8 +7508,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // report follows, once per chat opened.
   const settledSession =
     clientSnapshot.settled !== undefined && clientSnapshot.chatRead === true ? clientSnapshot.sessionId : undefined;
+  // The first report waits for the rows' parts that draw a moment late (math, diagrams, images the
+  // host reads) to settle, at most OPEN_SETTLE_MAX_MS: the host shows the page at its final layout,
+  // not one that moves under the reader as they land (https://github.com/manaflow-ai/cmux/issues/48498).
+  const heightsSettled = useHeightsSettledFor(showsWhatItIs);
   useEffect(() => {
-    if (!showsWhatItIs) return;
+    if (!showsWhatItIs || (!paintReported.current && !heightsSettled())) return;
     const settledNow = settledSession !== undefined && settledReported.current !== settledSession;
     if (paintReported.current && !settledNow) return;
     const first = !paintReported.current;
@@ -7528,7 +7533,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         void loadEditDiffHunks();
       }, 0),
     );
-  }, [showsWhatItIs, drewKeptTail, settledSession]);
+  }, [showsWhatItIs, heightsSettled, drewKeptTail, settledSession]);
   // While the chat shows, the page keeps its drawn copy for the next launch (chatSnapshot/live.ts):
   // the visible window, written when it goes quiet and when the page hides. Only the shared page host
   // keeps copies (`chat.snapshot.put`); the legacy WebKit host has no such op and would count each
