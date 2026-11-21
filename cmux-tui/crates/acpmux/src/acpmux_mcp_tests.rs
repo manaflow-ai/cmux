@@ -674,19 +674,19 @@ async fn an_unresolved_peer_session_stays_in_one_chain_with_its_tag_target() {
 }
 
 /// cmuxterm-hq#17418: one batch to 9 lanes on other hosts sent 7: the second and third to
-/// sessions on huge-blue were refused as "the message before it ... must not arrive first",
-/// naming big-red's delivery. Sessions named by name are different sessions, on one host or
+/// sessions on one host were refused as "the message before it ... must not arrive first",
+/// naming another host's delivery. Sessions named by name are different sessions, on one host or
 /// several, so each is its own chain; the same name twice, or a bare name and `host/name`, is
 /// one.
 #[tokio::test]
 async fn different_sessions_on_one_host_are_different_chains() {
     let (_hub, client, _dir) = daemon().await;
     let targets = [
-        target(0, "big-red/efficiency-standing-lane", "big-red/efficiency-standing-lane"),
-        target(1, "huge-blue/ci-217x-dictator", "huge-blue/ci-217x-dictator"),
-        target(2, "huge-blue/dep-land", "huge-blue/dep-land"),
-        target(3, "huge-blue/fleet-repair", "huge-blue/fleet-repair"),
-        target(4, "huge-blue/dep-land", "huge-blue/dep-land"),
+        target(0, "host-a/standing-lane", "host-a/standing-lane"),
+        target(1, "host-b/ci-lane", "host-b/ci-lane"),
+        target(2, "host-b/dep-land", "host-b/dep-land"),
+        target(3, "host-b/fleet-repair", "host-b/fleet-repair"),
+        target(4, "host-b/dep-land", "host-b/dep-land"),
         target(5, "fleet-repair", "fleet-repair"),
     ];
     let aliases = send::aliases(&client, &targets).await;

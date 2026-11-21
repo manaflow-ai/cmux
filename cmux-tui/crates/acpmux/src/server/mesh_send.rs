@@ -424,16 +424,16 @@ mod tests {
     #[test]
     fn a_class_the_relay_cannot_carry_goes_as_the_first_line() {
         let request = |class: Option<&str>| {
-            json!({"sessionId": "huge-blue/lane-a", "prompt": [{"type": "text", "text": "ship it?"}],
+            json!({"sessionId": "host-b/lane-a", "prompt": [{"type": "text", "text": "ship it?"}],
                 "_meta": {"acpmux": {"class": class, "promptId": "0190f2a4-7c1e-7d3a-9f00-0123456789ab"}}})
         };
-        let sent = carried(&request(Some("question")), "huge-blue/lane-a").unwrap();
+        let sent = carried(&request(Some("question")), "host-b/lane-a").unwrap();
         assert_eq!(sent.body, "[question]\n\nship it?");
         assert_eq!(sent.inline, Some(PromptClass::Question));
-        let sent = carried(&request(Some("blocker")), "huge-blue/lane-a").unwrap();
+        let sent = carried(&request(Some("blocker")), "host-b/lane-a").unwrap();
         assert!(sent.body.starts_with("[block]\n\n"), "{}", sent.body);
         for class in [None, Some("result"), Some("action")] {
-            let sent = carried(&request(class), "huge-blue/lane-a").unwrap();
+            let sent = carried(&request(class), "host-b/lane-a").unwrap();
             assert_eq!((sent.body.as_str(), sent.inline), ("ship it?", None), "{class:?}");
         }
         let mut row = json!({"status": "queued"});
@@ -443,7 +443,7 @@ mod tests {
         // What it still cannot carry is still refused, by name.
         let mut attach = request(None);
         attach["prompt"] = json!([{"type": "image", "data": "x"}]);
-        assert!(carried(&attach, "huge-blue/lane-a").is_err());
+        assert!(carried(&attach, "host-b/lane-a").is_err());
     }
 
     #[test]

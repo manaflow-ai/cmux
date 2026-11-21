@@ -667,7 +667,7 @@ pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec
     // names it by id: two names on one host, or a bare name and `host/name` with another last
     // part, are two sessions. So an unresolved `host/ID` joins every target on its host, an
     // unresolved bare id joins every target, and any other unresolved name only the targets with
-    // its last part (`lane-q`, `huge-blue/lane-q`; any target by that last part joins them, since
+    // its last part (`lane-q`, `host-b/lane-q`; any target by that last part joins them, since
     // a bare name may resolve to a session on a peer). Before, every unresolved name was one chain
     // and joined its whole host, so a batch to 9 lanes on other hosts sent 7 (cmuxterm-hq#17418).
     let host_of = |key: &str| key.split_once('/').map(|(host, _)| format!("\0host:{host}"));
