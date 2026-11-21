@@ -67,7 +67,7 @@ extension AppActions {
         #if DEBUG || CMUX_BENCH_HOOKS
         services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, homes: services.home.chiefHomes))
         #endif
-        registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
+        registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }; services.onboarding.chief.bindMeetChief(into: registry)
         // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it;
         // the sidebar's Home entry, so a dock showing Channels goes back to Messages (cx-frn2y).
         registry.bind("home.show") { if showHome(services), services.home.dockMode == .channels { HomeDockTab.view(services)?.switchTo(.messages) } }
@@ -328,6 +328,7 @@ extension AppActions {
             return
         }
         if services.machines.local.store.personal.isLoaded { return movePersonalWorkspace(services, invocation, by: offset) }
+        if let workspace = scope(services, invocation).workspace, services.windows.active?.sidebar.model.selectableWorkspaces.contains(where: { $0.id.rawValue == workspace.id }) != true, (try? moveBandWorkspace(workspace, services, origin: invocation.origin, { _ in .step(offset) })) == true { return } // pinned, no list row: among Pinned's items
         let store = services.activeDaemon.store
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
               let index = store.workspaces.firstIndex(where: { $0 === workspace }) else { return }
