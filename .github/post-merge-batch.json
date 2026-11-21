@@ -117,6 +117,11 @@
         ".github/workflows/swift-acpmux-protocol.yml"
       ],
       "jobs": {"check": "Swift acpmux calls are in the protocol"}
+    },
+    "rust-workspaces": {
+      "workflow": "rust-workspaces.yml",
+      "paths": [],
+      "jobs": {"workspace": "workspace"}
     }
   }
 }
