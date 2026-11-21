@@ -358,6 +358,7 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
             cwd: None,
             dry_run: true,
             resume_there: false,
+            continue_there: None,
             from: None,
         };
         let outcome = move_one(&client, "chat", &args, repo.path(), &mut targets).await;
