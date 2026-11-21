@@ -331,11 +331,72 @@ def read_pr(repo: str, number: str, run: Runner = _gh) -> dict:
     owner, _, name = repo.partition("/")
     status, out, err = run(["api", "graphql", "-f", f"query={QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
                             "-F", f"number={number}"])
+    if status == 0:
+        return unwrap(json.loads(out))
+    # GraphQL and REST are separate pools. On 2026-11-18 a Mac's gh-quota shim refused this read with "GitHub's
+    # GraphQL rate limit is spent" while REST had quota, and the gate refused the merge (cmux#45937).
+    try:
+        return read_pr_rest(repo, number, run)
+    except Refused as rest:
+        rate = _load_rate_limit()
+        if rate.is_rate_limited(err) or isinstance(rest, RateLimited):
+            raise RateLimited(f"GitHub rate-limited the review read ({err.strip()[:200]}; REST: {rest})") from None
+        raise Refused(f"cannot read the reviews of #{number} ({err.strip()[:200]}; REST: {rest})") from None
+
+
+REST_PER_PAGE, REST_MAX_PAGES = 100, 50
+
+
+def _rest(run: Runner, route: str):
+    status, out, err = run(["api", route])
     if status != 0:
         if _load_rate_limit().is_rate_limited(err):
-            raise RateLimited(f"GitHub rate-limited the review read ({err.strip()[:200]})")
-        raise Refused(f"cannot read the reviews of #{number} ({err.strip()[:200]})")
-    return unwrap(json.loads(out))
+            raise RateLimited(err.strip()[:200])
+        raise Refused(err.strip()[:200] or f"gh api {route} failed")
+    try:
+        return json.loads(out)
+    except ValueError:
+        raise Refused(f"gh api {route} returned no JSON") from None
+
+
+def _rest_list(run: Runner, route: str) -> list:
+    """Every item of a REST list, one call per page (the gh-quota shim refuses --paginate)."""
+    items: list = []
+    for page in range(1, REST_MAX_PAGES + 1):
+        batch = _rest(run, f"{route}?per_page={REST_PER_PAGE}&page={page}")
+        if not isinstance(batch, list):
+            raise Refused(f"gh api {route} returned no list")
+        items.extend(batch)
+        if len(batch) < REST_PER_PAGE:
+            return items
+    raise Refused(f"{route} has more than {REST_MAX_PAGES} pages")
+
+
+def _rest_author(user: dict | None) -> dict | None:
+    # REST's user.type is "User", "Bot" or "Organization", GraphQL's __typename for the same accounts.
+    return {"__typename": user.get("type"), "login": user.get("login")} if user else None
+
+
+def read_pr_rest(repo: str, number: str, run: Runner = _gh) -> dict:
+    """The GraphQL read's pull request, from REST: the same head, labels and windows of the newest reviews and
+    comments, in GraphQL's shape, so decide() judges the same items."""
+    pull = _rest(run, f"repos/{repo}/pulls/{number}")
+    if not isinstance(pull, dict) or not (pull.get("head") or {}).get("sha"):
+        raise Refused(f"gh api repos/{repo}/pulls/{number} returned no head")
+    reviews = _rest_list(run, f"repos/{repo}/pulls/{number}/reviews")[-REVIEWS_WINDOW:]
+    comments = _rest_list(run, f"repos/{repo}/issues/{number}/comments")[-COMMENTS_WINDOW:]
+    return {
+        "headRefOid": pull["head"]["sha"],
+        "labels": {"nodes": [{"name": label.get("name")} for label in pull.get("labels") or []]},
+        "reviews": {"nodes": [{"state": item.get("state"), "submittedAt": item.get("submitted_at"),
+                               "body": item.get("body") or "", "authorAssociation": item.get("author_association"),
+                               "author": _rest_author(item.get("user")), "commit": {"oid": item.get("commit_id")}}
+                              for item in reviews]},
+        "comments": {"nodes": [{"createdAt": item.get("created_at"), "body": item.get("body") or "",
+                                "authorAssociation": item.get("author_association"),
+                                "author": _rest_author(item.get("user"))}
+                               for item in comments]},
+    }
 
 
 def unwrap(payload: dict) -> dict:
