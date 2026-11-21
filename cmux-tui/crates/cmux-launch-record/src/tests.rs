@@ -30,6 +30,7 @@ fn sample() -> LaunchRecordData {
             icon_key: "folder".into(),
         }],
         session_socket_path: "/tmp/sock".into(),
+        session_registry_id: "reg-1".into(),
     }
 }
 /// The v1 encoding, as the previous writer produced it.
@@ -71,6 +72,49 @@ fn round_trip() {
     assert_eq!(r.session_socket_path(), "/tmp/sock")
 }
 #[test]
+fn v3_carries_the_registry_id_and_a_v2_record_reads_without_one() {
+    let data = sample();
+    let bytes = encode(&data).unwrap();
+    assert_eq!(LaunchRecord::from_bytes(bytes.clone()).unwrap().session_registry_id(), "reg-1");
+    // The same record as v2: no registry string after the socket path.
+    let mut v2 = bytes[..bytes.len() - 2 - "reg-1".len()].to_vec();
+    v2[8..10].copy_from_slice(&2u16.to_le_bytes());
+    let r = LaunchRecord::from_bytes(v2.clone()).unwrap();
+    assert_eq!(
+        (r.version(), r.session_registry_id(), r.session_socket_path()),
+        (2, "", "/tmp/sock")
+    );
+    // A v3 label without the registry string is malformed.
+    v2[8..10].copy_from_slice(&3u16.to_le_bytes());
+    assert!(LaunchRecord::from_bytes(v2).is_none());
+    // The C entry without a registry id writes it empty.
+    let dir = TestDir::new();
+    let path = std::ffi::CString::new(dir.record().to_str().unwrap()).unwrap();
+    assert!(unsafe {
+        cmux_launch_record_write(
+            path.as_ptr(),
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+            0,
+            c"s".as_ptr(),
+        )
+    });
+    assert_eq!(LaunchRecord::read(dir.record()).unwrap().session_registry_id(), "");
+    assert!(unsafe {
+        cmux_launch_record_write_registry(
+            path.as_ptr(),
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+            0,
+            c"s".as_ptr(),
+            c"reg-2".as_ptr(),
+        )
+    });
+    assert_eq!(LaunchRecord::read(dir.record()).unwrap().session_registry_id(), "reg-2");
+}
+#[test]
 fn round_trip_every_v2_field() {
     let mut data = sample();
     let w = &mut data.windows[0];
@@ -81,7 +125,7 @@ fn round_trip_every_v2_field() {
     w.screen_frame = Frame { x: -1920., y: 120.5, width: 1920., height: 1080. };
     w.visible_tab_ids = vec!["a".into(), "b".into()];
     let r = LaunchRecord::from_bytes(encode(&data).unwrap()).unwrap();
-    assert_eq!(r.version(), 2);
+    assert_eq!(r.version(), 3);
     let v = r.front_window().unwrap();
     let w = &data.windows[0];
     let back = WindowRecord {
@@ -138,6 +182,8 @@ fn round_trip_every_v2_field() {
     });
     let mut written = data.clone();
     written.sidebar_rows.clear();
+    // cmux_launch_record_write records no registry id.
+    written.session_registry_id.clear();
     assert_eq!(fs::read(dir.record()).unwrap(), encode(&written).unwrap());
     let mut out = CmuxLaunchWindow::default();
     assert!(unsafe { cmux_launch_record_front_window(path.as_ptr(), &mut out) });
@@ -308,12 +354,16 @@ fn ffi_strings_are_terminated_or_output_is_zero() {
 #[test]
 fn ffi_rejects_impossible_counts_before_dereference() {
     assert!(
-        unsafe { input_data(std::ptr::null(), usize::MAX, std::ptr::null(), 0, std::ptr::null()) }
-            .is_none()
+        unsafe {
+            input_data(std::ptr::null(), usize::MAX, std::ptr::null(), 0, std::ptr::null(), "")
+        }
+        .is_none()
     );
     assert!(
-        unsafe { input_data(std::ptr::null(), 0, std::ptr::null(), usize::MAX, std::ptr::null()) }
-            .is_none()
+        unsafe {
+            input_data(std::ptr::null(), 0, std::ptr::null(), usize::MAX, std::ptr::null(), "")
+        }
+        .is_none()
     );
 }
 

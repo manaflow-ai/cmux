@@ -419,6 +419,12 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// motion, and the page waits at the size it rests at instead of laying out at every frame's size
     /// (``CEFTabContentView/paneMotionWillRest(sizeChange:)``). True from the spring's start to its landing or first retarget.
     var pageRestHold = false
+    /// The size the page took ahead of its pane's next layout commit, on an engine with no resize fence
+    /// (`CEFTabContentView+PaneCommit`); nil otherwise. The page holds it (``heldPageSize``) until this view takes a
+    /// new size (the commit showed), the change goes, or its wait lets it go.
+    var commitAheadSize: CGSize?
+    /// The wait for the page's layout at ``commitAheadSize``; nil when none runs.
+    var commitWait: CEFCommitPageWait?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -444,6 +450,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     override func setFrameSize(_ newSize: NSSize) {
         let wasEmpty = bounds.isEmpty
         super.setFrameSize(newSize)
+        // The pane's commit showed: the page has the size it took ahead (or lays out at this one).
+        if commitAheadSize != nil { endCommitAhead() }
         tab?.deviceEmulationViewDidResize()
         tab?.pageWindowHostDidResize(wasEmpty: wasEmpty)
     }
@@ -451,6 +459,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
+            leaveCommitAhead()
             dropHold()
             // A container leaving the window (its tab closed or moved mid-resize) may never hear the resize's end.
             endAllPageSync()
@@ -471,6 +480,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// shared host view go, as when it leaves the window, at no window move.
     override func viewDidHide() {
         super.viewDidHide()
+        leaveCommitAhead()
         dropHold(keepingKeyHold: true)
         refreshSyncedDrag()
         tab?.contentDidDisappear()

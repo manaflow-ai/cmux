@@ -11,6 +11,12 @@
 //! attempt per backoff cap instead, because nothing sends an event when the
 //! cause of a failed start goes away (a full disk).
 //!
+//! A loop that waits for an event only must say so, with its reason
+//! ([`CmuxRetryPacer::wait`]), instead of looking like it is still
+//! connecting: a "Connecting…" with no timer behind it is a connection state
+//! with no action and no bound (design `remote-cloud-durability.md` 4.3). No
+//! timer is added: the event-only wait is the point of idle wakeups.
+//!
 //! The types are `#[repr(C)]` values, so the app keeps them inline (a Swift
 //! struct copy is a copy of the pacer) and each step is one C call.
 
@@ -171,6 +177,48 @@ impl WakeCause {
     }
 }
 
+/// What a retry loop is doing between attempts ([`CmuxRetryPacer::wait`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RetryWait {
+    /// A timer is armed: the next attempt comes on its own (`retrying`).
+    Timed,
+    /// No timer: the next attempt waits for an event (the app becomes active,
+    /// the network returns, the person reconnects), for `WaitReason`
+    /// (`waiting-for-event`).
+    ForEvent(WaitReason),
+}
+
+/// Why a loop waits for an event only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WaitReason {
+    /// Its timed retries are spent (`timed-budget-spent`): a socket change
+    /// or an explicit event still wakes it.
+    TimedBudgetSpent,
+    /// Its timed retries are spent and the daemon kept replacing its socket
+    /// and dying (`crash-loop`): socket changes no longer wake it either,
+    /// only an explicit event.
+    CrashLoop,
+}
+
+impl RetryWait {
+    /// Its wire word: `retrying` or `waiting-for-event`.
+    pub fn state(self) -> &'static str {
+        match self {
+            Self::Timed => "retrying",
+            Self::ForEvent(_) => "waiting-for-event",
+        }
+    }
+
+    /// The reason's wire word, for a wait for an event.
+    pub fn reason(self) -> Option<&'static str> {
+        match self {
+            Self::Timed => None,
+            Self::ForEvent(WaitReason::TimedBudgetSpent) => Some("timed-budget-spent"),
+            Self::ForEvent(WaitReason::CrashLoop) => Some("crash-loop"),
+        }
+    }
+}
+
 /// One retry loop's pacing state: one backoff across consecutive failures,
 /// reset only after a success that stayed healthy.
 #[repr(C)]
@@ -222,6 +270,19 @@ impl CmuxRetryPacer {
     /// A socket change may wake the next wait: false in a crash loop.
     pub fn wakes_on_socket(&self) -> bool {
         self.socket_failures < self.policy.socket_retries
+    }
+
+    /// What the next wait is, for the loop's reported state: a timed retry,
+    /// or a wait for an event with its reason once the timed budget is spent.
+    /// A `keeps_trying` loop always has a timer.
+    pub fn wait(&self) -> RetryWait {
+        if !self.waits_for_event_only() {
+            RetryWait::Timed
+        } else if self.wakes_on_socket() {
+            RetryWait::ForEvent(WaitReason::TimedBudgetSpent)
+        } else {
+            RetryWait::ForEvent(WaitReason::CrashLoop)
+        }
     }
 
     pub fn reset(&mut self) {

@@ -12,8 +12,9 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Version 2 adds scale, appearance, full screen and the display frame, and
-/// replaces the image path with an image key. Version 1 records still read.
-pub const FORMAT_VERSION: u16 = 2;
+/// replaces the image path with an image key. Version 3 adds, after the socket path, the
+/// daemon registry id the windows belonged to. Versions 1 and 2 still read.
+pub const FORMAT_VERSION: u16 = 3;
 /// A record file larger than this is rejected unread; the writer never exceeds it.
 pub const MAX_BYTES: usize = 64 * 1024;
 const MAGIC: &[u8; 8] = b"CMUXLR01";
@@ -90,6 +91,8 @@ pub struct LaunchRecordData {
     pub windows: Vec<WindowRecord>,
     pub sidebar_rows: Vec<SidebarRow>,
     pub session_socket_path: String,
+    /// The daemon registry id (its session) the windows belonged to; empty when unknown.
+    pub session_registry_id: String,
 }
 
 /// A validated record (v1 or v2). See `read`, `windows`, `front_window`.
@@ -101,6 +104,7 @@ pub struct LaunchRecord {
     windows_start: usize,
     sidebar_start: usize,
     socket: (usize, usize),
+    registry: (usize, usize),
 }
 impl std::fmt::Debug for LaunchRecord {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -154,10 +158,20 @@ impl LaunchRecord {
             parse_sidebar(&mut p)?;
         }
         let socket = p.string_span()?;
+        let registry = if version >= 3 { p.string_span()? } else { (0, 0) };
         if p.position() != bytes.len() {
             return None;
         }
-        Some(Self { bytes, version, windows, sidebar_rows, windows_start, sidebar_start, socket })
+        Some(Self {
+            bytes,
+            version,
+            windows,
+            sidebar_rows,
+            windows_start,
+            sidebar_start,
+            socket,
+            registry,
+        })
     }
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
@@ -180,6 +194,11 @@ impl LaunchRecord {
     }
     pub fn session_socket_path(&self) -> &str {
         span_str(&self.bytes, self.socket).unwrap_or("")
+    }
+    /// The daemon registry id the windows belonged to; empty for a v1 or v2 record, or when the
+    /// writer did not know it.
+    pub fn session_registry_id(&self) -> &str {
+        span_str(&self.bytes, self.registry).unwrap_or("")
     }
     /// The first window, `windows().next()`.
     pub fn front_window(&self) -> Option<WindowView<'_>> {
@@ -343,6 +362,7 @@ fn encode(r: &LaunchRecordData) -> Result<Vec<u8>, &'static str> {
         put_string(&mut o, &s.icon_key)?
     }
     put_string(&mut o, &r.session_socket_path)?;
+    put_string(&mut o, &r.session_registry_id)?;
     if o.len() > MAX_BYTES {
         return Err("record exceeds 64 KiB");
     };
@@ -577,6 +597,7 @@ unsafe fn input_data(
     sidebars: *const CmuxLaunchSidebarInput,
     sidebar_count: usize,
     socket: *const c_char,
+    registry: &str,
 ) -> Option<LaunchRecordData> {
     // A window needs at least WINDOW_MIN_BYTES encoded bytes; a sidebar row needs six.
     // Reject impossible counts before allocating or dereferencing an array.
@@ -591,6 +612,7 @@ unsafe fn input_data(
         windows: Vec::with_capacity(window_count),
         sidebar_rows: Vec::with_capacity(sidebar_count),
         session_socket_path: unsafe { c_string(socket)? }.to_owned(),
+        session_registry_id: registry.to_owned(),
     };
     for i in 0..window_count {
         let w = unsafe { &*windows.add(i) };
@@ -661,9 +683,41 @@ pub unsafe extern "C" fn cmux_launch_record_write(
     sidebar_count: usize,
     socket: *const c_char,
 ) -> bool {
-    let Some(path) = (unsafe { c_string(path) }) else { return false };
+    unsafe {
+        cmux_launch_record_write_registry(
+            path,
+            windows,
+            window_count,
+            sidebars,
+            sidebar_count,
+            socket,
+            c"".as_ptr(),
+        )
+    }
+}
+
+/// `cmux_launch_record_write` that also records the daemon registry id the windows belong to
+/// (`registry_id`, the handshake's): stage 0 draws no image of another session's windows.
+///
+/// # Safety
+/// As `cmux_launch_record_write`; `registry_id` is a readable NUL-terminated string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_launch_record_write_registry(
+    path: *const c_char,
+    windows: *const CmuxLaunchWindowInput,
+    window_count: usize,
+    sidebars: *const CmuxLaunchSidebarInput,
+    sidebar_count: usize,
+    socket: *const c_char,
+    registry_id: *const c_char,
+) -> bool {
+    let (Some(path), Some(registry)) =
+        (unsafe { c_string(path) }, unsafe { c_string(registry_id) })
+    else {
+        return false;
+    };
     let Some(data) =
-        (unsafe { input_data(windows, window_count, sidebars, sidebar_count, socket) })
+        (unsafe { input_data(windows, window_count, sidebars, sidebar_count, socket, registry) })
     else {
         return false;
     };
