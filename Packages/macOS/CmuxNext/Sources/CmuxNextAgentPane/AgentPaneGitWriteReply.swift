@@ -82,19 +82,38 @@ enum AgentPaneGitWriteReply {
     private static func createAndPick(_ write: AgentPaneGitWrite, source: String, session: String?, model: AgentPaneModel) async -> [String: Any] {
         let message = AgentPaneModel.gitWriteFailedMessage
         guard let onGitWrite = model.onGitWrite else { return AgentPaneModel.gitFailure(.notConnected, message: message) }
-        let reply = await AgentPaneModel.gitReply(message: message) { try await onGitWrite(write, source) }
-        guard let mutation = reply["value"] as? [String: Any], let value = mutation["value"] as? [String: Any],
-              let root = value["root"] as? String else { return reply }
         let home = model.transport.homeFolder
-        let canonical = await Task.detached { () -> String? in
-            guard let path = AcpmuxPathPolicy.canonical(root), let home = home.flatMap(AcpmuxPathPolicy.canonical),
-                  !AgentHome.isHomeOrAbove(path, home: home), AcpmuxPathPolicy.isDirectory(path),
-                  let info = try? FileManager.default.attributesOfItem(atPath: root), info[.type] as? FileAttributeType == .typeDirectory else { return nil }
-            return path
+        let agentHome = model.transport.agentHome()?.home
+        let project = await Task.detached(priority: .userInitiated) {
+            guard let folder = AgentHome.canonicalFolder(source), let userHome = home.flatMap(AgentHome.canonicalFolder),
+                  !AgentHome.isHomeOrAbove(folder, home: userHome), agentHome?.contains(folder) != true else { return nil as String? }
+            return folder
+        }.value
+        guard let project else { return AgentPaneModel.gitFailure(.noSessionFolder, message: message) }
+        guard model.sessionId == session, !model.remoteChat else { return AgentPaneModel.gitFailure(.sessionChanged, message: message) }
+        let reply = await AgentPaneModel.gitReply(message: message) { try await onGitWrite(write, project) }
+        guard let mutation = reply["value"] as? [String: Any] else { return reply }
+        guard mutation["replayed"] as? Bool == false, var value = mutation["value"] as? [String: Any],
+              let root = value["root"] as? String else { return AgentPaneModel.gitFailure(.failed, message: message) }
+        let main = value["main_root"] as? String
+        let canonical = await Task.detached(priority: .userInitiated) {
+            Self.createdFolder(root, main: main, home: home)
         }.value
         guard model.sessionId == session, !model.remoteChat else { return AgentPaneModel.gitFailure(.sessionChanged, message: message) }
         guard let canonical else { return AgentPaneModel.gitFailure(.noSessionFolder, message: message) }
-        await model.transport.grantPicked(canonical)
-        return reply
+        await model.transport.grantPicked(canonical, carryGesture: false)
+        value["root"] = canonical
+        var selected = mutation
+        selected["value"] = value
+        return AgentPaneReply.success(selected)
+    }
+
+    private nonisolated static func createdFolder(_ root: String, main: String?, home: String?) -> String? {
+        guard let path = AgentHome.canonicalFolder(root), let home = home.flatMap(AgentHome.canonicalFolder),
+              AgentHome.isRealFolder(root), !AgentHome.isHomeOrAbove(path, home: home) else { return nil }
+        let parent = (path as NSString).deletingLastPathComponent
+        if let main = main.flatMap(AgentHome.canonicalFolder), parent == main + "/.cmux-worktrees" { return path }
+        let shared = AgentHome.canonicalFolder(home + "/.cmux/worktrees")
+        return shared == (parent as NSString).deletingLastPathComponent ? path : nil
     }
 }
