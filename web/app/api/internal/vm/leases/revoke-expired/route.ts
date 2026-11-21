@@ -1,5 +1,5 @@
 import { jsonResponse } from "@/services/vms/routeHelpers";
-import { revokeExpiredIdentityLeases, runVmWorkflow } from "@/services/vms/workflows";
+import { pruneExpiredLeases, revokeExpiredIdentityLeases, runVmWorkflow } from "@/services/vms/workflows";
 import { authorizeCronRequest } from "@/services/cronAuth";
 
 
@@ -22,5 +22,6 @@ async function handle(request: Request): Promise<Response> {
   }
 
   const revoked = await runVmWorkflow(revokeExpiredIdentityLeases());
-  return jsonResponse({ ok: true, revoked });
+  const deleted = await runVmWorkflow(pruneExpiredLeases());
+  return jsonResponse({ ok: true, revoked, deleted });
 }
