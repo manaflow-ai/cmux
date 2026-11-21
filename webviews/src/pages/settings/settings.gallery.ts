@@ -1255,6 +1255,7 @@ Object.assign(variants, {
         },
       ],
     },
+    options: { values: { "labs.previewFeatures": true } },
     steps: [
       wait('[data-harness-update-card="codex"]'),
       { selector: '[data-harness-update-card="codex"] [data-harness-action="updateCard"]', action: "focus" },
@@ -1319,6 +1320,7 @@ Object.assign(variants, {
         },
       ],
     },
+    options: { values: { "labs.previewFeatures": true } },
     steps: [
       wait('[data-harness-update-card="claude"]'),
       { selector: "[data-harness-update-command]", action: "focus" },
@@ -1356,6 +1358,7 @@ Object.assign(variants, {
         },
       ],
     },
+    options: { values: { "labs.previewFeatures": true } },
     steps: [
       wait('[data-harness-update-card="codex"]'),
       { selector: '[data-agent-update-job="exited"]', action: "focus" },
