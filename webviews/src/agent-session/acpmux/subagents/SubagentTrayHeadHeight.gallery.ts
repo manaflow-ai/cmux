@@ -99,6 +99,15 @@ export default agentPaneEntry({
     script: [{ name: "the folded header", run: folded }],
   },
   variants: {
+    before: {
+      note: "Before: the folded header named what runs at 28px, the look Leo found too short; the open header's counts showed only once opened.",
+      experiments: { "subagent-tray-fold-head": "one", "subagent-tray-head-height": "row" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => head(ctx)?.querySelector(".acpmux-running-tray__title"));
+        if (head(ctx)!.querySelector(".acpmux-running-tray__kind")) throw new Error("the before look drew kinds");
+      },
+      snapshot: leoTray,
+    },
     "leo-tray": {
       note: "Leo's coordinator tray, folded: \"1 message · 1 wait\", each count after its kind's mark (the message's chat bubble, the wait's clock), then the time and the chevron. Hovering the wait names it.",
       play: async (ctx) => {
