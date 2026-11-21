@@ -9,8 +9,20 @@ def test_cloud_vm_terminal_startup_uses_persistent_attach_retries():
     restore = (ROOT / "Sources" / "SessionRemoteWorkspaceSnapshot+Restore.swift").read_text()
     cli = (ROOT / "CLI" / "cmux.swift").read_text()
 
+    builder = (
+        ROOT / "Packages" / "macOS" / "CmuxFoundation" / "Sources" / "CmuxFoundation"
+        / "CloudVMAttachRetryLoopScriptBuilder.swift"
+    ).read_text()
+
+    # The three loops share their settings and retry lines (#10419).
     for source in (workspace, restore, cli):
-        assert 'CMUX_SSH_RECONNECT_LIMIT=\\"${CMUX_SSH_RECONNECT_LIMIT:-86400}\\"' in source
+        assert "CloudVMAttachRetryLoopScriptBuilder().configurationLines" in source
+        assert "CloudVMAttachRetryLoopScriptBuilder().retryLoopLines" in source
+        assert '\\"$cmux_freestyle_cli\\" --socket \\"$CMUX_SOCKET_PATH\\" vm-pty-attach' in source
+        assert "cmux_freestyle_attach" in source
+
+    for source in (builder,):
+        assert 'CMUX_SSH_RECONNECT_LIMIT=\\"${CMUX_SSH_RECONNECT_LIMIT:-\\(budget.maximumLimit)}\\"' in source
         assert (
             'CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT=\\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT:-$CMUX_SSH_RECONNECT_LIMIT}\\"'
             in source
@@ -19,7 +31,6 @@ def test_cloud_vm_terminal_startup_uses_persistent_attach_retries():
             'CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS=\\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS:-$CMUX_SSH_RECONNECT_DELAY_SECONDS}\\"'
             in source
         )
-        assert '\\"$cmux_freestyle_cli\\" --socket \\"$CMUX_SOCKET_PATH\\" vm-pty-attach' in source
         assert "cmux_freestyle_attach" in source
 
 

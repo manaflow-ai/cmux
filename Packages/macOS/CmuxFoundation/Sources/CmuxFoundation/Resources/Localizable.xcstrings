@@ -5428,6 +5428,65 @@
         }
       }
     },
+    "ssh.reconnect.delay.invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] %1$@=%%s is not a whole number of seconds; using %2$lld.\n"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] %1$@=%%s ist keine ganze Anzahl von Sekunden; %2$lld wird verwendet.\n"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] %1$@=%%s n’est pas un nombre entier de secondes ; utilisation de %2$lld.\n"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] القيمة %1$@=%%s ليست عددًا صحيحًا من الثواني؛ سيتم استخدام %2$lld.\n"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] %1$@=%%s no es un número entero de segundos; se usará %2$lld.\n"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] %1$@=%%s 不是整數秒數；將使用 %2$lld。\n"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] %1$@=%%s 不是整数秒数；将使用 %2$lld。\n"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] %1$@=%%s은(는) 정수 초가 아닙니다. %2$lld을(를) 사용합니다.\n"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] %1$@=%%s は整数の秒数ではありません。%2$lld を使用します。\n"
+          }
+        }
+      }
+    },
     "cli.sshPtyAttach.retryReason.launchAcknowledgementTimeout": {
       "extractionState": "manual",
       "localizations": {

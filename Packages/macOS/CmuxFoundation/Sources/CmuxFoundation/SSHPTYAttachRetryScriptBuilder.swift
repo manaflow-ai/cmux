@@ -111,12 +111,11 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "cmux_ssh_attach_restore_terminal() { cmux_ssh_attach_flush_status=0; if [ \"${cmux_ssh_attach_input_paused:-0}\" = 1 ] && [ -n \"${cmux_ssh_attach_cli:-}\" ]; then \"$cmux_ssh_attach_cli\" __ssh-pty-flush-input <&0 >/dev/null 2>&1; cmux_ssh_attach_flush_status=$?; fi; cmux_ssh_attach_restore_status=0; if [ -n \"${cmux_ssh_attach_terminal_state:-}\" ]; then /bin/stty \"$cmux_ssh_attach_terminal_state\" <&0 2>/dev/null; cmux_ssh_attach_restore_status=$?; fi; cmux_ssh_attach_input_paused=0; if [ \"$cmux_ssh_attach_flush_status\" -ne 0 ] || [ \"$cmux_ssh_attach_restore_status\" -ne 0 ]; then cmux_ssh_attach_terminal_control_failed=1; fi; }",
         ]
         lines.append(contentsOf: reconnectLimitLines)
+        lines.append(contentsOf: SSHReconnectBudget().delayNormalizationShellLines(
+            variable: "cmux_ssh_attach_reconnect_delay",
+            maximumVariable: "cmux_ssh_attach_reconnect_max_delay"
+        ))
         lines.append(contentsOf: [
-            "cmux_ssh_attach_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
-            "case \"$cmux_ssh_attach_reconnect_delay\" in ''|*[!0-9]*|0*) cmux_ssh_attach_reconnect_delay=2 ;; esac",
-            "cmux_ssh_attach_reconnect_max_delay=\"${CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS:-30}\"",
-            "case \"$cmux_ssh_attach_reconnect_max_delay\" in ''|*[!0-9]*|0*) cmux_ssh_attach_reconnect_max_delay=30 ;; esac",
-            "if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi",
             "cmux_ssh_attach_reconnect_initial_delay=\"$cmux_ssh_attach_reconnect_delay\"",
             "cmux_ssh_attach_retry_reason=\(bridgeClosedReason)",
             "cmux_ssh_attach_suppress_replay=0",
