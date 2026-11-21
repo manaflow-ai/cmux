@@ -7933,6 +7933,15 @@ a.cv-sha:focus-visible {
   max-width: 100%;
   height: auto;
 }
+/* A spec with a fixed size keeps its chart's box from the first frame (DiagramBlock chartBox): the
+   library draws into it, so the reply never grows when the chart lands. It scales with the pane as
+   the drawn svg does (max-width: 100%, height: auto). */
+.cv-diagram__chart[data-reserve]:empty::before {
+  content: "";
+  display: block;
+  width: min(100%, var(--cv-diagram-w));
+  aspect-ratio: var(--cv-diagram-ratio);
+}
 /* Ondine's monochrome diagrams take the pane's colors (its defaults are black on white). */
 .cv-diagram__chart svg.ondine {
   --ondine-fg: var(--agent-text);
