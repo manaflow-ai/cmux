@@ -308,7 +308,10 @@ function datedHost(names: string[]) {
     },
     localPaths: async (kind: DroppedKind, batch: File[], gestureAt?: number) => {
       let index = records.length - 1;
-      while (index >= 0 && !(records[index]!.kind === kind && (gestureAt === undefined || records[index]!.at <= gestureAt)))
+      while (
+        index >= 0 &&
+        !(records[index]!.kind === kind && (gestureAt === undefined || records[index]!.at <= gestureAt))
+      )
         index -= 1;
       const [record] = index < 0 ? [] : records.splice(index, 1);
       if (!record || batch.map((file) => file.name).join() !== names.join()) return undefined;
