@@ -126,6 +126,41 @@ import Testing
             == ["--env", "CFFIXED_USER_HOME=/tmp/h"])
     }
 
+    /// Both reopens rest on macOS's own `open --env`, so a change there would quietly bring the
+    /// app back in the account's home: `open`'s usage lists the flag.
+    @Test func openListsTheEnvOption() throws {
+        let usage = try RelaunchHomeShell.run(["/bin/sh", "-c", "/usr/bin/open -h 2>&1; true"]).joined(separator: "\n")
+        #expect(usage.contains("--env"), "open usage: \(usage)")
+    }
+
+    /// In a login session (where LaunchServices launches apps), an app `open --env` launches gets
+    /// the home it was given, a space and a quote included. The app is a throwaway background-only
+    /// bundle whose executable writes what it got.
+    @Test(.enabled(if: RelaunchHomeShell.inLoginSession, "LaunchServices launches apps only in a login session"))
+    func openGivesTheLaunchedAppTheHome() throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = root.appending(path: "Home Probe.app", directoryHint: .isDirectory)
+        let executable = app.appending(path: "Contents/MacOS/probe")
+        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let info: NSDictionary = ["CFBundleExecutable": "probe", "CFBundlePackageType": "APPL", "LSBackgroundOnly": true,
+                                  "CFBundleIdentifier": "com.cmuxterm.test.relaunch-home.\(UUID().uuidString)"]
+        try info.write(to: app.appending(path: "Contents/Info.plist"))
+        try #"""
+        #!/bin/sh
+        printf '%s|%s|%s\n' "$HOME" "${CFFIXED_USER_HOME-unset}" "${RELAUNCH_HOME_CALLER-unset}" > "$1"
+        """#.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let drill = root.appending(path: "walk home/it's").path
+        let out = root.appending(path: "seen")
+        let options = RelaunchHome.openArguments(environment: ["HOME": drill, "CFFIXED_USER_HOME": drill], accountHome: "/Users/ci")
+        _ = try RelaunchHomeShell.run(["/usr/bin/env", "RELAUNCH_HOME_CALLER=caller", "/usr/bin/open", "-W", "-n", "-g"]
+                                      + options + [app.path, "--args", out.path])
+        let seen = try String(contentsOf: out, encoding: .utf8)
+        print("open --env probe: the launched app saw HOME|CFFIXED_USER_HOME|caller variable = \(seen)")
+        #expect(seen.hasPrefix("\(drill)|\(drill)|"), "seen: \(seen)")
+    }
+
     /// Runs the relaunch helper without its wait and with `printf` in place of `/usr/bin/open`;
     /// returns the argv `open` would get, one element per line.
     private static func openArgv(_ command: [String]) throws -> [String] {
@@ -136,7 +171,15 @@ import Testing
 }
 
 /// Runs a helper's shell command in tests and returns its stdout lines.
-enum RelaunchHomeShell {
+nonisolated enum RelaunchHomeShell {
+    /// Whether this process runs in a login (Aqua) session, where LaunchServices launches apps.
+    static let inLoginSession = ((try? run(["/bin/launchctl", "managername"])) ?? []).first == "Aqua"
+
+    struct Failed: Error {
+        let command: [String]
+        let status: Int32
+    }
+
     static func run(_ command: [String]) throws -> [String] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: command[0])
@@ -146,7 +189,7 @@ enum RelaunchHomeShell {
         try process.run()
         let data = out.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        #expect(process.terminationStatus == 0)
+        guard process.terminationStatus == 0 else { throw Failed(command: command, status: process.terminationStatus) }
         return String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false).dropLast().map(String.init)
     }
 }
