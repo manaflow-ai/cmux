@@ -17,7 +17,7 @@ extension PaneContentView {
     /// The trailing controls' width beside a strip `shown` tall (`layout()` hides it with the strip); `sharing`: beside a chat's tools in the row.
     func toolbarWidth(shown: CGFloat, sharing: Bool = false) -> CGFloat { shown > 0 ? toolbar?.view.paneWidth(in: bounds.width, sharing: sharing) ?? 0 : 0 }
 
-    func setPaneShownZoomed(_ zoomed: Bool) { zoomIndicator.show(zoomed: zoomed, controls: toolbar) }
+    func setPaneShownZoomed(_ zoomed: Bool) { if zoomed, zoomIndicator == nil { zoomIndicator = PaneZoomIndicatorView(model: stripView.model) }; zoomIndicator?.show(zoomed: zoomed, controls: toolbar) } // the first shown zoom makes it (`layoutAgentTag` adds it)
 
     /// The trailing controls' constraints beside a strip pinned to a browser's band.
     func toolbarBandPins() -> [NSLayoutConstraint] {
