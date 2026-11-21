@@ -51,8 +51,10 @@ import fresh_home_launch_smoke as smoke  # noqa: E402  (scripts/ci: the first-in
 
 CONTROLLER = os.environ.get("CMUX_CI_CONTROLLER") or "http://100.89.225.106:18765"
 # The processes the verdict judges: the daemons that must rest. The app and its helpers are reported too.
-DAEMON_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|terminal-host)$")
-SAMPLE_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*)$")
+# optchat-chief is the Chief host, a daemon that runs while the app does (row 9 of perf-lead.md, 2026-11-21:
+# 3.49 wakeups/s at idle passed unjudged because no pattern named it).
+DAEMON_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|terminal-host|optchat-chief)$")
+SAMPLE_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|optchat-chief)$")
 
 
 def log(message: str) -> None:
