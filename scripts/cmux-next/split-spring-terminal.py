@@ -139,6 +139,12 @@ if "--suite=hover-instant" in sys.argv:
 if "--suite=budgets" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-budgets.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=budgets"])
+# `--suite=stress`: the app under extreme stress from several angles (CPU and thread starvation, many streaming
+# agent chats, many workspaces with output floods, a CLI/socket flood, memory pressure), a baseline and a stress
+# window each (scripts/cmux-next/stress-bench.py; the `stress` cmux-bench).
+if "--suite=stress" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stress-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=stress"])
 # `--suite=workspace-scaling`: the warning-only 1/100/1000 workspace trend budget.
 if "--suite=workspace-scaling" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspace-scaling-bench.py")
