@@ -84,6 +84,52 @@ const review = Array.from({ length: 120 }, (_, index) => {
   };
 });
 
+// A rename with an edit, a pure rename, a binary change and a mode change, as `git diff` writes them.
+const renamesAndBinary = `diff --git a/src/net/http.ts b/src/net/client-http.ts
+similarity 88%
+rename from src/net/http.ts
+rename to src/net/client-http.ts
+index 3b18e51..a1f3c2d 100644
+--- a/src/net/http.ts
++++ b/src/net/client-http.ts
+@@ -1,3 +1,3 @@
+ export function request(url: string) {
+-  return fetch(url);
++  return fetch(url, { credentials: "include" });
+ }
+diff --git a/docs/old-name.md b/docs/new-name.md
+similarity 100%
+rename from docs/old-name.md
+rename to docs/new-name.md
+diff --git a/assets/logo.png b/assets/logo.png
+index 5f2c1a0..9e8d7b6 100644
+Binary files a/assets/logo.png and b/assets/logo.png differ
+diff --git a/scripts/release.sh b/scripts/release.sh
+old mode 100644
+new mode 100755
+`;
+
+// Lines far wider than the pane: the wrap toggle's case.
+const longBefore = `export const query = { select: ["id", "name", "email", "createdAt"], where: { team: "core" }, orderBy: "createdAt", limit: 50 };
+export const message = "short";
+`;
+const longAfter = `export const query = { select: ["id", "name", "email", "createdAt", "updatedAt", "lastSeenAt", "plan", "seats"], where: { team: "core", archived: false, region: { in: ["us-east-1", "eu-west-1"] } }, orderBy: [{ createdAt: "desc" }, { id: "asc" }], limit: 200 };
+export const message = "A much longer message that keeps going well past the edge of any reasonable diff pane width so it must scroll or wrap";
+`;
+
+// One large file: 400 lines with edits spread through it, so several hunks and the gaps between them show.
+const bigLines = Array.from({ length: 400 }, (_, k) => `  step${k}: () => run(${k}, { retries: ${k % 5} }),`);
+const bigBefore = `export const steps = {\n${bigLines.join("\n")}\n};\n`;
+const bigAfter = `export const steps = {\n${bigLines
+  .map((line, k) =>
+    k % 37 === 3
+      ? line.replace("retries", "attempts")
+      : k % 53 === 10
+        ? `${line}\n  extra${k}: () => skip(${k}),`
+        : line,
+  )
+  .join("\n")}\n};\n`;
+
 function reviewComment(id: string, filePath: string, line: number, message: string) {
   return {
     id,
@@ -175,6 +221,34 @@ export default diffPageEntry({
           { capMs: 10_000 },
         );
       },
+    },
+    loading: {
+      note: "The diff has not arrived yet: the skeleton.",
+      mode: "loading",
+      files: [{ path: "src/net/client.ts", before, after }],
+    },
+    error: {
+      note: "Opening the diff failed.",
+      mode: "error",
+      files: [{ path: "src/net/client.ts", before, after }],
+    },
+    "no-changes": {
+      note: "The source has no changes.",
+      patch: "",
+    },
+    "renamed-binary": {
+      note: "A rename with an edit, a pure rename, a binary file and a mode change.",
+      patch: renamesAndBinary,
+    },
+    "long-lines": {
+      note: "Lines wider than the pane, unified.",
+      layout: "unified",
+      files: [{ path: "src/db/query.ts", before: longBefore, after: longAfter }],
+    },
+    "large-file": {
+      note: "One 400-line file with edits spread through it: several hunks and the gaps between them.",
+      height: 760,
+      files: [{ path: "src/pipeline/steps.ts", before: bigBefore, after: bigAfter }],
     },
     "small-split": {
       note: "Two files, split layout: one changed, one added.",
