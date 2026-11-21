@@ -153,10 +153,12 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
                 return false
             }
             let parsed: JSONValue
+            var text: String?
             do {
-                parsed = try JSONC.parse(try source.get())
+                text = try source.get()
+                parsed = try JSONC.parse(text ?? "")
             } catch {
-                unreadable(String(describing: error))
+                unreadable(JSONC.problem(error, in: text))
                 return false
             }
             guard case .object(let members) = parsed else {

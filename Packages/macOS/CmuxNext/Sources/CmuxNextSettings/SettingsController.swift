@@ -445,7 +445,7 @@ public final class SettingsController {
             let parsed = try JSONC.parse(source)
             if case .object = parsed { root = parsed } else { problem = "root is not an object" }
         } catch {
-            problem = String(describing: error)
+            problem = JSONC.problem(error, in: source)
         }
         // Managed layers always merge, over the last good file when this one
         // is unreadable, so MDM forced values apply even while the user's
