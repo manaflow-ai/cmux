@@ -48,5 +48,103 @@ extension CEFSparePageSuites {
                 #expect(refused < load, "refused before the page loads: \(SpareSpy.log)")
             }
         }
+
+        /// Cloudflare's "Verify with a security key" (2026-11-20): an agent drove the tab to the 2FA step and handed it
+        /// over; the person's touch could not count, because the tab stayed refused for good and Cloudflare showed
+        /// "Security key verification did not finish" for every try, theirs included (a visible tab: NotAllowedError
+        /// in 6 ms, before any authenticator). Chrome runs the person's request. The person's own click or key in the
+        /// page (the app's input hook, which agent input through DevTools never reaches) takes the page over.
+        @Test func thePersonsClickInAnAgentTabLetsTheirSecurityKeyRun() throws {
+            let (runtime, root) = try Fixture.runtime()
+            defer { Fixture.tearDown(runtime, root) }
+            let (_, tab, _) = try Fixture.liveHost(runtime)
+            tab.markAgentDriven()
+            #expect(SpareSpy.webAuthnModes.map(\.mode) == [1])
+
+            runtime.windowRequests.linkClicks.record(.leftMouseDown, on: 10, button: 0, flags: [], timestamp: 1, byPerson: true)
+            #expect(SpareSpy.webAuthnModes.map(\.browser) == [10, 10])
+            #expect(SpareSpy.webAuthnModes.map(\.mode) == [1, 0], "CMUX_WEBAUTHN_MODE_ALLOW after the person's click")
+            runtime.windowRequests.linkClicks.record(.leftMouseUp, on: 10, button: 0, flags: [], timestamp: 1, byPerson: true)
+            runtime.windowRequests.linkClicks.record(.keyDown, on: 10, button: 0, flags: [], timestamp: 2, byPerson: true)
+            #expect(SpareSpy.webAuthnModes.count == 2, "set once")
+        }
+
+        /// The agent's next click, keys or navigation in the page refuses again: the hand-over was the person's.
+        @Test func theAgentsNextActionRefusesAgain() throws {
+            let (runtime, root) = try Fixture.runtime()
+            defer { Fixture.tearDown(runtime, root) }
+            let (_, tab, _) = try Fixture.liveHost(runtime)
+            tab.markAgentDriven()
+            runtime.windowRequests.linkClicks.record(.leftMouseDown, on: 10, button: 0, flags: [], timestamp: 1, byPerson: true)
+            tab.refuseWebAuthnForAgent()
+            #expect(SpareSpy.webAuthnModes.map(\.mode) == [1, 0, 1])
+            tab.refuseWebAuthnForAgent()
+            #expect(SpareSpy.webAuthnModes.count == 3, "refused once")
+            // And the person can take it again.
+            runtime.windowRequests.linkClicks.record(.keyDown, on: 10, button: 0, flags: [], timestamp: 2, byPerson: true)
+            #expect(SpareSpy.webAuthnModes.map(\.mode) == [1, 0, 1, 0])
+        }
+
+        /// The passkey hand-off (`cmux browser passkey`, the Chief's escalate_auth): the person's click on the request
+        /// or the tab already in front of them hands the page over before the trigger clicks its button.
+        @Test func aPasskeyHandOverAllowsTheCeremony() throws {
+            let (runtime, root) = try Fixture.runtime()
+            defer { Fixture.tearDown(runtime, root) }
+            let (_, tab, _) = try Fixture.liveHost(runtime)
+            tab.markAgentDriven()
+            tab.allowWebAuthnForPerson()
+            #expect(SpareSpy.webAuthnModes.map(\.mode) == [1, 0])
+            tab.allowWebAuthnForPerson()
+            #expect(SpareSpy.webAuthnModes.count == 2)
+        }
+
+        /// A person's own tab never had a mode set: their input and an agent action that never marked it change nothing.
+        @Test func aPersonsOwnTabMakesNoCalls() throws {
+            let (runtime, root) = try Fixture.runtime()
+            defer { Fixture.tearDown(runtime, root) }
+            let (_, tab, _) = try Fixture.liveHost(runtime)
+            runtime.windowRequests.linkClicks.record(.leftMouseDown, on: 10, button: 0, flags: [], timestamp: 1, byPerson: true)
+            tab.allowWebAuthnForPerson()
+            tab.refuseWebAuthnForAgent()
+            #expect(SpareSpy.webAuthnModes.isEmpty)
+        }
+
+        /// Every agent control call marks the tab (`AppBrowserPage.run`): on a tab the person took, that refuses again.
+        @Test func anAgentsNextCallRefusesAgain() throws {
+            let (runtime, root) = try Fixture.runtime()
+            defer { Fixture.tearDown(runtime, root) }
+            let (_, tab, _) = try Fixture.liveHost(runtime)
+            tab.markAgentDriven()
+            runtime.windowRequests.linkClicks.record(.leftMouseDown, on: 10, button: 0, flags: [], timestamp: 1, byPerson: true)
+            tab.markAgentDriven()
+            #expect(SpareSpy.webAuthnModes.map(\.mode) == [1, 0, 1])
+        }
+
+        /// The hand-off's trigger is itself an agent call (a click through `browser.page.evaluate`): while it runs it
+        /// does not refuse, so the page's WebAuthn call in that click runs; the next agent call refuses.
+        @Test func theHandOffsTriggerDoesNotRefuseItself() async throws {
+            let (runtime, root) = try Fixture.runtime()
+            defer { Fixture.tearDown(runtime, root) }
+            let (_, tab, _) = try Fixture.liveHost(runtime)
+            tab.markAgentDriven()
+            try await tab.handOverWebAuthn { @MainActor in
+                tab.markAgentDriven()
+                #expect(SpareSpy.webAuthnModes.map(\.mode) == [1, 0], "allowed while the trigger clicks")
+            }
+            tab.markAgentDriven()
+            #expect(SpareSpy.webAuthnModes.map(\.mode) == [1, 0, 1])
+        }
+
+        /// SECURITY: a click another process posts into the page (a computer-use agent, a script: not the HID system's,
+        /// the app's ``CEFLinkClickTracker/isPerson`` check) is no hand-over: the agent tab stays refused.
+        @Test func aPostedClickDoesNotTakeTheTab() throws {
+            let (runtime, root) = try Fixture.runtime()
+            defer { Fixture.tearDown(runtime, root) }
+            let (_, tab, _) = try Fixture.liveHost(runtime)
+            tab.markAgentDriven()
+            runtime.windowRequests.linkClicks.record(.leftMouseDown, on: 10, button: 0, flags: [], timestamp: 1, byPerson: false)
+            runtime.windowRequests.linkClicks.record(.keyDown, on: 10, button: 0, flags: [], timestamp: 2, byPerson: false)
+            #expect(SpareSpy.webAuthnModes.map(\.mode) == [1])
+        }
     }
 }
