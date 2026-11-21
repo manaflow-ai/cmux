@@ -3,8 +3,7 @@ import { EventEmitter } from "node:events"
 
 type Request = { method: string; target?: string; nonce?: boolean }
 export class CaptureOracle extends EventEmitter {
-  private sockets = new Map<number, { pending: Map<unknown, Request>; hello: boolean; attached: boolean }>()
-  private reply = ""
+  private sockets = new Map<number, { pending: Map<unknown, Request>; hello: boolean; attached: boolean; prompted: boolean; reply: string }>()
   helloCount = 0
   attachCount = 0
   promptSent = false
@@ -18,7 +17,7 @@ export class CaptureOracle extends EventEmitter {
     if (!message || typeof message !== "object") return
     let state = this.sockets.get(socket)
     if (!state) {
-      state = { pending: new Map(), hello: false, attached: false }
+      state = { pending: new Map(), hello: false, attached: false, prompted: false, reply: "" }
       this.sockets.set(socket, state)
     }
     if (direction === "sent") {
@@ -29,7 +28,10 @@ export class CaptureOracle extends EventEmitter {
       const nonce = method === "session/prompt" && Array.isArray(message.params?.prompt) &&
         message.params.prompt.some((part: any) => part.type === "text" && typeof part.text === "string" && part.text.includes(this.nonce))
       state.pending.set(message.id, { method, target, nonce })
-      if (method === "session/prompt" && state.attached && this.matches(target) && nonce) this.promptSent = true
+      if (method === "session/prompt" && state.attached && this.matches(target) && nonce) {
+        this.promptSent = true
+        state.prompted = true
+      }
     } else if (message.method === undefined) {
       const request = state.pending.get(message.id)
       if (!request) return
@@ -44,13 +46,18 @@ export class CaptureOracle extends EventEmitter {
         this.attachCount++
       }
       if (request.method === "session/prompt" && state.attached && this.matches(request.target) && request.nonce && message.result.stopReason === "end_turn") this.completed = true
-    } else if (message.method === "session/update" && state.attached && this.promptSent && this.matches(message.params?.sessionId)) {
-      const update = message.params?.update
+    } else if (state.attached && state.prompted) {
+      // The pane's eventStream attach wraps ACP messages in daemon event records.
+      const event = message.method === "_acpmux/event" ? message.params : undefined
+      if (event && (event.dir !== "in" || !this.matches(event.sessionId))) return
+      const updateMessage = event ? event.msg : message
+      if (updateMessage?.method !== "session/update" || (!event && !this.matches(updateMessage.params?.sessionId))) return
+      const update = updateMessage.params?.update
       if (update?.sessionUpdate !== "agent_message_chunk") return
       const content = update.content
       const text = typeof content?.text === "string" ? content.text : Array.isArray(content) ? content.map((part: any) => typeof part?.text === "string" ? part.text : "").join("") : ""
-      this.reply = (this.reply + text).slice(-4096)
-      this.replySeen ||= this.reply.includes(this.nonce)
+      state.reply = (state.reply + text).slice(-4096)
+      this.replySeen ||= state.reply.includes(this.nonce)
     }
     this.emit("change")
   }
