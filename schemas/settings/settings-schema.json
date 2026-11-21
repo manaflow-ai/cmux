@@ -2128,6 +2128,16 @@
             }
           },
           {
+            "key" : "settings.group.anonymousTelemetry",
+            "rows" : [
+              "app.sendAnonymousTelemetry"
+            ],
+            "title" : {
+              "key" : "settings.group.anonymousTelemetry",
+              "text" : "Anonymous Telemetry"
+            }
+          },
+          {
             "key" : "settings.group.hangReports",
             "rows" : [
               "diagnostics.hangReports"
@@ -4127,10 +4137,6 @@
     {
       "accepts" : [
         "minimal",
-        "cards",
-        "default",
-        "threads",
-        "console",
         "classic",
         "terminal"
       ],
@@ -4143,34 +4149,6 @@
             "text" : "Minimal"
           },
           "value" : "minimal"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabTemplateCards",
-            "text" : "Cards"
-          },
-          "value" : "cards"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabTemplateDefault",
-            "text" : "Default"
-          },
-          "value" : "default"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabTemplateThreads",
-            "text" : "Threads"
-          },
-          "value" : "threads"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabTemplateConsole",
-            "text" : "Console"
-          },
-          "value" : "console"
         },
         {
           "title" : {
@@ -4211,9 +4189,6 @@
         "greeting",
         "terminal",
         "classic",
-        "threads",
-        "console",
-        "cards",
         "search",
         "ask"
       ],
@@ -64726,7 +64701,10 @@
         "key" : "settings.group.sidebar",
         "text" : "Sidebar"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.sidebar.showSpaces.help",
+        "text" : "Spaces show once you have more than one. New Space is in the command palette."
+      },
       "kept_on_reset_all" : false,
       "key" : "sidebar.showSpaces",
       "keywords" : [
@@ -107653,6 +107631,145 @@
       "title" : {
         "key" : "settings.agents.cmuxMcp",
         "text" : "cmux Tools for Agents in cmux"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.anonymousTelemetry",
+        "text" : "Anonymous Telemetry"
+      },
+      "help" : {
+        "key" : "settings.diagnostics.anonymousTelemetry.help",
+        "text" : "Crash reports and anonymous performance timing, such as how long launch takes. Never your files, URLs or text. Applies from the next launch."
+      },
+      "kept_on_reset_all" : true,
+      "key" : "app.sendAnonymousTelemetry",
+      "keywords" : [
+        "telemetry",
+        "crash",
+        "reports",
+        "performance",
+        "timing",
+        "launch",
+        "privacy",
+        "diagnostics",
+        "anonymous"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "sendAnonymousTelemetry"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : {
+        "key" : "settings.diagnostics.anonymousTelemetry.summary",
+        "text" : "Crash reports and launch timing. No content."
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:app.sendAnonymousTelemetry"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.diagnostics.anonymousTelemetry",
+        "text" : "Send Anonymous Telemetry"
       },
       "validation" : "portable"
     },

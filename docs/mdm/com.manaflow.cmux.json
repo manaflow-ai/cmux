@@ -725,6 +725,12 @@
       "title" : "When Quitting",
       "type" : "string"
     },
+    "app.sendAnonymousTelemetry" : {
+      "default" : true,
+      "description" : "Crash reports and anonymous performance timing, such as how long launch takes. Never your files, URLs or text. Applies from the next launch.",
+      "title" : "Send Anonymous Telemetry",
+      "type" : "boolean"
+    },
     "app.showMenuBarIcon" : {
       "default" : true,
       "description" : "app.showMenuBarIcon",
@@ -5157,7 +5163,7 @@
     },
     "sidebar.showSpaces" : {
       "default" : false,
-      "description" : "sidebar.showSpaces",
+      "description" : "Spaces show once you have more than one. New Space is in the command palette.",
       "title" : "Show Spaces",
       "type" : "boolean"
     },
@@ -5805,10 +5811,6 @@
       "description" : "The layout of the New Tab page. Terminal opens a terminal instead.",
       "enum" : [
         "minimal",
-        "cards",
-        "default",
-        "threads",
-        "console",
         "classic",
         "terminal"
       ],
