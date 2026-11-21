@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "terminal-workflows",
+      "kind": "skill",
+      "name": "Terminal workflows",
+      "description": "Reusable shell workflows for fast, repeatable agent sessions.",
+      "publisher": "cmux community",
+      "version": "1.0.0",
+      "targets": [
+        "claude",
+        "codex",
+        "pi",
+        "opencode"
+      ],
+      "skill": "# Terminal workflows\n\nUse focused commands, bounded waits, and report the exact result."
+    },
+    {
+      "id": "git-review",
+      "kind": "skill",
+      "name": "Git review",
+      "description": "A compact review checklist for safe, focused changes.",
+      "publisher": "cmux community",
+      "version": "1.0.0",
+      "targets": [
+        "claude",
+        "codex",
+        "pi",
+        "opencode"
+      ],
+      "skill": "# Git review\n\nInspect the diff, run the smallest relevant check, and leave a clear receipt."
+    },
+    {
+      "id": "ui-polish",
+      "kind": "skill",
+      "name": "UI polish",
+      "description": "Practical guidance for stable, accessible interface changes.",
+      "publisher": "cmux community",
+      "version": "1.0.0",
+      "targets": [
+        "claude",
+        "codex",
+        "pi",
+        "opencode"
+      ],
+      "skill": "# UI polish\n\nKeep transitions cohesive, respect reduced motion, and verify narrow layouts."
+    },
+    {
+      "id": "filesystem-tools",
+      "kind": "mcp",
+      "name": "Filesystem tools",
+      "description": "A local MCP server for bounded file inspection and edits.",
+      "publisher": "cmux community",
+      "version": "1.0.0",
+      "targets": [
+        "claude",
+        "codex",
+        "pi",
+        "opencode"
+      ],
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "."
+      ]
+    },
+    {
+      "id": "browser-tools",
+      "kind": "mcp",
+      "name": "Browser tools",
+      "description": "A local MCP server for browser inspection and automation.",
+      "publisher": "cmux community",
+      "version": "1.0.0",
+      "targets": [
+        "claude",
+        "codex",
+        "pi",
+        "opencode"
+      ],
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-puppeteer"
+      ]
+    },
+    {
+      "id": "memory-tools",
+      "kind": "mcp",
+      "name": "Memory tools",
+      "description": "A small local MCP server for durable project notes.",
+      "publisher": "cmux community",
+      "version": "1.0.0",
+      "targets": [
+        "claude",
+        "codex",
+        "pi",
+        "opencode"
+      ],
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ]
+    },
+    {
+      "id": "review-kit",
+      "kind": "plugin",
+      "name": "Review kit",
+      "description": "A plugin bundle with review prompts and change summaries.",
+      "publisher": "cmux community",
+      "version": "1.0.0",
+      "targets": [
+        "claude"
+      ]
+    },
+    {
+      "id": "release-kit",
+      "kind": "plugin",
+      "name": "Release kit",
+      "description": "A plugin bundle for release notes and verification receipts.",
+      "publisher": "cmux community",
+      "version": "1.0.0",
+      "targets": [
+        "claude"
+      ]
+    }
+  ]
+}

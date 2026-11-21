@@ -87,6 +87,7 @@ enum FirstPartyPageSchemes {
         .serverCards,
         .settings,
         .setupCard,
+        .skills,
         .stats,
         .taskManager,
         .tasks,

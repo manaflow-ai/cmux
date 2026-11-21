@@ -57,6 +57,7 @@ stash
 stats
 glass-parity
 task-manager
+skills
 tasks
 "
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).

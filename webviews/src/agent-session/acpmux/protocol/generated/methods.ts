@@ -22,6 +22,10 @@ export interface AcpmuxRequests {
   "acp.trust.set": { params: TrustSetParams; result: unknown };
   "catalog.get": { params: unknown; result: unknown };
   "catalog.refresh": { params: unknown; result: unknown };
+  "skills.directory.list": { params: unknown; result: unknown };
+  "skills.directory.install": { params: unknown; result: unknown };
+  "skills.directory.remove": { params: unknown; result: unknown };
+  "skills.directory.status": { params: unknown; result: unknown };
   "_acpmux/v2": { params: unknown; result: unknown };
   "_acpmux/remote.pipe": { params: unknown; result: unknown };
   "_acpmux/tailnet/login": { params: unknown; result: unknown };
@@ -410,6 +414,10 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "catalog.get", kind: "request", acp: false, typed: false },
   { name: "catalog.refresh", kind: "request", acp: false, typed: false },
   { name: "catalog.changed", kind: "notification", acp: false, typed: false },
+  { name: "skills.directory.list", kind: "request", acp: false, typed: false },
+  { name: "skills.directory.install", kind: "request", acp: false, typed: false },
+  { name: "skills.directory.remove", kind: "request", acp: false, typed: false },
+  { name: "skills.directory.status", kind: "request", acp: false, typed: false },
   { name: "_acpmux/v2", kind: "request", acp: false, typed: false },
   { name: "_acpmux/remote.pipe", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tailnet/login", kind: "request", acp: false, typed: false },

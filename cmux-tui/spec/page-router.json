@@ -138,6 +138,19 @@
         "feed-view-changed",
         "feed-reports-changed"
       ]
+    },
+    "skills": {
+      "description": "Skills, MCP servers and plugins directory.",
+      "read": [
+        "skills.directory.list",
+        "skills.directory.status"
+      ],
+      "gesture": [],
+      "confirm": [
+        "skills.directory.install",
+        "skills.directory.remove"
+      ],
+      "events": []
     }
   },
   "namespaces": {
@@ -219,6 +232,18 @@
         "feed.github.refresh",
         "feed.reports.reply",
         "feed.presence.set"
+      ]
+    },
+    "skills": {
+      "owner": "skills.directory",
+      "description": "The local skills directory installer.",
+      "read": [
+        "skills.directory.list",
+        "skills.directory.status"
+      ],
+      "mutation": [
+        "skills.directory.install",
+        "skills.directory.remove"
       ]
     }
   }
