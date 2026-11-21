@@ -31,6 +31,11 @@ const EXIT_BOUND: Duration = Duration::from_secs(10);
 /// loaded runner.
 const LOSS_EXIT_BOUND: Duration = Duration::from_secs(10);
 
+/// How long the test keeps removing the owner's root while the running
+/// owner still writes into it. Each pass takes milliseconds; a tree still
+/// there after this is made again by the owner, which is a bug.
+const REMOVE_BOUND: Duration = Duration::from_secs(5);
+
 /// CPU an owner may use in a window where it should be idle or exiting. An
 /// idle owner uses next to nothing (idle_wakeups.rs); a spinning thread uses
 /// a full second per second. Linux `ps` counts whole seconds.
@@ -119,6 +124,50 @@ fn scratch(name: &str) -> PathBuf {
     PathBuf::from(format!("/tmp/oil-{name}-{}-{stamp}", std::process::id()))
 }
 
+/// Remove `root` and everything in it, as the harness's cleanup did. The
+/// owner is still running and may add a file (its journal, a log line) to a
+/// directory between `remove_dir_all`'s listing and its `rmdir`, which then
+/// fails with "Directory not empty"; a later pass removes the new entry. A
+/// tree that is still there after `REMOVE_BOUND` means the owner keeps
+/// making it again, and the test fails naming what is left.
+fn remove_tree(root: &Path) {
+    let deadline = std::time::Instant::now() + REMOVE_BOUND;
+    loop {
+        match fs::remove_dir_all(root) {
+            Ok(()) => return,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+            Err(error) if error.kind() == std::io::ErrorKind::DirectoryNotEmpty => {
+                if std::time::Instant::now() >= deadline {
+                    let left: Vec<_> = walk(root);
+                    panic!(
+                        "{} is still not empty after {REMOVE_BOUND:?} ({error}): {left:?}",
+                        root.display()
+                    );
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(error) => panic!("removing {}: {error}", root.display()),
+        }
+    }
+}
+
+/// Every path under `root` that is still there, for a failure message.
+fn walk(root: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path.clone());
+            }
+            found.push(path);
+        }
+    }
+    found
+}
+
 /// The CPU time `ps` reports for `pid`; `None` only once the process is
 /// confirmed gone (no such process, or a zombie). A `ps` that cannot run or
 /// prints something unreadable fails the test instead of counting as gone.
@@ -203,7 +252,7 @@ fn orphaned_owner_exits_when_its_socket_and_state_are_removed() {
         .any(|line| line.contains("\"id\":1"));
     assert!(answered, "the owner never answered identify");
     let before = cpu(owner.pid()).expect("the owner is running");
-    fs::remove_dir_all(&root).unwrap();
+    remove_tree(&root);
     std::thread::sleep(Duration::from_secs(2));
     assert!(
         cpu(owner.pid()).is_some(),
