@@ -196,7 +196,10 @@ compiled the nearest commit (scripts/ci/dev_landing_place.py with FRESH_LABEL, p
 runner listing: a host with any busy runner is occupied (whatever holds its host lock runs there); a
 pick claims a host only when its label resolves to exactly one idle runner (a DEV slot or root runner by
 its static label, or the one idle DEV slot), scored by the host's cmux-next-dev-cas-holder-<host>
-record. Otherwise the shared DEV slot label at once: it never waits. Never the shared side label: GitHub
+record. Otherwise an idle nightly slot (NIGHTLY_LABEL, from vars.CI_DEV_COMPILE_NIGHTLY_RUNNER, default
+glaeda-nightly-std-xcode-26.6, picked as nightly_build_runner.owned_route() picks the nightly's own): the
+runner hook ranks the DEV daily compile nightly-tier, and Leo's rule is "Nightlies come first on the fleet".
+Otherwise the shared DEV slot label at once: it never waits. Never the shared side label: GitHub
 hands that label's queue out oldest first, so an idle side runner in the one listing is no place in line,
 and the compile joins the tail behind every PR job there (run 44941204257, 2026-11-21: 76 min on
 glaeda-side-std-xcode-26.6 behind about 130 jobs, then a capacity refusal; Leo's rule: "Nightlies come first

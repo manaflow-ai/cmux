@@ -6149,6 +6149,8 @@ jobs:
           SHA: ${{ inputs.same_tree_sha || inputs.dev_daily_sha || github.sha }}
           SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}
           FRESH_LABEL: ${{ vars.CI_DEV_COMPILE_RUNNER || 'glaeda-dev-std-xcode-26.6' }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-8
+          NIGHTLY_LABEL: ${{ vars.CI_DEV_COMPILE_NIGHTLY_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-404
           BLACKSMITH_CANDIDATE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 }}
           GAP_REPO: ${{ runner.temp }}/dev-compile-history

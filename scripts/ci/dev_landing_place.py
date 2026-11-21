@@ -255,7 +255,8 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
         return holders[host]
 
     if fresh_label:
-        return place_daily(side_label, fresh_label, read_runners, distance_of, overflow)
+        return place_daily(side_label, fresh_label, read_runners, distance_of, overflow,
+                           nightly_label=(env.get("NIGHTLY_LABEL") or "").strip())
     try:
         taken, busy_hosts = read_in_flight()
     except Exception as error:  # noqa: BLE001 - unknown in-flight landings: place on the live state
@@ -279,8 +280,12 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
 
 def place_daily(side_label: str, fresh_label: str, read_runners: Callable[[], Sequence[Mapping[str, Any]]],
                 distance_of: Callable[[str], tuple[str, int | None]],
-                overflow: Callable[[], tuple[str, str, bool]] | None = None) -> dict[str, str]:
-    """A DEV daily's compile: the idle runner nearest its cache, from one runner listing (see the module doc)."""
+                overflow: Callable[[], tuple[str, str, bool]] | None = None, nightly_label: str = "") -> dict[str, str]:
+    """A DEV daily's compile: the idle runner nearest its cache, from one runner listing (see the module doc).
+
+    The order: an idle owned runner on the nearest cache, then an idle nightly slot (NIGHTLY_LABEL; the runner hook
+    ranks the DEV daily compile nightly-tier, so the slot admits it), then an idle DEV slot, then a moving
+    Blacksmith overflow, then a busy DEV slot. Never the shared side label."""
     root_label = side_label.replace("glaeda-side-", "glaeda-root-", 1)
     try:
         runners = list(read_runners())
@@ -310,6 +315,15 @@ def place_daily(side_label: str, fresh_label: str, read_runners: Callable[[], Se
         return {"runs_on": json.dumps(runs_on), "runner_label": label, "pool": "owned", "host": host_of(name),
                 "holder_sha": holder, "gap": str(distance),
                 "reason": f"{name} is idle on {host_of(name)}, whose cache is {distance} commits from this commit"}
+    if nightly_label:
+        # Leo's rule: "Nightlies come first on the fleet". The nightly slots take only feed work, so an idle one is a
+        # place at the front; the pick is the nightly build's own (nightly_build_runner.owned_route()).
+        import nightly_build_runner as nightly  # noqa: PLC0415 - the checked-out base's picker
+
+        label, why = nightly.owned_route(nightly_label, online)
+        if label:
+            return {**DAILY_KEEP, "runs_on": json.dumps(label), "runner_label": label, "pool": "owned",
+                    "reason": f"no idle runner on a free host with a cache record; nightly slot: {why}"}
     if slots:
         return {**DAILY_KEEP, "runs_on": json.dumps(fresh_label), "runner_label": fresh_label, "pool": "owned",
                 "reason": f"no idle runner on a free host with a cache record; {len(slots)} DEV slots are idle"}

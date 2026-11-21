@@ -104,6 +104,9 @@ class WorkflowTests(unittest.TestCase):
         # Every attempt is placed: run 44941204257's rescue re-run (attempt 2, 2026-11-21) skipped placement and fell
         # to the side label's tail behind about 130 PR jobs.
         self.assertNotIn("run_attempt", job["if"])
+        place_env = {s.get("id"): s for s in job["steps"]}["place"]["env"]
+        self.assertEqual(place_env["NIGHTLY_LABEL"],
+                         "${{ vars.CI_DEV_COMPILE_NIGHTLY_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
         runs_on = self.jobs["cmux-scheme-compile"]["runs-on"]
         self.assertIn("needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev-daily-place.outputs.runs_on)", runs_on)
         self.assertNotIn("github.run_attempt == 1 && needs.dev-daily-place", runs_on)

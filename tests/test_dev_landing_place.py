@@ -375,6 +375,35 @@ class DailyPickerTests(unittest.TestCase):
                 self.assertNotEqual(json.loads(result["runs_on"]) if result["runs_on"] else "", SIDE)
                 self.assertNotEqual(result.get("runner_label"), SIDE)
 
+    def test_an_idle_nightly_slot_comes_after_the_nearest_cache_and_before_the_dev_slot_and_blacksmith(self):
+        # The runner hook ranks the DEV daily compile nightly-tier, so the nightly slot admits it. Leo: "Nightlies
+        # come first on the fleet". Order: owned idle on the nearest cache, idle nightly slot, DEV slot, Blacksmith.
+        nightly = "glaeda-nightly-std-xcode-26.6"
+        night = runner("cmux20s-glaeda-nightly", nightly)
+        # A claimable warm host still wins.
+        result = self.daily([slot("cmux8s-glaeda-2"), night], self.records(cmux8s=1), NIGHTLY_LABEL=nightly)
+        self.assertEqual((result["runner_label"], result["host"]), (FRESH, "cmux8s"))
+        # Without one, the idle nightly slot beats the idle DEV slot label and Blacksmith.
+        for runners in ([slot("cmux8s-glaeda-2"), slot("cmux9s-glaeda-2"), night],
+                        [slot("cmux8s-glaeda-2", busy=True), runner("cmux13s-glaeda-9", SIDE), night]):
+            with self.subTest(runners=[r["name"] for r in runners]):
+                result = self.daily(runners, {}, snapshot({SMALL: 0, LARGE: 0}), NIGHTLY_LABEL=nightly)
+                self.assertEqual((json.loads(result["runs_on"]), result["runner_label"], result["pool"]),
+                                 (nightly, nightly, "owned"))
+        # A busy or offline nightly slot is no pick: the DEV slot, then Blacksmith, as before.
+        for state in (dict(busy=True), dict(status="offline")):
+            with self.subTest(**state):
+                busy_night = runner("cmux20s-glaeda-nightly", nightly, **state)
+                result = self.daily([slot("cmux8s-glaeda-2"), slot("cmux9s-glaeda-2"), busy_night], {},
+                                    NIGHTLY_LABEL=nightly)
+                self.assertEqual(json.loads(result["runs_on"]), FRESH)
+                result = self.daily([slot("cmux8s-glaeda-2", busy=True), busy_night], {},
+                                    snapshot({SMALL: 0, LARGE: 0}), NIGHTLY_LABEL=nightly)
+                self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (SMALL, "blacksmith"))
+        # Unset, it is never read.
+        result = self.daily([slot("cmux8s-glaeda-2"), slot("cmux9s-glaeda-2"), night], {})
+        self.assertEqual(json.loads(result["runs_on"]), FRESH)
+
     def test_unreadable_runners_or_owned_pools_off_keep_the_route(self):
         def refused():
             raise RuntimeError("HTTP 403")
