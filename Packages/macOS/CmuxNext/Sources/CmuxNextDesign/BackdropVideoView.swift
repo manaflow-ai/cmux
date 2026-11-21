@@ -51,9 +51,7 @@ public final class BackdropVideoView: NSView {
         wantsLayer = true
         playerLayer.videoGravity = .resizeAspectFill
         playerLayer.opacity = 0
-        // The layer follows the view's size on its own: a backdrop made at `.zero` and sized by
-        // its superview's autoresize gets no layout pass, and a layer sized only in `layout()`
-        // stayed at its first frame, anchored bottom-left.
+        // Follows the view's size with no layout pass (sized only in layout(), it stayed bottom-left).
         playerLayer.frame = bounds
         playerLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         layer?.addSublayer(playerLayer)
