@@ -4,7 +4,7 @@ import Foundation
 /// attempt's id, and the prompt's run and one-use nonce it was bound to. It is evidence of
 /// delivery only, never authority: the conversation owner reads the exact receipt back from acpmux
 /// (`_acpmux/info {deliveryAttempt}`) and records a Home card only when acpmux says delivered.
-public struct AcpmuxDeliveryReceipt: Sendable, Equatable {
+public nonisolated struct AcpmuxDeliveryReceipt: Sendable, Equatable {
     public let id: String
     public let instance: String
     public let decisionNonce: String
