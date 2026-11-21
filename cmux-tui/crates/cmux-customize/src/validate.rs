@@ -16,7 +16,7 @@ use cmux_config::{FileRead, Schema, State, jsonc};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::tree::Part;
+use crate::tree::{AGENT_PANE_LAYOUT, Part};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Problem {
@@ -104,6 +104,7 @@ pub fn problems(files: &BTreeMap<String, Vec<u8>>) -> Vec<Problem> {
                 json_object(path, text, &mut found);
             }
             Part::Views => view(path, text, files, &mut found),
+            Part::Styles if path == AGENT_PANE_LAYOUT => layout(path, text, &mut found),
             Part::Styles => {}
         }
     }
@@ -223,6 +224,43 @@ fn keybindings(path: &str, text: &str, found: &mut Vec<Problem>) {
             "must be a JSON array of bindings, like [{ \"key\": \"cmd+k\", \"command\": \"...\" }]",
         )),
         None => {}
+    }
+}
+
+/// The agent pane's `layout.json` as its reader takes it
+/// (`AgentPaneCustomization.layoutObject`, Foundation's `JSONSerialization`):
+/// plain JSON, no comments, and a JSON object, or the pane drops the whole
+/// file. What is inside the object is the page's to read, and it is lenient
+/// by design (`readQuickActions` drops an unknown id and keeps the default
+/// for a list it cannot read), so nothing in it is refused here. An empty
+/// file reads as no layout, as a missing one does.
+fn layout(path: &str, text: &str, found: &mut Vec<Problem>) {
+    if text.trim().is_empty() {
+        return;
+    }
+    match serde_json::from_str::<Value>(text) {
+        Ok(value) if value.is_object() => {}
+        Ok(_) => found.push(Problem::at(
+            path,
+            Some(1),
+            None,
+            "must be a JSON object, like { \"quickActions\": [\"terminal\", \"browser\"] }",
+        )),
+        Err(error) => {
+            let message = strip_serde_position(&error.to_string());
+            let message = if jsonc::parse(text).is_ok() {
+                // Valid only with comments or trailing commas: the pane's
+                // reader takes plain JSON and would drop it.
+                format!(
+                    "{message} (the agent pane reads plain JSON: no comments or trailing commas)"
+                )
+            } else {
+                message
+            };
+            let line = u32::try_from(error.line()).ok().filter(|line| *line > 0);
+            let column = u32::try_from(error.column()).ok().filter(|column| *column > 0);
+            found.push(Problem::at(path, line, column, message));
+        }
     }
 }
 
@@ -437,6 +475,33 @@ mod tests {
             check("agent-pane/theme.css", ":root { --agent-gap: 4px }"),
             Vec::<String>::new()
         );
+    }
+
+    #[test]
+    fn the_agent_pane_layout_is_a_plain_json_object() {
+        let path = AGENT_PANE_LAYOUT;
+        for valid in [
+            "",
+            "{}",
+            "{\"quickActions\": [{\"id\": \"terminal\", \"mode\": \"open\"}, \"browser\"]}",
+            // The page drops what it does not know; the file still loads.
+            "{\"quickActions\": [\"nope\"], \"dictation\": {\"autoSend\": true}}",
+        ] {
+            assert_eq!(check(path, valid), Vec::<String>::new(), "{valid}");
+        }
+        let list = check(path, "[\"terminal\"]");
+        assert_eq!(list.len(), 1, "{list:?}");
+        assert!(list[0].contains("must be a JSON object"), "{list:?}");
+        let broken = check(path, "{\n  \"quickActions\": [\n}\n");
+        assert_eq!(broken.len(), 1, "{broken:?}");
+        assert!(broken[0].starts_with("agent-pane/layout.json:3:"), "{broken:?}");
+        let commented = check(path, "{\n  // mine\n  \"quickActions\": []\n}\n");
+        assert_eq!(commented.len(), 1, "{commented:?}");
+        assert!(commented[0].starts_with("agent-pane/layout.json:2:"), "{commented:?}");
+        assert!(commented[0].contains("plain JSON"), "{commented:?}");
+        let hidden = check(path, "{\"quickActions\": [\"termi\u{202E}nal\"]}");
+        assert_eq!(hidden.len(), 1, "{hidden:?}");
+        assert!(hidden[0].contains("U+202E"), "{hidden:?}");
     }
 
     #[test]

@@ -28,7 +28,9 @@ Where things are:\n\
 - {views}: {views_dir}/ (place a section with `cmux apps place 'local/customize#cmux.section/1'`; \
 a whole New Tab page (`cmux.newtab/1`) shows only once picked: `cmux settings set tabs.newTabApp local/customize`, \
 and only on the web New Tab page, so `tabs.nativeNewTabPage` must be false)\n\
-- {styles}: {config}/agent-pane/theme.css\n\
+- {styles}: {config}/agent-pane/theme.css, and the agent pane's layout in {config}/agent-pane/layout.json \
+(one plain JSON object, no comments; `quickActions` lists the chat header's buttons in order, like \
+[\"terminal\", {{\"id\": \"browser\", \"mode\": \"open\"}}])\n\
 - {automations}: make and change them with `cmux automation create|update …` (`cmux automation --help`)\n\
 \n\
 Recipes and working templates are in the cmux-customization skill; read the one that fits before you write.\n\
