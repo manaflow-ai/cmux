@@ -6,9 +6,13 @@
 
 use super::*;
 
-/// `acpmux send --from AGENT`: another agent's message, steering by default.
+/// `acpmux send --from AGENT`: another agent's message, steering by default. A question, so it
+/// steers into the running turn at once rather than waiting out a result's coalescing window
+/// (`hub/inbox.rs` `STEER_COALESCE_MS`).
 fn from_agent(id: &str, prompt_id: &str, text: &str, steer: bool) -> Value {
-    let meta = json!({"promptId": prompt_id, "fromAgent": "coordinator", "steer": steer});
+    let meta = json!({
+        "promptId": prompt_id, "fromAgent": "coordinator", "steer": steer, "class": "question"
+    });
     json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": meta}})
 }
 
