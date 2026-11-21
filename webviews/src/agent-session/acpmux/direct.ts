@@ -11652,6 +11652,18 @@ export class AcpmuxDirectClient {
 
   private emitNow(connection: string): void {
     if (this.closed && !this.replayMode && !(this.fedMode && !this.disposed)) return;
+    const dbgLog = ((globalThis as any).__emitLog ??= []);
+    dbgLog.push({
+      t: Math.round(performance.now()),
+      c: connection,
+      held: !!this.snapshotHold,
+      w: this.workingNow(this.summary),
+      st: this.summary?.status,
+      to: this.turnOpen,
+      rt: this.replayThrough,
+      ev: this.events.length,
+      stack: (new Error().stack ?? "").split("\n").slice(3, 9).map((l) => l.trim().replace(/\(.*\//, "(")).join(" < "),
+    });
     if (this.snapshotHold) {
       this.snapshotHold.connection = connection;
       // The release draws everything since: no frame-batched snapshot is left waiting.
