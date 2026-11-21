@@ -108,7 +108,6 @@ Ouvrez le `.dmg` et glissez cmux dans votre dossier Applications. cmux se met à
 ### Homebrew
 
 ```bash
-brew tap manaflow-ai/cmux
 brew install --cask cmux
 ```
 
