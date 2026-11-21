@@ -119,6 +119,8 @@ env:
 jobs:
   decide:
     permissions:
+      # actions: read lets the 08:47 catch-up see another run already building this commit.
+      actions: read
       contents: write
       attestations: write
       id-token: write
@@ -353,7 +355,7 @@ jobs:
                       owner, repo, run_id: run.id, per_page: 100,
                     });
                     const building = jobs.find((job) => /^build-nightly-app/.test(job.name) &&
-                      job.conclusion !== 'skipped' && job.conclusion !== 'cancelled' && job.conclusion !== 'failure');
+                      (job.status !== 'completed' || job.conclusion === 'success'));
                     if (building) { duplicateOfRun = run; break; }
                   }
                   if (duplicateOfRun) break;
