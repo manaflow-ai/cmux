@@ -1128,3 +1128,32 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-peer-copy[data-arm=button] .acpmux-peer-copy-title{align-items:center;justify-content:space-between}
 .acpmux-peer-copy-resume{flex:none;border:0;border-radius:6px;padding:4px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:default}
 .acpmux-peer-copy-resume:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
+
+/* The browser supplies the sidebar beside the same flex child as the native window. */
+.acpmux-browser-sidebar {
+  flex: 0 0 clamp(150px, 23vw, 264px);
+  min-width: 0;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 12px 8px;
+  border-inline-end: 1px solid var(--agent-border);
+  background: var(--agent-surface);
+}
+.acpmux-browser-sidebar h2 { margin: 4px 8px 12px; font-size: 13px; }
+.acpmux-browser-sidebar input { width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 5px 8px; }
+.acpmux-browser-sidebar button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: start;
+}
+.acpmux-browser-sidebar button:hover,
+.acpmux-browser-sidebar button[aria-current="page"] { background: var(--agent-accent-soft); }
+.acpmux-browser-sidebar button span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
