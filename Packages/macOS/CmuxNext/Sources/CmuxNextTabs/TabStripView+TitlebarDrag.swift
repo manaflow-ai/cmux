@@ -3,50 +3,53 @@ public import CmuxNextDesign
 
 // Dogfood nxdog12/nxdog14: "tabs at top drag full window around". The strip
 // answers the window's one titlebar decision (`TitlebarDragPolicy`): only
-// empty strip space in the top row moves the window; a tab, a chip, the gap
-// between two and + never do.
+// empty strip space in the top row moves the window; a tab's pill, a chip and
+// + never do. The gaps between them are empty space (#48653).
 extension TabStripView: TitlebarPressDeciding {
     public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
-        actsAsTitlebar && titlebarHit(at: convert(windowPoint, from: nil)) == .empty ? .movesWindow : .staysPut
+        pressIsTitlebar(at: convert(windowPoint, from: nil)) ? .movesWindow : .staysPut
     }
 
     /// What a press at a strip point is for.
     public enum TitlebarHit: Equatable, Sendable {
-        /// A tab, a group chip, the gap between two of them, the + button, the
-        /// or the location field: the strip handles it and the window stays.
+        /// A tab's pill, a group chip, the + button or its chooser: the strip handles it and the window stays.
         case strip
-        /// Empty strip space: in the top row it moves the window and a
-        /// double-click runs the titlebar action.
+        /// Any other strip space, the gaps between pills and buttons too: in the top row it moves the window and a
+        /// double-click runs the titlebar action (https://github.com/manaflow-ai/cmux/issues/48653).
         case empty
     }
 
-    /// Strip-local rects that take the mouse: the run of tabs and chips from
-    /// the first one to the + button and the location field.
-    func mouseRects() -> [CGRect] {
-        var rects: [CGRect] = []
-        let clip = contentView.convert(tabsClip.frame, to: self)
-        let runEnd = newTabButton.isHidden
-            ? clip.minX + min(tabRunTrailing(), clip.width)
-            : contentView.convert(newTabMenuButton.isHidden ? newTabButton.frame : newTabMenuButton.frame, to: self).maxX
-        if runEnd > clip.minX { rects.append(CGRect(x: clip.minX, y: 0, width: runEnd - clip.minX, height: bounds.height)) }
-        return rects
-    }
-
-    /// The per-point decision (pure): a point outside every mouse rect is
-    /// empty strip space.
-    public static func titlebarHit(at point: CGPoint, mouseRects: [CGRect]) -> TitlebarHit {
-        mouseRects.contains { $0.minX <= point.x && point.x < $0.maxX } ? .strip : .empty
-    }
-
-    /// What a press at `point` (strip coordinates) is for.
+    /// What a press at `point` (strip coordinates) is for: the controls the strip's `mouseDown(with:)` acts on,
+    /// with a tab narrowed to its drawn pill (a tab's slot ends in the gap before the next pill,
+    /// `TabStripMetrics.pillFrame`).
     public func titlebarHit(at point: CGPoint) -> TitlebarHit {
-        Self.titlebarHit(at: point, mouseRects: mouseRects())
+        if isInNewTabButton(point) || isInNewTabMenuButton(point) || arrivingCloseTab(at: point) != nil
+            || chipGroup(at: point) != nil { return .strip }
+        guard let id = tabID(at: point), let cell = cells[id] else { return .empty }
+        let x = convert(point, to: tabsClip).x - cell.frame.minX
+        return x < metrics.pillFrame(slotWidth: cell.frame.width, height: cell.frame.height).width ? .strip : .empty
     }
 
-    /// The tabs' trailing edge in the clip, scrolled (for a strip whose +
-    /// button is hidden).
-    private func tabRunTrailing() -> CGFloat {
-        let ends = cells.values.map(\.frame.maxX) + groups.chips.values.map(\.frame.maxX)
-        return max(0, ends.max() ?? 0)
+    /// Whether a press at `point` (strip coordinates) is the window's: empty strip space while the strip is the
+    /// top row's titlebar. The strip leaves that press alone; the window moves or runs its double-click action.
+    func pressIsTitlebar(at point: CGPoint) -> Bool {
+        actsAsTitlebar && titlebarHit(at: point) == .empty
+    }
+
+    /// Strip-local rects of the controls that take the mouse: every shown tab's pill, the group chips, the + button
+    /// and its chooser, each the strip's full height.
+    func mouseRects() -> [CGRect] {
+        var rects = displayed.compactMap { item -> CGRect? in
+            guard let cell = cells[item.id], cell.frame.width > 0.5 else { return nil }
+            let pill = metrics.pillFrame(slotWidth: cell.frame.width, height: cell.frame.height)
+            let rect = tabsClip.convert(CGRect(x: cell.frame.minX, y: 0, width: pill.width, height: tabsClip.bounds.height), to: self)
+            return CGRect(x: rect.minX, y: 0, width: rect.width, height: bounds.height)
+        }
+        rects += groups.chips.values.map { chip in
+            let rect = tabsClip.convert(chip.frame, to: self)
+            return CGRect(x: rect.minX, y: 0, width: rect.width, height: bounds.height)
+        }
+        rects += [newTabButton as NSView, newTabMenuButton].filter { !$0.isHidden }.map { contentView.convert($0.frame, to: self) }
+        return rects
     }
 }
