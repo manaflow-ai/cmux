@@ -41,12 +41,17 @@ import Testing
         #expect(attach["cols"] as? Int == 54)
         #expect(attach["rows"] as? Int == 42)
         #expect(attaches(daemon).count == 1)
-        // The replay came after the reset, and the attach already holds the grid: no resize.
-        let output = events.compactMap { event -> String? in
-            if case .output(let data) = event { return String(decoding: data, as: UTF8.self) }
-            return nil
-        }.joined()
-        #expect(output.hasPrefix("\u{1B}chello\r\n$ "), "\(output.debugDescription)")
+        // The replay came after the reset (its event lines reach the main
+        // actor in their own hop, so maybe just after `.attached`), and the
+        // attach already holds the grid: no resize.
+        func output() -> String {
+            events.compactMap { event -> String? in
+                if case .output(let data) = event { return String(decoding: data, as: UTF8.self) }
+                return nil
+            }.joined()
+        }
+        try await waitUntil { output().count >= "\u{1B}chello\r\n$ ".count }
+        #expect(output().hasPrefix("\u{1B}chello\r\n$ "), "\(output().debugDescription)")
         try await Task.sleep(for: .milliseconds(50))
         #expect(!daemon.recorded.contains { $0["cmd"] as? String == "resize-surface" })
     }

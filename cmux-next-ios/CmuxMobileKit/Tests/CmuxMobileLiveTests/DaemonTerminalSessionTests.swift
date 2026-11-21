@@ -215,8 +215,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         defer { session.stop() }
         session.reattachBackoff = []
         var screenState = session.connectionState
-        // A first attach tries twice: with its grid beside identify, then in series (TerminalAttachPlan).
-        if !wasAttached { daemon.failNextAttaches = 2 }
+        // No grid before the attach: it goes in series, one attach-surface (TerminalAttachPlan).
+        if !wasAttached { daemon.failNextAttaches = 1 }
         session.start { screenState = screenState.applying($0) }
         if wasAttached {
             try await waitUntil { session.isAttached }

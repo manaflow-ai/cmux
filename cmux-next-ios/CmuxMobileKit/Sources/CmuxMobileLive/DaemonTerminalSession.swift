@@ -813,8 +813,10 @@ public final class DaemonTerminalSession: TerminalSession {
                 // The Mac took the attach with the phone's grid. A daemon that
                 // does not list attach-initial-size ignored the grid: the
                 // resize after the attach claims it, as an attach in series does.
+                // The grid went out on screen: a page hidden since still
+                // holds the size the attach carried, and releases it below.
                 reply = pipelined.reply
-                if initialSize {
+                if identify.map(Self.acceptsInitialSize) ?? false {
                     lastSize = lastSize ?? (pipelined.columns, pipelined.rows)
                     attachedWithSize = (pipelined.columns, pipelined.rows)
                     lastClaimAt = .now
