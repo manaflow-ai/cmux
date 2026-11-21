@@ -34,6 +34,14 @@ export function failureAction(kind: string): "signIn" | "addMachine" | "retry" {
   return "retry";
 }
 
+/// acpmux's own words for a failure, in English: its message and next step, or none. A plain
+/// function, so the component's optional reads stay out of a logical test the React Compiler skips.
+function failureTitle(failure: MachineJoin["failure"]): string | undefined {
+  if (!failure) return undefined;
+  const words = [failure.message, failure.next].filter(Boolean).join(" · ");
+  return words.length > 0 ? words : undefined;
+}
+
 /// The one line under a new chat's composer while a machine picked from "Not added yet" is set up
 /// (Leo, 2026-11-16: "it should not take much at all to simply spin [stuff] up"): "Setting up gcp-3
 /// · installing 6 s", then the turn starts when acpmux lists the machine. A host that is not the
@@ -91,7 +99,7 @@ export function MachineJoinLine({
       return {
         text: t(FAILURE_WORDS[kind] ?? "composer.joinFailOther", { host }),
         // acpmux's own words, in English, for the person who wants the detail.
-        title: [join.failure?.message, join.failure?.next].filter(Boolean).join(" · ") || undefined,
+        title: failureTitle(join.failure),
         actions: (
           <>
             {run && (
