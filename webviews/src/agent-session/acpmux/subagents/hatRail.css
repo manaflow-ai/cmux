@@ -16,8 +16,13 @@
   gap: 0;
 }
 .acpmux-hat-rail[data-side="bottom-line"] {
+  /* The label stands from the rail's start, not its mark's, so a later mark's label stays in a narrow pane. */
+  position: relative;
   flex-direction: row;
   min-width: 0;
+}
+.acpmux-hat-rail[data-side="bottom-line"] .acpmux-hat-rail__mark {
+  position: static;
 }
 .acpmux-hat-rail__mark,
 .acpmux-hat-rail__list {
@@ -101,6 +106,7 @@
 .acpmux-hat-rail[data-side="bottom-line"] .acpmux-hat-rail__label {
   bottom: calc(100% + var(--ds-space-1));
   left: 0;
+  max-width: min(320px, calc(100vw - 4 * var(--ds-space-6)));
 }
 @keyframes acpmux-hat-rail-label {
   from {
