@@ -79,6 +79,7 @@ impl App {
             stdout.write_all(sequence.as_bytes())?;
             stdout.flush()?;
             self.host_mouse_capture_applied = Some(desired_mouse_capture);
+            self.host_mouse_capture_before_reassert = None;
         }
         Ok(())
     }
@@ -146,7 +147,7 @@ impl App {
     /// inner application still holds. When the state is momentarily
     /// unknowable (terminal lock contended, surface gone during teardown)
     /// the client keeps the capture it last applied instead of toggling the
-    /// host.
+    /// host, including the capture a re-assert cleared.
     pub(super) fn desired_host_mouse_capture(&self) -> bool {
         let Some(surface_id) = self.surface_only else { return true };
         let canonical = self
@@ -157,7 +158,11 @@ impl App {
                 PointerSemanticProbe::Ready(semantics) => Some(semantics.mouse_tracking),
                 PointerSemanticProbe::Contended => None,
             });
-        canonical.unwrap_or_else(|| self.host_mouse_capture_applied.unwrap_or(false))
+        canonical.unwrap_or_else(|| {
+            self.host_mouse_capture_applied
+                .or(self.host_mouse_capture_before_reassert)
+                .unwrap_or(false)
+        })
     }
 
     /// A scoped attach client mirrors the inner terminal's input modes onto
@@ -181,16 +186,12 @@ impl App {
         if self.surface_only.is_none() {
             return;
         }
-        // Keep the last applied state when the inner terminal cannot be
-        // probed. Clearing it here would make the next frame guess `false`
-        // and release host capture during a transient lock/contention.
-        let probe_available = self
-            .surface_only
-            .and_then(|surface_id| self.session.surface(surface_id))
-            .and_then(|surface| surface.try_pointer_semantics())
-            .is_some_and(|probe| matches!(probe, PointerSemanticProbe::Ready(_)));
-        if probe_available {
-            self.host_mouse_capture_applied = None;
+        // Clear even when the PTY reader holds the terminal lock: skipping
+        // the reset then would lose this re-assert for good. A frame that
+        // still cannot read the inner state re-emits the cleared value from
+        // `host_mouse_capture_before_reassert`, so it never guesses `false`.
+        if let Some(applied) = self.host_mouse_capture_applied.take() {
+            self.host_mouse_capture_before_reassert = Some(applied);
         }
         // The previous frame may have applied an authored style. If the
         // inner application reset DECSCUSR, clear the desired style now so
