@@ -4,12 +4,15 @@ import {
   ADMIN_USER_SEARCH_MIN_QUERY_LENGTH,
   AdminGrantConflictError,
   AdminUserNotFoundError,
+  type AdminGrantSlot,
+  isAdminGrantSlot,
   isAdminGrantablePlanId,
   isMissingGrantsTableError,
   type AdminGrantablePlanId,
   listPendingEmailGrants,
   searchAdminTeams,
   searchAdminUsers,
+  resolveGrantSlot,
   setManualPlanGrant,
 } from "../../../../services/admin/proGrants";
 import { auditRequestId, withAdminAudit } from "../../../../services/admin/auditLog";
@@ -39,7 +42,14 @@ export async function GET(request: NextRequest) {
   return adminJsonResponse({ users, teams, pendingGrants });
 }
 
-/** POST /api/admin/users { userId, plan: "pro" | "max" | "founders" | null } */
+/**
+ * POST /api/admin/users { userId, plan: "pro" | "max" | "founders" | "next_pro" | "next_max" | null, slot?: "classic" | "next" }
+ *
+ * An account holds a classic grant and a cmux NEXT grant side by side. A NEXT
+ * plan always writes the NEXT slot; a classic plan writes the classic slot.
+ * `plan: null` removes the grant of `slot` (absent: the classic slot).
+ * `slot: "next"` with a classic plan is refused with 400.
+ */
 export async function POST(request: NextRequest) {
   const protection = enforceBrowserMutationProtection(request);
   if (protection) return protection;
@@ -54,21 +64,26 @@ export async function POST(request: NextRequest) {
       action: "user_grant_set",
       targetKind: "user",
       targetId: parsed?.userId ?? null,
-      details: parsed ? { plan: parsed.plan } : null,
+      details: parsed ? { plan: parsed.plan, slot: parsed.slot } : null,
       requestId: auditRequestId(request),
     },
-    async () => (parsed ? applyUserGrant(parsed, gate.admin) : adminJsonResponse({ error: "invalid_body" }, 400)),
+    async () => {
+      if (!parsed) return adminJsonResponse({ error: "invalid_body" }, 400);
+      if (parsed.slot === null) return adminJsonResponse({ error: "slot_plan_mismatch" }, 400);
+      return applyUserGrant({ ...parsed, slot: parsed.slot }, gate.admin);
+    },
   );
 }
 
 async function applyUserGrant(
-  parsed: { userId: string; plan: AdminGrantablePlanId | null },
+  parsed: { userId: string; plan: AdminGrantablePlanId | null; slot: AdminGrantSlot },
   admin: { id: string; primaryEmail: string | null },
 ): Promise<Response> {
   try {
     const user = await setManualPlanGrant({
       targetUserId: parsed.userId,
       plan: parsed.plan,
+      slot: parsed.slot,
       admin,
     });
     return adminJsonResponse({ user });
@@ -99,13 +114,23 @@ async function listPendingEmailGrantsSafely(query: string) {
   }
 }
 
+/**
+ * The grant request, or null for a malformed body. `slot` is the resolved
+ * slot, or null when `slot: "next"` names a classic plan.
+ */
 function parseGrantBody(
   body: unknown,
-): { userId: string; plan: AdminGrantablePlanId | null } | null {
+): { userId: string; plan: AdminGrantablePlanId | null; slot: AdminGrantSlot | null } | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
-  const { userId, plan } = body as { userId?: unknown; plan?: unknown };
+  const { userId, plan, slot } = body as { userId?: unknown; plan?: unknown; slot?: unknown };
   if (typeof userId !== "string" || !userId.trim()) return null;
-  if (plan === null) return { userId: userId.trim(), plan: null };
-  if (!isAdminGrantablePlanId(plan)) return null;
-  return { userId: userId.trim(), plan };
+  if (slot !== undefined && !isAdminGrantSlot(slot)) return null;
+  if (plan !== null && !isAdminGrantablePlanId(plan)) return null;
+  let resolved: AdminGrantSlot | null;
+  try {
+    resolved = resolveGrantSlot(plan, slot);
+  } catch {
+    resolved = null;
+  }
+  return { userId: userId.trim(), plan, slot: resolved };
 }

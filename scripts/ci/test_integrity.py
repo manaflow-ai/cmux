@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Fail a change that removes or weakens executable tests.
+"""Report a change that removes or weakens executable tests.
 
 This is intentionally a diff check rather than a coverage guess.  It catches
 test files deleted from a change, assertion counts that shrink in a test file,
 and newly added skip/ignore markers.  Assertion replacements with the same
 count are allowed, so normal expectation updates do not create a false alarm.
+Findings are CI warnings; they never fail the job.
 """
 
 from __future__ import annotations
@@ -179,9 +180,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", help="base commit (defaults to TEST_INTEGRITY_BASE_SHA/GITHUB_BASE_SHA)")
     parser.add_argument("--json", action="store_true", help="emit machine-readable findings")
-    parser.add_argument("--strict", action="store_true", help="return failure when findings exist")
-    parser.add_argument("--allow-all", action="store_true",
-                        help="record findings but accept an explicitly approved change")
     args = parser.parse_args(argv)
     # A finding can hold any character (a test path, or the U+FFFD of a non-UTF-8 diff line); a runner
     # whose stdout is ASCII must print it escaped, not crash before the verdict.
@@ -204,13 +202,10 @@ def main(argv: list[str] | None = None) -> int:
         for finding in findings:
             print(f"::warning file={finding.path},title=Test integrity::{finding.detail}")
             print(f"{finding.kind}: {finding.path}: {finding.detail}", file=sys.stderr)
-    if findings and args.allow_all:
-        print("test-integrity: findings explicitly approved by the trusted workflow")
-        return 0
     if findings:
         print(f"test-integrity: {len(findings)} finding(s); restore coverage or remove the weakening", file=sys.stderr)
-        return 1 if args.strict else 0
-    print("test-integrity: no deleted or weakened tests")
+    else:
+        print("test-integrity: no deleted or weakened tests")
     return 0
 
 

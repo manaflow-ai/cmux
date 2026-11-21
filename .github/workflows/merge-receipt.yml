@@ -24,6 +24,22 @@ jobs:
       checks: read
       statuses: read
     steps:
+      # The comment and label writes spend REST. The job's GITHUB_TOKEN draws on the repository's one hourly pool,
+      # which every workflow shares and which ran out at 09:33Z on 2026-11-16 (#40579: HTTP 403 on the comment read,
+      # both attempts). The cmux-bot App has its own pool; github.token stays the fallback when it is not configured
+      # or its mint fails.
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-issues: write
+          permission-pull-requests: write
+
       - name: Checkout trusted script
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -37,7 +53,9 @@ jobs:
 
       - name: Post merge receipt
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          # The check rollup read (GraphQL) needs checks and statuses read: the job's own token.
+          CHECKS_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: python3 scripts/ci/merge_receipt.py post --repo "$REPO" --pr "$PR"

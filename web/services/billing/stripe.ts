@@ -3,12 +3,15 @@ import Stripe from "stripe";
 import { env } from "../../app/env";
 import {
   MAX_PRICING_USD,
+  NEXT_MAX_PRICING_USD,
+  NEXT_PRO_PRICING_USD,
   GO_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
   type BillingInterval,
 } from "./plans";
 import { assertPriceMatchesPlan, type PlanPrice } from "./priceGuard";
+import { NEXT_PLAN_PRICE_ENV, NEXT_PRO_PLAN_ID, nextPlanPriceId, type NextPlanId } from "./nextPlans";
 
 export type { BillingInterval, ProBillingInterval } from "./plans";
 
@@ -17,6 +20,15 @@ const resolvedProPriceIds = new Map<BillingInterval, string>();
 const resolvedTeamPriceIds = new Map<BillingInterval, string>();
 const resolvedMaxPriceIds = new Map<BillingInterval, string>();
 const resolvedGoPriceIds = new Map<BillingInterval, string>();
+const resolvedNextPriceIds = new Map<NextPlanId, string>();
+
+/** A cmux NEXT plan whose Price id env var is unset: it is not for sale. */
+export class NextPlanUnavailableError extends Error {
+  constructor(readonly plan: NextPlanId) {
+    super(`cmux NEXT plan ${plan} is not for sale: ${NEXT_PLAN_PRICE_ENV[plan]} is unset`);
+    this.name = "NextPlanUnavailableError";
+  }
+}
 
 /**
  * Metadata the catalog script stamps on the Billing Portal configuration
@@ -108,6 +120,24 @@ export async function resolveGoPrice(): Promise<string> {
 export async function resolveTeamPrice(interval: BillingInterval): Promise<string> {
   if (interval !== "month") throw new Error("Annual billing is unavailable for new subscriptions");
   return resolvePlanPrice(TEAM_PRICING_USD.month, interval, env.STRIPE_TEAM_MONTHLY_60_PRICE_ID, resolvedTeamPriceIds, "team");
+}
+
+/**
+ * The Stripe Price a cmux NEXT plan is sold at. Only the env var names it
+ * (there is no lookup-key fallback, so an unconfigured plan is never sold);
+ * the Price is verified against the advertised monthly amount and the
+ * product's `app: cmux` / `plan: next_pro|next_max` metadata on first use.
+ */
+export async function resolveNextPlanPrice(plan: NextPlanId): Promise<string> {
+  const overridden = nextPlanPriceId(plan);
+  if (!overridden) throw new NextPlanUnavailableError(plan);
+  const cached = resolvedNextPriceIds.get(plan);
+  if (cached === overridden) return cached;
+  const pricing = plan === NEXT_PRO_PLAN_ID ? NEXT_PRO_PRICING_USD : NEXT_MAX_PRICING_USD;
+  const price = await stripe().prices.retrieve(overridden, { expand: ["product"] });
+  assertPriceMatchesPlan(price, pricing.month, "month", NEXT_PLAN_PRICE_ENV[plan], plan);
+  resolvedNextPriceIds.set(plan, price.id);
+  return price.id;
 }
 
 /**
