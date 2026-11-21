@@ -501,6 +501,27 @@ mod tests {
         selector
     }
 
+    /// A tailnet direct path ranks below the LAN and above a routed direct
+    /// path and every relay, whatever the RTTs say.
+    #[test]
+    fn a_tailnet_path_ranks_below_the_lan_and_above_routed_paths() {
+        const TAILNET: PathId = PathId(5);
+        const WAN: PathId = PathId(6);
+        let mut selector = Selector::new(SelectorConfig::default());
+        selector.add_path(RELAY, PathKind::TurnRelay).unwrap();
+        selector.add_path_on(WAN, PathKind::DirectWan, Medium::Routed).unwrap();
+        selector.add_path_on(TAILNET, PathKind::DirectWan, Medium::Tailnet).unwrap();
+        selector.add_path_on(LAN, PathKind::DirectLan, Medium::Lan).unwrap();
+        answer(&mut selector, RELAY, 5_000);
+        answer(&mut selector, WAN, 1_000);
+        assert_eq!(selector.current(), Some(WAN));
+        answer(&mut selector, TAILNET, 30_000);
+        assert_eq!(selector.current(), Some(TAILNET), "the tailnet beats a faster routed path");
+        answer(&mut selector, LAN, 40_000);
+        assert_eq!(selector.current(), Some(LAN), "the LAN beats the tailnet");
+        assert_eq!(Medium::Tailnet.wire_name(), "tailnet");
+    }
+
     #[test]
     fn a_thunderbolt_path_wins_at_once_though_the_rtt_margin_never_would() {
         let mut selector = three_paths();

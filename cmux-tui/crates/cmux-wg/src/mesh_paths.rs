@@ -125,7 +125,7 @@ fn canonical(address: SocketAddr) -> SocketAddr {
 fn direct_kind(address: SocketAddr, networks: &[LocalNetwork]) -> PathKind {
     match medium_of(address.ip(), networks) {
         Medium::Link | Medium::Lan => PathKind::DirectLan,
-        Medium::Routed => PathKind::DirectWan,
+        Medium::Tailnet | Medium::Routed => PathKind::DirectWan,
     }
 }
 

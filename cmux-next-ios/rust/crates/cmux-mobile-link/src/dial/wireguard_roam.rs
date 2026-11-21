@@ -477,7 +477,7 @@ impl Session {
         timeline.mark("network_changed");
         *lock(&self.last_roam) = Some(timeline.clone());
         let Ok(net) = self.net() else { return timeline };
-        let socket = match bind_udp() {
+        let socket = match bind_udp_for(&self.options) {
             Ok(socket) => socket,
             Err(error) => {
                 // No network yet (airplane mode): the next change roams.

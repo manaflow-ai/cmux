@@ -463,7 +463,9 @@ impl TurnCarrier {
         let (conn, dead): (Arc<dyn Conn + Send + Sync>, Option<watch::Receiver<bool>>) = match server
             .transport
         {
-            TurnTransport::Udp => (Arc::new(super::wireguard::bind_udp().map_err(|e| e.to_string())?), None),
+            TurnTransport::Udp => {
+                (Arc::new(super::wireguard::bind_udp_for(options).map_err(|e| e.to_string())?), None)
+            }
             TurnTransport::Tcp | TurnTransport::Tls => {
                 let (conn, dead) = tokio::time::timeout(CONNECT_WAIT, Self::connect_stream(&server, options))
                     .await
