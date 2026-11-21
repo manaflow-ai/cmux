@@ -82,7 +82,6 @@ enum FirstPartyPageSchemes {
         .keybindings,
         .machines,
         .markdown,
-        .mobilePairing,
         .onboarding,
         .passwords,
         .serverCards,

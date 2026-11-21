@@ -58,7 +58,6 @@ const pages = [
   "import-history",
   "keybindings",
   "machines",
-  "mobile-pairing",
   "onboarding",
   "passwords",
   "server-cards",

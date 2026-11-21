@@ -48,7 +48,6 @@ const expectedPages = new Set([
   "import-history",
   "keybindings",
   "machines",
-  "mobile-pairing",
   "onboarding",
   "passwords",
   "server-cards",

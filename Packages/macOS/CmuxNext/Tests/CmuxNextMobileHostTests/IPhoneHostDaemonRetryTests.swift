@@ -63,6 +63,9 @@ import Testing
     }
 
     static let account = IPhoneHostService.Account(userID: "user", teamID: "team", teamName: nil, email: nil)
+    nonisolated static let phone = MobileHostPairRequest(phoneDeviceID: "phone-a", name: "iPhone",
+                                                         identityKey: "04" + String(repeating: "aa", count: 64),
+                                                         approvalKey: "04" + String(repeating: "bb", count: 64))
 
     static func until(_ condition: @MainActor () -> Bool) async {
         while !condition() { await Task.yield() }
@@ -169,6 +172,12 @@ import Testing
         defer { host.stop() }
         host.follow(allowed: { toggle.on })
         host.accountChanged(Self.account)
+        // Phone access is on by default (cmux#13742): with no phone allowed yet the Mac sleeps as usual;
+        // the first phone the person allows starts the hold.
+        await Self.until { host.paired != nil }
+        #expect(holds.last != true, "no phone allowed: the Mac must not stay awake")
+        try await host.pairedStore.change(for: Self.account.userID) { $0.approve(Self.phone, at: Date(timeIntervalSince1970: 5)) }
+        await Self.until { holds.last == true }
         // The first start waits on the socket.
         try await clock.waitForSleeper()
         #expect(socket.asks == 1)

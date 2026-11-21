@@ -42,10 +42,10 @@ flags are for checking the other paths, and are never the hand-off:
 
 | Flag | The phone | The proof | Its report line |
 | --- | --- | --- | --- |
-| (none) | signed in, paired by the Mac's code | signed in, paired, linked; again after a credential-free relaunch and after the Mac app restarts | `installed, signed in (auto_login), paired and linked with <Mac>; ...` |
-| `--manual-pairing` | signed in; no code handed over or marked used, so the person pairs by hand | signed in, and still after a credential-free relaunch; no pairing checks, no Mac restart | `installed, signed in (auto_login); credential-free relaunch: signed in (restored); pairing left to you (--manual-pairing)` |
-| `--approve-first` | signed in; no code; the tagged Mac starts (again, if it runs) with `CMUX_NEXT_IPHONE_APPROVE_FIRST=1`, so its dev auto-approve is off and it shows "Allow “<phone>” to connect?" | waits for the person's Allow on the Mac (`CNX_REVIEW_ALLOW_TIMEOUT`, 600 s), then paired, linked, listed by the Mac, and again after a credential-free relaunch; no Mac restart | `installed, signed in (auto_login), paired and linked with <Mac> (allowed on the Mac, --approve-first); ...`, or `waiting for Allow on the Mac: not paired in time (...)` |
-| `--no-auth` | no credentials, no code; the first launch clears the tag's stored session with the DEBUG-only `CMUX_MOBILE_CLEAR_AUTH=1` (compiled out of Release) | the receipt says signed out (welcome screen), and a plain relaunch is still signed out | `installed, not signed in (--no-auth): ...; relaunch: still signed out` |
+| (none) | signed in, paired with the tagged Mac (its dev auto-approve; the launch names the Mac to focus) | signed in, paired, linked; again after a credential-free relaunch and after the Mac app restarts | `installed, signed in (auto_login), paired and linked with <Mac>; ...` |
+| `--manual-pairing` | signed in; no Mac named, so the person picks and pairs by hand | signed in, and still after a credential-free relaunch; no pairing checks, no Mac restart | `installed, signed in (auto_login); credential-free relaunch: signed in (restored); pairing left to you (--manual-pairing)` |
+| `--approve-first` | signed in; the tagged Mac starts (again, if it runs) with `CMUX_NEXT_IPHONE_APPROVE_FIRST=1`, so its dev auto-approve is off and it shows "Allow “<phone>” to connect?" | waits for the person's Allow on the Mac (`CNX_REVIEW_ALLOW_TIMEOUT`, 600 s), then paired, linked, listed by the Mac, and again after a credential-free relaunch; no Mac restart | `installed, signed in (auto_login), paired and linked with <Mac> (allowed on the Mac, --approve-first); ...`, or `waiting for Allow on the Mac: not paired in time (...)` |
+| `--no-auth` | no credentials, no Mac named; the first launch clears the tag's stored session with the DEBUG-only `CMUX_MOBILE_CLEAR_AUTH=1` (compiled out of Release) | the receipt says signed out (welcome screen), and a plain relaunch is still signed out | `installed, not signed in (--no-auth): ...; relaunch: still signed out` |
 
 A tagged dev Mac (DEBUG `com.cmuxterm.app.debug.<tag>`) pairs its own tag's iPhone app
 (`dev.cmux.mobile.<tag>`) of the signed-in account without the Allow prompt, so a phone opened by
@@ -70,8 +70,9 @@ It does, in order, and exits non-zero if any phone fails a check or none is conn
    never frontmost), signed in to the `personal` account.
 3. On every connected, paired iPhone (new phones are registered): signs a copy with this Mac's
    Apple Development identity and a development profile that names the phone, installs it through
-   the sanctioned install, and launches it signed in with the `personal` profile and the tagged
-   Mac's own single-use pairing code, the code a scan would open (no Allow prompt, no seed).
+   the sanctioned install, and launches it signed in with the `personal` profile and the
+   tagged Mac named to focus (`CMUX_MOBILE_FOCUS_MAC`, a device id). The tagged Mac's dev auto-approve
+   allows its own tag's phone (no Allow prompt, no seed, no code).
 4. Proves each phone with the app's DEBUG readiness receipt (a fresh nonce per launch): in the tagged
    Mac's build space (`review_mac.py space`; another space fails at once), signed in, paired and linked with this tag's Mac, which lists the phone as paired and connected; then a
    credential-free relaunch (the person's own cold launch) comes back signed in and linked; then
