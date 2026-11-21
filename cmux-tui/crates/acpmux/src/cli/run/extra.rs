@@ -761,7 +761,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .to_owned();
             let url = if app {
                 let mut url = reqwest::Url::parse(&url).context("invalid web listener URL")?;
+                let listener_token = url
+                    .fragment()
+                    .and_then(|fragment| fragment.strip_prefix("token="))
+                    .filter(|token| !token.is_empty())
+                    .ok_or_else(|| anyhow!("web listener URL has no token fragment"))?;
+                let token = crate::ws_auth::browser_app_token(listener_token);
                 url.set_path("/app/");
+                url.set_query(None);
+                url.set_fragment(Some(&format!("token={token}")));
                 url.to_string()
             } else {
                 url

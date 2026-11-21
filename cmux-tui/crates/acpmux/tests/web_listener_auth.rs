@@ -95,6 +95,44 @@ async fn websocket_without_or_with_a_wrong_token_is_refused() {
     assert_eq!(status(port, upgrade("wrong", &host, None)).await, 401);
 }
 
+#[tokio::test]
+async fn browser_app_token_is_scoped_to_its_upgrade_endpoint() {
+    let port = listener().await;
+    let host = format!("127.0.0.1:{port}");
+    let token = acpmux::ws_auth::browser_app_token(TOKEN);
+    let origin = format!("http://{host}");
+    assert_eq!(status(port, upgrade_at("app/ws", &token, &host, Some(&origin))).await, 101);
+    for wrong in ["", "wrong", TOKEN] {
+        assert_eq!(status(port, upgrade_at("app/ws", wrong, &host, None)).await, 401);
+    }
+    for path in ["", "ws", "app/", "app/ws/", "app/%77s"] {
+        assert_eq!(status(port, upgrade_at(path, &token, &host, None)).await, 401, "{path}");
+    }
+    let query = format!("app/ws?token={token}");
+    assert_eq!(status(port, upgrade_at(&query, "", &host, None)).await, 401);
+    assert_eq!(
+        status(port, upgrade_at("app/ws", &token, &host, Some("https://evil.example"))).await,
+        403,
+    );
+    assert_eq!(status(port, upgrade_at("app/ws", &token, "evil.example", None)).await, 403);
+    // The dashboard's original credential continues to work only on the legacy path.
+    assert_eq!(status(port, upgrade(TOKEN, &host, None)).await, 101);
+}
+
+#[tokio::test]
+async fn browser_app_subprotocol_never_echoes_its_capability() {
+    let port = listener().await;
+    let host = format!("127.0.0.1:{port}");
+    let token = acpmux::ws_auth::browser_app_token(TOKEN);
+    let offered = format!("acpmux.v1, acpmux.token.{token}");
+    let request = upgrade_offering(&host, &offered).replacen("GET / ", "GET /app/ws ", 1);
+    let head = response_head(port, request).await;
+    assert!(head.starts_with("HTTP/1.1 101"), "{head}");
+    assert!(head.to_ascii_lowercase().contains("sec-websocket-protocol: acpmux.v1\r\n"), "{head}");
+    assert!(!head.contains(&token), "{head}");
+    assert!(!head.contains(TOKEN), "{head}");
+}
+
 /// Send one raw request and return the whole response head.
 async fn response_head(port: u16, request: String) -> String {
     let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();

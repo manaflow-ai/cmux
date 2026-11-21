@@ -1,5 +1,5 @@
 //! The shipped NEXT pane, on the existing listener. These static files contain no
-//! credentials: as on the dashboard, the URL fragment supplies the listener token
+//! credentials: the URL fragment supplies a scoped browser capability
 //! to the browser transport. Host/Origin checks run before this module is called.
 use std::path::{Path, PathBuf};
 
