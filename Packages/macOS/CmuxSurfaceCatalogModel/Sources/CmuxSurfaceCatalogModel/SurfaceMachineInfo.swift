@@ -25,6 +25,9 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
     public var portDiscoveryState: CloudPortDiscoveryState = .notRequested
     /// vCPUs the cloud machine reports; nil for the local Mac and when unknown.
     public var cpus: Int? = nil
+    /// Server-owned noVNC listener for this machine's desktop image. Nil on
+    /// local/SSH machines and on older Cloud responses.
+    public var desktopPort: Int? = nil
 
     public init(
         id: SurfaceMachineID,
@@ -43,7 +46,8 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         privateAddress: String? = nil,
         presence: SurfaceDevicePresence? = nil,
         portDiscoveryState: CloudPortDiscoveryState = .notRequested,
-        cpus: Int? = nil
+        cpus: Int? = nil,
+        desktopPort: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -62,12 +66,13 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         self.presence = presence
         self.portDiscoveryState = portDiscoveryState
         self.cpus = cpus
+        self.desktopPort = desktopPort
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, status, image, hasDesktop, memoryMb, diskMb, linkState, linkError
         case cpuPercent, memoryUsedMb, diskUsedMb, remoteWorkspaces, privateAddress, presence
-        case portDiscoveryState, cpus
+        case portDiscoveryState, cpus, desktopPort
     }
 
     public init(from decoder: any Decoder) throws {
@@ -89,6 +94,7 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         presence = try values.decodeIfPresent(SurfaceDevicePresence.self, forKey: .presence)
         portDiscoveryState = try values.decodeIfPresent(CloudPortDiscoveryState.self, forKey: .portDiscoveryState) ?? .notRequested
         cpus = try values.decodeIfPresent(Int.self, forKey: .cpus)
+        desktopPort = try values.decodeIfPresent(Int.self, forKey: .desktopPort)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -110,6 +116,6 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         try values.encodeIfPresent(presence, forKey: .presence)
         try values.encode(portDiscoveryState, forKey: .portDiscoveryState)
         try values.encodeIfPresent(cpus, forKey: .cpus)
+        try values.encodeIfPresent(desktopPort, forKey: .desktopPort)
     }
 }
-
