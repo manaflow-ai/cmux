@@ -45,7 +45,7 @@ jobs:
 
       - name: Lint the Testbox lane helpers
         run: >-
-          shellcheck
+          "$(scripts/ci/ensure-shellcheck.sh)"
           scripts/blacksmith-bounded-command.sh
           scripts/blacksmith-cmux-tui-testbox-stage.sh
           scripts/blacksmith-testbox-cleanup.sh

@@ -45,15 +45,20 @@ ADMIT_COMMAND = (
     '--source-run-id "$SOURCE_RUN_ID" --source-run-attempt "$SOURCE_RUN_ATTEMPT" '
     '--out "$RUNNER_TEMP/nightly-sign-source"'
 )
-# Literal labels only (no variable moves the job): Blacksmith Linux, a fork the hosted image.
-LINUX_RUNNER = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}"
+# Literal labels only (no variable moves the job): a fork the hosted image; a first attempt the
+# one-job JIT nightly VM (cmux-gcp-nightly-jit-x64: ephemeral, no ingress, deleted after its job),
+# so the nightly's sign path does not queue behind vendor pools; a re-run Blacksmith Linux.
+LINUX_RUNNER = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                "github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}")
 JOB_KEYS = {"name", "if", "runs-on", "timeout-minutes", "permissions", "steps"}
 STEP_KEYS = {"name", "id", "uses", "with", "env", "run"}
 WORKFLOW_KEYS = {"name", "on", True, "permissions", "env", "concurrency", "jobs"}
 # Expression contexts a shadow job may read. Nothing that names the source
 # run's ref, commit or pull requests: the tool reads those from the API.
+# github.run_attempt is this shadow run's own attempt counter (it picks the JIT label on attempt 1
+# in runs-on); it names nothing about the source run.
 ALLOWED_CONTEXTS = re.compile(
-    r"^(github\.token|github\.ref|github\.event_name|github\.repository_owner|"
+    r"^(github\.token|github\.ref|github\.event_name|github\.repository_owner|github\.run_attempt|"
     r"github\.event\.workflow_run\.(id|run_attempt|conclusion)|"
     r"inputs\.source_run_(id|attempt)|vars\.NIGHTLY_SIGN)$"
 )

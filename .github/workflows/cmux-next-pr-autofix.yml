@@ -1,0 +1,16 @@
+name: cmux-next PR autofix
+
+# The PR autofix lives on feat-cmux-next (its pull_request runs take that branch's copy). This inert
+# registration on the default branch carries the name cmux-next-pr-autofix-push.yml's workflow_run
+# trigger waits for (tests/test_ci_workflow_run_sources.py), as main's cmux-next.yml does for cmux-next.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  registration:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    steps:
+      - run: echo "cmux-next PR autofix is implemented on feat-cmux-next"

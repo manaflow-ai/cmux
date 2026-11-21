@@ -1491,6 +1491,10 @@ PY_LIGHT
     # (hq docs/handbook/repair-path-on-the-pool-it-repairs.md;
     # check_queue_janitor_runs_off_the_pools_it_judges).
     "ci-queue-janitor.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}"
+    # Its watchdog runs off the label the sweep runs on, so it is hosted Ubuntu
+    # exactly when CI_QUEUE_JANITOR_ON_FLEET=1 puts the sweep on the fleet label
+    # (tests/test_ci_janitor_watchdog_route.py).
+    "ci-queue-janitor-watchdog.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET != '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}"
   )
   # The declared hosted light jobs' exact runs-on lines (validated above).
   local light_line
@@ -1843,7 +1847,13 @@ classic_mini = selector.replace(
     "'ubuntu-24.04' || ",
     "'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && "
     "vars.CI_CLASSIC_NIGHTLY_MINI || ", 1)
-if job.get("runs-on") not in (selector, classic_mini) or "environment" in job:
+# The nightly's reserved one-job label may take attempt 1 ahead of the vendor fallback (Leo, 2026-11-19,
+# ask-b3e8183722: "why isn't nightly getting priority then? on the linux things"). cmux-gcp-nightly-jit-x64 is an
+# ephemeral GCE runner, not a Mac fleet label; re-runs keep the Blacksmith fallback.
+jit_arm = "github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}"
+accepted = [selector, classic_mini]
+accepted += [s.replace("'blacksmith-2vcpu-ubuntu-2404' }}", jit_arm) for s in accepted]
+if job.get("runs-on") not in accepted or "environment" in job:
     sys.exit(0)
 if re.search(r"\bsecrets\b|create-github-app-token|\bprivate-key\b",
              json.dumps([document.get("env"), job]), re.IGNORECASE):
