@@ -667,6 +667,19 @@ def handle_prompt(rid, params):
         rate_failures[sid][0] -= 1
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": rate_failures[sid][1]}})
         return
+    # "fail: X" fails the prompt with X and no output; "work-then-fail: X" calls a tool and says
+    # something first (cmux#48917: only a conversation whose agent did work stays unstored-awake).
+    # "echo-fail: X" streams X as its reply, then fails with X, as a harness that streams its error.
+    if text.startswith(("fail: ", "work-then-fail: ", "echo-fail: ")):
+        head, error = text.split(": ", 1)
+        if head == "work-then-fail":
+            update(sid, {"sessionUpdate": "tool_call", "toolCallId": "work-1", "title": "Read file",
+                         "kind": "read", "status": "completed"})
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Read it."}})
+        if head == "echo-fail":
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": error}})
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": error}})
+        return
     if text.startswith("recover-once: ") and sid not in failed_once:
         failed_once.add(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": text.removeprefix("recover-once: ")}})
