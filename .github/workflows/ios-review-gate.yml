@@ -370,7 +370,7 @@ jobs:
     # The 6 vCPU macOS 26 pool (ephemeral Blacksmith Macs) until a picker
     # routes it (.github/runners.json picker_followup). A fork pull request takes the
     # same label directly, since it reads no repository variables.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     timeout-minutes: 120
     env:
       LANE: ${{ needs.plan.outputs.lane }}
