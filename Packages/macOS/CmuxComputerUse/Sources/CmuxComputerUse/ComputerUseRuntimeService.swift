@@ -1709,7 +1709,7 @@ public final class ComputerUseRuntimeService {
         }
     }
 
-    private func checkHelperHealth() async {
+    func checkHelperHealth() async {
         async let nativeListening = Self.isDaemonListening(
             paths: paths,
             transport: transport,
@@ -1725,6 +1725,7 @@ public final class ComputerUseRuntimeService {
         guard !Task.isCancelled else { return }
         if daemonListening {
             missedHelperHealthChecks = 0
+            restoreAuthenticationTokenFileIfMissing()
             return
         }
 
@@ -1740,6 +1741,49 @@ public final class ComputerUseRuntimeService {
             return
         }
         scheduleHelperRecovery()
+    }
+
+    /// Writes the agent token file again when it is gone while the helper runs.
+    ///
+    /// The file lives beside the sockets under the temp folder, where macOS
+    /// deletes files older than three days and leaves sockets alone. Agent
+    /// wrappers read the token from this file, so without it new sessions
+    /// start without Computer Use. An entry of any other kind at the path is
+    /// left for the next launch to reject.
+    private func restoreAuthenticationTokenFileIfMissing() {
+        guard acceptsNewLaunches else { return }
+        var metadata = stat()
+        guard Darwin.lstat(paths.authenticationTokenFileURL.path, &metadata) != 0,
+              errno == ENOENT,
+              Self.ensurePrivateDirectory(paths.runtimeDirectoryURL.deletingLastPathComponent()),
+              Self.ensurePrivateDirectory(paths.runtimeDirectoryURL)
+        else {
+            return
+        }
+        _ = Self.writeAuthenticationTokenIfAbsent(
+            paths.authenticationToken,
+            to: paths.authenticationTokenFileURL
+        )
+    }
+
+    /// Creates the token file at `fileURL` only when nothing is there.
+    ///
+    /// The token goes into a new file beside it, which is then moved into place
+    /// with `RENAME_EXCL`. An entry that another process puts at the path in
+    /// the meantime is neither followed nor removed, and a failed write leaves
+    /// nothing at the path, so the next health check tries again.
+    nonisolated static func writeAuthenticationTokenIfAbsent(_ token: String, to fileURL: URL) -> Bool {
+        let stagedURL = fileURL.deletingLastPathComponent()
+            .appendingPathComponent("\(fileURL.lastPathComponent).\(UUID().uuidString)")
+        guard writeAuthenticationToken(token, to: stagedURL, creatingNewFile: true) else {
+            Darwin.unlink(stagedURL.path)
+            return false
+        }
+        guard Darwin.renamex_np(stagedURL.path, fileURL.path, UInt32(RENAME_EXCL)) == 0 else {
+            Darwin.unlink(stagedURL.path)
+            return false
+        }
+        return true
     }
 
     /// Starts one pass immediately, then schedules maintenance after it finishes.
@@ -1850,10 +1894,14 @@ public final class ComputerUseRuntimeService {
         return true
     }
 
-    nonisolated private static func writeAuthenticationToken(_ token: String, to fileURL: URL) -> Bool {
+    nonisolated private static func writeAuthenticationToken(
+        _ token: String,
+        to fileURL: URL,
+        creatingNewFile: Bool = false
+    ) -> Bool {
         let descriptor = Darwin.open(
             fileURL.path,
-            O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW,
+            O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW | (creatingNewFile ? O_EXCL : 0),
             mode_t(0o600)
         )
         guard descriptor >= 0 else { return false }
