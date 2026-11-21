@@ -391,6 +391,7 @@ public struct DaemonLauncher: Sendable {
         if environment["CMUX_NEXT_CLOUD_LAUNCHER"] != "1",
            let running = await runningOwner() {
             health?.note(.ready(pid: running.pid))
+            DaemonLaunchTimings.shared.mark(DaemonLaunchTimings.reused)
             return running
         }
         async let reapGrace = supportsReapGrace()
@@ -423,6 +424,7 @@ public struct DaemonLauncher: Sendable {
             )
             let ensured = try Self.parseEnsure(result)
             note?.end(.ready(pid: ensured.pid))
+            DaemonLaunchTimings.shared.mark(ensured.status == "started" ? DaemonLaunchTimings.spawned : DaemonLaunchTimings.reused)
             return ensured
         } catch {
             note?.end(.exited)
@@ -512,6 +514,7 @@ public struct DaemonLauncher: Sendable {
             if let path = remembered.take() {
                 if DaemonSocketMemory.acceptsConnections(path) {
                     DaemonLaunchTimings.shared.mark("daemon.remembered_socket")
+                    DaemonLaunchTimings.shared.mark(DaemonLaunchTimings.reused)
                     return DaemonEndpoint(socketPath: path)
                 }
             }
