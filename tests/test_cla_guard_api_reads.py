@@ -3,6 +3,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import unittest
 from pathlib import Path
@@ -72,6 +73,7 @@ def http(status, body, *, remaining=None, reset=None, retry_after=None, stderr="
     return ["\r\n".join(headers) + "\r\n\r\n" + json.dumps(body), stderr, status]
 
 
+@unittest.skipUnless(shutil.which("ruby"), "ruby is required")
 class ApiReadTests(unittest.TestCase):
     def invoke(self, endpoint, responses, *, now=100, allow_missing=False, endpoints=None):
         env = {
