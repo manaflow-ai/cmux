@@ -7,14 +7,13 @@ mod tests;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use wait_timeout::ChildExt;
 
 use super::{GlobalArgs, Link};
+use cmux_process::Command;
 
 const GATE: &str = "labs.previewFeatures";
 use crate::localization::chief_build::{help, text};
