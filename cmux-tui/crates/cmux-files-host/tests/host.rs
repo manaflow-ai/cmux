@@ -239,19 +239,20 @@ fn run_without_a_signed_copy_runs_the_program_in_its_place() {
 }
 
 /// The pinned, team-signed bundle: CMUX_FILES_HOST_SIGNED_APP, else the asset of
-/// scripts/cmux-next/files-host-dev.pin.json through ensure-cua-pinned-asset.sh (its cache, the
+/// scripts/cmux-next/files-host-dev.pin.json through ensure-signed-pinned-asset.sh (its cache, the
 /// fleet store or R2), unzipped into a temporary folder.
 fn signed_app() -> Option<(Option<tempfile::TempDir>, PathBuf)> {
     if let Some(app) = std::env::var_os("CMUX_FILES_HOST_SIGNED_APP") {
         return Some((None, PathBuf::from(app)));
     }
+    // affected-reads: scripts/cmux-next/files-host-dev.pin.json scripts/cmux-next/ensure-signed-pinned-asset.sh
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let pin = repo.join("scripts/cmux-next/files-host-dev.pin.json");
     if !pin.exists() {
         return None;
     }
     let output = std::process::Command::new("/bin/bash")
-        .arg(repo.join("scripts/cmux-next/ensure-cua-pinned-asset.sh"))
+        .arg(repo.join("scripts/cmux-next/ensure-signed-pinned-asset.sh"))
         .arg(&pin)
         .arg("--optional")
         .output()

@@ -72,7 +72,7 @@ enum FirstPartyPageSchemes {
         .editor,
         .feed,
         .files,
-        .github,
+        .github, .glassParity,
         .groupEditor,
         .history,
         .homeChannels,

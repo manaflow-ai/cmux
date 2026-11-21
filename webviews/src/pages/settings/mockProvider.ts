@@ -18,6 +18,7 @@ import { Session, type EventSourceContext } from "../../protocol/session";
 import {
   settingsPageActions,
   type BrowserProfile,
+  type ComputerUseApproval,
   type HostLists,
   type AccountsCmux,
   type AccountsRow,
@@ -43,9 +44,13 @@ import {
   type HarnessesState,
   type ProviderAccount,
   type IntegrationsRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
   type IntegrationsState,
   type McpServersRun,
   type McpServersState,
+  type AgentMcpRun,
+  type AgentMcpState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -670,6 +675,32 @@ export class MockSettingsProvider {
         this.harnessRuns.push(run);
         return {};
       },
+      "cmux.settings.agentTools.state": () => this.agentTools,
+      "cmux.settings.agentTools.run": (params) => {
+        const run = params as AgentToolsCardRun;
+        if (run.action === "refresh") return this.agentTools;
+        this.agentToolsRuns.push(run);
+        // Like the host: Remove takes out that agent's old cmux entry.
+        if (run.action === "removeLeftover" && this.agentToolsKeeps) {
+          this.agentTools = { ...this.agentTools, note: this.agentToolsKeeps };
+          return this.agentTools;
+        }
+        if (run.action === "removeLeftover") {
+          this.agentTools = {
+            ...this.agentTools,
+            rows: this.agentTools.rows.map((row) => (row.id === run.id ? { ...row, leftover: null } : row)),
+          };
+          return this.agentTools;
+        }
+        // Like the host: Turn On sets the choice to on; every agent found then gets cmux's tools in cmux.
+        this.values.set("agents.cmuxMcp", "on");
+        this.agentTools = {
+          ...this.agentTools,
+          choice: "on",
+          rows: this.agentTools.rows.map((row) => (row.state === "ready" ? { ...row, state: "terminals" } : row)),
+        };
+        return this.agentTools;
+      },
       "cmux.settings.integrations.state": () => this.integrations,
       "cmux.settings.integrations.run": (params) => {
         const run = params as IntegrationsRun;
@@ -687,6 +718,47 @@ export class MockSettingsProvider {
           providers: this.integrations.providers.map((entry) =>
             entry.id === row.id ? { ...entry, state, error: null } : entry,
           ),
+        };
+        return {};
+      },
+      "cmux.settings.agentMcp.state": () => (this.agentMcp.enabled ? this.agentMcp : { enabled: false, servers: [] }),
+      "cmux.settings.agentMcp.run": (params) => {
+        const run = params as AgentMcpRun;
+        if (!this.agentMcp.enabled) throw new ProtocolError("cmux.page.unavailable", "labs.agentCustomization is off");
+        if (run.action === "refresh" || run.action === "pickFolder" || !("name" in run)) return {};
+        this.agentMcpRuns.push(run);
+        const { agent, name, scope } = run;
+        const same = (row: { agent: string; name: string; scope: string }) =>
+          row.agent === agent && row.name === name && row.scope === scope;
+        if (run.action === "add") {
+          const row = {
+            agent: run.agent,
+            name: run.name,
+            scope: run.scope,
+            transport: run.url ? (run.transport ?? "http") : "stdio",
+            command: run.command ?? null,
+            args: run.args ?? [],
+            url: run.url ?? null,
+            enabled: true,
+            env: (run.env ?? []).map((line) => line.split("=")[0]!),
+            headers: (run.headers ?? []).map((line) => line.split("=")[0]!),
+            file: run.agent === "claude" ? "/Users/me/.claude.json" : "/Users/me/.codex/config.toml",
+            shadowed: false,
+            removable: true,
+          } as const;
+          this.agentMcp = { ...this.agentMcp, servers: [...this.agentMcp.servers, row], error: null };
+          return {};
+        }
+        // Like the host: only a listed server.
+        if (!this.agentMcp.servers.some(same))
+          throw new ProtocolError("cmux.settings.invalid", "name must be a listed server");
+        this.agentMcp = {
+          ...this.agentMcp,
+          error: null,
+          servers:
+            run.action === "remove"
+              ? this.agentMcp.servers.filter((row) => !same(row))
+              : this.agentMcp.servers.map((row) => (same(row) ? { ...row, enabled: run.action === "enable" } : row)),
         };
         return {};
       },
@@ -785,8 +857,12 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.logout",
       "cmux.settings.integrations.state",
       "cmux.settings.integrations.run",
+      "cmux.settings.agentTools.state",
+      "cmux.settings.agentTools.run",
       "cmux.settings.mcp.state",
       "cmux.settings.mcp.run",
+      "cmux.settings.agentMcp.state",
+      "cmux.settings.agentMcp.run",
       "cmux.settings.theme.set",
       "cmux.settings.theme.colors",
       "cmux.settings.theme.accepts",
@@ -872,7 +948,7 @@ export class MockSettingsProvider {
     for (const ctx of this.devicesChanged) ctx.emit(devices);
   }
 
-  /** What `cmux customize library` lists (Personalization > Customization Library). */
+  /** What `cmux customize library` lists (Appearance > Customization Library). */
   library: LibraryListing = mockLibrary();
   /** The CLI's refusal of every library change (a preview is open); null: changes run. */
   libraryRefusal: string | null = null;
@@ -1389,6 +1465,27 @@ export class MockSettingsProvider {
       { id: "gemini", path: "~/.gemini/settings.json", state: "absent", reason: null, detail: null, error: null },
     ],
   };
+  /** `cmux setup mcp` as the app serves it (`SettingsAgentTools.state`). */
+  agentTools: AgentToolsCardState = {
+    loaded: true,
+    applying: false,
+    failed: false,
+    choice: "ask",
+    rows: [
+      { id: "claude", name: "Claude Code", state: "ready" },
+      { id: "codex", name: "Codex", state: "ready" },
+    ],
+    manual: [
+      "claude mcp add --scope user cmux -- '/Applications/cmux NEXT.app/Contents/Resources/bin/cmux' mcp serve",
+      "codex mcp add cmux -- '/Applications/cmux NEXT.app/Contents/Resources/bin/cmux' mcp serve",
+    ],
+  };
+  /** Agents on This Mac gestures the page sent (turnOn). */
+  readonly agentToolsRuns: AgentToolsCardRun[] = [];
+  /** When set, Remove keeps the entry and the host says why (`note`), as for an entry with
+   * settings cmux could not put back. */
+  agentToolsKeeps: string | null = null;
+
   /** The person's saved MCP servers as the app serves them (`SettingsMcpServers.state`). */
   mcpServers: McpServersState = {
     loading: false,
@@ -1440,6 +1537,113 @@ export class MockSettingsProvider {
   };
   /** MCP Servers gestures the page sent (sign in, remove). */
   readonly mcpServerRuns: McpServersRun[] = [];
+  /** Settings > MCP Servers, Claude Code and Codex: off (Labs) until a test or gallery turns it on. */
+  agentMcp: AgentMcpState = {
+    enabled: false,
+    loading: false,
+    problem: null,
+    project: "/Users/me/src/app",
+    listMs: 38,
+    cliMs: 21,
+    error: null,
+    problems: [],
+    servers: [
+      {
+        agent: "claude",
+        name: "agent-memory",
+        scope: "user",
+        transport: "stdio",
+        command: "/Users/me/bin/agent-memory",
+        args: ["mcp"],
+        url: null,
+        enabled: true,
+        env: [],
+        headers: [],
+        file: "/Users/me/.claude.json",
+        shadowed: false,
+        removable: true,
+      },
+      {
+        agent: "claude",
+        name: "linear",
+        scope: "user",
+        transport: "http",
+        command: null,
+        args: [],
+        url: "https://mcp.linear.app/mcp",
+        enabled: false,
+        env: [],
+        headers: ["Authorization"],
+        file: "/Users/me/.claude.json",
+        shadowed: false,
+        removable: true,
+      },
+      {
+        agent: "claude",
+        name: "playwright",
+        scope: "project",
+        transport: "stdio",
+        command: "npx",
+        args: ["@playwright/mcp@latest"],
+        url: null,
+        enabled: true,
+        approval: "pending",
+        env: [],
+        headers: [],
+        file: "/Users/me/src/app/.mcp.json",
+        shadowed: false,
+        removable: true,
+      },
+      {
+        agent: "codex",
+        name: "repo",
+        scope: "user",
+        transport: "stdio",
+        command: "/Users/me/bin/repo-tools",
+        args: ["mcp"],
+        url: null,
+        enabled: true,
+        env: ["REPO_TOKEN"],
+        headers: [],
+        file: "/Users/me/.codex/config.toml",
+        shadowed: false,
+        removable: true,
+      },
+      {
+        agent: "codex",
+        name: "openaiDeveloperDocs",
+        scope: "user",
+        transport: "http",
+        command: null,
+        args: [],
+        url: "https://developers.openai.com/mcp",
+        enabled: true,
+        env: [],
+        headers: [],
+        file: "/Users/me/.codex/config.toml",
+        shadowed: false,
+        removable: true,
+      },
+      {
+        agent: "codex",
+        name: "codex_app",
+        scope: "plugin",
+        transport: "stdio",
+        command: "./scripts/launch_codex_app_tools_mcp",
+        args: ["./server.mjs"],
+        url: null,
+        enabled: false,
+        env: ["CODEX_APP_TOOLS_DEFERRED"],
+        headers: [],
+        file: "/Users/me/.codex/plugins/cache/openai-bundled/codex-app-tools/1.0/.mcp.json",
+        plugin: "codex-app-tools@openai-bundled",
+        shadowed: false,
+        removable: false,
+      },
+    ],
+  };
+  /** Claude Code / Codex MCP gestures the page sent. */
+  readonly agentMcpRuns: AgentMcpRun[] = [];
   /** Agent integrations gestures the page sent (install, repair, remove). */
   readonly integrationRuns: IntegrationsRun[] = [];
 
@@ -1602,7 +1806,23 @@ export class MockSettingsProvider {
     },
     terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: "zsh" },
     ghostty_diagnostics: [],
-    computer_use: { phase: "ready", accessibility: true, screen_recording: false, helper: "cmux Computer Use" },
+    computer_use: {
+      phase: "ready",
+      accessibility: true,
+      screen_recording: false,
+      helper: "cmux Computer Use",
+      engine: "cmux Computer Use 1.0",
+      worker: { state: "running", pid: 4242 },
+      approvals: [
+        { app_id: "com.apple.Safari", name: "Safari", decision: "always" },
+        { app_id: "com.apple.MobileSMS", name: "Messages", decision: "never" },
+      ],
+      running_apps: [
+        { id: "com.apple.Safari", name: "Safari" },
+        { id: "com.apple.Notes", name: "Notes" },
+        { id: "com.figma.Desktop", name: "Figma" },
+      ],
+    },
     settings_file: "/Users/me/.config/cmux/cmux-next.json",
     backdrops: [
       { id: "starryNight", title: "The Starry Night", attribution: "Van Gogh, 1889" },
@@ -1778,6 +1998,22 @@ export class MockSettingsProvider {
     return { name: theme.name };
   }
 
+  /** What the app's `computerUse.approval.*` actions do to the saved approvals. */
+  private runApprovalAction(action: string, args: Params): void {
+    const computerUse = this.host.computer_use;
+    if (!computerUse) return;
+    const approvals = computerUse.approvals ?? [];
+    const next: ComputerUseApproval[] =
+      action === "computerUse.approval.forget"
+        ? approvals.filter((approval) => approval.app_id !== args.app_id)
+        : approvals.map((approval) =>
+            approval.app_id === args.app_id && (args.decision === "always" || args.decision === "never")
+              ? { ...approval, decision: args.decision }
+              : approval,
+          );
+    this.setHost({ ...this.host, computer_use: { ...computerUse, approvals: next } });
+  }
+
   setHost(host: HostLists): void {
     this.host = host;
     for (const ctx of this.hostChanged) ctx.emit(host);
@@ -1785,6 +2021,10 @@ export class MockSettingsProvider {
 
   /** What the app's `browserProfile.*` actions do to the lists (enough for the page's tests). */
   private runProfileAction(action: string, args: Params, target: string | undefined): void {
+    if (action === "computerUse.approval.forget" || action === "computerUse.approval.set") {
+      this.runApprovalAction(action, args);
+      return;
+    }
     const id = target?.startsWith("browser-profile:") ? target.slice("browser-profile:".length) : null;
     const profiles = this.host.browser_profiles;
     const edit = (patch: Partial<BrowserProfile>) =>

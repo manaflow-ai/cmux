@@ -5,7 +5,7 @@
 #   Contents/Library/cmux Files (dev).app
 # of a DEV build, where the app finds it (FilesHost) and runs its terminal daemon and acpmux
 # under it, so macOS asks for Files and Folders once for every DEV build. Run from the "Embed
-# Computer Use helper (dev)" phase (embed-cua-helper-dev.sh). The bytes are never re-signed: the
+# cmux Remote (dev)" phase, before embed-cmux-remote-dev.sh. The bytes are never re-signed: the
 # helper's code identity, and so a person's answers, must stay the same across builds.
 # Dev only, by construction: it embeds only into a Debug configuration whose bundle id is
 # com.cmuxterm.app.debug[.<tag>]. Every other configuration (Release: stable, NIGHTLY, RC, the
@@ -35,7 +35,7 @@ bundle_id="${PRODUCT_BUNDLE_IDENTIFIER:-}"
 [[ " ${ARCHS:-arm64} " == *" arm64 "* ]] || skip "ARCHS=${ARCHS:-} has no arm64"
 pin="$SCRIPT_DIR/files-host-dev.pin.json"
 [[ -f "$pin" ]] || skip "no pin file $pin"
-zip="$("$SCRIPT_DIR/ensure-cua-pinned-asset.sh" "$pin" --optional)"
+zip="$("$SCRIPT_DIR/ensure-signed-pinned-asset.sh" "$pin" --optional)"
 [[ -n "$zip" ]] || skip "the pinned cmux Files (dev) is unavailable"
 want="$(shasum -a 256 "$zip" | awk '{print $1}')"
 if [[ -f "$stamp" && "$(cat "$stamp")" == "$want" ]] && codesign --verify --strict "$dest" 2>/dev/null; then

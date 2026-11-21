@@ -296,7 +296,7 @@ extension AgentPaneHostError {
         case .daemonStopped:
             String(localized: "agentPane.error.daemonStopped", defaultValue: "The agent service stopped.", bundle: .module)
         case .chiefStopped:
-            String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Home to start it.", bundle: .module)
+            String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Chief to start it.", bundle: .module)
         case .chiefStarting:
             String(localized: "agentPane.error.chiefStarting", defaultValue: "The Chief is starting. This chat connects when it is up.", bundle: .module)
         case .daemonRefused(let holder?, _, _, _, _):
@@ -368,6 +368,18 @@ extension AgentPaneModel {
     /// Connect GitHub where this Cloud service has no cmux GitHub App (`github.not_configured`).
     static var gitHubNotConfiguredMessage: String {
         String(localized: "agentPane.github.notConfigured", defaultValue: "GitHub isn't set up for this Cloud service yet.", bundle: .module)
+    }
+
+    /// `github.repos.checkout` could not clone `repo` on this Mac (`github.clone_failed`).
+    static func gitHubCloneFailedMessage(_ repo: String) -> String {
+        String(format: String(localized: "agentPane.github.localCloneFailed",
+                              defaultValue: "Couldn't clone %@ on this Mac. Check that GitHub can reach it, then try again.", bundle: .module), repo)
+    }
+
+    /// `github.repos.checkout` found every clone folder for `repo` taken by something else (`github.clone_no_folder`).
+    static func gitHubCloneNoFolderMessage(_ repo: String) -> String {
+        String(format: String(localized: "agentPane.github.localCloneNoFolder",
+                              defaultValue: "Couldn't find a free folder for %@ in ~/cmux/repos.", bundle: .module), repo)
     }
 
     /// A chat here asked for a GitHub repository (`github:owner/name`) as its folder: only Cloud clones one.

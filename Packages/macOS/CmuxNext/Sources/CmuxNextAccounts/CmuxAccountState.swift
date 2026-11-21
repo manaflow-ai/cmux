@@ -15,8 +15,14 @@ public struct CmuxAccountState: Equatable, Sendable {
     /// auth's reasons are not in this app's catalogs, and their diagnostic
     /// details stay in the log.
     public var failed: Bool
+    /// A dev build's Cloud backend, as the row's note shows it (`CloudRuntimeSelection.developerBackendLabel`):
+    /// which backend this build talks to, and whether a launch or the tag's `backend.json` chose it. Nil in
+    /// release and RC builds, which never show it.
+    public var backend: String?
 
-    public init(signedIn: Bool, label: String? = nil, signingIn: Bool = false, waitingForBrowser: Bool = false, failed: Bool = false) {
+    public init(signedIn: Bool, label: String? = nil, signingIn: Bool = false, waitingForBrowser: Bool = false, failed: Bool = false,
+                backend: String? = nil) {
+        self.backend = backend
         self.signedIn = signedIn
         self.label = label
         self.signingIn = signingIn
