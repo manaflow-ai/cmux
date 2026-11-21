@@ -112,5 +112,35 @@ class StressTest(unittest.TestCase):
             BENCH.run(ctx)
 
 
+class HarnessHelpersTest(unittest.TestCase):
+    """The GUI harness's pure helpers (scripts/cmux-next/stress-bench.py), loaded without an app."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        path = BENCH_DIR.parents[1] / "scripts" / "cmux-next" / "stress-bench.py"
+        argv, sys.argv = sys.argv, ["stress-bench.py", "--app", "/none/cmux DEV stress.app", "--tag", "t",
+                                    "--out", tempfile.mkdtemp(prefix="stress-test-")]
+        try:
+            spec = importlib.util.spec_from_file_location("stress_bench_harness", path)
+            cls.harness = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(cls.harness)
+        finally:
+            sys.argv = argv
+
+    def test_daemon_histogram_is_the_windows_share(self):
+        before = {"bounds_us": [100, 500, 1000, 5000], "counts": [10, 0, 0, 0], "errors": 0, "timeouts": 0}
+        after = {"bounds_us": [100, 500, 1000, 5000], "counts": [20, 8, 1, 1], "errors": 1, "timeouts": 0}
+        got = self.harness.histogram_delta(before, after)
+        self.assertEqual((got["count"], got["p50_ms"], got["p95_ms"], got["errors"]), (20, 0.1, 1.0, 1))
+        self.assertIsNone(self.harness.histogram_delta(after, after)["p95_ms"])
+        self.assertIsNone(self.harness.histogram_delta(None, {"error": "unknown method"}))
+
+    def test_dropped_frames_share(self):
+        got = self.harness.frame_summary({"frames": 990, "missed": 10, "p50_ms": 8.3, "p95_ms": 9.0})
+        self.assertEqual((got["dropped_pct"], got["p95_ms"]), (1.0, 9.0))
+        self.assertIn("error", self.harness.frame_summary({"error": "no display link"}))
+
+
 if __name__ == "__main__":
     unittest.main()
