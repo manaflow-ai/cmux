@@ -508,6 +508,10 @@ public final class TerminalModel {
     #if DEBUG
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
     var demoNote = "start"
+    /// DEBUG: the grid the Mac's program ends at, and whether an answer to a
+    /// resize is still on its way (the demo's `attach` phase). Set, the page
+    /// keeps a ``TerminalAttachTrace`` from its view loading on.
+    var demoFinalGrid: (() -> (columns: Int, rows: Int, inFlight: Bool))?
     #endif
 
     /// Refreshes `snapshot` from the live page (the grid is about to show it).
