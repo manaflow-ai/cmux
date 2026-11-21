@@ -278,6 +278,8 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
                     break
         if len(holders) >= max(1, slots):
             building = "; ".join(holders)
+        elif holders and oldest_waiting is None:
+            return False, f"{holders[0]}, and no feat-cmux-next commit waits after it"
         elif holders and since_start is not None and since_start < SIGNER_STAGGER_MINUTES:
             return False, (f"{holders[0]}, and it started {since_start:.0f} of {SIGNER_STAGGER_MINUTES:g} min ago; the "
                            f"other signer Mac's build starts half a build after it, so the two finish apart")

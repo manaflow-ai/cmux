@@ -390,10 +390,16 @@ class SignerSlotsTests(unittest.TestCase):
     """vars.NIGHTLY_NEXT_SIGNER_SLOTS 2: each signer Mac is its own push slot, so one building run leaves the other
     Mac free; the second start waits half a build (SIGNER_STAGGER_MINUTES) so the two finish apart."""
 
-    def decide(self, starts, slots=2):
+    def decide(self, starts, slots=2, waiting=True):
         return rolling.decide(NOW, head=HEAD, head_runs=[r for r in starts if r.get("head_sha") == HEAD],
                               jobs_of=lambda r: BUILDING, promotions=[],
-                              oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=5)), starts=starts, slots=slots)
+                              oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=5)) if waiting else None,
+                              starts=starts, slots=slots)
+
+    def test_a_free_slot_with_nothing_waiting_waits(self):
+        go, reason = self.decide([run(45, 20, head_sha=HEAD)], waiting=False)
+        self.assertFalse(go, reason)
+        self.assertIn("no feat-cmux-next commit waits", reason)
 
     def test_one_build_half_done_promotes_onto_the_other_mac(self):
         go, reason = self.decide([run(40, 20, head_sha=HEAD)])
