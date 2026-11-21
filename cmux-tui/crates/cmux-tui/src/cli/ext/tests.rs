@@ -908,6 +908,13 @@ fn share_prints_a_pinned_link_only_for_a_pushed_commit_with_its_script() {
     let check = share::check_share(&dir).unwrap();
     assert!(check.blocking.iter().any(|b| b.contains("not a GitHub repository")), "{check:?}");
 
+    // A credentialed origin is refused without its login or token in the message.
+    git_in(&work, &["remote", "set-url", "origin", "https://user:s3cret-token@github.com/acme/widgets"]);
+    let check = share::check_share(&dir).unwrap();
+    let said = check.blocking.join("\n");
+    assert!(said.contains("origin https://github.com/acme/widgets is not"), "{said}");
+    assert!(!said.contains("s3cret-token") && !said.contains("user:"), "{said}");
+
     git_in(&work, &["remote", "set-url", "origin", "git@github.com:acme/widgets.git"]);
     let check = share::check_share(&dir).unwrap();
     let head = git_in(&work, &["rev-parse", "HEAD"]);
@@ -941,6 +948,27 @@ fn share_prints_a_pinned_link_only_for_a_pushed_commit_with_its_script() {
         }
         other => panic!("{other:?}"),
     }
+}
+
+#[test]
+fn messages_never_echo_a_login_or_token() {
+    assert_eq!(
+        source::redact_login("https://user:token@gitlab.com/acme/widget.git"),
+        "https://gitlab.com/acme/widget.git"
+    );
+    assert_eq!(source::redact_login("https://tok@github.com"), "https://github.com");
+    assert_eq!(source::redact_login("https://a:b@host?x=1"), "https://host?x=1");
+    assert_eq!(source::redact_login("git@github.com:acme/w.git"), "git@github.com:acme/w.git");
+    assert_eq!(source::redact_login("https://github.com/acme/w"), "https://github.com/acme/w");
+    let err = source::parse("https://user:s3cret@github.com/acme/widgets", Path::new("/nonexistent"))
+        .unwrap_err();
+    assert!(!err.contains("s3cret") && err.contains("https://github.com/acme/widgets"), "{err}");
+}
+
+#[test]
+fn the_search_client_builds_with_tls() {
+    // reqwest uses rustls-no-provider: without an installed provider this fails or panics.
+    assert!(share::search_client().is_ok());
 }
 
 #[test]

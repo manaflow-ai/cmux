@@ -275,8 +275,10 @@ pub(super) fn check_share(dir: &Path) -> Result<ShareCheck, Vec<dev::Problem>> {
         Ok(origin) => match machine_repo::parse(&origin) {
             Ok(repo) => Some(repo),
             Err(_) => {
+                // The origin may carry a login or token (`https://user:token@...`): never print it.
                 check.blocking.push(format!(
-                    "origin {origin} is not a GitHub repository or an https git URL, so cmux ext add cannot fetch it"
+                    "origin {} is not a GitHub repository or an https git URL, so cmux ext add cannot fetch it",
+                    source::redact_login(&origin)
                 ));
                 None
             }
@@ -389,12 +391,20 @@ pub(super) fn search_url(query: Option<&str>) -> String {
         .unwrap_or_default()
 }
 
-async fn search(query: Option<&str>) -> Result<Value, String> {
-    let client = reqwest::Client::builder()
+/// The search's HTTPS client. reqwest here is rustls without a built-in crypto provider (CLI
+/// startup installs none), so ring is installed first, as every other cmux-tui HTTPS client does
+/// (ignored when one is already installed).
+pub(super) fn search_client() -> Result<reqwest::Client, String> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    reqwest::Client::builder()
         .timeout(SEARCH_TIMEOUT)
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .build()
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| err.to_string())
+}
+
+async fn search(query: Option<&str>) -> Result<Value, String> {
+    let client = search_client()?;
     let mut request = client.get(search_url(query)).header("Accept", "application/vnd.github+json");
     // A token raises GitHub's search limit (10 a minute without one); never required.
     let token = ["GH_TOKEN", "GITHUB_TOKEN"]

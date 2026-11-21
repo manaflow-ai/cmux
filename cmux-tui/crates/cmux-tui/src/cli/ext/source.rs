@@ -43,6 +43,8 @@ pub(super) fn parse(raw: &str, cwd: &Path) -> Result<Source, String> {
         None => (raw, None),
     };
     let (base, tail) = split_tree(spec);
+    // Messages echo the source without any login or token in it.
+    let raw = redact_login(raw);
     let mut repo = machine_repo::parse(base).map_err(|invalid| {
         match invalid {
             Invalid::Unrecognized => format!(
@@ -70,6 +72,21 @@ pub(super) fn parse(raw: &str, cwd: &Path) -> Result<Source, String> {
         }
     }
     Ok(Source::Git { repo, tail, subdir })
+}
+
+/// `url` with any login or token between `://` and `@` left out, for messages: a remote such as
+/// `https://user:token@host/owner/name` must never reach output or logs as written.
+pub(super) fn redact_login(url: &str) -> String {
+    if let Some((scheme, rest)) = url.split_once("://") {
+        let (authority, path) = match rest.find(['/', '?', '#']) {
+            Some(end) => rest.split_at(end),
+            None => (rest, ""),
+        };
+        if let Some((_, host)) = authority.rsplit_once('@') {
+            return format!("{scheme}://{host}{path}");
+        }
+    }
+    url.to_string()
 }
 
 /// A GitHub `/tree/` link split into the repository and the path after `tree`. Other forms are
@@ -145,8 +162,9 @@ pub(super) fn fetch(
         let origin = git(Some(clone), ["remote", "get-url", "origin"])?;
         if origin.trim_end_matches(".git") != url.trim_end_matches(".git") {
             return Err(format!(
-                "{} is a clone of {origin}, not {url}; remove that folder to add from here",
-                clone.display()
+                "{} is a clone of {}, not {url}; remove that folder to add from here",
+                clone.display(),
+                redact_login(&origin)
             ));
         }
         git(Some(clone), ["fetch", "--quiet", "--tags", "--prune", "origin"])
