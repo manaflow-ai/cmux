@@ -290,8 +290,8 @@ def text(v: dict) -> str:
 def tell(v: dict, tell_cmd: str | None, comment: bool) -> list[str]:
     done, body = [], text(v)
     if tell_cmd:
-        rc = subprocess.run(tell_cmd, shell=True, input=body, text=True, capture_output=True).returncode  # noqa: S602
-        done.append(f"told `{tell_cmd}` (rc {rc})")
+        sent = subprocess.run(["bash", "-c", tell_cmd], input=body, text=True, capture_output=True)
+        done.append(f"told `{tell_cmd}` (rc {sent.returncode}){': ' + sent.stderr.strip()[-300:] if sent.returncode else ''}")
     if comment and v["kind"] == "culprit" and v["culprit"]["pr"]:
         pr = str(v["culprit"]["pr"])
         rc = subprocess.run(["gh", "pr", "comment", pr, "-R", REPO, "--body-file", "-"], input=body, text=True,
