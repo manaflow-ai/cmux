@@ -87,6 +87,10 @@ jobs:
     needs: route
     if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'swift-linux-packages.yml') }}
     uses: ./.github/workflows/swift-linux-packages.yml
+    # The callee asks contents: read; a job with no grant inherits this file's `permissions: {}`,
+    # and GitHub then refuses to start the whole router run.
+    permissions:
+      contents: read
 
   web-validation:
     name: Web validation
