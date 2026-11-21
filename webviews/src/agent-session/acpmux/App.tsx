@@ -445,13 +445,7 @@ import {
 } from "./conversation/runInBackground";
 import { SkillWordsContext, useSkillWords } from "./conversation/skillWords";
 import { TranscriptChief } from "./conversation/sentFrom";
-import {
-  editableKey,
-  editableSeqs,
-  promptTurns,
-  trackEditableTurns,
-  type EditableTurns,
-} from "./conversation/editPrompt";
+import { trackEditableTurns, trackPromptTurns, type EditableTurns, type PromptTurns } from "./conversation/editPrompt";
 import {
   CloudTurnCheckpoints,
   readyPromptKey,
@@ -2294,8 +2288,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [rowsForEdits, editFamily],
   );
   // Each prompt's own turn, for the Fork under its bubble; rebuilt only when the turns change.
-  const promptSeqsKey = editableKey(promptTurns(turnForkable ? snapshot.rows : []));
-  const stablePromptSeqs = useMemo(() => editableSeqs(promptSeqsKey), [promptSeqsKey]);
+  // Tracked across snapshots: a streamed row reads the rows after it, not the whole chat (cmux#48711).
+  const lastPromptTurns = useRef<PromptTurns | undefined>(undefined);
+  const rowsForPromptTurns = turnForkable ? snapshot.rows : NO_ROWS;
+  const stablePromptSeqs = useMemo(
+    () => (lastPromptTurns.current = trackPromptTurns(rowsForPromptTurns, lastPromptTurns.current)).seqs,
+    [rowsForPromptTurns],
+  );
   // Retry with another model (cx-ncc.62): the models the composer's picker lists for the chat's
   // harness (user-hidden ones left out, aliases folded, the session's own choices added) that it can
   // run now, kept the same array while they stay the same.
