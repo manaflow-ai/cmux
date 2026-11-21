@@ -18,6 +18,12 @@ pub fn write_grants(path: &Path) -> io::Result<bool> {
     imp::write_grants(path)
 }
 
+/// [`write_grants`] for the open file or folder `file`: the ACL of what
+/// the descriptor reaches, wherever a symlink on its path pointed.
+pub fn fd_write_grants(file: &std::fs::File) -> io::Result<bool> {
+    imp::fd_write_grants(file)
+}
+
 /// Removes the write-class allow entries from the ACL of the open file
 /// or folder `file`, keeping every other entry. True when it removed one.
 pub fn strip_write_grants(file: &std::fs::File) -> io::Result<bool> {
@@ -122,6 +128,14 @@ mod imp {
         }
     }
 
+    pub fn fd_write_grants(file: &std::fs::File) -> io::Result<bool> {
+        // SAFETY: the descriptor is open for the life of `file`.
+        match owned(unsafe { acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED) })? {
+            Some(acl) => Ok(first_grant(&acl)?.is_some()),
+            None => Ok(false),
+        }
+    }
+
     pub fn strip_write_grants(file: &std::fs::File) -> io::Result<bool> {
         let fd = file.as_raw_fd();
         // SAFETY: fd is open for the life of `file`.
@@ -150,6 +164,10 @@ mod imp {
     use std::path::Path;
 
     pub fn write_grants(_path: &Path) -> io::Result<bool> {
+        Ok(false)
+    }
+
+    pub fn fd_write_grants(_file: &std::fs::File) -> io::Result<bool> {
         Ok(false)
     }
 
