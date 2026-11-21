@@ -1,11 +1,11 @@
 .menu-taste-stage {
   box-sizing: border-box;
   display: flex;
-  min-height: 480px;
+  min-height: calc(60 * var(--grid-gap));
   flex-direction: column;
   align-items: flex-start;
-  gap: 18px;
-  padding: 40px 48px;
+  gap: calc(2 * var(--grid-gap));
+  padding: calc(5 * var(--grid-gap)) calc(6 * var(--grid-gap));
   background: var(--cmux-page-background, var(--cmux-window-background, Canvas));
   color: var(--cmux-text, CanvasText);
   font-family: var(--font-ui);
@@ -16,9 +16,9 @@
 .menu-taste-target,
 .menu-taste-trigger {
   min-width: 160px;
-  padding: 6px 12px;
+  padding: var(--grid-gap) calc(var(--grid-gap) + var(--grid-base));
   border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
-  border-radius: 7px;
+  border-radius: 6px;
   background: color-mix(in srgb, currentColor 6%, transparent);
   color: inherit;
   font: inherit;

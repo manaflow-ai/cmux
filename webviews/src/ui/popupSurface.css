@@ -529,10 +529,10 @@
 }
 .ui-popup.ui-context-menu.ui-context-submenu {
   position: absolute;
-  inset-block-start: calc(-1 * var(--cmux-menu-highlight-inset, 5px));
-  inset-inline-start: calc(100% + var(--cmux-menu-highlight-inset, 5px));
+  inset-block-start: calc(-1 * var(--cmux-menu-highlight-inset));
+  inset-inline-start: calc(100% + var(--cmux-menu-highlight-inset));
   min-width: 180px;
-  z-index: 1;
+  z-index: var(--layer-raised);
 }
 
 /* MENU STYLE V2 (experiment menu-style-v2, menuStyleV2.experiment.ts; Leo's taste build list): the
@@ -599,7 +599,7 @@
   white-space: nowrap;
 }
 .ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled):has(.ui-menu-reason) {
-  padding-block: 3px;
+  padding-block: var(--grid-half-step);
   opacity: 1;
 }
 .ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled):has(.ui-menu-reason) > :not(.ui-menu-text) {
@@ -610,12 +610,12 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  width: var(--cmux-menu-icon-size, 14px);
-  height: var(--cmux-menu-icon-size, 14px);
+  width: var(--cmux-menu-icon-size);
+  height: var(--cmux-menu-icon-size);
   margin-inline-start: auto;
 }
 .ui-popup[data-menu-states] .ui-menu-shortcut + .ui-menu-async {
-  margin-inline-start: var(--cmux-menu-icon-gap, 6px);
+  margin-inline-start: var(--cmux-menu-icon-gap);
 }
 .ui-popup[data-menu-states] .ui-menu-spinner {
   box-sizing: border-box;
