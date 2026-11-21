@@ -98,7 +98,7 @@ pub(super) fn create_params(
 /// A shell command that runs on one of the team's Cloud machines on each run
 /// (`--command … --target cloud`), with the machine asleep or not: the
 /// Cloud's own scheduler fires it, so this Mac can sleep. One provider exec
-/// is cut at about 120 s, so the run is a `steps` body of short machine steps:
+/// answers within about 300 s, so the run is a `steps` body of machine steps:
 /// step 0 starts the command detached on the machine (in `folder`, or in a
 /// checkout of `repo` moved to the newest head of its branch first), and each
 /// later step waits up to [`WAIT_SECONDS`] for it to end. The first wait that
@@ -119,13 +119,13 @@ pub(super) struct CloudCommand {
 }
 
 /// How long one wait step waits. Its step limit is this plus [`STEP_SLACK`],
-/// [`STEP_LIMIT`], which stays under the about 120 s at which a provider exec
-/// is cut although its timeout says 300 s: two runs on 2026-11-21 (the start
-/// step of a first clone, and a 280 s wait) failed "the machine did not
-/// answer" 126.5 s and 126.8 s after they started, while a 103.6 s run passed.
-pub(super) const WAIT_SECONDS: u64 = 90;
+/// [`STEP_LIMIT`], within the provider's 300 s exec. (On 2026-11-21 an exec
+/// held open was cut at about 125 s by the provider's edge, a 524; cmux-vm now
+/// sends a longer one as a background request, workers/cmux-vm
+/// src/upstream/live-background.ts, and a 200 s step passed on production.)
+pub(super) const WAIT_SECONDS: u64 = 280;
 const STEP_SLACK: u64 = 10;
-/// The limit of every step, the start step's too: under the provider's cut.
+/// The limit of every step, the start step's too: within the provider's 300 s.
 const STEP_LIMIT: u64 = WAIT_SECONDS + STEP_SLACK;
 /// A body holds at most 50 steps: one start and 49 waits.
 pub(super) const MAX_CLOUD_COMMAND_SECONDS: u64 = 49 * WAIT_SECONDS;
@@ -398,11 +398,13 @@ mod tests {
                 "a body holds at most 50 steps ({timeout} s: {})",
                 steps.len()
             );
+            // STEP_LIMIT itself stays within the provider's 300 s exec; checked at compile time.
+            const { assert!(STEP_LIMIT <= 300) };
             for (i, s) in steps.iter().enumerate() {
                 let limit = s["timeout_seconds"].as_u64().unwrap();
                 assert!(
-                    limit <= STEP_LIMIT && limit < 120,
-                    "{timeout} s: step {i} may run {limit} s, past the provider's cut"
+                    limit <= STEP_LIMIT,
+                    "{timeout} s: step {i} may run {limit} s, past the provider's 300 s exec"
                 );
             }
             let waited: u64 = steps[1..]
@@ -436,13 +438,13 @@ mod tests {
         );
         let steps = p["body"]["steps"].as_array().unwrap();
         assert_eq!(p["body"]["type"], "steps");
-        assert_eq!(steps.len(), 1 + 14, "20 min = 14 waits of at most 90 s");
+        assert_eq!(steps.len(), 1 + 5, "20 min = 5 waits of at most 280 s");
         for s in steps {
             assert_eq!(s["type"], "machine");
             assert_eq!(s["machine"], "vm_abcdefghij0123456789");
             assert!(
-                s["timeout_seconds"].as_u64().unwrap() <= 100,
-                "a provider exec is cut at about 120 s, so no step may run longer"
+                s["timeout_seconds"].as_u64().unwrap() <= 300,
+                "one provider exec answers within 300 s"
             );
             assert!(
                 s["command"].as_str().unwrap().len() <= 4000,
