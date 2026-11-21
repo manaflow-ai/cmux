@@ -69,10 +69,11 @@ def compare(old: dict[str, str], new: dict[str, str], new_reasons: list[str]) ->
     return Verdict("unexplained", f"dropped {change} with no fast-tier reason")
 
 
-# A cmux-tui path no Swift compile reads (the router's NO_SWIFT_COMPILE_REASON) drops only the Swift
-# compiles: native and scheme, nothing else, and the same Swift test targets.
+# A path no Swift compile reads (the router's NO_SWIFT_COMPILE_REASON: cmux-tui Rust, a CI file, a tree in
+# NO_SWIFT_COMPILE_ROOTS) drops only the Swift compiles: native and scheme, and `macos` when they were its only
+# Mac tier (macos is derived: any Mac tier), nothing else, and the same Swift test targets.
 NO_SWIFT_COMPILE_REASON = "(no Swift compile reads it)"
-SWIFT_COMPILE_TIERS = frozenset(("native", "scheme"))
+SWIFT_COMPILE_TIERS = frozenset(("native", "scheme", "macos"))
 # A pull request a running app takes live (the router's hot_only) drops the app build and test tiers, never the
 # daemon tier or `full`.
 HOT_ONLY_REASON = "(hot-only: no app build)"

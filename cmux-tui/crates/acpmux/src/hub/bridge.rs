@@ -33,6 +33,10 @@
 //! (`open_delivery.rs`), so without this each restart put the same message in the app again.
 
 use super::{Hub, PromptOptions, Session};
+
+/// A bridged chat the account's rate limit stopped holds what is sent to it until the reset.
+#[path = "bridge_hold.rs"]
+pub(super) mod hold;
 use crate::claude_peers::Unreached;
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
@@ -65,6 +69,9 @@ pub(super) struct Pending {
     shown: bool,
     order: u64,
     turn: watch::Sender<Outcome>,
+    /// The prompts a rate-limit hold folded into this delivery (`bridge_hold.rs`): each one's
+    /// kept delivery answers with this one's turn.
+    riders: Vec<String>,
 }
 
 #[derive(Default)]
@@ -112,6 +119,7 @@ impl Deliveries {
             shown: false,
             order: self.next,
             turn,
+            riders: Vec::new(),
         };
         self.by_uuid.insert(uuid, pending);
         while self.by_uuid.len() > KEPT {
@@ -163,8 +171,14 @@ pub(super) fn delivered_text(session_id: &str, text: &str) -> Option<(String, St
 
 /// The watch ended the turn of `prompt_id`: its call (and any resend's) answers with `turn_id`.
 pub(super) fn answered(session_id: &str, prompt_id: &str, turn_id: &str) {
-    if let Some((_, p)) = deliveries().of_prompt(session_id, prompt_id) {
-        p.turn.send_replace(Some(Ok(turn_id.to_owned())));
+    let all = deliveries();
+    let Some((_, p)) = all.of_prompt(session_id, prompt_id) else { return };
+    p.turn.send_replace(Some(Ok(turn_id.to_owned())));
+    // The prompts a rate-limit hold folded into this one went in the same turn.
+    for rider in &p.riders {
+        if let Some((_, r)) = all.of_prompt(session_id, rider) {
+            r.turn.send_replace(Some(Ok(turn_id.to_owned())));
+        }
     }
 }
 
@@ -328,13 +342,27 @@ impl Hub {
         if let Err(e) = checked {
             return Some(Err(e));
         }
+        let sender = opts.agent.clone().unwrap_or_else(|| "person".to_owned());
+        // The app's last turn stopped on the account's rate limit: kept until the reset, then
+        // sent with the others the hold kept as one message (`bridge_hold.rs`).
+        match hold::park(&session.id, &prompt_id, &text, &wire, &sender) {
+            Some(Ok((rx, until))) => {
+                if let Some(f) = opts.on_accepted.take() {
+                    f(
+                        json!({"sessionId": session.id, "promptId": prompt_id, "queued": true, "state": "held", "bridged": true, "rateLimitedUntil": until}),
+                    );
+                }
+                return Some(hold::held_answer(&session.id, &prompt_id, rx, until).await);
+            }
+            Some(Err(rx)) => return Some(resent(session, &prompt_id, rx, opts).await),
+            None => {}
+        }
         // Claimed under one lock: two sends of one id never both go.
         let claimed = deliveries().claim(uuid.clone(), &session.id, &prompt_id, &text, &wire);
         let rx = match claimed {
             Ok(rx) => rx,
             Err(rx) => return Some(resent(session, &prompt_id, rx, opts).await),
         };
-        let sender = opts.agent.clone().unwrap_or_else(|| "person".to_owned());
         if let Err(e) = target.deliver(&wire, &uuid, &sender).await {
             // A resend waiting on this delivery fails with it, and a later one delivers again.
             let gone = deliveries().by_uuid.remove(&uuid);

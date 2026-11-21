@@ -874,7 +874,7 @@ extension LiveCoordinator {
             || reason.contains("channel closed") {
             return String(localized: "Chief isn't running on \(mac). Open cmux on the Mac to start it, then try again.")
         }
-        return String(localized: "Chief on \(mac) didn't answer (\(reason)).")
+        return String(localized: "Can't reach Chief on \(mac) right now (\(reason)).")
     }
 
     // MARK: Trees and the Feed

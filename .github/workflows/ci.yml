@@ -184,18 +184,18 @@ jobs:
       # true for a pull request on the cmux NEXT line, stacked ones included
       # (scripts/ci/next_line.sh); the legacy lanes below skip it.
       next_line: ${{ steps.line.outputs.next_line }}
-      macos: ${{ steps.tier.outputs.tier == 'cheap' && 'false' || (steps.next-route.outputs.macos || steps.detect.outputs.macos) }}
+      macos: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.next-route.outputs.macos || steps.detect.outputs.macos) }}
       # The last green head a merge-only head was routed from; empty otherwise.
       delta_base_sha: ${{ steps.delta.outputs.base_sha }}
-      browser: ${{ steps.tier.outputs.tier == 'cheap' && 'false' || (steps.standalone.outputs.browser) }}
-      remote_daemon: ${{ steps.tier.outputs.tier == 'cheap' && 'false' || (steps.standalone.outputs.remote_daemon) }}
-      remote_daemon_native: ${{ steps.tier.outputs.tier == 'cheap' && 'false' || (steps.standalone.outputs.remote_daemon_native) }}
+      browser: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.standalone.outputs.browser) }}
+      remote_daemon: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.standalone.outputs.remote_daemon) }}
+      remote_daemon_native: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.standalone.outputs.remote_daemon_native) }}
       # Empty until the base revision of the router knows this area, so the
       # consumers below read a missing value as "not routed".
-      swift_packages: ${{ steps.tier.outputs.tier == 'cheap' && 'false' || (steps.next-route.outputs.swift_packages || steps.detect.outputs.swift_packages || 'false') }}
-      web: ${{ steps.tier.outputs.tier == 'cheap' && 'false' || (steps.detect.outputs.web) }}
-      agent_session_web: ${{ steps.tier.outputs.tier == 'cheap' && 'false' || (steps.detect.outputs.agent_session_web) }}
-      release_build: ${{ steps.tier.outputs.tier == 'cheap' && 'false' || (steps.next-route.outputs.release_build || steps.detect.outputs.release_build) }}
+      swift_packages: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.next-route.outputs.swift_packages || steps.detect.outputs.swift_packages || 'false') }}
+      web: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.detect.outputs.web) }}
+      agent_session_web: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.detect.outputs.agent_session_web) }}
+      release_build: ${{ (steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false' || (steps.next-route.outputs.release_build || steps.detect.outputs.release_build) }}
       owned_head_repos: ${{ steps.owned-head-repos.outputs.repos }}
       linux_guard_tests: ${{ steps.linux_guards.outputs.linux_guard_tests }}
       linux_guard_test_groups: ${{ steps.linux_guards.outputs.linux_guard_test_groups }}
@@ -290,6 +290,7 @@ jobs:
         continue-on-error: true
         env:
           CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
         run: if [ -f scripts/ci/head_tier.py ]; then python3 -I scripts/ci/head_tier.py; fi
 
       # Owned Linux runners reuse their workspaces between jobs. Clear any
