@@ -35,4 +35,14 @@ struct DebugHomePrivacyTests {
         let paths = Self.strings(.object(report)).filter { $0.hasPrefix("/") }
         #expect(paths.isEmpty, "debug.home names paths: \(paths)")
     }
+
+    @Test func aScriptThatAsksGetsTheOwnersHome() throws {
+        guard case .object(let report) = DebugHome.report(services: Self.services(), paths: true),
+              case .object(let owner)? = report["chief_owner"] else {
+            Issue.record("debug.home answered no chief_owner object")
+            return
+        }
+        #expect(owner["home"]?.stringValue?.hasPrefix("/") == true)
+        #expect(owner.keys.contains("cache"))
+    }
 }
