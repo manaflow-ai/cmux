@@ -444,7 +444,7 @@ public final class MacScreenPaneView: NSView {
         veil.isHidden = !showsCard || style.cardVeilOpacity <= 0 || video.frame.isEmpty
         if !veil.isHidden {
             veil.frame = screenRect
-            veil.layer?.backgroundColor = backdrop.withAlphaComponent(style.cardVeilOpacity).cgColor
+            veil.layer?.backgroundColor = style.backdrop.color(chrome.toolbar.colors).withAlphaComponent(style.cardVeilOpacity).cgColor
         }
     }
 
