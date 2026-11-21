@@ -74,6 +74,8 @@ struct CmuxMobileApp: App {
                 ShellScreenSharingLink()
             } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
+            } else if TerminalHistoryWindowDemoRoot.isRequested {
+                TerminalHistoryWindowDemoRoot()
             } else if TerminalResizeDemoRoot.isRequested {
                 TerminalResizeDemoRoot()
             } else if AgentCLIHybridBenchRoot.isRequested {
