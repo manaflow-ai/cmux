@@ -103,8 +103,7 @@ final class CloudService {
     /// The person's confirmation of a create (set by AppServices: a sheet in the active window, or the
     /// sidebar card for an agent's or a script's request while that sidebar shows); none answers false.
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
-    /// How a create no person started goes: whether it asks first (`cloud.agentsStartWithoutAsking` off) and whether the
-    /// machine idle-pauses (`labs.pauseAgentMachines`); unset, nothing asks and nothing pauses.
+    /// How a create no person started goes: asks first (`cloud.agentsStartWithoutAsking` off), idle-pauses (`labs.pauseAgentMachines`); unset, neither.
     @ObservationIgnored var agentCreatePolicy: @MainActor () -> CloudMachineCreatePolicy = { CloudMachineCreatePolicy() }
     /// At the plan's cap: the card's pick for a person's create (nil: Not now), and the notice naming the machine paused to make room.
     @ObservationIgnored var chooseAtCap: (@MainActor (CloudMachineCap) async -> CloudMachineCap.Choice?)?
@@ -678,8 +677,7 @@ final class CloudService {
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
-        let policy = agentCreatePolicy()
-        let asksFirst = !startedByPerson && policy.asksFirst
+        let policy = agentCreatePolicy(), asksFirst = !startedByPerson && policy.asksFirst
         let idlePause = request.idlePauseMinutes(startedByPerson: startedByPerson, pauseAgentMachines: policy.pauseAgentMachines)
         var machine = try await CloudMachineCap.creating(person: startedByPerson && capCard, cap: { [weak self] error in
             guard case CloudMachineCreateFlow.Failure.upgradeRequired(let reason) = error else { return CloudMachineCap.refusal(error) }
