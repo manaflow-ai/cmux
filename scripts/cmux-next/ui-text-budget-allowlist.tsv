@@ -35,7 +35,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/Localizable.xcstring
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/Localizable.xcstrings	agentPane.peerApprovals.off.title	9	6
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/Localizable.xcstrings	agentPane.stateLoss.pairedPhones	16	12
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/Localizable.xcstrings	agentPane.stateLoss.unsentDraft	13	12
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/Localizable.xcstrings	chiefScreenShare.refusal.helperNotRunning	22	12
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/Localizable.xcstrings	hands.presence.unavailable	24	20
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/AgentDialogs.xcstrings	agentDialogs.nameTheItem	17	6
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Bookmarks.xcstrings	bookmarks.importBrowser.none	16	10

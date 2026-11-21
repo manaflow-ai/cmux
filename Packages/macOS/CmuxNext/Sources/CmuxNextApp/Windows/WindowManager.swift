@@ -350,7 +350,7 @@ final class WindowManager {
             // One step at a time: Agents, then Bring your history once its window closed.
             await services.onboarding.showFirstRunSteps(isFirstRun: isFirstRun)
             // Then, once per channel: `cmux` in Terminal that would not run this app.
-            await CLIInstallHandlers.offerAtLaunch(skipsOnboarding: services.environment.skipsOnboarding)
+            await CLIInstallHandlers.offerAtLaunch(skipsOnboarding: services.environment.launchSteps.skipsFirstRun)
         }
         savedWindowsUnread = false
         recordSaver.scheduleSave()
