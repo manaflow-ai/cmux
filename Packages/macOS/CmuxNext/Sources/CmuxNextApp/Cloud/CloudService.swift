@@ -677,9 +677,8 @@ final class CloudService {
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
-        let policy = agentsAskFirst()
-        let asksFirst = !startedByPerson && policy.asksFirst
-        let idlePause = request.idlePauseMinutes(pauseAgentMachines: policy.pauseAgentMachines)
+        let asksFirst = !startedByPerson && agentsAskFirst().asksFirst
+        let idlePause = request.idlePauseMinutes(pauseAgentMachines: agentsAskFirst().pauseAgentMachines)
         var machine = try await CloudMachineCap.creating(person: startedByPerson && capCard, cap: { [weak self] error in
             guard case CloudMachineCreateFlow.Failure.upgradeRequired(let reason) = error else { return CloudMachineCap.refusal(error) }
             return self.map { CloudMachineCap.plan(freePlan: reason == .freePlan, pauseFrees: reason == .pool, machines: $0.machines.cloud.map(\.machine), user: $0.auth.user?.id) }
