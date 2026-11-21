@@ -118,7 +118,8 @@ fn compare_part(lhs: &str, rhs: &str) -> std::cmp::Ordering {
     lhs.cmp(rhs)
 }
 
-/// Unix seconds as the local date `YYYY-MM-DD`.
+/// Unix seconds as the local date `YYYY-MM-DD`. Only macOS reads a process start time.
+#[cfg(any(target_os = "macos", test))]
 pub(super) fn local_date(seconds: i64) -> Option<String> {
     let time = libc::time_t::try_from(seconds).ok()?;
     // SAFETY: an all-zero `tm` is a valid out-buffer.
