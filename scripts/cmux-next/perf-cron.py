@@ -218,6 +218,14 @@ PARTS = [
     # run_seconds: step 343b7e82 ran 2768 s with a cold build of 2522 s and its three rounds (2026-11-19), plus margin.
     {"name": "wake", "args": [*MEASURE, "--suite=wake"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "wake", "run_seconds": 3300},
+    # One chat at 1 MB, 100 MB, 1 GB and 4 GB (scripts/cmux-next/chat-size-ratio.py, goal infinite-chats in cmuxterm-hq's
+    # NOW): each size seeded by the app's own acpmux store, opened in the app --runs times; open to first content, fling
+    # frame p95, composer key to paint p95, renderer + GPU footprint and the daemon's footprint for the chat, each over
+    # the 1 MB chat's (chat_size.<size>.<axis>_ratio) and the worst of them (chat_size.ratio_max; missing when any size
+    # crashed, stalled or read nothing). The bench configuration, as memory-agents: one build serves both. Seeding the
+    # 4 GB chat and 12 launches are not timed on a fleet Mac yet, so it takes workspace-scaling's 60-minute cap.
+    {"name": "chat-size", "args": [*MEASURE, "--vdisplay-hold=3600", "--config=bench", "--suite=chat-size"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-size", "run_seconds": 3600},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -276,6 +284,7 @@ ROW_PARTS = [
     (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
     (r"^launch\.relaunch\.", "relaunch"), (r"^launch\.wake_proxy\.", "wake"), (r"^launch\.", "launch"),
     (r"^terminal\.throughput\.", "throughput"), (r"^terminal\.scroll\.", "terminal-scroll"),
+    (r"^chat_size\.", "chat-size"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
     # chat-open-god's paired rows (chat-open.bench.ts PAIRED=1), the small chat's too: the part that ran them keeps them.
@@ -1337,8 +1346,16 @@ def tip_pin_host(state, t):
 
 
 def tip_due(state, t):
-    """A tip measurement may start: none finished (or was dropped) in the last TIP_EVERY_HOURS. Only consulted while
-    a bisect step is also possible."""
+    """A tip measurement may start: none finished (or was dropped) in the last TIP_EVERY_HOURS, or no complete tip
+    measurement finished within STALE_HOURS (stale_hours). Only consulted while a bisect step is also possible.
+
+    Stale first: only a tip measurement stores rows (a bisect step only narrows its range), and cmuxterm-hq's NOW
+    Benches reads those rows within 48 h. On 2026-11-21 the rows were 136.8 h old when a tip measurement that waited
+    for the fleet was abandoned; that abandon counted as a tip tried, so the next tick started a bisect step instead
+    (run 44846739082), and the rows could not refresh before the bisect finished. A bisect against a reference that
+    old also judges less than a fresh tip would."""
+    if stale_hours(state, t) > STALE_HOURS:
+        return True
     times = [(state.get("last_tried") or {}).get("at")]
     times += [h.get("at") for h in state.get("history") or [] if isinstance(h, dict) and h.get("kind") == "tip"]
     times = [parse_iso(x) for x in times if isinstance(x, str)]
@@ -1997,7 +2014,7 @@ def supported_parts_at(sha):
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
                                    capture_output=True, text=True).stdout
             ok = "--suite=launch" in text and '"--activation"' in bench
-        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake"):
+        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "chat-size"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text

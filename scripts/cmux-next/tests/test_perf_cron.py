@@ -1904,7 +1904,6 @@ class ControllerRouteTests(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(out, "report.json")))
 
 
-
 class HostTests(OneRunRule):
     """Lead decision 2026-10-24: a part runs on any idle measure worker; every part of one measurement on one host;
     rows compare only with values of the same host; each row and the issue name the host and its macOS."""
@@ -2336,7 +2335,6 @@ class MeasureVersionTests(unittest.TestCase):
         with mock.patch.object(cron, "measure_version", versions.get):
             self.assertEqual([c for c in "abcd" if cron.fleet_runs(c, 2)], ["a", "b"])
             self.assertFalse(cron.fleet_runs("d", None), "a tip with no version measures nothing")
-
 
 
 class RateLimitTests(unittest.TestCase):
@@ -2904,7 +2902,6 @@ class HostWaitTests(unittest.TestCase):
         self.assertEqual(cron.migrate_state(fresh)["current"]["parts"]["motion"]["worker"], X)
 
 
-
 class NoHostTipTests(OneRunRule):
     """2026-11-16 00:59Z: tip 83b6f50f waited on cmux20-bench (reserved, given up twice) for memory-agents and
     throughput, and no newer tip could start before the 48 h cap: the Linux parts that failed on it (web-ui-flat, no
@@ -3307,7 +3304,6 @@ class MeasureVersionGateTests(OneRunRule):
         self.assertEqual(cron.measure_version_of("626c77accc2f511146571fbb9314b1af95d2d7c9", "#!/bin/bash\n"), 2)
 
 
-
 class HostGoneSignalTests(unittest.TestCase):
     """The controller sends host_gone when a request named a worker it does not have (hq perf_cron.go goneLocked):
     the cron retires that host at once, its open regressions close at the next Mac measurement elsewhere."""
@@ -3336,7 +3332,6 @@ class HostGoneSignalTests(unittest.TestCase):
         self.assertTrue(cron.result_files(value)["host_gone"])
 
 
-
 class BisectGoneHostTests(unittest.TestCase):
     """Review of hq #3854, finding 4: a bisect step for a gone host's rows would get host_gone back on every step."""
     tick = PlanReportTests.tick
@@ -3361,6 +3356,37 @@ class BisectGoneHostTests(unittest.TestCase):
                     self.assertEqual(plan["action"], "none", "no bisect step for a gone host's rows")
                 else:
                     self.assertEqual((plan["action"], plan["sha"], plan["worker"]), ("part", "b" * 40, "cmux21"))
+
+
+class StaleTipFirstTests(unittest.TestCase):
+    """2026-11-21 (run 44846739082): the rows were 136.8 h old, a tip measurement that waited for the fleet was just
+    abandoned, and that abandon made the next tick start a bisect step. Only a tip stores rows, so while the rows are
+    stale (no complete tip within STALE_HOURS) the tip goes before any bisect step."""
+
+    def state(self, measured_h, tried_h):
+        state = cron.empty_state(T0)
+        state["last"] = {"sha": "e" * 40, "measured_at": cron.iso(at(measured_h))}
+        state["last_tried"] = {"sha": "f" * 40, "at": cron.iso(at(tried_h))}
+        return state
+
+    def test_a_tip_tried_lately_still_waits_while_the_rows_are_fresh(self):
+        self.assertFalse(cron.tip_due(self.state(measured_h=20, tried_h=29), at(30)))
+
+    def test_stale_rows_make_the_tip_due_even_right_after_a_tip_was_tried(self):
+        self.assertTrue(cron.tip_due(self.state(measured_h=0, tried_h=29), at(30)))
+
+    def test_an_abandoned_tip_in_the_history_does_not_hold_a_stale_tip_back(self):
+        state = self.state(measured_h=0, tried_h=0)
+        state["history"] = [{"sha": "d" * 40, "kind": "tip", "status": "abandoned", "at": cron.iso(at(29.9))}]
+        self.assertTrue(cron.tip_due(state, at(30)))
+
+    def test_decide_starts_the_tip_not_the_bisect_when_the_rows_are_stale(self):
+        tip, step = "a" * 40, "b" * 40
+        for measured_h, kind, sha in ((20, "bisect", step), (0, "tip", tip)):
+            state = self.state(measured_h=measured_h, tried_h=29)
+            bisect = {"sha": step, "range": {"good": "c" * 40, "bad": "d" * 40}, "rows": ["tab_switch.e2e@cmux21"]}
+            cron.decide(state, at(30), tip, bisect, lambda sha: [p["name"] for p in cron.PARTS], None)
+            self.assertEqual((state["current"]["kind"], state["current"]["sha"]), (kind, sha), measured_h)
 
 
 class BisectBudgetTests(unittest.TestCase):
@@ -3418,7 +3444,6 @@ class BisectBudgetTests(unittest.TestCase):
             self.assertEqual(looked["place"], 2 * cron.BISECT_JUDGED_PER_TICK)
 
 
-
 class DiffBenchVersionTests(unittest.TestCase):
     """Lead 2026-10-24: a change to the diff benches at the measured commit is version-gated like split-spring.sh."""
 
@@ -3459,7 +3484,6 @@ class DiffBenchVersionTests(unittest.TestCase):
         self.assertEqual(cron.version_changed(now, legacy), every, "a reference stored before versions is unscaled v1")
 
 
-
 class RebaseListTests(OneRunRule):
     """Lead 2026-10-24: every version rebase shows in the issue body, also one of an incomplete measurement."""
     NAME = "cmd_d.e2e@" + cron.BENCH_WORKER
@@ -3483,7 +3507,6 @@ class RebaseListTests(OneRunRule):
         body = cron.issue_body(self.state, "o/r", at(9))
         self.assertIn("Rebases", body)
         self.assertIn("measurement version or part args changed, 1 row(s) (" + self.NAME, body)
-
 
 
 class NotMeasuringTests(unittest.TestCase):
