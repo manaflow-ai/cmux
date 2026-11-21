@@ -43,6 +43,7 @@ ALLOWED_LISTENERS = {
     (f"{ACPMUX}/App.tsx", "visibilitychange"): "harness health re-reads only after a Log In ran "
     "in a terminal (`healthStale`)",
     (f"{ACPMUX}/App.tsx", "focus"): "harness health, as above",
+    (f"{ACPMUX}/newtab/NewTabClock.tsx", "visibilitychange"): "the New Tab clock re-reads only `Date.now()` when shown again, so the time is not a minute stale after a hide; no server or projection read",
     (f"{ACPMUX}/header/worktreePillModel.ts", "visibilitychange"): "the worktree pill reads "
     "`git.status` as the page shows only when a read came due while it was hidden (its chat started "
     "or ended a turn, or came back to a folder: the one read it held back, `owed`); a switch away "
