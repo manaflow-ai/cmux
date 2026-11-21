@@ -368,6 +368,11 @@ final class AppControl {
                 if call.params["sequence"] != nil { return .value(DebugKey.sendSequence(call.params, services: services, player: player)) }
                 return DebugKey.reply(call.params, services: services)
             }.injectingInput(),
+            // Types into (and adds) the open comment bubble of the browser tab in design mode
+            // (BrowserDesignModeController.debugDrive), for captures of the element picker.
+            .async("debug.design_mode") { [weak services] call in
+                await BrowserDesignModeController.debugDrive(call.params, services: services)
+            },
             // The app's resign and become-active path without activating it (DebugAppActivation).
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
