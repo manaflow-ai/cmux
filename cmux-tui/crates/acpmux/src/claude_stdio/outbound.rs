@@ -13,7 +13,15 @@ impl Translator {
                 match m.as_str() {
                     method::INITIALIZE => {
                         self.pending.lock().await.insert(id.to_string(), Pending::Initialize);
-                        let suggestions = prompt_suggestions::enabled_in_settings();
+                        // None for a process no person started (`hub/host_level.rs`).
+                        let for_agent = p
+                            .pointer(&format!(
+                                "/_meta/acpmux/{}",
+                                prompt_suggestions::NO_SUGGESTIONS
+                            ))
+                            .and_then(Value::as_bool)
+                            == Some(true);
+                        let suggestions = prompt_suggestions::enabled_in_settings() && !for_agent;
                         let mut lines = vec![json!({
                             "type": "control_request",
                             "request_id": format!("init-{}", id),

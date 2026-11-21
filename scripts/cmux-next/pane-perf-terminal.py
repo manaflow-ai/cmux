@@ -172,13 +172,14 @@ CEF_DELTAS = [("pump_runs", "pump", "work_runs"), ("pump_ms", "pump", "work_ms")
               ("trk_clip_reads", "tracker", "clip_reads"), ("trk_occl_reads", "tracker", "occlusion_reads"),
               ("trk_clip_builds", "tracker", "clip_builds"), ("trk_clip_hits", "tracker", "clip_hits"),
               ("trk_clip_ms", "tracker", "clip_ms"),
-              ("trk_posts", "tracker", "geometry_posts"), ("trk_skips", "tracker", "geometry_skips")]
+              ("trk_posts", "tracker", "geometry_posts"), ("trk_skips", "tracker", "geometry_skips"),
+              ("trk_fence_joined", "tracker", "fence_joined"), ("trk_fence_ms", "tracker", "fence_join_ms")]
 # --browser: per action, the change of `debug.layers` counters of the first window (divider catcher panel moves, child
 # window reorders); None on builds without them.
 LAYER_DELTAS = [("catcher_updates", "divider_catcher_updates"), ("reorders", "reorders")]
 BROWSER_KEYS = [key for key, _, _ in CEF_DELTAS] + ["page_frames"] + [key for key, _ in LAYER_DELTAS] + ["posts_per_frame"]
 BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr", "clipb", "cliph", "clipms", "posts", "skips",
-                 "rAF", "catch", "reord", "post/f"]
+                 "fencej", "fencems", "rAF", "catch", "reord", "post/f"]
 WINDOW_ACTIONS = ("window-zoom", "window-unzoom")
 STILL = ("drag", "scroll", "idle", *WINDOW_ACTIONS)  # actions that move no layout spring
 WINDOW_RESTORE = None  # before each window-zoom, checked after its paired window-unzoom
@@ -585,6 +586,10 @@ def measure(label, name):
         for key, group, field in CEF_DELTAS:
             result[key] = change(counter(cef_before, group, field), counter(cef_after, group, field))
         result["page_frames"] = change(page_before, page_eval("window.__frames"))
+        # Which fork ran the page, and whether the page was layer-hosted: a fence joins only on fork API 34 and up,
+        # with the page hosted (CEFLayerHosting.pageViewResized).
+        result["cef_fork_api"] = counter(cef_after, "windows", "fork_api")
+        result["cef_hosted_pages"] = counter(cef_after, "tracker", "hosted_pages")
         layers_after = first_window(rpc("debug.layers"))
         for key, field in LAYER_DELTAS:
             result[key] = change(layers_before.get(field), layers_after.get(field))
