@@ -330,6 +330,8 @@ import {
 import { pendingToolCalls, waitingSubagents } from "./summary/subagentStatusListModel";
 import { SubagentTray } from "./subagents/SubagentTray";
 import { TrayPullTab } from "./subagents/TrayPullTab";
+import { HatRail } from "./subagents/HatRail";
+import { useHatSidePlace } from "./subagents/hatSidePlace";
 import { pullTabCounts, tuckTray } from "./subagents/trayPullTabModel";
 import { agentProgressSource } from "./subagents/agentProgressSource";
 import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
@@ -6776,46 +6778,98 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A chat switch, or the tray moving to another placement (another host), is not the tray leaving:
   // its kept copy goes before the frame paints.
   useLayoutEffect(() => settleTrayExit(), [shownSessionId, trayPlacement]);
-  const trayNode = hasTray ? (
-    <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-      <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-        {/* A subagent naming no harness draws the chat's mark, as in the transcript. */}
-        <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
-          <SubagentTray
-            key={shownSessionId}
-            chat={shownSessionId}
+  // Where the hat's marks sit (subagents/hatSide.experiment.ts, hatSidePlace.ts; Leo, 2026-11-21:
+  // "this is uncomfortably tight. didn't we say we wanted to move these to the side or smth?"). The
+  // `top` arm is the hat as before; a side arm puts its marks in a rail the composer draws, and the
+  // hat shows over the composer only while the rail's list control holds it open. Only the hat over
+  // the composer moves: one placed after the latest message stays there.
+  const hatSidePlace = useHatSidePlace(
+    shownSessionId,
+    hasTray && trayPlacement === "tray" && trayList.length + trayFinished.length > 0,
+  );
+  const hatSide = hatSidePlace.side;
+  const trayNode =
+    hasTray && hatSidePlace.hatShown ? (
+      <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
+        <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+          {/* A subagent naming no harness draws the chat's mark, as in the transcript. */}
+          <SubagentHarnessContext.Provider value={chatMark}>
+            <SubagentTray
+              key={shownSessionId}
+              chat={shownSessionId}
+              items={trayList}
+              finished={trayFinished}
+              working={snapshot.isWorking}
+              waiting={waitingAgents}
+              onOpen={showSubagent}
+              onOpenCommand={openTrayCommand}
+              canOpenTerminal={opensProcessTerminal(snapshot.summary)}
+              canReadTail={
+                chatProcessesHere(snapshot.summary) &&
+                clientEpoch > 0 &&
+                directClient.current !== undefined &&
+                backgroundTaskOutput !== undefined
+              }
+              onOpenSession={openOfferChat}
+              onOpenPanel={quick ? undefined : openBackgroundPanel}
+              stop={stopSubagent}
+              stopProcess={stopProcess}
+              resume={resumeActions}
+              placement={trayPlacement}
+              shown={trayChat}
+              enters={trayEnters}
+              plan={hatPlan}
+              planEarlier={hatEarlier}
+              // The rail tucks nothing away: the hat it opens has no tuck control.
+              onTuck={trayPlacement === "tray" && !hatSide ? tuckTray : undefined}
+              tuckSide={trayHandle}
+              // Beside the composer the rail is what holds and is seen (HatRail.tsx), open or not.
+              onHold={hatSide ? undefined : setHatHeld}
+              onSeen={hatSide ? undefined : setHatSeen}
+              onFold={hatSide ? () => hatSidePlace.onList(false) : undefined}
+            />
+          </SubagentHarnessContext.Provider>
+        </SubagentClockContext.Provider>
+      </BackgroundTaskOutputContext.Provider>
+    ) : null;
+  // The rail beside the composer (subagents/HatRail.tsx): the hat's marks, its open path and its peek.
+  // Held while nothing it shows changed, so the composer (drawn again only when a prop changes) holds
+  // still while the chat streams.
+  const hatRailNode = useMemo(
+    () =>
+      hatSide ? (
+        <SubagentHarnessContext.Provider value={chatMark}>
+          <HatRail
+            side={hatSide}
             items={trayList}
             finished={trayFinished}
-            working={snapshot.isWorking}
             waiting={waitingAgents}
+            listOpen={hatSidePlace.listOpen}
             onOpen={showSubagent}
-            onOpenCommand={openTrayCommand}
-            canOpenTerminal={opensProcessTerminal(snapshot.summary)}
-            canReadTail={
-              chatProcessesHere(snapshot.summary) &&
-              clientEpoch > 0 &&
-              directClient.current !== undefined &&
-              backgroundTaskOutput !== undefined
-            }
             onOpenSession={openOfferChat}
-            onOpenPanel={quick ? undefined : openBackgroundPanel}
-            stop={stopSubagent}
-            stopProcess={stopProcess}
-            resume={resumeActions}
-            placement={trayPlacement}
-            shown={trayChat}
-            enters={trayEnters}
-            plan={hatPlan}
-            planEarlier={hatEarlier}
-            onTuck={trayPlacement === "tray" ? tuckTray : undefined}
-            tuckSide={trayHandle}
+            onOpenCommand={openTrayCommand}
+            onList={hatSidePlace.onList}
             onHold={setHatHeld}
             onSeen={setHatSeen}
           />
         </SubagentHarnessContext.Provider>
-      </SubagentClockContext.Provider>
-    </BackgroundTaskOutputContext.Provider>
-  ) : null;
+      ) : undefined,
+    [
+      hatSide,
+      chatMark,
+      trayList,
+      trayFinished,
+      waitingAgents,
+      hatSidePlace.listOpen,
+      hatSidePlace.onList,
+      showSubagent,
+      openTrayCommand,
+    ],
+  );
+  const hatMarks = useMemo(
+    () => (hatSide && hatRailNode ? { side: hatSide, node: hatRailNode } : undefined),
+    [hatSide, hatRailNode],
+  );
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
   /// The composer itself, which takes back prompts a harness switch held; prompts handed back
@@ -12819,7 +12873,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           actions={hatQuestionActions}
         />
         {trayPlacement === "tray" &&
-          (trayTucked && trayNode ? (
+          (trayTucked && trayNode && !hatSide ? (
             <TrayPullTab
               chat={shownSessionId}
               {...pullTabCounts(trayList, waitingAgents)}
@@ -12852,6 +12906,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               hatShows(hatQuestionList)
             }
             chips={ComposerChips}
+            hatMarks={hatMarks}
             // The quiet row's Reconnect asks acpmux to reconnect the chat's peer.
             onReconnectMachine={(link) => reconnectPeer(link.machine)}
             // The context card's Details opens Session Info on Context, unfolded and lit (main's).

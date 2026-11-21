@@ -15,6 +15,28 @@
   align-self: flex-end;
   gap: 0;
 }
+/* In the live composer (ComposerBox.tsx `hatMarks`) a side rail is the box's child: it stands just
+   past the box's edge, level with its bottom, and the box gives up that room, so the rail never
+   covers the prompt or the send controls. */
+.acpmux-composer-box[data-hat-rail] {
+  --acpmux-hat-rail-room: calc(var(--ds-space-4) + var(--ds-space-2) + var(--ds-space-1));
+}
+.acpmux-composer-box[data-hat-rail="right-rail"] {
+  margin-right: var(--acpmux-hat-rail-room);
+}
+.acpmux-composer-box[data-hat-rail="left-rail"] {
+  margin-left: var(--acpmux-hat-rail-room);
+}
+.acpmux-composer-box > .acpmux-hat-rail {
+  position: absolute;
+  bottom: 0;
+}
+.acpmux-composer-box > .acpmux-hat-rail[data-side="right-rail"] {
+  left: calc(100% + var(--ds-space-1));
+}
+.acpmux-composer-box > .acpmux-hat-rail[data-side="left-rail"] {
+  right: calc(100% + var(--ds-space-1));
+}
 .acpmux-hat-rail[data-side="bottom-line"] {
   /* The label stands from the rail's start, not its mark's, so a later mark's label stays in a narrow pane. */
   position: relative;

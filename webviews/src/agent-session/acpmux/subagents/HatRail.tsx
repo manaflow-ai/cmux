@@ -4,7 +4,7 @@
 // column at the composer's right or left, or inline on its bottom line: hovering or focusing one lifts
 // it and names its line beside it (`peekOf`, the hat's own words), a click opens it (`openHatMark`, the
 // hat's own open path), and the list control shows the hat's full list over the composer.
-import { useContext, useMemo, useState, type KeyboardEvent } from "react";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -17,6 +17,7 @@ import { markTarget, openHatMark, peekOf, stackMarks } from "./SubagentTray";
 import "./hatRail.css";
 import { focusRoute } from "../../../ui/focusRoute";
 import type { HatSide } from "./hatSide.experiment";
+import { useTraySeen } from "./traySeen";
 
 const MARK = rowIconSize(12);
 const NO_ITEMS: readonly TrayItem[] = [];
@@ -31,6 +32,8 @@ export function HatRail({
   onOpenSession,
   onOpenCommand,
   onList,
+  onHold,
+  onSeen,
 }: {
   side: HatSide;
   /// What runs or waits on the person (runningTray.ts `trayItems`), as the hat takes it.
@@ -45,6 +48,11 @@ export function HatRail({
   onOpenCommand?: (command: BackgroundCommand) => void;
   /// Shows or hides the full list (the hat, opened over the composer).
   onList: (open: boolean) => void;
+  /// The rail is held, as the hat is (SubagentTray.tsx `onHold`): its list open, or the pointer or
+  /// keyboard on it. Reported on a change only, and false when it unmounts.
+  onHold?: (held: boolean) => void;
+  /// The rail could be seen (traySeen.ts), as the hat reports it (SubagentTray.tsx `onSeen`).
+  onSeen?: (seen: boolean) => void;
 }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -53,7 +61,12 @@ export function HatRail({
   const marks = useMemo(() => stackMarks(leading, finished, chatHarness), [leading, finished, chatHarness]);
   const all = useMemo(() => [...items, ...finished], [items, finished]);
   const [peekKey, setPeekKey] = useState<string | undefined>(undefined);
-  if (marks.length === 0) return null;
+  const [within, setWithin] = useState(false);
+  const node = useRef<HTMLDivElement | null>(null);
+  const drawn = marks.length > 0;
+  useTraySeen(node, drawn, onSeen);
+  useHeld(drawn && (listOpen || within || peekKey !== undefined), onHold);
+  if (!drawn) return null;
   const peekDrawn = peekKey !== undefined && marks.some((mark) => mark.key === peekKey);
   const label = (key: string) => peekOf(t, language, key, all, waiting) ?? "";
   const inline = side === "bottom-line";
@@ -74,6 +87,7 @@ export function HatRail({
   };
   return (
     <div
+      ref={node}
       className="acpmux-hat-rail"
       data-side={side}
       role="toolbar"
@@ -82,7 +96,11 @@ export function HatRail({
       aria-label={t("summary.backgroundTasks")}
       aria-orientation={inline ? "horizontal" : "vertical"}
       onKeyDown={onKeyDown}
-      onPointerLeave={() => setPeekKey(undefined)}
+      onPointerEnter={() => setWithin(true)}
+      onPointerLeave={() => {
+        setWithin(false);
+        setPeekKey(undefined);
+      }}
     >
       {marks.map((mark) => (
         <button
@@ -129,4 +147,16 @@ export function HatRail({
       </button>
     </div>
   );
+}
+
+/// Reports `held` through `onHold` on each change, and false when the rail unmounts.
+function useHeld(held: boolean, onHold: ((held: boolean) => void) | undefined) {
+  const report = useRef(onHold);
+  useLayoutEffect(() => {
+    report.current = onHold;
+  });
+  useEffect(() => {
+    report.current?.(held);
+  }, [held]);
+  useEffect(() => () => report.current?.(false), []);
 }

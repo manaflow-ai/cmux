@@ -116,6 +116,8 @@ export function ComposerHatHeadStage({
               onOpen={(id) => setOpened((current) => [...current, id])}
               shown={shown}
               onTuck={tuck ? () => undefined : undefined}
+              // Beside the composer, the hat's fold puts it away, as in the pane (App.tsx, hatSidePlace.ts).
+              onFold={side !== "top" ? () => setListOpen(false) : undefined}
             />
           )}
           {!standIn ? (

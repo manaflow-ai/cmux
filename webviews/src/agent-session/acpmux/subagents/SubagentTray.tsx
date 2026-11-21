@@ -192,6 +192,7 @@ export const SubagentTray = memo(function SubagentTray({
   tuckSide = "middle",
   onHold,
   onSeen,
+  onFold,
 }: {
   /// What runs or waits on the person (runningTray.ts `trayItems`): the lines the header counts.
   items: readonly TrayItem[];
@@ -255,6 +256,9 @@ export const SubagentTray = memo(function SubagentTray({
   /// App.tsx's linger counts a finished line's grace only while it could. Reported on a change only,
   /// and false when the hat stops drawing.
   onSeen?: (seen: boolean) => void;
+  /// The person folded the open hat from its header. The composer's side rail (HatRail.tsx,
+  /// hatSide.experiment.ts) shows the hat only while its list is open, so a fold puts it away.
+  onFold?: () => void;
 }) {
   // Its committed renders while measuring (loadDebug.ts `loadTick` `still`): the hat over the composer
   // draws again on an event, never on the clock's tick.
@@ -639,6 +643,7 @@ export const SubagentTray = memo(function SubagentTray({
     setTuckQuiet(true);
     setOpened(!open);
     rememberTrayOpen(chat, !open);
+    if (open) onFold?.();
   };
   // A click on one of the header's marks opens what it stands for, never the hat's fold: a subagent's
   // view, a chat the agent started, a lone command's terminal. The commands' shared mark (and a chat
