@@ -58,6 +58,8 @@ jobs:
         # A draft head starts only callees marked `draft` (scripts/ci/head_tier.py); 0 turns that off.
         env:
           CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          # A head that only merges the base into a PR idle 24 h starts nothing (head_tier.py); 0 turns that off.
+          CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
         run: python3 -I scripts/ci/pr_router.py route
 
   size-budget:
