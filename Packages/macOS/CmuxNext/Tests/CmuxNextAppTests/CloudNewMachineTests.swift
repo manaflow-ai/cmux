@@ -103,6 +103,12 @@ struct CloudNewMachineTests {
         #expect(throws: ActionFailure.self) { try CloudHandlers.newMachineRequest(Self.invocation(["size": .string("huge")])) }
     }
 
+    @Test func pauseExperimentOnlyOptsInNonpersistentMachines() {
+        #expect(CloudMachineRequest().idlePauseMinutes(pauseAgentMachines: false) == nil)
+        #expect(CloudMachineRequest().idlePauseMinutes(pauseAgentMachines: true) == CloudMachineRequest.experimentIdlePauseMinutes)
+        #expect(CloudMachineRequest(persistent: true).idlePauseMinutes(pauseAgentMachines: true) == 0)
+    }
+
     @Test func aLaneBootstrapNeedsItsScriptAndAName() {
         #expect(throws: ActionFailure.self) { try CloudHandlers.newMachineRequest(Self.invocation(["bootstrap": .string("lane"), "name": .string("lane-vm-1")])) }
         #expect(throws: ActionFailure.self) { try CloudHandlers.newMachineRequest(Self.invocation(["bootstrap": .string("lane"), "bootstrapScript": .string("/tmp/x")])) }
