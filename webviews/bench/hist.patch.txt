@@ -1,5 +1,5 @@
 diff --git a/webviews/src/agent-session/acpmux/VirtualTranscript.tsx b/webviews/src/agent-session/acpmux/VirtualTranscript.tsx
-index a71f9c92bfce..9f4e84c63946 100644
+index a71f9c92bfce..a344770c2015 100644
 --- a/webviews/src/agent-session/acpmux/VirtualTranscript.tsx
 +++ b/webviews/src/agent-session/acpmux/VirtualTranscript.tsx
 @@ -99,6 +99,7 @@ import { ScrollPacing } from "./pacing";
@@ -43,14 +43,14 @@ index a71f9c92bfce..9f4e84c63946 100644
 -  // frames as the rest of them are.
 +  // frames as the rest of them are. Until the chat's first paint has passed (`paintedSession`) they
 +  // reach OPEN_HISTORY_VIEWPORTS and none below the view, in this and every commit before it.
-+  const opened = paintedSession === sessionKey;
-+  const historyViewports = opened ? HISTORY_VIEWPORTS : OPEN_HISTORY_VIEWPORTS;
++  const historyOpened = paintedSession === sessionKey;
++  const historyViewports = historyOpened ? HISTORY_VIEWPORTS : OPEN_HISTORY_VIEWPORTS;
    const warm = visibleLayoutRange(
      layout,
 -    warmTop - height * HISTORY_VIEWPORTS - warmStep / 2,
 -    height * (1 + HISTORY_VIEWPORTS + WARM_VIEWPORTS) + warmStep,
 +    warmTop - height * historyViewports - warmStep / 2,
-+    height * (1 + historyViewports + (opened ? WARM_VIEWPORTS : 0)) + warmStep,
++    height * (1 + historyViewports + (historyOpened ? WARM_VIEWPORTS : 0)) + warmStep,
    );
    // A followed view (a chat as it opens, at its latest row) mounts that history in the commit that
    // draws it, not a deferred render later: the deferred anchor of a chat's first commit is the top of
