@@ -391,16 +391,22 @@ export const main = async (argv: ReadonlyArray<string>, io: IO = defaultIO): Pro
         return 1
       }
     }
-    const served = bases.find((b) => ((x) => x.added.length + x.removed.length + x.changed.length === 0)(diffVars(b.vars, bindings as Array<Binding>)))
+    // A var a committed config has and the Worker lacks ("added") is not drift: a var set by hand is on the
+    // Worker, while a missing one is a committed var no deploy has shipped yet (development deploys red for
+    // longer than the base window: INTEGRATIONS_CALLBACK_ORIGIN, Nov 2026). Only a var the Worker has that
+    // no committed config gives it, or gives another value, is out of band.
+    const outOfBand = (x: ReturnType<typeof diffVars>) => x.removed.length + x.changed.length
+    const served = bases.find((b) => outOfBand(diffVars(b.vars, bindings as Array<Binding>)) === 0)
     const base = served?.vars ?? bases[0]?.vars
     const baseFile = served?.file ?? bases[0]?.file
     const d = diffVars(want, bindings as Array<Binding>)
     if (base) {
       const drift = diffVars(base, bindings as Array<Binding>)
-      const driftCount = drift.added.length + drift.removed.length + drift.changed.length
+      const driftCount = outOfBand(drift)
       if (driftCount === 0) {
+        if (drift.added.length) io.log(`not yet deployed: ${drift.added.join(", ")} (in the committed config ${baseFile}, missing on ${worker} version ${id}: an earlier deploy never shipped ${drift.added.length === 1 ? "it" : "them"}; this deploy sets ${drift.added.length === 1 ? "it" : "them"} from the repo)`)
         const changes = intendedChanges(base, want)
-        if (!changes.length) {
+        if (!changes.length && !drift.added.length) {
           io.log(`vars unchanged: all ${d.compared} vars of env.${env} in ${configFile} match ${worker} version ${id} (secrets not compared, not sent)`)
           return 0
         }
@@ -412,7 +418,7 @@ export const main = async (argv: ReadonlyArray<string>, io: IO = defaultIO): Pro
         io.log(`vars unchanged: all ${d.compared} vars of env.${env} in ${configFile} already match ${worker} version ${id} (the base config differs; nothing to change)`)
         return 0
       }
-      const parts = [drift.added.length ? `added: ${drift.added.join(", ")}` : "", drift.removed.length ? `removed: ${drift.removed.join(", ")}` : "", drift.changed.length ? `changed: ${drift.changed.join(", ")}` : ""].filter(Boolean)
+      const parts = [drift.removed.length ? `removed: ${drift.removed.join(", ")}` : "", drift.changed.length ? `changed: ${drift.changed.join(", ")}` : ""].filter(Boolean)
       io.error(`vars drift between the base config ${baseFile} env.${env}.vars and ${worker} version ${id} (${parts.join("; ")}): a var was set out of band; deploy refused. Reconcile the vars with their owner first`)
       return 1
     }
