@@ -234,14 +234,14 @@
         },
         {
           "key": "labs.hostsSidebar",
-          "note": "Rex-style Hosts section in the sidebar. It projects the Machines page catalog, including Add Host and per-machine terminal actions. Off by default until the sidebar surface is ready.",
+          "note": "A Hosts section in the sidebar under Home: the Machines page catalog with an Add Host row; a machine row opens a workspace on it or connects to it. Off by default until the sidebar surface is ready.",
           "title": {
             "key": "settings.labs.hostsSidebar",
             "text": "Hosts Sidebar"
           },
           "help": {
             "key": "settings.labs.hostsSidebar.help",
-            "text": "Shows your machines in the sidebar with Add Host and per-host terminal actions."
+            "text": "Shows your machines in the sidebar, with Add Host. Click a machine to open a workspace on it."
           },
           "kind": "toggle",
           "default": false,

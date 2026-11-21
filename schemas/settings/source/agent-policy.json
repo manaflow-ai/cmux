@@ -1363,7 +1363,7 @@
     },
     {
       "agent": "userOnly",
-      "why": "Whether the Rex-style Hosts section is visible in the sidebar: the person decides when this preview surface appears.",
+      "why": "Whether the Hosts section is visible in the sidebar: the person decides when this preview surface appears.",
       "keys": [
         "labs.hostsSidebar"
       ]
