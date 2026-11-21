@@ -166,5 +166,8 @@ fn codex(homes: &Homes, file: &Path, skill: &Path, enabled: bool) -> Result<(), 
             rules.push(rule);
         }
     }
-    homes.edits.replace(file, &doc.to_string()).map_err(|e| ToggleError::Write(file.to_path_buf(), e))
+    homes
+        .edits
+        .replace(file, &doc.to_string())
+        .map_err(|e| ToggleError::Write(file.to_path_buf(), e))
 }
