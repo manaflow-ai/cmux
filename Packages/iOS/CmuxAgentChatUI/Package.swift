@@ -6,7 +6,7 @@ let package = Package(
     name: "CmuxAgentChatUI",
     defaultLocalization: "en",
     platforms: [
-        .iOS(.v17),
+        .iOS(.v18),
         .macOS(.v14),
     ],
     products: [
