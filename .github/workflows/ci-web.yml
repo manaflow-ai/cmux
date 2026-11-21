@@ -3,18 +3,34 @@ name: CI web
 on:
   workflow_call:
     inputs:
+      # ci.yml passes all three routes. The post-merge batch tier (cmux-next-post-merge.yml, suite `web`) passes only
+      # sha and only, so these default to what cmux-next-web.yml passed on base pushes: every web check, no macOS.
       web:
-        required: true
+        required: false
         type: string
+        default: "true"
       macos:
-        required: true
+        required: false
         type: string
+        default: "false"
       agent_session_web:
-        required: true
+        required: false
         type: string
+        default: "true"
       # A push's event.before (cmux-next-web.yml): subareas route from the whole push, not
       # only its last commit. Empty on pull requests, which route from the merge commit.
       push_base:
+        required: false
+        type: string
+        default: ""
+      # The post-merge batch tier: the commit to test (empty: the caller's, as today) and the one job id a bisect
+      # probe runs alone (empty: every job). A batch call runs every subarea and the full react-apps-check matrix,
+      # and records the base's webview history as a feat-cmux-next push did.
+      sha:
+        required: false
+        type: string
+        default: ""
+      only:
         required: false
         type: string
         default: ""
@@ -50,6 +66,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.sha || '' }}
           fetch-depth: 2
           persist-credentials: false
 
@@ -61,11 +78,12 @@ jobs:
           PUSH_BASE: ${{ inputs.push_base }}
         run: git fetch --no-tags --depth=1 origin "$PUSH_BASE" || echo "::warning title=web routing::push base $PUSH_BASE is not fetchable; every web subarea runs"
 
+      # A post-merge batch call (inputs.sha set) runs every subarea, as a push base of `all` does.
       - name: Classify web subareas
         id: scope
         env:
           EVENT_NAME: ${{ github.event_name }}
-          WEB_SUBAREAS_BASE: ${{ inputs.push_base }}
+          WEB_SUBAREAS_BASE: ${{ inputs.sha != '' && 'all' || inputs.push_base }}
         run: python3 scripts/ci/web_subareas.py route
 
       # The webview test shards split their files by recorded duration
@@ -173,7 +191,7 @@ jobs:
 
   web-typecheck:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.typecheck == 'true' }}
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.typecheck == 'true' && (inputs.only == '' || inputs.only == 'web-typecheck') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_32 || fromJSON(vars.RUNNER_POOLS).linux_16 }}
     # Matches the 10-minute siblings in this workflow.
     timeout-minutes: 10
@@ -183,6 +201,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.sha || '' }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -251,7 +271,7 @@ jobs:
 
   web-production-build:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.production_build == 'true' }}
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.production_build == 'true' && (inputs.only == '' || inputs.only == 'web-production-build') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
     timeout-minutes: 15
     defaults:
@@ -261,6 +281,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.sha || '' }}
           persist-credentials: false
 
       - name: Setup Bun
@@ -292,7 +313,7 @@ jobs:
 
   web-tests:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.unit_tests == 'true' }}
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.unit_tests == 'true' && (inputs.only == '' || inputs.only == 'web-tests') }}
     name: Web tests (${{ matrix.shard }})
     strategy:
       fail-fast: false
@@ -307,6 +328,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.sha || '' }}
           persist-credentials: false
 
       - name: Setup Bun
@@ -356,7 +378,7 @@ jobs:
   # CMUX_REAL_ACPMUX=1, which fails a file that cannot run instead of skipping it.
   agent-pane-real-acpmux:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && (inputs.only == '' || inputs.only == 'agent-pane-real-acpmux') }}
     name: Agent pane on real acpmux
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 30
@@ -364,6 +386,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.sha || '' }}
           persist-credentials: false
 
       - name: Setup Bun
@@ -437,7 +460,7 @@ jobs:
 
   web-instant-navigation:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.instant == 'true' }}
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.instant == 'true' && (inputs.only == '' || inputs.only == 'web-instant-navigation') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_32 || fromJSON(vars.RUNNER_POOLS).linux_16 }}
     timeout-minutes: 10
     defaults:
@@ -447,6 +470,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.sha || '' }}
           persist-credentials: false
 
       - name: Setup Bun
@@ -490,7 +514,7 @@ jobs:
 
   react-apps-check-shard:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
     # `bun test` grows memory across the suite and was SIGKILLed (exit 137) on the
     # 4 vCPU runner (run 37666132324). 16 vCPU has the memory and runs 16 files
     # and 4 dev-server files at once (run-webviews-tests.sh). These shards were the
@@ -546,6 +570,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.sha || '' }}
           # A pull request's merge commit with its parents: ui-rules and gallery
           # coverage fail the PR only for its own findings (test/support/prScope.ts).
           fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
@@ -821,10 +846,11 @@ jobs:
 
       # A push's verdicts feed the base's flake history (the webviews-test-history job), which a
       # pull request's base replay reads so a test that flips by itself on the base only warns.
+      # A post-merge batch run on the base tip uploads them as a push did; a bisect probe does not.
       # Optional upkeep, like the durations below: it never fails the shard.
       - name: Upload this push's webview results
         id: history-upload
-        if: ${{ !cancelled() && (github.event_name == 'push' || github.event.inputs.tick == 'true') }}
+        if: ${{ !cancelled() && (github.event_name == 'push' || github.event.inputs.tick == 'true' || inputs.sha != '' && inputs.sha == github.sha && inputs.only == '') }}
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -956,6 +982,7 @@ jobs:
       - name: Checkout the merge commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.sha || '' }}
           fetch-depth: 2
           persist-credentials: false
 
@@ -1116,6 +1143,7 @@ jobs:
       - name: Checkout the merge commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.sha || '' }}
           fetch-depth: 2
           persist-credentials: false
 
@@ -1205,7 +1233,7 @@ jobs:
           # --flaky), so it is not replayed; the compare step below adds to this list, never drops from it.
           flaky="$RUNNER_TEMP/flaky-on-base"
           python3 "$runner/webviews_test_history.py" flaky "$history" --names "$HEAD_RESULTS" > "$flaky" || : > "$flaky"
-          python3 "$runner/test_reds.py" tap-flaky --workflow 'cmux-next web' --job react-apps-check \
+          python3 "$runner/test_reds.py" tap-flaky --workflow 'cmux-next post-merge batch' --job react-apps-check \
             --log-dir "$RUNNER_TEMP/head-results/raw-logs" >> "$flaky" || :
           python3 "$runner/webviews_test_history.py" flaky-only "$flaky" --replay "$RUNNER_TEMP/base-replay-files" \
             --names "$HEAD_RESULTS" || echo "the flaky list is unread: its files replay"
@@ -1326,7 +1354,7 @@ jobs:
             --names "$HEAD_RESULTS" >> "$flaky" || :
           # TAP adds only active quarantines whose exact diagnostic matches a whole final head attempt.
           # Raw artifacts retain green and red output; unavailable history contributes no waiver.
-          python3 "$runner/test_reds.py" tap-flaky --workflow 'cmux-next web' --job react-apps-check \
+          python3 "$runner/test_reds.py" tap-flaky --workflow 'cmux-next post-merge batch' --job react-apps-check \
             --log-dir "$RUNNER_TEMP/head-results/raw-logs" >> "$flaky"
           sort -u "$flaky" -o "$flaky"
           if [ -s "$flaky" ]; then echo "flipped by themselves on recent base pushes:"; sed 's/^/  /' "$flaky"; fi
@@ -1464,7 +1492,7 @@ jobs:
   # held PRs (#44127).
   react-doctor:
     needs: [web-subarea-scope, runners]
-    if: ${{ github.event_name != 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    if: ${{ github.event_name != 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && (inputs.only == '' || inputs.only == 'react-doctor') }}
     # React Doctor took 7.4-9.9 min on 4 vCPU and hit the 10 min timeout on
     # 2026-10-20 (runs 39505208959, 39506071754), which failed
     # react-apps-check. It takes the 16 vCPU size from the capability map.
@@ -1485,6 +1513,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.sha || '' }}
           persist-credentials: false
 
       - name: Setup Bun
@@ -1506,9 +1535,10 @@ jobs:
 
   # Keep one stable required check name for branch protection while the test work
   # itself runs in independent file shards above.
+  # A post-merge batch probe (inputs.only set) runs no aggregate: the probed shards answer for themselves.
   react-apps-check:
     needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check, react-doctor]
-    if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && inputs.only == '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || ((github.event_name == 'push' || github.event.inputs.tick == 'true') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
@@ -1573,6 +1603,7 @@ jobs:
         continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.sha || '' }}
           sparse-checkout: scripts/ci/webviews_test_shards.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -1612,9 +1643,11 @@ jobs:
   # history held one run). actions: read lets the token list and download it.
   # Optional upkeep outside the required gate, like webviews-test-durations; two pushes
   # finishing together may drop one of their runs, which costs one data point.
+  # A post-merge batch run on the base tip (inputs.sha is the run's own commit, every job) records as a push did;
+  # a bisect probe (an older commit, or one job) never does.
   webviews-test-history:
     needs: [web-subarea-scope, react-apps-check-shard]
-    if: ${{ !cancelled() && (github.event_name == 'push' || github.event.inputs.tick == 'true') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
+    if: ${{ !cancelled() && (github.event_name == 'push' || github.event.inputs.tick == 'true' || inputs.sha != '' && inputs.sha == github.sha && inputs.only == '') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
@@ -1626,6 +1659,7 @@ jobs:
         continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.sha || '' }}
           sparse-checkout: |
             scripts/ci/webviews_test_history.py
             scripts/ci/web_subareas.py
@@ -1731,13 +1765,14 @@ jobs:
   diff-sidecar-check:
     # Generated protocol checks and the sidecar tests only run for their owned inputs.
     needs: web-subarea-scope
-    if: ${{ (inputs.macos == 'true' || inputs.web == 'true') && needs.web-subarea-scope.outputs.diff_sidecar == 'true' }}
+    if: ${{ (inputs.macos == 'true' || inputs.web == 'true') && needs.web-subarea-scope.outputs.diff_sidecar == 'true' && (inputs.only == '' || inputs.only == 'diff-sidecar-check') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
     timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.sha || '' }}
           persist-credentials: false
 
       - name: Install Rust
@@ -1797,7 +1832,7 @@ jobs:
 
   web-db-migrations:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.db == 'true' }}
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.db == 'true' && (inputs.only == '' || inputs.only == 'web-db-migrations') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     # Matches web-production-build and diff-sidecar-check, the other 15s here.
     timeout-minutes: 15
@@ -1821,6 +1856,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.sha || '' }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -1870,7 +1907,7 @@ jobs:
       - web-db-migrations
     # Keep the web verdict after a failed dependency, but skip it after run
     # cancellation so a superseded push does not start another runner.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && inputs.only == '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
