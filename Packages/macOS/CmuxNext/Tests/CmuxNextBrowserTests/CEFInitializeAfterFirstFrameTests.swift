@@ -47,4 +47,30 @@ import Testing
         #expect(await CEFRuntime.waitForInitializeGate(gate) == false)
         #expect(await CEFRuntime.waitForInitializeGate(nil) == false)
     }
+
+    /// A restored chat waits on Chromium: when the first frame opens the gate, the framework map starts at once, off
+    /// main, while the launch work added to the gate before it (the updater, the feeds, the later tabs' warm-ups)
+    /// runs on main. Base red: the gate resumed its waiters in the order they were added, so the map began only after
+    /// all of that work had run (the restart-to-chat goal: first frame 454 ms, `cef.initialize_start` 550 ms).
+    @Test func theMapStartsWhenTheGateOpensNotAfterTheLaunchWorkAddedBeforeIt() async {
+        let gate = Self.gate()
+        let log = CEFLibraryMapOffMainTests.LoaderLog()
+        var mappedDuringLaunchWork: Bool?
+        gate.whenOpen {
+            // Launch work on main, added before Chromium's wait: it lasts until the map ran (at most 2 s).
+            let deadline = ContinuousClock.now + .seconds(2)
+            while log.onMain.isEmpty, ContinuousClock.now < deadline {}
+            mappedDuringLaunchWork = !log.onMain.isEmpty
+        }
+        let runtime = CEFRuntime(libraryLoader: log.loader())
+        runtime.initializeAfter = gate
+        runtime.preload(layout: CEFLibraryMapOffMainTests.layout)
+        for _ in 0..<50 { await Task.yield() }
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(log.onMain.isEmpty, "nothing mapped before the first frame")
+        gate.open()
+        _ = await runtime.loadTask?.value
+        #expect(mappedDuringLaunchWork == true, "the map ran while the earlier launch work held main")
+        #expect(log.onMain == [false])
+    }
 }
