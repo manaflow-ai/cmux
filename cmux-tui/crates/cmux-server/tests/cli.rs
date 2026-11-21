@@ -253,3 +253,19 @@ fn up_and_down_switch_the_installed_service_and_keep_the_install() {
     assert!(lines.contains("enable") && !lines.contains("disable"), "{lines}");
     assert_eq!(env.run("status").unwrap()["service"]["installed"], true);
 }
+
+/// `cmux server logs` takes the short flags the Rex docs use, `-n N` for
+/// `--lines N` and `-f` for `--follow`. Other verbs keep such words as
+/// positionals (a file may be named `-n`).
+#[test]
+fn logs_takes_n_and_f_as_short_flags() {
+    let args = parse(&words("server logs -n 50 -f")).unwrap();
+    assert_eq!(args.verb, vec!["logs".to_owned()]);
+    assert_eq!(args.value("lines"), Some("50"));
+    assert!(args.has("follow"));
+    assert!(args.positionals.is_empty());
+    let args = parse(&words("--json logs -f -n=7")).unwrap();
+    assert_eq!((args.value("lines"), args.has("follow"), args.json), (Some("7"), true, true));
+    assert!(parse(&words("logs -n")).is_err(), "-n needs a value");
+    assert!(parse(&words("status -n 5")).is_err(), "status has no -n");
+}

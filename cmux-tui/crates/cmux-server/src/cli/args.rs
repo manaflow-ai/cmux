@@ -57,7 +57,7 @@ pub static VERBS: &[VerbSpec] = &[
         path: &["logs"],
         positionals: &[],
         flags: &[("follow", false), ("lines", true)],
-        help: "show the service's log (--lines N, default 100; --follow to keep reading)",
+        help: "show the service's log (--lines N or -n N, default 100; --follow or -f to keep reading)",
     },
     VerbSpec {
         path: &["up"],
@@ -263,12 +263,38 @@ pub fn parse(args: &[String]) -> Result<Args> {
     })?;
     out.verb = spec.path.iter().map(|s| (*s).to_owned()).collect();
     out.positionals = words[spec.path.len()..].to_vec();
+    if spec.path == ["logs"] {
+        short_log_flags(&mut out)?;
+    }
     check_spec(spec, &out)?;
     Ok(out)
 }
 
 fn takes_value_anywhere(name: &str) -> bool {
     name == "idempotency-key" || VERBS.iter().flat_map(|v| v.flags).any(|(n, v)| *n == name && *v)
+}
+
+/// `cmux server logs` also takes the short flags the Rex docs use: `-n N`
+/// (or `-n=N`) for `--lines N` and `-f` for `--follow`. The parser keeps
+/// words without `--` as positionals; this turns those two back into flags.
+/// Other verbs keep such words as positionals (a file may be named `-n`).
+fn short_log_flags(out: &mut Args) -> Result<()> {
+    let mut rest = Vec::new();
+    let mut words = std::mem::take(&mut out.positionals).into_iter();
+    while let Some(word) = words.next() {
+        if word == "-f" {
+            out.flags.insert("follow".to_owned(), None);
+        } else if word == "-n" {
+            let value = words.next().ok_or_else(|| Error::usage("--lines needs a value"))?;
+            out.flags.insert("lines".to_owned(), Some(value));
+        } else if let Some(value) = word.strip_prefix("-n=") {
+            out.flags.insert("lines".to_owned(), Some(value.to_owned()));
+        } else {
+            rest.push(word);
+        }
+    }
+    out.positionals = rest;
+    Ok(())
 }
 
 fn check_spec(spec: &VerbSpec, args: &Args) -> Result<()> {
