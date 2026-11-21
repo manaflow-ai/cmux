@@ -281,7 +281,7 @@ cmd_acpmux() {
 cmd_link_check() {
   [[ -f "$SYSROOT/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd" ]] \
     || die "no framework stubs in $SYSROOT; run the toolchain command first"
-  export CARGO_TARGET_DIR="${XC_CARGO_TARGET_DIR:-$XC_ROOT/target-link-check}" CARGO_PROFILE_DEV_DEBUG=0
+  export CARGO_TARGET_DIR="${XC_CARGO_TARGET_DIR:-$XC_ROOT/target-link-check}" CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_DEV_STRIP=false
   unset CMUX_GHOSTTY_SRC
   for t in "${TARGETS[@]}"; do
     use_target "$t" "${MIN_OS[$t]}"
@@ -292,6 +292,11 @@ cmd_link_check() {
       cargo build --locked --target "$t" -p acpmux-standalone --bin acpmux-standalone \
         $("$repo_root/scripts/ci/acpmux-build-features.sh" crates/acpmux/Cargo.toml "$t" acpmux))
     echo "link-check $t: $(( $(date +%s) - start )) s"
+    local b
+    for b in cmux-tui cmux-tui-hook cmux-relay chatmux-relay acpmux-standalone; do
+      echo "link-check $t $b imports: $("$LLVM_BIN/llvm-nm" -m -u "$CARGO_TARGET_DIR/$t/debug/$b" | grep -oE '\(from [^)]+\)' | sort | uniq -c | tr -s ' \n' ' ')"
+    done
+    "$LLVM_BIN/llvm-nm" -m -u "$CARGO_TARGET_DIR/$t/debug/cmux-tui" | grep -E '_CGEvent' || true
   done
 }
 
