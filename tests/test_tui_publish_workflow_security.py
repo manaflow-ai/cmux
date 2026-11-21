@@ -334,6 +334,23 @@ def test_pin_refs_are_refused_before_claim_or_build() -> None:
     assert '"workflow_dispatch" and .head_branch == "feat-cmux-next"' in request
 
 
+def test_tree_request_proves_branch_ancestry_with_local_git_history() -> None:
+    request = workflow("cmux-tui-tree-request.yml")
+    job = workflow_job(request, "request")
+    check = job.split("      - name: Check the commit is on feat-cmux-next", 1)[1].split(
+        "      - name: Dispatch one publisher when the tree is missing", 1
+    )[0]
+
+    assert "ref: ${{ github.ref }}" in job
+    assert "fetch-depth: 0" in job
+    assert "filter: blob:none" in job
+    assert "sparse-checkout: scripts/ci" in job
+    assert 'git merge-base --is-ancestor "$COMMIT" "$TIP"' in check
+    assert 'git checkout --quiet --detach "$COMMIT"' in check
+    assert "compare/$COMMIT...$TIP" not in check
+    assert "gh api" not in check
+
+
 def test_ci_never_suggests_pushing_a_pr_merge_commit_to_a_pin_branch() -> None:
     """A PR merge commit must not be turned into a privileged pin push."""
     unsafe = re.compile(r"git\s+push\s+origin\b[^\n]*(?:cmux-tui-pin|refs/heads/cmux-tui-pin)", re.IGNORECASE)
