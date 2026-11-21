@@ -301,26 +301,26 @@ export function useSessionAuth(
     // local daemon answers at once) would render the pane again before that frame paints.
     const ask = () =>
       void read(selected, probe).then(
-      (reply) => {
-        if (!live) return;
-        const auth = readSessionAuth(reply);
-        const scopeMismatch =
-          ("sessionId" in selected && auth.fromSessionId && auth.fromSessionId !== selected.sessionId) ||
-          ("target" in selected &&
-            ((auth.harness !== undefined && auth.harness !== selected.target.harness) ||
-              (auth.host ?? undefined) !== selected.target.host ||
-              (selected.target.routeId !== undefined && auth.routeId !== selected.target.routeId)));
-        if (scopeMismatch) {
-          setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
-          return;
-        }
-        setResult({ selection, auth });
-      },
-      () => {
-        if (live)
-          setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
-      },
-    );
+        (reply) => {
+          if (!live) return;
+          const auth = readSessionAuth(reply);
+          const scopeMismatch =
+            ("sessionId" in selected && auth.fromSessionId && auth.fromSessionId !== selected.sessionId) ||
+            ("target" in selected &&
+              ((auth.harness !== undefined && auth.harness !== selected.target.harness) ||
+                (auth.host ?? undefined) !== selected.target.host ||
+                (selected.target.routeId !== undefined && auth.routeId !== selected.target.routeId)));
+          if (scopeMismatch) {
+            setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
+            return;
+          }
+          setResult({ selection, auth });
+        },
+        () => {
+          if (live)
+            setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
+        },
+      );
     const cancel = selectionChanged ? afterNextPaint(ask) : (ask(), undefined);
     return () => {
       live = false;
