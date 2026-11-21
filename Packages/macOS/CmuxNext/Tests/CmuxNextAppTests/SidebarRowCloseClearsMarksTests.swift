@@ -77,7 +77,9 @@ struct SidebarRowCloseClearsMarksTests {
     @Test(arguments: Marks.allCases, SidebarRowBadgeStyle.allCases)
     func theHoverCloseCoversNoIndicator(_ marks: Marks, _ style: SidebarRowBadgeStyle) throws {
         SidebarSessionTree.shared.pullRequests = marks.pullRequests
-            ? [Self.row: SidebarPullRequestBadge(count: marks == .everything ? 2 : 1, status: .failing)] : [:]
+            ? [Self.row: SidebarPullRequestBadge(count: marks == .everything ? 2 : 1, status: .failing, items: [
+                SidebarPullRequestItem(url: "https://github.com/o/r/pull/1", repository: "o/r", number: 1, title: "PR 1", state: .failing),
+            ])] : [:]
         defer { SidebarSessionTree.shared.pullRequests = [:] }
         for spot in SidebarRowCloseSpot.allCases {
             try SidebarRowCloseSpotTests.withCloseSpot(spot) {
@@ -97,6 +99,15 @@ struct SidebarRowCloseClearsMarksTests {
                     guard let rect else { continue }
                     let under = Self.drawn(in: row, meeting: rect)
                     #expect(under.isEmpty, "\(spot), \(style), \(marks): the \(control) at \(rect.minX)...\(rect.maxX) covers \(under)")
+                }
+                // A badge that gave way opens no pull request card from under the ✕.
+                let badge = row.pullRequests
+                if marks.pullRequests, badge.alphaValue == 0 {
+                    let onScreen = window.convertToScreen(badge.convert(badge.bounds, to: nil))
+                    let center = CGPoint(x: onScreen.midX, y: onScreen.midY)
+                    #expect(!WorkspaceHoverCardController.onPullRequestBadge(badge, window: window, screenPoint: center),
+                            "\(spot): the hidden badge still takes the pointer")
+                    #expect(badge.pointedItems == nil)
                 }
                 row.isHovered = false
                 row.layoutSubtreeIfNeeded()

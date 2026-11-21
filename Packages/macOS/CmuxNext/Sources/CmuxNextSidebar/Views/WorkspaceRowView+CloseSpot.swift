@@ -48,6 +48,8 @@ extension WorkspaceRowView {
         for mark in [pullRequests, rollUp] as [NSView] {
             fadeOpacity(mark, to: Self.covers(controls, mark) ? 0 : 1, fades: fades)
         }
+        // A pointer on the badge when it gave way is on the ✕ now: its card does not stay open.
+        if pullRequests.alphaValue == 0 { pullRequests.pointerLeft() }
         for mark in [badge, keycap] as [NSView] where Self.covers(controls, mark) && mark.alphaValue > 0 {
             setHoverPainted(mark, false, fades: fades)
         }

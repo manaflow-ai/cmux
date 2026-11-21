@@ -324,7 +324,9 @@ extension WorkspaceRowView {
             let status = mark === activity || (mark === agentMark && markReplacesStatus)
             let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay
                 : (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
-            fadeOpacity(mark, to: covered || Self.covers(shownControls, mark) ? 0 : 1, fades: fades)
+            // The usage warning never gives way (the layout keeps it left of the controls).
+            let underControl = mark !== usageWarningMark && Self.covers(shownControls, mark)
+            fadeOpacity(mark, to: covered || underControl ? 0 : 1, fades: fades)
         }
         giveWayToControls(shownControls, fades: fades)
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
