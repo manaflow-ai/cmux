@@ -106,7 +106,8 @@ test("a declined folder offers continuation without folder context", async () =>
   const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find((item) =>
     item.textContent?.includes("Continue without folder"),
   );
-  expect(host.textContent).toContain("Attachments are not carried; they stay in the original chat.");
+  // The button says what it does: no paragraph explaining hooks, drafts and attachments under it.
+  expect(host.textContent).not.toContain("Attachments are not carried");
   expect(button).toBeDefined();
   await act(async () => button!.click());
   expect(continued).toBe(1);

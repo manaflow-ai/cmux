@@ -30,7 +30,7 @@ test("screen sharing is one action below the named machine and preserves Cloud l
     t,
   )!;
   expect(section.rows[0]!.id).toBe("machine");
-  expect(section.rows[0]!.subtitle).toBe(t("cloudRepository.lifetime"));
+  expect(section.rows[0]!.subtitle).toBeUndefined();
   const share = section.rows[1]!;
   expect(share.id).toBe("screen-sharing");
   expect(share.title).toBe(t("sessionInfo.environment.viewScreen"));
@@ -76,8 +76,8 @@ test("Cloud environment actions retain anchors, grants and one Remote Control sw
   )!;
   expect(section.bare).toBe(true);
   expect(section.rows.find((row) => row.id === "machine")!.trailing).toBe(t("composer.cloud"));
-  // The Cloud machine says what it is and how long its files last, as the web panel does.
-  expect(section.rows.find((row) => row.id === "machine")!.subtitle).toBe(t("cloudRepository.lifetime"));
+  // The Cloud machine row is its name and "Cloud": no paragraph on what a Cloud machine is.
+  expect(section.rows.find((row) => row.id === "machine")!.subtitle).toBeUndefined();
   const control = section.rows.find((row) => row.id === "remoteControl")!;
   expect(control).toMatchObject({
     toggle: true,
