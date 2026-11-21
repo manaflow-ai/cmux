@@ -22,6 +22,18 @@
 //! device off: the connection drops it and answers `device.revoked`, and no later call reaches the
 //! hub (`mesh_read.rs` `read_hub`).
 //!
+//! Before it enrolls, a browser that holds no access token gets its own with the person's
+//! ordinary email-code sign-in (`cmux-stack-auth` `BrowserSignIn`, its `BrowserSignIn.md`):
+//!
+//! - `_acpmux/browser_sign_in_start {email, publicKey}` -> `{expiresIn: 300}` emails a code for
+//!   this daemon's owner, bound to the page origin that opened the socket (`Conn::page_origin`)
+//!   and the browser's device key. One pending sign-in per connection; a new start replaces it.
+//! - `_acpmux/browser_sign_in_complete {code}` -> `{accessToken, publicKey}` takes it (single
+//!   use, even when it fails) and answers the browser's own access token if Stack's `/users/me`
+//!   names the owner. The owner, the Stack project and the email-link callback come from this
+//!   machine's join record and its deployment (`sign_in_config`), never from the request; a
+//!   machine with no joined owner refuses with `signin.unconfigured`.
+//!
 //! Neither credential is logged, persisted or echoed: each lives in a `Zeroizing` in this
 //! process's memory, and the device's only in its connection's client.
 
@@ -60,6 +72,8 @@ pub(super) async fn dispatch(
     match m {
         method::MUX_DEVICE_HELLO => Some(hello(hub, conn, params).await),
         method::MUX_DEVICE_ENROLL => Some(enroll(hub, conn, params).await),
+        method::MUX_BROWSER_SIGN_IN_START => Some(sign_in_start(conn, params).await),
+        method::MUX_BROWSER_SIGN_IN_COMPLETE => Some(sign_in_complete(conn, params).await),
         _ => None,
     }
 }
@@ -292,3 +306,165 @@ mod browser_owner_tests {
         assert!(!same_browser_owner(&machine, "team", "owner"));
     }
 }
+
+/// The longest page Origin a socket keeps (`Conn::page_origin`).
+pub(super) const MAX_ORIGIN_BYTES: usize = 512;
+/// The longest email, emailed code and device key a sign-in takes; `BrowserSignIn` checks each.
+const MAX_EMAIL_BYTES: usize = 320;
+const MAX_CODE_BYTES: usize = 64;
+const MAX_KEY_BYTES: usize = 64;
+/// What `browser_sign_in_start` answers: `BrowserSignIn`'s lifetime, in seconds.
+const SIGN_IN_EXPIRES_IN: u64 = 300;
+
+/// The daemon's trusted half of a browser sign-in: its owner and its deployment's Stack project.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct SignInConfig {
+    pub owner_user_id: String,
+    pub stack: cmux_stack_auth::StackConfig,
+    /// The deployment's email-link callback, as the app's own email sign-in sends it
+    /// (`CloudAuth.swift`: `authWebOrigin` + `/auth/callback`).
+    pub callback_url: String,
+}
+
+/// The sign-in configuration of this machine's join `record` (`machine_record.rs`): its owner is
+/// the person the hub named for its credential (`userId`), and its Stack project is the one of
+/// the cmux deployment whose platform it joined (`cmux-cloud-environment`). None of it comes from
+/// a request. The refusal names what is missing.
+pub(super) fn sign_in_config(
+    record: Option<&crate::machine_record::MachineCredential>,
+) -> Result<SignInConfig, RpcError> {
+    use cmux_cloud_environment as env;
+    let record = record.filter(|r| !r.revoked).ok_or_else(|| unconfigured("machineJoin"))?;
+    let owner_user_id = record
+        .user_id
+        .as_deref()
+        .and_then(crate::machine_record::safe_id)
+        .ok_or_else(|| unconfigured("ownerUserId"))?;
+    let platform = record.hub_origin.trim().trim_end_matches('/');
+    let deployment = [
+        env::PRODUCTION_DEPLOYMENT,
+        env::STAGING_DEPLOYMENT,
+        env::DEVELOPMENT_DEPLOYMENT,
+        env::LOCAL_DEPLOYMENT,
+    ]
+    .into_iter()
+    .find(|d| d.platform_origin == platform)
+    .ok_or_else(|| unconfigured("stackDeployment"))?;
+    Ok(SignInConfig {
+        owner_user_id,
+        stack: cmux_stack_auth::StackConfig::new(
+            env::STACK_ORIGIN,
+            deployment.stack_project_id,
+            deployment.stack_client_key,
+        ),
+        callback_url: format!("{}/auth/callback", deployment.auth_web_origin.trim_end_matches('/')),
+    })
+}
+
+/// `missing` is the trusted input this daemon lacks: `machineJoin` (not joined here, copied from
+/// another box, or revoked), `ownerUserId` (the join named no person) or `stackDeployment` (its
+/// platform is no known cmux deployment).
+fn unconfigured(missing: &str) -> RpcError {
+    RpcError::new(-32000, "this machine has no owner to sign a browser in for: join it first")
+        .with_data(json!({"reason": "signin.unconfigured", "missing": missing}))
+}
+
+/// A `BrowserSignIn` refusal: only its fixed reason, never Stack's body or a token.
+fn sign_in_refused(error: cmux_stack_auth::BrowserSignInError) -> RpcError {
+    use cmux_stack_auth::BrowserSignInError as E;
+    let code = match error {
+        E::InvalidOrigin | E::InvalidPublicKey | E::InvalidInput => -32602,
+        E::RateLimited => -32004,
+        _ => -32000,
+    };
+    RpcError::new(code, error.code()).with_data(json!({"reason": error.code()}))
+}
+
+/// A short string param, at most `max` bytes; the refusal never repeats it.
+fn short_param<'a>(params: &'a Value, key: &str, max: usize) -> Result<&'a str, RpcError> {
+    params
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty() && v.len() <= max)
+        .ok_or_else(|| RpcError::invalid_params(format!("{key} is required")))
+}
+
+fn stack_client(config: &SignInConfig) -> Result<cmux_stack_auth::StackClient, RpcError> {
+    cmux_stack_auth::StackClient::new(config.stack.clone())
+        .map_err(|_| RpcError::internal("the sign-in client could not be built"))
+}
+
+/// `_acpmux/browser_sign_in_start {email, publicKey}` -> `{expiresIn: 300}`.
+async fn sign_in_start(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+    web_only(conn, method::MUX_BROWSER_SIGN_IN_START)?;
+    let config =
+        sign_in_config(crate::machine_record::machine_credential().ok().flatten().as_ref());
+    start_with(&conn.browser_sign_in, conn.page_origin.as_deref(), config, params).await
+}
+
+/// `_acpmux/browser_sign_in_complete {code}` -> `{accessToken, publicKey}`.
+async fn sign_in_complete(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+    web_only(conn, method::MUX_BROWSER_SIGN_IN_COMPLETE)?;
+    let config =
+        sign_in_config(crate::machine_record::machine_credential().ok().flatten().as_ref());
+    complete_with(&conn.browser_sign_in, conn.page_origin.as_deref(), config, params).await
+}
+
+type Pending = std::sync::Mutex<Option<cmux_stack_auth::BrowserSignIn>>;
+
+/// The start, given the connection's pending slot, its page origin and the daemon's config.
+/// The prior attempt is dropped first, so a failed start leaves none.
+pub(super) async fn start_with(
+    pending: &Pending,
+    page_origin: Option<&str>,
+    config: Result<SignInConfig, RpcError>,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    drop(pending.lock().unwrap_or_else(|e| e.into_inner()).take());
+    let email = short_param(params, "email", MAX_EMAIL_BYTES)?;
+    let key = short_param(params, "publicKey", MAX_KEY_BYTES)?;
+    let config = config?;
+    let origin = page_origin
+        .ok_or(cmux_stack_auth::BrowserSignInError::InvalidOrigin)
+        .map_err(sign_in_refused)?;
+    let stack = stack_client(&config)?;
+    let attempt = cmux_stack_auth::BrowserSignIn::start(
+        &stack,
+        origin,
+        &config.owner_user_id,
+        key,
+        email,
+        &config.callback_url,
+    )
+    .await
+    .map_err(sign_in_refused)?;
+    // A start that finished after a newer one replaces it too: the last answer wins.
+    *pending.lock().unwrap_or_else(|e| e.into_inner()) = Some(attempt);
+    Ok(json!({"expiresIn": SIGN_IN_EXPIRES_IN}))
+}
+
+/// The completion: takes the pending attempt before it awaits, so it is used once.
+pub(super) async fn complete_with(
+    pending: &Pending,
+    page_origin: Option<&str>,
+    config: Result<SignInConfig, RpcError>,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    let attempt = pending.lock().unwrap_or_else(|e| e.into_inner()).take().ok_or_else(|| {
+        RpcError::invalid_params("no sign-in is pending on this connection: start one")
+            .with_data(json!({"reason": "browser.sign_in.not_started"}))
+    })?;
+    let code = short_param(params, "code", MAX_CODE_BYTES)?;
+    let config = config?;
+    let origin = page_origin
+        .ok_or(cmux_stack_auth::BrowserSignInError::InvalidOrigin)
+        .map_err(sign_in_refused)?;
+    let stack = stack_client(&config)?;
+    let enrollment = attempt.complete(&stack, origin, code).await.map_err(sign_in_refused)?;
+    let access = Zeroizing::new(enrollment.access_token);
+    Ok(json!({"accessToken": access.as_str(), "publicKey": enrollment.public_key}))
+}
+
+#[cfg(test)]
+#[path = "web_device_tests.rs"]
+mod tests;
