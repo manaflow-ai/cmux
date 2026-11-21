@@ -335,31 +335,5 @@ fn append_rotating(log: &Path, line: &serde_json::Value) {
 /// line and its log append), keyed by terminal id so parallel tests do not
 /// see each other's losses.
 #[cfg(test)]
-pub(crate) mod log_hook {
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex, PoisonError};
-
-    type Hook = Arc<dyn Fn() + Send + Sync>;
-
-    static HOOKS: Mutex<Option<HashMap<String, Hook>>> = Mutex::new(None);
-
-    pub(crate) fn set(terminal_id: &str, hook: Option<Hook>) {
-        let mut hooks = HOOKS.lock().unwrap_or_else(PoisonError::into_inner);
-        let hooks = hooks.get_or_insert_with(HashMap::new);
-        match hook {
-            Some(hook) => hooks.insert(terminal_id.to_string(), hook),
-            None => hooks.remove(terminal_id),
-        };
-    }
-
-    pub(super) fn run(terminal_id: &str) {
-        let hook = HOOKS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_ref()
-            .and_then(|hooks| hooks.get(terminal_id).cloned());
-        if let Some(hook) = hook {
-            hook();
-        }
-    }
-}
+#[path = "terminal_loss_log_log_hook_tests.rs"]
+pub(crate) mod log_hook;

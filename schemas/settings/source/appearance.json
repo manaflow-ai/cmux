@@ -923,6 +923,33 @@
           ]
         },
         {
+          "key": "appearance.agentGlow",
+          "title": {
+            "key": "settings.appearance.agentGlow",
+            "text": "React to Agents"
+          },
+          "help": {
+            "key": "settings.appearance.agentGlow.help",
+            "text": "Calm while agents are idle; a soft glow in the machine's color when an agent needs you."
+          },
+          "kind": "toggle",
+          "swift_owner": "AgentGlowSetting",
+          "default": false,
+          "keywords": [
+            "agent",
+            "agents",
+            "glow",
+            "react",
+            "reactive",
+            "background",
+            "attention",
+            "needs you",
+            "idle",
+            "calm",
+            "machine color"
+          ]
+        },
+        {
           "key": "appearance.experimentalControls",
           "title": {
             "key": "settings.appearance.experimentalControls",
