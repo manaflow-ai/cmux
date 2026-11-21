@@ -83,9 +83,9 @@ async fn a_triage_error_delivers_at_once() {
     assert_eq!(turns(&hub, &id), 1);
 }
 
-/// Nothing is reordered: an agent message that comes inside the hold waits behind the held
-/// prompts it came after and ahead of the ones it came before; each prompt is in exactly one
-/// turn.
+/// Nothing is reordered: the person's prompts go in in the order sent, each in exactly one
+/// turn, and an agent message that comes inside the hold keeps the queue's own rule, behind the
+/// person's prompts (`digest.rs`: the person's prompt goes ahead of waiting agent messages).
 #[tokio::test]
 async fn nothing_reorders() {
     let (hub, mut c, id) = held(3_000, |_| Ok(false)).await;
@@ -97,9 +97,9 @@ async fn nothing_reorders() {
     agents.send(method::SESSION_PROMPT, from_agent(&id, "p-x", "lane-x", "from x")).await;
     agents.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-x").await;
     c.send(method::SESSION_PROMPT, prompt(&id, "three", Some("p-3"))).await;
-    let echoes = echoes_until(&mut c, "three").await;
-    assert_eq!(echoes, ["echo: one\n\ntwo", "echo: from x", "echo: three"]);
-    assert_eq!(turns(&hub, &id), 3);
+    let echoes = echoes_until(&mut c, "from x").await;
+    assert_eq!(echoes, ["echo: one\n\ntwo\n\nthree", "echo: from x"]);
+    assert_eq!(turns(&hub, &id), 2);
 }
 
 /// A chat the config does not name never holds the person's prompt.

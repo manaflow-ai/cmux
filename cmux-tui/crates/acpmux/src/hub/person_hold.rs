@@ -20,7 +20,8 @@
 //! - What never waits: the same prompts an agent message's gather window lets go
 //!   (`agent_gather.rs` `gathers`: a slash command, uploads, a trigger, a no-queue send, a
 //!   prompt let in again), and any prompt to a chat that is busy or has prompts waiting: it
-//!   queues as before. Nothing is reordered: a prompt only ever waits behind the ones before it.
+//!   queues as before. Nothing is reordered: a prompt only ever waits behind the ones before it,
+//!   and the person's prompts keep going ahead of waiting agent messages (`digest.rs`).
 
 use super::*;
 use std::time::Duration;
