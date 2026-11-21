@@ -394,6 +394,7 @@ function installFrameReader() {
 // DIAG=1 (local diagnosis): each React commit's root renders (components whose parent did not render) and the
 // state hooks that changed in them, as TRACE marks.
 function installCommitDiag() {
+  Error.stackTraceLimit = 60;
   const seen = new WeakMap<object, unknown>();
   let commits = 0;
   type Hook = { memoizedState: unknown; queue: unknown; next: Hook | null } | null;
@@ -464,7 +465,7 @@ function installCommitDiag() {
       walk(root.current.child, false);
       const mark = (window as unknown as { __mark?: (what: string) => void }).__mark;
       mark?.(
-        `commit#${commits} rendered=${rendered} mounted=${mounted} walk=${(performance.now() - t).toFixed(1)}ms roots: ${roots.slice(0, 12).join(" | ")}`,
+        `commit#${commits} rendered=${rendered} mounted=${mounted} walk=${(performance.now() - t).toFixed(1)}ms roots: ${roots.slice(0, 12).join(" | ")} STACK ${String(new Error().stack).split("\n").slice(2, 30).map((l) => l.trim()).join(" < ")}`,
       );
     },
   };
