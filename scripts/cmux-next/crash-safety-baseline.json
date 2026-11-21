@@ -144,7 +144,7 @@
     "CmuxNextPhone": 1,
     "CmuxNextPopups": 2,
     "CmuxNextResources": 2,
-    "CmuxVNCWebRTC": 1,
+    "CmuxVNCWebRTC": 5,
     "MessagesLabHome": 1
    },
    "render_font": {
@@ -179,7 +179,7 @@
     "CmuxNextVSCodeServer": 2,
     "CmuxVNC": 3,
     "CmuxVNCDemoServer": 3,
-    "CmuxVNCWebRTC": 19,
+    "CmuxVNCWebRTC": 21,
     "MessagesLabHome": 3
    }
   }

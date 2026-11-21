@@ -154,6 +154,16 @@ path = "tests/test_ci_evidence_outcomes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_expected_wait.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/expected_wait.py's admission verdict (cmuxterm-hq#16113 step 3); run python3 -m unittest tests.test_ci_expected_wait yourself after changing it (under 1 s, no network)."
+
+[[test]]
+path = "tests/test_ci_fast_check_route.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23, AGENTS.md:214). Checks scripts/ci/fast-check-inputs.json against the jobs and scripts each fast check reads, and that every routed job is wired to fast_check_route.py and covered by a push; run python3 tests/test_ci_fast_check_route.py yourself after changing fast_check_route.py, fast-check-inputs.json or a routed workflow (a few seconds, no build)."
+
+[[test]]
 path = "tests/test_ci_fast_checks_failover.py"
 lane = "linux-guard"
 
@@ -333,10 +343,6 @@ path = "tests/test_ci_merge_queue_required_checks.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_merge_receipt.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_needs_skip_propagation.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_needs_skip_propagation.py yourself after changing the workflow or script it reads."
@@ -476,6 +482,10 @@ path = "tests/test_ci_parallel_artifact_transport.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_pool_snapshot_job_cache.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_portable_job_placement.py"
 lane = "linux-guard"
 
@@ -484,8 +494,17 @@ path = "tests/test_ci_post_merge_checks.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_pr_guards_list_files_from_git.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_media_privacy.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_ran_line.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_pr_ran_line.py"
 
 [[test]]
 path = "tests/test_ci_pr_runner_pool.py"
@@ -633,6 +652,14 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_reused_sparse_checkout.py yourself after changing the workflow steps it reads."
 
 [[test]]
+path = "tests/test_ci_risk_label_from_event.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_route_quota_reserve.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_route_refusal_detail.py"
 lane = "linux-guard"
 
@@ -642,6 +669,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_runner_capability_resolver.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runner_census_tallies.py"
 lane = "linux-guard"
 
 [[test]]
@@ -817,6 +848,11 @@ path = "tests/test_ci_tip_test_compile.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_tooling_steps.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests; linux-guard needs a workflow step that runs the file, and none does. Pins scripts/ci/tooling_steps.py's per-step selection and that every tooling-tests run step in cmux-next-guards.yml is a setup step or carries its tt- id and selection if:; run python3 -m unittest tests/test_ci_tooling_steps.py yourself after changing tooling_steps.py, workflow_paths_cover_inputs.py or a tooling-tests step (about 5 s, no build)."
+
+[[test]]
 path = "tests/test_ci_tree_result.py"
 lane = "linux-guard"
 
@@ -906,3 +942,8 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_xcodebuild_noninteractive_helper.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ephemeral_pool_readers.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_ephemeral_pool_readers.py yourself after changing the pool readers it reads."

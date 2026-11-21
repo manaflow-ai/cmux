@@ -1068,30 +1068,6 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
-        id: "chief.importMemories",
-        group: GROUP,
-        title: t("Localizable", "action.chief.importMemories", "Bring Your History"),
-        keywords: &["chief", "memory", "memories", "import", "claude", "claude code", "codex", "chatgpt", "openai", "bring", "migrate", "onboard"],
-        category: "agents",
-        symbol: "square.and.arrow.down",
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::CHIEF_3.optional(), args::SOURCE.optional()],
-        cli_name: "action chief-import-memories",
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "chief.importMemories.undo",
-        group: GROUP,
-        title: t("Localizable", "action.chief.importMemories.undo", "Undo Last Memory Import"),
-        keywords: &["chief", "memory", "memories", "import", "undo", "take back", "restore"],
-        category: "agents",
-        symbol: "arrow.uturn.backward",
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::CHIEF_3.optional()],
-        cli_name: "action chief-import-memories-undo",
-        ..Action::DEFAULT
-    },
-    Action {
         id: "chief.openUsage",
         group: GROUP,
         title: t("ActionCatalog", "action.chief.openUsage", "Chief Usage"),

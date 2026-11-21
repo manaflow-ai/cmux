@@ -585,6 +585,22 @@ private final class LiveResizeWindow: NSWindow {
         #expect(fork.fences.count == 2, "a resize of a change taken back joined a fence")
     }
 
+    /// A resize that joins a fence counts its main-thread time (`fence_join_ms` in `debug.cef`), for the perf-hot
+    /// budget of ``CEFLayerHosting/pageViewResized()``; a resize that joins none counts none.
+    @Test func aResizeThatJoinsAFenceCountsItsTime() throws {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        let before = CEFHostView.trackerStats.resizeFenceJoinSeconds
+        hosting.pageViewResized()
+        #expect(CEFHostView.trackerStats.resizeFenceJoinSeconds == before, "a resize outside a page sync counted fence time")
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        #expect(CEFHostView.trackerStats.resizeFenceJoinSeconds > before, "a resize that joined a fence counted no time")
+        #expect(CEFHostView.trackerStats.reportFields["fence_join_ms"] != nil)
+        for done in fork.dones { done(true) }
+        endTurn()
+    }
+
     /// After its turn, a fence with a page still out keeps its send right until that page reports, then lets it go: a
     /// fence freed with its right would hold the window's commits for good, and one kept past `done` would too.
     @Test func aFenceOutlivesItsTurnUntilItsPagesReport() throws {

@@ -104,6 +104,7 @@ fn every_op_answers_on_an_empty_profile() {
         let request = json!({
             "path": missing, "profile": dir, "sessions": dir, "profileDirectory": "Default",
             "head": "{\"history\"", "services": null, "engine": engine, "builtIn": {}, "limit": 5,
+            "copyRoot": dir,
         });
         let reply = read(op, request);
         assert!(reply.get("ok").is_some() || reply["error"]["kind"].is_string(), "{op}: {reply}");
