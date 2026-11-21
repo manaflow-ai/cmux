@@ -129,13 +129,15 @@ test("an icon button names its key in the tooltip and to assistive tech", () => 
   expect(keyedIconProps("Close", "escape")).toEqual({
     "aria-label": "Close",
     "aria-keyshortcuts": "Escape",
-    title: "Close ⎋",
+    title: "Close (Esc)",
   });
   expect(keyedIconProps("Next", "right")).toEqual({
     "aria-label": "Next",
     "aria-keyshortcuts": "ArrowRight",
-    title: "Next →",
+    title: "Next (→)",
   });
   expect(dialogKeyGlyph("left")).toBe("←");
   expect(dialogKeyAria("left")).toBe("ArrowLeft");
+  // No tooltip shows the ⎋ keycap: it reads as a stray reload arrow in the tooltip font.
+  expect(keyedIconProps("Close", "escape").title).not.toContain("⎋");
 });
