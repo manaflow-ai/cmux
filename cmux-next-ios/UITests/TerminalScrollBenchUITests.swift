@@ -33,6 +33,12 @@ final class TerminalScrollBenchUITests: XCTestCase {
             demo = probe.label
         }
         print("scroll-bench \(demo)")
+        // The numbers as a text attachment too: a UI test's print never
+        // reaches the step's exported logs, its attachments do.
+        let numbers = XCTAttachment(string: "scroll-bench \(demo)\n")
+        numbers.name = "scroll-bench-numbers"
+        numbers.lifetime = .keepAlways
+        add(numbers)
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "scroll-bench-end"
         shot.lifetime = .keepAlways
