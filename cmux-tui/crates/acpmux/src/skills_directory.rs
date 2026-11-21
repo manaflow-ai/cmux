@@ -74,10 +74,10 @@ fn target_root(root: &Path, harness: &str) -> Result<PathBuf> {
 }
 
 fn claude_mcp_path(root: &Path) -> PathBuf {
-    if dirs::home_dir().as_deref() == Some(root) {
-        if let Some(dir) = std::env::var_os("CLAUDE_CONFIG_DIR") {
-            return PathBuf::from(dir).join(".claude.json");
-        }
+    if dirs::home_dir().as_deref() == Some(root)
+        && let Some(dir) = std::env::var_os("CLAUDE_CONFIG_DIR")
+    {
+        return PathBuf::from(dir).join(".claude.json");
     }
     root.join(".claude.json")
 }
@@ -527,7 +527,7 @@ pub fn list(params: &Value, root: Option<&Path>) -> Value {
     let query = params.get("query").and_then(Value::as_str).unwrap_or("").to_ascii_lowercase();
     let kind = params.get("kind").and_then(Value::as_str);
     let root = home(root);
-    let entries: Vec<Value> = catalog().entries.into_iter().filter(|e| kind.map_or(true, |k| e.kind == k)).filter(|e| query.is_empty() || [e.name.as_str(), e.description.as_str(), e.publisher.as_str()].iter().any(|v| v.to_ascii_lowercase().contains(&query))).map(|e| {
+    let entries: Vec<Value> = catalog().entries.into_iter().filter(|e| kind.is_none_or(|k| e.kind == k)).filter(|e| query.is_empty() || [e.name.as_str(), e.description.as_str(), e.publisher.as_str()].iter().any(|v| v.to_ascii_lowercase().contains(&query))).map(|e| {
         let installed: BTreeMap<_, _> = e.targets.iter().map(|h| (h.clone(), is_installed(&root, h, &e))).collect();
         json!({"id": e.id, "kind": e.kind, "name": e.name, "description": e.description, "publisher": e.publisher, "version": e.version, "targets": e.targets, "installed": installed})
     }).collect();
