@@ -28,6 +28,7 @@ import {
   type CloudPlanId,
   type CloudPlanView,
   type CloudSizeLocked,
+  cloudPlanMachineWords,
 } from "./cloudPlans";
 import { useCloudPlanSubscribe, type CloudPlanSubscribeStore } from "./cloudPlanSubscribe";
 import { useGitHubPicker, type GitHubPickerStore } from "./githubRepos";
@@ -142,7 +143,7 @@ function PlanOffer({
       </span>
       <span className="acpmux-cloud-plans__price">{t("cloudStart.plans.perMonth", { price: offer.price })}</span>
       <span className="acpmux-cloud-ask__line">
-        {t("cloudStart.plans.includes", { size: cloudSizeWords(offer.maxSize, t) })}
+        {t("cloudStart.plans.includes", { size: cloudPlanMachineWords(plan, t) })}
       </span>
       <button
         type="button"
@@ -162,7 +163,7 @@ function PlanOffer({
 }
 
 /// The pricing card: a Cloud send the account has no plan for (the platform's `cloud_plan_required`, or the page's
-/// own hold when `cloudMachine.list` says `plan.state` `none`). A final state, no retry and no wait: cmux NEXT Pro and
+/// own hold when `cloudMachine.list` says `plan.state` `none`). A final state, no retry and no wait: cmux NEXT Plus, Pro and
 /// Max side by side (or the plans the refusal named, `plans`), each with Subscribe (`cloud.plan.subscribe`, the start
 /// goes again by itself once the plan is on, cloudPlanSubscribe.ts), then Run on This Mac and Not now. A refusal in a team (`refusal`) names the team the send
 /// was in (the one picked in the team menu, which is easy to miss) and offers the person's own team first, which
@@ -445,9 +446,9 @@ function ConnectGitHubAction({ store }: { store?: GitHubPickerStore }) {
       >
         {t("cloudRepository.connect")}
       </button>
-      {github.state.connectError && (
+      {(github.state.connectError ?? github.state.status?.message) && (
         <output className="acpmux-cloud-start__status" data-connect-error="true">
-          {github.state.connectError}
+          {github.state.connectError ?? github.state.status?.message}
         </output>
       )}
     </>
