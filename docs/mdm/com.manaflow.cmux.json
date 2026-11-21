@@ -690,6 +690,12 @@
       "title" : "Download Announcements",
       "type" : "boolean"
     },
+    "app.captureScreenshotGlobalHotKey" : {
+      "default" : false,
+      "description" : "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts.",
+      "title" : "Capture Screenshot to Chat from Any App",
+      "type" : "boolean"
+    },
     "app.confirmQuit" : {
       "default" : true,
       "description" : "Ask before Cmd-Q ends agents or terminals.",
@@ -703,7 +709,7 @@
       "type" : "boolean"
     },
     "app.hideDockIconWithoutWindows" : {
-      "default" : false,
+      "default" : true,
       "description" : "cmux stays in the menu bar until a window opens.",
       "title" : "Hide Dock Icon When No Windows Are Open",
       "type" : "boolean"
@@ -3670,6 +3676,12 @@
       "default" : false,
       "description" : "Lets cmux read Messages conversations on this Mac. Sending needs your click.",
       "title" : "Connect iMessage",
+      "type" : "boolean"
+    },
+    "labs.agentCustomization" : {
+      "default" : false,
+      "description" : "Show and edit the MCP servers Claude Code and Codex use, in their own config files.",
+      "title" : "Claude Code and Codex Customization",
       "type" : "boolean"
     },
     "labs.liveCode" : {

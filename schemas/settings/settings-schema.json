@@ -16,6 +16,7 @@
               "window.titlebarButtons",
               "app.globalHotKey",
               "app.startAgentGlobalHotKey",
+              "app.captureScreenshotGlobalHotKey",
               "app.hideDockIconWithoutWindows",
               "app.showMenuBarIcon"
             ],
@@ -2221,6 +2222,7 @@
               "labs.machineJoin",
               "labs.liveCode",
               "customize.fromTheApp",
+              "labs.agentCustomization",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -3857,12 +3859,150 @@
         true,
         false
       ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.captureScreenshotGlobalHotKey.help",
+        "text" : "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.captureScreenshotGlobalHotKey",
+      "keywords" : [
+        "global",
+        "hotkey",
+        "hot key",
+        "screenshot",
+        "capture",
+        "screen",
+        "region",
+        "image",
+        "agent",
+        "chat",
+        "system-wide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "captureScreenshotGlobalHotKey"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:app.captureScreenshotGlobalHotKey"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.app.captureScreenshotGlobalHotKey",
+        "text" : "Capture Screenshot to Chat from Any App"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.window",
@@ -10191,7 +10331,7 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
+      "agent_refusal" : null,
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -10324,7 +10464,7 @@
         240,
         120.5
       ],
-      "agent_refusal" : "userOnly",
+      "agent_refusal" : null,
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -33730,7 +33870,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -33797,7 +33937,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -33809,9 +33949,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -54703,7 +54845,7 @@
         "continuous"
       ],
       "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_settable" : false,
       "choices" : [
         {
           "title" : {
@@ -54787,7 +54929,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -54799,11 +54941,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
@@ -54861,7 +55001,7 @@
         2300
       ],
       "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
@@ -54937,7 +55077,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -54949,11 +55089,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
@@ -55011,7 +55149,7 @@
         120
       ],
       "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
@@ -55086,7 +55224,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -55098,11 +55236,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
@@ -55159,7 +55295,7 @@
         "dots"
       ],
       "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_settable" : false,
       "choices" : [
         {
           "title" : {
@@ -55245,7 +55381,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -55257,11 +55393,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
@@ -101241,7 +101375,7 @@
         "glow"
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -101320,7 +101454,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -101332,9 +101466,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -104193,6 +104329,141 @@
       "title" : {
         "key" : "settings.labs.customizeFromTheApp",
         "text" : "Customize From the Window"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.agentCustomization.help",
+        "text" : "Show and edit the MCP servers Claude Code and Codex use, in their own config files."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.agentCustomization",
+      "keywords" : [
+        "claude",
+        "codex",
+        "mcp",
+        "servers",
+        "customize",
+        "agent",
+        "config",
+        "labs"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "agentCustomization"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:labs.agentCustomization"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.labs.agentCustomization",
+        "text" : "Claude Code and Codex Customization"
       },
       "validation" : "portable"
     },
