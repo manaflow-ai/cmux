@@ -618,7 +618,7 @@ mod tests {
             serve.send(&json!({ "session": "s1" }));
             let line = serve.lines.recv_timeout(Duration::from_secs(10)).unwrap();
             assert_eq!(line, json!({ "echo": { "session": "s1" } }));
-            let started = std::time::Instant::now();
+            let started = Instant::now();
             serve.stop();
             // It ended at its end of input, well before the 3 s kill.
             assert!(started.elapsed() < Duration::from_secs(3));
