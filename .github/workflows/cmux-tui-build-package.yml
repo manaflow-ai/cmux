@@ -836,6 +836,11 @@ jobs:
             || echo "warning: warm target restore failed; building as is" >&2
           ./scripts/ci/macos-cross.sh toolchain "$XC_SDK_VERSION"
           bash tests/test_tailnet_cross_link.sh
+          # A push publishes what the app bundles (latest/manifest.json, nightly-next): link it
+          # with fat LTO, bin/cmux 16.8 MB smaller stripped than thin (cmux-tui/Cargo.toml's
+          # [profile.release] comment). Every other run keeps the profile's thin LTO, so a
+          # dispatch or tree request builds no slower.
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then export CARGO_PROFILE_RELEASE_LTO=fat; fi
           # hosts and bins in one command: every cargo invocation at once.
           ./scripts/ci/macos-cross.sh all "$sha" "$ghostty" "$CMUX_TUI_DISTRIBUTION_VERSION"
 

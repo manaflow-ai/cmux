@@ -571,7 +571,9 @@ smoltcp = { path = "vendor/smoltcp" }
 # the stripped binary grew 116.5 -> 133.3 MB (xz 34.61 -> 36.28 MB) and CLI p50
 # went ~4.93 -> ~5.20 ms. #27830 measured thin with 16 codegen units on x86_64
 # at +24% size; the package overrides below keep one unit per heavy crate.
-# cmux-tui-build-package.yml's `lto: fat` input means "this profile"; its
+# A push publish (what the app bundles) overrides this with fat LTO for the
+# macOS-on-Linux legs (cmux-tui-build-package.yml, CARGO_PROFILE_RELEASE_LTO);
+# PR CI and dispatches keep thin. Its `lto: fat` input means "this profile"; its
 # `lto: thin` is the machine channel's LTO-off build.
 #
 # opt-level "z" everywhere, with the hot path kept at 3 (goal bundle-size-falls,
