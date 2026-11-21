@@ -119,6 +119,7 @@ mod harness_view;
 mod harness_watch;
 mod health_view;
 mod held_asks;
+pub(crate) mod host_level;
 pub(super) mod idle;
 mod idle_census;
 mod person_prompt_at;
@@ -375,7 +376,7 @@ mod peers;
 mod remote_rows;
 mod remote_table;
 pub(crate) use peers::{
-    PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET, is_permission_ask,
+    PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_ROWS_CHANGED, PEER_SETTLE_BUDGET, is_permission_ask,
 };
 mod permission_groups;
 mod permissions;
@@ -565,11 +566,24 @@ pub struct HubEvent {
     pub update_line: Arc<std::sync::OnceLock<Option<Arc<str>>>>,
     /// The session's row as a watcher's `_acpmux/session_changed` carries it, without and with
     /// its tools, built by the first watching connection that sends it and shared by the rest
-    /// (`server::deliver`): one build per record, not one per watching connection.
-    pub row: Arc<[std::sync::OnceLock<Value>; 2]>,
+    /// (`server::deliver`): one build per record, not one per watching connection. Its fan-out
+    /// clock rides in the same allocation (`gauges.fanout`).
+    pub row: Arc<EventRow>,
     /// The list position its row change took (`row_log.rs`), stamped as it is sent; 0 for an
     /// event that changes no row.
     pub list_seq: u64,
+    /// A row of one peer's burst, sent as a batch (`Events::send_remote_batch`): a watcher that
+    /// asked for batches (`peerRowBatches`, `server::deliver`) hears the burst as one
+    /// `_acpmux/peer_rows_changed` after its last row instead of each row's `session_changed`.
+    pub peer_batch: bool,
+}
+
+/// A [`HubEvent`]'s cells its receivers share: its row, without and with its tools, and the clock
+/// of its fan-out to the connections (`gauges::FanoutClock`).
+#[derive(Debug, Default)]
+pub struct EventRow {
+    pub cells: [std::sync::OnceLock<Value>; 2],
+    pub fanout: crate::gauges::FanoutClock,
 }
 
 /// One `_acpmux/message` copy in a journal: its message id, plus for a sender's copy the chat
@@ -1131,6 +1145,11 @@ pub struct Hub {
     pub(super) session_recap: AtomicBool,
     /// When each away chat's recap is asked for, in hub clock nanos (`away_recap.rs`).
     pub(super) recap_due: StdMutex<HashMap<String, u64>>,
+    /// Chats whose host below the level moved, or will not, in this daemon's run (`host_level.rs`).
+    pub(super) host_moved: StdMutex<HashSet<String>>,
+    /// Per chat: the start nonce of its host below the level and what this daemon last set on it
+    /// about suggestions (`host_level.rs`, `old_host_suggestions`).
+    pub(super) suggestions_told: StdMutex<HashMap<String, (String, host_level::Told)>>,
     /// Wakes the recap loop when `recap_due` changes.
     pub(super) recap_wake: Arc<Notify>,
     /// What writes prompt coach rewrites instead of the small model (tests; `prompt_coach.rs`).
@@ -1553,6 +1572,8 @@ impl Hub {
             chats_waiters: StdMutex::new(Vec::new()),
             session_recap: AtomicBool::new(away_recap::saved_setting()),
             recap_due: StdMutex::new(HashMap::new()),
+            host_moved: StdMutex::new(HashSet::new()),
+            suggestions_told: StdMutex::new(HashMap::new()),
             recap_wake: Arc::new(Notify::new()),
             coach_rewriter: StdMutex::new(None),
             start_mode_state,
@@ -1751,6 +1772,14 @@ impl Hub {
 
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
         self.events.subscribe()
+    }
+
+    /// [`Hub::subscribe`] for a connection's fan-out task: each event's fan-out clock waits for
+    /// it until the seat drops (`gauges.fanout`).
+    pub(crate) fn subscribe_fanout(
+        &self,
+    ) -> (broadcast::Receiver<HubEvent>, list_guard::FanoutSeat) {
+        self.events.subscribe_fanout()
     }
 
     pub fn mailbox(&self) -> &Mailbox {
@@ -2314,13 +2343,17 @@ impl Hub {
         let (mut by_name, mut by_segment, mut by_prefix) = (Vec::new(), Vec::new(), Vec::new());
         for s in sessions.values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if meta.name == key {
+            let alias = meta.tags.get("session.alias").map(|tag| tag.value.as_str());
+            if meta.name == key || alias == Some(key) {
                 by_name.push(s.clone());
             }
             if bare && crate::session_name::ends_with_segments(&meta.name, key) {
                 by_segment.push((s.clone(), meta.status == SessionStatus::Closed));
             }
-            if s.id.starts_with(key) || meta.name.starts_with(key) {
+            if s.id.starts_with(key)
+                || meta.name.starts_with(key)
+                || alias.is_some_and(|alias| alias.starts_with(key))
+            {
                 by_prefix.push(s.clone());
             }
         }
@@ -2400,7 +2433,11 @@ impl Hub {
         let mut counts = [0_usize; 3];
         for s in sessions.values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if s.id.starts_with(key) || meta.name.starts_with(key) {
+            let alias = meta.tags.get("session.alias").map(|tag| tag.value.as_str());
+            if s.id.starts_with(key)
+                || meta.name.starts_with(key)
+                || alias.is_some_and(|alias| alias.starts_with(key))
+            {
                 counts[0] = counts[0].saturating_add(1);
             } else if bare && crate::session_name::ends_with_segments(&meta.name, key) {
                 let slot = if meta.status == SessionStatus::Closed { 2 } else { 1 };
@@ -2905,6 +2942,7 @@ impl Hub {
                 update_line: Default::default(),
                 row: Default::default(),
                 list_seq: 0,
+                peer_batch: false,
             };
             // A live chat's streamed text changes only its own row, which is never cached, so the
             // closed rows keep their bytes while agents stream. Read after the metadata update
