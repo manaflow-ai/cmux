@@ -857,7 +857,13 @@ async fn cell_chat_prompt_behind_bulk_downstream() {
         while got < frames {
             match channel.recv().await {
                 Some(ChannelEvent::Data(data)) => pending.extend_from_slice(&data),
-                _ => break,
+                other => {
+                    println!(
+                        "NETCOND-ERROR phone channel ended after {got} frames: {:?}",
+                        other.map(|e| matches!(e, ChannelEvent::Closed(_)))
+                    );
+                    break;
+                }
             }
             let mut stream = serde_json::Deserializer::from_slice(&pending).into_iter::<Value>();
             let mut used = 0;
