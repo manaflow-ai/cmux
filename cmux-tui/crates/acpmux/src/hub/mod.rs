@@ -22,6 +22,7 @@ pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
 mod prompt_coach;
+pub use away_recap::RecapWriter;
 mod rolling_summary;
 pub(crate) mod stop_condition;
 pub use prompt_coach::CoachRewriter;
@@ -1176,6 +1177,8 @@ pub struct Hub {
     pub(super) recap_wake: Arc<Notify>,
     /// What writes prompt coach rewrites instead of the small model (tests; `prompt_coach.rs`).
     pub(super) coach_rewriter: StdMutex<Option<prompt_coach::CoachRewriter>>,
+    /// What writes a fallback session recap instead of the small model (tests; `away_recap.rs`).
+    pub(super) recap_writer: StdMutex<Option<away_recap::RecapWriter>>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
     /// The caller tokens earlier daemon runs gave out, by session (`caller_registry.rs`).
@@ -1597,6 +1600,7 @@ impl Hub {
             host_moved: StdMutex::new(HashSet::new()),
             recap_wake: Arc::new(Notify::new()),
             coach_rewriter: StdMutex::new(None),
+            recap_writer: StdMutex::new(None),
             start_mode_state,
             caller_registry,
             full_access_pushes: tokio::sync::Mutex::new(()),

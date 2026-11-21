@@ -18,7 +18,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
-import { setUnreadBannerMode, useUnreadBannerMode } from "../chatDisplay";
+import { setUnreadBannerMode, useSessionRecapOn, useUnreadBannerMode } from "../chatDisplay";
 import { useT } from "../i18n";
 import type { AcpmuxSince } from "../model";
 import { RecapNote } from "./RecapNote";
@@ -120,6 +120,7 @@ export function SinceDivider({
   const t = useT();
   const unread = useUnreadView();
   const mode = useUnreadBannerMode();
+  const recapOn = useSessionRecapOn();
   const isRead = read ?? unreadRead(since.key, unread);
   const label = t("since.label");
   // Read, the line takes no space (sinceRead.experiment.ts): a row with nothing visible in it is a
@@ -151,7 +152,9 @@ export function SinceDivider({
           )}
         </p>
       </ContextMenu>
-      {since.recap && <RecapNote recap={since.recap} onDismiss={onDismissRecap} lead={false} />}
+      {since.recap && (recapOn || since.recap.chatOn) && (
+        <RecapNote recap={since.recap} onDismiss={onDismissRecap} lead={false} />
+      )}
     </div>
   );
 }

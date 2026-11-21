@@ -14,9 +14,12 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     public static let followedMarkdownPaths: [[String]] = [
         MarkdownViewerSettingsSchema.fontPresetPath, MarkdownViewerSettingsSchema.codeFamilyPath, MarkdownViewerSettingsSchema.codeScalePath,
     ]
-    /// The app keys the chat follows: Minimal Mode (``SidebarSectionsSetting/minimalPath``) and
-    /// Show Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx).
-    public static let followedAppPaths: [[String]] = [SidebarSectionsSetting.minimalPath, UpdatesSettings.showFeatureTipsPath]
+    /// The app keys the chat follows: Minimal Mode (``SidebarSectionsSetting/minimalPath``), Show
+    /// Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx) and Session
+    /// Recap (``ChatSettings/sessionRecapPath``; off, the chat hides a recap already drawn, chatDisplay.ts).
+    public static let followedAppPaths: [[String]] = [
+        SidebarSectionsSetting.minimalPath, UpdatesSettings.showFeatureTipsPath, ChatSettings.sessionRecapPath,
+    ]
 
     /// The accepted values by dotted key.
     public var values: [String: JSONValue]

@@ -114,7 +114,7 @@ impl Hub {
                         m.turn_count,
                     )
                 });
-                let summary = hub.generate_summary(&harness, &request).await;
+                let summary = hub.generate_summary(&session, &harness, &request).await;
                 if let Some((text, next)) = summary {
                     let summary = RollingSummary {
                         text,
@@ -138,6 +138,7 @@ impl Hub {
     /// an answer with no summary line).
     async fn generate_summary(
         self: &Arc<Self>,
+        session: &Session,
         harness: &str,
         request: &str,
     ) -> Option<(String, Option<String>)> {
@@ -174,7 +175,11 @@ impl Hub {
                 {
                     o.insert("model".into(), json!(model));
                 }
-                let result = self.complete(crate::server::Origin::Local, &params).await.ok()?;
+                // The chat's own text: on the chat's own route (`complete::ChatRoute`), never
+                // the default route or another account's.
+                let req = crate::complete::Request::parse(&params).ok()?;
+                let chat = super::complete::ChatRoute::of(session);
+                let result = self.complete_request_for(&req, Some(&chat)).await.ok()?;
                 let used =
                     result.get("model").and_then(Value::as_str).unwrap_or("default").to_owned();
                 (result.get("text").and_then(Value::as_str).map(str::to_owned), used)

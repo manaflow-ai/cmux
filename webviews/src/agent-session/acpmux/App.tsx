@@ -61,10 +61,10 @@ import { type HeldAnswer, type QueuedMessageActionsValue } from "./conversation/
 import {
   AcpmuxDirectClient,
   type AcpmuxHostConfig,
+  type CarriedChat,
   harnessBlock,
   type HarnessBlock,
   isTrustRefusal,
-  type CarriedChat,
 } from "./direct";
 import { readHostTail } from "./tailCache";
 import { watchRestoredTail } from "./restoredTail";
@@ -109,7 +109,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -118,12 +117,13 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  withCloudStartFolder,
   withDraftFolder,
+  withCloudStartFolder,
   shownCloudStartPick,
   withCloudStartPick,
 } from "./newtab/draftFolder";
@@ -233,7 +233,7 @@ import { PICKER_LABELS } from "./composerPickerModel";
 import { openComposerControl } from "./composerControls";
 import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
-import { SIGN_IN_REQUIRED, startRefusalRoute } from "./startRefusal";
+import { startRefusalRoute, SIGN_IN_REQUIRED } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
 import { TourStartContext } from "./repoTour/TourBlock";
@@ -279,12 +279,12 @@ import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import {
   cloudMachineAsleep,
-  currentCloudPlan,
-  readCloudPlanFresh,
   readUntilMoved,
   refreshCloudMachines,
   useCloudMachines,
   type CloudMachine,
+  currentCloudPlan,
+  readCloudPlanFresh,
 } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
@@ -350,13 +350,13 @@ import { runResume as runSubagentResume } from "./subagents/resumeState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
 import {
   type DoneLineCache,
+  endedInFailure,
   finishedTrayItems,
   type TrayItem,
   trayItemKey,
   trayItems,
   useSubagentTray,
   withSubagentLines,
-  endedInFailure,
 } from "./subagents/runningTray";
 import { lingeringTrayItems, trayItemEnd, useTrayLinger } from "./subagents/trayLinger";
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
@@ -588,14 +588,14 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
   cloudSendAfterCheck,
   heldPromptShown,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   cloudPickExtras,
   composerCloudStartFolder,
   pageOnOtherMachine,
@@ -614,12 +614,12 @@ import { harnessLabel } from "./subagents/agentRuns";
 import {
   cloudStartBegun,
   cloudStartEnded,
-  cloudStartPlanHeld,
   cloudStartPushed,
   cloudStartStalled,
   watchCloudStartStall,
   cloudStartSignedIn,
   type CloudStartProgress,
+  cloudStartPlanHeld,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
@@ -683,9 +683,9 @@ import {
   oneKeyPerMessageRun,
   withHeldFolds,
   withoutHeldCalls,
-  lastTurnWorkedKeys,
   rowsToHold,
   withoutHeldRows,
+  lastTurnWorkedKeys,
 } from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
@@ -9621,7 +9621,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               taken.flatMap((failed) => failed.attachments),
             );
           },
-          "chat.recap.dismiss": async ({ rowId, key }) => client.dismissRecap(String(rowId), String(key)),
+          // A call with no key dismisses the row's own recap (#37818), never one keyed "undefined".
+          "chat.recap.dismiss": async ({ rowId, key }) =>
+            client.dismissRecap(String(rowId), typeof key === "string" && key ? key : undefined),
           // The prompt coach card's × (conversation/PromptCoachCard.tsx).
           "chat.coach.dismiss": async ({ rowId, sessionId }) =>
             client.dismissPromptCoach(String(rowId), String(sessionId)),
