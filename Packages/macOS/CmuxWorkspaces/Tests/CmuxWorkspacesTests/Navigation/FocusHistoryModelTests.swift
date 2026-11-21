@@ -21,6 +21,9 @@ private final class FakeFocusHistoryHost: FocusHistoryHosting {
     var focusedPanels: [(workspaceId: UUID, panelId: UUID)] = []
     var flashedPanels: [(workspaceId: UUID, panelId: UUID)] = []
     var focusSelectedWorkspacePanelCalls = 0
+    /// The tab a workspace switches its remembered tab to when it's selected,
+    /// like a host that restores a different tab while it selects a workspace.
+    var rememberedPanelOnSelect: [UUID: UUID] = [:]
 
     func workspaceExists(_ workspaceId: UUID) -> Bool {
         workspaceExistsCalls += 1
@@ -54,6 +57,9 @@ private final class FakeFocusHistoryHost: FocusHistoryHosting {
     func selectWorkspace(_ workspaceId: UUID) {
         if selectedWorkspaceId != workspaceId {
             selectedWorkspaceId = workspaceId
+            if let panelId = rememberedPanelOnSelect[workspaceId] {
+                workspaces[workspaceId]?.rememberedFocusedPanelId = panelId
+            }
         }
     }
 
@@ -900,6 +906,50 @@ struct FocusHistoryModelTests {
         #expect(model.navigateToLastFocusedSurface())
         #expect(host.selectedWorkspaceId == wsA)
         #expect(host.focusedPanels.last?.panelId == panelA3)
+    }
+
+    /// Focus left A on A3, and selecting A switches its remembered tab to A1.
+    private func makeHostThatSwitchesTabOnSelect(
+        scope: FocusHistoryNavigationScope
+    ) -> (FocusHistoryModel, FakeFocusHistoryHost, UUID, UUID, UUID) {
+        let (model, host) = makeModel(scope: scope)
+        let panelA1 = UUID()
+        let panelA3 = UUID()
+        let panelB = UUID()
+        let wsA = host.addWorkspace(title: "A", panels: [panelA1: "a1", panelA3: "a3"])
+        let wsB = host.addWorkspace(title: "B", panels: [panelB: "b"])
+        focus(model, host, workspaceId: wsA, panelId: panelA3)
+        focus(model, host, workspaceId: wsB, panelId: panelB)
+        host.rememberedPanelOnSelect = [wsA: panelA1]
+        return (model, host, wsA, wsB, panelA1)
+    }
+
+    @Test func focusLastSurfaceReturnsToTheTabSelectionLandedOnAfterBackThenForward() {
+        let (model, host, wsA, wsB, panelA1) = makeHostThatSwitchesTabOnSelect(scope: .workspacesOnly)
+        #expect(model.navigateBack())
+        #expect(host.selectedWorkspaceId == wsA)
+        #expect(host.focusedPanels.last?.panelId == panelA1)
+        host.rememberedPanelOnSelect = [:]
+
+        #expect(model.navigateForward())
+        #expect(host.selectedWorkspaceId == wsB)
+        #expect(model.navigateToLastFocusedSurface())
+        #expect(host.selectedWorkspaceId == wsA)
+        #expect(host.focusedPanels.last?.panelId == panelA1)
+    }
+
+    @Test func forwardReturnsToTheTabSelectionLandedOnAfterFocusLastWorkspace() {
+        let (model, host, wsA, wsB, panelA1) = makeHostThatSwitchesTabOnSelect(scope: .panesAndTabs)
+        #expect(model.navigateToLastFocusedWorkspace())
+        #expect(host.selectedWorkspaceId == wsA)
+        #expect(host.focusedPanels.last?.panelId == panelA1)
+        host.rememberedPanelOnSelect = [:]
+
+        #expect(model.navigateBack())
+        #expect(host.selectedWorkspaceId == wsB)
+        #expect(model.navigateForward())
+        #expect(host.selectedWorkspaceId == wsA)
+        #expect(host.focusedPanels.last?.panelId == panelA1)
     }
 
     @Test func focusLastSurfaceTogglesAfterBackBetweenTabsInOneWorkspace() {

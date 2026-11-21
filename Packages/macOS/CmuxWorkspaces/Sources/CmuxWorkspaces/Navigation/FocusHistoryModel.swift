@@ -501,9 +501,13 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
 
     // MARK: - Navigation
 
+    /// Selects the entry's workspace and focuses its panel. Returns the entry
+    /// focus landed on, or nil when the workspace is gone. The panel is
+    /// resolved after the workspace is selected, since selecting it can
+    /// change which panel the workspace remembers.
     @discardableResult
-    private func restoreFocusHistoryEntry(_ entry: FocusHistoryEntry) -> Bool {
-        guard let host, host.workspaceExists(entry.workspaceId) else { return false }
+    private func restoreFocusHistoryEntry(_ entry: FocusHistoryEntry) -> FocusHistoryEntry? {
+        guard let host, host.workspaceExists(entry.workspaceId) else { return nil }
 
         host.selectWorkspace(entry.workspaceId)
 
@@ -517,7 +521,7 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
             host.focusSelectedWorkspacePanel()
         }
 
-        return true
+        return FocusHistoryEntry(workspaceId: entry.workspaceId, panelId: targetPanelId)
     }
 
     @discardableResult
@@ -530,12 +534,11 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         }
 
         let leavingEntry = recordedEntryLeft(for: entry)
-        let resolvedEntry = resolvedFocusHistoryEntry(for: entry)
-        var didRestore = false
+        var restoredEntry: FocusHistoryEntry?
         withFocusHistoryRecordingSuppressed {
-            didRestore = restoreFocusHistoryEntry(entry)
+            restoredEntry = restoreFocusHistoryEntry(entry)
         }
-        guard didRestore else { return false }
+        guard let restoredEntry else { return false }
         if let leavingEntry {
             lastLeftFocusEntry = leavingEntry
             noteFocusLeft(leavingEntry, for: entry)
@@ -546,11 +549,10 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         // notice makes, so that notice doesn't read as a move away from a tab
         // focus never left and the next move leaves the right tab.
         if navigationScope() == .workspacesOnly,
-           let resolvedEntry,
            focusHistory.indices.contains(targetIndex),
-           focusHistory[targetIndex].entry.workspaceId == resolvedEntry.workspaceId,
-           focusHistory[targetIndex].entry != resolvedEntry {
-            focusHistory[targetIndex] = FocusHistoryRecord(entry: resolvedEntry, focusedAt: now())
+           focusHistory[targetIndex].entry.workspaceId == restoredEntry.workspaceId,
+           focusHistory[targetIndex].entry != restoredEntry {
+            focusHistory[targetIndex] = FocusHistoryRecord(entry: restoredEntry, focusedAt: now())
         }
         historyIndex = targetIndex
         didNavigate = true
@@ -654,7 +656,7 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
 
         var didRestore = false
         withFocusHistoryRecordingSuppressed {
-            didRestore = restoreFocusHistoryEntry(entry)
+            didRestore = restoreFocusHistoryEntry(entry) != nil
         }
         guard didRestore else { return false }
         recordFocusInHistory(resolvedEntry)
@@ -703,14 +705,14 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         if requiringOtherWorkspace, resolvedEntry.workspaceId == startEntry?.workspaceId { return false }
         if let startEntry, resolvedEntry == startEntry { return false }
 
-        var didRestore = false
+        var restoredEntry: FocusHistoryEntry?
         withFocusHistoryRecordingSuppressed {
-            didRestore = restoreFocusHistoryEntry(entry)
+            restoredEntry = restoreFocusHistoryEntry(entry)
         }
-        guard didRestore else { return false }
-        recordFocusInHistory(resolvedEntry)
+        guard let restoredEntry else { return false }
+        recordFocusInHistory(restoredEntry)
         if let startEntry {
-            noteFocusLeft(startEntry, for: resolvedEntry)
+            noteFocusLeft(startEntry, for: restoredEntry)
         }
         return true
     }
