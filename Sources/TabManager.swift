@@ -2665,7 +2665,11 @@ class TabManager: ObservableObject {
         )
     }
 
-    func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
+    func closeWorkspace(
+        _ workspace: Workspace,
+        recordHistory: Bool = true,
+        removeOrphanedGeneratedAnchor: Bool = true
+    ) {
         guard !workspace.isChiefHome, tabs.count > 1 else { return }
         guard tabs.contains(where: { $0.id == workspace.id }) else { return }
         if workspace.groupId.flatMap({ id in workspaceGroups.first { $0.id == id }?.externalID })
@@ -2734,7 +2738,8 @@ class TabManager: ObservableObject {
             // fixup.
             let promotedAnchorIds = workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
 
-            if let closedWorkspaceGroupId,
+            if removeOrphanedGeneratedAnchor,
+               let closedWorkspaceGroupId,
                !closedWorkspaceWasGroupAnchor {
                 _ = workspaceGrouping.removeGeneratedAnchorIfOrphaned(
                     groupId: closedWorkspaceGroupId,
@@ -3773,6 +3778,14 @@ class TabManager: ObservableObject {
         // Workspace owns remote active -> disconnected transitions and preserves pane history.
         if handlesRemoteExitThroughWorkspace {
             guard !tab.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: surfaceId) else { return }
+            closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
+            return
+        }
+
+        // Dock panels are outside tab.panels. Preserve them when a terminal exits.
+        if tab.panels.count <= 1,
+           (tab._dockSplit?.panels.isEmpty == false ||
+            (tabs.count <= 1 && AppDelegate.shared?.existingWindowDock(for: self)?.panels.isEmpty == false)) {
             closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
             return
         }

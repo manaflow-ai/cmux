@@ -58,7 +58,8 @@ extension GhosttyNSView {
     @discardableResult
     func handleCustomDropUploadIfMatched(
         plan: TerminalImageTransferPlan,
-        operation: TerminalImageTransferOperation
+        operation: TerminalImageTransferOperation,
+        onTextCompletion: @escaping () -> Void
     ) -> Bool {
         // Captured before the upload starts: this view can be reattached to a
         // different surface while it runs, so reading it back in the completion
@@ -75,7 +76,11 @@ extension GhosttyNSView {
                 (originHostedView ?? self?.terminalSurface?.hostedView)?.endImageTransferIndicator(for: operation)
                 switch result {
                 case .success(let text):
-                    self?.deliverUploadResultText(text, originSurfaceId: originSurfaceId)
+                    if let self {
+                        self.deliverUploadResultText(text, originSurfaceId: originSurfaceId, onCompleted: onTextCompletion)
+                    } else {
+                        onTextCompletion()
+                    }
                 case .failure(let error):
                     if ManagedFileTransferPolicy.isRefusal(error) {
                         ManagedFileTransferPolicy.presentRefusal()

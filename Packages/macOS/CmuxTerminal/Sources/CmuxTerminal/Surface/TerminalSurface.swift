@@ -86,6 +86,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// removed, so clients can invalidate pointer-backed caches even when an
     /// allocator later reuses the same address.
     public private(set) var runtimeSurfaceGeneration: UInt64 = 0
+    /// Advances at input admission, before asynchronous paste or cold-surface replay.
+    @MainActor public internal(set) var explicitInputGeneration: UInt64 = 0
+    @MainActor let pendingImageTransferInputs = NSHashTable<NSUUID>.weakObjects()
     weak var attachedView: (any TerminalSurfaceNativeViewing)?
     // MARK: Injected collaborators (see TerminalSurfaceRuntimeDependencies)
     let registry: any TerminalSurfaceRegistering

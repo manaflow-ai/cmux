@@ -35,6 +35,7 @@ extension TerminalSurface {
     @MainActor
     @discardableResult
     public func didReceiveExplicitInput() -> Bool {
+        explicitInputGeneration &+= 1
         startupInputGate.cancel(generation: terminalLifecycleId)
         var cancelledDeferredAdmission = false
         if cancelsStartupRestoreAdmissionOnExplicitInput,
@@ -43,6 +44,20 @@ extension TerminalSurface {
         }
         paneHost.terminalSurfaceDidReceiveExplicitInput()
         return cancelledDeferredAdmission
+    }
+
+    @MainActor
+    public var hasPendingImageTransferInput: Bool {
+        !pendingImageTransferInputs.allObjects.isEmpty
+    }
+
+    /// The caller retains this token until the transfer and its input delivery finish.
+    @MainActor
+    public func beginImageTransferInput() -> NSUUID {
+        let input = NSUUID()
+        pendingImageTransferInputs.add(input)
+        didReceiveExplicitInput()
+        return input
     }
 
     /// Routes programmatic input through the view-owned clipboard sequencer.

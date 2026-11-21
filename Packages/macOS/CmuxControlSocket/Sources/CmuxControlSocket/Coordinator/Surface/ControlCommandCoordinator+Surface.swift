@@ -34,6 +34,10 @@ extension ControlCommandCoordinator {
             return surfaceCreate(request.params)
         case "surface.close":
             return surfaceClose(request.params)
+        case "surface.owned_process_identity":
+            return context?.controlOwnedProcess(params: request.params, close: false) ?? .err(code: "unavailable", message: "Terminal unavailable", data: nil)
+        case "surface.close_owned":
+            return context?.controlOwnedProcess(params: request.params, close: true) ?? .err(code: "unavailable", message: "Terminal unavailable", data: nil)
         case "surface.move":
             return surfaceMove(request.params)
         case "surface.reorder":
@@ -641,10 +645,8 @@ extension ControlCommandCoordinator {
         let targetSurfaceID = surfaceID ?? routing.surfaceID
         let targetSurfaceRef = targetSurfaceID.flatMap { handles.existingRef(kind: .surface, uuid: $0) }
         let resolution = context.controlSurfaceClose(
-            routing: routing,
-            surfaceID: surfaceID,
-            hasSurfaceIDParam: hasSurfaceIDParam,
-            force: bool(params, "force") ?? false
+            routing: routing, surfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam, force: bool(params, "force") ?? false
         )
         switch resolution {
         case .tabManagerUnavailable:
