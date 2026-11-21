@@ -380,6 +380,7 @@
     "typingCodingAgents": "程式 agent",
     "typingMultitasking": "多工處理",
     "subtitle": "基於 Ghostty 構建的免費開源原生 macOS 終端。支援垂直分頁、代理需要注意時的通知環、分割窗格，以及用於可程式化的 <cliLink>CLI</cliLink>。",
+    "nextCallout": "新功能：試用 <link>cmux NEXT</link>，下一代 cmux 的預覽版。",
     "features": "功能",
     "faq": "常見問題",
     "communitySection": "社群",
