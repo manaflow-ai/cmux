@@ -38,7 +38,10 @@ first_frame_ms (`first_window_frame_committed`), main_ms (`main_start`), input_m
 interaction), split at `main` into premain_ms (the system's part: a new copy's policy check, dyld) and ours_ms (main
 to the key taken), accepted_ms (terminal: the first key the app wrote toward the pty), and spawn_to_start_ms (the harness's
 exec to the process start; a Dock click's own delta is not measured here). Keys are paced KEY_EVERY_S apart, so
-a chat input_ms is late by at most that; the terminal's is the echo of the key that reached the pty, each key on its own clock. Each round prints `TTI-ROUND {json}`, the run prints `TTI {json}` with its verdict.
+a chat input_ms is late by at most that; the terminal's is the echo of the key that reached the pty, each key on its own clock. Each round also carries `stages`: the launch's startup stages from its marks
+(premain, did_finish_launching, daemon_connected, first_window_shown, first_frame, webview_ready, first_chat_paint,
+first_interaction; launch_stages.py), and the run's `stages` is each stage's median per front.
+Each round prints `TTI-ROUND {json}`, the run prints `TTI {json}` with its verdict.
 Exit 0 when every round measured its front.
 
 A NIGHTLY is a Release build: only release control methods and the bundled CLI are used. Posting keys needs the
@@ -70,6 +73,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import relaunch_restore_check as rr  # noqa: E402  (its probe set, seed and launch, shared with L5)
+import launch_stages  # noqa: E402  (the per-stage startup spans the app's launch-times.jsonl rows carry)
 
 KEY_EVERY_S = 0.04
 KEY_X = 7  # kVK_ANSI_X
@@ -295,9 +299,16 @@ def quit_app(inst: rr.Instance, process) -> str | None:
     return None
 
 
-def fresh_copy(app: Path, pristine: Path) -> None:
-    shutil.rmtree(app)
-    subprocess.run(["ditto", str(pristine), str(app)], check=True, timeout=600)
+def fresh_copy(app: Path, pristine: Path, n: int) -> Path:
+    """A new copy of PRISTINE for round N's cold launch, in a folder of its own beside APP's (under the smoke's root,
+    which its cleanup removes), and the copy APP was is removed, best effort. Never into APP's own path: a bundle
+    path a process has launched from refuses new files there on a fleet Mac ("ditto: ...: Operation not permitted",
+    every file, cmuxterm-hq run 44723138688, 2026-11-20), so a re-copy in place failed every cold round."""
+    new = app.parent.parent / f"app-cold-{n}" / app.name
+    new.parent.mkdir(parents=True, exist_ok=False)
+    subprocess.run(["ditto", str(pristine), str(new)], check=True, timeout=600)
+    shutil.rmtree(app, ignore_errors=True)
+    return new
 
 
 def staged_prewarm_plan(app: Path) -> list[tuple[Path, list[str]]]:
@@ -395,7 +406,7 @@ def prerun(inst: rr.Instance, app: Path, env: dict, out: Path, seconds: float) -
 
 def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: Path, pristine: Path, env: dict,
                made: dict, keys: Keys, args, out: Path):
-    """One quit and measured launch; returns (row, the new process)."""
+    """One quit and measured launch; returns (row, the new process, the app it ran: a cold round's is a new copy)."""
     path = input_path(keys.access, args.input)
     row: dict = {"round": n, "kind": kind, "front": which, "workspaces": made.get("list", {}).get("workspaces"),
                  "post_access": keys.access, "input": path}
@@ -404,17 +415,19 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     if put:
         failures.append(put)
         rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
-        return row, process
+        return row, process, app
     why = quit_app(inst, process)
     if why:
         failures.append(why)
     if kind in ("cold_install", "cold_after_update"):
         try:
-            fresh_copy(app, pristine)
+            app = fresh_copy(app, pristine, n)
         except (OSError, subprocess.SubprocessError) as error:
             failures.append(f"the fresh copy failed: {error}")
             rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
-            return row, process
+            return row, process, app
+        # The seeded session's CLI is the running copy's (Instance.cli): follow the app to its new path.
+        inst.app, inst.cli = str(app), os.path.join(str(app), "Contents", "Resources", "bin", "cmux")
         if kind == "cold_after_update":
             row["prewarm"] = staged_update_prewarm(app, env)
     elif kind == "warm60":
@@ -478,11 +491,12 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         row.update(term)
     row.update(split(row.get("input_ms"), row["main_ms"]))
     row["marks"] = {k: marks[k] for k in KEPT_MARKS if k in marks}
+    row["stages"] = launch_stages.spans(marks)
     if process.poll() is not None:
         failures.append(f"the app exited (status {process.poll()})")
     failures += round_failures(which, path, row, marks, args.settle)
     rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
-    return row, process
+    return row, process, app
 
 
 # ---- the check ------------------------------------------------------------------------------
@@ -513,7 +527,7 @@ def check(args) -> int:
         subprocess.run(["ditto", str(app), str(pristine)], check=True, timeout=600)
         failures = []
         for n, (kind, which) in enumerate(args.plan, 1):
-            row, process = round_once(n, kind, which, process, inst, app, pristine, env, made, keys, args, out)
+            row, process, app = round_once(n, kind, which, process, inst, app, pristine, env, made, keys, args, out)
             result["rounds"].append(row)
             failures += [f"round {n}: {f}" for f in row["failures"]]
             if process.poll() is not None:
@@ -547,6 +561,9 @@ def check(args) -> int:
             got = [r["input_ms"] for r in result["rounds"] if r.get("kind") == kind and r.get("front") == which
                    and isinstance(r.get("input_ms"), (int, float))]
             summary[f"{kind}_{which}_ms"] = max(got) if got else None
+    # Each stage's median per front over the rounds (ms from process start; launch_stages.TABLE names the marks).
+    result["stages"] = {which: launch_stages.medians([r.get("stages") for r in result["rounds"] if r.get("front") == which])
+                        for which in FRONTS}
     # A chat round on a build without the input mark measured nothing about the app and fails nothing (`no_mark`).
     measured = [r for r in result["rounds"] if isinstance(r.get("input_ms"), (int, float)) or r.get("no_mark")]
     passed = status == 0 and len(result["rounds"]) == len(args.plan) and len(measured) == len(args.plan)
@@ -555,7 +572,7 @@ def check(args) -> int:
     if args.out:
         with open(Path(args.out) / "tti.json", "w") as handle:
             json.dump(result, handle, indent=2, default=str)
-    shown = ("verdict", "post_access", "input", "seed", "seed_error", *summary)
+    shown = ("verdict", "post_access", "input", "seed", "seed_error", "stages", *summary)
     print("TTI " + json.dumps({k: result.get(k) for k in shown}),
           flush=True)
     return 0 if passed else (status if status not in (0, None) else 1)

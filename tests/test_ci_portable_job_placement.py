@@ -614,6 +614,13 @@ class OrganizationFallback(unittest.TestCase):
         self.assertTrue(any("visible_to_repository=cmux" in path for _, path in calls))
 
 
+def placement_step(job: dict) -> dict:
+    """The job's portable_job_placement.py step (steps after it may save its pool snapshot to the Actions cache)."""
+    found = [step for step in job["steps"] if "portable_job_placement.py" in str(step.get("run", ""))]
+    assert len(found) <= 1, [step.get("name") for step in job["steps"]]
+    return found[0] if found else job["steps"][-1]
+
+
 class Wiring(unittest.TestCase):
     def test_next_portable_bootstrap_needs_no_private_app_credentials(self):
         bootstrap = jobs("cmux-next.yml")["portable-placement"]
@@ -621,7 +628,7 @@ class Wiring(unittest.TestCase):
         self.assertNotIn("environment", bootstrap)
         self.assertFalse(any("actions/create-github-app-token@" in step.get("uses", "")
                              for step in bootstrap["steps"]))
-        config = bootstrap["steps"][-1]["env"]
+        config = placement_step(bootstrap)["env"]
         self.assertNotIn("ROUTE_TOKEN", config)
         self.assertNotIn("ROUTE_TOKEN_FALLBACK", config)
         # Not a hosted exception any more: it runs on Blacksmith on every attempt (cmux#45735).
@@ -630,7 +637,7 @@ class Wiring(unittest.TestCase):
 
     def test_next_secretless_bootstrap_uses_only_fresh_registered_capacity(self):
         bootstrap = jobs("cmux-next.yml")["portable-placement"]
-        config = env(JOBS=bootstrap["steps"][-1]["env"]["JOBS"],
+        config = env(JOBS=placement_step(bootstrap)["env"]["JOBS"],
                      GITHUB_REPOSITORY="manaflow-ai/cmux", REQUIRE_LIVE_CAPACITY="1",
                      SNAPSHOT_TOKEN="ordinary-token")
         state = {
@@ -667,7 +674,7 @@ class Wiring(unittest.TestCase):
                 bootstrap = workflow_jobs.get("portable-placement")
                 if bootstrap is None:
                     continue
-                step = bootstrap["steps"][-1]
+                step = placement_step(bootstrap)
                 config = {key: str(value) for key, value in step["env"].items() if "${{" not in str(value)}
                 config.update(SIDE_LABEL=SIDE, FLEET_LINUX="", GITHUB_RUN_ATTEMPT="1")
                 placed = placement.decide(config, idle(1), snapshot(), NOW)
@@ -697,7 +704,7 @@ class Wiring(unittest.TestCase):
         for workflow, expected_pools in self.PLACED.items():
             workflow_jobs = jobs(workflow)
             place = workflow_jobs["portable-placement"]
-            listed = place["steps"][-1]["env"]["JOBS"].split()
+            listed = placement_step(place)["env"]["JOBS"].split()
             for name, pool in expected_pools.items():
                 with self.subTest(job=f"{workflow}#{name}"):
                     job = workflow_jobs[name]
@@ -719,7 +726,7 @@ class Wiring(unittest.TestCase):
     def test_release_notary_takes_fleet_linux_then_the_linux_pool_never_a_mini(self):
         # On a mini 12 of its steps went red for the mini alone (no node; run 44211360475), as the guard group's do.
         guards = jobs("cmux-next-guards.yml")
-        self.assertIn("release-notary", guards["portable-placement"]["steps"][-1]["env"]["JOBS"].split())
+        self.assertIn("release-notary", placement_step(guards["portable-placement"])["env"]["JOBS"].split())
         job = guards["release-notary"]
         self.assertEqual(job["needs"], ["coalesce", "portable-placement"])
         self.assertTrue(str(job["if"]).startswith("${{ !cancelled()"))
@@ -951,7 +958,7 @@ class Wiring(unittest.TestCase):
             with self.subTest(workflow=workflow):
                 workflow_jobs = jobs(workflow)
                 place = workflow_jobs["portable-placement"]
-                self.assertEqual(place["steps"][-1]["env"]["JOBS"].split(), list(spec["jobs"]))
+                self.assertEqual(placement_step(place)["env"]["JOBS"].split(), list(spec["jobs"]))
                 for name in spec["jobs"]:
                     job = workflow_jobs[name]
                     needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
@@ -968,9 +975,9 @@ class Wiring(unittest.TestCase):
         placement = ci["portable-placement"]
         changes = ci["changes"]
         self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", placement["if"])
-        self.assertEqual(placement["steps"][-1]["env"]["JOBS"], "changes")
-        self.assertEqual(placement["steps"][-1]["env"]["LINUX_ONLY"], "changes")
-        self.assertEqual(placement["steps"][-1]["env"]["REQUIRE_LIVE_CAPACITY"], "1")
+        self.assertEqual(placement_step(placement)["env"]["JOBS"], "changes")
+        self.assertEqual(placement_step(placement)["env"]["LINUX_ONLY"], "changes")
+        self.assertEqual(placement_step(placement)["env"]["REQUIRE_LIVE_CAPACITY"], "1")
         self.assertEqual(changes["needs"], ["portable-placement"])
         self.assertIn("always()", changes["if"])
         self.assertIn("!cancelled()", changes["if"])
@@ -985,7 +992,7 @@ class Wiring(unittest.TestCase):
         path_route = next_jobs["path_route"]
         next_placement = next_jobs["portable-placement"]
         self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", next_placement["if"])
-        self.assertEqual(next_placement["steps"][-1]["env"]["JOBS"], "checks path_route")
+        self.assertEqual(placement_step(next_placement)["env"]["JOBS"], "checks path_route")
         self.assertEqual(path_route["needs"], ["portable-placement"])
         self.assertIn("always()", path_route["if"])
         self.assertIn("!cancelled()", path_route["if"])
@@ -1015,10 +1022,10 @@ class Wiring(unittest.TestCase):
                 self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", route)
                 # Owned labels remain inputs to capacity validation, never the
                 # bootstrap's assignment before that validation can run.
-                side_label = placement_job["steps"][-1]["env"]["SIDE_LABEL"]
+                side_label = placement_step(placement_job)["env"]["SIDE_LABEL"]
                 self.assertIn("vars.CI_LIGHT_LANE_RUNNER", side_label)
                 self.assertIn("vars.CI_SIDE_LANE_RUNNER", side_label)
-                self.assertEqual(placement_job["steps"][-1]["env"]["PORTABLE_ATTEMPT3_RESCUE"], "1")
+                self.assertEqual(placement_step(placement_job)["env"]["PORTABLE_ATTEMPT3_RESCUE"], "1")
                 for name in consumers:
                     condition = str(workflow_jobs[name]["if"])
                     self.assertIn("!cancelled()", condition)
@@ -1031,7 +1038,7 @@ class Wiring(unittest.TestCase):
     def test_other_portable_callers_do_not_opt_into_bot_attempt_three(self):
         for workflow in ("ci.yml", "cmux-next.yml"):
             with self.subTest(workflow=workflow):
-                step = jobs(workflow)["portable-placement"]["steps"][-1]
+                step = placement_step(jobs(workflow)["portable-placement"])
                 self.assertNotIn("PORTABLE_ATTEMPT3_RESCUE", step.get("env", {}))
 
     def test_merge_group_keeps_web_rollup_without_placement(self):

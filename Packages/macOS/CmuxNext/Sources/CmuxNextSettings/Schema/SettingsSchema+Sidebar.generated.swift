@@ -49,13 +49,13 @@ extension SidebarSectionsSetting {
     public nonisolated static let groupByDefault: SidebarGroupBy = .none
     /// `sidebar.showSpaces`.
     public nonisolated static let showSpacesPath = ["sidebar", "showSpaces"]
-    public nonisolated static let showSpacesDefault = true
+    public nonisolated static let showSpacesDefault = false
     /// `sidebar.showProfileControl`.
     public nonisolated static let showProfileControlPath = ["sidebar", "showProfileControl"]
     public nonisolated static let showProfileControlDefault = true
     /// `sidebar.showSearchButton`.
     public nonisolated static let showSearchButtonPath = ["sidebar", "showSearchButton"]
-    public nonisolated static let showSearchButtonDefault = true
+    public nonisolated static let showSearchButtonDefault = false
     /// `sidebar.showNewWorkspaceChooser`.
     public nonisolated static let showNewWorkspaceChooserPath = ["sidebar", "showNewWorkspaceChooser"]
     public nonisolated static let showNewWorkspaceChooserDefault = false
@@ -124,7 +124,14 @@ extension SidebarSectionsSetting {
     public nonisolated static let minimalModeDefault: SidebarMinimalMode = .off
     /// `sidebar.cards.tips`.
     public nonisolated static let tipsPath = ["sidebar", "cards", "tips"]
-    public nonisolated static let tipsDefault = true
+    public nonisolated static let tipsDefault = false
+}
+
+extension SidebarLookPreset {
+    /// `sidebar.look`.
+    public nonisolated static let configPath = ["sidebar", "look"]
+    public nonisolated static let fallback = "cmux"
+    public nonisolated static let values = ["cmux", "claude", "codex", "studio"]
 }
 
 extension WorkspaceColorsSetting {
