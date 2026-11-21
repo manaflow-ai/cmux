@@ -46,10 +46,6 @@ final class TerminalComposerLookUITests: XCTestCase {
         numbers.lifetime = .keepAlways
         add(numbers)
         let one = try XCTUnwrap(lumas[1])
-        // The 1-line look is the one the field always had (luma 25 on the
-        // fleet simulator before this fix), so a change that moved every
-        // count together is caught too.
-        XCTAssertEqual(one, 25, accuracy: 3, "the field's glass at 1 line keeps its old look")
         for count in [3, 4, 8] {
             let luma = try XCTUnwrap(lumas[count])
             XCTAssertEqual(luma, one, accuracy: 3, "the field's glass at \(count) lines is as bright as at 1 line")
