@@ -266,12 +266,17 @@ jobs:
           fi
           exit "$status"
 
+      # A pull request plans a workspace only for a change to its own paths (--own-only; the full-ci label plans
+      # the whole reach); a push plans every workspace the change reaches through path dependencies too, so a red
+      # a dependency causes shows on feat-cmux-next (CI 10x, 2026-11-21).
       - name: Plan the workspaces this change reaches
         id: plan
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
+          OWN_ONLY: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && '--own-only' || '' }}
         run: |
-          jobs=$(python3 .github/scripts/rust-workspaces.py plan --base "$BASE_SHA")
+          # shellcheck disable=SC2086 # empty or one flag
+          jobs=$(python3 .github/scripts/rust-workspaces.py plan --base "$BASE_SHA" $OWN_ONLY)
           echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
           python3 -c 'import json, sys; jobs = json.loads(sys.argv[1]); print("\n".join(j["root"] for j in jobs) or "no Cargo workspace reached")' "$jobs"
 
