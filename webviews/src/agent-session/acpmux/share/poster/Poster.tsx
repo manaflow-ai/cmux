@@ -265,7 +265,7 @@ function Shot({
         width={width}
         height={height - 28}
         preserveAspectRatio="xMidYMin slice"
-        clipPath={`url(#${id})`} // colour-allow: fixed SVG export palette, rendered outside page theme tokens
+        clipPath={`url(#${id})`}
       />
       <rect x={x} y={imageTop} width={width} height={height - 28} rx={12} fill="none" stroke={palette.cardEdge} />
     </g>
@@ -340,7 +340,7 @@ export function Poster({
   svgRef?: React.Ref<SVGSVGElement>;
 }) {
   const palette = PALETTES[design][theme];
-  // Ids unique to this poster (the gallery draws several on one page), plain enough for url(#…). // colour-allow: fixed SVG export palette, rendered outside page theme tokens
+  // Ids unique to this poster (the gallery draws several on one page), plain enough for url(#…).
   const uid = `poster${useId().replace(/[^A-Za-z0-9_-]/g, "")}`;
   const editorial = design === "editorial";
   const terminal = design === "terminal";
@@ -383,20 +383,16 @@ export function Poster({
           </>
         )}
       </defs>
-      <rect width={POSTER_WIDTH} height={POSTER_HEIGHT} fill={`url(#${uid}-bg)`} /> // colour-allow: fixed SVG export
-      palette, rendered outside page theme tokens
+      <rect width={POSTER_WIDTH} height={POSTER_HEIGHT} fill={`url(#${uid}-bg)`} />
       {palette.glow && (
         <>
-          <rect width={POSTER_WIDTH} height={POSTER_HEIGHT} fill={`url(#${uid}-glow-a)`} /> // colour-allow: fixed SVG
-          export palette, rendered outside page theme tokens
-          <rect width={POSTER_WIDTH} height={POSTER_HEIGHT} fill={`url(#${uid}-glow-b)`} /> // colour-allow: fixed SVG
-          export palette, rendered outside page theme tokens
+          <rect width={POSTER_WIDTH} height={POSTER_HEIGHT} fill={`url(#${uid}-glow-a)`} />
+          <rect width={POSTER_WIDTH} height={POSTER_HEIGHT} fill={`url(#${uid}-glow-b)`} />
         </>
       )}
       {terminal && (
         <g>
-          {["#ff5f57", "#febc2e", "#28c840"].map((fill, index) => (
-            // colour-allow: fixed SVG export palette, rendered outside page theme tokens
+          {[/* colour-allow: SVG export */ "#ff5f57", "#febc2e", "#28c840"].map((fill, index) => (
             <circle key={fill} cx={PAD + 8 + index * 22} cy={40} r={7} fill={fill} />
           ))}
           <line x1={0} y1={72} x2={POSTER_WIDTH} y2={72} stroke={palette.cardEdge} />
