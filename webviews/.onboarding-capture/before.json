@@ -1,0 +1,62 @@
+{
+  "envs": [
+    ["dark", "none"],
+    ["light", "none"]
+  ],
+  "shots": [
+    {
+      "name": "1-sent-quiet",
+      "entry": "agent-pane.cloud-start",
+      "variant": "sent",
+      "width": 620,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "arms": { "now": "" }
+    },
+    {
+      "name": "2-signed-out",
+      "entry": "agent-pane.cloud-start",
+      "variant": "signed-out",
+      "width": 620,
+      "height": 520,
+      "deviceScaleFactor": 2,
+      "arms": { "now": "" }
+    },
+    {
+      "name": "3-signing-in",
+      "entry": "agent-pane.cloud-start",
+      "variant": "signing-in",
+      "width": 620,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "arms": { "now": "" }
+    },
+    {
+      "name": "4-plan",
+      "entry": "agent-pane.cloud-plan-team",
+      "variant": "pricing",
+      "width": 620,
+      "height": 560,
+      "deviceScaleFactor": 2,
+      "arms": { "now": "" }
+    },
+    {
+      "name": "5-setup",
+      "entry": "agent-pane.cloud-setup",
+      "variant": "claude",
+      "width": 620,
+      "height": 520,
+      "deviceScaleFactor": 2,
+      "arms": { "now": "" }
+    },
+    {
+      "name": "6-hint",
+      "entry": "agent-pane.cloud-chat-hint",
+      "variant": "card",
+      "width": 620,
+      "height": 360,
+      "deviceScaleFactor": 2,
+      "arms": { "now": "" }
+    }
+  ]
+}

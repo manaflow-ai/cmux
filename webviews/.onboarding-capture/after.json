@@ -1,0 +1,129 @@
+{
+  "envs": [
+    ["dark", "none"],
+    ["light", "none"]
+  ],
+  "shots": [
+    {
+      "name": "rail-sign-in",
+      "entry": "agent-pane.cloud-setup-steps",
+      "variant": "rail-sign-in",
+      "width": 620,
+      "height": 340,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "rail-plan",
+      "entry": "agent-pane.cloud-setup-steps",
+      "variant": "rail-plan",
+      "width": 620,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "rail-model",
+      "entry": "agent-pane.cloud-setup-steps",
+      "variant": "rail-model",
+      "width": 620,
+      "height": 340,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "count-sign-in",
+      "entry": "agent-pane.cloud-setup-steps",
+      "variant": "count-sign-in",
+      "width": 620,
+      "height": 340,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "count-plan",
+      "entry": "agent-pane.cloud-setup-steps",
+      "variant": "count-plan",
+      "width": 620,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "count-model",
+      "entry": "agent-pane.cloud-setup-steps",
+      "variant": "count-model",
+      "width": 620,
+      "height": 340,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "list-sign-in",
+      "entry": "agent-pane.cloud-setup-steps",
+      "variant": "list-sign-in",
+      "width": 620,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "list-plan",
+      "entry": "agent-pane.cloud-setup-steps",
+      "variant": "list-plan",
+      "width": 620,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "list-model",
+      "entry": "agent-pane.cloud-setup-steps",
+      "variant": "list-model",
+      "width": 620,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "rail-signing-in",
+      "entry": "agent-pane.cloud-setup-steps",
+      "variant": "rail-signing-in",
+      "width": 620,
+      "height": 340,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "narrow-rail-plan",
+      "entry": "agent-pane.cloud-setup-steps",
+      "variant": "rail-plan",
+      "width": 400,
+      "height": 520,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    }
+  ]
+}
