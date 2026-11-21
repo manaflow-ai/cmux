@@ -4,6 +4,7 @@
 //! cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH [--keep DIR] [--fresh]
 //!                           [--name NAME] [--ready-file FILE]
 //! cmux-projection git-unmount --at PATH
+//! cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] [--conns N]
 //! ```
 //!
 //! `git-mount` mounts commit REV of the bare repo MIRROR at PATH and serves it until PATH is
@@ -14,6 +15,11 @@
 //! worktree's index are made anew. git sees PATH as a worktree of MIRROR named NAME (default
 //! `projected-<hash of PATH>`). Once the mount is up it prints one JSON line of timings on stderr
 //! and writes it to `--ready-file`.
+//!
+//! The blobs MIRROR lacks are first asked of the fleet's seeds, the controller SSD and R2 that the
+//! environment names, each answer checked against its id (`cmux_projection::peers`, hq RFD 0008),
+//! and only the rest come from GitHub; `CMUX_PROJECTION_PEERS=0` sends them all to GitHub. `seed` serves MIRROR's blobs read only on ADDR
+//! (a tailnet or VPC address, never 0.0.0.0) for the other hosts' chains.
 
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
@@ -34,6 +40,8 @@ fn main() -> std::process::ExitCode {
 
 #[cfg(target_os = "linux")]
 mod linux {
+    use std::net::{IpAddr, SocketAddr};
+    use std::os::unix::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -41,10 +49,14 @@ mod linux {
     use cmux_projection::git::{self, Book, GitBlobs, Layout, Projection, Worktree};
     use cmux_projection::mount;
     use cmux_projection::overlay::Overlay;
+    use cmux_projection::peers::{self, Chain, SeedLimits};
+    use sha2::{Digest as _, Sha256};
 
     const USAGE: &str = "usage: cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH \
                          [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE]\n       \
-                         cmux-projection git-unmount --at PATH";
+                         cmux-projection git-unmount --at PATH\n       \
+                         cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] \
+                         [--conns N]";
 
     #[derive(Default)]
     struct Args {
@@ -54,6 +66,9 @@ mod linux {
         keep: Option<PathBuf>,
         name: Option<String>,
         ready_file: Option<PathBuf>,
+        listen: Option<String>,
+        rate: Option<u64>,
+        conns: Option<usize>,
         fresh: bool,
     }
 
@@ -76,6 +91,9 @@ mod linux {
                 "--keep" => parsed.keep = Some(value.into()),
                 "--name" => parsed.name = Some(value.clone()),
                 "--ready-file" => parsed.ready_file = Some(value.into()),
+                "--listen" => parsed.listen = Some(value.clone()),
+                "--rate" => parsed.rate = Some(value.parse()?),
+                "--conns" => parsed.conns = Some(value.parse()?),
                 _ => anyhow::bail!("unknown flag {flag}\n{USAGE}"),
             }
             at += 2;
@@ -86,6 +104,9 @@ mod linux {
     pub fn run(args: Vec<String>) -> anyhow::Result<()> {
         let (command, rest) = args.split_first().ok_or_else(|| anyhow::anyhow!(USAGE))?;
         let args = parse(rest)?;
+        if command == "seed" {
+            return seed(&args);
+        }
         let at = args.at.clone().ok_or_else(|| anyhow::anyhow!("--at is required\n{USAGE}"))?;
         match command.as_str() {
             "git-mount" => git_mount(&args, &at),
@@ -99,12 +120,86 @@ mod linux {
         }
     }
 
-    /// FNV-1a: a short stable name for a mount path.
-    fn hash(text: &str) -> String {
-        let hash = text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+    fn seed(args: &Args) -> anyhow::Result<()> {
+        let git_dir = args
+            .git_dir
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("--git-dir is required\n{USAGE}"))?;
+        let listen =
+            args.listen.clone().ok_or_else(|| anyhow::anyhow!("--listen is required\n{USAGE}"))?;
+        anyhow::ensure!(
+            listen_is_specific(&listen),
+            "--listen takes the tailnet or VPC address, never every interface"
+        );
+        let mut limits = SeedLimits::default();
+        if let Some(rate) = args.rate {
+            limits.rate = rate;
+        }
+        if let Some(conns) = args.conns {
+            limits.conns = conns;
+        }
+        peers::serve(&git_dir.canonicalize()?, &listen, limits)
+    }
+
+    fn listen_is_specific(listen: &str) -> bool {
+        let Ok(addr) = listen.parse::<SocketAddr>() else { return false };
+        let ip = addr.ip();
+        !ip.is_unspecified()
+            && !matches!(
+                ip,
+                IpAddr::V6(ip) if ip.to_ipv4_mapped().is_some_and(|ip| ip.is_unspecified())
+            )
+    }
+
+    /// A collision-resistant stable name for a canonical repository/mount pair.
+    fn hash(git_dir: &Path, at: &Path) -> String {
+        let git_dir = git_dir.as_os_str().as_bytes();
+        let at = at.as_os_str().as_bytes();
+        let mut digest = Sha256::new();
+        digest.update(b"cmux-projection-default-v2\0");
+        digest.update((git_dir.len() as u64).to_be_bytes());
+        digest.update(git_dir);
+        digest.update((at.len() as u64).to_be_bytes());
+        digest.update(at);
+        let digest = digest.finalize();
+        digest.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    /// The old default key, retained only to detect state that would otherwise be stranded.
+    fn legacy_hash(path: &Path) -> String {
+        let hash = path.to_string_lossy().bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
             (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
         });
         format!("{:08x}", hash >> 32)
+    }
+
+    fn reject_legacy_default_state(
+        home: &Path,
+        git_dir: &Path,
+        at: &Path,
+        check_worktree: bool,
+    ) -> anyhow::Result<()> {
+        let key = legacy_hash(at);
+        let legacy_keep = home.join(".cache/cmux-projection").join(&key);
+        let legacy_worktree = git_dir.join("worktrees").join(format!("projected-{key}"));
+        let keep_exists = path_exists(&legacy_keep)?;
+        let worktree_exists = check_worktree && path_exists(&legacy_worktree)?;
+        anyhow::ensure!(
+            !keep_exists && !worktree_exists,
+            "legacy default projection state for {} uses the 32-bit key {}; pass --keep {} explicitly to recover it",
+            at.display(),
+            key,
+            legacy_keep.display()
+        );
+        Ok(())
+    }
+
+    fn path_exists(path: &Path) -> anyhow::Result<bool> {
+        match std::fs::symlink_metadata(path) {
+            Ok(_) => Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error.into()),
+        }
     }
 
     fn ms(since: Instant) -> u128 {
@@ -117,23 +212,50 @@ mod linux {
             args.git_dir.clone().ok_or_else(|| anyhow::anyhow!("--git-dir is required"))?;
         let git_dir = git_dir.canonicalize()?;
         let rev = args.commit.clone().ok_or_else(|| anyhow::anyhow!("--commit is required"))?;
-        std::fs::create_dir_all(at)?;
+        let at = if at.is_absolute() { at.to_owned() } else { std::env::current_dir()?.join(at) };
+        let at = if at.exists() { at.canonicalize()? } else { at };
+        let provisional_name =
+            args.name.clone().unwrap_or_else(|| format!("projected-{}", hash(&git_dir, &at)));
+        Worktree::validate(&git_dir, &provisional_name, &at)?;
+        std::fs::create_dir_all(&at)?;
         let at = at.canonicalize()?;
-        let at_text = at.to_string_lossy().into_owned();
         let keep = match &args.keep {
             Some(keep) => keep.clone(),
             None => {
                 let home = std::env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("no HOME"))?;
-                PathBuf::from(home).join(".cache/cmux-projection").join(hash(&at_text))
+                let home = PathBuf::from(home);
+                reject_legacy_default_state(&home, &git_dir, &at, args.name.is_none())?;
+                home.join(".cache/cmux-projection").join(hash(&git_dir, &at))
             }
         };
-        std::fs::create_dir_all(&keep)?;
-        let name = args.name.clone().unwrap_or_else(|| format!("projected-{}", hash(&at_text)));
+        let name =
+            args.name.clone().unwrap_or_else(|| format!("projected-{}", hash(&git_dir, &at)));
+        let worktree = Worktree::validate(&git_dir, &name, &at)?;
+        let keep = canonical_keep(&keep)?;
 
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
         let missing = git::missing(&git_dir, &commit)?;
-        git::fetch_missing(&git_dir, &missing)?;
+        let rest = match Chain::from_env() {
+            Some(chain) => {
+                let (rest, filled) =
+                    chain.fill(&missing, &|oid, bytes| peers::write_loose(&git_dir, oid, bytes));
+                eprintln!(
+                    "cmux-projection: {} missing blobs: {} from peers, {} from the controller SSD, \
+                     {} from R2, {} rejected answers, {} sources dropped, {} left for git",
+                    missing.len(),
+                    filled.peer,
+                    filled.ssd,
+                    filled.r2,
+                    filled.rejected,
+                    filled.dropped,
+                    rest.len()
+                );
+                rest
+            }
+            None => missing.clone(),
+        };
+        git::fetch_missing(&git_dir, &rest)?;
         let fetch_ms = ms(phase);
 
         let phase = Instant::now();
@@ -144,7 +266,7 @@ mod linux {
         let phase = Instant::now();
         let book_file = keep.join("book");
         let mut book = Book::load(&book_file);
-        let admin = git_dir.join("worktrees").join(&name);
+        let admin = worktree.admin;
         let real_root = keep.join("real");
         // New content is a second older than now, so git never finds it racily clean against the
         // index written just after (and cargo still sees it newer than any earlier build).
@@ -169,7 +291,7 @@ mod linux {
         }
         // SAFETY: getuid and getgid cannot fail.
         let owner = unsafe { (libc::getuid(), libc::getgid()) };
-        if args.fresh || !admin.join("index").exists() {
+        if git::remount_needs_reset(&admin, &commit, args.fresh)? {
             let index = git::index_bytes(&projection.index, owner.0, owner.1)?;
             Worktree::write(&git_dir, &name, &at, &commit, &index, &projection.real_dirs)?;
         }
@@ -198,5 +320,75 @@ mod linux {
                 let _ = std::fs::write(ready, format!("{line}\n"));
             }
         })
+    }
+
+    fn canonical_keep(keep: &Path) -> anyhow::Result<PathBuf> {
+        let base = std::env::current_dir()?;
+        canonical_keep_from(keep, &base)
+    }
+
+    fn canonical_keep_from(keep: &Path, base: &Path) -> anyhow::Result<PathBuf> {
+        let keep = if keep.is_absolute() { keep.to_owned() } else { base.join(keep) };
+        std::fs::create_dir_all(&keep)?;
+        Ok(keep.canonicalize()?)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{
+            canonical_keep_from, hash, legacy_hash, listen_is_specific, reject_legacy_default_state,
+        };
+
+        #[test]
+        fn default_keys_isolate_known_legacy_collision() {
+            let git_dir = std::path::Path::new("/mirror");
+            let first = std::path::Path::new("/tmp/proj/S1PeuLm9h0Gk");
+            let second = std::path::Path::new("/tmp/proj/WlAVSM8HUQw0");
+            assert_eq!(legacy_hash(first), legacy_hash(second));
+            assert_ne!(hash(git_dir, first), hash(git_dir, second));
+            assert_eq!(hash(git_dir, first).len(), 64);
+        }
+
+        #[test]
+        fn default_keys_isolate_repositories_at_the_same_mount() {
+            let at = std::path::Path::new("/tmp/proj/shared");
+            assert_ne!(
+                hash(std::path::Path::new("/mirror/one"), at),
+                hash(std::path::Path::new("/mirror/two"), at)
+            );
+        }
+
+        #[test]
+        fn legacy_default_state_requires_explicit_recovery() {
+            let home = tempfile::tempdir().unwrap();
+            let git_dir = tempfile::tempdir().unwrap();
+            let at = std::path::Path::new("/tmp/proj/legacy");
+            let legacy_keep = home.path().join(".cache/cmux-projection").join(legacy_hash(at));
+            std::fs::create_dir_all(&legacy_keep).unwrap();
+            let error = reject_legacy_default_state(home.path(), git_dir.path(), at, true)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("pass --keep"));
+            assert!(error.contains(&legacy_hash(at)));
+        }
+
+        #[test]
+        fn rejects_every_spelling_of_an_unspecified_listener() {
+            assert!(!listen_is_specific("0.0.0.0:18991"));
+            assert!(!listen_is_specific("[::]:18991"));
+            assert!(!listen_is_specific("[0:0:0:0:0:0:0:0]:18991"));
+            assert!(!listen_is_specific("[::ffff:0.0.0.0]:18991"));
+            assert!(listen_is_specific("127.0.0.1:18991"));
+            assert!(listen_is_specific("[::1]:18991"));
+            assert!(!listen_is_specific("seed.example:18991"));
+        }
+
+        #[test]
+        fn relative_keep_is_resolved_before_projection_paths_use_it() {
+            let root = tempfile::tempdir().unwrap();
+            let keep = canonical_keep_from(std::path::Path::new("upper"), root.path()).unwrap();
+            assert_eq!(keep, root.path().join("upper").canonicalize().unwrap());
+            assert!(keep.is_absolute());
+        }
     }
 }
