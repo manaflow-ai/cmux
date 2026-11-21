@@ -26,6 +26,7 @@ export default componentEntry<WidgetFixtureProps>({
   covers: [
     "agent-session/acpmux/newtab/NewTabWidgets.tsx#NewTabWidgets",
     "agent-session/acpmux/newtab/NewTabWidgets.tsx#WidgetTile",
+    "agent-session/acpmux/newtab/NewTabWidgets.fixture.tsx#NewTabWidgetsFixture",
   ],
   load: async () => (await import("./NewTabWidgets.fixture")).NewTabWidgetsFixture,
   styles: () => Promise.all([import("./screen.css"), import("./widgets.css")]),

@@ -376,7 +376,7 @@ export default componentEntry<Props>({
   height: 640,
   widths: { narrow: 360, normal: 560, wide: 760 },
   anchors: [{ selector: ".home-lists-gallery" }],
-  covers: ["agent-session/acpmux/HomeLists.tsx#HomeLists"],
+  covers: ["agent-session/acpmux/HomeLists.tsx#HomeLists", "agent-session/acpmux/HomeInbox.tsx#HomeAge"],
   styles: () => import("./styles.css"),
   checks: {
     anchorMovePx: {
