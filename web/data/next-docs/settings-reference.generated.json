@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 645,
+  "count": 651,
   "sections": [
     {
       "id": "general",
@@ -1956,6 +1956,14 @@
           "group": "Agent Chat"
         },
         {
+          "key": "agentPane.display.font.faces",
+          "title": "Chat Font Files",
+          "help": "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\".",
+          "kind": "string_map",
+          "default": null,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agentPane.display.font.lineHeight",
           "title": "Chat Line Height",
           "help": "",
@@ -1981,6 +1989,14 @@
             "serif",
             "mono"
           ]
+        },
+        {
+          "key": "agentPane.display.font.proseFamily",
+          "title": "Chat Reply Font Family",
+          "help": "The font of the agent's replies. When set, it replaces the Chat Font.",
+          "kind": "font_family",
+          "default": null,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.font.size",
@@ -2016,6 +2032,14 @@
             "hanken",
             "atkinson"
           ]
+        },
+        {
+          "key": "agentPane.display.font.uiFamily",
+          "title": "Chat Interface Font Family",
+          "help": "A font family or a comma list of them. When set, it replaces the Chat Interface Font.",
+          "kind": "font_family",
+          "default": null,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.fullWidth",
@@ -2990,6 +3014,14 @@
             "shared",
             "perPane"
           ]
+        },
+        {
+          "key": "appearance.previousGlass",
+          "title": "Previous Glass Look",
+          "help": "Draws menus, popovers, the composer and cards with the glass from before November 2026.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Window Background"
         },
         {
           "key": "appearance.rotateFavoriteThemes",
@@ -3986,11 +4018,12 @@
         {
           "key": "sidebar.groupHeader.background",
           "title": "Group Background",
-          "help": "How a group's background draws. Sections shows plain headings instead.",
+          "help": "How a group draws. Folders shows plain folders; Sections shows plain headings.",
           "kind": "choice",
-          "default": "auto",
+          "default": "folder",
           "group": "Sidebar",
           "values": [
+            "folder",
             "auto",
             "glass",
             "solid",
@@ -4213,6 +4246,20 @@
           "kind": "toggle",
           "default": true,
           "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.look",
+          "title": "Sidebar Look",
+          "help": "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win.",
+          "kind": "choice",
+          "default": "cmux",
+          "group": "Sidebar",
+          "values": [
+            "cmux",
+            "claude",
+            "codex",
+            "studio"
+          ]
         },
         {
           "key": "sidebar.minimal",
@@ -6954,6 +7001,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Developer Tools"
+        },
+        {
+          "key": "experiments.composerV2",
+          "title": "Composer Refresh",
+          "help": "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
         },
         {
           "key": "experiments.glassToolbarGroups",
