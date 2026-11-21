@@ -34,7 +34,7 @@ export function EmojiMenu({
 }) {
   const t = useT();
   const box = useComposerListBox();
-  const escape = useEscapingList("top", 6, undefined, box);
+  const escape = useEscapingList("top", 6, undefined, box, true);
   const list = useRef<HTMLDivElement | null>(null);
   // Composer keys the menu by the token's start, so the mount's offset names the token's `:`.
   const [startBack] = useState(back);
