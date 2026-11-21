@@ -45,6 +45,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_HUNK_SUMMARY,
     method::MUX_RELOAD_CONFIG,
     method::MUX_WATCH,
+    super::controls::METHOD,
     method::MUX_HARNESS_INVENTORY_WATCH,
     method::MUX_HARNESS_INVENTORY_REFRESH,
     method::MUX_HARNESS_UPDATE_PLAN,
@@ -899,7 +900,13 @@ async fn forward_inner(
             }
             on = Some(epoch);
         }
-        let result = if matches!(m, method::MUX_INFO | method::MUX_EVENTS | method::MUX_HISTORY) {
+        let result = if matches!(
+            m,
+            method::MUX_INFO
+                | method::MUX_EVENTS
+                | method::MUX_HISTORY
+                | method::MUX_SESSION_SEARCH
+        ) {
             // History reads answer from the current snapshot, even during a running turn.
             // A connected link can still have a stuck handler; do not inherit its ten-minute
             // generic deadline. Dropping this future releases its pending reply entry. Attach

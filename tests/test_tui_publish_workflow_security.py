@@ -31,6 +31,12 @@ import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in
 ROOT = Path(__file__).resolve().parents[1]
 
 
+# A provenance publish job runs on the provenance pool (GitHub-hosted: npm provenance and attestations need it) and says
+# why. #47603 routed the literal `ubuntu-latest` through RUNNER_POOLS; a fork still gets ubuntu-latest.
+PROVENANCE_RUNS_ON = (
+    "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-latest' || fromJSON(vars.RUNNER_POOLS).provenance }}"
+)
+
 def load_tests(
     loader: unittest.TestLoader,
     standard_tests: unittest.TestSuite,
@@ -456,10 +462,7 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
             "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
             "vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}" in block
         )
-    assert (
-        "runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
-        in publish
-    )
+    assert f"{PROVENANCE_RUNS_ON} # github-hosted-required: npm provenance publishing" in publish
     assert "id-token: write" in bootstrap
     assert "NPM_BOOTSTRAP_TOKEN" in bootstrap
     assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
@@ -1977,7 +1980,7 @@ def test_relay_publisher_is_tag_bound_rc_aware_and_attested() -> None:
     # relay binary against the reusable build workflow at this exact ref.
     assert "name: npm-tui" in text
     assert "npm install -g npm@11.5.1" in text
-    assert "runs-on: ubuntu-latest" in text
+    assert f"{PROVENANCE_RUNS_ON} # github-hosted-required: npm provenance" in text
     assert "uses: ./.github/workflows/cmux-tui-build-package.yml" in text
     assert "attest_packages: true" in text
     # The Rust machine relay has no Windows PTY backend yet. Its stable npm
@@ -2359,6 +2362,18 @@ def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
     dispatched = evaluate("workflow_dispatch", feat, "c" * 40)
     assert dispatched != evaluate("push", feat, "c" * 40)
     assert "c" * 40 in dispatched
+    # #45792: run 44154640719, queued on a dead Linux pool, held the shared
+    # nightly-next group for 8 hours and every nightly timed out waiting for
+    # its own commit's tree. Each nightly-next push has its own group too.
+    nightly = "refs/heads/nightly-next"
+    assert evaluate("push", nightly, "a" * 40) != evaluate("push", nightly, "b" * 40)
+    assert "a" * 40 in evaluate("push", nightly, "a" * 40)
+    # 2026-11-18: promotion pushes the same commit to feat-cmux-next and nightly-next. In
+    # one shared push-<sha> group, nightly-next run 44410790075 sat pending for 45 min
+    # behind feat-cmux-next run 44404420100, whose preflight never got a runner, and
+    # nightly 44410790376 failed at "Bundle the cmux-tui client". The same-key owner
+    # claim, not the group, keeps the two runs from building the tree twice.
+    assert evaluate("push", nightly, "a" * 40) != evaluate("push", feat, "a" * 40)
 
 def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_the_promote_pool() -> None:
     # 2026-10-26 (Leo: "I THOUGHT THESE COULD JUST GO ON LINUX"): the
@@ -2375,10 +2390,11 @@ def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_t
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent))  # tests/ itself: `python3 -I` puts no script folder on sys.path
     from runs_on_labels import disallowed_labels
-    fleet_linux = "cmux-fleet-linux-x64"
+    fleet_linux = "cmux-gcp-lane-build-x64"  # the persistent GCP build lane (cmux-fleet-linux-x64 had no runner, 2026-11-19)
     picker = next(step for step in jobs["tree-preflight"]["steps"] if step.get("id") == "linux-placement")
     assert picker["env"]["FLEET_LINUX"] == fleet_linux, picker["env"]
     assert picker["env"]["LINUX_ONLY"] == "cmux-next-daemon-tests", picker["env"]
+    assert picker["env"]["FLEET_LINUX_VOUCHED"] == "1", picker["env"]
     assert picker["env"]["REQUIRE_LIVE_CAPACITY"] == "1", picker["env"]
     for daemon in daemon_cells:
         placed = daemon.replace("needs.tree-preflight.outputs.linux_runner", f"'{fleet_linux}'")
@@ -2590,7 +2606,7 @@ def test_adopted_manifest_check_requires_what_publish_requires():
 def test_same_commit_adopted_by_two_runs_keeps_the_first_publication():
     # 2026-11-14: the app FFI re-pin pushed dba915e8 to its staging ref, then to app-ffi-repin. Both runs
     # adopted it; the second's manifest differed only in attestationUrl, its write-once upload went red, and
-    # merge_hold held re-pin PR #42986 while the base's FFI pin check went red.
+    # land-judge held re-pin PR #42986 while the base's FFI pin check went red.
     adopt, fetch, _ = adopt_cdn()
     manifests = []
     for run in (43596039910, 43596045323):

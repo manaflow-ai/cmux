@@ -18,7 +18,9 @@ extension CloudTeamFeature {
         // The publisher starts with the actions it shares the store with, once per app.
         publisher.start()
         func bind(_ id: ActionID, _ run: @escaping @MainActor (ActionInvocation) throws -> @MainActor () async throws -> [String: Any]) {
-            let bound = registry.bindEffect(id, unavailable: reason) { invocation in
+            // A miss (the pinned catalog lacks `id`) is noted in registry.uncataloguedBindings,
+            // never trapped: everyBoundActionIsInTheCatalog fails on it in CI.
+            registry.bindEffect(id, unavailable: reason) { invocation in
                 let work: @MainActor () async throws -> [String: Any]
                 do {
                     work = try run(invocation)
@@ -38,7 +40,6 @@ extension CloudTeamFeature {
                     }
                 })
             }
-            assert(bound, "\(id) is not in the action catalog")
         }
 
         bind("cloud.team.sessions") { invocation in

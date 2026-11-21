@@ -326,7 +326,7 @@ extension WindowController {
     func focusStagePane(toward direction: LayoutDirection?) {
         guard let content, let window else { return }
         let focused = content.focus.state.pane.flatMap(content.paneController(key:))
-        let order = focused.flatMap { content.layoutModel.screen(containing: $0.layoutPaneID)?.layout.visualPanes } ?? []
+        let order = focused.flatMap { content.layoutModel.screen(containing: $0.layoutPaneID)?.visualPanes } ?? []
         let nearest = direction.flatMap { $0 == .right || $0 == .down ? order.first : order.last }.flatMap { content.panes[$0] }
         guard let pane = nearest ?? focused else { return }
         content.layoutModel.focus(pane.layoutPaneID, notify: false, source: .keyMove(byPerson: true))

@@ -64,6 +64,13 @@ pub fn breaks_params_rule(
     if acpmux.keys().any(|k| !contains(&known.acpmux, k) || contains(denied, k)) {
         return true;
     }
+    // A harness list's peer names one machine (AcpmuxPaneMethods+Params.swift
+    // `breaksParamsRule`): a non-empty string.
+    if method == "_acpmux/harnesses"
+        && acpmux.get("peer").is_some_and(|peer| peer.as_str().is_none_or(str::is_empty))
+    {
+        return true;
+    }
     // A start's model is a spawn parameter (Claude Code's `--model`, `${model}`
     // in a harness's argv or env): one model id, never a flag or anything else.
     method == "session/new" && acpmux.get("model").is_some_and(|m| !is_model_id(m))

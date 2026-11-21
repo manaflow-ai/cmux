@@ -93,6 +93,8 @@ public final class PaneToolbarView: NSView {
     override public init(frame: NSRect) {
         super.init(frame: frame)
         moreButton.setAccessibilityIdentifier("cmux.pane.more")
+        zoomButton.roundsAsTabBarControl = true
+        moreButton.drawsPaneGlyph = true
         moreButton.pressMenu = { [weak self] in self?.moreMenu?() }
         // "⋮" stays shown while its menu is up: the pointer leaves the corner for the menu.
         let present = moreButton.presentMenu
@@ -179,6 +181,7 @@ public final class PaneToolbarView: NSView {
         buttons.forEach { reveal.remove($0); $0.removeFromSuperview() }
         buttons = items.enumerated().map { index, item in
             let button = TitlebarBandButton(symbol: item.symbol)
+            button.roundsAsTabBarControl = true
             button.tag = index
             button.target = self
             button.action = #selector(press(_:))
@@ -209,6 +212,7 @@ public final class PaneToolbarView: NSView {
         nativeItems = items
         nativeButtons = items.enumerated().map { index, item in
             let button = TitlebarBandButton(symbol: item.symbol, text: item.text)
+            button.roundsAsTabBarControl = true
             button.customImage = Self.packGlyph
             button.tag = index
             button.setAccessibilityLabel(item.label)
@@ -498,11 +502,11 @@ public final class PaneToolbarView: NSView {
         return NSRect(x: max(0, bounds.width - Self.trailingGap - side), y: buttonTop, width: side, height: side)
     }
 
-    /// The ⋮ plate's radius: a tab's roundness on its side, as the + and every other top control round (Lucas
-    /// 2026-11-13: "match the rest like the + for new workspace"); with an outer radius the person set, concentric
+    /// The ⋮ plate's radius: a tab's roundness on its square, as the tab bar's + rounds (``Metrics/tabBarControlCornerRadius(fitting:)``;
+    /// Lucas 2026-11-13: "match the rest like the + for new workspace"); with an outer radius the person set, concentric
     /// with the card's top-trailing corner `inset` points in (Lawrence 2026-11-07: "needs to be concentric").
     static func moreCornerRadius(inset: CGFloat) -> CGFloat {
-        guard Metrics.cornerRadiusIsSet else { return Metrics.buttonCornerRadius }
+        guard Metrics.cornerRadiusIsSet else { return Metrics.tabBarControlCornerRadius() }
         return Metrics.cornerRadius(nestedIn: Metrics.tabStripCardRadius ?? Metrics.corners.outer, inset: inset,
                                     size: CGSize(width: TitlebarBandButton.side, height: TitlebarBandButton.side))
     }

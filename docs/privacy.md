@@ -136,6 +136,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `vm.cmux.dev` | connects | cmux Cloud machine API (production) |
 | `vm-staging.cmux.dev` | connects | cmux Cloud machine API on staging, only when chosen |
 | `herdr.dev` | connects | the agent-detection catalog, read by the daemon |
+| `models.dev` | connects | the public model list the daemon's live model catalog reads (new models in the model picker) |
 | `cmux-api-development.debussy.workers.dev` | connects | cmux API in development builds |
 | `cmux-api-staging.debussy.workers.dev` | connects | cmux API on staging, only when chosen |
 | `cmux-api-preview-*.debussy.workers.dev` | connects | cmux API of one pull request's preview, only when chosen |
@@ -181,6 +182,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `docs.anthropic.com` | opens | setup docs for an agent, opened from onboarding |
 | `apple.com` | opens | a site the address bar suggests before it is in your history |
 | `developer.apple.com` | opens | a site the address bar suggests before it is in your history |
+| `apps.apple.com` | opens | Apple's App Store subscription management page, opened from the iPhone app's Delete Account warning when StoreKit can't show its own sheet |
 | `www.baidu.com` | opens | a search engine, when you search with it |
 | `bbc.com` | opens | a site the address bar suggests before it is in your history |
 | `bing.com` | opens | a site the address bar suggests before it is in your history |
@@ -252,6 +254,18 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 |---|---|---|
 | `x.ai` | identifier | an xAI tool method name, not a host |
 | `customize.io` | identifier | the error code `cmux customize` prints when a file read or write fails, not a host |
+| `community.io` | identifier | the error code `cmux community` prints when a staging folder cannot be made, not a host |
+| `live.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
+| `microsoftonline.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
+| `outlook.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
+| `office.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
+| `xbox.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
+| `skype.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
+| `facebookmail.com` | identifier | an email sender domain that verification-code AutoFill counts as Meta's; never fetched |
+| `meta.com` | identifier | an email sender domain that verification-code AutoFill counts as Meta's; never fetched |
+| `steampowered.com` | identifier | an email sender domain that verification-code AutoFill counts as Valve's; never fetched |
+| `steamcommunity.com` | identifier | an email sender domain that verification-code AutoFill counts as Valve's; never fetched |
+| `icloud.com` | identifier | an email sender domain that verification-code AutoFill counts as Apple's; never fetched |
 | `netlify.app` | identifier | a shared hosting domain, so sites under it are told apart |
 | `ngrok-free.app` | identifier | a shared hosting domain, so sites under it are told apart |
 | `vercel.app` | identifier | a shared hosting domain, so sites under it are told apart |
@@ -330,7 +344,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `task.ai` | not-a-host | a symbol or icon name |
 | `argument.app` | not-a-host | a localized string key |
 | `toast.detail.io` | not-a-host | a localized string key |
-| `cmux.app` | not-a-host | a file name |
+| `projection.io` | not-a-host | an error code of projected folders |
 | `cmux-ios-com.cmux.app` | not-a-host | a URL scheme or bundle id |
 | `debug.crash.app` | not-a-host | a method, area or resource kind name |
 | `arrow.down.app` | not-a-host | a symbol or icon name |

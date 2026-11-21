@@ -69,7 +69,7 @@ fn tools() -> Value {
                     "harness": {"type": "string", "description": "The agent to run it, e.g. claude or codex. Default: the same agent as yours."},
                     "model": {"type": "string", "description": "The model. Default: the agent's default."},
                     "cwd": {"type": "string", "description": "The folder it works in, as an absolute path. Default: yours. A folder the user has not trusted makes the call wait on a Trust / Not now card in your chat; Not now refuses it (do not ask again)."},
-                    "host": {"type": "string", "description": "Where it runs. A sub-session runs on this machine only. \"auto\" first checks that this machine has room for another agent, with acpmux's placement engine (the one `acpmux new --machine auto` uses): free RAM, busy cores, free disk and this machine's lane limit, weighed by its own size and role. The result's placed line says why, e.g. \"placed on huge-blue: 31 GB RAM free, 15.7/32 cores busy, 400 GB disk free, room for 5\"; with no room it starts all the same and the placed line says it is past its room (load and lane limits only warn). \"auto-build\" checks the same for a build or a test run, which only a build machine takes: on a machine that takes no builds the start is refused and says why. Default: this machine, unchecked."},
+                    "host": {"type": "string", "description": "Where it runs. A sub-session runs on this machine only. \"auto\" first checks that this machine has room for another agent, with acpmux's placement engine (the one `cmux agent new --machine auto` uses): free RAM, busy cores, free disk and this machine's lane limit, weighed by its own size and role. The result's placed line says why, e.g. \"placed on huge-blue: 31 GB RAM free, 15.7/32 cores busy, 400 GB disk free, room for 5\"; with no room it starts all the same and the placed line says it is past its room (load and lane limits only warn). \"auto-build\" checks the same for a build or a test run, which only a build machine takes: on a machine that takes no builds the start is refused and says why. Default: this machine, unchecked."},
                     "fork": {"type": "boolean", "description": "Start it as a fork of this chat as it is now, with all of your history, instead of a new session that starts with none. Your turn that asks for it ends there in the fork's copy, and the prompt is the fork's next message. Takes no harness, model, cwd or worktree: a fork runs yours. Default false."},
                     "worktree": {"type": "boolean", "description": "Work in a new git worktree of that folder's repository (~/.cmux/worktrees/<project>/<name>, branch cmux/<name>), so its edits stay apart from yours until the user applies them. It starts in the same subfolder of the worktree as that folder. Its files are checked out as committed, without running the repository's hooks or filters (a Git LFS file stays its pointer)."}
                 },
@@ -116,7 +116,8 @@ fn tools() -> Value {
                     "text": {"type": "string"},
                     "deliver": {"type": "string", "enum": ["next_step", "after_turn", "interrupt"], "description": "next_step (default): into the running turn, read at its next tool step. after_turn: queued behind the running turn, read when it ends. interrupt: stop the running turn, then run this (not to your parent)."},
                     "interrupt": {"type": "boolean", "description": "The same as deliver: interrupt."},
-                    "attachments": {"type": "array", "items": {"type": "string"}, "description": "Files to send with it, as absolute paths on this machine (a screenshot, a log, a video), of any size and number: an image reaches the receiver as an image, any other file (and an image too large to show) as a link to its saved copy."}
+                    "attachments": {"type": "array", "items": {"type": "string"}, "description": "Files to send with it, as absolute paths on this machine (a screenshot, a log, a video), of any size and number: an image reaches the receiver as an image, any other file (and an image too large to show) as a link to its saved copy."},
+                    "idempotency_key": crate::idempotency::schema()
                 },
                 "required": ["sessionId", "text"]
             }
@@ -190,7 +191,7 @@ pub(crate) fn served(
         tools(),
         Some(instructions()),
         daemon,
-        |daemon, _session, params| async move { call(&daemon, &params).await },
+        |daemon, session, params| async move { call(&daemon, &session, &params).await },
     )
 }
 
@@ -306,7 +307,12 @@ fn refusal(e: anyhow::Error) -> Value {
     error_result(format!("{e:#}"))
 }
 
-async fn call(daemon: &Client, params: &Value) -> Value {
+/// `send_message`'s remembered `idempotency_key`s, for every session this process serves.
+static SEND_KEYS: std::sync::LazyLock<crate::idempotency::Cache> = std::sync::LazyLock::new(|| {
+    crate::idempotency::Cache::new(crate::idempotency::TTL, crate::idempotency::MAX_ENTRIES)
+});
+
+async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
     let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
     if !args.is_object() {
         return error_result("arguments must be an object".to_owned());
@@ -325,13 +331,18 @@ async fn call(daemon: &Client, params: &Value) -> Value {
             Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
             Err(e) => refusal(e),
         },
-        "send_message" => match with_attachments(daemon, args).await {
-            Ok(args) => match request(method::MUX_SUBSESSION_SEND, args).await {
-                Ok(r) => ok(sent_text(&r), r),
-                Err(e) => refusal(e),
-            },
-            Err(e) => refusal(e),
-        },
+        "send_message" => {
+            crate::idempotency::once(&SEND_KEYS, session, args, |args| async move {
+                match with_attachments(daemon, args).await {
+                    Ok(args) => match request(method::MUX_SUBSESSION_SEND, args).await {
+                        Ok(r) => ok(sent_text(&r), r),
+                        Err(e) => refusal(e),
+                    },
+                    Err(e) => refusal(e),
+                }
+            })
+            .await
+        }
         "stop_session" => match request(method::MUX_SUBSESSION_STOP, args).await {
             Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
             Err(e) => refusal(e),
@@ -481,7 +492,7 @@ mod tests {
             .to_owned();
         assert!(host.contains("\"auto\"") && host.contains("\"auto-build\""), "{host}");
         assert!(
-            host.contains("acpmux new --machine auto") && host.contains("placed on "),
+            host.contains("cmux agent new --machine auto") && host.contains("placed on "),
             "{host}"
         );
         let placed = "placed on box: 40 GB RAM free, room for 4";

@@ -54,6 +54,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Macs whose acpmux makes no View Only chat for a phone (`remote.adopt_refused`): asked once.
     var terminalChatRefusingMacs: Set<String> = []
     @ObservationIgnored var openingTerminalChats: Set<String> = []
+    /// Settings → Terminal → Terminal and Chat Toggle (off by default); tests set it.
+    @ObservationIgnored var terminalChatToggleOn: @MainActor () -> Bool = { CmuxMobilePreferences.terminalChatToggle() }
     /// Created with their tabs (never during a view update); each model is
     /// itself observable, so toolbar state follows the page.
     @ObservationIgnored private var browsers: [String: BrowserTabModel] = [:]
@@ -1249,8 +1251,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
             let key = AgentCardRasterKey.current(
                 feed, colorScheme: template.colorScheme, page: template.page, visibleHeight: template.visibleHeight,
                 topInset: lastInsets.top + 8,
-                bottomInset: WorkspaceTabPage.bottomInset(surface: surface(tab.id), insets: lastInsets, pageHeight: pageHeight),
-                scale: template.scale)
+                bottomInset: WorkspaceTabPage.bottomInset(surface: surface(tab.id)),
+                scale: template.scale, textSize: template.textSize)
             if !rasterizer.isDone(feed, key) { return (feed, key) }
         }
         return nil
@@ -2326,7 +2328,7 @@ struct WorkspaceTabPage: View {
                 topInset: insets.top + 8,
                 onUserScroll: { context.reportScroll(fingerDelta: $0) }
             )
-            .background(Color.cmuxMobileBackground)
+            .background(CmuxMobileChatBackdrop())
             // A page built during a zoom or swipe is laid out before its
             // composer is measured; once it settles, a following chat lands
             // on its newest turn above the composer.
@@ -2385,10 +2387,12 @@ struct WorkspaceTabPage: View {
             }
     }
 
-    /// Above the floating composer (which rides the toolbar or the keyboard).
-    static func bottomInset(surface: AgentChatSurface, insets: EdgeInsets, pageHeight: CGFloat) -> CGFloat {
-        guard let top = surface.bottomStackTop, top > 0, pageHeight > 0 else { return insets.bottom + 72 }
-        return max(insets.bottom, pageHeight - top) + 12
+    /// A card's space under its newest turn: the page's own at rest, above the composer
+    /// (`AgentChatSurface.restingTranscriptBottomInset`), so the card opens into its page
+    /// without a jump (Leo 2026-11-17: the card had 4 pt more, and 66 pt less for a tab
+    /// whose composer was not measured yet).
+    static func bottomInset(surface: AgentChatSurface) -> CGFloat {
+        surface.restingTranscriptBottomInset
     }
 
     private var terminalContext: TerminalTabContext {
@@ -2513,7 +2517,7 @@ struct WorkspaceTabCard: View {
                 // A picture of the preview once drawn (`AgentCardRasterizer`), the live preview until then.
                 AgentTabCard(feed: source.cardFeed(tab, workspace), rasterizer: source.rasterizer, cardScale: source.cardScale,
                              page: CGSize(width: source.pageWidth, height: source.pageHeight), topInset: insets.top + 8,
-                             bottomInset: WorkspaceTabPage.bottomInset(surface: surface, insets: insets, pageHeight: source.pageHeight))
+                             bottomInset: WorkspaceTabPage.bottomInset(surface: surface))
             case .terminal:
                 source.terminal.card(for: tab, in: workspace)
             case .browser:

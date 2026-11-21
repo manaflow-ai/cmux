@@ -39,6 +39,35 @@ import Testing
         let byDeadline = Self.record(marks: deadline)
         #expect(byDeadline.homeRevealedBy == "deadline")
         #expect(byDeadline.homeFirstPageMs == nil)
+        #expect(record.windowUsableMs == nil && record.firstShellLiveMs == nil && record.noSnapshot == false)
+    }
+
+    /// A launch with nothing to restore (piece 8, the bare launch) records when its window took keys and its first shell went live.
+    @Test func aBareLaunchRecordsWhenItsWindowTookKeysAndItsShellWentLive() throws {
+        var marks = Self.marks
+        marks["launch.no_snapshot"] = 60
+        marks["window_usable"] = 231.04
+        marks["first_shell_live"] = 512.96
+        let record = Self.record(marks: marks)
+        #expect(record.noSnapshot == true)
+        #expect(record.windowUsableMs == 231)
+        #expect(record.firstShellLiveMs == 513)
+        let file = Self.temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
+        let line = try file.append(record)
+        #expect(line.contains(#""window_usable_ms":231"#) && line.contains(#""first_shell_live_ms":513"#) && line.contains(#""no_snapshot":true"#))
+    }
+
+    /// A line an older build wrote (no bare-launch fields) still reads back.
+    @Test func aRecordFromBeforeTheBareLaunchFieldsReadsBack() throws {
+        let file = Self.temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: file.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let old = #"{"build":"200","first_launch_of_build":true,"prewarmed":false,"started_at":"2027-01-15T08:00:00Z","version":"1.0.0"}"#
+        try Data((old + "\n").utf8).write(to: file.url)
+        let records = file.records()
+        #expect(records.count == 1)
+        #expect(records.first?.noSnapshot == nil && records.first?.windowUsableMs == nil)
     }
 
     /// Home shows from its saved state before the Chief's first page (launch piece 3): the record is
@@ -61,7 +90,7 @@ import Testing
         #expect(text == line + "\n", "one line per launch")
         let json = try #require(try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
         #expect(Set(json.keys) == ["started_at", "version", "build", "commit", "pre_main_ms", "main_ms", "first_window_frame_ms",
-                                   "home_first_page_ms", "home_revealed_by", "prewarmed", "first_launch_of_build"])
+                                   "home_first_page_ms", "home_revealed_by", "no_snapshot", "prewarmed", "first_launch_of_build", "phases"])
         var expected = Self.record(prewarmed: true)
         expected.firstLaunchOfBuild = true
         #expect(file.records() == [expected])
@@ -149,7 +178,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
         try file.append(Self.record(build: "199"))
         let asked = Asked()
-        let recorder = LaunchTimesRecorder(file: file, work: BackgroundWork(label: "test.launch-times"),
+        let work = BackgroundWork(label: "test.launch-times")
+        let recorder = LaunchTimesRecorder(file: file, work: work,
                                            info: ["CFBundleShortVersionString": "1.0.0", "CFBundleVersion": "200"]) { _ in
             asked.count.withLock { count in count += 1; return count == 1 }
         }
@@ -170,7 +200,10 @@ import Testing
         #expect(records.last?.preMainMs == 41.3, "and every other column")
         // A late first write (the Home gate after the chat) keeps the chat's columns and is no third line.
         recorder.write(marks: Self.marks)
-        try await Task.sleep(for: .milliseconds(300))
+        // The files lane runs its best-effort items one at a time, in order: once this one ran, the late write has.
+        await withCheckedContinuation { (ran: CheckedContinuation<Void, Never>) in
+            work.post(.bestEffort, mayBlock: .files) { ran.resume() }
+        }
         #expect(file.records().count == 2 && file.records().last?.priorChatLiveMs == 1490.2)
         #expect(asked.count.withLock { $0 } == 1, "pre-warm asked once")
     }
@@ -183,6 +216,34 @@ import Testing
         }
         Issue.record("the file never got there")
         return []
+    }
+
+    /// Each phase mark the launch reached is in its row under `phases`, rounded like the other columns; a mark
+    /// not in ``LaunchTimesRecord/phaseMarks`` stays out, and a launch that reached none has no `phases`.
+    @Test func aRowCarriesTheLaunchesPhases() throws {
+        let phases: [String: Double] = [
+            "did_finish_launching_start": 60.04, "dfl.settings_read": 70.1, "dfl.services": 90.26, "dfl.bind": 120,
+            "dfl.menu": 130.55, "daemon.prepare_start": 140, "daemon.prepare_end": 300.04, "daemon.socket_connected": 310,
+            "daemon_connected": 320, "launch_snapshot_applied": 330, "launch_snapshot_shown": 340, "dfl.windows": 350,
+            "did_finish_launching_end": 360, "cef.initialize_start": 400, "cef.ready": 900, "reveal.sidebar": 700,
+        ]
+        let record = Self.record(marks: Self.merged(phases))
+        var expected = phases.mapValues { ($0 * 10).rounded() / 10 }
+        expected["reveal.home"] = 830.7
+        #expect(record.phases == expected)
+        #expect(Set(LaunchTimesRecord.phaseMarks) == Set(expected.keys), "every phase mark is covered")
+        let line = try Self.temporaryFile().encodedLine(record)
+        #expect(line.contains(#""phases":{"#) && line.contains(#""dfl.services":90.3"#), "\(line)")
+        #expect(!line.contains(#""home.first_page""#), "only phase marks go under phases: \(line)")
+        #expect(Self.record(marks: ["main_start": 41]).phases == nil)
+        #expect(try !Self.temporaryFile().encodedLine(Self.record(marks: ["main_start": 41])).contains("phases"))
+    }
+
+    /// A row written before `phases` existed still reads back, with none.
+    @Test func aRowWithoutPhasesStillDecodes() throws {
+        let line = #"{"build":"200","commit":"31583607","first_launch_of_build":true,"first_window_frame_ms":512,"main_ms":470.8,"pre_main_ms":41.3,"prewarmed":false,"started_at":"2027-01-15T08:00:00Z","version":"1.0.0"}"#
+        let record = try JSONDecoder().decode(LaunchTimesRecord.self, from: Data(line.utf8))
+        #expect(record.phases == nil && record.mainMs == 470.8)
     }
 
     @Test func noTestProcessWritesThePersonsFile() {

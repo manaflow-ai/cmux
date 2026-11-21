@@ -199,6 +199,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud,
     /// or its deadline passed); that sign-in keeps no click. `expired` also ends the browser sign-in.
     case cloudSignInCancel(expired: Bool)
+    /// `cloud.plan.subscribe {plan}`: the pricing card's Subscribe (`pro` or `max`), on its click
+    /// (``AgentPaneModel/subscribeToCloudPlan(_:)``).
+    case cloudPlanSubscribe(plan: String)
     case cloudReservation(AgentPaneCloudReservationRequest)
     /// `cloud.repickChat {machine?, name?}`: another machine picked for a Cloud chat whose first send
     /// has not run (``AgentPaneCloudRepick``, ``AgentPaneModel/onCloudRepickChat``).
@@ -253,7 +256,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case setQuickActions([AgentPaneQuickAction])
     /// The chat tab's state the header's menu labels read: `{pinned}`; `refresh` (a turn ended)
     /// asks for the chat folder's pull request again.
-    case tabState(refresh: Bool)
+    /// `terminalSwitch`: also answer whether the chat is half of a terminal and chat pair (its "..." asks as it
+    /// opens, and once as the chat loads; never on a hover, since that answer walks every machine's agents).
+    case tabState(refresh: Bool, terminalSwitch: Bool = false)
     /// `pane.tabRowTools {width}`: the chat header's tools take `width` CSS pixels at the trailing
     /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
     case tabRowTools(width: Double)
@@ -271,8 +276,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.toast {message, tone, group}`: feedback the page shows as the app's native toast, so it
     /// takes the picked toast style (Lawrence 2026-11-13); `group` is its kind (Don't Show Again hides it).
     case toast(message: String, isError: Bool, group: String?)
-    /// `pane.glass {surfaces}`: the page's floating glass the App draws under the page
-    /// (``AgentPaneHostGlass``); empty when none shows.
+    /// `pane.glass {surfaces, zoom}`: the page's floating glass the App draws under the page
+    /// (``AgentPaneHostGlass``), measured at the page zoom `zoom`; empty when none shows.
     case hostGlass([AgentPaneHostGlassSurface])
     /// Copies a native Session Info menu item through the platform clipboard.
     case copyText(String)

@@ -82,6 +82,11 @@ impl AgentTools {
                 if s.name == crate::secret_mcp::SERVER_NAME {
                     spec.set("callTimeoutSecs", json!(3600));
                 }
+                // A Computer Use call may wait for the person's approval card
+                // (Ask every time, Approved apps), plus the bridge's own retries.
+                if s.name == crate::computer_use::mcp::SERVER_NAME {
+                    spec.set("callTimeoutSecs", json!(900));
+                }
                 if let Some(shared) = &shared
                     && crate::tools_mcp::owns(&s.name, &s.args)
                 {
