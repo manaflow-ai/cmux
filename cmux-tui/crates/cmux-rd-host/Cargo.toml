@@ -52,6 +52,11 @@ cmux-file-lock = { path = "../cmux-file-lock" }
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"], optional = true }
 pipewire = { version = "0.10", optional = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# cmux Computer Use's engine: the helper hosts its macOS worker and gives it ScreenCaptureKit
+# screenshots (src/mac/cu_host.rs).
+cmux-computer-use = { path = "../cmux-computer-use", features = ["desktop", "server"] }
+
 [target.'cfg(windows)'.dependencies]
 # `cmux-rd windows-host` (src/windows_host.rs): the same device hub client as `linux-host`.
 cmux-hub-host = { path = "../cmux-hub-host" }
