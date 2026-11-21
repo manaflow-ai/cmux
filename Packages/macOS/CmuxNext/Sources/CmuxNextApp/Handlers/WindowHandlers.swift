@@ -75,7 +75,7 @@ enum WindowHandlers {
             // Each window's own close check (an incognito window asks), then close.
             for window in context.services.windows.controllers.compactMap(\.window) { WindowTargeting.close(window) }
         })
-        registry.bind("zoomWindow", run: { _ in targeting(context).target?.zoom(nil) })
+        registry.bind("zoomWindow", run: { _ in targeting(context).target?.zoom(nil) }) // motion: allow shell windows: WindowZoom
         registry.bind("selectNextWindow", run: { _ in selectWindow(offset: 1, context) })
         registry.bind("selectPreviousWindow", run: { _ in selectWindow(offset: -1, context) })
         registry.bind("keepMacAwake", run: { _ in KeepAwakeService.shared.toggleManual() })

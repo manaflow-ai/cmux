@@ -40,6 +40,8 @@ public struct WindowTitlebar {
     public static func performDoubleClick(in window: NSWindow?, action: DoubleClickAction = doubleClickAction()) {
         guard let window else { return }
         switch action {
+        // A shell window (where the drawn titlebars live) zooms through its WindowZoom; another window gets the zoom its native titlebar runs.
+        // motion: allow the receiver is a shell window, whose zoom(_:) override runs WindowZoom
         case .zoom: window.zoom(nil)
         case .minimize: window.miniaturize(nil)
         case .none: break

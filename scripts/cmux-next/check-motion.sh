@@ -29,6 +29,15 @@
 #   - AppKit animation outside a gate: a window `animationBehavior` other than
 #     `.none` and a popover `animates` that no gate decides, an `.animator()`
 #     change with no Motion call on its line or the 3 lines above
+#   - blocking window animation: `setFrame(_:display:animate:)` with `animate:`
+#     anything but `false` (also across lines), and a call of AppKit's own zoom
+#     (`.zoom(nil)`, `.zoom(sender)`, `super.zoom(`, `performZoom(nil)`). AppKit runs
+#     that resize animation in a nested loop before the call returns: no key,
+#     click, display-link callback or browser task is served meanwhile (zoomWindow
+#     held the main thread about 380 ms). Animate the frame with
+#     `Motion.<category>.animateTimed(..., in:) { window.animator().setFrame(...) }`;
+#     a window zooms through `WindowZoom`, and a zoom call on such a window says so
+#     with `// motion: allow <reason>`
 # A reviewed exception carries `// motion: allow <reason>` (or the older
 # `// motion-allow: <reason>`) on the line or the line above. The reason is
 # required, and it must say how the animation still obeys the switches.
@@ -86,6 +95,33 @@ in_gate = re.compile(r"\bMotion\.(?:[a-z][A-Za-z]*\.)?(animate|animateTimed|anim
 # A Motion AppKit call whose arguments before its first closure name no view.
 motion_call = re.compile(r"\bMotion\.(?:[a-z][A-Za-z]*\.)?(animate|animateTimed|animateExit)\(")
 compiled = [(name, re.compile(pattern)) for name, pattern in RULES]
+# Blocking window animation (see the header). The setFrame call is read whole, so `animate:` on a
+# later line of the call counts; the escape goes on the call's first line or the line above it.
+set_frame_call = re.compile(r"\bsetFrame\s*\(")
+animate_argument = re.compile(r"\banimate\s*:(?!\s*false\b)")
+appkit_zoom = re.compile(r"(?<!zoomState)\.zoom\(\s*(nil|sender|self)\s*\)|\bsuper\.zoom\(|\bperformZoom\(\s*(nil|sender|self)\s*\)")
+BLOCKING = "blocking window animation (setFrame animate: / AppKit zoom run a nested loop; use Motion.<category>.animateTimed + animator().setFrame, or WindowZoom)"
+
+def call_text(code_lines, index, start):
+    # The call's argument text from `start` (just past its open paren) to its close paren, up to 12 lines.
+    depth = 1
+    text = []
+    line = code_lines[index][start:]
+    for offset in range(12):
+        if offset:
+            if index + offset >= len(code_lines):
+                break
+            line = code_lines[index + offset]
+        for ch in line:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    return "".join(text)
+            text.append(ch)
+        text.append("\n")
+    return "".join(text)
 # `// motion: allow <reason>` or `// motion-allow: <reason>`, with a reason.
 ALLOW = re.compile(r"//\s*motion(:\s*allow|-allow:)\s*\S")
 
@@ -124,12 +160,18 @@ for directory, _, files in os.walk(sources):
             continue
         with open(path, encoding="utf-8") as handle:
             lines = handle.read().splitlines()
+        code_lines = ["" if l.strip().startswith(("//", "*")) else code_part(l) for l in lines]
         for index, line in enumerate(lines):
             stripped = line.strip()
             if stripped.startswith("//") or stripped.startswith("///") or stripped.startswith("*"):
                 continue
             allowed = bool(ALLOW.search(line) or (index > 0 and ALLOW.search(lines[index - 1])))
             code = code_part(line)
+            if not allowed:
+                blocking = bool(appkit_zoom.search(code)) or any(
+                    animate_argument.search(call_text(code_lines, index, m.end())) for m in set_frame_call.finditer(code))
+                if blocking:
+                    failures.append(f"{os.path.relpath(path, root)}:{index + 1}: {BLOCKING}: {stripped}")
             for rule, pattern in compiled:
                 rule_code = popover_assignment_code(index, code, lines) if rule == "popover animates outside a motion gate" else code
                 if pattern.search(rule_code) and not allowed:
