@@ -38,8 +38,27 @@ enum SessionPersistencePolicy {
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
     static let maxPanelsPerWorkspace: Int = 512
+    /// A snapshot may contain many workspaces and docks. Keep the total number
+    /// of panel models bounded as well as each individual container so an
+    /// imported file cannot multiply the per-container limits into a restore
+    /// swarm.
+    static let maxPanelsPerSnapshot: Int = 4_096
+    /// Layout normalization bounds the recursive split graph independently of
+    /// the panel count; a malformed graph must not create an unbounded restore
+    /// scaffold even when it references only a few panels. A layout with N
+    /// panels needs at most 2N - 1 nodes, so this stays clear of any snapshot
+    /// within `maxPanelsPerSnapshot`.
+    static let maxLayoutNodes: Int = 16_384
+    static let maxLayoutDepth: Int = 512
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
+    /// Upper bound on the Unicode scalars kept per terminal. A Character is a
+    /// grapheme cluster and can hold any number of scalars (a base character
+    /// plus combining marks), so the character bound alone does not bound the
+    /// memory a scalar walk of the text, such as the import control-string
+    /// stripper, allocates. Four scalars per character matches the byte
+    /// budget the scrollback readers already use.
+    static let maxScrollbackScalarsPerTerminal: Int = maxScrollbackCharactersPerTerminal * 4
 
     static func sanitizedSidebarWidth(_ candidate: Double?, defaults: UserDefaults = .standard) -> Double {
         let resolvedMinimum = resolvedMinimumSidebarWidth(defaults: defaults)
@@ -72,7 +91,16 @@ enum SessionPersistencePolicy {
     }
 
     static func truncatedScrollback(_ text: String?) -> String? {
-        guard let text, !text.isEmpty else { return nil }
+        guard var text, !text.isEmpty else { return nil }
+        // Bound scalars first. Counting them walks the string without
+        // allocating; keeping the newest ones stops a run of combining marks
+        // (one Character, any number of scalars) from slipping past the
+        // character bound below. The cut needs no escape-sequence repair: it
+        // only happens when scalars far outnumber characters, and without its
+        // ESC a cut-off sequence is plain text, not a control.
+        if text.unicodeScalars.count > maxScrollbackScalarsPerTerminal {
+            text = String(String.UnicodeScalarView(text.unicodeScalars.suffix(maxScrollbackScalarsPerTerminal)))
+        }
         if text.count <= maxScrollbackCharactersPerTerminal {
             return text
         }

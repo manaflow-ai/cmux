@@ -321,4 +321,125 @@ struct SessionSnapshotRepositoryTests {
         }
         #expect(loaded == snapshot)
     }
+
+    @Test("the app's own snapshot loads even when one string is several MiB")
+    func ownSnapshotWithLargeStringLoads() throws {
+        // A text box draft has no size limit, so a pasted log can put a
+        // multi-megabyte string in the app's own snapshot. Losing the whole
+        // session over it would be far worse than the memory it costs.
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repository = makeRepository(appSupport: dir)
+        let snapshot = makeSnapshot(windowNames: [String(repeating: "x", count: 3 * 1024 * 1024)])
+
+        #expect(repository.save(snapshot, fileURL: nil))
+        #expect(repository.loadStartupSnapshot() == snapshot)
+    }
+
+    // Foundation's own parser rejects nesting past 512 too, so this pins the
+    // outcome rather than proving the guard; the token boundary test does that.
+    @Test("import rejects JSON nested past the decode limit before decoding")
+    func overlyNestedJSONIsRejectedBeforeDecode() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repository = makeRepository(appSupport: dir)
+        let fileURL = dir.appendingPathComponent("nested.json")
+        let depth = 600
+        let data = Data("{\"version\":1,\"windows\":[{\"name\":\"w\",\"nested\":".utf8)
+            + Data(String(repeating: "[", count: depth).utf8)
+            + Data(String(repeating: "]", count: depth).utf8)
+            + Data("}]}".utf8)
+        try data.write(to: fileURL)
+
+        guard case .failure(.notASessionSnapshot) = repository.importableSnapshot(fileURL: fileURL) else {
+            Issue.record("expected deeply nested JSON to be rejected before decoding")
+            return
+        }
+    }
+
+    /// The structural tokens the import guard counts: `{ } [ ] : ,` outside
+    /// strings. Mirrors the guard so the boundary tests can aim at it exactly.
+    private func structuralTokenCount(_ data: Data) -> Int {
+        var count = 0
+        var inString = false
+        var escaped = false
+        for byte in data {
+            if inString {
+                if escaped { escaped = false } else if byte == 92 { escaped = true } else if byte == 34 { inString = false }
+                continue
+            }
+            switch byte {
+            case 34: inString = true
+            case 91, 93, 123, 125, 58, 44: count += 1
+            default: break
+            }
+        }
+        return count
+    }
+
+    /// A one-window snapshot whose ignored `pad` array brings the file to
+    /// exactly `tokens` structural tokens.
+    private func snapshotData(structuralTokens tokens: Int) -> Data {
+        func json(padCount: Int) -> Data {
+            Data(("{\"pad\":[" + Array(repeating: "0", count: padCount).joined(separator: ",")
+                + "],\"version\":1,\"windows\":[{\"name\":\"w\"}]}").utf8)
+        }
+        let base = structuralTokenCount(json(padCount: 1))
+        let data = json(padCount: tokens - base + 1)
+        precondition(structuralTokenCount(data) == tokens)
+        return data
+    }
+
+    @Test("the app's own snapshot loads even past the import token limit")
+    func ownSnapshotOverImportTokenLimitLoads() throws {
+        // About 110-345 tokens per panel: a few thousand agent panels cross
+        // the untrusted-import limit. The user's own session (and its
+        // backups) must still load so the restore budget can trim it.
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repository = makeRepository(appSupport: dir)
+        let primaryURL = try #require(repository.snapshotFileURL(bundleIdentifier: "com.cmuxterm.tests"))
+        try FileManager.default.createDirectory(
+            at: primaryURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try snapshotData(structuralTokens: 1_200_000).write(to: primaryURL)
+
+        #expect(repository.loadStartupSnapshot() == makeSnapshot(windowNames: ["w"]))
+    }
+
+    @Test("import accepts exactly 1,000,000 structural tokens and refuses one more")
+    func importStructuralTokenLimitBoundary() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repository = makeRepository(appSupport: dir)
+        let atLimit = dir.appendingPathComponent("at-limit.json")
+        let overLimit = dir.appendingPathComponent("over-limit.json")
+        try snapshotData(structuralTokens: 1_000_000).write(to: atLimit)
+        try snapshotData(structuralTokens: 1_000_001).write(to: overLimit)
+
+        guard case .success(let imported) = repository.importableSnapshot(fileURL: atLimit) else {
+            Issue.record("expected a file at the token limit to import")
+            return
+        }
+        #expect(imported.snapshot == makeSnapshot(windowNames: ["w"]))
+        guard case .failure(.notASessionSnapshot) = repository.importableSnapshot(fileURL: overLimit) else {
+            Issue.record("expected a file one token over the limit to be refused before decoding")
+            return
+        }
+    }
+
+    @Test("an empty import file is not a session snapshot")
+    func emptyImportFileIsNotASessionSnapshot() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repository = makeRepository(appSupport: dir)
+        let fileURL = dir.appendingPathComponent("empty.json")
+        try Data().write(to: fileURL)
+
+        guard case .failure(.notASessionSnapshot) = repository.importableSnapshot(fileURL: fileURL) else {
+            Issue.record("expected an empty file to read as not a session snapshot")
+            return
+        }
+    }
 }
