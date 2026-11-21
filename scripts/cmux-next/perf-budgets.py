@@ -196,16 +196,19 @@ def load(path):
         return None
 
 
-def find_stage(table, stage):
-    """tab-switch tables nest {kind: {stage: stat}} or {stage: stat}."""
+def find_stage(table, stage, kind):
+    """A tab-switch table's `stage` for switches that showed `kind`: {kind: {stage: stat}}, or a flat {stage: stat}.
+    Only the scenario's own kind counts. `debug.tab_switch` files a switch under the content it showed, so a scenario
+    holds other buckets too: `cold` (a tab whose surface was not alive: the pane empties now and the surface comes a
+    frame later) or `?` (untagged). Reading the first bucket with the stage read `cold` as the terminal row from
+    2026-11-15 (cmux#24569): the time to an empty pane, not to the terminal. A missing bucket is no value, so the
+    row is incomplete rather than another bucket's number."""
     if not isinstance(table, dict):
         return None
     if stage in table:
         return table[stage]
-    for v in table.values():
-        if isinstance(v, dict) and stage in v:
-            return v[stage]
-    return None
+    own = table.get(kind)
+    return own.get(stage) if isinstance(own, dict) else None
 
 
 def rows_new_surfaces(rep):
@@ -229,7 +232,7 @@ def rows_panes(rep):
 def rows_tab_switch(rep):
     out = {}
     for sc in (rep or {}).get("scenarios") or []:
-        stat = find_stage((sc.get("ctrl_tab") or {}).get("table"), "e2e")
+        stat = find_stage((sc.get("ctrl_tab") or {}).get("table"), "e2e", sc.get("kind"))
         out[f"tab_switch.{sc.get('kind')}.{sc.get('count')}.e2e"] = p50_p95(stat)
     return out
 
