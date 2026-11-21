@@ -52,6 +52,8 @@ mod carrier;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod clipboard;
 mod clock;
+#[cfg(target_os = "macos")]
+pub mod computer_use_worker;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
 mod connect;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -192,6 +194,12 @@ pub fn run_cli(args: &[String]) -> i32 {
         );
         return 2;
     };
+    // The Computer Use worker the cmux-tui daemon starts on a Mac with no cmux Remote: its stdin
+    // and stdout are the daemon's control channel, so nothing else may print there.
+    #[cfg(target_os = "macos")]
+    if cmd == computer_use_worker::MODE {
+        return computer_use_worker::run(&args[1..]);
+    }
     // Subcommands and positional words of its own (`share on`, `approve SESSION`).
     #[cfg(all(feature = "link", target_os = "linux"))]
     if cmd == "linux-host" {

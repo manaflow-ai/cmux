@@ -578,6 +578,7 @@
 				"$(SRCROOT)/scripts/cmux-next/build-screen-sharing-helper.sh",
 				"$(SRCROOT)/cmux-tui/crates/cmux-rd-host",
 				"$(SRCROOT)/cmux-tui/crates/cmux-codecs",
+				"$(SRCROOT)/cmux-tui/crates/cmux-computer-use",
 				"$(SRCROOT)/cmux-tui/crates/cmux-encode",
 				"$(SRCROOT)/cmux-tui/crates/cmux-hub-host",
 				"$(SRCROOT)/cmux-tui/crates/cmux-process",
