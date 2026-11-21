@@ -42,13 +42,13 @@ const now = Date.UTC(2026, 10, 21, 12, 0);
 const map = new Map<string, HomeConversation>();
 for (let index = 0; index < conversations; index += 1) {
   const participants: HomeParticipant[] = [
-    { id: "me", kind: "user", name: "Me", chief: false } as HomeParticipant,
-    ...(Array.from({ length: 1 + (index % 4) }, (_, at) => ({
+    { id: "me", kind: "human", name: "Me", chief: false },
+    ...Array.from({ length: 1 + (index % 4) }, (_, at) => ({
       id: `p${index}-${at}`,
-      kind: "user",
+      kind: "human" as const,
       name: person(),
       chief: false,
-    })) as HomeParticipant[]),
+    })),
   ];
   const conversation = {
     id: `c${index}`,
