@@ -104,8 +104,8 @@ class InstallGitHooksTests(unittest.TestCase):
         # #48396 had the installer install scripts/ci/workflow_job_bounds.py but left it out of
         # INSTALLER_FILES: every fixture install then failed on `install: cannot stat`, 58 tests at once.
         text = (SOURCE / INSTALLER).read_text(encoding="utf-8")
-        installed = set(re.findall(r"^\s*install\s+(?:-\S+\s+)*(scripts/\S+)", text, re.M))
-        self.assertIn("scripts/ci/workflow_job_bounds.py", installed, "the installer's install lines were not read")
+        installed = set(re.findall(r"^\s*install\s+(?:-m\s+\S+\s+|-\S+\s+)*(scripts/\S+)", text, re.M))
+        self.assertGreater(len(installed), 20, "the installer's install lines were not read")
         covered = [path for path in self.INSTALLER_FILES if path != INSTALLER]
         missing = sorted(path for path in installed
                          if not any(path == have or path.startswith(have.rstrip("/") + "/") for have in covered))
