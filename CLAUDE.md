@@ -112,7 +112,7 @@ Read these before working in their scope; nested files may not load automaticall
 | User-facing strings, docs or help | [cmux-localization](skills/cmux-localization/SKILL.md); report the localization audit |
 | A change people will notice (What's New, update card) | [release-notes/next/WRITING.md](release-notes/next/WRITING.md); add one curated highlight file in the same commit, never a commit subject |
 | New cmux shortcuts | [cmux-keyboard-shortcuts](skills/cmux-keyboard-shortcuts/SKILL.md) |
-| Tests or target wiring | [cmux-testing](skills/cmux-testing/SKILL.md); CmuxNext tests need no wiring; the `cmux` CLI is cmux-tui Rust |
+| Tests or target wiring | [cmux-testing](skills/cmux-testing/SKILL.md); [adding a test](skills/cmux-testing/references/adding-a-test.md): CI finds it, no wiring; the `cmux` CLI is cmux-tui Rust |
 | Multiple entrypoints or a bug that tests previously missed | [cmux-shared-behavior](skills/cmux-shared-behavior/SKILL.md); share action/mutation paths, verify every entrypoint, and cover the missed repro |
 | v2 socket methods, remote CLI relay (default deny) | [relay authorization](skills/cmux-socket-policy/references/remote-relay-authorization.md) |
 | Every task skill | [skills/README.md](skills/README.md) |
