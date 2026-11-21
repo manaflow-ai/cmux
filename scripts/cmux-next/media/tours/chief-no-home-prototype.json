@@ -1,0 +1,14 @@
+{
+  "title": "Chief without Home: three live layouts (Debug > Chief Without Home Prototype)",
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "Open the prototype on variant 1", "cmux": ["action", "run", "home.chiefNoHomePlayground", "--arg", "variant=1"], "wait": 2, "shot": false},
+    {"title": "Light: 1. Chief is the first thread", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 2},
+    {"title": "Dark: 1. Chief is the first thread", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2},
+    {"title": "Dark: 2. Threads inside workspaces", "cmux": ["action", "run", "home.chiefNoHomePlayground", "--arg", "variant=2"], "wait": 2},
+    {"title": "Light: 2. Threads inside workspaces", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 2},
+    {"title": "Light: 3. Chief side panel", "cmux": ["action", "run", "home.chiefNoHomePlayground", "--arg", "variant=3"], "wait": 2},
+    {"title": "Dark: 3. Chief side panel", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 2, "shot": false}
+  ]
+}

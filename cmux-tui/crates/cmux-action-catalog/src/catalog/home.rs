@@ -686,4 +686,17 @@ pub static ACTIONS: &[Action] = &[
         is_debug_only: true,
         ..Action::DEFAULT
     },
+    Action {
+        id: "home.chiefNoHomePlayground",
+        group: GROUP,
+        title: t("HomeActions", "action.home.chiefNoHomePlayground", "Chief Without Home Prototype"),
+        keywords: &["home", "chief", "threads", "sidebar", "side panel", "no home", "prototype", "playground", "variants", "debug"],
+        category: "window",
+        symbol: "sidebar.squares.left",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::VARIANT.optional()],
+        cli_name: "action home-chief-no-home-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
 ];
