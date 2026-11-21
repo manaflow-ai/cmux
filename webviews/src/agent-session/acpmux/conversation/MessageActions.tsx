@@ -213,7 +213,6 @@ export function RewindButton({ rowId }: { rowId: string }) {
       type="button"
       className="cv-iconbtn cv-iconbtn--compact cv-turn-rewind"
       aria-label={label}
-      title={label}
       aria-busy={state.kind === "pending"}
       aria-disabled={state.kind === "done" || undefined}
       data-rewind-state={state.kind}

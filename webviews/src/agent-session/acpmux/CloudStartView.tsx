@@ -375,7 +375,7 @@ function TooBigActions({
                 type="button"
                 className="acpmux-cloud-ask__button acpmux-cloud-too-big__repo"
                 data-repo={repo.path}
-                title={repo.path}
+                aria-description={repo.path}
                 onClick={() => onPickRepo(repo.path)}
               >
                 {repo.name}

@@ -80,7 +80,7 @@ function Row({
             {row.name}
           </div>
           <div className="row-help selectable">{details.join(" · ")}</div>
-          <div className="row-help selectable font-mono" title={row.file}>
+          <div className="row-help selectable font-mono" aria-description={row.file}>
             {runs(row)}
           </div>
           {row.approval === "pending" && (

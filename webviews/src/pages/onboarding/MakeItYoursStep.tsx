@@ -100,12 +100,7 @@ export function MakeItYoursStep({
             const label = backgroundLabel(background.id, background.name);
             const checked = (choices.background ?? NO_BACKGROUND) === background.id;
             return (
-              <label
-                key={background.id || "none"}
-                className="onb-make-tile"
-                data-checked={checked || undefined}
-                title={label}
-              >
+              <label key={background.id || "none"} className="onb-make-tile" data-checked={checked || undefined}>
                 <input
                   type="radio"
                   name="background"

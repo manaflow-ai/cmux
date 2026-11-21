@@ -1424,8 +1424,6 @@ export function JumpToLatest({
         data-focus-ring="none"
         style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
         aria-label={label}
-        // The arrow says nothing by itself; working state is carried by the shared spinner in the transcript.
-        title={label}
         // Hidden, it is inert: out of the tab order and the accessibility tree while it fades out.
         inert={!shown}
         // A click does not focus a button in WebKit, so focus on it means Return or Space.
@@ -1472,7 +1470,6 @@ export function JumpUp({
       data-focus-ring="none"
       style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
       aria-label={label}
-      title={label}
       inert={!shown}
       onClick={onJump}
     >

@@ -370,12 +370,7 @@ export function HatQuestions({
   const asker = look !== "line" && Boolean(shown.who || shown.about);
   const prompt = (
     <span className="acpmux-hat-questions__words">
-      <span
-        ref={promptRef}
-        className="acpmux-hat-questions__prompt"
-        data-whole={whole || undefined}
-        title={shown.prompt}
-      >
+      <span ref={promptRef} className="acpmux-hat-questions__prompt" data-whole={whole || undefined}>
         {inlineText(shown.prompt)}
       </span>
       {look !== "line" && (overflows || whole) && (
@@ -432,11 +427,7 @@ export function HatQuestions({
               <div className="acpmux-hat-questions__head">
                 <span className="acpmux-hat-questions__mark" aria-hidden="true" />
                 {shown.tag && <span className="acpmux-hat-questions__tag">{t(TAG_KEY[shown.tag])}</span>}
-                {shown.who && (
-                  <span className="acpmux-hat-questions__who" title={shown.who}>
-                    {shown.who}
-                  </span>
-                )}
+                {shown.who && <span className="acpmux-hat-questions__who">{shown.who}</span>}
                 {shown.about && <span className="acpmux-hat-questions__about">{inlineText(shown.about)}</span>}
                 {!asker && prompt}
                 {look === "line" && answers}

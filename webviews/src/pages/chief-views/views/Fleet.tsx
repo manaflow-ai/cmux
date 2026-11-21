@@ -112,7 +112,7 @@ function MachineRow({
   const load = loadPerCore(machine);
   return (
     <tr data-error={machine.error ? "" : undefined} data-hot={load !== undefined && load > 1 ? "" : undefined}>
-      <th scope="row" className="cv-host" title={machine.error ?? undefined}>
+      <th scope="row" className="cv-host" aria-description={machine.error ?? undefined}>
         {machine.host.split(".")[0]}
       </th>
       {machine.error ? (

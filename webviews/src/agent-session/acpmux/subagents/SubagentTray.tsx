@@ -1453,7 +1453,7 @@ function HeadKind({ t, part, chatHarness }: { t: Translate; part: TrayHeadPart; 
       className="acpmux-running-tray__kind"
       data-kind={part.key}
       data-tone={part.tone}
-      title={names}
+      aria-description={names}
       onPointerEnter={() => {
         if (names !== undefined) return;
         const shown = part.items.slice(0, PART_NAMES).map((item) => itemName(t, item));
