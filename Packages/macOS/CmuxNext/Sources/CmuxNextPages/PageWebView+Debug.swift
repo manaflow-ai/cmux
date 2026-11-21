@@ -377,6 +377,16 @@ extension PageWebView {
     /// clipboard read), in a window that is never key. As a person's Cmd-V into a cmux page does,
     /// a picture the pasteboard holds as TIFF only first gets its PNG (``PastedImagePNGHold``):
     /// `png_ms` is how long that took. The host's paste record runs next (``chromiumPasted()``).
+    /// Trusted DevTools key events into the page Chromium shows: each `Input.dispatchKeyEvent` call's parameters, in
+    /// order. A page window that is not key takes no AppKit key, as it takes no AppKit click (``debugPress(x:y:native:beforeRelease:)``).
+    /// - Parameter events: The calls' parameters (`DebugKeyDevToolsEvents` builds a key's).
+    /// - Returns: false on WebKit, or when DevTools refused a call.
+    public func debugDevToolsKeys(_ events: [[String: any Sendable]]) async -> Bool {
+        guard let page = chromiumSession?.page else { return false }
+        for params in events where (try? await page.devTools("Input.dispatchKeyEvent", params: params)) == nil { return false }
+        return true
+    }
+
     public func debugPaste() async -> JSONValue {
         guard let page = chromiumSession?.page else { return ["error": "not a Chromium page"] }
         chromiumUserInput(at: ProcessInfo.processInfo.systemUptime)
