@@ -605,26 +605,49 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                               executable: environment.executable.path)
     }
 
-    /// How long each of the lookup's status calls waits before it asks again on a new connection;
-    /// the last one waits for its answer however long it takes.
+    /// How long the lookup's status calls wait for an answer before another call joins them on a
+    /// new connection: at most `count + 1` calls, all waiting for their answer however long it takes.
     static let lookupStatusAttempts: [Duration] = [.seconds(5), .seconds(10), .seconds(20)]
 
-    /// The lookup's `_acpmux/status`. A call that hears nothing in a few seconds is asked again on
-    /// a new connection: one made just before the daemon restarted waited on a socket nothing would
-    /// answer, and the pane said "Waiting for the agent service" for minutes after the new daemon
-    /// was up (Leo, 2026-11-06). A late answer still decides nothing (#28083, rule R5): a call
-    /// that missed its time is only asked again, never read as a daemon to stop or start, and the
-    /// last call waits as long as the daemon takes.
+    /// The lookup's `_acpmux/status`. A call that hears nothing in a few seconds gets another call
+    /// beside it on a new connection: one made just before the daemon restarted waited on a socket
+    /// nothing would answer, and the pane said "Waiting for the agent service" for minutes after the
+    /// new daemon was up (Leo, 2026-11-06). The first answer wins and ends the others.
+    ///
+    /// The calls before it are never given up: each one ended at its time and the next started
+    /// over, so a daemon that took 7 s to answer cost 5 + 7 = 12 s, and one that took 11 s cost
+    /// 5 + 10 + 11 = 26 s (Leo's NIGHTLY, 2026-11-21: "acpmux status unanswered after 5s / 10s /
+    /// 20s", 46 s from the lookup to the pane's transport, on a line that read "Waiting for the agent
+    /// service (1:07)"). A late answer still decides nothing (#28083, rule R5): no call is read as
+    /// a daemon to stop or start, and the calls wait as long as the daemon takes. `call`: one status
+    /// call with no deadline (a stand-in in tests).
     static func lookupStatus(socketPath: String, attempts: [Duration] = lookupStatusAttempts) async throws -> AcpmuxStatus {
-        for attempt in attempts {
-            do {
-                return try await AcpmuxStatusClient.status(socketPath: socketPath, deadline: attempt)
-            } catch is AgentPaneDeadlineExceeded {
-                try Task.checkCancellation()
-                logger.info("acpmux status unanswered after \(attempt.components.seconds, privacy: .public)s; asking again")
-            }
+        try await lookupStatus(socketPath: socketPath, attempts: attempts) { socketPath in
+            try await AcpmuxStatusClient.status(socketPath: socketPath, deadline: nil)
         }
-        return try await AcpmuxStatusClient.status(socketPath: socketPath, deadline: nil)
+    }
+
+    static func lookupStatus(socketPath: String, attempts: [Duration],
+                             call: @escaping @Sendable (String) async throws -> AcpmuxStatus) async throws -> AcpmuxStatus {
+        // concurrency-allow: every call is cancellation-aware: a status call with no deadline cancels its connection on cancel (AcpmuxStatusClient.call), and the waits are Task.sleep
+        try await withThrowingTaskGroup(of: AcpmuxStatus.self) { group in
+            var startsAfter: Duration = .zero
+            for (index, wait) in ([.zero] + attempts).enumerated() {
+                startsAfter += wait
+                let after = startsAfter
+                group.addTask {
+                    if index > 0 {
+                        // wakeup-allow: one bounded wait per hedged call (attempts.count of them); the first answer cancels it
+                        try await Task.sleep(for: after)
+                        logger.info("acpmux status unanswered after \(after.components.seconds, privacy: .public)s; asking again beside it")
+                    }
+                    return try await call(socketPath)
+                }
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next() else { throw CancellationError() }
+            return first
+        }
     }
 
     /// `_acpmux/status` of a daemon that just started, or won the start: waits up to 3 s while
