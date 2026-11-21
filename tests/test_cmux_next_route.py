@@ -658,11 +658,41 @@ class PullRequestTiers(unittest.TestCase):
     def test_checks_job_inputs_a_build_reads_keep_the_mac_tiers(self):
         """Admitted for the checks job's tests too, but each can change what the app build gets: the GhosttyKit
         download, the reload script's instance stop, the release strip and its symbol map, and the checkout's
-        text attributes (the bundled license texts are `-text`). They stay out of CI_ONLY."""
+        text attributes (the bundled license texts are `-text`). They stay out of CI_ONLY. The scripts are outside
+        every Swift compile's inputs (NO_SWIFT_COMPILE_ROOTS): the scheme compile runs, the SwiftPM app compiles
+        (`native`) do not."""
         for path in ("scripts/download-prebuilt-ghosttykit.sh", "scripts/lib/stop-app-instances.sh",
                      "scripts/strip-release-bundle.sh", "scripts/write-app-symbol-map.py", ".gitattributes"):
             with self.subTest(path=path):
-                self.assertEqual(tiers([path])["native"], "true")
+                result = tiers([path])
+                self.assertEqual(result["scheme"], "true")
+                self.assertEqual(result["native"], "false" if path.startswith("scripts/") else "true")
+
+    def test_a_tree_no_swift_compile_reads_runs_no_app_compile(self):
+        """Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period". A measure script, a
+        script test, Chief's Rust (a scheme build phase builds it) or a Python test changes nothing the fleet's
+        SwiftPM app compiles read (Packages/ only): no `native`, so no fleet Release compile and no app compile
+        (build fleet); the scheme compile still lists it. Beside a Swift change, `native` stays."""
+        for path in ("scripts/measure/launch.py", "scripts/cmux-next/tests/foo.test.sh",
+                     "Native/OptChat/optchat-chief/tests/harness.rs", "backend/apps/api/src/index.ts",
+                     "cmux-next-ios/scripts/x.sh", ".github/actionlint.yaml"):
+            with self.subTest(path=path):
+                result = tiers([path])
+                self.assertEqual(result["native"], "false")
+                self.assertEqual(result["scheme"], "true")
+        mixed = tiers(["scripts/measure/launch.py", "Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift"])
+        self.assertEqual(mixed["native"], "true")
+        # A packaging input the build names keeps native, under scripts/ or not.
+        self.assertEqual(tiers(["scripts/cmux-next/check-release-compile.sh"])["native"], "true")
+        self.assertEqual(tiers(["THIRD_PARTY_LICENSES.md"])["native"], "true")
+        self.assertEqual(tiers(["App/main.swift"])["native"], "true")
+        # An unknown top-level tree still runs it (fail open).
+        self.assertEqual(tiers(["somewhere-new/thing.txt.cfg"])["native"], "true")
+
+    def test_a_ci_file_beside_another_change_adds_no_app_compile(self):
+        """A CI file alone runs no Mac tier; beside a Native/ change it adds no `native` either."""
+        result = tiers(["scripts/ci/pr_router.py", "Native/OptChat/optchat-chief/src/main.rs"])
+        self.assertEqual(result["native"], "false")
 
     def test_native_script_inputs_run_the_app_compiles(self):
         """Every file the app build or its packaging reads runs the app compiles, whatever its name: the
@@ -823,14 +853,15 @@ class LinuxLaneTests(unittest.TestCase):
         entries = [dict(e, lane="macos-shell") if e["path"] == self.sample else e
                    for e in load_tree(ROOT)]
         with mock.patch("test_execution_registry.load_tree", return_value=entries):
-            self.assertIn("native", mac_tiers(tiers([self.sample])))
+            self.assertIn("scheme", mac_tiers(tiers([self.sample])))
 
     def test_an_unreadable_registry_allowlists_nothing(self):
         with mock.patch("test_execution_registry.load_tree", side_effect=ValueError("bad registry")):
             self.assertEqual(self.route.linux_guard_tests(ROOT), frozenset())
-            self.assertIn("native", mac_tiers(tiers([self.sample])))
-            self.assertIn("native", mac_tiers(tiers(["tests/test-execution.toml"])))
-            self.assertIn("native", mac_tiers(tiers(["tests/test-execution.d/ci.toml"])))
+            # A test under tests/ no Mac tier reads is outside every Swift compile's inputs: the scheme lists it.
+            self.assertIn("scheme", mac_tiers(tiers([self.sample])))
+            self.assertIn("scheme", mac_tiers(tiers(["tests/test-execution.toml"])))
+            self.assertIn("scheme", mac_tiers(tiers(["tests/test-execution.d/ci.toml"])))
 
     def test_a_linux_guard_test_a_mac_tier_reads_keeps_its_tier(self):
         with mock.patch.object(self.route, "SWIFT_JOB_INPUTS", self.route.SWIFT_JOB_INPUTS + (self.sample,)):
@@ -851,15 +882,17 @@ class LinuxLaneTests(unittest.TestCase):
                 self.assertEqual(mac_tiers(tiers([path])), [], path)
 
     def test_an_unknown_path_still_routes_to_mac(self):
-        for path in ("newdir/tool.py", "tests/helper_not_registered.py", "tests/test_not_in_registry_xyz.py"):
+        self.assertIn("native", mac_tiers(tiers(["newdir/tool.py"])))
+        # Under tests/ (NO_SWIFT_COMPILE_ROOTS) no Swift compile reads it: a Mac tier still lists it, `native` does not.
+        for path in ("tests/helper_not_registered.py", "tests/test_not_in_registry_xyz.py"):
             with self.subTest(path=path):
-                self.assertIn("native", mac_tiers(tiers([path])))
+                self.assertEqual(mac_tiers(tiers([path])), ["scheme"])
 
     def test_a_linux_guard_test_with_another_file_still_compiles(self):
-        for other in ("scripts/cmux-next/new-step.sh", "Resources/new.json",
-                      f"{PACKAGE}/Sources/CmuxNextApp/AgentTabs+Wiring.swift"):
+        for other in ("Resources/new.json", f"{PACKAGE}/Sources/CmuxNextApp/AgentTabs+Wiring.swift"):
             with self.subTest(other=other):
                 self.assertIn("native", mac_tiers(tiers([self.sample, other])))
+        self.assertIn("scheme", mac_tiers(tiers([self.sample, "scripts/cmux-next/new-step.sh"])))
 
 
 class UnreadDocs(unittest.TestCase):
@@ -1134,12 +1167,13 @@ class FastTierRoute(unittest.TestCase):
     def test_daemon_or_app_host_only_changes_skip_it(self):
         for changed in (["cmux-tui/crates/acpmux/src/cli/help_examples/session.rs"],
                         ["cmux-tui/crates/acpmux/src/hub/queue.rs", "cmux-tui/crates/acpmux/src/hub/transfer_out.rs"],
-                        ["Native/OptChat/optchat-chief/tests/harness.rs"],
                         ["App/main.swift"]):
             with self.subTest(changed=changed):
                 result = tiers(changed)
                 self.assertEqual(result["macos"], "true")
                 self.assertEqual(result["fast_tier"], "false")
+        # Chief's Rust is outside every Swift compile's inputs: no Mac tier places at all.
+        self.assertEqual(tiers(["Native/OptChat/optchat-chief/tests/harness.rs"])["fast_tier"], "false")
 
     def test_web_and_ci_only_changes_skip_it(self):
         for changed in (["web/app/page.tsx"], ["scripts/ci/cmux_next_route.py"], ["plans/cmux-next/sidebar-owner.md"]):
@@ -1394,11 +1428,16 @@ class RunnerAndScriptRoutes(unittest.TestCase):
         self.assertEqual(tiers(["scripts/cmux-next/check-daemon-capabilities.sh"])["daemon"], "true")
 
     def test_a_script_a_build_phase_runs_keeps_the_compiles_not_swift_test(self):
-        for script in ("scripts/build-diff-sidecar.sh", "scripts/cmux-next/build-mobile-host.sh",
-                       "scripts/cmux-next/build-web-bundles.sh"):
+        """A script only the Xcode app's build phases run is the scheme compile's: the fleet compiles (SwiftPM
+        package and app executable) and the Mac Release compile (package scheme CmuxNextApp) run no build phase.
+        The web bundle build runs before every package build, so it keeps `native`."""
+        for script in ("scripts/build-diff-sidecar.sh", "scripts/cmux-next/build-mobile-host.sh"):
             with self.subTest(script=script):
                 result = tiers([script])
-                self.assertEqual((result["native"], result["swift"], result["daemon"]), ("true", "false", "false"))
+                self.assertEqual((result["native"], result["scheme"], result["swift"], result["daemon"]),
+                                 ("false", "true", "false", "false"))
+        result = tiers(["scripts/cmux-next/build-web-bundles.sh"])
+        self.assertEqual((result["native"], result["swift"], result["daemon"]), ("true", "false", "false"))
 
     def test_a_rust_only_change_runs_the_daemon_tier_not_swift_test(self):
         result = tiers(["cmux-tui/crates/acpmux/src/hub/queue.rs"])
@@ -2077,8 +2116,10 @@ class HotAwareWorkflows(unittest.TestCase):
         import yaml
         guards = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text(encoding="utf-8"))
         job = guards["jobs"]["tooling-tests"]
-        self.assertEqual(job["needs"], ["portable-placement"])
-        self.assertEqual(job["if"], "${{ !cancelled() }}")  # a skipped or failed placement still runs the tests
+        # The 30-minute window gate (#48652) holds a push's guards; a pull request skips it (its output is
+        # empty, never 'false'), and a skipped or failed placement still runs the tests.
+        self.assertEqual(job["needs"], ["coalesce", "portable-placement"])
+        self.assertEqual(job["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}")
         legs = job["runs-on"].split(" || ")
         mini = [leg for leg in legs if "outputs.mini_runner" in leg]
         linux = [leg for leg in legs if "outputs.linux_runner" in leg]
