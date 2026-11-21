@@ -761,6 +761,7 @@ impl ClientRegistry {
                     || capability == OPEN_DEVICE_KINDS_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
+                    || capability == super::TERMINAL_RESUME_CAPABILITY
                     // `output` at most once per frame (server/attach_output_coalesce.rs).
                     || capability == super::ATTACH_OUTPUT_COALESCE_CAPABILITY
                     // Agent CLI terminals as cell deltas (server/agent_cli_hybrid.rs).
