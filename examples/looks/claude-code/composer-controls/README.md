@@ -7,7 +7,7 @@ With a chat focused, press ⌥P (CLI) or ⇧⌘I (Desktop) to open the model pic
 ## Install
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/claude-code/composer@feat-cmux-next
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/claude-code/composer-controls@feat-cmux-next
 ```
 
 To install from this pull request, replace `feat-cmux-next` with its head SHA.
@@ -15,7 +15,7 @@ To install from this pull request, replace `feat-cmux-next` with its head SHA.
 ## Remove
 
 ```sh
-cmux setup remove manaflow-ai/claude-code-composer
+cmux setup remove manaflow-ai/claude-code-composer-controls
 ```
 
 ## Source
