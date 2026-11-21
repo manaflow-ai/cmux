@@ -74,6 +74,16 @@ class Job:
     features: list[str]
     inputs: list[str]
     references: bool = True
+    # Set when another router decides the job: the output its `if:` reads (cmux-next.yml daemon-test: `daemon`).
+    router_output: str = ""
+    # The reuse-key file of the binaries the job fetches instead of building (check_binaries_key).
+    binaries_key: str = ""
+    # Scripts its steps run that its router routes by another rule (another tier it hosts, CI plumbing).
+    routed_elsewhere: list[str] = field(default_factory=list)
+    # Reuse-key inputs no binary it fetches reads (crate test and bench fixtures).
+    key_only: list[str] = field(default_factory=list)
+    # It uses only its crates' built libraries and binaries: their tests, benches and examples are not inputs.
+    binaries_only: bool = False
 
 
 @dataclass
@@ -97,7 +107,9 @@ def load_map(text: str) -> tuple[list[str], list[Job]]:
         for job_id, spec in entry["jobs"].items():
             jobs.append(Job(workflow, job_id, spec.get("name", job_id), list(spec.get("crates", [])),
                             list(spec.get("features", [])), list(entry.get("inputs", [])) + list(spec.get("inputs", [])),
-                            spec.get("compile_only") is not True))
+                            spec.get("compile_only") is not True, spec.get("router_output", ""),
+                            spec.get("binaries_key", ""), list(spec.get("routed_elsewhere", [])),
+                            list(spec.get("key_only", [])), spec.get("binaries_only") is True))
     return list(data.get("workspace_inputs", [])), jobs
 
 
@@ -117,21 +129,23 @@ class Graph:
         self.jobs = jobs
         self._inputs: dict[tuple[str, str], list[str]] = {}
         self._packages: list[str] | None = None
-        self._crates: dict[tuple[str, tuple[str, ...], bool], set[str]] = {}
+        self._crates: dict[tuple[str, tuple[str, ...], bool, bool], set[str]] = {}
 
     def inputs(self, job: Job) -> list[str]:
         key = (job.workflow, job.id)
         if key not in self._inputs:
             found = set(self.workspace_inputs) | set(job.inputs)
             for crate in job.crates:
-                found |= self.crate(crate, tuple(job.features), job.references)
+                found |= self.crate(crate, tuple(job.features), job.references and not job.binaries_only,
+                                    job.binaries_only)
             self._inputs[key] = sorted({self.outside_submodule(entry) for entry in found})
         return self._inputs[key]
 
-    def crate(self, crate: str, features: tuple[str, ...], references: bool = True) -> set[str]:
-        key = (crate, features, references)
+    def crate(self, crate: str, features: tuple[str, ...], references: bool = True, binaries: bool = False) -> set[str]:
+        key = (crate, features, references, binaries)
         if key not in self._crates:
-            self._crates[key] = set(cargo_test_verdict.tested_crate_inputs(self.tree, crate, features, references))
+            self._crates[key] = set(cargo_test_verdict.tested_crate_inputs(self.tree, crate, features, references,
+                                                                           binaries))
         return self._crates[key]
 
     def outside_submodule(self, path: str) -> str:
@@ -158,11 +172,16 @@ class Graph:
         return self._packages
 
     def unknown(self, path: str) -> bool:
-        if not under(path, WORKSPACE) or path.endswith(DOC_SUFFIXES):
-            return False
-        if any(under(path, d) for d in self.packages() if d != WORKSPACE):
-            return False
-        return not any(under(path, entry) for job in self.jobs for entry in self.inputs(job))
+        return unplaced(path, self.packages(), (entry for job in self.jobs for entry in self.inputs(job)))
+
+
+def unplaced(path: str, packages, entries) -> bool:
+    """PATH is under cmux-tui/, in none of PACKAGES and under none of ENTRIES (every job's inputs), and not a doc."""
+    if not under(path, WORKSPACE) or path.endswith(DOC_SUFFIXES):
+        return False
+    if any(under(path, d) for d in packages if d != WORKSPACE):
+        return False
+    return not any(under(path, entry) for entry in entries)
 
 
 def route(tree: git_tree.GitTree | None, changed: list[str] | None, *, event: str = "pull_request",
@@ -301,9 +320,88 @@ def job_block(text: str, job_id: str) -> str | None:
     return "\n".join(line for line in match.group(1).splitlines() if not line.lstrip().startswith("#"))
 
 
+@dataclass
+class Placement:
+    """One job's inputs and where every cmux-tui path falls, read once at a commit: for a router outside this file
+    (scripts/ci/cmux_next_route.py's daemon tier), which asks it about many changes."""
+    inputs: list[str]
+    packages: list[str]
+    every_input: list[str]
+
+    def unknown(self, path: str) -> bool:
+        """Graph.unknown: a path the graph cannot place, which runs the job."""
+        return unplaced(path, self.packages, self.every_input)
+
+
+def placement(job_id: str, tree: git_tree.GitTree, root: Path = ROOT, map_text: str | None = None) -> Placement:
+    """JOB_ID's Placement at TREE's commit, with the map read from ROOT (or MAP_TEXT). Raises git_tree.Unreadable
+    (ValueError on a manifest it cannot parse, KeyError on a job the map lacks) when the graph cannot be read: run the
+    job then."""
+    workspace_inputs, jobs = load_map(map_text if map_text is not None else (root / MAP).read_text(encoding="utf-8"))
+    job = next((j for j in jobs if j.id == job_id), None)
+    if job is None:
+        raise KeyError(f"{MAP} lists no job {job_id}")
+    graph = Graph(tree, workspace_inputs, jobs)
+    return Placement(graph.inputs(job), graph.packages(),
+                     sorted({entry for other in jobs for entry in graph.inputs(other)}))
+
+
+def key_entries(text: str) -> list[str]:
+    """The paths of a reuse-key file (`TYPE PATH` lines; a tree as DIR/), without the ones the current key version
+    leaves out (scripts/ci/cmux_tui_tree_key.py V1_ONLY_INPUTS)."""
+    found = []
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) != 2 or line.startswith("#") or tuple(parts) in V1_ONLY_KEY_INPUTS:
+            continue
+        found.append(parts[1] + ("/" if parts[0] == "tree" else ""))
+    return found
+
+
+V1_ONLY_KEY_INPUTS = frozenset({("gitlink", "ghostty")})
+
+
+def named_by_rust(graph: Graph) -> set[str]:
+    """Every file outside its crate that some cmux-tui package's sources name (include_str!, a "../" fixture)."""
+    found: set[str] = set()
+    for package in graph.packages():
+        if package == WORKSPACE:
+            continue
+        try:
+            found |= {entry for entry in graph.crate(package, (), True) if not under(entry, WORKSPACE)}
+        except git_tree.Unreadable:
+            continue
+    return found
+
+
+def check_binaries_key(graph: Graph, job: Job) -> list[str]:
+    """A job that fetches binaries built under a reuse key (`binaries_key`) instead of building them is affected by
+    every key input outside the crate graph: a build recipe, a profile, a gitlink. Each must be one of its inputs,
+    unless it is a file a cmux-tui crate's source names (a fixture or an embedded file: the graph places it, and
+    only for the crates that name it)."""
+    entries = key_entries(graph.tree.text(job.binaries_key))
+    inputs = graph.inputs(job)
+    named = None
+    problems = []
+    for entry in entries:
+        if under(entry, WORKSPACE) or any(under(entry.rstrip("/"), i) for i in inputs + job.key_only):
+            continue
+        if any(under(crate, entry.rstrip("/")) for crate in job.crates):
+            continue  # a crate of the job (first-party-apps/cloud/server): the graph reads what of it is built
+        if named is None:
+            named = named_by_rust(graph)
+        if entry in named:
+            continue
+        problems.append(f'{MAP}: "{entry}" is in {job.binaries_key} (the key of the binaries {job.name} fetches) '
+                        f"but not among its inputs: add it to the job's inputs")
+    return problems
+
+
 # A script or local action a job's steps run: an input of the job that its crates do not name.
 JOB_REFERENCE = re.compile(r"(?<![\w/.-])(?:\./)?((?:scripts|\.github/actions|\.github/scripts|tests)/[A-Za-z0-9_./-]*[A-Za-z0-9_])")
 ROUTED_IF = "outputs.{key} != 'false'"
+# A job another router decides reads that router's output (Job.router_output).
+ROUTER_IF = "outputs.{key} == 'true'"
 
 
 def is_directory(tree: git_tree.GitTree, entry: str) -> bool:
@@ -364,8 +462,12 @@ def check(root: Path, tree: git_tree.GitTree) -> list[str]:
     - its workflow's trigger, when it filters by `paths:` (push and pull_request alike), lists every input of the job:
       a path filter that misses an input never starts the job its change can break (hq
       docs/handbook/test-input-outside-the-path-filter.md); `affected_jobs.py paths --workflow WF` prints them;
-    - the workflow has the job, and the job's `if:` reads the router's output for it (`outputs.KEY != 'false'`);
-    - every script, test or local action its steps name is one of its inputs."""
+    - the workflow has the job, and the job's `if:` reads the router's output for it (`outputs.KEY != 'false'`), or
+      the output of the router that decides it (`router_output`: `outputs.KEY == 'true'`);
+    - every script, test or local action its steps name is one of its inputs, or one its router routes by another
+      rule (`routed_elsewhere`);
+    - a job that fetches binaries built under a reuse key (`binaries_key`) holds every key input outside the crate
+      graph (check_binaries_key)."""
     workspace_inputs, jobs = load_map((root / MAP).read_text(encoding="utf-8"))
     graph = Graph(tree, workspace_inputs, jobs)
     problems = []
@@ -379,20 +481,28 @@ def check(root: Path, tree: git_tree.GitTree) -> list[str]:
             for entry in inputs:
                 probe = entry.rstrip("/") + "/x" if is_directory(tree, entry) else entry
                 if not any(glob_matches(glob, probe) for glob in globs):
-                    problems.append(f'{job.workflow}: the {event} paths miss "{entry}"'
-                                    f'{"/**" if probe != entry else ""}, an input of {job.name}')
+                    problems.append(f'{job.workflow}: the {event} paths miss "{entry.rstrip("/")}'
+                                    f'{"/**" if probe != entry else ""}", an input of {job.name}')
         block = job_block(text, job.id)
         if block is None:
             problems.append(f"{job.workflow} has no job {job.id} ({MAP} routes it)")
             continue
         if_line = next((line for line in block.splitlines() if line.startswith("    if:")), "")
-        if ROUTED_IF.format(key=output_key(job.id)) not in if_line:
+        if job.router_output:
+            if ROUTER_IF.format(key=job.router_output) not in if_line:
+                problems.append(f"{job.workflow}: job {job.id}'s `if:` does not read its router's "
+                                f"`outputs.{job.router_output} == 'true'`")
+        elif ROUTED_IF.format(key=output_key(job.id)) not in if_line:
             problems.append(f"{job.workflow}: job {job.id}'s `if:` does not read the router's "
                             f"`outputs.{output_key(job.id)} != 'false'`")
         problems += tree_result_problems(job, block)
+        if job.binaries_key:
+            problems += check_binaries_key(graph, job)
         for named in sorted(set(JOB_REFERENCE.findall(block))):
             if tree.resolve(named) is None:
                 continue  # a path the job writes or a test binary's name, not a file of the tree
+            if any(under(named, step) for step in job.routed_elsewhere):
+                continue
             if not any(under(named, entry) for entry in inputs):
                 problems.append(f"{job.workflow}: job {job.id} runs {named}, which is not among its inputs: add it to "
                                 f"the job's inputs in {MAP}")
