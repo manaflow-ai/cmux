@@ -1282,11 +1282,11 @@ impl Hub {
         // session-info title can still win before the cheap completion is spent.
         let delivers_context = control != Control::Web
             && blocks.iter().any(|b| b.pointer("/_meta/acpmux/contextSource").is_some());
+        let person = super::prompt_sender::person_turn(&run, provenance.as_ref());
         // Only a person's own turn makes a recap worth asking for (`away_recap.rs`).
-        self.recap_turn_started(
-            session,
-            super::prompt_sender::person_turn(&run, provenance.as_ref()),
-        );
+        self.recap_turn_started(session, person);
+        // A host below the level suggests a next prompt after any turn unless told (`host_level.rs`).
+        self.old_host_suggestions(session, &child, &agent_sid, person).await;
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
@@ -2249,6 +2249,9 @@ impl Hub {
         let asked_option = (m == method::SESSION_SET_CONFIG_OPTION)
             .then(|| super::full_access_bound::asked_option(&params))
             .flatten();
+        if m == method::SESSION_SET_CONFIG_OPTION {
+            self.person_set_suggestions(session, &params);
+        }
         let res = match child.request(m, params).await {
             Ok(v) => v,
             Err(mut e) => {
