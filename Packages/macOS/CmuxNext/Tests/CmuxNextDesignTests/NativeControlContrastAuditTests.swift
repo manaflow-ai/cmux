@@ -185,29 +185,28 @@ import CmuxNextDesignTokens
         container.layoutSubtreeIfNeeded()
         for view in allViews(container) { view.viewDidChangeEffectiveAppearance(); view.needsDisplay = true }
         container.layoutSubtreeIfNeeded()
-        let drawn = try #require(container.bitmapImageRepForCachingDisplay(in: container.bounds))
-        container.cacheDisplay(in: container.bounds, to: drawn)
-        let scale = CGFloat(drawn.pixelsWide) / container.bounds.width
+        let rep = try #require(container.bitmapImageRepForCachingDisplay(in: container.bounds))
+        container.cacheDisplay(in: container.bounds, to: rep)
+        let scale = CGFloat(rep.pixelsWide) / container.bounds.width
         // A headless Mac tags the capture with a generic RGB profile while its bytes hold the sRGB
-        // values (#d93b31 then converts to #e3523f, as if gamma 1.8): read it both as tagged and as
-        // sRGB, and keep the reading that gives the swatch back.
-        func swatchRead(_ rep: NSBitmapImageRep) -> (color: NSColor, drift: CGFloat)? {
-            guard let color = rep.colorAt(x: Int(4 * scale), y: rep.pixelsHigh - Int(4 * scale))?.usingColorSpace(.sRGB) else { return nil }
-            return (color, max(abs(color.redComponent - swatchColor.red), abs(color.greenComponent - swatchColor.green),
-                               abs(color.blueComponent - swatchColor.blue)))
+        // values (#d93b31 then converts to #e3523f, as if gamma 1.8): read each pixel both through
+        // the tag and as raw sRGB samples, and keep the read that gives the swatch back.
+        let swatchAt = (x: Int(4 * scale), y: rep.pixelsHigh - Int(4 * scale))
+        let reads = PixelRead.allCases.compactMap { read in
+            read.color(rep, x: swatchAt.x, y: swatchAt.y).map { (read: read, drift: $0.drift(from: swatchColor)) }
         }
-        let reads = [drawn, drawn.retagging(with: .sRGB)].compactMap { $0 }
-            .compactMap { rep in swatchRead(rep).map { (rep: rep, swatch: $0) } }
-        let best = try #require(reads.min { $0.swatch.drift < $1.swatch.drift })
-        let rep = best.rep
-        #expect(best.swatch.drift < 2.5 / 255, "the capture shifts colors: #d93b31 read back as \(best.swatch.color)")
+        let best = try #require(reads.min { $0.drift < $1.drift })
+        let read = best.read
+        #expect(best.drift < 2.5 / 255, Comment(rawValue: "the capture shifts colors: #d93b31 read back as "
+            + reads.map { "\($0.read): \($0.read.color(rep, x: swatchAt.x, y: swatchAt.y)?.auditHex ?? "-")" }.joined(separator: ", ")
+            + " (rep \(rep.colorSpace.localizedName ?? rep.colorSpaceName.rawValue), \(rep.bitsPerSample) bits, format \(rep.bitmapFormat.rawValue))"))
         return samples.compactMap { sample in
             // The label sits in the middle of the control: its edges are the bezel's border and the ground.
             let frame = sample.view.frame
             let inset = frame.insetBy(dx: min(10, frame.width * 0.2), dy: frame.height * 0.22)
             let top = container.bounds.height - inset.maxY
             // A glyph's few core pixels are its color (WCAG reads a graphic's color, not its antialiased edge).
-            guard let patch = Patch(rep, x: inset.minX * scale, y: top * scale, width: inset.width * scale, height: inset.height * scale,
+            guard let patch = Patch(rep, read: read, x: inset.minX * scale, y: top * scale, width: inset.width * scale, height: inset.height * scale,
                                     percentile: sample.isIcon ? 0.99 : 0.95)
             else { return nil }
             let standard = disabled ? disabledMinimum : sample.isIcon ? iconMinimum : textMinimum
@@ -294,7 +293,7 @@ private struct Patch {
     let ink: ThemeRGB
     let ratio: Double
 
-    init?(_ rep: NSBitmapImageRep, x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat, percentile: Double) {
+    init?(_ rep: NSBitmapImageRep, read: PixelRead, x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat, percentile: Double) {
         let x0 = max(0, Int(x)), y0 = max(0, Int(y))
         let x1 = min(rep.pixelsWide, Int(x + width)), y1 = min(rep.pixelsHigh, Int(y + height))
         guard x1 > x0, y1 > y0 else { return nil }
@@ -302,8 +301,7 @@ private struct Patch {
         var buckets: [Int: (count: Int, sum: (Double, Double, Double))] = [:]
         for py in y0..<y1 {
             for px in x0..<x1 {
-                guard let color = rep.colorAt(x: px, y: py)?.usingColorSpace(.sRGB) else { continue }
-                let rgb = ThemeRGB(red: color.redComponent, green: color.greenComponent, blue: color.blueComponent)
+                guard let rgb = read.color(rep, x: px, y: py) else { continue }
                 pixels.append(rgb)
                 let key = Int(rgb.red * 31) << 10 | Int(rgb.green * 31) << 5 | Int(rgb.blue * 31)
                 let old = buckets[key] ?? (0, (0, 0, 0))
@@ -322,7 +320,35 @@ private struct Patch {
     }
 }
 
+/// How a captured pixel is read as sRGB: through the capture's color space tag, or as its raw samples.
+private enum PixelRead: CaseIterable, CustomStringConvertible {
+    case tagged
+    case rawSamples
+
+    var description: String { self == .tagged ? "tagged" : "raw" }
+
+    func color(_ rep: NSBitmapImageRep, x: Int, y: Int) -> ThemeRGB? {
+        switch self {
+        case .tagged:
+            guard let color = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return nil }
+            return ThemeRGB(red: color.redComponent, green: color.greenComponent, blue: color.blueComponent)
+        case .rawSamples:
+            guard rep.bitsPerSample == 8, rep.samplesPerPixel >= 3, !rep.bitmapFormat.contains(.floatingPointSamples) else { return nil }
+            var samples = [Int](repeating: 0, count: rep.samplesPerPixel)
+            rep.getPixel(&samples, atX: x, y: y)
+            let first = rep.hasAlpha && rep.bitmapFormat.contains(.alphaFirst) ? 1 : 0
+            return ThemeRGB(red: Double(samples[first]) / 255, green: Double(samples[first + 1]) / 255,
+                            blue: Double(samples[first + 2]) / 255)
+        }
+    }
+}
+
 private extension ThemeRGB {
+    /// The largest channel difference from `other`.
+    func drift(from other: ThemeRGB) -> Double {
+        max(abs(red - other.red), abs(green - other.green), abs(blue - other.blue))
+    }
+
     /// `#rrggbb`, for the report.
     var auditHex: String {
         String(format: "#%02x%02x%02x", Int((red * 255).rounded()), Int((green * 255).rounded()), Int((blue * 255).rounded()))
