@@ -287,7 +287,8 @@ class PrAttribution(unittest.TestCase):
         with tempfile.TemporaryDirectory() as repo:
             git_fixture_env.init_repo(repo, "-b", "main")
             env = git_fixture_env.fixture_env()
-            env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@e")
+            env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e", GIT_COMMITTER_NAME="GitHub",
+                       GIT_COMMITTER_EMAIL=ns.GITHUB_COMMITTER)
 
             def g(*args, when=None):
                 e = dict(env, **({"GIT_COMMITTER_DATE": when, "GIT_AUTHOR_DATE": when} if when else {}))
@@ -1141,6 +1142,8 @@ class PublicationReceipt(unittest.TestCase):
         pairs = [(ns.ts(f["feed_at"]), {**f, "confirmed": True, "confirmed_identity": True}) for f in feeds]
         self.assertFalse(ns.covered(rows, pairs, end - 7 * 86400, last + 7200, span))
         self.assertTrue(ns.covered(rows, pairs, end - 7 * 86400, last, span), "a span to the report's end covers it")
+        self.assertTrue(ns.covered(rows, pairs, end - 7 * 86400, last + 0.75, span),
+                        "the span is stored to the second: 14:03:13Z covers a report until 14:03:13.750")
         data = ns.pr_attribution([], ".", run=git, now=last + 7200,
                                  feeds=[{**f, "confirmed": True, "confirmed_identity": True} for f in feeds],
                                  classified=span)
@@ -1173,6 +1176,44 @@ class PublicationReceipt(unittest.TestCase):
         st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=FakeGh(api=api))
         self.assertEqual(st["classified"]["complete"], [[43300000001, 3]])
         self.assertGreaterEqual(st["classified"]["to"], ns.started(r3))
+
+    def test_each_pr_is_counted_once_at_its_github_merge(self):
+        """The readback at 96b7b447: #37003 counted twice, at its GitHub merge b6fff4f6f10 (1,838.5 min) and at the
+        direct follow-up 68216e37903 naming the same number (205.6 min); 77484148ba, a direct pin commit, claimed
+        #46990, which GitHub merged before the window."""
+        with tempfile.TemporaryDirectory() as repo:
+            git_fixture_env.init_repo(repo, "-b", "main")
+            env = git_fixture_env.fixture_env()
+
+            def g(*args, when=None, direct=False):
+                e = dict(env, GIT_AUTHOR_NAME="a", GIT_AUTHOR_EMAIL="a@e",
+                         GIT_COMMITTER_NAME="a" if direct else "GitHub",
+                         GIT_COMMITTER_EMAIL="a@e" if direct else ns.GITHUB_COMMITTER)
+                if when:
+                    e.update(GIT_COMMITTER_DATE=when, GIT_AUTHOR_DATE=when)
+                return subprocess.run(["git", "-C", repo, *args], env=e, check=True, capture_output=True,
+                                      text=True).stdout.strip()
+
+            g("commit", "--allow-empty", "-qm", "start", when="2026-11-17T00:00:00Z")
+            start = g("rev-parse", "HEAD")
+            g("commit", "--allow-empty", "-qm", "cmux Computer Use: a from-scratch engine (#37003)",
+              when="2026-11-18T00:00:00Z")
+            merge = g("rev-parse", "HEAD")
+            g("commit", "--allow-empty", "-qm", "Cloud image computer use: failing tests and probe (#37003)",
+              when="2026-11-19T00:00:00Z", direct=True)
+            follow = g("rev-parse", "HEAD")
+            g("commit", "--allow-empty", "-qm", "cmux-next: pin CCmuxAppFFI (#46990)", when="2026-11-19T01:00:00Z",
+              direct=True)
+            head = g("rev-parse", "HEAD")
+            data = ns.pr_attribution([{"build": "n0", "sha": start, "feed_at": "2026-11-17T01:00:00Z"},
+                                      {"build": "n1", "sha": head, "feed_at": "2026-11-19T02:00:00Z"}], repo, "main",
+                                     now=ns.ts("2026-11-20T00:00:00Z"), window_days=3)
+        rows = {r["sha"]: r for r in data["rows"]}
+        self.assertEqual((rows[merge]["status"], rows[merge]["merge_to_nightly"]), ("attributed", 1560.0))
+        self.assertEqual((rows[follow]["reason"], rows[follow]["canonical_sha"]), (ns.DUPLICATE_PR, merge))
+        self.assertEqual([r["reason"] for r in data["rows"] if r["pr"] == 46990], [ns.DIRECT_PR])
+        self.assertEqual((data["attributed"], data["p50"]), (1, 1560.0), "one PR, one time")
+        self.assertEqual(data["reasons"], {ns.DUPLICATE_PR: 1, ns.DIRECT_PR: 1})
 
 
 if __name__ == "__main__":

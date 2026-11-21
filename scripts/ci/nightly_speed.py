@@ -184,6 +184,12 @@ PR_MERGE_RE = re.compile(r"^Merge pull request #(\d+)\b")
 PR_SUMMARY_ROWS = 20
 PR_SUBJECT_SHOWN = 80
 BEFORE_FEEDS = "before the oldest observed feed"
+# A commit that names a PR number GitHub did not commit (a direct push: a base fix or follow-up carrying the number) is
+# not that PR's landing: only the commit GitHub made for the merge is (committer GITHUB_COMMITTER). Each PR is counted
+# once, at its GitHub merge; the other commits naming it are listed under these reasons, outside the p50/p90.
+GITHUB_COMMITTER = "noreply@github.com"
+DUPLICATE_PR = "commit names a PR counted at its GitHub merge"
+DIRECT_PR = "direct commit names a PR number (no GitHub merge in the window)"
 # The history's feed list (one entry per published nightly: head sha, feed_at, build, sign run) is kept apart from
 # HISTORY_KEEP: every feed of the newest PR_WINDOW_DAYS plus the one just before them, so a busy week (more than 40
 # nightlies) still finds each merge's first feed, and the window is proven covered once that predecessor is held.
@@ -308,13 +314,14 @@ def first_parent_pr_merges(git_dir: str, base_ref: str, since: float,
     walks: List[Tuple[str, Optional[str]]] = [(base_ref, None)]
     while walks:
         tip, stop = walks.pop(0)
-        args = ["log", "--first-parent", "--format=%H%x09%P%x09%ct%x09%s", f"--since-as-filter={iso(since)}", tip]
+        args = ["log", "--first-parent", "--format=%H%x09%P%x09%ct%x09%s%x00%ce", f"--since-as-filter={iso(since)}", tip]
         out = git(git_dir, args + ([f"^{stop}"] if stop else []), run) or ""
         for line in out.splitlines():
             parts = line.split("\t", 3)
             if len(parts) != 4 or not parts[2].isdigit():
                 continue
             sha, parents, stamp, subject = parts
+            subject, _, committer = subject.partition("\0")
             if sha in seen:
                 continue
             seen.add(sha)
@@ -325,7 +332,8 @@ def first_parent_pr_merges(git_dir: str, base_ref: str, since: float,
             if number is None and len(walks) < 50:
                 walks.append((parent_list[1], parent_list[0]))
             rows.append({"sha": sha, "merged_at": iso(float(stamp)), "merged_ts": float(stamp),
-                         "pr": number, "subject": subject})
+                         "pr": number, "subject": subject,
+                         "github": committer.strip() in ("", GITHUB_COMMITTER)})
     rows.sort(key=lambda r: r["merged_ts"], reverse=True)
     return rows
 
@@ -467,12 +475,21 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
         return commit in held[head]
 
     rows: List[Dict[str, Any]] = []
+    # The canonical commit of each PR: its oldest GitHub merge in the window (merges are newest first).
+    canonical: Dict[int, str] = {}
+    for merge in merges:
+        if merge["pr"] is not None and merge.get("github", True):
+            canonical[merge["pr"]] = merge["sha"]
     for merge in merges:
         row: Dict[str, Any] = {"sha": merge["sha"], "pr": merge["pr"], "subject": merge["subject"],
                                "merged_at": merge["merged_at"], "feed_at": None, "feed_sha": None, "build": None,
                                "merge_to_nightly": None, "status": "unattributed", "reason": None}
         if merge["pr"] is None:
             row["reason"] = "no PR number in merge metadata"
+        elif canonical.get(merge["pr"], merge["sha"]) != merge["sha"]:
+            row.update({"reason": DUPLICATE_PR, "canonical_sha": canonical[merge["pr"]]})
+        elif merge["pr"] not in canonical:
+            row["reason"] = DIRECT_PR
         elif feeds and merge["merged_ts"] < feeds[0][0]:
             row["reason"] = BEFORE_FEEDS
         else:
@@ -514,7 +531,7 @@ def covered(rows: List[Dict[str, Any]], feeds: List[Tuple[float, Dict[str, Any]]
     if not sound_span(classified) or not feeds or feeds[0][0] >= since or (ts(classified["from"]) or 0) > since:
         return False
     end = ts(classified["to"]) or 0
-    if end < until:
+    if end < int(until):  # the span is stored to the second
         return False
     return all(e.get("confirmed") and e.get("confirmed_identity") for _, e in feeds) and all(
         (ts(r["feed_at"]) or 0) <= end for r in rows if r["status"] == "attributed")
@@ -1009,7 +1026,8 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
                             if u["sign_run"] not in signed and not superseded_line(u, state["records"])]
     state["new"] = [r["build"] for r in sorted(new_recs, key=lambda r: r["feed_at"])]
     state["new_unpublished"] = [u["sign_run"] for u in new_unp]
-    now = time.time()
+    # Whole seconds: the span's end is stored as iso(now), so a fractional now would read past it (covered).
+    now = float(int(time.time()))
     state["classified"] = classified_span(hist.get("classified"), runs, signed, state, oldest, iso(now), complete)
     state["feeds"] = feed_list((hist.get("feeds") or []) + extra_feeds, state["records"], now)
     if notes:
