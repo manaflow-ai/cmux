@@ -49,6 +49,30 @@ public struct AuthCallbackRouter: Sendable {
         )
     }
 
+    /// The one-time sign-in code from a PKCE callback
+    /// (`<scheme>://auth-callback?code=…`), or `nil` when the URL is not an
+    /// auth callback or carries no well-formed code (43 base64url characters).
+    public func callbackCode(from url: URL) -> String? {
+        guard isAuthCallbackURL(url),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let code = Self.queryValue(named: "code", in: components),
+              code.utf8.count == 43,
+              code.utf8.allSatisfy({ Self.isBase64URLByte($0) }) else {
+            return nil
+        }
+        return code
+    }
+
+    private static func isBase64URLByte(_ byte: UInt8) -> Bool {
+        switch byte {
+        case UInt8(ascii: "A") ... UInt8(ascii: "Z"), UInt8(ascii: "a") ... UInt8(ascii: "z"),
+             UInt8(ascii: "0") ... UInt8(ascii: "9"), UInt8(ascii: "-"), UInt8(ascii: "_"):
+            true
+        default:
+            false
+        }
+    }
+
     private func isAllowedScheme(_ scheme: String?) -> Bool {
         guard let normalized = scheme?.lowercased() else { return false }
         if Self.builtInSchemes.contains(normalized) {

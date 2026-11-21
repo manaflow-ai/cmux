@@ -13,6 +13,29 @@ const NATIVE_SCHEMES = new Set([
   "cmux-next-stable",
 ]);
 
+const NATIVE_APP_NAMES: Record<string, string> = {
+  cmux: "cmux",
+  "cmux-nightly": "cmux NIGHTLY",
+  "cmux-rc": "cmux RC",
+  "cmux-next": "cmux NEXT",
+  "cmux-next-stable": "cmux NEXT Stable",
+  "cmux-next-dev": "cmux NEXT DEV",
+  "cmux-dev": "cmux DEV",
+};
+
+/**
+ * The app a callback scheme opens, as the sign-in confirmation names it
+ * (`cmux-dev-<tag>` is the tagged dev build `cmux DEV <tag>`).
+ */
+export function nativeAppDisplayName(scheme: string): string {
+  const normalized = scheme.trim().toLowerCase();
+  const known = NATIVE_APP_NAMES[normalized];
+  if (known) return known;
+  const tagged = /^cmux-dev-([a-z0-9-]+)$/.exec(normalized);
+  if (tagged) return `cmux DEV ${tagged[1]}`;
+  return normalized || "cmux";
+}
+
 export function nativeCallbackHrefForScheme(scheme: string): string {
   return `${scheme}://${NATIVE_CALLBACK_HOST}`;
 }
