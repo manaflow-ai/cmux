@@ -300,13 +300,17 @@ test("overlapping drops with twin screenshots and folders keep each drop's nativ
 /// A host that keeps each gesture's record of where its files are, dated by the wall clock, and
 /// answers an ask from the newest record made by the ask's `gestureAt`, once (AgentPaneDroppedPaths).
 /// An ask with no `gestureAt` takes the newest record, as the host does for an older page.
+/// It answers only once `open()` runs, so every gesture's record exists before any ask is answered.
 function datedHost(names: string[]) {
   const records: { at: number; kind: DroppedKind; directory: string }[] = [];
+  const gate = Promise.withResolvers<void>();
   return {
     gesture(kind: DroppedKind, directory: string) {
       records.push({ at: Date.now(), kind, directory });
     },
+    open: () => gate.resolve(),
     localPaths: async (kind: DroppedKind, batch: File[], gestureAt?: number) => {
+      await gate.promise;
       let index = records.length - 1;
       while (
         index >= 0 &&
@@ -320,15 +324,11 @@ function datedHost(names: string[]) {
   };
 }
 
+/// Each chip's native path in the composer's order, which is the gestures' order: a path that went
+/// to the other gesture's chip shows as a swap, not only as a missing path.
 const nativePaths = (attachments: ComposerAttachment[]) => ({
-  images: attachments
-    .filter((chip) => chip.kind === "image")
-    .map((chip) => chip.originalPath ?? "")
-    .sort((a, b) => a.localeCompare(b)),
-  links: attachments
-    .filter((chip) => chip.kind === "link")
-    .map((chip) => chip.path ?? "")
-    .sort((a, b) => a.localeCompare(b)),
+  images: attachments.filter((chip) => chip.kind === "image").map((chip) => chip.originalPath ?? ""),
+  links: attachments.filter((chip) => chip.kind === "link").map((chip) => chip.path ?? ""),
 });
 
 // cmux#48809 follow-up: two fast pastes of the same screenshots and folder from different folders.
@@ -364,6 +364,8 @@ test("two fast pastes with twin screenshots each keep their own native paths", a
       await pasteFiles(directories[0]!, 1);
       setSystemTime(new Date(start + 200));
       await pasteFiles(directories[1]!, 2);
+      // Both records exist before either ask is answered: only the gesture's time tells them apart.
+      host.open();
       for (const read of held) read.resolve(new ArrayBuffer(0));
     });
   } finally {
