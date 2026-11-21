@@ -3238,6 +3238,8 @@ export class AcpmuxDirectClient {
       busy: number;
       /// When it was first sent: the liveness probe is timed from the oldest waiting one.
       since: number;
+      /// What it asked: a reply to `_acpmux/status`, which the bridge answers, proves no daemon.
+      method: string;
     }
   >();
   /// A request crossed its progress threshold on an open socket. This is a UI state, never a
@@ -3252,6 +3254,10 @@ export class AcpmuxDirectClient {
   private daemonProbe?: { at: number; id: number };
   /// When the current socket's daemon last proved itself (its open, or its answer to the probe).
   private daemonProvedAt = Date.now();
+  /// The last frame on this socket only the daemon makes: a notification (a chat's events), or a
+  /// result to a request the bridge does not answer itself. A daemon that sends these is alive, if
+  /// slow, whatever its probe is waiting on; host-made error frames and `_acpmux/status` never count.
+  private daemonFrameAt = 0;
   /// The host refused the probe on the current socket (a remote wire): `DAEMON_LIVENESS_GRACE_MS`.
   private daemonProbeRefused = false;
   private daemonLivenessTimer?: ReturnType<typeof setTimeout>;
@@ -5676,6 +5682,7 @@ export class AcpmuxDirectClient {
     this.wire.received(raw, parsed);
     const message = parsed as Reply | Notification | null;
     if (!message) return;
+    if (!stale && this.fromDaemon(message)) this.daemonFrameAt = Date.now();
     if ("id" in message && (typeof message.id === "number" || typeof message.id === "string")) {
       if (!stale && this.daemonProbe?.id === message.id) {
         this.probeAnswered(message);
@@ -7368,6 +7375,7 @@ export class AcpmuxDirectClient {
         busy: send ? 0 : BUSY_TRIES,
         retryable: Boolean(send),
         since: Date.now(),
+        method,
       });
     });
   }
@@ -7427,6 +7435,14 @@ export class AcpmuxDirectClient {
     return Math.max(oldest, this.daemonProvedAt);
   }
 
+  /// Whether `message` is one only the daemon makes (`daemonFrameAt`).
+  private fromDaemon(message: Reply | Notification): boolean {
+    if (!("id" in message) || message.id === undefined || message.id === null) return "method" in message;
+    if (!("result" in message) || message.error) return false;
+    const request = this.pending.get(message.id as number | string);
+    return request !== undefined && request.method !== "_acpmux/status";
+  }
+
   private checkDaemonLiveness(): void {
     const socket = this.socket;
     if (this.closed || this.daemonWaitingSince === undefined || !socket || socket.readyState !== WebSocket.OPEN) {
@@ -7440,6 +7456,13 @@ export class AcpmuxDirectClient {
       if (now - this.daemonLastFrameAt >= AcpmuxDirectClient.DAEMON_LIVENESS_GRACE_MS) {
         return this.daemonGone(socket, now);
       }
+    } else if (probe && this.daemonFrameAt > probe.at) {
+      // Starved is slow, never dead: the daemon sent its own frames after the probe went, so it is
+      // alive and only slow to answer. Its last frame is the proof, and the next probe is timed from
+      // it; the late answer, when it comes, is a stale reply (ask-0e0d5a479b: GUI coordinators cut
+      // while a loaded daemon streamed their chats).
+      this.daemonProvedAt = this.daemonFrameAt;
+      this.daemonProbe = undefined;
     } else if (probe) {
       // The socket stayed open but nothing behind it answered, not even the probe.
       if (now - probe.at >= AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS) return this.daemonGone(socket, now);

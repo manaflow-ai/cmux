@@ -269,6 +269,7 @@ pub(super) fn advertised_capabilities(
         creating_input::CREATING_INPUT_CANCEL_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_FOREGROUND_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_AGENT_CAPABILITY,
+        send_once::SEND_KEY_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,

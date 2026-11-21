@@ -1,5 +1,5 @@
-import CmuxNextAgentActivity
-import CmuxNextDaemon
+public import CmuxNextAgentActivity
+public import CmuxNextDaemon
 
 /// The short id (`a612`) a Chief knows each subagent's workspace by, so Cmd-P finds the
 /// workspace when the person types the id the Chief gave them (Lawrence 2026-10-23, msg 11943).
@@ -10,26 +10,26 @@ import CmuxNextDaemon
 /// this lookup existed as well. An older Chief also put the id in front of the workspace name
 /// (`a345 · task`), which still names it when its session is gone.
 @MainActor
-struct ChiefSubagentIDs {
+public struct ChiefSubagentIDs {
     /// The acpmux lane of a session id, from the Chief's watch or this Mac's.
     private let lane: @MainActor (String) -> AgentActivityLane?
 
-    init(lane: @escaping @MainActor (String) -> AgentActivityLane?) {
+    public init(lane: @escaping @MainActor (String) -> AgentActivityLane?) {
         self.lane = lane
     }
 
     /// Fixed lanes, keyed by session id (tests).
-    init(lanes: [String: AgentActivityLane]) {
+    public init(lanes: [String: AgentActivityLane]) {
         self.init { lanes[$0] }
     }
 
     /// The app's watches: the Chief home's acpmux, where Chiefs run their subagents, then this Mac's.
-    static var live: ChiefSubagentIDs {
+    public static var live: ChiefSubagentIDs {
         ChiefSubagentIDs { AgentLaneStore.chief.lane($0) ?? AgentLaneStore.shared.lane($0) }
     }
 
     /// The subagent id of the workspace named `name` whose agent chat tabs show `chats`, else nil.
-    func id(name: String, chats: [AgentSessionRef]) -> String? {
+    public func id(name: String, chats: [AgentSessionRef]) -> String? {
         for chat in chats {
             if let session = chat.session, let lane = lane(session), let id = Self.id(sessionName: lane.name) { return id }
         }
@@ -38,7 +38,7 @@ struct ChiefSubagentIDs {
 
     /// The `a<N>` of a Chief subagent's session name (`optchat-sub-<home id>-a<N>`, `-<m>` after it
     /// when acpmux deduped the name, `<peer>/` before it for a peer's session), else nil.
-    static func id(sessionName: String) -> String? {
+    public static func id(sessionName: String) -> String? {
         let bare = sessionName.split(separator: "/").last.map(String.init) ?? sessionName
         let parts = bare.split(separator: "-")
         guard parts.count > 3, parts[0] == "optchat", parts[1] == "sub" else { return nil }
@@ -46,7 +46,7 @@ struct ChiefSubagentIDs {
     }
 
     /// The `a<N>` an older Chief put in front of a subagent's workspace name (`a345 · task`), else nil.
-    static func id(workspaceName: String) -> String? {
+    public static func id(workspaceName: String) -> String? {
         let name = workspaceName.drop(while: \.isWhitespace)
         guard let dot = name.range(of: " · ") else { return nil }
         return handle(name[..<dot.lowerBound])
