@@ -5119,8 +5119,6 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         receipt = stall_receipt(target, stall, log, stall_where, plan)
         # Every finished job keeps its result; the stalled and waiting jobs (cancelled by the cancel) run again.
         failed_only = plan is None
-        if plan is not None:
-            before_cancel = open_head_guard(api, target, sleep, log, before_cancel, plan)
         before_cancel = stall_guard(api, target, sleep, log, before_cancel, stall_check, now)
     elif refusal_now:
         # A refused job whose siblings only wait for a runner: the cancel kills no work, so OPEN_HEAD_RULE (which
@@ -6534,6 +6532,13 @@ def stall_move(api: GitHub, target: Target, stalls: Sequence[Stall], *, now: Cal
 
     def first(jobs: Sequence[Mapping[str, Any]], at: dt.datetime) -> str:
         found, blocked = stall_verdict(jobs, at, started)
+        if placement is not None:
+            if any(failover_loses(job, placement) for job in jobs):
+                return "a placement dependent started or cannot be safely re-run"
+            original = {stall.job_id for stall in stalls}
+            if not any(stall.job_id in original and not stall.step and stall.seconds >= OWNED_WAIT_BOUND_SECONDS
+                       for stall in found):
+                return "the original owned wait cleared before the cancel"
         return blocked or ("" if found else "no owned job is stalled any more")
     check: Callable[[Sequence[Mapping[str, Any]], dt.datetime], str] = first
     while True:
