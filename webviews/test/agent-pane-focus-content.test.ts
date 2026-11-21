@@ -180,6 +180,50 @@ await requireBrowserLane("agent-pane-focus-content.test.ts", async () => {
       await page.close();
     });
 
+  // #48590: a click in the composer showed no caret until a click elsewhere and back, or a key. The
+  // agent chat's Chromium page shows in a child window, and the click's key change can bounce: the
+  // cmux window takes the keys back (ChildWindowKeyRule `.unchosenPage`) and the focus model grants
+  // the page again. The page sees its window blur, then focus, right after the press. The blur
+  // released the composer, and the focus that followed was dropped as the press's own activation,
+  // so the click left nothing focused and no caret. A press in the composer put the keyboard there:
+  // the activation after such a bounce gives it back, at once, with the caret where the click set it.
+  for (const signal of ["focusContent", "window focus"] as const)
+    test(`a click in the composer keeps its caret when the window blurs and the click's ${signal} follows`, async () => {
+      const page = await chat();
+      const field = page.locator(".acpmux-composer-prompt [contenteditable]");
+      // A draft, then the composer let go (a click on the transcript), so the next click places
+      // the caret anew: before the draft's first letter.
+      await focusPrompt(page);
+      await page.keyboard.type("hello");
+      await pressBackground(page);
+      await pastClaim(page);
+      expect(await promptFocused(page)).toBe(false);
+      const start = await field.evaluate((node) => {
+        const range = document.createRange();
+        range.setStart(node.querySelector("p")!.firstChild!, 0);
+        range.setEnd(node.querySelector("p")!.firstChild!, 1);
+        const rect = range.getBoundingClientRect();
+        return { x: rect.left + 1, y: (rect.top + rect.bottom) / 2 };
+      });
+      // The press and the bounce reach the page together (see the test above).
+      await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1_000);
+      await page.mouse.click(start.x, start.y);
+      expect(await promptFocused(page)).toBe(true);
+      await page.evaluate(() => window.dispatchEvent(new FocusEvent("blur")));
+      if (signal === "focusContent") expect(await focusContent(page)).toBe(true);
+      else await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
+      expect(await promptFocused(page)).toBe(true);
+      await pastClaim(page);
+      expect(await promptFocused(page)).toBe(true);
+      // The page is the key one again, so the field draws its caret (an inactive page's caret is
+      // transparent, composerStates.css). Read before a key, which marks the page key by itself.
+      expect(await field.evaluate((node) => getComputedStyle(node).caretColor)).not.toBe("rgba(0, 0, 0, 0)");
+      // The caret is where the click set it.
+      await page.keyboard.type("x");
+      expect(await field.evaluate((node) => node.textContent)).toBe("xhello");
+      await page.close();
+    });
+
   test("Escape in an idle composer blurs it, and it stays blurred", async () => {
     const page = await chat();
     await focusPrompt(page);
