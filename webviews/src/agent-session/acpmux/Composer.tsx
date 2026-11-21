@@ -59,6 +59,7 @@ import { FileSearch } from "./FileSearch";
 import { PromptFocusProvider } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { MentionMenu } from "./MentionMenu";
+import { mentionAsk, useExtensionMentionPrefixes, useExtensionMentions } from "./composer/extensionMentions";
 import { markdownOffset, mentionQuery, mentionResults, useMentionSearch } from "./mentionMenuModel";
 import { wantAllSessions } from "./sessionPages";
 import {
@@ -1391,11 +1392,17 @@ function ComposerFrame({
   // follows (cx-ncc.68, mentionItems.ts).
   const chatId = snapshot.summary?.sessionId;
   const otherChats = useMemo(() => hasOtherChats(snapshot.sessions, chatId), [snapshot.sessions, chatId]);
+  // Installed extensions' mention providers (`@pr`), composer/extensionMentions.ts.
+  const mentionPrefixes = useExtensionMentionPrefixes();
   const mentionTyped =
-    !open && !recalling && (searchFiles || otherChats || snapshot.catalog.length > 0) && mentionDismissed !== text
+    !open &&
+    !recalling &&
+    (searchFiles || otherChats || snapshot.catalog.length > 0 || mentionPrefixes.length > 0) &&
+    mentionDismissed !== text
       ? mentionQuery(text, markdownOffset(text, caret))
       : undefined;
   const mentionWord = mentionTyped?.query;
+  const extensionMentions = useExtensionMentions(mentionWord, mentionPrefixes);
   // The @ picker finds any chat by name, not only the first page's: the pane reads the rest once
   // it opens (sessionPages.ts `wantAllSessions`), and follows the list from then on.
   const mentioning = mentionWord !== undefined;
@@ -1408,6 +1415,8 @@ function ComposerFrame({
   const recentScope = searchFiles
     ? recentMentionScope(snapshot.summary?.cwd, snapshot.summary?.peer ?? snapshot.summary?.host)
     : undefined;
+  const mentionProviderAsked =
+    mentionWord !== undefined && mentionAsk(mentionWord, mentionPrefixes).prefix !== undefined;
   const mentions = useMemo(
     () =>
       mentionWord === undefined
@@ -1419,8 +1428,19 @@ function ComposerFrame({
             sessions: snapshot.sessions,
             chatId,
             harnesses: guestHarnesses,
+            extension: extensionMentions,
+            extensionFirst: mentionProviderAsked,
           }),
-    [mentionWord, mentionFiles, snapshot.sessions, guestHarnesses, chatId, recentScope],
+    [
+      mentionWord,
+      mentionFiles,
+      snapshot.sessions,
+      guestHarnesses,
+      chatId,
+      recentScope,
+      extensionMentions,
+      mentionProviderAsked,
+    ],
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
   // chat; it never hints at a file search.
@@ -1428,7 +1448,7 @@ function ComposerFrame({
   // The word's files are still on their way: asked, or about to be once typing settles.
   const mentionPending =
     !!searchFiles && !!mentionWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
-  const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending);
+  const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending, mentionProviderAsked);
   useEffect(() => setMentionActive(undefined), [mentionWord]);
   // `:` and two letters at a word start list emoji by shortcode; a text emoticon (`:)`, `:DD`,
   // `<3`) lists its face; Return or Tab writes the highlighted row, Esc keeps the text (emojiShortcodes.ts).
