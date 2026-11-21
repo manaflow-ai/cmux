@@ -9,7 +9,11 @@ import XCTest
 /// - FEED-14 (landscape): turning the iPhone keeps the event being read where it was; a phone's
 ///   screen stays portrait.
 final class FeedEdgeUITests: XCTestCase {
-    static let removed = "stress-20"
+    /// A terminal ask a few rows down (its swipe actions: Done and Open). The Feed pins its open
+    /// asks first (`pinningNeedsYou`), about 22 of the 60 stress events, so an answer such as
+    /// stress-20 sat past the drags that bring a row to the middle: the test scrolled the asks for
+    /// 30 drags and never reached it.
+    static let removed = "stress-11"
 
     override func setUp() {
         continueAfterFailure = false
@@ -52,8 +56,8 @@ final class FeedEdgeUITests: XCTestCase {
         let before = RowFrames.settled(list, prefix: "feed.row.")
         XCTAssertNotNil(before["feed.row.\(Self.removed)"], "the event is measured: \(before.keys.sorted())")
 
-        // Its swipe actions open (UIKit's trailing actions: Done and Read on an answer).
-        let reads = list.buttons.matching(NSPredicate(format: "label == 'Read' OR label == 'Unread'"))
+        // Its swipe actions open (UIKit's trailing actions: Done and Open on a terminal ask).
+        let reads = list.buttons.matching(NSPredicate(format: "label IN {'Read', 'Unread', 'Done'}"))
         let closedCount = reads.count
         row.swipeLeft()
         XCTAssertTrue(list.buttons["Done"].waitForExistence(timeout: 5) || reads.count > closedCount,
@@ -68,9 +72,9 @@ final class FeedEdgeUITests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground, "no crash")
         let noStale = NSPredicate { _, _ in reads.count == closedCount }
         XCTAssertEqual(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: noStale, object: nil)], timeout: 5), .completed,
-                       "no swipe action stays open for the removed event (Read/Unread buttons: \(closedCount) closed, \(openCount) open, \(reads.count) now)")
+                       "no swipe action stays open for the removed event (Done/Read/Unread swipe buttons: \(closedCount) closed, \(openCount) open, \(reads.count) now)")
         let report = RowFrames.expectGapClosed(before: before, after: after, removed: "feed.row.\(Self.removed)")
-        edgeNote(report + "\nRead buttons closed=\(closedCount) open=\(openCount) after=\(reads.count)", "feed13-frames")
+        edgeNote(report + "\nswipe buttons closed=\(closedCount) open=\(openCount) after=\(reads.count)", "feed13-frames")
 
         // The row now in its place swipes as itself.
         if let next = after.filter({ $0.value.minY >= before["feed.row.\(Self.removed)"]!.minY - RowFrames.shiftBar })
