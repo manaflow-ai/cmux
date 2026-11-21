@@ -1056,7 +1056,11 @@ async fn a_triage_record_lowers_the_held_count_by_the_messages_it_decides() {
             host_seq: None,
         });
     }
-    let opts = PromptOptions { class: Some(PromptClass::Fyi), ..Default::default() };
+    let opts = PromptOptions {
+        agent: Some("runner".into()),
+        class: Some(PromptClass::Fyi),
+        ..Default::default()
+    };
     let body = [json!({"type":"text","text":"runner queued"})];
     assert!(
         hub.hold_surge_message(&session, "first", "cli", &body, &opts, 41_000).unwrap().is_none()
@@ -1080,13 +1084,15 @@ async fn a_triage_record_lowers_the_held_count_by_the_messages_it_decides() {
     assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":0,"needYou":0}));
 }
 
-/// A FYI tool notice of severity `fire` wakes an idle chat outside any surge, at once, while an
-/// ordinary FYI waits for its flush.
+/// A FYI tool notice of severity `fire` wakes an idle chat outside any surge once the wake
+/// debounce has passed, while an ordinary FYI of the same age waits for its flush.
 #[tokio::test]
 async fn a_fire_notice_wakes_an_idle_chat_outside_a_surge_and_an_ordinary_fyi_does_not() {
     for (severity, wakes_now) in [("fire", true), ("warn", false)] {
         let (hub, session) = hub_with_chat(&format!("fire-{severity}"));
-        let mut fyi = item("n1", "t", "watcher", PromptClass::Fyi, now_ms(), "runner down");
+        // Past the wake debounce, well inside the flush.
+        let at = now_ms().saturating_sub(WAKE_DEBOUNCE_MS + 1);
+        let mut fyi = item("n1", "t", "watcher", PromptClass::Fyi, at, "runner down");
         fyi.tool_notice = tool_notice_of(Some(&crate::prompt_provenance::notice(
             &json!({"sender":"watcher","severity":severity,"title":"Runner"}),
             &session.id,
@@ -1095,7 +1101,12 @@ async fn a_fire_notice_wakes_an_idle_chat_outside_a_surge_and_an_ordinary_fyi_do
         session.inbox().items.push(fyi);
         hub.inbox_review(&session);
         let inbox = session.inbox();
-        assert_eq!(inbox.in_flight.is_some(), wakes_now, "{severity}");
+        // A notice went in, or was tried: a hub with no agent refuses it at once, so `in_flight`
+        // alone may come and go (`notice_done`).
+        let tried = inbox.in_flight.is_some()
+            || inbox.refused_at != 0
+            || inbox.items.iter().any(|i| i.noticed || i.answered.is_some());
+        assert_eq!(tried, wakes_now, "{severity}");
         if !wakes_now {
             assert!(inbox.timer.is_some(), "an ordinary FYI waits for its flush");
         }
