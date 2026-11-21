@@ -18,6 +18,16 @@
 //! same tokens, and finds each chat's launch in `run/mcp/<session>.gateway.json` (0600), so a
 //! harness it adopts keeps its tools.
 //!
+//! Taking the same port is the whole of a live chat's tools surviving a restart: a harness reads
+//! the url once, from the `--mcp-config` file its start was given, and a harness whose first
+//! request is refused keeps the server dead for the rest of its life. So the listener is bound
+//! with `SO_REUSEADDR` ([`listen`]): without it on both daemons' listeners the kernel refuses the
+//! bind for as long as the daemon before it leaves accepted connections in `TIME_WAIT`, which on
+//! big-red moved the port on all 5 restarts of 2026-11-21 (39191, 40567, 42169, 36503, 43087,
+//! 38379). The kept port is also waited for ([`KEEP_PORT_FOR`]) while the predecessor finishes
+//! exiting, and a port the gateway still had to give up is served too as soon as it frees
+//! ([`adopt`]), for the chats whose url names it.
+//!
 //! acpmux's own tool servers (`tools_mcp.rs` `SERVERS`) run in the daemon too, at
 //! `/mcp/<session>/tools` with the same token: each of their upstream specs in the chat's
 //! `cmux mcp serve` names it (`http`, [`tools_endpoint`]), so that server starts no
@@ -58,6 +68,17 @@ pub const IDLE_STOP: Duration = Duration::from_secs(10 * 60);
 pub const OFF_ENV: &str = "ACPMUX_MCP_GATEWAY";
 /// How often the idle servers are looked for.
 const REAP_EVERY: Duration = Duration::from_secs(30);
+/// How long a start waits for the port the daemon before it served. A handover overlaps: the
+/// predecessor is asked to stop and is still listening, or has just exited and its accepted
+/// connections are closing. Every chat alive across the restart holds that port in its config, so
+/// waiting here is what keeps their tools; the daemon's own readiness waits with it.
+const KEEP_PORT_FOR: Duration = Duration::from_secs(5);
+/// How often the kept port is tried inside [`KEEP_PORT_FOR`].
+const KEEP_PORT_EVERY: Duration = Duration::from_millis(100);
+/// After a start had to take a free port anyway: how long it keeps trying to serve the kept one
+/// too, and how often ([`adopt`]).
+const ADOPT_FOR: Duration = Duration::from_secs(5 * 60);
+const ADOPT_EVERY: Duration = Duration::from_millis(250);
 /// A started server's replayed `initialize`.
 const START_TIMEOUT: Duration = Duration::from_secs(20);
 /// After its stdin closes, a server has this long to end its own children and exit.
@@ -105,6 +126,9 @@ struct Listener {
 
 pub struct Gateway {
     port: u16,
+    /// Every port this gateway answers on: its own, and any it adopted from the daemon before it
+    /// ([`adopt`]). A request's `Host` must name one of them.
+    ports: Mutex<Vec<u16>>,
     key: Vec<u8>,
     home: PathBuf,
     /// The daemon socket the tool servers' calls go to.
@@ -198,12 +222,75 @@ pub async fn bind(home: &Path, idle: Duration, reap_every: Duration) -> Result<A
     bind_at(home, crate::config::socket_path(), idle, reap_every).await
 }
 
+/// How long a start works at keeping the port the daemon before it served: the constants, except
+/// in tests.
+#[derive(Debug, Clone, Copy)]
+pub struct Waits {
+    /// [`KEEP_PORT_FOR`].
+    pub keep_port_for: Duration,
+    /// [`KEEP_PORT_EVERY`].
+    pub keep_port_every: Duration,
+    /// [`ADOPT_FOR`].
+    pub adopt_for: Duration,
+    /// [`ADOPT_EVERY`].
+    pub adopt_every: Duration,
+}
+
+impl Default for Waits {
+    fn default() -> Self {
+        Waits {
+            keep_port_for: KEEP_PORT_FOR,
+            keep_port_every: KEEP_PORT_EVERY,
+            adopt_for: ADOPT_FOR,
+            adopt_every: ADOPT_EVERY,
+        }
+    }
+}
+
+/// A loopback listener on `port` (`0`: a free one) with `SO_REUSEADDR`, which the next daemon of
+/// this home needs to take the same port: the kernel refuses a bind over a `TIME_WAIT` connection
+/// unless both that connection's listener and this one asked to reuse the address, and a restart
+/// leaves one per chat that had made a request. Nothing else may take the port meanwhile: on
+/// Linux only `SO_REUSEPORT`, which this never sets, lets two listeners share one.
+fn listen(port: u16) -> std::io::Result<TcpListener> {
+    let socket = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None)?;
+    socket.set_reuse_address(true)?;
+    socket.set_nonblocking(true)?;
+    socket.bind(&std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, port)).into())?;
+    socket.listen(1024)?;
+    TcpListener::from_std(std::net::TcpListener::from(socket))
+}
+
+/// [`listen`] on `port`, tried every `every` until `how_long` is up: a handover's predecessor is
+/// still listening, or still closing its connections, for a moment after it was asked to stop.
+async fn keep_port(port: u16, how_long: Duration, every: Duration) -> std::io::Result<TcpListener> {
+    let deadline = Instant::now() + how_long;
+    loop {
+        match listen(port) {
+            Ok(listener) => return Ok(listener),
+            Err(e) if Instant::now() >= deadline => return Err(e),
+            Err(_) => tokio::time::sleep(every).await,
+        }
+    }
+}
+
 /// [`bind`], its tool servers' calls going to the daemon at `socket`.
 pub async fn bind_at(
     home: &Path,
     socket: PathBuf,
     idle: Duration,
     reap_every: Duration,
+) -> Result<Arc<Gateway>> {
+    bind_with(home, socket, idle, reap_every, Waits::default()).await
+}
+
+/// [`bind_at`] with the port waits as `waits` instead of the constants.
+pub async fn bind_with(
+    home: &Path,
+    socket: PathBuf,
+    idle: Duration,
+    reap_every: Duration,
+    waits: Waits,
 ) -> Result<Arc<Gateway>> {
     let path = home.join("run").join("mcp-gateway.json");
     let kept: Option<Listener> =
@@ -216,16 +303,26 @@ pub async fn bind_at(
             key
         }
     };
+    // The port a chat alive across this start holds in its config: it is kept if at all possible.
+    let mut lost = None;
     let listener = match kept.as_ref().map(|k| k.port).filter(|p| *p != 0) {
-        Some(port) => match TcpListener::bind(("127.0.0.1", port)).await {
-            Ok(l) => l,
-            Err(e) => {
-                // A harness the next daemon adopts loses its tools until it starts again.
-                tracing::warn!("mcp gateway: port {port} is taken ({e}); taking a free one");
-                TcpListener::bind(("127.0.0.1", 0)).await?
+        Some(port) => {
+            match keep_port(port, waits.keep_port_for, waits.keep_port_every).await {
+                Ok(l) => l,
+                Err(e) => {
+                    // Every chat from before this start fails on that url until the gateway can
+                    // serve it again (`adopt`) or the chat's agent restarts.
+                    tracing::warn!(
+                        "mcp gateway: port {port} stayed taken for {:?} ({e}); taking a free one \
+                         and serving {port} too once it frees",
+                        waits.keep_port_for
+                    );
+                    lost = Some(port);
+                    listen(0)?
+                }
             }
-        },
-        None => TcpListener::bind(("127.0.0.1", 0)).await?,
+        }
+        None => listen(0)?,
     };
     let port = listener.local_addr()?.port();
     let record = Listener { port, key: encode_hex(&key) };
@@ -233,6 +330,7 @@ pub async fn bind_at(
         .context("mcp gateway: keeping the port and key")?;
     let gateway = Arc::new(Gateway {
         port,
+        ports: Mutex::new(vec![port]),
         key,
         home: home.to_owned(),
         socket,
@@ -242,7 +340,36 @@ pub async fn bind_at(
     });
     gateway.scope.spawn_named("mcp gateway listener", serve(gateway.clone(), listener));
     gateway.scope.spawn_named("mcp gateway idle stop", reap(gateway.clone(), reap_every));
+    if let Some(port) = lost {
+        gateway.scope.spawn_named(
+            "mcp gateway adopt",
+            adopt(gateway.clone(), port, waits.adopt_for, waits.adopt_every),
+        );
+    }
     Ok(gateway)
+}
+
+/// Serves `port`, the one the daemon before this gateway served, as soon as it frees, for the
+/// chats whose kept url names it: they cannot be given another one. Up to `how_long`, tried every
+/// `every`.
+async fn adopt(gateway: Arc<Gateway>, port: u16, how_long: Duration, every: Duration) {
+    let listener = match keep_port(port, how_long, every).await {
+        Ok(listener) => listener,
+        Err(e) => {
+            tracing::warn!(
+                "mcp gateway: 127.0.0.1:{port} stayed taken for {how_long:?} ({e}); a chat from \
+                 before this daemon reaches its tools again only once its agent restarts \
+                 (`acpmux session restart <id>`)"
+            );
+            return;
+        }
+    };
+    gateway.ports.lock().unwrap_or_else(PoisonError::into_inner).push(port);
+    tracing::info!(
+        "mcp gateway also serving 127.0.0.1:{port}, the port the daemon before it had: the chats \
+         that started before the restart reach their tools again"
+    );
+    gateway.scope.spawn_named("mcp gateway listener (adopted)", serve(gateway.clone(), listener));
 }
 
 /// A Claude Code config with each gateway server put back as the stdio launch it stands for, for
@@ -286,6 +413,23 @@ pub fn launch_path(home: &Path, session: &str) -> PathBuf {
 impl Gateway {
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    /// Every port it answers on: [`Gateway::port`], and any [`adopt`] added.
+    pub fn ports(&self) -> Vec<u16> {
+        self.ports.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Whether a request's `Host` names this gateway: loopback, at one of its own ports. No page
+    /// in a browser can be served by a name that reaches it.
+    fn serves_host(&self, host: &str) -> bool {
+        let Some((name, port)) = host.rsplit_once(':') else {
+            return false;
+        };
+        if !matches!(name, "127.0.0.1" | "localhost" | "[::1]") {
+            return false;
+        }
+        port.parse::<u16>().is_ok_and(|p| self.ports().contains(&p))
     }
 
     pub fn endpoint(&self, session: &str) -> Endpoint {
@@ -720,12 +864,7 @@ async fn connection(gateway: Arc<Gateway>, mut stream: TcpStream) {
             return;
         }
     };
-    let host_ok = request.header("host").is_some_and(|h| {
-        let port = gateway.port;
-        h == format!("127.0.0.1:{port}")
-            || h == format!("localhost:{port}")
-            || h == format!("[::1]:{port}")
-    });
+    let host_ok = request.header("host").is_some_and(|h| gateway.serves_host(h));
     if !host_ok || request.header("origin").is_some() {
         let _ = respond(&mut stream, "403 Forbidden", "text/plain", b"forbidden").await;
         return;
