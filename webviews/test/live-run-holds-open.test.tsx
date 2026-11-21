@@ -43,7 +43,7 @@ const command = (line: string, status = "completed"): AcpmuxActivity => ({
   text: line,
   tool: { id: line, title: line, kind: "execute", status, command: line, startedAt: clock, endedAt: clock + 500 },
 });
-const thought = (text: string): AcpmuxActivity => ({ kind: "thought", text, at: clock, endedAt: clock + 2_000 });
+const thought = (text: string): AcpmuxActivity => ({ kind: "thought", text, startedAt: clock, endedAt: clock + 2_000 });
 
 /// A running turn: the prompt, then the run the agent works in: a thought, a command, a thought, and a
 /// second command, `second` its status. `reply`: the agent's next paragraph under it.
