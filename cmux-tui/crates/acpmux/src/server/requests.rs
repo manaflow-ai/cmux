@@ -801,8 +801,6 @@ async fn dispatch_brief(
     )
 }
 
-/// The tag the chat lists hide a session by (webviews sessionList.ts `ARCHIVED_TAG`).
-const ARCHIVED_TAG: &str = "archived";
 // The tag that marks a side chat, valued with its chat's session (`hub/btw.rs`).
 
 /// An agent a remote device drives (its caller session's turn, or its last one, is a Web turn,
@@ -2291,7 +2289,6 @@ async fn dispatch_request_with_identity(
                 reply_reader: reader.as_ref().map(super::prompt_cancel::ReaderGone::subscribe),
                 inbox: inbox_on
                     && crate::hub::inbox::plain_send(
-                        conn.origin == super::Origin::Peer,
                         flag("teamMessage") == Some(true),
                         supersede_set,
                         flag("steerOnly") == Some(true),
@@ -2680,6 +2677,10 @@ async fn dispatch_request_with_identity(
             ))
         }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
+        "_acpmux/move_targets" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
+            "_acpmux/move_targets answers on this machine's unix socket only",
+        )),
+        "_acpmux/move_targets" => Ok(super::move_targets::targets(hub, &params)),
         "_acpmux/directories" => {
             let home = dirs::home_dir().unwrap_or_default();
             let base = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| home.clone());
@@ -2966,14 +2967,14 @@ async fn dispatch_request_with_identity(
                 .get("archived")
                 .and_then(Value::as_bool)
                 .ok_or_else(|| RpcError::invalid_params("archived must be true or false"))?;
-            if archived {
-                let mut set = serde_json::Map::new();
-                set.insert(ARCHIVED_TAG.into(), Value::String(crate::store::now_ms().to_string()));
-                hub.set_tags_answered(&s, Some(&set), &[], None)?;
-            } else {
-                hub.set_tags_answered(&s, None, &[ARCHIVED_TAG.to_owned()], None)?;
+            // `hub/inactive_archive.rs`: nothing logged when nothing changes (an unarchive of a
+            // chat that is not archived); `changed` says which.
+            let changed = hub.set_archived(&s, archived, false)?;
+            let mut summary = hub.session_summary(&s);
+            if let Some(obj) = summary.as_object_mut() {
+                obj.insert("changed".into(), Value::Bool(changed));
             }
-            Ok(hub.session_summary(&s))
+            Ok(summary)
         }
         // A true archive: the chat's log goes into one compressed file (`hub/cold_archive.rs`).
         method::MUX_COLD_ARCHIVE => {
@@ -4111,6 +4112,9 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
         && conn.auth.peer_daemon()
         && params.pointer("/_meta/acpmux/githubBroker").and_then(Value::as_bool) == Some(true);
     conn.client_requests.lends_github.store(lends, Ordering::SeqCst);
+    // Opt-in: a client that does not ask hears every peer row's `session_changed`, as before.
+    let batches = params.pointer("/_meta/acpmux/peerRowBatches").and_then(Value::as_bool);
+    conn.peer_row_batches.store(batches == Some(true), Ordering::SeqCst);
 }
 
 /// `agent/credentials.update {sessionId, env}` (`hub/credentials.rs`): this socket's, never an
