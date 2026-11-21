@@ -66,8 +66,8 @@ Setups: a whole cmux customization in one git repo (theme, sidebar, shortcuts, v
 
 A setup repo has cmux-setup.json at its root; its page is cmux.com/setups/OWNER/REPO.
 Setups stack like dotfiles: each one is a layer of its own, the newest on top. Its views go to
-~/.config/cmux/setups/setup-OWNER-NAME (the app local/setup-OWNER-NAME), never into your own
-~/.config/cmux/customize, and what you change after installing stays above it. Removing one takes off
+setups/setup-OWNER-NAME in cmux's config folder (the app local/setup-OWNER-NAME), never into your own
+customize folder, and what you change after installing stays above it. Removing one takes off
 only its layer: the other setups and your own changes stay as they are.
 --yes skips the question (needed with --json or without a terminal). Every verb takes --json.
 

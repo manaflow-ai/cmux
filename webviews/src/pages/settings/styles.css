@@ -300,6 +300,13 @@ mark {
   overflow-wrap: anywhere;
 }
 
+/* Update Automatically: the shared switch before its words (HarnessesCard). */
+.harness-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
 /* A provider's accounts under its harness row (ProviderAccounts). */
 .harness-accounts {
   gap: var(--ds-space-2);
@@ -2581,33 +2588,6 @@ button.menu-disclosure {
   min-width: 0;
 }
 
-/* Each Personalization panel has a heading and links to its related categories. */
-.personalization-part {
-  margin-bottom: var(--ds-space-6);
-}
-
-.personalization-part-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--ds-space-2) var(--ds-space-4);
-  margin: 0 0 var(--ds-space-5);
-}
-
-.personalization-part-header .section-title {
-  margin: 0;
-}
-
-.personalization-more {
-  color: var(--muted-text);
-}
-
-.personalization-more-links {
-  display: flex;
-  gap: var(--ds-space-1);
-}
-
 /* Settings > Models (ModelsCard.tsx): three groups, each title with its help and an optional + on the
    trailing edge; connection rows with a grip, the provider's mark, a switch and an overflow menu. */
 .models {
@@ -2738,7 +2718,7 @@ button.menu-disclosure {
   font-size: var(--text-detail);
 }
 
-/* Personalization > Customization Library (CustomizeLibraryCard): one row per entry, top first.
+/* Appearance > Customization Library (CustomizeLibraryCard): one row per entry, top first.
    The mark is the entry's swatches (its thumbnail is its colors and keys, never a capture); its
    order buttons show on hover and focus like the menu rows'; an entry that is off reads dimmed. */
 .library-mark {

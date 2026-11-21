@@ -70,7 +70,7 @@ jobs:
       deployment: false
     name: Watch the probe and switch overflow
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing
+    runs-on: cmux-gcp-repair-jit-x64 # owned one-job JIT VM: runs while Blacksmith starts nothing; GitHub-hosted never starts here
     timeout-minutes: 25
     permissions:
       actions: write
