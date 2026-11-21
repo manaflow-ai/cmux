@@ -225,5 +225,31 @@ struct CloudGitHubReposTests {
         #expect(CloudOwnerAPIClient.completion(status: 429, body: Data()) == .noAnswer)
     }
 
+    @Test func aRefusedCompletionKeepsTheAPIsReasonUnlessItIsTheExpiredState() {
+        #expect(CloudOwnerAPIClient.refusalReason(body: Self.body(#"{"error":{"code":"integration.state_invalid","message":"state expired"}}"#)) == nil)
+        #expect(CloudOwnerAPIClient.refusalReason(body: Self.body(#"{"error":{"code":"integration.forbidden","message":" Only an owner of acme can connect GitHub. "}}"#))
+                == "Only an owner of acme can connect GitHub.")
+        #expect(CloudOwnerAPIClient.refusalReason(body: Self.body(#"{"error":{"code":"integration.forbidden"}}"#)) == nil)
+        #expect(CloudOwnerAPIClient.refusalReason(body: Self.body("not json")) == nil)
+    }
+
+    @MainActor @Test func theLastAnswerStaysOnTheChangesUntilTheNextOneOrANewConnect() {
+        let changes = CloudGitHubChanges()
+        changes.record(.refused, reason: nil)
+        #expect(changes.refusal == CloudGitHubChanges.Refusal(reason: nil))
+        #expect(changes.count == 1)
+        changes.record(.refused, reason: "Only an owner can connect.")
+        #expect(changes.refusal?.reason == "Only an owner can connect.")
+        changes.forgetRefusal()
+        #expect(changes.refusal == nil)
+        changes.record(.refused, reason: nil)
+        changes.record(.connected, reason: nil)
+        #expect(changes.refusal == nil, "a connection clears the last refusal")
+        changes.record(.refused, reason: nil)
+        changes.record(.noAnswer, reason: nil)
+        #expect(changes.refusal == nil, "a lost answer proves nothing, and the person is told nothing wrong")
+        #expect(changes.count == 6)
+    }
+
     static let statePayload = "eyJ0ZWFtIjoidGVhbV8wMTIzNDU2Nzg5YWJjZGVmMDEyMyIsInJldCI6ImNtdXgtZGV2LXg6Ly9pbnRlZ3JhdGlvbi9jb21wbGV0ZSJ9"
 }
