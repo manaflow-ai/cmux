@@ -82,6 +82,14 @@ public actor CloudCarrierServe {
     private var ownershipObserver: (@Sendable (CloudCallerOwnership) async -> Void)?
     /// The last ownership hand-off: each waits for the one before, so answers arrive in order.
     private var publishing: Task<Void, Never>?
+    /// The connection that dialed the machine ahead of its session (``dialAhead(limit:keep:)``): held open so the
+    /// serve keeps the session it made, and dropped at the first connect, a park, a stop, the supervisor's exit or
+    /// the end of its keep, whichever is first.
+    private var ahead: CloudCarrierAhead?
+    /// The end of ``ahead``'s keep; cancelled when the connection is dropped first.
+    private var aheadKeep: Task<Void, Never>?
+    /// The dials ahead that wait for the serve's answer.
+    private var dials: [UInt64: AsyncStream<Bool>.Continuation] = [:]
 
     private static let closed = CloudLinkError.disconnected(reason: "closed")
     private static let exited = CloudLinkError.helperNotRunning(reason: "cmux carrier serve exited")
@@ -104,6 +112,9 @@ public actor CloudCarrierServe {
     /// the refusal the session's own connect reads stays.
     public func socketPath(keepingRefusal: Bool = false) async throws -> String {
         guard !stopped, !connector.isFenced else { throw Self.closed }
+        // A client connects: the connection that dialed ahead goes. A dial still running for it goes on in the
+        // serve, which does not read the connection until its stream is open, and this client's connection joins it.
+        dropAhead()
         lastWaiter &+= 1
         let waiter = lastWaiter
         return try await withCheckedThrowingContinuation { continuation in
@@ -115,16 +126,74 @@ public actor CloudCarrierServe {
         }
     }
 
+    /// Dials the machine ahead of its session, once the serve is up: one connection on the serving socket, which
+    /// the serve answers by dialing the machine (its first accepted connection), so the session's own first
+    /// connection only opens a stream on the session held. The connection carries nothing and stays open for `keep`,
+    /// so the serve keeps that session; the first connect drops it. True when the dial connected within `limit`;
+    /// false when it was refused, the serve is not up or is stopped, or `limit` passed first (the dial then goes on
+    /// in the serve, and a session that connects meanwhile joins it).
+    public func dialAhead(limit: Duration, keep: Duration) async -> Bool {
+        guard !stopped, !connector.isFenced, supervisor != nil, ahead == nil, let connection = CloudCarrierAhead(path: socket) else { return false }
+        ahead = connection
+        lastWaiter &+= 1
+        let dial = lastWaiter
+        let (answers, sink) = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .bufferingNewest(1))
+        dials[dial] = sink
+        let answer = await Self.race(limit) { () async -> Bool in
+            for await answer in answers { return answer }
+            return false
+        }
+        dials[dial] = nil
+        // Dropped while it dialed (a connect, a park, a stop, the supervisor's exit): nothing of this dial is held.
+        guard ahead === connection else { return answer ?? false }
+        if answer == false {
+            // Refused: the serve closed its end, and there is no session to keep.
+            dropAhead()
+        } else {
+            // task-owner: aheadKeep; one deadline, cancelled when the connection is dropped first
+            aheadKeep = Task { [weak self] in
+                // wakeup-allow: one-shot end of the keep of the connection held ahead
+                try? await Task.sleep(for: keep)
+                if !Task.isCancelled { await self?.keepEnded(connection) }
+            }
+        }
+        return answer ?? false
+    }
+
+    /// The keep of `connection` ended: dropped, so the serve closes the session once it sat idle.
+    private func keepEnded(_ connection: CloudCarrierAhead) {
+        if ahead === connection { dropAhead() }
+    }
+
+    private func dropAhead() {
+        ahead = nil
+        aheadKeep?.cancel()
+        aheadKeep = nil
+    }
+
+    /// The serve's answer to the dials ahead that wait: `dialed`, or false once it is refused or gone.
+    private func answerDials(_ dialed: Bool) {
+        for sink in dials.values {
+            sink.yield(dialed)
+            sink.finish()
+        }
+        dials = [:]
+    }
+
     /// Ends the serve for good: its child stops, and every connect waiting resumes closed.
     public func stop() {
         stopped = true
         refusal = Self.closed
+        dropAhead()
+        answerDials(false)
         supervisor?.writeInput(line: #"{"stop":true}"#)
         supervisor?.closeInput()
     }
 
     /// Ends the child while the machine is paused; the next connect starts a fresh one.
     public func park() {
+        dropAhead()
+        answerDials(false)
         if supervisor?.writeInput(line: #"{"park":true}"#) == false {
             Self.log.error("carrier supervise \(self.connector.dial.machine, privacy: .public): the park did not reach the supervisor")
         }
@@ -179,8 +248,11 @@ public actor CloudCarrierServe {
         } else if let state = object["state"] as? [String: Any] {
             refusal = stopped ? Self.closed : (state["refusal"] as? [String: Any]).flatMap(CloudLinkError.init(wire:))
             answer = (state["answer"] as? String).flatMap(CloudCallerOwnership.init(rawValue:))
+            // A refusal, or a connected answer, is the dial's outcome; a state with neither says nothing yet.
+            if refusal != nil { answerDials(false) } else if answer != nil { answerDials(true) }
         } else if let word = object["publish"] as? String, let caller = CloudCallerOwnership(rawValue: word) {
             answer = caller
+            answerDials(true)
             let (previous, observer) = (publishing, ownershipObserver)
             // task-owner: one observer call, after the one before it
             publishing = Task {
@@ -269,6 +341,8 @@ public actor CloudCarrierServe {
         if let held { connector.streams?.release(held) }
         held = nil
         answer = nil
+        dropAhead()
+        answerDials(false)
         let ended = stopped ? Self.closed : Self.supervisorExited(status: status, stderr: process.stderrText)
         if stopped {
             Self.log.notice("carrier supervise \(self.connector.dial.machine, privacy: .public): exited with status \(status) after a stop")
