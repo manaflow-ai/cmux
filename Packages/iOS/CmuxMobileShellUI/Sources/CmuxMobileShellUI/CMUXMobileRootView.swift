@@ -309,6 +309,9 @@ struct CMUXMobileRootView: View {
             \.mobileChildPresentationProvider,
             MobileChildPresentationProvider(resolve: childSheetPresentation)
         )
+        .transformEnvironment(\.mobileWhatsNewPresentationPolicy) { policy in
+            policy = demonstrationPolicy.whatsNewPresentation(policy)
+        }
         .sheet(
             isPresented: rootPresentationBinding,
             onDismiss: rootPresentationDidDismiss
@@ -901,7 +904,8 @@ struct CMUXMobileRootView: View {
     /// higher-priority pairing or explicit-attach flow owns a modal slot.
     private func presentAutoConnectMigrationIfEligible() {
         guard isAutoConnectMigrationReady,
-              rootPresentation.isIdle else {
+              rootPresentation.isIdle,
+              demonstrationPolicy.allowsPairing else {
             return
         }
         handleRootPresentation(.presentAutoConnectMigrationIfIdle)
@@ -1093,11 +1097,11 @@ struct CMUXMobileRootView: View {
             initialStage: initialOnboardingStage,
             context: .firstRun,
             isAuthenticated: isAuthenticated,
-            connectionPhase: onboardingDemonstrationPolicy.connectionPhase(onboardingConnectionPhase),
-            connectionMethod: onboardingDemonstrationPolicy.connectionMethod(
+            connectionPhase: demonstrationPolicy.connectionPhase(onboardingConnectionPhase),
+            connectionMethod: demonstrationPolicy.connectionMethod(
                 connectionMethodStore?.method ?? .automatic
             ),
-            offersConnectionMethodChoice: onboardingDemonstrationPolicy.offersConnectionMethodChoice,
+            offersConnectionMethodChoice: demonstrationPolicy.offersConnectionMethodChoice,
             keepAwakeOffer: OnboardingKeepAwakeOfferSource().offer(from: store),
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onEnablePush: { await pushCoordinator.enable(trigger: "onboarding") },
@@ -1116,8 +1120,8 @@ struct CMUXMobileRootView: View {
     }
 
     #if os(iOS) && DEBUG
-    private var previewDemonstrationPolicy: OnboardingDemonstrationAccountPolicy {
-        OnboardingDemonstrationAccountPolicy(
+    private var previewDemonstrationPolicy: MobileDemonstrationAccountPolicy {
+        MobileDemonstrationAccountPolicy(
             isDemonstrationAccount: UITestConfig.onboardingDemonstrationAccountEnabled
         )
     }
@@ -1157,9 +1161,10 @@ struct CMUXMobileRootView: View {
     }
 
     /// The App Review demonstration account's Demo Mac stands in for a live
-    /// Mac during onboarding, and its connect page offers no Tailscale choice.
-    private var onboardingDemonstrationPolicy: OnboardingDemonstrationAccountPolicy {
-        OnboardingDemonstrationAccountPolicy(
+    /// Mac during onboarding, and the account never reaches pairing or a
+    /// Tailscale choice anywhere in the app.
+    private var demonstrationPolicy: MobileDemonstrationAccountPolicy {
+        MobileDemonstrationAccountPolicy(
             isDemonstrationAccount: authManager.currentUser?.demonstrationContentEnabled == true
         )
     }
@@ -1445,12 +1450,18 @@ struct CMUXMobileRootView: View {
     /// for LAN, WireGuard, and other networks Iroh may not find fast enough.
     /// Only the Tailscale pairing-code scanner keeps a method gate.
     private var addComputerAction: (() -> Void)? {
-        showAddDevice
+        #if os(iOS)
+        guard demonstrationPolicy.allowsPairing else { return nil }
+        #endif
+        return showAddDevice
     }
 
     /// Scanner entrypoints use the same gate as the manual pairing form.
     private var pairingScannerAction: (() -> Void)? {
         guard allowsManualPairing else { return nil }
+        #if os(iOS)
+        guard demonstrationPolicy.allowsPairing else { return nil }
+        #endif
         return showPairingScanner
     }
 
@@ -1487,6 +1498,9 @@ struct CMUXMobileRootView: View {
     /// Routes pairing and attach approval through the platform's root presenter.
     private func presentPairing(_ presentation: PairingPresentation) {
         #if os(iOS)
+        // The App Review demonstration account has no Mac and no Tailscale;
+        // every pairing entry point ends here.
+        guard demonstrationPolicy.allows(presentation) else { return }
         addDeviceSheetDetent = .large
         handleRootPresentation(.presentPairing(presentation))
         #else
