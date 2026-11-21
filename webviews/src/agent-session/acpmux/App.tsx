@@ -12378,8 +12378,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // the stack's top and the transcript's rows over it travel together, instead of the stack dropping
   // its height in one frame (gallery `agent-pane.bottom-stack` trust-fold-*). While it folds it draws
   // the question as it last stood, inert, and holds no keys.
-  const trustShown = useRef(trustAsk.ask);
-  if (trustOpen) trustShown.current = trustAsk.ask;
+  const trustLast = useRef(trustAsk.ask);
+  useLayoutEffect(() => {
+    if (trustOpen) trustLast.current = trustAsk.ask;
+  });
+  const trustShown = trustOpen ? trustAsk.ask : trustLast.current;
   const trustFold = useFold(trustOpen, () => !trustOpen, false);
   const liveBottomAsk = Boolean(
     trustOpen || hasPermissionGroups || individualPermission || childAsk || secret || toolCards.length > 0,
@@ -12464,10 +12467,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           asker={turnActions.asker}
         />
       )}
-      {trustFold.present && trustShown.current && (
+      {trustFold.present && trustShown && (
         <div ref={trustFold.ref} className="cv-fold acpmux-trust-fold" inert={!trustOpen || undefined}>
           <TrustAsk
-            ask={trustShown.current}
+            ask={trustShown}
             agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
             onTrust={trustAsk.trust}
             onTrustRepo={trustAsk.trustRepo}
