@@ -20,6 +20,6 @@ permissions: {}
 
 jobs:
   registration:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX == 'on' && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     steps:
       - run: echo "The Cloud harness start matrix is implemented on feat-cmux-next; dispatch it with --ref feat-cmux-next"

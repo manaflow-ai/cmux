@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   validate-release:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX == 'on' && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     permissions:
       contents: read
     outputs:
@@ -154,7 +154,7 @@ jobs:
       - rust-preflight
       - typescript-preflight
       - python-preflight
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX == 'on' && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     permissions:
       actions: read
       contents: read
@@ -356,7 +356,7 @@ jobs:
       - typescript-preflight
       - python-preflight
       - registry-preflight
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX == 'on' && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     permissions:
       actions: read
       contents: read
@@ -1547,7 +1547,7 @@ jobs:
       - publish-python-wheel
       - publish-python-sdist
       - verify-stable-provenance
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX == 'on' && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     permissions: {}
     steps:
       - name: Summarize release

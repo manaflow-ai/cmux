@@ -28,7 +28,7 @@ concurrency:
 jobs:
   version:
     name: derive relay version and dist-tag
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX == 'on' && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
