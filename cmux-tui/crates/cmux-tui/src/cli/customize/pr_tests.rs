@@ -139,9 +139,7 @@ fn refresh_turns_off_a_layer_on_another_web_abi() {
         ] {
             assert_eq!(
                 step(&code, &layer, &published, None),
-                Step::Off(
-                    "no longer applies: its web part needs web ABI 3; this app has 4".into()
-                ),
+                Step::Off("no longer applies: its web part needs web ABI 3; this app has 4".into()),
                 "{published:?}"
             );
         }
