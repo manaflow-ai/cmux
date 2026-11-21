@@ -143,8 +143,11 @@ export function FolderPopover({
   const rows = useMemo(() => shownRepoRows(groups, query, expanded), [groups, query, expanded]);
   // A repository's chevron also offers New worktree, so every git repository has one, not only those
   // with worktrees already. Never while words are typed (the rows are search results then).
-  const opensUnder = (group: (typeof groups)[number]) =>
-    group.members.length > 1 || (onNewWorktree !== undefined && folderRepo(group.lead) !== undefined);
+  // A folder the host named no repository for still makes one when it is the chat's own folder, as
+  // before: the host says so if it is not a git checkout.
+  const makesWorktree = (group: (typeof groups)[number]) =>
+    onNewWorktree !== undefined && (folderRepo(group.lead) !== undefined || group.lead.id === current);
+  const opensUnder = (group: (typeof groups)[number]) => group.members.length > 1 || makesWorktree(group);
   // Each shown folder's row: a repository's (`group` only) or a worktree's under it, and the New
   // worktree row (by its value) that ends an open repository's worktrees, with the folder it is made from.
   const { shown, newWorktrees, listed } = useMemo(() => {
@@ -158,14 +161,15 @@ export function FolderPopover({
         byValue.set(worktree.id, { group, worktree });
         order.push(worktree.id);
       }
-      if (onNewWorktree && !query.trim() && expanded.has(group.key) && folderRepo(group.lead)) {
+      const makes = onNewWorktree !== undefined && (folderRepo(group.lead) !== undefined || group.lead.id === current);
+      if (!query.trim() && expanded.has(group.key) && makes) {
         const value = NEW_WORKTREE + group.key;
         made.set(value, { group, from: (group.members.find(isMainCheckout) ?? group.lead).id });
         order.push(value);
       }
     }
     return { shown: byValue, newWorktrees: made, listed: order };
-  }, [rows, onNewWorktree, query, expanded]);
+  }, [rows, onNewWorktree, query, expanded, current]);
   const toggle = (key: string, open: boolean) =>
     setExpanded((before) => {
       if (before.has(key) === open) return before;
@@ -575,16 +579,11 @@ export function FolderPopover({
             if (event.key === "Tab" && highlighted.current?.startsWith("\u0000")) event.preventDefault();
             // Shift-Return on a folder: the chat also sees it (its row's +), the menu still open.
             const folder = highlighted.current;
-            if (
-              event.key === "Enter" &&
-              event.shiftKey &&
-              folder &&
-              (shown.has(folder) || folder === typedPath) &&
-              addsExtra(folder)
-            ) {
+            if (extra && event.key === "Enter" && event.shiftKey && folder && (shown.has(folder) || folder === typedPath)) {
+              // Never a pick: on the chat's own folder or one already added it does nothing.
               event.preventDefault();
               event.preventBaseUIHandler?.();
-              extra?.onAdd(folder);
+              if (addsExtra(folder)) extra.onAdd(folder);
             }
           }}
           label={t("composer.folderSearch")}
@@ -649,12 +648,13 @@ const GITHUB_REPO = "\u0000github:repo:";
 function AlsoSee({ name, onAdd }: { name: string; onAdd(): void }) {
   const label = t("composer.alsoSeeFolder", { name });
   return (
+    // Out of the option's accessible name: Shift-Return is its keyboard way, the tooltip names it.
     <span
       className="acpmux-location-also"
-      role="button"
-      aria-label={label}
+      aria-hidden="true"
       // tooltip-allow: an icon-only control names what it does
       title={label}
+      data-label={label}
       data-also-see=""
       onPointerDown={(event) => {
         event.preventDefault();

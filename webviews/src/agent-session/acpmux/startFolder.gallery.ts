@@ -10,7 +10,7 @@ const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a
 
 const WORKTREE = "/Users/you/.cmux/worktrees/cmux/fix-sidebar";
 
-/// A new chat in a project folder: New Worktree is an action in its folder menu (cx-lyqio.2).
+/// A new chat in a project folder: New Worktree is under its folder's chevron in the folder menu (cx-lyqio.2, cmux#48299).
 // A new chat (no session yet: the summary's empty id matches the snapshot's), so it offers New Worktree.
 const inProject = noChat([session({ sessionId: "cmux", title: "Fix the sidebar", cwd: "/Users/you/src/cmux" })], {
   sessionId: "",
@@ -19,7 +19,9 @@ const inProject = noChat([session({ sessionId: "cmux", title: "Fix the sidebar",
 
 const newWorktree: Play = async (ctx) => {
   await ctx.click({ selector: '[aria-label="Folder"]' });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu .acpmux-location-worktrees"));
+  // cmux#48299: New Worktree is under the folder's chevron.
+  await ctx.click({ selector: ".acpmux-location-menu .acpmux-location-worktrees" });
   await ctx.click({ role: "option", name: "New Worktree" });
 };
 

@@ -288,11 +288,11 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.waitForFunction(
       () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 3,
     );
-    // The actions under the folders: one way to pick a folder, no Add project beside it.
+    // The actions under the folders: one way to pick a folder, no Add project nor New Worktree beside it (cmux#48299).
     const actions = await page
       .locator(".acpmux-location-menu .acpmux-location-action")
       .evaluateAll((all) => all.map((row) => (row.textContent ?? "").trim()));
-    expect(actions).toEqual(["Add folder…", "New Worktree"]);
+    expect(actions).toEqual(["Add folder…"]);
     // ↓ moves the highlight from the first match to the next; Escape closes back to the strip.
     const highlighted = () =>
       page.evaluate(() =>

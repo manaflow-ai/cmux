@@ -96,7 +96,7 @@ const press = async (element: HTMLElement) => {
 const face = () => dom.window.document.querySelector(".acpmux-location-button")?.textContent ?? "";
 
 const alsoSee = (name: string) =>
-  dom.window.document.querySelector<HTMLElement>(`[data-also-see][aria-label="Also let the chat see ${name}"]`);
+  dom.window.document.querySelector<HTMLElement>(`[data-also-see][data-label="Also let the chat see ${name}"]`);
 
 // cmux#48299: a folder the chat also sees is added from its own row (its +), not from a second Add
 // folder row under the list.
