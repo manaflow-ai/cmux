@@ -1226,7 +1226,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("environment: ci-overflow-switch", self.text)
 
     def test_never_reads_a_lane_switch(self) -> None:
-        code = "\n".join(line for line in self.text.splitlines() if not line.lstrip().startswith("#"))
+        # The switch never reads or changes a lane switch. One exception, read-only and outside the switch: the
+        # pools step hands CI_OWNED_POOL_SLOTS to expected_wait.py, which judges an owned family's expected wait
+        # by its slots (cmuxterm-hq#16113 step 3) and never writes it.
+        [pools] = [step for step in yaml.safe_load(self.text)["jobs"]["watch"]["steps"] if step.get("id") == "pools"]
+        self.assertEqual(pools["env"].get("CI_OWNED_POOL_SLOTS"), "${{ vars.CI_OWNED_POOL_SLOTS }}")
+        slots_line = "          CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}"
+        self.assertEqual(self.text.splitlines().count(slots_line), 1)
+        code = "\n".join(line for line in self.text.splitlines()
+                         if not line.lstrip().startswith("#") and line != slots_line)
         for name in LANE_SWITCHES:
             self.assertNotIn(name, code)
 
