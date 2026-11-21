@@ -65,6 +65,7 @@ extension UpdaterService {
     /// Restart to Update (the Update Ready card, the footer pill): install and relaunch, at once
     /// or when the download finishes. `willRelaunch` records keep sessions.
     public func installClicked() {
+        if relaunchIntoInstalledBuild() { return }
         syncFlowPhase()
         log.append("restart to update clicked (\(flow.phase))")
         #if DEBUG || CMUX_BENCH_HOOKS

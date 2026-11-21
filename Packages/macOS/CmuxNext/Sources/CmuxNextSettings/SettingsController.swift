@@ -456,6 +456,8 @@ public final class SettingsController {
         let themes = ThemeFilesRead(effective.root, configDirectory: configDirectory, managed: Set(effective.managedKeys.keys),
                                     lastGood: lastGoodTheme, listing: listingThemes)
         effective.root = themes.applied
+        // The sidebar look fills only what every layer above leaves unset (SidebarLookPreset).
+        effective.root = SidebarLookPreset.filling(effective.root)
         var snapshot = CmuxConfigSnapshot.parse(
             effective.root, validDensities: valid.densities, validMetrics: valid.metrics, configDirectory: configDirectory
         )
