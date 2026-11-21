@@ -426,7 +426,8 @@ class PipelineTest(unittest.TestCase):
                  "app-platform.yml": "app-platform", "ci-artifact-transport.yml": "ci-artifact-transport",
                  "cloud-vm-image-lock.yml": "cloud-vm-image-lock", "mux.yml": "mux",
                  "automation-bench.yml": "automation-bench",
-                 "repair-nightly-appcast-content-types.yml": "repair-nightly-appcast"}
+                 "repair-nightly-appcast-content-types.yml": "repair-nightly-appcast",
+                 "cmux-next-remote-daemon.yml": "remote-daemon-packaging"}
         steps = ci_steps.load().steps
         for name, step in moved.items():
             with self.subTest(workflow=name):
@@ -434,6 +435,10 @@ class PipelineTest(unittest.TestCase):
                 self.assertNotIn("pull_request", wf.get("on", wf.get(True)), "the step table runs it")
                 self.assertEqual(steps[step].job, "linux")
         self.assertNotIn("validate", yaml.safe_load((ROOT / ".github/workflows/labels-sync.yml").read_text())["jobs"])
+        # coderouter-ci.yml also ran for pull requests into main, which the table does not serve: it keeps those.
+        wf = yaml.safe_load((ROOT / ".github/workflows/coderouter-ci.yml").read_text())
+        self.assertEqual(wf.get("on", wf.get(True))["pull_request"]["branches-ignore"], ["feat-cmux-next"])
+        self.assertEqual(steps["coderouter"].job, "linux")
         # These workflows keep the pull_request trigger for a macOS job; the moved Linux job skips it, and
         # a pull request runs it as a step of the table with the same command.
         jobs = {("agent-brands.yml", "drift"): "agent-brands-drift",
@@ -450,9 +455,11 @@ class PipelineTest(unittest.TestCase):
         # The tools come from [tools], only for a routed step that lists them; nothing else puts bun or node
         # on the linux job's PATH, and the runner image is not assumed to hold either.
         table = ci_steps.load()
-        self.assertEqual(sorted(table.tools), ["bun", "node"])
+        self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust"])
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock"}
-        wants_node = {"ci-artifact-worker"}
+        wants_node = {"ci-artifact-worker", "coderouter"}
+        self.assertEqual(table.steps["coderouter"].needs, ("rust", "node"))
+        self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
         for name, step in table.steps.items():
             if step.job != "linux":
                 continue

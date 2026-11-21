@@ -1,7 +1,10 @@
 name: coderouter CLI
 
+# A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `coderouter`
+# (pr-pipeline.yml); a pull request into any other base still runs them here.
 on:
   pull_request:
+    branches-ignore: [feat-cmux-next]
     paths:
       - "coderouter/**"
       - ".github/workflows/coderouter-*.yml"
