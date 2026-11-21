@@ -27,6 +27,9 @@ public struct ChiefViewsHost {
     var revealTab: @MainActor (String) -> Bool
     /// Opens a pull request on Home's right side.
     var openURL: @MainActor (URL) -> Void
+    /// The reader of `appearance.agentGlow` on these machines (``followingAgentGlow(_:theme:)``),
+    /// alive as long as the app keeps this host.
+    var agentGlow: AgentGlowReader?
 
     public init(workspaces: @escaping @MainActor () -> [(WorkspaceModel, DaemonService)],
                 machineName: @escaping @MainActor (DaemonService) -> String?,

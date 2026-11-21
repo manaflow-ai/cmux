@@ -141,7 +141,9 @@ pub async fn run(query: String, json_out: bool) -> Result<()> {
 /// One session as `resolve` prints it.
 fn card(s: &Value) -> String {
     let text = |k: &str| s[k].as_str().unwrap_or_default().to_owned();
-    let mut out = format!("{}  ({}, {})\n", text("name"), text("host"), text("status"));
+    let name = text("name");
+    let name = s["handle"].as_str().map_or_else(|| name.clone(), |h| format!("{h} · {name}"));
+    let mut out = format!("{name}  ({}, {})\n", text("host"), text("status"));
     let mut row = |label: &str, value: String| {
         if !value.is_empty() {
             out.push_str(&format!("  {label:<9} {value}\n"));
