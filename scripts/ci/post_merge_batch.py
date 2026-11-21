@@ -1,0 +1,521 @@
+#!/usr/bin/env python3
+"""The post-merge batch tier: the base's deferred checks run on the clock, not once per merge.
+
+RFD 0023 (cmuxterm-hq docs/rfd/0023-ci-10x.md), Leo's third direction: "everything else runs
+once post-merge, batched". About every two hours (the window is one variable,
+vars.NEXT_POST_MERGE_WINDOW_MINUTES, default 120) the newest feat-cmux-next tip gets one run of
+every suite in .github/post-merge-batch.json, covering every squash commit since the last tested
+tip. A job that was green on the last tip where it ran and is red now is bisected over the
+covered commits, running only that job, and the culprit gets a revert pull request through
+normal landing (never merged here).
+
+Subcommands (each run by .github/workflows/cmux-next-post-merge.yml, except tick):
+
+  tick    main's schedule shim (cmux-next-post-merge-dispatch.yml) runs this every 30 min:
+          "is there an untested tip?" in two API calls. It dispatches a batch run when the tip
+          is not the newest batch run's commit, no batch run is in flight, and the newest one
+          started at least a window ago. Nothing waits or loops; a skipped tick costs seconds.
+  plan    which suites this run calls: on a batch run, every suite whose paths the commits since
+          the last batch run touched (all of them when there is none); on a probe, the one suite.
+  judge   after the suites: on a batch run, each red job that was green on the newest earlier
+          batch run where it ran starts a bisect (first a probe on this commit, which a flake
+          fails to repeat); on a probe run, the next probe, or the culprit.
+  revert  opens the revert pull request for a culprit (the workflow's last step).
+
+The bisect state travels in the probe run's inputs (suite, job, sha, good, bad), so a chain of
+probe runs needs no store: each probe's judge dispatches the next. Probes of a range of N
+commits take about log2(N) runs of one job; a range of one commit needs none.
+"""
+
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+MANIFEST = ROOT / ".github" / "post-merge-batch.json"
+WORKFLOW = "cmux-next-post-merge.yml"
+DEFAULT_WINDOW_MINUTES = 120
+# A batch run's run-name starts with this; a probe's with PROBE (the workflow's run-name).
+BATCH = "batch"
+PROBE = "probe"
+# Runs read back to find the last batch run where a job ran (one page; about 2.5 days at 12 a day,
+# plus probes).
+RUNS_PAGE = 60
+# At most this many new reds start a bisect from one batch run; the rest are named only.
+MAX_CHAINS = 4
+# A probe run with no verdict (cancelled, runner lost) is tried again this many times.
+MAX_PROBE_RETRIES = 1
+SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+PR_RE = re.compile(r"\(#(\d+)\)\s*$")
+
+
+# ---------------------------------------------------------------------------- GitHub and git
+
+
+def gh_api(path: str, *, method: str = "GET", fields: dict | None = None) -> object:
+    """One GitHub API call through gh (GH_TOKEN). Fields go as JSON on stdin."""
+    argv = ["gh", "api", "-X", method, path]
+    data = None
+    if fields is not None:
+        argv += ["--input", "-"]
+        data = json.dumps(fields)
+    out = subprocess.run(argv, input=data, capture_output=True, text=True)
+    if out.returncode:
+        raise RuntimeError(f"gh api {method} {path}: {(out.stderr or out.stdout).strip()[-400:]}")
+    return json.loads(out.stdout) if out.stdout.strip() else None
+
+
+def git(*argv: str, cwd: Path | None = None) -> str:
+    out = subprocess.run(["git", *argv], cwd=cwd or ROOT, capture_output=True, text=True)
+    if out.returncode:
+        raise RuntimeError(f"git {' '.join(argv[:3])}: {(out.stderr or out.stdout).strip()[-400:]}")
+    return out.stdout
+
+
+def first_parent_range(good: str, bad: str, *, cwd: Path | None = None) -> list[str]:
+    """The commits after good up to bad, oldest first, along the branch's first parents."""
+    out = git("rev-list", "--first-parent", "--reverse", f"{good}..{bad}", cwd=cwd)
+    return [line for line in out.split() if SHA_RE.match(line)]
+
+
+def changed_files(base: str, head: str, *, cwd: Path | None = None) -> list[str]:
+    return [line for line in git("diff", "--no-renames", "--name-only", base, head, cwd=cwd).splitlines() if line]
+
+
+# ---------------------------------------------------------------------------- the manifest
+
+
+@dataclass
+class Suite:
+    key: str
+    workflow: str
+    paths: list[str]
+    jobs: dict[str, str] = field(default_factory=dict)  # job id -> display name
+
+    def reached(self, files: list[str]) -> bool:
+        if not self.paths:
+            return True
+        return any(fnmatch.fnmatchcase(f, p) or (p.endswith("/**") and f.startswith(p[:-2])) for f in files for p in self.paths)
+
+    def job_id(self, display: str) -> str:
+        """The `only` value for a red job's display name (its name inside the suite; a matrix leg's
+        name is the job's name and its matrix values in parentheses). Empty: run the whole suite."""
+        for job_id, name in self.jobs.items():
+            if display == name or display.startswith(name + " ("):
+                return job_id
+        return ""
+
+
+def load_manifest(path: Path = MANIFEST) -> dict[str, Suite]:
+    data = json.loads(path.read_text())
+    return {
+        key: Suite(key=key, workflow=spec["workflow"], paths=list(spec.get("paths") or []), jobs=dict(spec.get("jobs") or {}))
+        for key, spec in data["suites"].items()
+    }
+
+
+# ---------------------------------------------------------------------------- runs
+
+
+def is_batch(run: dict) -> bool:
+    return (run.get("display_title") or run.get("name") or "").split(" ", 1)[0] == BATCH
+
+
+def list_runs(repo: str, branch: str, api=gh_api) -> list[dict]:
+    """This workflow's runs on branch, newest first (one page)."""
+    data = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&per_page={RUNS_PAGE}")
+    runs = list((data or {}).get("workflow_runs") or [])
+    runs.sort(key=lambda r: (r.get("created_at") or "", r.get("id") or 0), reverse=True)
+    return runs
+
+
+def run_jobs(repo: str, run_id: int, api=gh_api) -> list[dict]:
+    jobs: list[dict] = []
+    page = 1
+    while True:
+        data = api(f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=100&page={page}") or {}
+        batch = list(data.get("jobs") or [])
+        jobs += batch
+        if len(batch) < 100 or page >= 5:
+            return jobs
+        page += 1
+
+
+def suite_verdicts(jobs: list[dict], suites: dict[str, Suite]) -> dict[str, tuple[str, str]]:
+    """The finished suite jobs of a run: full job name -> (suite key, conclusion). A called
+    workflow's job is named '<caller job name> / <its own name>'; the caller job's name is the
+    suite key."""
+    out: dict[str, tuple[str, str]] = {}
+    for job in jobs:
+        name = job.get("name") or ""
+        head, sep, _ = name.partition(" / ")
+        if not sep or head not in suites:
+            continue
+        if job.get("status") != "completed":
+            continue
+        out[name] = (head, job.get("conclusion") or "")
+    return out
+
+
+def parse_time(value: str) -> datetime:
+    return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+
+
+# ---------------------------------------------------------------------------- tick
+
+
+def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int) -> tuple[str, str]:
+    """(action, reason): action is 'dispatch' or 'skip'."""
+    batches = [r for r in runs if is_batch(r)]
+    live = [r for r in batches if r.get("status") != "completed"]
+    if live:
+        return "skip", f"batch run {live[0].get('id')} is {live[0].get('status')} on {str(live[0].get('head_sha'))[:11]}"
+    if not batches:
+        return "dispatch", "no batch run yet"
+    newest = batches[0]
+    if newest.get("head_sha") == tip:
+        return "skip", f"tip {tip[:11]} is tested (run {newest.get('id')})"
+    age = (now - parse_time(newest["created_at"])).total_seconds() / 60
+    if age < window_minutes:
+        return "skip", f"last batch run {newest.get('id')} started {age:.0f} min ago, window {window_minutes} min"
+    return "dispatch", f"tip {tip[:11]} is untested; last batch run {newest.get('id')} on {str(newest.get('head_sha'))[:11]}, {age:.0f} min ago"
+
+
+def window_minutes(value: str | None) -> int:
+    try:
+        minutes = int(str(value or "").strip())
+    except ValueError:
+        return DEFAULT_WINDOW_MINUTES
+    return minutes if minutes > 0 else DEFAULT_WINDOW_MINUTES
+
+
+def cmd_tick(args: argparse.Namespace) -> int:
+    tip = gh_api(f"repos/{args.repo}/commits/{args.branch}")["sha"]
+    runs = list_runs(args.repo, args.branch)
+    action, reason = tick_decision(tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes))
+    print(f"{action}: {reason}")
+    if action == "dispatch" and not args.dry_run:
+        gh_api(
+            f"repos/{args.repo}/actions/workflows/{WORKFLOW}/dispatches",
+            method="POST",
+            fields={"ref": args.branch, "inputs": {"mode": "batch", "reason": "tick"}},
+        )
+    return 0
+
+
+# ---------------------------------------------------------------------------- plan
+
+
+def plan_batch(sha: str, runs: list[dict], suites: dict[str, Suite], files_since) -> dict:
+    """The suites a batch run calls: every one the commits since the newest earlier batch run reach."""
+    earlier = [r for r in runs if is_batch(r) and r.get("status") == "completed" and r.get("head_sha") != sha]
+    base = earlier[0]["head_sha"] if earlier else ""
+    files = files_since(base) if base else None
+    picked = [key for key, suite in suites.items() if files is None or suite.reached(files)]
+    return {"base": base, "suites": picked, "files": None if files is None else len(files)}
+
+
+def write_outputs(path: str | None, values: dict[str, str]) -> None:
+    if not path:
+        return
+    with open(path, "a") as out:
+        for key, value in values.items():
+            out.write(f"{key}={value}\n")
+
+
+def summary(path: str | None, text: str) -> None:
+    print(text)
+    if path:
+        with open(path, "a") as out:
+            out.write(text + "\n")
+
+
+def cmd_plan(args: argparse.Namespace) -> int:
+    suites = load_manifest(Path(args.manifest))
+    if args.mode == PROBE:
+        if args.suite not in suites or not SHA_RE.match(args.probe_sha or ""):
+            raise SystemExit(f"probe needs a known suite and a commit sha (got {args.suite!r}, {args.probe_sha!r})")
+        write_outputs(args.github_output, {"suites": f" {args.suite} ", "sha": args.probe_sha, "only": args.only or "", "base": ""})
+        summary(args.summary, f"Probe: `{args.suite}` job `{args.only or '(all)'}` at `{args.probe_sha}`.")
+        return 0
+    runs = list_runs(args.repo, args.branch)
+    plan = plan_batch(args.sha, runs, suites, lambda base: changed_files(base, args.sha))
+    write_outputs(
+        args.github_output,
+        {"suites": " " + " ".join(plan["suites"]) + " ", "sha": args.sha, "only": "", "base": plan["base"]},
+    )
+    covered = f"since `{plan['base'][:11]}` ({plan['files']} files changed)" if plan["base"] else "with no earlier batch run (every suite)"
+    summary(args.summary, f"Batch on `{args.sha[:11]}` {covered}: {', '.join(plan['suites']) or 'no suite reached'}.")
+    return 0
+
+
+# ---------------------------------------------------------------------------- judge
+
+
+@dataclass
+class Probe:
+    suite: str
+    job: str  # the red job's full name in a batch run ('<suite> / <name>')
+    only: str
+    sha: str
+    good: str
+    bad: str  # empty: the first probe, which confirms the red on the batch's own commit
+    origin: str  # the batch run that found the red
+    tries: int = 0
+
+    def inputs(self) -> dict[str, str]:
+        return {
+            "mode": PROBE,
+            "suite": self.suite,
+            "job": self.job,
+            "only": self.only,
+            "sha": self.sha,
+            "good": self.good,
+            "bad": self.bad,
+            "origin": self.origin,
+            "tries": str(self.tries),
+        }
+
+
+def new_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of) -> tuple[list[tuple[str, str, str]], list[str]]:
+    """Red jobs of this batch run that were green on the newest earlier batch run where they
+    finished: (job name, suite, good sha). Also the notes for the reds that are not new."""
+    reds = [name for name, (_, conclusion) in sorted(verdicts.items()) if conclusion == "failure"]
+    earlier = [r for r in runs if is_batch(r) and r.get("status") == "completed" and r.get("head_sha") != sha]
+    found: list[tuple[str, str, str]] = []
+    notes: list[str] = []
+    cache: dict[int, dict[str, tuple[str, str]]] = {}
+    for name in reds:
+        suite = verdicts[name][0]
+        last = None
+        for run in earlier:
+            if run["id"] not in cache:
+                cache[run["id"]] = jobs_of(run["id"])
+            before = cache[run["id"]].get(name)
+            if before and before[1] in ("success", "failure"):
+                last = (run, before[1])
+                break
+        if last is None:
+            notes.append(f"`{name}` is red with no earlier batch verdict: no bisect.")
+        elif last[1] == "failure":
+            notes.append(f"`{name}` was already red on `{last[0]['head_sha'][:11]}` (run {last[0]['id']}): a known red, no bisect.")
+        else:
+            found.append((name, suite, last[0]["head_sha"]))
+    return found, notes
+
+
+def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, Probe | str | None]:
+    """After a probe finished with conclusion: ('probe', next Probe), ('culprit', sha),
+    ('flake', None), ('lost', None) or ('retry', Probe). commits: good..bad (or good..sha for the
+    confirming probe), oldest first."""
+    if conclusion not in ("success", "failure"):
+        if probe.tries < MAX_PROBE_RETRIES:
+            return "retry", Probe(**{**probe.__dict__, "tries": probe.tries + 1})
+        return "lost", None
+    good, bad = probe.good, probe.bad
+    if not bad:  # the confirming probe, on the batch's own commit
+        if conclusion == "success":
+            return "flake", None
+        bad = probe.sha
+    elif conclusion == "failure":
+        bad = probe.sha
+    else:
+        good = probe.sha
+    span = commits_between(commits, good, bad)
+    if len(span) <= 1:
+        return "culprit", bad
+    mid = span[(len(span) - 1) // 2]
+    return "probe", Probe(probe.suite, probe.job, probe.only, mid, good, bad, probe.origin)
+
+
+def commits_between(commits: list[str], good: str, bad: str) -> list[str]:
+    """The commits after good up to and including bad, from the full covered list."""
+    try:
+        start = commits.index(good) + 1 if good in commits else 0
+        end = commits.index(bad) + 1
+    except ValueError:
+        return [bad]
+    return commits[start:end]
+
+
+def dispatch_probe(repo: str, branch: str, probe: Probe, api=gh_api) -> None:
+    api(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", method="POST", fields={"ref": branch, "inputs": probe.inputs()})
+
+
+def cmd_judge(args: argparse.Namespace) -> int:
+    suites = load_manifest(Path(args.manifest))
+    jobs = run_jobs(args.repo, args.run_id)
+    verdicts = suite_verdicts(jobs, suites)
+    out: dict[str, str] = {"culprit": "", "job": "", "good": "", "origin": ""}
+    if args.mode != PROBE:
+        runs = list_runs(args.repo, args.branch)
+        found, notes = new_reds(args.sha, verdicts, runs, lambda rid: suite_verdicts(run_jobs(args.repo, rid), suites))
+        for note in notes:
+            summary(args.summary, f"- {note}")
+        if not found:
+            summary(args.summary, f"No new red on `{args.sha[:11]}` ({len(verdicts)} suite jobs finished).")
+        for name, suite, good in found[:MAX_CHAINS]:
+            inner = name.partition(" / ")[2]
+            probe = Probe(suite, name, suites[suite].job_id(inner), args.sha, good, "", str(args.run_id))
+            summary(args.summary, f"- New red `{name}`: green on `{good[:11]}`; probing `{args.sha[:11]}` once to confirm, then bisecting.")
+            if not args.dry_run:
+                dispatch_probe(args.repo, args.branch, probe)
+        for name, _, good in found[MAX_CHAINS:]:
+            summary(args.summary, f"- New red `{name}` (green on `{good[:11]}`): over the {MAX_CHAINS}-bisect cap, named only.")
+        write_outputs(args.github_output, out)
+        return 0
+
+    probe = Probe(args.suite, args.job, args.only, args.probe_sha, args.good, args.bad, args.origin, int(args.tries or 0))
+    # The probe ran one suite job (or the whole suite when the red job had no manifest id):
+    # its verdict is the job with the red job's name, else the worst of the suite's jobs.
+    mine = {n: c for n, (s, c) in verdicts.items() if s == probe.suite}
+    conclusion = mine.get(probe.job) or ("failure" if "failure" in mine.values() else "success" if mine and all(c in ("success", "skipped") for c in mine.values()) else "")
+    head = probe.bad or probe.sha
+    commits = first_parent_range(probe.good, head)
+    step, value = next_step(probe, conclusion, commits)
+    if step in ("probe", "retry"):
+        assert isinstance(value, Probe)
+        summary(args.summary, f"`{probe.job}` was {conclusion or 'unfinished'} at `{probe.sha[:11]}`; next probe `{value.sha[:11]}` (good `{value.good[:11]}`, bad `{value.bad[:11]}`).")
+        if not args.dry_run:
+            dispatch_probe(args.repo, args.branch, value)
+    elif step == "culprit":
+        assert isinstance(value, str)
+        summary(args.summary, f"`{probe.job}` first went red at `{value}` (last green `{(probe.good if conclusion == 'failure' else probe.sha)[:11]}`).")
+        out.update(culprit=value, job=probe.job, good=probe.good if conclusion == "failure" else probe.sha, origin=probe.origin)
+    elif step == "flake":
+        summary(args.summary, f"`{probe.job}` passed again at `{probe.sha[:11]}`: the batch red did not repeat (a flake); no bisect.")
+    else:
+        summary(args.summary, f"`{probe.job}` gave no verdict at `{probe.sha[:11]}` twice; the bisect stops here.")
+    write_outputs(args.github_output, out)
+    return 0
+
+
+# ---------------------------------------------------------------------------- revert
+
+
+def revert_title(subject: str, job: str, branch: str) -> str:
+    return f'Revert "{subject}" (post-merge batch: {job} red on {branch})'
+
+
+def cmd_revert(args: argparse.Namespace) -> int:
+    """Commits the revert of the culprit on the branch tip and opens its pull request. Never
+    merges it. Exits 0 with a note when a revert is already open or the revert conflicts."""
+    culprit = args.culprit
+    if not SHA_RE.match(culprit):
+        raise SystemExit(f"bad culprit {culprit!r}")
+    subject = git("log", "-1", "--format=%s", culprit).strip()
+    match = PR_RE.search(subject)
+    pr = match.group(1) if match else ""
+    branch = f"revert/pr-{pr}" if pr else f"revert/post-merge-{culprit[:12]}"
+    existing = gh_api(f"repos/{args.repo}/pulls?state=open&head={args.repo.split('/')[0]}:{branch}") or []
+    if existing:
+        summary(args.summary, f"A revert is already open: {existing[0]['html_url']}")
+        return 0
+    if subprocess.run(["git", "merge-base", "--is-ancestor", culprit, "HEAD"], cwd=ROOT).returncode:
+        summary(args.summary, f"`{culprit[:11]}` is not on this checkout's {args.branch}; left to its owner.")
+        return 0
+    parents = git("rev-list", "--parents", "-n1", culprit).split()[1:]
+    mainline = ["-m", "1"] if len(parents) > 1 else []
+    result = subprocess.run(["git", "revert", "--no-edit", *mainline, culprit], cwd=ROOT, capture_output=True, text=True)
+    if result.returncode:
+        subprocess.run(["git", "revert", "--abort"], cwd=ROOT)
+        summary(args.summary, f"Reverting `{culprit[:11]}` conflicts with the tip of {args.branch}; left to its owner.")
+        return 0
+    if not args.dry_run:
+        git("push", "--quiet", args.push_url, f"HEAD:refs/heads/{branch}")
+    origin = f"{args.server_url}/{args.repo}/actions/runs/{args.origin}" if args.origin else "(unknown)"
+    this = f"{args.server_url}/{args.repo}/actions/runs/{args.run_id}"
+    who = f"#{pr}" if pr else f"`{culprit[:12]}`"
+    body = "\n\n".join(
+        [
+            f"Reverts {who} (`{culprit}`): the post-merge batch run {origin} found `{args.job}` red on {args.branch}; "
+            f"it was green at `{args.good}`, and the bisect over the commits between (only that job) names {who} as the first red one ({this}).",
+            "The base-break rule restores the base first: land this through normal landing, then reland the change with its fix. "
+            "If the red is not this change's (a flake that repeated, an outside service), close this and say so.",
+            "Opened by cmux-next-post-merge.yml (scripts/ci/post_merge_batch.py revert); it never merges a revert.",
+        ]
+    )
+    title = revert_title(subject, args.job, args.branch)
+    if args.dry_run:
+        summary(args.summary, f"Would open {branch}: {title}")
+        return 0
+    created = gh_api(
+        f"repos/{args.repo}/pulls",
+        method="POST",
+        fields={"head": branch, "base": args.branch, "title": title, "body": body},
+    )
+    summary(args.summary, f"Revert pull request: {created['html_url']}")
+    write_outputs(args.github_output, {"url": created["html_url"]})
+    return 0
+
+
+# ---------------------------------------------------------------------------- main
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    def common(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux"))
+        p.add_argument("--branch", default="feat-cmux-next")
+        p.add_argument("--manifest", default=str(MANIFEST))
+        p.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT"))
+        p.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"))
+        p.add_argument("--dry-run", action="store_true")
+
+    def probe_args(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--mode", choices=[BATCH, PROBE], default=BATCH)
+        p.add_argument("--sha", default=os.environ.get("GITHUB_SHA", ""))
+        p.add_argument("--suite", default="")
+        p.add_argument("--job", default="")
+        p.add_argument("--only", default="")
+        p.add_argument("--probe-sha", default="")
+        p.add_argument("--good", default="")
+        p.add_argument("--bad", default="")
+        p.add_argument("--origin", default="")
+        p.add_argument("--tries", default="0")
+
+    p = sub.add_parser("tick")
+    common(p)
+    p.add_argument("--window-minutes", default=os.environ.get("NEXT_POST_MERGE_WINDOW_MINUTES"))
+    p.set_defaults(func=cmd_tick)
+
+    p = sub.add_parser("plan")
+    common(p)
+    probe_args(p)
+    p.set_defaults(func=cmd_plan)
+
+    p = sub.add_parser("judge")
+    common(p)
+    probe_args(p)
+    p.add_argument("--run-id", type=int, required=True)
+    p.set_defaults(func=cmd_judge)
+
+    p = sub.add_parser("revert")
+    common(p)
+    p.add_argument("--culprit", required=True)
+    p.add_argument("--job", required=True)
+    p.add_argument("--good", default="")
+    p.add_argument("--origin", default="")
+    p.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", ""))
+    p.add_argument("--server-url", default=os.environ.get("GITHUB_SERVER_URL", "https://github.com"))
+    p.add_argument("--push-url", default="origin")
+    p.set_defaults(func=cmd_revert)
+
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
