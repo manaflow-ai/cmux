@@ -265,6 +265,31 @@ impl FanoutClock {
         self.left.store(connections, Ordering::Release);
     }
 
+    /// The event is being routed: the sender holds one take of its own until [`Self::routed`],
+    /// so a connection that queues it before the rest are routed records no early sample.
+    pub fn open(&self) {
+        self.arm(1);
+    }
+
+    /// One more connection's fan-out task owes a take (`server/interest.rs` `Router::send`).
+    pub fn owe_one(&self) {
+        self.left.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// Routing ended with `connections` owing a take: the sender gives up its own. An event no
+    /// connection wanted is no sample.
+    pub fn routed(&self, connections: usize) {
+        self.routed_into(fanout_latency(), connections);
+    }
+
+    fn routed_into(&self, ring: &Latencies, connections: usize) {
+        if connections == 0 {
+            self.left.store(0, Ordering::Release);
+        } else {
+            self.taken_into(ring);
+        }
+    }
+
     /// One connection's fan-out task queued the event; the last one records the sample.
     pub fn taken(&self) {
         self.taken_into(fanout_latency());
@@ -456,5 +481,27 @@ mod tests {
         // An event built but never sent records nothing.
         FanoutClock::default().taken_into(&ring);
         assert_eq!(ring.status()["count"], 1);
+    }
+
+    #[test]
+    fn a_routed_fanout_waits_for_its_routing_and_each_queued_connection() {
+        let ring = Latencies::default();
+        let clock = FanoutClock::default();
+        clock.open();
+        clock.owe_one();
+        // The first connection reads it while the second is still being routed: no sample yet.
+        clock.taken_into(&ring);
+        clock.owe_one();
+        clock.routed_into(&ring, 2);
+        assert_eq!(ring.status()["count"], 0);
+        clock.taken_into(&ring);
+        assert_eq!(ring.status()["count"], 1);
+        assert_eq!(clock.owed(), 0);
+        // An event no connection wanted is no sample.
+        let unwanted = FanoutClock::default();
+        unwanted.open();
+        unwanted.routed_into(&ring, 0);
+        assert_eq!(ring.status()["count"], 1);
+        assert_eq!(unwanted.owed(), 0);
     }
 }

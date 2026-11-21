@@ -55,6 +55,7 @@ pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubO
         }
     };
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    conn.interest.attach(&s.id);
     match subs.insert(s.id.clone(), opts) {
         // A peer's chat of the same raw id counted nothing here: this attachment is new.
         None => count_new(hub),
@@ -107,6 +108,7 @@ pub(super) fn subscribe_remote(hub: &Hub, conn: &Conn, id: &str, opts: Option<Su
     let mut next = opts.or(before).unwrap_or_default();
     next.remote = true;
     next.idle = false;
+    conn.interest.attach(id);
     subs.insert(id.to_owned(), next);
 }
 
@@ -115,6 +117,7 @@ pub(super) fn subscribe_remote(hub: &Hub, conn: &Conn, id: &str, opts: Option<Su
 /// peer's chat of the same raw id becomes this one.
 pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    conn.interest.attach(&s.id);
     match subs.get_mut(&s.id) {
         None => {
             subs.insert(s.id.clone(), SubOpts::default());
@@ -137,6 +140,7 @@ pub(super) fn detach(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
     conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).forget(None, &s.id);
     if let Some(mut before) = subs.remove(&s.id) {
+        conn.interest.detach(&s.id);
         conn.unbind_mailbox_receipt(&s.id);
         if !before.remote {
             settle_idle(hub, s, &mut before);
