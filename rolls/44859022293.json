@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44859022293",
+  "recorded_at": "2026-11-21T03:13:54Z",
+  "reason": "cmux-tui 5e870e477abc changes the image's cmux-tui (pinned 8e10186c60c4)",
+  "dry_run": false,
+  "cmux_tui": "5e870e477abcab91e254e62bc9205ff0b1138de8",
+  "fixes": [
+    {
+      "sha": "5e870e477abcab91e254e62bc9205ff0b1138de8",
+      "mergedAt": "2026-11-20T18:33:18-08:00",
+      "subject": "fix(conversation): no agent turn cap in a conversation with one agent"
+    },
+    {
+      "sha": "f736d52d19e5fe390437ab93c211f3c53c7395eb",
+      "mergedAt": "2026-11-20T18:33:18-08:00",
+      "subject": "test(conversation): a lone agent has no turn cap, two agents keep it (red)"
+    },
+    {
+      "sha": "b521bb2315328480435a1232dd3d686d2d2372b6",
+      "mergedAt": "2026-11-20T17:57:40-08:00",
+      "subject": "acpmux: drop the duplicate Command variants #48240 merged beside #48193's (base compile red)"
+    },
+    {
+      "sha": "991db538858a21b23de17d409561b301c5b07bd6",
+      "mergedAt": "2026-11-21T01:57:13Z",
+      "subject": "cmux-tui: the committed snapshot keeps compact JSON text, not Value trees (CMUX-571) (successor of #46341) (#47859)"
+    },
+    {
+      "sha": "dd71314b4586f9bbbe8c405967e233c75b197897",
+      "mergedAt": "2026-11-20T17:56:18-08:00",
+      "subject": "fix(acpmux): a harness rescan tells the watchers, so a fresh install is found at once"
+    },
+    {
+      "sha": "5c880a92dfef757d18671980e26232fa0b3e7b88",
+      "mergedAt": "2026-11-20T17:56:18-08:00",
+      "subject": "test(acpmux): a rescan that finds a fresh install tells the watchers (red)"
+    },
+    {
+      "sha": "0b8fac2d3e2d91ecd1c2a93da0204dc1d181a836",
+      "mergedAt": "2026-11-21T01:51:00Z",
+      "subject": "cmux-tui, acpmux: give freed memory back once the daemon goes quiet (successor of #46877) (#47795)"
+    },
+    {
+      "sha": "1c7ff92cb7fceca2120f012b6f764f4ea60a8739",
+      "mergedAt": "2026-11-20T17:11:58-08:00",
+      "subject": "acpmux: suggestions and recaps only after a person's own turn"
+    },
+    {
+      "sha": "98b0e6e776f0f2161072490d754b7a007620df9b",
+      "mergedAt": "2026-11-20T17:11:58-08:00",
+      "subject": "acpmux: tests: suggestions and recaps only after a person's own turn (red)"
+    },
+    {
+      "sha": "c72780ecd7daaec0690056f4ed9649373133c5a2",
+      "mergedAt": "2026-11-20T17:09:39-08:00",
+      "subject": "acpmux: launcher_modes names Auto as a start the standard level covers, not one that needs the person"
+    },
+    {
+      "sha": "4ddbe7842ec0ec37b2e71f565871351cfdf61f09",
+      "mergedAt": "2026-11-20T17:09:38-08:00",
+      "subject": "Cloud: a Claude chat on your own Cloud machine starts in Auto, and the Mode chip offers it"
+    },
+    {
+      "sha": "75bb9570561037e478191f2cfb04b4f65e34ffcc",
+      "mergedAt": "2026-11-20T17:09:38-08:00",
+      "subject": "acpmux: a start may name Claude Code's Auto where a running chat may move to it without the person"
+    },
+    {
+      "sha": "f31d7e8e3942a5debc2368d7d7bd0d4889e210e2",
+      "mergedAt": "2026-11-20T17:09:38-08:00",
+      "subject": "acpmux: red test, a unix-socket start may name Claude Code's Auto under a level that covers it"
+    },
+    {
+      "sha": "0212dd501f7d13038eb636225781791a5364ebb1",
+      "mergedAt": "2026-11-20T17:01:32-08:00",
+      "subject": "acpmux: the run_wait shell-stub test is unix-only (Windows cargo check base red) (#48306)"
+    },
+    {
+      "sha": "0d57993078402ce41e77458348b0a65572bcd5b7",
+      "mergedAt": "2026-11-20T17:01:00-08:00",
+      "subject": "cmux agent: unify session commands and search turn history (#48240)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T03:13:54Z",
+    "snapshot_id": "sh-b6c749c1ac83498ab678a8619f17aaf6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44859022293): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a42b47c32f3adc51802376dd83d877b2e0541505",
+    "image": "cloud-native-auto-5e870e47-44859022293-1",
+    "revision": "ci-44859022293-1",
+    "at": "2026-11-21T03:13:54Z"
+  },
+  "rolled_back": false
+}
