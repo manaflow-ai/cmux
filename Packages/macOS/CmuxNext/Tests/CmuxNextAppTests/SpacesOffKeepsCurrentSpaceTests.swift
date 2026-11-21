@@ -60,8 +60,19 @@ struct SpacesOffKeepsCurrentSpaceTests {
         let owner = try #require(windows.registry.value.owner(of: "k4"))
         #expect(owner != fixture.state.id)
         #expect(windows.state(for: owner).profileID == .defaultProfile)
-        windows.controller(for: owner)?.teardown()
-        windows.controller(for: owner)?.window?.close()
+        let other = try #require(windows.controller(for: owner))
+        defer { other.teardown(); other.window?.close() }
+        // Asked again while that window is open: it shows there; no third window.
+        let openCount = windows.registry.value.openWindows.count
+        windows.claim(workspaceID: "k4", in: fixture.state)
+        #expect(windows.registry.value.owner(of: "k4") == owner)
+        #expect(windows.registry.value.openWindows.count == openCount)
+        #expect(fixture.state.profileID == Fixture.work)
+
+        // Dragged onto this window's sidebar: it joins this window (pinned to Work); the window keeps its view.
+        windows.moveWorkspaces(["k4"], toWindow: fixture.state.id)
+        #expect(windows.registry.value.owner(of: "k4") == fixture.state.id)
+        #expect(fixture.state.profileID == Fixture.work, "a move swapped this window's sidebar")
     }
 
     /// Spaces on again: the switcher's actions come back and the window moves between spaces as before.

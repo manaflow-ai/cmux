@@ -63,6 +63,13 @@ extension WindowManager {
     /// `sidebar.showSpaces` (https://github.com/manaflow-ai/cmux/issues/48355, off by default): no space is made or
     /// switched to by the person. No settings layer (a headless host) keeps the daemon's spaces reachable.
     var spacesOn: Bool { services.settings.map { $0.snapshot.sidebarSections.showSpaces } ?? true }
+    /// Pins the workspaces `room` does not show there, as Move to Space does (Spaces off, #48355).
+    func pin(_ ids: [String], to room: ProfileID) {
+        let machines = services.machines
+        for workspace in ids.filter({ WindowProfiles.room(of: $0, current: room, machines: machines) != nil }).compactMap({ WindowProfiles.qualified($0, machines: machines) }) {
+            machines.local.send("pin-workspace") { try await $0.pinWorkspace(session: workspace.session, key: WorkspaceKey(rawValue: workspace.key), to: room) }
+        }
+    }
 
     /// Next (+1) or previous (-1) profile of the local daemon, clamped at
     /// the ends. Returns false when there is none that way.
