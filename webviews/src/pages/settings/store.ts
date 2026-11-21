@@ -37,6 +37,7 @@ import {
 } from "./queries";
 import { rowsByKey } from "./schema";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
+import { isBackdropRefusal, linkRefusal } from "./backdropRefusal";
 import { t } from "./strings";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
@@ -68,9 +69,9 @@ import {
   type AgentToolsCardState,
   type IntegrationsState,
   type McpServersRun,
+  type AgentConfigAnswer,
+  type AgentConfigRun,
   type McpServersState,
-  type AgentMcpRun,
-  type AgentMcpState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
@@ -89,6 +90,12 @@ import {
   type LibraryRun,
   type ModelsRun,
   type ModelsState,
+  type AgentSkillsRun,
+  type AgentSkillsState,
+  type AgentMcpRun,
+  type AgentMcpState,
+  type AgentHooksRun,
+  type AgentHooksState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -491,7 +498,14 @@ export class SettingsStore {
   async chooseBackdropImage(): Promise<void> {
     await this.trackAppearance([BACKGROUND], async () => {
       const reply = await this.request("cmux.settings.backdrop.choose_image", {});
-      if (!reply.ok) this.setError(BACKGROUND, rowError(reply.error));
+      // A file that is no picture or movie says so, as a link does, not "Invalid value".
+      if (!reply.ok)
+        this.setError(
+          BACKGROUND,
+          isBackdropRefusal(reply.error.code)
+            ? { ...rowError(reply.error), message: linkRefusal(reply.error.code) }
+            : rowError(reply.error),
+        );
       else await Promise.all([this.refresh(), this.refreshHost()]);
     });
   }
@@ -798,6 +812,30 @@ export class SettingsStore {
     return this.mcpServersState();
   }
 
+  /** Settings > Agents > Claude Code & Codex: one `agent-config settings` verb. Answers the
+   * host's reply, or `{error}` in plain words when the call failed or the CLI refused (its own
+   * message, which never carries a secret value). */
+  async runAgentConfig(run: AgentConfigRun): Promise<AgentConfigAnswer | { error: string }> {
+    const reply = await this.request("cmux.settings.agentConfig", run);
+    if (!reply.ok) return { error: userMessage(reply.error, SETTINGS_SENTENCES) };
+    const answer = reply.value ?? { code: "agentConfig", message: "" };
+    if ("code" in answer && !("agent" in answer))
+      return { error: answer.message || t("settingsWindow.agentConfig.error.notChanged") };
+    return answer;
+  }
+
+  /** Settings > Agents > Claude Code & Codex > Skills; null when the host has none. */
+  async agentSkillsState(): Promise<AgentSkillsState | null> {
+    const reply = await this.request("cmux.settings.agentSkills.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Skills gesture, then the card as it is after it (null: the host has none). */
+  async runAgentSkills(run: AgentSkillsRun): Promise<AgentSkillsState | null> {
+    const reply = await this.request("cmux.settings.agentSkills.run", run);
+    return reply.ok ? reply.value : this.agentSkillsState();
+  }
+
   /** Settings > MCP Servers, Claude Code and Codex; null when the host has none. */
   async agentMcpState(): Promise<AgentMcpState | null> {
     const reply = await this.request("cmux.settings.agentMcp.state", {});
@@ -808,6 +846,18 @@ export class SettingsStore {
   async runAgentMcp(run: AgentMcpRun): Promise<AgentMcpState | null> {
     await this.request("cmux.settings.agentMcp.run", run);
     return this.agentMcpState();
+  }
+
+  /** Settings > Agents > Claude Code & Codex > Hooks; null when the host has none. */
+  async agentHooksState(): Promise<AgentHooksState | null> {
+    const reply = await this.request("cmux.settings.agentHooks.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Hooks gesture; the host answers with the state after it (a refused gesture: the state as it is). */
+  async runAgentHooks(run: AgentHooksRun): Promise<AgentHooksState | null> {
+    const reply = await this.request("cmux.settings.agentHooks.run", run);
+    return reply.ok ? reply.value : this.agentHooksState();
   }
 
   /** Reads Settings > Models (a host without it rejects, and the part stays null). */
@@ -1193,6 +1243,7 @@ export class SettingsStore {
 
   preview(key: string, value: unknown, owner?: object): void {
     this.previewOwner = owner ?? {};
+    this.setLive({ key, value });
     if (this.ui.connected) void this.request("cmux.settings.preview", { key, value });
   }
 
@@ -1200,7 +1251,26 @@ export class SettingsStore {
   previewEnd(key: string, owner?: object): void {
     if (owner && this.previewOwner !== owner) return;
     this.previewOwner = null;
+    if (this.live?.key === key) this.setLive(null);
     void this.request("cmux.settings.preview.end", { key });
+  }
+
+  /** The preview showing now, for the page's own pictures (a font row's preview follows a size
+   * slider's drag before the release writes it). Kept apart from the state: a drag step re-renders
+   * only what reads it. */
+  private live: { key: string; value: unknown } | null = null;
+  private readonly liveListeners = new Set<() => void>();
+  private setLive(next: { key: string; value: unknown } | null): void {
+    this.live = next;
+    for (const listener of this.liveListeners) listener();
+  }
+  readonly subscribeLive = (listener: () => void): (() => void) => {
+    this.liveListeners.add(listener);
+    return () => this.liveListeners.delete(listener);
+  };
+  /** The previewed value of `key`, or undefined when no preview of it is showing. */
+  liveValue(key: string): unknown {
+    return this.live?.key === key ? this.live.value : undefined;
   }
 
   /** Opens cmux.json in the editor (the palette's action). The Swift Settings window is gone (R82). */

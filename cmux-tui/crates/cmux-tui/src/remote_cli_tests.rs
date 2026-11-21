@@ -2976,3 +2976,12 @@ fn tty_eof_releases_an_unterminated_line_first() {
     assert!(!exec_cp::pty_line_open(Some(0x04)));
     assert!(exec_cp::pty_line_open(Some(b'o')));
 }
+
+#[test]
+fn a_route_without_a_scheme_says_how_to_write_one() {
+    let error = format!("{:#}", parse_route("127.0.0.1:47911", "route").unwrap_err());
+    assert!(error.starts_with("invalid route (write it with a scheme"), "{error}");
+    assert!(error.contains("ws://HOST:PORT/"), "{error}");
+    assert!(error.contains("cmux remote known-daemons"), "{error}");
+    assert!(parse_route("ws://127.0.0.1:47911/v1/link", "route").is_ok());
+}
