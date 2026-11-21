@@ -1,0 +1,104 @@
+// Triage, dark (the default): an open agent workbench's look. A near-black #0a0a0a page, the
+// sidebar and cards one step up (#111111, the page mixed 3% toward white), #f5f5f5 text, a gray
+// (#818181) second step, hairlines at 6% white, and one saturated blue (#346bf1) for Send, focus
+// and the selected model. Every value is the reference app's own token, resolved from its
+// stylesheet (see ../README.md, "Where the numbers come from").
+{
+  "name": "Triage",
+  "description": "An agent workbench: #0a0a0a page, #111111 sidebar, #346bf1 Send, a 256 pt sidebar of thread cards.",
+
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  "colors": {
+    "background": "#0a0a0a",
+    "foreground": "#f5f5f5",
+    "selection": "#1d2f5c",
+    "accent": "#346bf1",
+    // Status tones, as the reference's sidebar labels draw them in dark: Failed red-300, Done
+    // emerald-300, Approval/Woke amber, Working sky-400, Input indigo-300.
+    "1": "#fca5a5",
+    "2": "#6ee7b7",
+    "3": "#fcd34d",
+    "4": "#38bdf8",
+    "5": "#a5b4fc",
+    "6": "#22d3ee",
+    "0": "#3f3f46",
+    "7": "#f5f5f5",
+    "8": "#818181",
+    "9": "#fca5a5",
+    "10": "#6ee7b7",
+    "11": "#fcd34d",
+    "12": "#7aa2f7",
+    "13": "#c4b5fd",
+    "14": "#67e8f9",
+    "15": "#fafafa",
+    "cursor": "#346bf1"
+  },
+  "appearance.accent": "theme",
+  "terminal.fontFamily": "Menlo",
+  "terminal.fontSize": 12,
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "browser.omnibar.glass": "off",
+  "appearance.fontSmoothing": "antialiased",
+
+  // Flat panes, a hairline between the sidebar and the content, the title bar in the page color.
+  "appearance.chromeStyle": "flat-sidebar-line",
+  "appearance.borders": "default",
+  "appearance.titleAreaTone": "oneColor",
+  "appearance.focusIndicator": "tabs",
+  "appearance.density": "comfortable",
+
+  // Proportions, from the reference's source (rem at 16 px):
+  // --workspace-topbar-height 52px; the thread sidebar's default width 16rem = 256px (min 208px,
+  // never leaving the content under 640px); the system face at 14px in rows (text-sm), 12px
+  // (text-xs) for their second lines.
+  "appearance.metrics.titlebarHeight": 52,
+  "appearance.metrics.sidebarWidth": 256,
+  // The reference's rows are 36px (slim) and 78px (cards, three lines); 36 is the native row's
+  // nearest honest height, the cards are drawn by the customize view (../README.md, Gaps).
+  "appearance.metrics.sidebarRowHeight": 36,
+  "appearance.metrics.chromeFontSize": 14,
+  "appearance.metrics.tabStripHeight": 40,
+  "appearance.metrics.tabFontSize": 13,
+  "appearance.metrics.columnGap": 0,
+  "appearance.metrics.dividerThickness": 1,
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#111111",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "sidebar.style": "standard",
+  "sidebar.border": true,
+  "sidebar.borderWidth": 1,
+  "sidebar.sectionLook": "quiet",
+
+  "appearance.surfaces.agentPane.color": "#0a0a0a",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#0a0a0a",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.terminal.color": "#0a0a0a",
+  "appearance.surfaces.terminal.opacity": 1,
+  "appearance.surfaces.editor.color": "#0a0a0a",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.diff.color": "#0a0a0a",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#1a1a1a",
+  "appearance.surfaces.splitDivider.opacity": 1,
+  "appearance.surfaces.settings.color": "#0a0a0a",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#0a0a0a",
+  "appearance.surfaces.newTabPage.opacity": 1,
+
+  // Status as a labelled mark on the row (Working, Approval, Input, Failed, Done), animated while
+  // it works.
+  "appearance.statusIndicator.style": "dot",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.showAgentWorkingOnTabs": true,
+
+  // The reference animates panels at ~200ms ease-out.
+  "ui.animationSpeed": "fast",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "easeOut",
+  "appearance.colorTransition.duration": 200
+}
