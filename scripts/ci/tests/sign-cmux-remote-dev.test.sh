@@ -14,6 +14,11 @@ grep -Fq 'Developer ID Application' "$signer"
 grep -Fq 'TeamIdentifier=' "$signer"
 grep -Fq 'libWebRTC.dylib' "$signer"
 grep -Fq 'libcua_driver_sdk.dylib' "$signer"
+# The Rust Computer Use engine (#37003) is the other accepted engine; never both.
+grep -Fq 'libcua_driver_sdk.dylib|libcmux_computer_use.dylib)' "$signer"
+grep -Fq 'Remote carries two Computer Use engines' "$signer"
+grep -Fq 'sign "$framework_dir/$engine"' "$signer"
+grep -Fq 'if [[ "$engine" == libcua_driver_sdk.dylib ]]; then' "$signer"
 if grep -Eq 'mapfile|readarray|-maxdepth|-quit' "$signer"; then
   echo "sign-cmux-remote-dev.sh must run on macOS Bash/find" >&2
   exit 1
@@ -67,6 +72,23 @@ def opens_pin_pr(source_pr):
 assert opens_pin_pr("")
 assert not opens_pin_pr("42365")
 print("pin-pr guard fixtures: ancestor opens; unmerged source PR skips")
+
+# A commit with no SDK pin (the Rust engine) skips every SDK step, and only a
+# `remote` build may: Computer Use still fails without its pin.
+def step(name):
+    block = workflow.split(f"- name: {name}\n", 1)[1]
+    return block.split("\n      - name: ", 1)[0]
+
+for name in ("Fetch the pinned SDK tarball", "Upload the SDK tarball"):
+    assert "if: steps.resolve.outputs.has_sdk == 'true'" in step(name), name
+assert "if: needs.sdk.outputs.has_sdk == 'true'" in step("Download the SDK tarball")
+assert "has_sdk: ${{ steps.resolve.outputs.has_sdk }}" in workflow
+resolve = step("Require a feat-cmux-next commit and read its SDK pin")
+assert 'index("cua-driver-sdk.pin.json") != null' in resolve
+assert '[[ "$HELPER" == remote ]] ||' in resolve
+assert resolve.index('echo "has_sdk=false"') < resolve.index("sdk-pin.json")
+assert "CMUX_CUA_SDK_TARBALL: ${{ needs.sdk.outputs.has_sdk == 'true' &&" in step("Build")
+print("SDK-less remote fixtures: SDK steps gated on has_sdk; computer-use still requires the pin")
 PY
 
 # Execute the exact admission Python embedded in the workflow. This catches a
