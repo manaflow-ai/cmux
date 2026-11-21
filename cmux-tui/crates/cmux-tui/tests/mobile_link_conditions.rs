@@ -364,7 +364,7 @@ impl Conn {
                 Inbound::Reply(got, value) if got == id => return Some(value),
                 Inbound::Reply(..) => {}
                 Inbound::Output { surface, data, vt_state } => {
-                    on_output(at, surface, &data, vt_state)
+                    on_output(at, surface, &data, vt_state);
                 }
             }
         }
@@ -516,7 +516,7 @@ impl Bench {
         };
         match interactive.await {
             Some(echo) => {
-                emit(profile, "cold", scale, "interactive_ms", Some(ms(echo - started)), run, seed)
+                emit(profile, "cold", scale, "interactive_ms", Some(ms(echo - started)), run, seed);
             }
             None => {
                 emit(profile, "cold", scale, "interactive_ms", None, run, seed);
@@ -676,7 +676,7 @@ fn terminal_attach_under_link_profiles() {
     };
     let names = env_list("NETCOND_PROFILES", "");
     let profiles: Vec<LinkProfile> = if names.is_empty() {
-        file.profiles.clone()
+        file.profiles
     } else {
         names
             .iter()
