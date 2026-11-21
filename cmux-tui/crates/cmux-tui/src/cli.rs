@@ -11,6 +11,8 @@ mod agent_config;
 mod agent_input_hint;
 mod agent_message;
 #[cfg(unix)]
+mod agent_move;
+#[cfg(unix)]
 mod agent_names;
 #[cfg(unix)]
 mod agent_start;
@@ -67,6 +69,8 @@ mod cloud_api;
 mod cloud_automation_relay;
 #[cfg(unix)]
 mod cloud_client_session;
+#[cfg(unix)]
+mod cloud_connect;
 #[cfg(unix)]
 mod cloud_environment;
 #[cfg(unix)]
@@ -217,6 +221,10 @@ mod share_cli;
 mod shorthand;
 #[cfg(unix)]
 mod skew;
+#[cfg(unix)]
+mod stale_app;
+#[cfg(unix)]
+pub(crate) use stale_app::InstalledApp;
 mod skill;
 #[cfg(unix)]
 mod status;
@@ -528,6 +536,7 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
 pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "agents",
     "chats",
+    "board",
     "harness",
     "remote",
     "script",
@@ -543,6 +552,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "chat",
     "vm",
     "customize",
+    "agent-config",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -626,7 +636,7 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 /// Scopes `main` routes by their first word, before the cmux global options
 /// are read, whose own parser takes `--json` right after the scope word:
 /// acpmux's (`--json` is a global clap option there).
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "agent", "harness", "chats"];
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "agent", "harness", "chats", "board"];
 
 /// `cmux --json <scope> …` for a scope `main` routes by its first word: the
 /// leading `--json` moves to just after the scope word (to the end for `host`
@@ -904,7 +914,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         Err(code) => return code,
     };
     #[cfg(unix)]
-    if let Some(code) = agent_start::run_if_requested(args)
+    if let Some(code) = agent_move::run_if_requested(args)
+        .or_else(|| agent_start::run_if_requested(args))
         .or_else(|| agent_config::run_if_requested(args))
         .or_else(|| chat_start::run_if_requested(args))
         .or_else(|| mcp::run_if_requested(args))
@@ -926,6 +937,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| cloud_connect::run_if_requested(args))
         .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| key_broker::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
