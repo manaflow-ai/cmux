@@ -1,4 +1,5 @@
 import { DialogButton } from "../../ui/DialogButton";
+import { Clock } from "../../ui/Typography";
 import { Spinner } from "./conversation/icons";
 import { waitedText } from "./hostErrorModel";
 import { useT } from "./i18n";
@@ -22,7 +23,7 @@ export function ForkPendingLine({ since, onCancel, now: fixedNow }: { since: num
       <Spinner size={12} loading />
       <span className="acpmux-host-line-message">
         {t("notice.forking")}
-        {waited >= FORK_COUNT_AFTER_MS && <span className="acpmux-fork-pending-time">{waitedText(waited)}</span>}
+        {waited >= FORK_COUNT_AFTER_MS && <Clock className="acpmux-fork-pending-time" text={waitedText(waited)} />}
       </span>
       <DialogButton dialogKey={null} onClick={onCancel}>
         {t("fork.cancel")}
