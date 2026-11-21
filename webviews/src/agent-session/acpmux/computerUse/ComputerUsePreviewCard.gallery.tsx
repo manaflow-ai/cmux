@@ -180,6 +180,10 @@ export default componentEntry<Props>({
       note: "Only the agent's cursor: the helper's dart at the window's scale, at its last click, as before. The person's pointer is not over the window.",
       props: { preview: { ...running, telepointers: { agent: { x: 0.83, y: 0.9, visible: true, idle: false } } } },
     },
+    "agent-only-before": {
+      note: "Before: between the agent's actions its cursor was gone, so the window showed no sign of the agent while it thought. Now the cursor stays at its last click until the turn ends (agent-only).",
+      props: { preview: { ...running, pointer: undefined } },
+    },
     "both-pointers": {
       note: "Co-driving: the agent's cursor at the = key and the person's pointer over the display, a plain arrow in the page's text tone labelled You on a small-radius rect. Both are metadata over the frame, never in its pixels; the agent's cursor draws on top.",
       props: { preview: withPerson },

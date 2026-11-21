@@ -67,6 +67,8 @@ import {
   type AgentToolsCardRun,
   type AgentToolsCardState,
   type IntegrationsState,
+  type AgentSkillsRun,
+  type AgentSkillsState,
   type McpServersRun,
   type McpServersState,
   type ListRow,
@@ -87,6 +89,10 @@ import {
   type LibraryRun,
   type ModelsRun,
   type ModelsState,
+  type AgentMcpRun,
+  type AgentMcpState,
+  type AgentHooksRun,
+  type AgentHooksState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -796,6 +802,42 @@ export class SettingsStore {
     return this.mcpServersState();
   }
 
+  /** Settings > Agents > Claude Code & Codex > Skills; null when the host has none. */
+  async agentSkillsState(): Promise<AgentSkillsState | null> {
+    const reply = await this.request("cmux.settings.agentSkills.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Skills gesture, then the card as it is after it (null: the host has none). */
+  async runAgentSkills(run: AgentSkillsRun): Promise<AgentSkillsState | null> {
+    const reply = await this.request("cmux.settings.agentSkills.run", run);
+    return reply.ok ? reply.value : this.agentSkillsState();
+  }
+
+  /** Settings > MCP Servers, Claude Code and Codex; null when the host has none. */
+  async agentMcpState(): Promise<AgentMcpState | null> {
+    const reply = await this.request("cmux.settings.agentMcp.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Claude Code / Codex MCP gesture, then the groups as they are after it (null: the host has none). */
+  async runAgentMcp(run: AgentMcpRun): Promise<AgentMcpState | null> {
+    await this.request("cmux.settings.agentMcp.run", run);
+    return this.agentMcpState();
+  }
+
+  /** Settings > Agents > Claude Code & Codex > Hooks; null when the host has none. */
+  async agentHooksState(): Promise<AgentHooksState | null> {
+    const reply = await this.request("cmux.settings.agentHooks.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Hooks gesture; the host answers with the state after it (a refused gesture: the state as it is). */
+  async runAgentHooks(run: AgentHooksRun): Promise<AgentHooksState | null> {
+    const reply = await this.request("cmux.settings.agentHooks.run", run);
+    return reply.ok ? reply.value : this.agentHooksState();
+  }
+
   /** Reads Settings > Models (a host without it rejects, and the part stays null). */
   async refreshModels(): Promise<void> {
     await this.fetchNative(settingsKeys.models);
@@ -876,7 +918,7 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
-  /** Personalization > Customization Library: one `cmux customize library` verb. Answers the
+  /** Appearance > Customization Library: one `cmux customize library` verb. Answers the
    * library after it (null when the host has no CLI or did not answer) and the CLI's refusal in its
    * own words (a toggle while a preview is open), else null. */
   async customizeLibrary(run: LibraryRun): Promise<{ library: LibraryListing | null; refusal: string | null }> {

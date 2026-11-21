@@ -6,7 +6,7 @@ nonisolated enum BrowserImportOfferStrings {
     static var bundle: Bundle { .module }
     /// `browser`: the detected browser's name ("Google Chrome").
     static func title(browser: String) -> String {
-        String(format: String(localized: "browserImportOffer.cookies.title", defaultValue: "Import cookies from %@",
+        String(format: String(localized: "browserImportOffer.cookies.title", defaultValue: "Import sign-ins from %@",
                               table: "BrowserImportOffer", bundle: .module), browser)
     }
     static var importData: String {
