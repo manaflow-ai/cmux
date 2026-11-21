@@ -1,7 +1,7 @@
-import AppKit
-import CmuxNextActions
+public import AppKit
+public import CmuxNextActions
 import CmuxNextDesign
-import CmuxNextSettings
+public import CmuxNextSettings
 import CmuxNextWindowRules
 
 extension ActionRegistry {
