@@ -11,6 +11,18 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct SidebarAppKitRowCellTests {
+    @Test("port rows expose static text instead of an inline action")
+    func portLabelIsNonInteractiveAndAccessible() {
+        let label = SidebarRowPortLabel()
+        label.configure(title: "3000", font: .monospacedSystemFont(ofSize: 10, weight: .regular), color: .secondaryLabelColor)
+
+        #expect(label.stringValue == "3000")
+        #expect(label.isEditable == false)
+        #expect(label.isSelectable == false)
+        #expect(label.accessibilityRole() == .staticText)
+        #expect(label.accessibilityLabel() == "3000")
+    }
+
     private static func makeSnapshot(
         title: String = "Workspace",
         customDescription: String? = nil,
