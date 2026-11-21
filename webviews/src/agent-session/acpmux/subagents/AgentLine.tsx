@@ -79,6 +79,8 @@ export function AgentLine({
   via,
   lean = false,
   doneLook = "words",
+  cardClassName,
+  disclose,
 }: {
   name: string;
   /// What it does now, or the kind of agent it is; dim after the name.
@@ -150,6 +152,11 @@ export function AgentLine({
   lean?: boolean;
   /// How a finished tray line ends (DoneMark.tsx, hatParts.experiment.ts); `words` is "Done · 36s".
   doneLook?: DoneLook;
+  /// Extra classes on the hover card's popup (the hat's Rolodex card, hatOpen.experiment.ts).
+  cardClassName?: string;
+  /// The line's details as a button of its own in the chevron's column, outside the line's button, so
+  /// the line itself opens what it stands for (hatOpen.experiment.ts `row`). Tray lines only.
+  disclose?: { open: boolean; label: string; onToggle: () => void };
 }) {
   const liveProgress = useAgentProgress(progressAgent);
   progress = liveProgress ?? progress;
@@ -265,11 +272,12 @@ export function AgentLine({
           <span className="acpmux-agent-line__stop-track" aria-hidden="true">
             {status === "done" && doneLook === "check" && <DoneCheck />}
           </span>
-          {chevron && onOpen ? (
+          {chevron && onOpen && !disclose ? (
             <span className="acpmux-agent-line__chevron" aria-hidden="true">
               <Icon name="disclosure.collapsed" size={ROW_ICON} row />
             </span>
           ) : (
+            // A line whose details are their own button keeps the column; the button lies over it.
             <span className="acpmux-agent-line__chevron-track" aria-hidden="true" />
           )}
         </>
@@ -300,13 +308,35 @@ export function AgentLine({
     <div className="acpmux-agent-line" data-status={status} data-timed={timed || undefined}>
       {card ? (
         // tooltip-allow: the hover card says what the line cuts (its whole name, what it does, its task)
-        <Tooltip label={card} side="top" className="ui-card acpmux-agent-card__popup">
+        <Tooltip
+          label={card}
+          side="top"
+          className={
+            cardClassName ? `ui-card acpmux-agent-card__popup ${cardClassName}` : "ui-card acpmux-agent-card__popup"
+          }
+        >
           {button}
         </Tooltip>
       ) : (
         button
       )}
       {trayColumns ? <span className="acpmux-agent-line__stop-slot">{after}</span> : after}
+      {trayColumns && disclose && (
+        // The details' own button over the chevron's column: the line opens, this expands.
+        <span className="acpmux-agent-line__disclose-slot">
+          <button
+            type="button"
+            className="acpmux-agent-line__disclose"
+            aria-expanded={disclose.open}
+            aria-label={disclose.label}
+            /* tooltip-allow: an icon-only control names itself */
+            title={disclose.label}
+            onClick={disclose.onToggle}
+          >
+            <Icon name="disclosure.collapsed" size={ROW_ICON} row />
+          </button>
+        </span>
+      )}
     </div>
   );
 }

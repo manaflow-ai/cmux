@@ -18,7 +18,7 @@ public struct WorkspaceChecklistAttachment: Sendable, Hashable, Codable, Identif
     public init(id: String? = nil, path: String, name: String? = nil) {
         self.id = id
         self.path = path
-        self.name = name ?? URL(fileURLWithPath: path).lastPathComponent
+        self.name = name ?? (path as NSString).lastPathComponent
     }
 
     /// The attachment as `workspace_checklist.update` takes it (`WorkspaceChecklistAttachmentInput`).

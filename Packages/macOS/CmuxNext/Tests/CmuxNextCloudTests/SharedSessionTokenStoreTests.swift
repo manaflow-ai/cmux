@@ -105,20 +105,19 @@ import Testing
             let configuration = CloudConfiguration.resolve(bundleID: bundleID, bundled: [:], process: [:], isDebugBuild: false)
             #expect(configuration.sharedSession == .init(keychainService: "com.cmuxterm.app.shared.auth.fixture",
                                                          accessGroup: "7WLXT3NR37.com.cmuxterm.app.shared"))
-            #expect(CloudAuth.tokenStore(configuration: configuration, nightlySession: nil) is SharedSessionTokenStore)
+            #expect(CloudAuth.tokenStore(configuration: configuration) is SharedSessionTokenStore)
             // A memory-only launch never opens the Keychain.
-            #expect(CloudAuth.tokenStore(configuration: configuration, nightlySession: nil, memoryOnly: true) is MemoryStackTokenStore)
+            #expect(CloudAuth.tokenStore(configuration: configuration, memoryOnly: true) is MemoryStackTokenStore)
         }
     }
 
     @Test func otherBuildsDoNotShare() {
         let debug = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.debug.tag", bundled: [:], process: [:], isDebugBuild: true)
         #expect(debug.sharedSession == nil)
-        #expect(!(CloudAuth.tokenStore(configuration: debug, nightlySession: nil) is SharedSessionTokenStore))
-        // Signed NEXT DEV embeds no provisioning profile: it keeps the NIGHTLY handoff only.
+        #expect(!(CloudAuth.tokenStore(configuration: debug) is SharedSessionTokenStore))
+        // Signed NEXT DEV embeds no provisioning profile: it shares nothing, and takes no other build's session (cmux#43648).
         let nextDev = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.debug.next", bundled: [:], process: [:], isDebugBuild: false)
         #expect(nextDev.sharedSession == nil)
-        #expect(nextDev.adoptsNightlySession)
-        #expect(CloudAuth.tokenStore(configuration: nextDev, nightlySession: nil) is ImportingTokenStore)
+        #expect(!(CloudAuth.tokenStore(configuration: nextDev) is SharedSessionTokenStore))
     }
 }

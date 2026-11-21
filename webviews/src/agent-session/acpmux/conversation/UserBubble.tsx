@@ -32,7 +32,8 @@ import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
 import { PendingDelivery, usePendingShown } from "./PromptDelivery";
-import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
+import { ImageIcon, Pencil } from "./icons";
+import { VersionSwitcher } from "./VersionSwitcher";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
@@ -224,6 +225,7 @@ export function UserBubble({
         </div>
       )}
       <div className="cv-user__body">
+        {branch && branches && <VersionSwitcher branch={branch} branches={branches} slot="head" />}
         {hasBubble ? (
           <div className="ui-glass cv-user__bubble selectable">
             {hasInterleaved ? (
@@ -256,40 +258,7 @@ export function UserBubble({
             }
           >
             <MessageFooterRow>
-              {branch && branches && (
-                <span className="cv-user__versions">
-                  <button
-                    type="button"
-                    className="cv-iconbtn cv-iconbtn--compact"
-                    aria-label={t("message.previousVersion")}
-                    title={t("message.previousVersion")}
-                    disabled={branch.index === 0}
-                    onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
-                  >
-                    <ChevronLeft size={ROW_ICON} />
-                  </button>
-                  <span
-                    className="cv-user__version-count"
-                    aria-label={t("message.versionCount", {
-                      index: branch.index + 1,
-                      total: branch.sessions.length,
-                    })}
-                  >
-                    {branches.running?.has(branch.sessions[branch.index] ?? "") && <Spinner size={12} loading />}
-                    {branch.index + 1}/{branch.sessions.length}
-                  </span>
-                  <button
-                    type="button"
-                    className="cv-iconbtn cv-iconbtn--compact"
-                    aria-label={t("message.nextVersion")}
-                    title={t("message.nextVersion")}
-                    disabled={branch.index === branch.sessions.length - 1}
-                    onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
-                  >
-                    <ChevronRight size={ROW_ICON} />
-                  </button>
-                </span>
-              )}
+              {branch && branches && <VersionSwitcher branch={branch} branches={branches} slot="footer" />}
               {pendingShown && row.delivery ? (
                 <PendingDelivery delivery={row.delivery} />
               ) : (

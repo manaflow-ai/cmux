@@ -604,8 +604,10 @@ fn a_helper_that_exits_early_ends_only_its_own_share() {
     let (stop_live, live) = start("s-live", "read -r line; cat >/dev/null");
     let ended = crashed.join().unwrap();
     assert_eq!(ended.reason, "the screen host stopped");
-    assert_eq!(ended.tell_hub, Some("failed"));
-    assert_eq!(*ends.lock().unwrap(), vec![("s-crash".to_owned(), "failed".to_owned())]);
+    // The hub hears why, so the viewer's card can say it (never only "failed").
+    let told = "failed: the screen host stopped";
+    assert_eq!(ended.tell_hub.as_deref(), Some(told));
+    assert_eq!(*ends.lock().unwrap(), vec![("s-crash".to_owned(), told.to_owned())]);
     assert!(!dir.join("s-crash.json").exists());
     // The other share is untouched: still serving, its record still there.
     std::thread::sleep(Duration::from_millis(300));
@@ -617,6 +619,22 @@ fn a_helper_that_exits_early_ends_only_its_own_share() {
     assert_eq!(ended.tell_hub, None);
     assert_eq!(ends.lock().unwrap().len(), 1);
     assert!(!dir.join("s-live.json").exists());
+}
+
+#[test]
+fn a_share_with_no_helper_tells_the_hub_which_check_refused_it() {
+    let home = Path::new("/Users/someone");
+    let why = "app (/Applications/cmux NIGHTLY.app/Contents/Library/cmux Computer Use.app): \
+               signature: /Users/someone/Library/x.app: code failed to satisfy specified code requirement(s)";
+    let text = session::no_helper_reason(why, Some(home));
+    assert!(text.starts_with("no Screen Sharing helper: app (/Applications/cmux NIGHTLY.app"));
+    assert!(text.contains("~/Library/x.app"), "{text}");
+    assert!(!text.contains("someone"), "{text}");
+    assert_eq!(session::no_helper_reason("none", None), "no Screen Sharing helper: none");
+    // What the hub gets is the `failed:` form the viewer's card reads, within its limit.
+    let told = cmux_hub_host::session::failed_reason(&text);
+    assert!(told.starts_with("failed: no Screen Sharing helper: "));
+    assert!(told.encode_utf16().count() <= cmux_hub_host::session::HUB_REASON_MAX);
 }
 
 // The Linux host (`share_host/linux.rs`): cmux-rd's, set up by the daemon with no step on the
@@ -857,12 +875,14 @@ fn only_an_enable_for_the_current_join_keeps_its_host() {
     assert_eq!(linux::after_enable(&set_up, true, true), undo, "cancelled");
     assert_eq!(linux::after_enable(&set_up, false, false), undo, "the join changed");
     assert_eq!(linux::after_enable(&Outcome::Cancelled, true, true), undo);
+    // Review of #45369: an enable that failed or timed out may have started the unit before it
+    // ended, so for the current join too its host is stopped, never left running unmarked.
     let failed = Outcome::Failed("x".into());
-    assert_eq!(
-        linux::after_enable(&failed, false, true),
-        After { save_mark: false, stop_host: false }
-    );
+    assert_eq!(linux::after_enable(&failed, false, true), undo, "failed");
     assert_eq!(linux::after_enable(&failed, false, false), undo);
+    assert_eq!(linux::after_enable(&Outcome::TimedOut, false, true), undo, "timed out");
+    let not_installed = Outcome::NotInstalled("not signed in".into());
+    assert_eq!(linux::after_enable(&not_installed, false, true), undo, "not installed");
 }
 
 #[test]
