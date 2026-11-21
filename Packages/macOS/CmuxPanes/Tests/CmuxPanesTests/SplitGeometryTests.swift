@@ -85,6 +85,39 @@ struct SplitGeometryTests {
         #expect(plan.adjustments.first { $0.splitId == innerId }?.position == 0.5)
     }
 
+    @Test func equalizeCountsCrossOrientationSubtreeByItsWidestRow() {
+        // Moving a tab left out of the left column of a 2x2 grid splits that
+        // row in place. Both rows done this way read as a 3x2 grid, but the
+        // first two columns sit inside one vertical subtree.
+        let outerId = UUID()
+        let leftColumnId = UUID()
+        let topRowId = UUID()
+        let bottomRowId = UUID()
+        let rightColumnId = UUID()
+        let tree = split(
+            outerId,
+            orientation: "horizontal",
+            dividerPosition: 0.594,
+            first: split(
+                leftColumnId,
+                orientation: "vertical",
+                first: split(topRowId, orientation: "horizontal", first: pane("a"), second: pane("b")),
+                second: split(bottomRowId, orientation: "horizontal", first: pane("c"), second: pane("d"))
+            ),
+            second: split(rightColumnId, orientation: "vertical", first: pane("e"), second: pane("f"))
+        )
+
+        let plan = tree.equalizeDividerPlan()
+        let position = { (id: UUID) in plan.adjustments.first { $0.splitId == id }?.position }
+
+        // Two of three columns sit left of the outer divider.
+        #expect(abs((position(outerId) ?? 0) - (2.0 / 3.0)) < 0.0001)
+        #expect(position(topRowId) == 0.5)
+        #expect(position(bottomRowId) == 0.5)
+        #expect(position(leftColumnId) == 0.5)
+        #expect(position(rightColumnId) == 0.5)
+    }
+
     @Test func equalizeOrientationFilterSkipsOtherOrientations() {
         let outerId = UUID()
         let innerId = UUID()
