@@ -56,6 +56,9 @@ struct Hot {
     session_id: Option<Box<str>>,
     name: Option<Box<str>>,
     handle: Option<Box<str>>,
+    alias: Option<Box<str>>,
+    /// Its `formerNames`; None (no allocation) for a row never renamed.
+    former_names: Option<Box<[Box<str>]>>,
     status: Option<Box<str>>,
     peer: Option<Box<str>>,
     agent_session_id: Option<Box<str>>,
@@ -78,6 +81,20 @@ impl Hot {
             session_id: text("sessionId"),
             name: text("name"),
             handle: text("handle"),
+            alias: summary
+                .get("tags")
+                .and_then(|tags| tags.get("session.alias"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|alias| !alias.is_empty())
+                .map(Box::from),
+            former_names: summary
+                .get("formerNames")
+                .and_then(Value::as_array)
+                .map(|names| -> Box<[Box<str>]> {
+                    names.iter().filter_map(Value::as_str).map(Box::from).collect()
+                })
+                .filter(|names| !names.is_empty()),
             status: text("status"),
             peer: text("peer"),
             agent_session_id: text("agentSessionId"),
@@ -292,6 +309,15 @@ impl PeerRow {
 
     pub fn handle(&self) -> Option<&str> {
         self.hot.handle.as_deref()
+    }
+
+    pub fn alias(&self) -> Option<&str> {
+        self.hot.alias.as_deref()
+    }
+
+    /// Whether `name` is one of its former names (`formerNames`, `hub/former_names.rs`).
+    pub fn has_former_name(&self, name: &str) -> bool {
+        self.hot.former_names.as_deref().is_some_and(|names| names.iter().any(|n| &**n == name))
     }
 
     pub fn status(&self) -> Option<&str> {
