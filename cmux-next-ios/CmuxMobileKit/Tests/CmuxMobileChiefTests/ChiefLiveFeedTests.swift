@@ -60,7 +60,7 @@ import Testing
     @Test(arguments: ["chief-reply-d:agent_mux:run-7:0", "chief-reply:agent_mux:run-7:2"])
     func aDelayedLiveReplyStaysHiddenAfterTheNextUserMessage(clientID: String) async throws {
         let backend = LiveReplyBackend()
-        let session = ChiefSession(backend: backend, outbox: ChiefOutbox(file: nil))
+        let session = ChiefSession(backend: backend)
         defer { session.store.stop() }
         session.isVisible = true
         try await waitUntil("initial history") { session.store.hasLoadedNewest }

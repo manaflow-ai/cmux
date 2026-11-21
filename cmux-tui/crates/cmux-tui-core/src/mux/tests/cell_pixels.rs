@@ -151,3 +151,57 @@ fn terminal_spawn_cell_pixel_failure_propagates_exit_persistence_error() {
         "unexpected terminal creation error: {error:#}"
     );
 }
+
+/// A terminal create holds its workspace lifecycle and then takes the
+/// cell-pixel lifecycle for the creation size. A failed browser target
+/// adoption closes its tab under that workspace lifecycle, so it must not
+/// still hold the cell-pixel lifecycle there: the two would wait on each
+/// other for good.
+#[test]
+fn failed_browser_target_adoption_rolls_back_without_the_cell_pixel_lifecycle() {
+    let mux = test_mux();
+    let opener = mux.new_browser_tab("about:blank#opener".into(), None, Some((80, 24))).unwrap();
+    let workspace = mux.surface_workspace(opener.id).unwrap();
+    let tabs_before =
+        mux.with_state(|state| state.panes[&state.pane_of(opener.id).unwrap()].tabs.len());
+    let creation_could_lock = Arc::new(Mutex::new(None));
+    *mux.browser_adopt_before_rollback.lock().unwrap() = Some(Arc::new({
+        let mux = Arc::downgrade(&mux);
+        let creation_could_lock = creation_could_lock.clone();
+        move || {
+            let mux = mux.upgrade().unwrap();
+            // The order of a terminal create in this workspace, on its own thread.
+            let could_lock = std::thread::scope(|scope| {
+                scope
+                    .spawn(|| {
+                        let lifecycle = mux.workspace_lifecycle(workspace);
+                        let _workspace_lifecycle = lifecycle.lock().unwrap();
+                        mux.cell_pixel_lifecycle.try_lock().is_ok()
+                    })
+                    .join()
+                    .unwrap()
+            });
+            *creation_could_lock.lock().unwrap() = Some(could_lock);
+        }
+    }));
+    mux.set_resource_patch_failure_for_test(true);
+
+    let error = mux.adopt_browser_target_tab(opener.id, "about:blank#adopted".into()).unwrap_err();
+
+    mux.set_resource_patch_failure_for_test(false);
+    *mux.browser_adopt_before_rollback.lock().unwrap() = None;
+    assert!(
+        format!("{error:#}").contains("could not persist adopted browser target"),
+        "unexpected error: {error:#}"
+    );
+    assert_eq!(
+        *creation_could_lock.lock().unwrap(),
+        Some(true),
+        "the adoption rollback held the cell-pixel lifecycle while it waited for the workspace \
+         lifecycle that a terminal create holds before it takes the cell-pixel lifecycle"
+    );
+    let tabs_after =
+        mux.with_state(|state| state.panes[&state.pane_of(opener.id).unwrap()].tabs.len());
+    assert_eq!(tabs_after, tabs_before, "the rollback did not close the adopted tab");
+    opener.kill();
+}

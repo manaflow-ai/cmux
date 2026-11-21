@@ -70,9 +70,8 @@ extension BookmarkService {
             for await landed in ObservationStream({ [weak self] in self?.landedAwaitedFolderIcons() ?? [] }) {
                 guard let self else { return }
                 guard !landed.isEmpty else { continue }
+                // The bars and the manager page follow `bookmarkIconRevision` and ask again.
                 awaitedFolderIcons.subtract(landed)
-                guard showsBar else { continue }
-                for chrome in chromes.values where chrome.entry != nil && chrome.source.awaitsFavicons { chrome.bar.reload() }
             }
         }
     }

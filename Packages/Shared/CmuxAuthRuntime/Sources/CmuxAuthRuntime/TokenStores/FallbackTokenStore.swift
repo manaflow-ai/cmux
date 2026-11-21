@@ -21,6 +21,13 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         self.file = file
     }
 
+    /// The keychain's failed reads plus the file store's: a keychain read
+    /// that failed falls through to the file store, whose nil then says
+    /// nothing about the keychain session.
+    public func tokenReadFailureCount() async -> UInt64 {
+        await keychain.tokenReadFailureCount() &+ file.tokenReadFailureCount()
+    }
+
     public func getStoredAccessToken() async -> String? {
         if keychainWorks, let value = await keychain.getStoredAccessToken() {
             return value

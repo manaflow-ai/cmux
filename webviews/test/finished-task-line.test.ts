@@ -1,5 +1,5 @@
 // A finished turn keeps the sub-session it started in sight once its work folds: one line with the
-// task's title (not its short name), its done mark and a chevron after them, which opens the task's
+// task's title (not its short name) and its done mark. The name opens the task's
 // chat, where its report is. ChatGPT keeps "✓ Review October engineering work ›" in its lead chat
 // (Leo, 2026-11-02: "see this is the kinda scenario we wanna be able to display super nicely").
 //
@@ -121,13 +121,14 @@ await requireBrowserLane("finished-task-line.test.ts", async () => {
         expect(line!.text).not.toContain("october-review");
         expect(line!.state).toBe("done");
         expect(line!.height).toBeGreaterThan(0);
-        // It opens another chat: its chevron points right (taller than wide), after the words.
-        expect(found.chevron?.right).toBe(true);
+        expect(found.chevron).toBeNull();
         // Under the fold, above the reply.
         expect(found.fold).not.toBeNull();
         expect(line!.top).toBeGreaterThan(found.fold!);
         expect(line!.top).toBeLessThan(found.reply!);
-        // A click asks the app to open the task's chat.
+        // A click on its title chip asks the app to open the task's chat; the line itself opens nothing
+        // (Leo, 2026-11-05: "subagents need to have their clickable bit be highlighted instead of the
+        // whole line click").
         await page.evaluate(() => {
           const handler = (
             window as unknown as {
@@ -142,7 +143,13 @@ await requireBrowserLane("finished-task-line.test.ts", async () => {
             return post(message);
           };
         });
-        await page.click(".cv-task-line");
+        await page.click(".cv-task-line .cv-agent-activity__icon");
+        // Other host messages (focus, telemetry) may go; none asks for the task's chat.
+        const lineCalls = await page.evaluate(() =>
+          JSON.stringify((window as unknown as { __taskCalls: unknown[] }).__taskCalls),
+        );
+        expect(lineCalls).not.toContain("sub-october-review");
+        await page.click(".cv-task-line button.cv-agent-tag.is-open");
         const calls = await page.evaluate(
           () =>
             (window as unknown as { __taskCalls: { method?: string; params?: { sessionId?: string } }[] }).__taskCalls,

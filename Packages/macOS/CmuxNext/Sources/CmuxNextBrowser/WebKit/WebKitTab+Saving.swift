@@ -5,6 +5,7 @@ extension WebKitTab: BrowserURLSaving {
     /// into `destination`, a file the person chose (`WebKitDownloads`).
     public func save(_ url: URL, to destination: URL) {
         BrowserDownload.startSave(url, to: destination, start: {
+            guard resumeIfSuspended() else { return false }
             webView.startDownload(using: URLRequest(url: url)) { [weak self] download in
                 guard let self else { return download.cancel(nil) }
                 downloads.register(download, source: url, chosen: destination)

@@ -14,7 +14,7 @@ enum RecoveryNotice {
         for draft in await store.unannouncedDrafts() {
             let message = await message(for: draft, store: store)
             let action = store.restoreHandler.map { _ in CmuxToast.Action(title: QuitStrings.recoveredOpen) }
-            let handle = toasts.show(CmuxToast(id: "recovery:\(draft.id)", message: message, action: action, duration: .seconds(12)),
+            let handle = toasts.show(CmuxToast(id: "recovery:\(draft.id)", kind: "recovery", message: message, action: action, duration: .seconds(12)),
                                      in: window)
             handle.onAction = { [weak store] in store?.restoreHandler?(draft) }
             if !handle.isDismissed { await store.markAnnounced(draft) }

@@ -54,6 +54,8 @@ ratchet_seen = set()
 ratchet_new = set()
 fixes = {}
 fixed_declarations = set()
+# (module, name) of each enum the fix turns into a struct, whose `import enum` lines must follow it.
+converted_enums = set()
 
 general_baseline = set()
 if os.path.exists(general_baseline_path):
@@ -119,8 +121,61 @@ def schedule_fix(path, original, masked, match, declares_init):
     edits = fixes.setdefault(path, [])
     if kind == "enum":
         edits.append((match.start("kind"), match.end("kind"), "struct"))
+        # Only a top-level enum is importable as `import enum Module.Name`; a nested `Owner.Name` is not, and its
+        # bare name may belong to another top-level type of the module (review F1 of #45122).
+        top_level = masked.count("{", 0, match.start()) == masked.count("}", 0, match.start())
+        module = declaring_module(path)
+        if module and top_level:
+            converted_enums.add((module, match.group("name")))
     edits.append((brace + 1, brace + 1, initializer))
     fixed_declarations.add(declaration)
+
+
+def declaring_module(path):
+    """The Swift module a package source declares into: the directory after `Sources` (None outside a package)."""
+    parts = Path(path).parts
+    if "Sources" in parts:
+        index = parts.index("Sources")
+        if index + 1 < len(parts) - 1:
+            return parts[index + 1]
+    return None
+
+
+# `import enum Module.Name`, with any attributes and access level before it.
+KIND_IMPORT = (
+    r"(?m)^(?P<lead>[ \t]*(?:@\w+(?:\([^)]*\))?[ \t]+)*"
+    r"(?:(?:public|package|internal|fileprivate|private)[ \t]+)?import[ \t]+)enum"
+    r"(?P<tail>[ \t]+{module}\.{name}\b)"
+)
+
+
+def rewrite_kind_imports():
+    """An enum the fix turns into a struct can no longer be imported as `import enum M.Name`: Swift stops with
+    "'Name' was imported as 'enum', but is a struct" (8f33d7030's LaunchPriorChat broke the CmuxNext compile on
+    feat-cmux-next). Rewrite every such import in the checkout's Swift sources and tests to `import struct`."""
+    if not converted_enums:
+        return
+    patterns = [
+        re.compile(KIND_IMPORT.replace("{module}", re.escape(module)).replace("{name}", re.escape(name)))
+        for module, name in sorted(converted_enums)
+    ]
+    for top in ("Packages", "ios"):
+        for directory, dirnames, filenames in os.walk(top):
+            dirnames[:] = [d for d in dirnames if d not in (".build", "build", "node_modules", ".git")]
+            for filename in filenames:
+                if not filename.endswith(".swift"):
+                    continue
+                path = os.path.join(directory, filename)
+                source = open(path, encoding="utf-8", errors="replace").read()
+                if "import" not in source:
+                    continue
+                rewritten = source
+                for pattern in patterns:
+                    rewritten = pattern.sub(r"\g<lead>struct\g<tail>", rewritten)
+                if rewritten != source:
+                    with open(path, "w", encoding="utf-8") as out:
+                        out.write(rewritten)
+                    print(f"fixed enum imports of converted namespace types in {path}")
 
 
 def write_fixes():
@@ -131,6 +186,7 @@ def write_fixes():
         with open(path, "w", encoding="utf-8") as out:
             out.write(source)
         print(f"fixed namespace declarations in {path}")
+    rewrite_kind_imports()
 
 
 def body_and_end(src, brace):

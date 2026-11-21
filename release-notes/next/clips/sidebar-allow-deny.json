@@ -6,6 +6,17 @@
       "sessionTree": true
     }
   },
+  "harnessFixture": {
+    "harnesses": {
+      "fake": {
+        "argv": [
+          "/usr/bin/python3",
+          "{repo}/cmux-tui/crates/acpmux/tests/fake_agent.py"
+        ],
+        "description": "acpmux's test agent (What's New clip tours)"
+      }
+    }
+  },
   "steps": [
     {
       "title": "Launch",

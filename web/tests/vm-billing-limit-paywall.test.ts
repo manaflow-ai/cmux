@@ -5,6 +5,7 @@ import {
   defaultMemoryMbForPlan,
   isVmFreeAccessExpired,
   maxActiveVmsForPlan,
+  PAID_MACHINE_GUARD,
   maxDiskMbForPlan,
   lockedMemoryOptionsMbForPlan,
   maxMemoryMbForPlan,
@@ -28,34 +29,19 @@ describe("free plan VM allowance", () => {
     expect(maxActiveVmsForPlan("free", {})).toBe(0);
   });
 
-  test("paid plans get the advertised 5-machine allowance", () => {
-    expect(maxActiveVmsForPlan("pro", {})).toBe(5);
-    expect(maxActiveVmsForPlan("team", {})).toBe(5);
-    expect(maxActiveVmsForPlan("founders", {})).toBe(5);
-    expect(maxActiveVmsForPlan("max", {})).toBe(5);
+  test("paid plans have no allowance, only the high abuse guard: machines are metered and the spending cap is the stop", () => {
+    for (const plan of ["pro", "team", "founders", "max"]) expect(maxActiveVmsForPlan(plan, {})).toBe(PAID_MACHINE_GUARD);
+    expect(PAID_MACHINE_GUARD).toBeGreaterThanOrEqual(200);
   });
 
-  test("a Team subscription gets 5 machines per paid seat", () => {
-    expect(maxActiveVmsForPlan("team", {}, { seats: 4 })).toBe(20);
-    expect(maxActiveVmsForPlan("team", {}, { seats: 1 })).toBe(5);
-    expect(maxActiveVmsForPlan("team", {}, { seats: null })).toBe(5);
-    expect(maxActiveVmsForPlan("team", {}, { seats: 0 })).toBe(5);
-    // Seats only mean something on the Team plan.
-    expect(maxActiveVmsForPlan("pro", {}, { seats: 4 })).toBe(5);
-    expect(maxActiveVmsForPlan("free", {}, { seats: 4 })).toBe(0);
-    // Retired overrides cannot erase paid seats.
-    expect(maxActiveVmsForPlan("team", { CMUX_VM_PLAN_TEAM_MAX_ACTIVE_VMS: "2" }, { seats: 3 })).toBe(15);
-    expect(maxActiveVmsForPlan("team", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "1" }, { seats: 4 })).toBe(20);
-  });
-
-  test("retired paid overrides cannot change the product allowance", () => {
-    expect(maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "1" })).toBe(5);
+  test("retired paid overrides cannot lower the guard to an allowance", () => {
+    expect(maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "1" })).toBe(PAID_MACHINE_GUARD);
     expect(maxActiveVmsForPlan("pro", {
       CMUX_VM_PAID_MAX_ACTIVE_VMS: "1",
       CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS: "25",
-    })).toBe(5);
-    expect(maxActiveVmsForPlan("team", { CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS: "25" })).toBe(5);
-    expect(maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "0" })).toBe(5);
+    })).toBe(PAID_MACHINE_GUARD);
+    expect(maxActiveVmsForPlan("team", { CMUX_VM_PLAN_TEAM_MAX_ACTIVE_VMS: "2" })).toBe(PAID_MACHINE_GUARD);
+    expect(maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "0" })).toBe(PAID_MACHINE_GUARD);
   });
 
   test("free allowance is env-overridable only with the explicit escape hatch", () => {
@@ -223,7 +209,10 @@ describe("active-limit response as the paywall moment", () => {
     expect(response.status).toBe(402);
     const payload = await body(response);
     expect(payload.error).toBe("vm_active_limit_exceeded");
-    expect(payload.message).toContain("10 Cloud VMs in total, including paused machines");
+    // The paid stop is the abuse guard: the message names a safety limit, never a plan count.
+    expect(payload.message).toContain("a safety limit, not your plan");
+    expect(payload.message).not.toContain("10");
+    expect((payload.details as Record<string, unknown>).limit).toBe(10);
     expect(String(payload.action)).toContain("cmux cloud list-machines");
     expect(payload.upgradeRequired).toBeUndefined();
   });
@@ -250,7 +239,7 @@ describe("active-limit response as the paywall moment", () => {
     });
     const payload = await body(response);
     expect(payload.message).toBe(
-      "This plan allows 2 Cloud VMs in total, including paused machines. " +
+      "This team keeps too many Cloud VMs at once (a safety limit, not your plan), including paused machines. " +
         "Counted now: solar-olive-bee, happy-tan-warbler (provisioning). Paused machines count toward the limit.",
     );
     expect((payload.details as Record<string, unknown>).activeMachines).toEqual([

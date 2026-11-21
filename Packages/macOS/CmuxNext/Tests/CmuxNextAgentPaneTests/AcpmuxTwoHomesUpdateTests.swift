@@ -81,7 +81,7 @@ struct AcpmuxTwoHomesUpdateTests {
                 .map { $0.split(separator: "\n").suffix(20).joined(separator: "\n") } ?? "no daemon.log"
         }
         for (index, socket) in sockets.enumerated() {
-            _ = try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: homes[index], deadline: .seconds(10))
+            _ = try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: homes[index], reason: "test", deadline: .seconds(10))
         }
         for (pid, start) in started {
             // A daemon the app refused may outlive the shutdown above: it is signalled only while

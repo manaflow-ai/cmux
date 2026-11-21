@@ -740,3 +740,85 @@ fn a_chat_whose_events_folder_does_not_list_keeps_the_forks_reference() {
         "the reference was dropped"
     );
 }
+
+/// Third review of #39141 (F2): the chat's delete writes its history into the fork; a cold
+/// archive's commit of the fork that landed between the write's rehydrate of the fork's log and
+/// its write into `events/` moved the fork's own records into the archive, and the write made a
+/// new `events/` with the history alone, so the fork's own turns were never read again. The
+/// commit waits for the write, finds the log changed, and leaves it.
+#[test]
+fn a_cold_commit_waits_for_the_forks_history_write() {
+    let dir = tempfile::tempdir().unwrap().keep();
+    let view =
+        std::sync::Arc::new(forked(Box::new(LocalStore::new(dir, 1 << 20).unwrap()), 30, 20, 4));
+    view.close_log("fork");
+    let staged = view.stage_cold("fork").unwrap().expect("the fork has a log to archive");
+    // The delete: it stops right after the fork's rehydrate check, holding `dropping`.
+    let (tx, rx) = std::sync::mpsc::channel();
+    let delete = {
+        let view = view.clone();
+        std::thread::spawn(move || {
+            let (arrived_tx, arrived) = std::sync::mpsc::channel();
+            let (release, release_rx) = std::sync::mpsc::channel();
+            super::super::cold::HOLD_AFTER_HISTORY_REHYDRATE
+                .with(|hold| *hold.borrow_mut() = Some((arrived_tx, release_rx)));
+            tx.send((arrived, release)).unwrap();
+            view.delete("chat").unwrap();
+        })
+    };
+    let arrive = std::time::Duration::from_secs(30);
+    let (arrived, release): (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) =
+        rx.recv_timeout(arrive).expect("the delete thread never installed its hold");
+    arrived.recv_timeout(arrive).expect("the delete never reached HOLD_AFTER_HISTORY_REHYDRATE");
+    // The commit: it says when it waits for `dropping`, or that it is done.
+    let (said, heard) = std::sync::mpsc::channel::<&'static str>();
+    let commit = {
+        let view = view.clone();
+        std::thread::spawn(move || {
+            NOTE_DROPPING_WAIT.with(|note| *note.borrow_mut() = Some(said.clone()));
+            let committed = view.commit_cold("fork", staged);
+            let _ = said.send("done");
+            committed.unwrap()
+        })
+    };
+    let heard =
+        heard.recv_timeout(arrive).expect("the commit never reached its wait for `dropping`");
+    assert_eq!(heard, "waits", "the commit waits for the history's write");
+    release.send(()).unwrap();
+    delete.join().unwrap();
+    assert!(!commit.join().unwrap(), "the log changed since it was staged");
+    assert!(!view.is_cold("fork"));
+    assert!(view.load("fork").unwrap().unwrap().history_from.is_none());
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));
+}
+
+/// Every reader and writer goes through [`ForkView`] (`Hub::new`), so a [`Store`] method it
+/// does not forward answers with the trait's default for every store: under a view that did not
+/// forward them, a journal restore's cut never happened and what a chat kept while a restore held
+/// it was never on disk (review of #37284 at 4af5b562). Each method of the trait is forwarded,
+/// or named here with why the default stands.
+#[test]
+fn the_fork_view_forwards_every_store_method() {
+    // Not forwarded yet; each row is to be forwarded or given its reason.
+    const DEFAULT_STANDS: &[&str] = &["audit_dir"];
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
+    let fns = |text: &str, from: &str| -> Vec<String> {
+        let body = text.split(from).nth(1).unwrap_or_default();
+        let body = body.split("\n}\n").next().unwrap_or_default();
+        let names = body.lines().filter_map(|l| l.strip_prefix("    fn "));
+        names.filter_map(|l| l.split(['(', '<']).next()).map(str::to_owned).collect()
+    };
+    let store = std::fs::read_to_string(format!("{root}/store.rs")).unwrap();
+    let view = std::fs::read_to_string(format!("{root}/store/fork_view.rs")).unwrap();
+    let methods = fns(&store, "pub trait Store: Send + Sync {");
+    let forwarded = fns(&view, "impl Store for ForkView {");
+    assert!(methods.len() > 20 && !forwarded.is_empty(), "the scan read no methods");
+    let missing: Vec<&String> = methods
+        .iter()
+        .filter(|m| !forwarded.contains(m) && !DEFAULT_STANDS.contains(&m.as_str()))
+        .collect();
+    assert!(missing.is_empty(), "ForkView does not forward: {missing:?}");
+    let stale: Vec<&&str> =
+        DEFAULT_STANDS.iter().filter(|m| forwarded.iter().any(|f| f == *m)).collect();
+    assert!(stale.is_empty(), "forwarded now, take them out of DEFAULT_STANDS: {stale:?}");
+}

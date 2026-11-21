@@ -10,6 +10,12 @@
 // at full speed (`loadRun`, no tool calls, no scrolling). Over the stream the pane root and the
 // composer render no more often than the turn's own structural changes (its prompt, its start and
 // its end), however many chunks land, and the reply's row renders once per drawn chunk.
+//
+// The transcript itself gets the same bound, one render per chunk: a chunk gives it new rows, so it
+// draws, but it must not draw that chunk twice. It did, about 2.6 times per streamed event
+// (`transcript_per_stream_event`, composer-typing.bench.ts, cmux#45237), because a render-phase
+// setState took a row snapshot on every row change; a keystroke's frame then queued behind both
+// passes (Leo, 2026-11-17: "slow and sad comparatively on the latter").
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -68,6 +74,7 @@ await requireBrowserLane("agent-pane-stream-renders.test.ts", async () => {
       frames: run.frames,
       pane: renders.pane ?? 0,
       composer: renders.composer ?? 0,
+      transcript: renders.transcript ?? 0,
       rowsRendered: rowRenders.length,
       streamingRow: busiest,
       liveLineHidden: run.live_line_hidden_frames,
@@ -80,6 +87,12 @@ await requireBrowserLane("agent-pane-stream-renders.test.ts", async () => {
     expect(busiest[1]).toBeGreaterThan(20);
     expect(report.pane, "pane root renders during a text-only stream").toBeLessThanOrEqual(STRUCTURAL);
     expect(report.composer, "composer renders during a text-only stream").toBeLessThanOrEqual(STRUCTURAL);
+    // One pass per chunk that drew, not two: a second pass per chunk is work every keystroke waits
+    // behind. `deltas` counts the chunks sent; `frames` the frames drawn, which is never more.
+    expect(
+      report.transcript,
+      "transcript renders during a text-only stream (one per drawn chunk is the bound)",
+    ).toBeLessThanOrEqual(run.deltas + STRUCTURAL);
     // The live line under the reply stays shown while it streams, reading "Writing": it never
     // leaves and comes back (Leo, 2026-11-04: "it appears and disappears????").
     expect(report.liveLineHidden, "frames with the live line hidden while the reply streams").toBe(0);

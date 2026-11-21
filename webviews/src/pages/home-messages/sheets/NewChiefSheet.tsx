@@ -2,12 +2,17 @@
 // UniiChat); the Chief gets its own conversation. The host makes it where the engine needs it
 // (a Claude Chief is the account's cloud Chief, the others are this Mac's). The chosen engine's
 // one-line note shows under the picker. Create (↩) waits for a name of at most 100 characters.
-import { useId, useState } from "react";
+// While the host works the status line says so, and says it is slow when it is: a Create button that
+// only greys out reads as a dialog that does not work.
+import { useEffect, useId, useState } from "react";
 import type { Strings } from "../../shared/i18n";
 import { Select } from "../../../ui/Select";
 import type { ComposeActions } from "./actions";
 import { CHIEF_BACKEND_CHOICES, CHIEF_NAME_MAX } from "./model";
 import { SheetFrame, useSheetRun } from "./SheetFrame";
+
+/** How long Create runs before the status line says it is taking a while. */
+const CHIEF_CREATE_SLOW_MS = 8000;
 
 export interface NewChiefSheetProps {
   strings: Strings;
@@ -16,14 +21,30 @@ export interface NewChiefSheetProps {
   /** The name to start with (the gallery). */
   initialName?: string;
   initialBackend?: string;
+  /** How long Create runs before it says it is slow (tests). */
+  slowAfterMs?: number;
 }
 
-export function NewChiefSheet({ strings, actions, onFinish, initialName = "", initialBackend }: NewChiefSheetProps) {
+export function NewChiefSheet({
+  strings,
+  actions,
+  onFinish,
+  initialName = "",
+  initialBackend,
+  slowAfterMs = CHIEF_CREATE_SLOW_MS,
+}: NewChiefSheetProps) {
   const { t } = strings;
   const sheet = useSheetRun(strings, onFinish);
   const [name, setName] = useState(initialName);
   const [backend, setBackend] = useState(initialBackend ?? CHIEF_BACKEND_CHOICES[0]!.id);
   const label = useId();
+  const { running, setStatus } = sheet;
+  useEffect(() => {
+    if (!running) return;
+    setStatus(t("home.chief.new.creating"));
+    const slow = setTimeout(() => setStatus(t("home.chief.new.slow")), slowAfterMs);
+    return () => clearTimeout(slow);
+  }, [running, setStatus, slowAfterMs, t]);
   const trimmed = name.trim();
   const canSubmit = trimmed !== "" && Array.from(trimmed).length <= CHIEF_NAME_MAX;
   const chosen = CHIEF_BACKEND_CHOICES.find((choice) => choice.id === backend) ?? CHIEF_BACKEND_CHOICES[0]!;

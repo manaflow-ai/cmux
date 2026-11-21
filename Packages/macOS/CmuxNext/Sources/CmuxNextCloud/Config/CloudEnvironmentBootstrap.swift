@@ -25,8 +25,9 @@ public struct CloudEnvironmentBootstrap: Sendable {
     /// the launch read, fetches the backend's client-config into the cache for the next launch; it does nothing when
     /// this read already fetched it. Cancelling that task (Quit) kills the CLI (ProcessRunner), and the CLI's cache
     /// write is fenced by when its fetch started, so an older fetch never replaces a newer one's cache.
+    /// Its launch marks (`cloud_env.*`) say where the wait before the app's launch work goes (goal next-launch-instant).
     public func resolveAtLaunch() async throws -> (selection: CloudRuntimeSelection, refresh: @Sendable () async -> Void) {
-        let selection = try await resolve(cacheFirst: true)
+        let selection = try await resolve(cacheFirst: true, mark: { DaemonLaunchTimings.shared.mark($0) })
         guard selection.configSource != "backend" else { return (selection, {}) }
         return (selection, { [self] in
             guard !Task.isCancelled else { return }
@@ -36,10 +37,15 @@ public struct CloudEnvironmentBootstrap: Sendable {
 
     /// cacheFirst: the launch's read. A validated cached client-config, else a known backend's built-in one, answers
     /// with no network read; only a custom origin with no cache is fetched.
-    public func resolve(persisted: Bool = false, cacheFirst: Bool = false) async throws -> CloudRuntimeSelection {
+    /// `mark` names each step's end (the launch read's marks, ``resolveAtLaunch()``).
+    public func resolve(persisted: Bool = false, cacheFirst: Bool = false,
+                        mark: @Sendable (String) -> Void = { _ in }) async throws -> CloudRuntimeSelection {
+        mark("cloud_env.start")
         guard let cli = await BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work).resolve() else {
             throw DaemonError.launchFailed("The bundled cmux CLI is unavailable.")
         }
+        mark("cloud_env.cli_resolved")
+        defer { mark("cloud_env.cli_exited") }
         var environment = ProcessInfo.processInfo.environment
         // A source CLI override still resolves the actual app's namespace.
         if let bundleID = Bundle.main.bundleIdentifier { environment["CMUX_BUNDLE_ID"] = bundleID }

@@ -5,6 +5,7 @@
 // a reconnect; typing is said once; a message over 32 KiB cannot be sent.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -54,12 +55,8 @@ const { joinFrames, memoryStorage, workingRecords } = await import("../src/agent
 const { PROMPT_MAX_BYTES } = await import("../src/agent-session/guest/guestPrompts");
 type Socket = import("../src/agent-session/guest/shareSocket").ShareSocketLike;
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const SHARE = "c2hhcmUtMTIzNDU2Nzg";

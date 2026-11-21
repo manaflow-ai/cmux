@@ -4,16 +4,19 @@ import Foundation
 import os
 
 /// Agent sessions from each connected machine's session journal
-/// (plans/cmux-next/history.md 2, `agent`). The daemon owns the facts; this
-/// keeps one `AgentSessionFold` per machine and reads only the records
-/// after its cursor when a history list asks (`refresh`), so nothing polls.
+/// (plans/cmux-next/history.md 2, `agent`) for the vault, the agents palette
+/// page and resume by id: every machine, with each session's tab and
+/// terminal, which the local daemon's merged history (`history.entries.list`)
+/// does not carry. The History page reads agents from the daemon. This keeps
+/// one `AgentSessionFold` per machine and reads only the records after its
+/// cursor when a caller asks (`refresh`), so nothing polls.
 final class AgentHistory {
     private unowned let services: AppServices
-    private var folds: [String: AgentSessionFold] = [:]
+    var folds: [String: AgentSessionFold] = [:] // per machine (tests fill one)
     private var generations: [String: String] = [:]
     private var refreshing: Task<Void, Never>?
     /// Hidden by Clear History or Remove from History (the journal is
-    /// append-only); shared with command history.
+    /// append-only); the daemon history module writes the hides.
     let hidden: HiddenHistoryStore
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "history")
 
@@ -70,26 +73,7 @@ final class AgentHistory {
             .sorted { $0.lastActivityAt > $1.lastActivityAt }
     }
 
-    func entries() -> [HistoryEntry] {
-        sessions.map { session in
-            let connected = services.machines.daemons.contains { $0.machineID == session.machine }
-            return HistoryEntry(
-                id: "agent:\(session.qualifiedID)", kind: .agent, time: session.lastActivityAt,
-                title: HistoryAppStrings.agentTitle(provider: session.provider, cwd: session.cwd), detail: session.cwd,
-                machineName: session.machine == MachineRegistry.localID ? nil : session.machine,
-                isAvailable: connected, payload: .agent(session))
-        }
-    }
-
     func session(id: String) -> AgentSession? {
         sessions.first { $0.sessionID == id || $0.qualifiedID == id }
-    }
-
-    func hide(since: Date?) {
-        hidden.change { $0.hide(since: since, now: Date(), kind: "agent") }
-    }
-
-    func hide(_ session: AgentSession) {
-        hidden.change { $0.hide(entry: session.qualifiedID) }
     }
 }

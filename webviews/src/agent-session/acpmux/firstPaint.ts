@@ -13,6 +13,17 @@ export type FirstPaintState = {
   hostErrorSaid: boolean;
   /// The page is a New Tab page, which is what it is from its first render.
   newTab: boolean;
+  /// The last launch's copy of the chat is on screen (chatSnapshot/live.ts `showsChatSnapshot`):
+  /// what the person sees is the chat already, so the live page takes over only with the chat itself.
+  keepsLastFrame?: boolean;
+  /// The chat's own rows are in, from its attach or a kept tail (the client's `chatRead`), with the
+  /// chat it names: not a retry still connecting, not the draw hold running out.
+  chatRead?: boolean;
+  /// The client said the chat's open failed (`connection: "failed"`): that is what the chat is now.
+  openRefused?: boolean;
+  /// acpmux answered that it lists no such chat, and why (deleted, offline, paused; not a machine
+  /// still connecting): the pane's unavailable state, with its Reconnect or Resume, is the chat now.
+  chatUnavailable?: boolean;
 };
 
 /// Whether the page shows what it is: the chat it opened, the failure that keeps it from opening,
@@ -22,6 +33,19 @@ export type FirstPaintState = {
 /// pane until acpmux answered and the rows came back (Leo, 2026-11-09: "the chat loading kinda
 /// flickered in and out and layout shifted"). The copy stays until the chat is read or the failure
 /// is said.
+///
+/// Over the last launch's copy the page never steps back (Leo, 2026-11-09: "It shows me a glimpse of
+/// the past thing, and then it regresses into the skeletons and placeholders, and then it gets back
+/// to the true thing"): a quiet retry (`connecting:`, acpmux still restoring after an update) or the
+/// draw hold running out (App.tsx CHAT_DRAW_HOLD_MS) drew an empty transcript, a pill reading
+/// "Model" and an empty ring in the copy's place. With a copy up, only the chat's own rows, a said
+/// failure, a refused open or acpmux's answer that the chat is unavailable replace it; past live.ts SNAPSHOT_HOLD_MS the copy goes anyway.
+/// restore-monotonic-trace.test.tsx records every surface through a relaunch and fails on a step down.
 export function pageShowsWhatItIs(state: FirstPaintState): boolean {
-  return (state.handshaken && state.chatDrawn) || state.hostErrorSaid || state.newTab;
+  if (state.hostErrorSaid || state.newTab) return true;
+  if (state.keepsLastFrame)
+    return (
+      state.handshaken && (state.chatRead === true || state.openRefused === true || state.chatUnavailable === true)
+    );
+  return state.handshaken && state.chatDrawn;
 }

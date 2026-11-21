@@ -17,9 +17,12 @@
 // fade (`SCROLLER_FADE_ATTRIBUTE`, on in the agent pane since Lawrence 2026-10-23, msg
 // 11494: "auto-fades away"), which fades the transcript's thumb only.
 //
-// Every scroller drawn here also widens and darkens its thumb while the pointer is near its
-// trailing edge (`NEAR_ATTRIBUTE`, `installScrollerProximity`), as a macOS overlay scroller does,
-// so it is easy to grab.
+// Every scroller drawn here also widens and darkens its thumb while the pointer is over its
+// scrollbar lane (`NEAR_ATTRIBUTE`, `installScrollerProximity`), as a macOS overlay scroller does,
+// so it is easy to grab. The lane is exactly where the engine takes a press on the scrollbar, so the
+// thumb widens where a press grabs it and nowhere else (Lawrence 2026-11-20, msg 42498: "it is
+// possible for me to hover close, and for the width to change, but after i mousedown and drag, it
+// fails to scroll").
 //
 // Libraries that draw their own scrollers (Monaco; the @pierre/diffs code rows and the
 // @pierre/trees list show theirs on hover) follow the same rule: hidden at rest and while the
@@ -50,10 +53,50 @@ export const SHOWN_SCROLLER_ATTRIBUTE = "data-cmux-shown-scroller";
 export const SCROLLER_FADE_ATTRIBUTE = "data-cmux-scroller-fade";
 /** A shown scroller's full ink, in percent of the text color (`--cmux-scroller-thumb`'s). */
 const SHOWN_INK = 38;
+/** A shown scroller's ink while the pointer is near its bar (`--cmux-scroller-thumb-near`'s). */
+const SHOWN_NEAR_INK = 55;
 /// A fade out runs a third longer than its duration property (the host's, after ui.animationSpeed,
 /// Reduce Motion and animations off, so 0 stays 0): the pane's 180 ms move is 240 ms, the motion
 /// scale's longest step, so the thumb is seen to fade (Leo 2026-10-29).
 const FADE_OUT_STRETCH = 4 / 3;
+
+/**
+ * The custom properties a scroller's thumb is drawn from: its ink (`property`, percent) in full and
+ * near the pointer, and how far it has gone to its near look (`nearProperty`, 0 to 1: its border
+ * goes from 2 px to `--cmux-scroller-near-border`, and a sideways thumb's colour toward
+ * `--cmux-scroller-thumb-near`).
+ */
+export type ScrollerInk = { property: string; full: number; near: number; nearProperty: string };
+
+/** The transcript's shown scroller's (`SHOWN_SCROLLER_ATTRIBUTE`). */
+export const SHOWN_INK_PROPERTIES: ScrollerInk = {
+  property: "--cmux-shown-scroller-ink",
+  full: SHOWN_INK,
+  near: SHOWN_NEAR_INK,
+  nearProperty: "--cmux-shown-scroller-near",
+};
+
+/**
+ * A sideways scroller's thumb ink (a wide table's, a Shell block's): percent of the thumb's color.
+ * `followShownScrollerFade(box, SIDEWAYS_INK)` steps it so the thumb fades in and out under the
+ * scrollbar fade instead of showing and hiding in one frame (user 2026-11-08: "this table thing
+ * needs better animation on appear/disappear"). Near the pointer its colour goes toward the near
+ * colour (`--cmux-sideways-near`).
+ */
+export const SIDEWAYS_INK: ScrollerInk = {
+  property: "--cmux-sideways-ink",
+  full: 100,
+  near: 100,
+  nearProperty: "--cmux-sideways-near",
+};
+
+/**
+ * How a thumb takes the pointer coming near its bar (`NEAR_ATTRIBUTE`). `fade`: it fades to the near
+ * ink and widens over the fade's duration, and back as the pointer leaves. `thin`: the same fade,
+ * staying as thin as it scrolls. `instant`: the near look in one frame, as before (the stylesheet's
+ * near rule).
+ */
+export type ScrollerNearMotion = "fade" | "thin" | "instant";
 
 /** A duration custom property's value in ms (`120ms`, `0.18s`); 0 when it is unset or not one. */
 function durationMs(element: Element, property: string): number {
@@ -65,40 +108,69 @@ function durationMs(element: Element, property: string): number {
 
 /**
  * Under `SCROLLER_FADE_ATTRIBUTE`, fades `element`'s shown thumb in when it starts scrolling and out
- * once it stops (`SCROLLING_ATTRIBUTE`), over `--cmux-scroller-fade-in` and `--cmux-scroller-fade-out`
- * (0 or unset: at once). The ink steps once per frame from script: WebKit restyles a scrollbar's
- * parts only when its element's style is resolved again, never on a CSS transition's steps, so a
- * transition there showed the thumb and hid it with nothing between. Between fades the stylesheet's
- * ink applies. Returns the stop function.
+ * once it stops (`SCROLLING_ATTRIBUTE`); with or without it, to its near look while the pointer is
+ * near its bar and back (`NEAR_ATTRIBUTE`); over `--cmux-scroller-fade-in` and
+ * `--cmux-scroller-fade-out` (0 or unset: at once). The ink and the near share step once per frame
+ * from script: WebKit restyles a scrollbar's parts only when its element's style is resolved again,
+ * never on a CSS transition's steps, so a transition there showed the thumb and hid it with nothing
+ * between. Between fades the stylesheet's values apply. Before, the near look was the stylesheet's
+ * alone: the thumb came in wide at 55% the frame the pointer reached the bar, from nothing at rest,
+ * and went the frame it left (Leo 2026-11-20: "the thumb needs to look better when i do stuff").
+ * Returns the stop function.
  */
-export function followShownScrollerFade(element: HTMLElement): () => void {
+export function followShownScrollerFade(
+  element: HTMLElement,
+  ink: ScrollerInk = SHOWN_INK_PROPERTIES,
+  nearMotion: ScrollerNearMotion = "fade",
+): () => void {
+  const { property: INK_PROPERTY, nearProperty: NEAR_PROPERTY, full } = ink;
   const view = element.ownerDocument.defaultView;
-  // A view that draws no frames (a test page made without them) runs no fade.
-  if (!view?.MutationObserver || typeof view.requestAnimationFrame !== "function") return () => {};
+  // A view that draws no frames (a test page made without them, or one that stubs only
+  // requestAnimationFrame: the stop function cancels a frame) runs no fade.
+  if (
+    !view?.MutationObserver ||
+    typeof view.requestAnimationFrame !== "function" ||
+    typeof view.cancelAnimationFrame !== "function"
+  )
+    return () => {};
   const root = element.ownerDocument.documentElement;
-  /// The ink the stylesheet gives `element` now (none at rest under the fade, else full).
-  const resting = () =>
-    root.hasAttribute(SCROLLER_FADE_ATTRIBUTE) && !element.hasAttribute(SCROLLING_ATTRIBUTE) ? 0 : SHOWN_INK;
-  /// The ink drawn now; a fade starts from it.
-  let ink = resting();
-  let target = ink;
+  // The thin look keeps the scrolling border near the pointer too: on the shown thumb's own
+  // property, since the shared one is inherited by every scroller inside (sideways blocks, cards).
+  if (nearMotion === "thin") element.style.setProperty("--cmux-shown-scroller-near-border", "2px");
+  type Look = { ink: number; near: number };
+  /// The look the stylesheet gives `element` now: none at rest under the fade, else full, and the
+  /// near look while the pointer is near.
+  const resting = (): Look => {
+    if (element.hasAttribute(NEAR_ATTRIBUTE)) return { ink: ink.near, near: 1 };
+    return {
+      ink: root.hasAttribute(SCROLLER_FADE_ATTRIBUTE) && !element.hasAttribute(SCROLLING_ATTRIBUTE) ? 0 : full,
+      near: 0,
+    };
+  };
+  /// The look drawn now; a fade starts from it.
+  let drawn = resting();
+  let target = drawn;
   let frame = 0;
   const settle = () => {
     view.cancelAnimationFrame(frame);
-    ink = target = resting();
-    element.style.removeProperty("--cmux-shown-scroller-ink");
+    drawn = target = resting();
+    element.style.removeProperty(INK_PROPERTY);
+    element.style.removeProperty(NEAR_PROPERTY);
   };
   const fade = () => {
     const to = resting();
     // Every scroll step marks the element again: a fade already headed there runs on.
-    if (to === target) return;
-    if (!root.hasAttribute(SCROLLER_FADE_ATTRIBUTE)) return settle();
+    if (to.ink === target.ink && to.near === target.near) return;
+    // `instant` takes the near look and leaves it at once, as before; inline ink from a scroll
+    // fade would beat the stylesheet's near look.
+    if (nearMotion === "instant" && (to.near === 1 || target.near === 1)) return settle();
     target = to;
-    const from = ink;
-    const ms =
-      to > from
-        ? durationMs(element, "--cmux-scroller-fade-in")
-        : durationMs(element, "--cmux-scroller-fade-out") * FADE_OUT_STRETCH;
+    const from = drawn;
+    // In when the ink rises (at the same ink, when the thumb widens), else out.
+    const rising = to.ink !== from.ink ? to.ink > from.ink : to.near > from.near;
+    const ms = rising
+      ? durationMs(element, "--cmux-scroller-fade-in")
+      : durationMs(element, "--cmux-scroller-fade-out") * FADE_OUT_STRETCH;
     view.cancelAnimationFrame(frame);
     if (ms <= 0) return settle();
     const start = view.performance.now();
@@ -109,21 +181,23 @@ export function followShownScrollerFade(element: HTMLElement): () => void {
       // out: eased out, three quarters of the ink went in the first half and the thumb read as
       // vanishing at once (Leo 2026-10-29: "the scroll thumb should fade instead of disappearing
       // instantly").
-      const eased = to > from ? 1 - (1 - t) * (1 - t) : t * t * (3 - 2 * t);
-      ink = from + (to - from) * eased;
-      element.style.setProperty("--cmux-shown-scroller-ink", `${ink.toFixed(2)}%`);
+      const eased = rising ? 1 - (1 - t) * (1 - t) : t * t * (3 - 2 * t);
+      drawn = { ink: from.ink + (to.ink - from.ink) * eased, near: from.near + (to.near - from.near) * eased };
+      element.style.setProperty(INK_PROPERTY, `${drawn.ink.toFixed(2)}%`);
+      element.style.setProperty(NEAR_PROPERTY, drawn.near.toFixed(3));
       frame = view.requestAnimationFrame(step);
     };
     step(start);
   };
-  const scrollingMarks = new view.MutationObserver(fade);
-  scrollingMarks.observe(element, { attributes: true, attributeFilter: [SCROLLING_ATTRIBUTE] });
+  const marks = new view.MutationObserver(fade);
+  marks.observe(element, { attributes: true, attributeFilter: [SCROLLING_ATTRIBUTE, NEAR_ATTRIBUTE] });
   const fadeSetting = new view.MutationObserver(fade);
   fadeSetting.observe(root, { attributes: true, attributeFilter: [SCROLLER_FADE_ATTRIBUTE] });
   return () => {
-    scrollingMarks.disconnect();
+    marks.disconnect();
     fadeSetting.disconnect();
     settle();
+    if (nearMotion === "thin") element.style.removeProperty("--cmux-shown-scroller-near-border");
   };
 }
 
@@ -330,30 +404,55 @@ export function installScrollingMarks(document: Document, timers: ScrollTimers =
   );
 }
 
-/** On a scroller while the pointer is within `NEAR_PX` of its trailing edge: its thumb shows and
-    widens, as a macOS overlay scroller does (Lawrence 2026-10-23, msg 11494: "grows bigger on
-    near-hover so it's easier to grab"). */
+/** On a scroller while the pointer is over its scrollbar lane (`scrollbarLane`): its thumb shows
+    and widens, as a macOS overlay scroller does (Lawrence 2026-10-23, msg 11494: "grows bigger on
+    near-hover so it's easier to grab"), exactly where a press grabs it (Lawrence 2026-11-20, msg
+    42498). */
 export const NEAR_ATTRIBUTE = "data-cmux-scroller-near";
-/** How close to a scroller's trailing edge the pointer counts as near (ThinScroller.nearDistance). */
-export const NEAR_PX = 20;
 
-/** Whether a point at `x`, `y` is near the bottom edge of a box with `rect`'s bounds (a sideways
-    scroller's bar). */
-export function nearBottomEdge(
-  rect: { left: number; right: number; top: number; bottom: number },
-  x: number,
-  y: number,
-): boolean {
-  return y <= rect.bottom && y >= Math.max(rect.top, rect.bottom - NEAR_PX) && x >= rect.left && x <= rect.right;
+type Box = { left: number; right: number; top: number; bottom: number };
+
+/** `element`'s border widths in px (its scrollbars sit inside them). */
+function borders(element: Element): Box {
+  const style = element.ownerDocument.defaultView?.getComputedStyle(element) as unknown as
+    | Record<string, string>
+    | undefined;
+  const width = (side: string) => Number.parseFloat(style?.[`border${side}Width`] ?? "") || 0;
+  return { left: width("Left"), right: width("Right"), top: width("Top"), bottom: width("Bottom") };
 }
 
-/** Whether a point at `x`, `y` is near the trailing edge of a box with `rect`'s bounds. */
-export function nearTrailingEdge(
-  rect: { left: number; right: number; top: number; bottom: number },
-  x: number,
-  y: number,
-): boolean {
-  return x <= rect.right && x >= Math.max(rect.left, rect.right - NEAR_PX) && y >= rect.top && y <= rect.bottom;
+/**
+ * How thick `element`'s own scrollbar is on `axis` (`y`: the vertical bar's width, `x`: the
+ * sideways bar's height), in px: the lane the engine draws it in and takes presses on. 0 for an
+ * overlay scrollbar, which takes no layout and widens and hit-tests itself.
+ */
+export function scrollbarLane(element: Element, axis: "x" | "y"): number {
+  const document = element.ownerDocument;
+  const view = document.defaultView;
+  const box = element as HTMLElement;
+  if (element === document.documentElement)
+    return view
+      ? Math.max(0, axis === "y" ? view.innerWidth - box.clientWidth : view.innerHeight - box.clientHeight)
+      : 0;
+  const border = borders(element);
+  return Math.max(
+    0,
+    axis === "y"
+      ? box.offsetWidth - box.clientWidth - border.left - border.right
+      : box.offsetHeight - box.clientHeight - border.top - border.bottom,
+  );
+}
+
+/** Whether a point at `x`, `y` is over the sideways bar of a box whose inside (its border box less
+    its borders) is `rect`: its bottom `lane` px. Half-open, so a pixel row is in or out. */
+export function nearBottomEdge(rect: Box, x: number, y: number, lane: number): boolean {
+  return lane > 0 && y < rect.bottom && y >= rect.bottom - lane && x >= rect.left && x < rect.right;
+}
+
+/** Whether a point at `x`, `y` is over the vertical bar of a box whose inside is `rect`: its
+    trailing `lane` px. Half-open, so a pixel column is in or out. */
+export function nearTrailingEdge(rect: Box, x: number, y: number, lane: number): boolean {
+  return lane > 0 && x < rect.right && x >= rect.right - lane && y >= rect.top && y < rect.bottom;
 }
 
 function overflows(element: Element, axis: "x" | "y"): boolean {
@@ -370,8 +469,8 @@ function overflows(element: Element, axis: "x" | "y"): boolean {
 /**
  * The scroller the pointer is near: the first element on `path` (the pointer event's composed path,
  * innermost first, shadow roots included, so a diff's code rows count) that scrolls vertically with
- * its trailing edge within `NEAR_PX` of the pointer, or sideways with its bottom edge (its bar)
- * that close; the page's own scroller as <html>, whose edges are the viewport's.
+ * the pointer over its vertical bar's lane, or sideways with the pointer over its sideways bar's lane
+ * (`scrollbarLane`); the page's own scroller as <html>, whose edges are the viewport's.
  */
 export function nearScroller(path: readonly EventTarget[], x: number, y: number): Element | null {
   for (const node of path) {
@@ -381,11 +480,24 @@ export function nearScroller(path: readonly EventTarget[], x: number, y: number)
     const sideways = overflows(element, "x");
     if (!vertical && !sideways) continue;
     const view = element.ownerDocument.defaultView;
-    const rect =
-      element === element.ownerDocument.documentElement && view
-        ? { left: 0, top: 0, right: view.innerWidth, bottom: view.innerHeight }
-        : element.getBoundingClientRect();
-    if ((vertical && nearTrailingEdge(rect, x, y)) || (sideways && nearBottomEdge(rect, x, y))) return element;
+    let inside: Box;
+    if (element === element.ownerDocument.documentElement && view) {
+      inside = { left: 0, top: 0, right: view.innerWidth, bottom: view.innerHeight };
+    } else {
+      const rect = element.getBoundingClientRect();
+      const border = borders(element);
+      inside = {
+        left: rect.left + border.left,
+        right: rect.right - border.right,
+        top: rect.top + border.top,
+        bottom: rect.bottom - border.bottom,
+      };
+    }
+    if (
+      (vertical && nearTrailingEdge(inside, x, y, scrollbarLane(element, "y"))) ||
+      (sideways && nearBottomEdge(inside, x, y, scrollbarLane(element, "x")))
+    )
+      return element;
   }
   return null;
 }
@@ -478,6 +590,8 @@ export const SIDEWAYS_ATTRIBUTE = "data-cmux-sideways";
 
 /** The thumb's color: the root rule's, or its value where the root rules are not installed. */
 const SIDEWAYS_THUMB = "var(--cmux-scroller-thumb, color-mix(in srgb, currentColor 38%, transparent))";
+/** Its colour near the pointer. */
+const SIDEWAYS_NEAR_THUMB = "var(--cmux-scroller-thumb-near, color-mix(in srgb, currentColor 55%, transparent))";
 
 /**
  * Appended to every @pierre/diffs `unsafeCSS`. The library's code rows have a custom horizontal
@@ -541,21 +655,35 @@ export const SIDEWAYS_SCROLLER_CSS = `
 }
 :root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb {
   min-width: 24px;
-  border: 2px solid transparent;
+  border: solid transparent;
+  /* As the shown scroller's: 2 px, the near border near the pointer, stepped between by script. */
+  border-width: calc(2px - (2px - var(--cmux-scroller-near-border, 1px)) * var(--cmux-sideways-near, 0));
   border-radius: var(--cmux-scroller-size, 8px);
-  background: var(--cmux-sideways-rest, ${SIDEWAYS_THUMB}) padding-box;
+  background: color-mix(
+      in srgb,
+      color-mix(in srgb, ${SIDEWAYS_NEAR_THUMB} calc(var(--cmux-sideways-near, 0) * 100%), ${SIDEWAYS_THUMB})
+        var(--cmux-sideways-ink, 100%),
+      transparent
+    )
+    padding-box;
 }
 :root[${SCROLLER_FADE_ATTRIBUTE}] {
   --cmux-sideways-rest: transparent;
 }
-:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb,
-:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover,
-:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:active {
-  background-color: ${SIDEWAYS_THUMB};
+/* Under the scrollbar fade the thumb rests at no ink and has full ink while it scrolls; between
+   the two, followShownScrollerFade steps --cmux-sideways-ink inline, once a frame. */
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SIDEWAYS_SCROLLER_ATTRIBUTE}] {
+  --cmux-sideways-ink: 0%;
 }
-:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb {
-  border-width: var(--cmux-scroller-near-border, 1px);
-  background-color: var(--cmux-scroller-thumb-near, color-mix(in srgb, currentColor 55%, transparent));
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SIDEWAYS_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}] {
+  --cmux-sideways-ink: 100%;
+}
+/* Near the pointer (a hover on the thumb is near too) it widens and takes the near colour, faded
+   there and back by followShownScrollerFade, never in one frame. */
+:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}],
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SIDEWAYS_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}] {
+  --cmux-sideways-ink: 100%;
+  --cmux-sideways-near: 1;
 }
 `;
 
@@ -636,7 +764,13 @@ html[data-scrollers="legacy"][${NEAR_ATTRIBUTE}] > body::-webkit-scrollbar-thumb
 :root [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb,
 :root [${SHOWN_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb {
   min-height: 24px;
-  border: 2px solid transparent;
+  border: solid transparent;
+  /* 2 px at rest and while it scrolls, the near border near the pointer, and between the two while
+     followShownScrollerFade steps --cmux-shown-scroller-near (0 to 1). */
+  border-width: calc(
+    2px - (2px - var(--cmux-shown-scroller-near-border, var(--cmux-scroller-near-border, 1px))) *
+      var(--cmux-shown-scroller-near, 0)
+  );
   border-radius: var(--cmux-scroller-size);
   background: color-mix(in srgb, currentColor var(--cmux-shown-scroller-ink), transparent) padding-box;
 }
@@ -646,14 +780,12 @@ html[data-scrollers="legacy"][${NEAR_ATTRIBUTE}] > body::-webkit-scrollbar-thumb
 :root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}] {
   --cmux-shown-scroller-ink: 38%;
 }
-:root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover,
-:root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:active {
-  background-color: var(--cmux-scroller-thumb);
-}
-:root [${SHOWN_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb,
-:root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb {
-  border-width: var(--cmux-scroller-near-border);
-  background-color: var(--cmux-scroller-thumb-near);
+/* Near the pointer it widens and darkens through the same properties, so the script fades it there
+   and back instead of the frame the pointer comes or goes (a hover on the thumb is near too). */
+:root [${SHOWN_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}],
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}] {
+  --cmux-shown-scroller-ink: 55%;
+  --cmux-shown-scroller-near: 1;
 }
 `;
 

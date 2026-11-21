@@ -93,7 +93,6 @@ export function SiteDataWindow({
   return (
     <WindowFrame look={look} label={t("pageInfo.siteData.subtitle")} onClose={close} onReturn={close}>
       <form className="piw-section" onSubmit={done}>
-        <p className="piw-muted">{t("pageInfo.siteData.subtitle")}</p>
         {!entries && <p className="piw-muted">{t("pageInfo.loading")}</p>}
         {entries?.length === 0 && <p className="piw-muted">{t("pageInfo.siteData.empty")}</p>}
         {entries && entries.length > 0 && look !== "grouped" && (

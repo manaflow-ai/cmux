@@ -5,7 +5,7 @@
 //! returned only for cmux-owned additions (or a verified local preset file).
 
 use crate::config::Config;
-use crate::store::SessionMeta;
+use crate::store::{SessionMeta, SharedText};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -30,8 +30,9 @@ pub struct ContextPart {
     /// Delivery channel, when known. Describing a source never injects it again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel: Option<String>,
+    /// One copy for every chat that captured the same text (guidance, rules, a preset's prompt).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
+    pub text: Option<SharedText>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -291,6 +292,8 @@ pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
     // A folder set up for another harness: its instructions, which this one does not read itself.
     let family = family_for_folder(cfg, &meta.harness);
     parts.extend(crate::folder_instructions::part(&family, &meta.cwd));
+    // A partial copy of a Mac folder (a Cloud chat's first pass): what stayed on the Mac.
+    parts.extend(crate::left_on_mac::part(&meta.cwd));
     if let Some(default) = verified_prompt_text(meta, cfg) {
         let text = meta.cmux_preset_prompt.clone().unwrap_or(default);
         parts.push(ContextPart {
@@ -303,7 +306,7 @@ pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
             measurement: "estimated".into(),
             source_bytes: Some(text.len() as u64),
             channel: Some("system-prompt-file".into()),
-            text: Some(text),
+            text: Some(text.into()),
         });
     }
     parts
@@ -320,7 +323,7 @@ fn preset_part(text: String) -> ContextPart {
         measurement: "estimated".into(),
         source_bytes: Some(text.len() as u64),
         channel: Some("system-prompt-file".into()),
-        text: Some(text),
+        text: Some(text.into()),
     }
 }
 
@@ -502,11 +505,12 @@ pub fn record_rules_in_transcript(meta: &mut SessionMeta, turn_seq: u64) {
     }
 }
 
-/// Whether a native fork of `parent` cut at `fork_seq` keeps a transcript that carries the
-/// rules: only when the turn that carried them is at or before the cut. A record with no seq
-/// (made before it was kept) counts as kept, as it did then.
-pub fn fork_keeps_rules(parent: &SessionMeta, fork_seq: u64) -> bool {
-    parent.cmux_rules_in_transcript && parent.cmux_rules_seq.is_none_or(|seq| seq <= fork_seq)
+/// Whether a native fork cut at `fork_seq` keeps a transcript that carries the rules its parent
+/// recorded (`cmux_rules_in_transcript`, `cmux_rules_seq`): only when the turn that carried them
+/// is at or before the cut. A record with no seq (made before it was kept) counts as kept, as
+/// it did then.
+pub fn fork_keeps_rules(recorded: bool, seq: Option<u64>, fork_seq: u64) -> bool {
+    recorded && seq.is_none_or(|seq| seq <= fork_seq)
 }
 
 /// The captured parts on the first-message channel ([`USER_CONTEXT`]), as hidden blocks.
@@ -516,7 +520,9 @@ pub fn append_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
     push_blocks(
         parts.into_iter().flatten().filter(|p| {
             p.included
-                && (is_rule(p) || p.source == crate::folder_instructions::SOURCE)
+                && (is_rule(p)
+                    || p.source == crate::folder_instructions::SOURCE
+                    || p.source == crate::left_on_mac::SOURCE)
                 && p.channel.as_deref().is_none_or(|channel| channel == USER_CONTEXT)
         }),
         blocks,
@@ -591,7 +597,7 @@ pub fn guidance_part_on(text: String, channel: &str) -> ContextPart {
         measurement: "estimated".into(),
         source_bytes: Some(text.len() as u64),
         channel: Some(channel.into()),
-        text: Some(text),
+        text: Some(text.into()),
     }
 }
 
@@ -630,7 +636,7 @@ fn snapshot_on(cfg: &Config, cwd: &Path, channel: &str) -> Vec<ContextPart> {
         measurement: "estimated".into(),
         source_bytes: Some(text.len() as u64),
         channel: Some(channel.into()),
-        text: Some(text.to_owned()),
+        text: Some(text.into()),
     }]
 }
 
@@ -967,17 +973,17 @@ mod tests {
     #[test]
     fn a_fork_keeps_the_rules_only_when_cut_after_the_turn_that_carried_them() {
         let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
-        assert!(!fork_keeps_rules(&meta, 100));
+        assert!(!fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 100));
         record_rules_in_transcript(&mut meta, 40);
         // A later message does not move where they entered.
         record_rules_in_transcript(&mut meta, 90);
         assert_eq!(meta.cmux_rules_seq, Some(40));
-        assert!(fork_keeps_rules(&meta, 100));
-        assert!(fork_keeps_rules(&meta, 40));
+        assert!(fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 100));
+        assert!(fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 40));
         // Cut through an earlier turn: its transcript has neither the rules nor their record.
-        assert!(!fork_keeps_rules(&meta, 39));
+        assert!(!fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 39));
         // Recorded before the seq was kept: kept, as before.
         meta.cmux_rules_seq = None;
-        assert!(fork_keeps_rules(&meta, 0));
+        assert!(fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 0));
     }
 }

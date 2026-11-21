@@ -1,5 +1,5 @@
-//! `acpmux desktop link | unlink | status`: give the Claude desktop app, Claude Code and Codex
-//! this machine's acpmux tools (`desktop_link.rs`), take them back, or show which have them.
+//! `acpmux desktop link | unlink | status`: give the Claude desktop app, Claude Code, Codex,
+//! OpenCode, Gemini CLI, Qwen Code and pi this machine's acpmux tools (`desktop_link.rs`), take them back, or show which have them.
 
 use anyhow::Result;
 use clap::Subcommand;
@@ -9,11 +9,11 @@ use crate::desktop_link::{self, Env, Row, State};
 
 #[derive(Subcommand)]
 pub enum DesktopCmd {
-    /// Give an app (default: every one installed here) the cmux MCP server: its chats can then
-    /// list the machines and sessions cmux reaches, start a session on one, read it and message
-    /// it. An entry named cmux that cmux did not write is left alone.
+    /// Give an app (default: every one installed here) the cmux MCP server (pi, which has no MCP:
+    /// a cmux skill over this CLI): its chats can then list the machines and sessions cmux
+    /// reaches, read one and message it. An entry named cmux that cmux did not write is left alone.
     Link {
-        /// claude-desktop, claude-code, codex, or all (default).
+        /// claude-desktop, claude-code, codex, opencode, gemini, qwen, pi, or all (default).
         #[arg(long)]
         app: Option<String>,
         /// Say what would change; change nothing.
@@ -22,7 +22,7 @@ pub enum DesktopCmd {
     },
     /// Remove the entry `link` wrote (and only that one).
     Unlink {
-        /// claude-desktop, claude-code, codex, or all (default).
+        /// claude-desktop, claude-code, codex, opencode, gemini, qwen, pi, or all (default).
         #[arg(long)]
         app: Option<String>,
         #[arg(long)]

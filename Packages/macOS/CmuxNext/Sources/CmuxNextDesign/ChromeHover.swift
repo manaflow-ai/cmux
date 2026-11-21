@@ -67,6 +67,13 @@ public final class ChromeHover {
         view.layer?.insertSublayer(fill, at: 0)
     }
 
+    /// The fill's corner: a control nested in a rounded container sets the container's concentric child corner
+    /// (``ConcentricContainer/childRadius``) here.
+    public var cornerRadius: CGFloat {
+        get { fill.cornerRadius }
+        set { fill.cornerRadius = newValue }
+    }
+
     /// Whether the fill is the view's own backing layer (under its content).
     public var drawsBehindContent: Bool { fill === view?.layer }
 

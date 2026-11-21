@@ -274,7 +274,9 @@ impl Tx<'_> {
 }
 
 fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<(), Refusal> {
-    match op {
+    // A stale op applies to the document as it is now ([`super::stale`]); nothing left to do is no refusal.
+    let Some(op) = super::stale::rebase(tx.doc, op) else { return Ok(()) };
+    match op.as_ref() {
         Op::Move { items, to } => {
             place(tx, items, to)?;
             wake_groups_of(tx, items)
@@ -390,6 +392,29 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
                             item.extra.remove(GROUP_SORT_KEY);
                         }
                     }
+                }
+            }
+            match &patch.row_limit {
+                Patch::Keep => {}
+                Patch::Clear => {
+                    item.extra.remove(GROUP_ROW_LIMIT_KEY);
+                }
+                Patch::Set(value) => {
+                    let cap = crate::sidebar_caps::read_cap(value).ok_or(Refusal::InvalidValue)?;
+                    let stored = if cap == 0 { "all".to_string() } else { cap.to_string() };
+                    item.extra.insert(GROUP_ROW_LIMIT_KEY.into(), Value::String(stored));
+                }
+            }
+            match patch.revealed {
+                Patch::Keep => {}
+                Patch::Clear | Patch::Set(0) => {
+                    item.extra.remove(GROUP_REVEALED_KEY);
+                }
+                Patch::Set(rows) => {
+                    if !(1..=MAX_GROUP_REVEALED).contains(&rows) {
+                        return Err(Refusal::InvalidValue);
+                    }
+                    item.extra.insert(GROUP_REVEALED_KEY.into(), Value::from(rows));
                 }
             }
             Ok(())

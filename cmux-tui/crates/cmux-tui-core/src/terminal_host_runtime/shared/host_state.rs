@@ -138,12 +138,12 @@ fn read_host_orphan_grace() -> Option<Duration> {
 
 /// Since when this host process (one terminal per process) has had no
 /// client stream, as the accept loop last saw it.
-static ORPHAN_SINCE: Mutex<Option<Instant>> = Mutex::new(None);
+static ORPHAN_SINCE: Mutex<Option<OrphanSince>> = Mutex::new(None);
 /// The host ended its terminal because its owner was gone: its exit record
 /// says [`crate::terminal_end::EXIT_OWNER_GONE`].
 static OWNER_GONE: AtomicBool = AtomicBool::new(false);
 
-pub(crate) fn set_orphan_since(since: Option<Instant>) {
+pub(crate) fn set_orphan_since(since: Option<OrphanSince>) {
     *ORPHAN_SINCE.lock().recover_poison() = since;
 }
 
@@ -151,6 +151,38 @@ pub(crate) fn set_orphan_since(since: Option<Instant>) {
 pub(crate) fn orphaned_for(min: Duration) -> bool {
     ORPHAN_SINCE.lock().recover_poison().is_some_and(|since| since.elapsed() >= min)
 }
+
+/// When an orphan wait began, by two clocks. `Instant` is the awake clock on
+/// a Mac (`CLOCK_UPTIME_RAW`): it stops while the Mac sleeps, so a laptop
+/// that sleeps every night took weeks to count [`ABANDONED_HOST_GRACE`],
+/// and abandoned hosts 8 to 11 days old were still running on Leo's Mac
+/// (cmuxterm-hq#8377, 2026-11-21). The wall clock counts sleep; a wall clock
+/// set back counts nothing, and the awake time still does.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OrphanSince {
+    awake: Instant,
+    wall: std::time::SystemTime,
+}
+
+impl OrphanSince {
+    pub(crate) fn now() -> Self {
+        Self { awake: Instant::now(), wall: std::time::SystemTime::now() }
+    }
+
+    /// The longer of the awake and the wall time since the wait began.
+    pub(crate) fn elapsed(&self) -> Duration {
+        self.elapsed_at(Instant::now(), std::time::SystemTime::now())
+    }
+
+    pub(crate) fn elapsed_at(&self, awake: Instant, wall: std::time::SystemTime) -> Duration {
+        let awake = awake.saturating_duration_since(self.awake);
+        awake.max(wall.duration_since(self.wall).unwrap_or_default())
+    }
+}
+
+/// The longest one orphan wait blocks: a sleep the awake clock never counts
+/// is seen by the wall clock within this long of waking.
+pub(crate) const ORPHAN_RECHECK: Duration = Duration::from_secs(60 * 60);
 
 /// Record that the terminal is ended because the owner is gone.
 pub(crate) fn mark_owner_gone() {
@@ -314,9 +346,11 @@ pub(crate) fn mutate_viewer_sizes(
     Ok(())
 }
 
+/// One client's queue of frames to write. A frame is shared (`Arc`): every
+/// tap, the smart retention and the parser hold the one copy of a PTY chunk.
 #[derive(Clone)]
 pub(crate) struct HostTap {
-    pub(crate) sender: Sender<Frame>,
+    pub(crate) sender: Sender<Arc<Frame>>,
     pub(crate) queued_bytes: Arc<AtomicUsize>,
     pub(crate) queued_output_bytes: Arc<AtomicUsize>,
     pub(crate) shutdown: Arc<HostStream>,
@@ -325,7 +359,7 @@ pub(crate) struct HostTap {
 
 impl HostTap {
     pub(crate) fn new(
-        sender: Sender<Frame>,
+        sender: Sender<Arc<Frame>>,
         shutdown: Arc<HostStream>,
         max_queued_bytes: usize,
     ) -> Self {
@@ -354,7 +388,8 @@ impl HostTap {
         }
     }
 
-    pub(crate) fn try_send(&self, frame: Frame) -> bool {
+    pub(crate) fn try_send(&self, frame: impl Into<Arc<Frame>>) -> bool {
+        let frame = frame.into();
         let retained =
             crate::terminal_host_protocol::HEADER_LEN.saturating_add(frame.payload.len());
         if !Self::try_reserve(&self.queued_bytes, retained, self.max_queued_bytes) {
@@ -409,7 +444,7 @@ impl HostTap {
         // writer's local HostTap still owns a sender. Enqueue one private
         // sentinel so an input-side EOF always releases an otherwise-idle
         // writer. Socket shutdown releases a writer blocked in write_frame.
-        let wake = Frame::new(MessageKind::ResyncRequired, Vec::new());
+        let wake = Arc::new(Frame::new(MessageKind::ResyncRequired, Vec::new()));
         let retained = crate::terminal_host_protocol::HEADER_LEN;
         self.queued_bytes.fetch_add(retained, Ordering::AcqRel);
         if self.sender.send(wake).is_err() {
@@ -421,7 +456,7 @@ impl HostTap {
         // The source-ordered DetachAck is already queued. This private
         // sentinel closes the writer loop after it writes that receipt,
         // without shutting the socket before the receipt is drained.
-        let wake = Frame::new(MessageKind::ResyncRequired, Vec::new());
+        let wake = Arc::new(Frame::new(MessageKind::ResyncRequired, Vec::new()));
         let retained = crate::terminal_host_protocol::HEADER_LEN;
         self.queued_bytes.fetch_add(retained, Ordering::AcqRel);
         if self.sender.send(wake).is_err() {
@@ -457,13 +492,20 @@ impl SmartStreamState {
     /// Publish before parsing. The returned source cursor is marked
     /// applied only after the authoritative parser has consumed the same
     /// transition.
-    pub(crate) fn publish(&self, mut frame: Frame) -> u64 {
+    pub(crate) fn publish(&self, frame: Frame) -> u64 {
+        self.publish_shared(frame).0
+    }
+
+    /// [`Self::publish`], also returning the published frame: the retention,
+    /// every tap and the caller share its one payload.
+    pub(crate) fn publish_shared(&self, mut frame: Frame) -> (u64, Arc<Frame>) {
         let _broadcast = self.broadcast_lock.lock().recover_poison();
         let cursor = self.source_cursor.fetch_add(1, Ordering::AcqRel) + 1;
         frame.sequence = cursor;
+        let frame = Arc::new(frame);
         self.retained.lock().recover_poison().push(frame.clone());
         self.taps.lock().recover_poison().retain(|_, tap| tap.try_send(frame.clone()));
-        cursor
+        (cursor, frame)
     }
 
     pub(crate) fn publish_after_targeted(
@@ -476,6 +518,7 @@ impl SmartStreamState {
         let targeted_queued = targeted.try_send(targeted_frame);
         let cursor = self.source_cursor.fetch_add(1, Ordering::AcqRel) + 1;
         frame.sequence = cursor;
+        let frame = Arc::new(frame);
         self.retained.lock().recover_poison().push(frame.clone());
         self.taps.lock().recover_poison().retain(|_, tap| tap.try_send(frame.clone()));
         (cursor, targeted_queued)
@@ -531,13 +574,13 @@ impl SmartStreamState {
 
 #[derive(Default)]
 pub(crate) struct SmartRetention {
-    pub(crate) frames: VecDeque<Frame>,
+    pub(crate) frames: VecDeque<Arc<Frame>>,
     pub(crate) bytes: usize,
     pub(crate) dropped_through: u64,
 }
 
 impl SmartRetention {
-    pub(crate) fn push(&mut self, frame: Frame) {
+    pub(crate) fn push(&mut self, frame: Arc<Frame>) {
         let retained = retained_frame_bytes(&frame);
         self.bytes = self.bytes.saturating_add(retained);
         self.frames.push_back(frame);
@@ -564,7 +607,7 @@ impl SmartRetention {
         }
     }
 
-    pub(crate) fn after(&self, cursor: u64) -> Result<Vec<Frame>, SmartReplayGap> {
+    pub(crate) fn after(&self, cursor: u64) -> Result<Vec<Arc<Frame>>, SmartReplayGap> {
         if cursor < self.dropped_through {
             return Err(SmartReplayGap::Retention {
                 requested_after: cursor,
@@ -603,32 +646,21 @@ pub(crate) fn retained_frame_bytes(frame: &Frame) -> usize {
 
 pub(crate) enum ParserCommand {
     Output {
-        bytes: Vec<u8>,
+        /// The published Output frame; the parser reads its payload.
+        frame: Arc<Frame>,
         source_cursor: u64,
         accounted_bytes: usize,
     },
-    Resize {
-        cols: u16,
-        rows: u16,
-        cell_pixels: (u16, u16),
-        source_cursor: Option<u64>,
-        acknowledge_with_replay: bool,
-        targeted_ack: Option<(u64, HostTap)>,
-        /// The PTY already holds the new size (the program got SIGWINCH
-        /// when the command was queued); restore this size if the grid
-        /// cannot follow.
-        pty_previous: Option<PtySize>,
-        response: SyncSender<ParserResizeResult>,
-    },
+    /// Boxed, as ClearHistory: the bounded queue allocates every slot at the
+    /// size of its largest command when the host starts, so a rare large
+    /// command would make all 256 slots large (parser_queue_memory test).
+    Resize(Box<ParserResize>),
     SetDefaults {
         colors: Box<DefaultColors>,
         source_cursor: u64,
         response: SyncSender<()>,
     },
-    ClearHistory {
-        fallback_key: Option<KeyInput>,
-        response: SyncSender<Result<ParserClearHistoryResult, String>>,
-    },
+    ClearHistory(Box<ParserClearHistory>),
     /// Answers one deferred clipboard read; `None` refuses it.
     ClipboardReadComplete {
         token: u64,
@@ -637,6 +669,24 @@ pub(crate) enum ParserCommand {
     /// Answers once every earlier command is applied (metric_commits.rs).
     Barrier(SyncSender<()>),
     Drain,
+}
+
+pub(crate) struct ParserResize {
+    pub(crate) cols: u16,
+    pub(crate) rows: u16,
+    pub(crate) cell_pixels: (u16, u16),
+    pub(crate) source_cursor: Option<u64>,
+    pub(crate) acknowledge_with_replay: bool,
+    pub(crate) targeted_ack: Option<(u64, HostTap)>,
+    /// The PTY already holds the new size (the program got SIGWINCH when the
+    /// command was queued); restore this size if the grid cannot follow.
+    pub(crate) pty_previous: Option<PtySize>,
+    pub(crate) response: SyncSender<ParserResizeResult>,
+}
+
+pub(crate) struct ParserClearHistory {
+    pub(crate) fallback_key: Option<KeyInput>,
+    pub(crate) response: SyncSender<Result<ParserClearHistoryResult, String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -694,11 +744,11 @@ pub(crate) fn enqueue_parser_output(
     parser_commands: &SyncSender<ParserCommand>,
     parser_budget: &ParserBudget,
     smart: &SmartStreamState,
-    bytes: Vec<u8>,
+    frame: Arc<Frame>,
     source_cursor: u64,
     accounted_bytes: usize,
 ) -> bool {
-    if parser_commands.send(ParserCommand::Output { bytes, source_cursor, accounted_bytes }).is_ok()
+    if parser_commands.send(ParserCommand::Output { frame, source_cursor, accounted_bytes }).is_ok()
     {
         return true;
     }
@@ -733,6 +783,7 @@ pub(crate) fn publish_host_frames_and_targeted(
     for mut frame in frames {
         let sequence = sequence.fetch_add(1, Ordering::AcqRel) + 1;
         frame.sequence = sequence;
+        let frame = Arc::new(frame);
         taps.retain(|_, tap| tap.try_send(frame.clone()));
     }
     drop(taps);
@@ -799,33 +850,5 @@ pub(crate) fn snapshot_cwd(
 }
 
 #[cfg(test)]
-mod orphan_grace_tests {
-    use super::*;
-
-    #[test]
-    fn a_normal_install_ends_an_abandoned_host_after_a_week() {
-        assert_eq!(orphan_grace_in_force(None, false), ABANDONED_HOST_GRACE);
-        assert_eq!(ABANDONED_HOST_GRACE, Duration::from_secs(7 * 24 * 60 * 60));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn hosts_and_holders_end_abandoned_terminals_after_the_same_grace() {
-        assert_eq!(ABANDONED_HOST_GRACE, cmux_holder::ABANDONED_GRACE);
-    }
-
-    #[test]
-    fn a_build_grace_and_a_removed_record_directory_only_shorten_it() {
-        assert_eq!(
-            orphan_grace_in_force(Some(DEV_HOST_ORPHAN_GRACE), false),
-            DEV_HOST_ORPHAN_GRACE
-        );
-        let month = Duration::from_secs(30 * 24 * 60 * 60);
-        assert_eq!(orphan_grace_in_force(Some(month), false), ABANDONED_HOST_GRACE);
-        assert_eq!(orphan_grace_in_force(None, true), RECORD_ROOT_REMOVED_ORPHAN_GRACE);
-        assert_eq!(
-            orphan_grace_in_force(Some(Duration::from_secs(1)), true),
-            Duration::from_secs(1)
-        );
-    }
-}
+#[path = "host_state_orphan_grace_tests.rs"]
+mod orphan_grace_tests;

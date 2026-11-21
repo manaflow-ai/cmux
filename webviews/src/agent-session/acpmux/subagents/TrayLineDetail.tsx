@@ -1,7 +1,7 @@
-// A hat line's open detail (SubagentTray.tsx): a click anywhere on a line expands it in place, under
+// A command or started-session hat line's detail (SubagentTray.tsx): clicking expands it in place, under
 // the line inside the hat, and a second click folds it, on the shared fold every other hat expansion
-// uses (conversation/fold.ts `useFold`). A click never takes the person to the subagent, the chat or the
-// terminal; that is an explicit button in the detail (Leo, 2026-11-07: "me clicking this, the entire box,
+// uses (conversation/fold.ts `useFold`). Its explicit button opens the chat or terminal; subagent
+// rows open their chat directly. The retained detail follows Leo's 2026-11-07 request: "me clicking this, the entire box,
 // it just feels like, okay, I would be expanding this. I don't expect myself to be going to the exact
 // place, right?").
 import type { ReactNode } from "react";

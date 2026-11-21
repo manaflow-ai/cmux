@@ -12,7 +12,7 @@
 // follows `agentPane.images.remote` like a web image: a placeholder with its site and Load
 // (click, the default), its link only (never), or at once (always). The host fetches it under
 // its network rules and plays a checked copy.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Dialog } from "../../../ui/Dialog";
 
 import { belowTabRowStyle, useTabRow } from "../header/tabRow";
@@ -23,11 +23,13 @@ import { usePathInfo, useReplyPolicy } from "./linkStore";
 import { useNearViewport } from "../useNearViewport";
 import { isDeniedPath, pathName } from "./paths";
 import { MEDIA_PREVIEW_DWELL, useHoverIntent } from "../../../ui/hoverIntent";
+import { movedFrom, slidUnderStillPointer, trackPointerRest, type PointerPlace } from "../../../ui/scrollHover";
 import { mediaPreviewAllowed } from "../../../ui/mediaPreviewPolicy";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { mediaKind } from "./mediaKind";
 import { webURL, mediaOpenRequest, formatDuration, loadPlayableMedia, webGranted } from "./replyMediaModel";
 import { keyedIconProps } from "../../../ui/DialogButton";
+import { useScrimClose } from "../../../ui/scrimClose";
 /// Asks the host for the URL `source` plays by: at once when `auto`, else on `load()`.
 function useMediaLoad(source: string, auto: boolean) {
   const [src, setSrc] = useState(() => (webURL(source) ? webGranted.get(source) : undefined));
@@ -108,8 +110,11 @@ function HostRemoteMedia({ url, alt, fallback }: { url: string; alt: string; fal
   const name = alt || webURL(url)?.pathname.split("/").pop() || url;
   if (policy.remoteImages === "never") return <>{fallback}</>;
   if (src) return <MediaPlayer src={src} source={url} kind={kind} name={name} onError={fail} />;
+  // A video the host fetches on its own (images.remote = always) holds the player's box while it
+  // loads (chips.css), so the player takes the place it left instead of the reply growing twice.
+  const reserve = kind === "video" && policy.remoteImages === "always" && state !== "failed";
   return (
-    <span ref={setFrame} className={`cv-media is-${kind} is-remote`}>
+    <span ref={setFrame} className={`cv-media is-${kind} is-remote`} data-reserve={reserve || undefined}>
       <span className="cv-media__host">{webURL(url)?.host}</span>
       {state === "failed" && (fallback ?? <span className="cv-image-placeholder__note">{t("image.unavailable")}</span>)}
       <button type="button" className="cv-image-placeholder__load" disabled={state === "loading"} onClick={load}>
@@ -257,7 +262,9 @@ export function MediaPlayer({
 
 /// A video large over the pane (Expand, or an attachment's ▶ in the composer, whose tile is too small
 /// for a player's controls): its name, Close (Escape) and the player. It opens paused, like the
-/// thumbnail, unless `autoPlay` (the person's click on ▶ opened it to play).
+/// thumbnail, unless `autoPlay` (the person's click on ▶ opened it to play). A click beside the
+/// video closes it, as beside an image in the image viewer (ui/scrimClose.ts); a click on the video
+/// or its controls does not.
 export function VideoViewer({
   src,
   name,
@@ -266,10 +273,15 @@ export function VideoViewer({
   onClose,
   onPlay,
   videoRef,
+  size,
 }: {
   src: string;
   name: string;
   autoPlay?: boolean;
+  /// The video's own size when the host already read it (a composer attachment's `video`): the
+  /// player takes its final box from its first frame, instead of WebKit's 300 × 150 until the
+  /// metadata loads and then the video's size (one jump of the whole player as it opens).
+  size?: { width: number; height: number };
   onError(): void;
   onClose(): void;
   onPlay?(element: HTMLVideoElement): number | undefined;
@@ -279,6 +291,7 @@ export function VideoViewer({
   const close = useRef<HTMLButtonElement>(null);
   // Below the pane's tab row, as the image viewer (header/tabRow.ts belowTabRowStyle).
   const below = belowTabRowStyle(useTabRow());
+  const scrim = useScrimClose(onClose);
   return (
     <Dialog
       open
@@ -304,7 +317,20 @@ export function VideoViewer({
             <Close />
           </button>
         </div>
-        <div className="cv-media-stage">
+        {/* A click beside the video closes the viewer, as beside an image in its viewer (Leo, 2026-11-12:
+            "I need to be able to, like, click outside of the video and have that exit as well"); a scrub
+            dragged off the video does not (ui/scrimClose.ts). Escape and Close are its keys. */}
+        {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+        <div
+          className="cv-media-stage"
+          {...scrim.props}
+          {...(size && size.width > 0 && size.height > 0
+            ? {
+                "data-sized": "",
+                style: { "--cv-media-w": size.width, "--cv-media-h": size.height } as CSSProperties,
+              }
+            : {})}
+        >
           {/* Never autoplay on its own: only Play (or the ▶ that opened it) starts it with sound. */}
           <VideoThumbnail
             src={src}
@@ -367,7 +393,12 @@ export function VideoThumbnail({
   const startedRef = useRef(false);
   const [started, setStarted] = useState(false);
   const [hovered, setHovered] = useState(false);
+  /// The poster scrolled under a still pointer: the preview waits for the pointer to move on it.
+  const parked = useRef<PointerPlace | null>(null);
+  useEffect(() => trackPointerRest(), []);
   const [duration, setDuration] = useState<string | undefined>();
+  /// Its metadata (and so its own size) has loaded: until then it holds the reserved box (chips.css).
+  const [sized, setSized] = useState(false);
   const previewAllowed = useMediaPreviewAllowed();
   const { shown, hover: setHover, dismiss } = useHoverIntent<boolean>({ delay: MEDIA_PREVIEW_DWELL });
   const previewing = previewAllowed && shown === true;
@@ -444,9 +475,11 @@ export function VideoThumbnail({
         playsInline
         preload="metadata"
         aria-label={name}
+        data-unsized={sized ? undefined : ""}
         onError={onError}
         onLoadedMetadata={(event) => {
           const element = event.currentTarget;
+          setSized(true);
           setDuration(formatDuration(element.duration));
           // The poster: seeking a hair past the start makes the player draw that frame (with
           // preload="metadata" it otherwise shows black until it plays).
@@ -459,11 +492,23 @@ export function VideoThumbnail({
           className="cv-media__poster"
           aria-label={duration ? t("media.playLength", { length: duration }) : t("media.play")}
           onClick={play}
-          onMouseEnter={() => {
+          onMouseEnter={(event) => {
             setHovered(true);
+            if (slidUnderStillPointer(event)) {
+              parked.current = { x: event.clientX, y: event.clientY };
+              return;
+            }
+            parked.current = null;
+            if (previewAllowed) setHover(true, MEDIA_PREVIEW_DWELL);
+          }}
+          onMouseMove={(event) => {
+            const still = parked.current;
+            if (!still || !movedFrom(still, event)) return;
+            parked.current = null;
             if (previewAllowed) setHover(true, MEDIA_PREVIEW_DWELL);
           }}
           onMouseLeave={() => {
+            parked.current = null;
             setHovered(false);
             setHover(null);
           }}
