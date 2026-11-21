@@ -46,9 +46,13 @@ pub(super) fn tools() -> Vec<Value> {
                 "description": {"type": "string", "description": "A few words: what the task is for. Kept with the task; bg_list, bg_output and the end message name it by this."},
                 "notify": {"type": "boolean", "description": "Send this chat one message when the task ends (default true). It waits for a running turn to end; it never interrupts one."}},
                 "required": ["command"]}}),
-        json!({"name": "bg_list", "description": "Your background tasks (the ones you started; a subagent sees its own), oldest first: id, state (running, exited, stopped, killed, lost), exit code and the tail of the output. Tasks other subagents or the lead started are counted, not listed, unless all is true; they are not yours to stop.",
+        json!({"name": "bg_list", "description": "Your background tasks (the ones you started; a subagent sees its own), newest first, one line each: id, state (running, exited, stopped, killed, lost), exit code, age and the command, cut. A bare call lists the newest 30; the last line says how many more there are and the argument that lists them. Tasks other subagents or the lead started are counted, not listed, unless all is true; they are not yours to stop.",
             "inputSchema": {"type": "object", "properties": {"description": description,
-                "all": {"type": "boolean", "description": "List every task of this chat, whoever started it, each with who started it (default false: only yours)."}}}}),
+                "all": {"type": "boolean", "description": "List every task of this chat, whoever started it, each with who started it (default false: only yours)."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "description": "How many tasks to list (default 30)."},
+                "offset": {"type": "integer", "minimum": 0, "description": "How many of the newest to skip first (default 0): the last line's offset lists the next page."},
+                "state": {"type": "string", "enum": ["running", "exited", "stopped", "killed", "lost", "ok", "failed"], "description": "Only tasks in this state, or with this outcome (ok, failed)."},
+                "full": {"type": "boolean", "description": "Each task's whole command and the tail of its output (default false). bg_output reads one task's output."}}}}),
         json!({"name": "bg_output", "description": "Read a background task's output: by default its last 64 KiB; with fromByte, from there (pass the last nextByte to read only what is new). Each task keeps its newest 8 MiB of output; skippedBytes says how much before fromByte is gone.",
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
                 "fromByte": {"type": "integer", "minimum": 0},
@@ -72,7 +76,7 @@ pub(super) fn tools() -> Vec<Value> {
 /// What a Claude Code subagent's start (`callerSubagent`) adds to its answer: when its end comes.
 const SUBAGENT_END: &str = "You get its end after your next Bash or acpmux tool call; if you end first, it goes to your lead. bg_output reads it now.";
 
-pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: &Value) -> Value {
+pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: &Value) -> Value {
     let by_subagent = args.get("callerSubagent").is_some_and(Value::is_object);
     let mut params = match args {
         Value::Object(_) => args.clone(),
@@ -131,9 +135,23 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
         "bg_stop" => method::MUX_BG_STOP,
         other => return error_result(crate::mcp_hint::unknown_tool(other, TOOLS)),
     };
+    // A list's page (`acpmux_mcp_bg_list.rs`): the daemon answers the whole chat.
+    let page = match name {
+        "bg_list" => match super::bg_list::Page::take(&mut params) {
+            Ok(page) => Some(page),
+            Err(why) => return error_result(why),
+        },
+        _ => None,
+    };
     match daemon.request(m, params).await {
         Ok(r) => {
             let (line, status) = outcome(name, &r);
+            if let Some(page) = page {
+                let (mut structured, text) = page.apply(r, crate::store::now_ms());
+                structured.set("summary", json!(line));
+                structured.set("status", json!(status));
+                return ok(format!("{line}\n{text}").trim_end().to_owned(), structured);
+            }
             let mut structured = r;
             structured.set("summary", json!(line));
             structured.set("status", json!(status));
@@ -214,10 +232,6 @@ fn task_line(t: &Value) -> String {
 fn summary(name: &str, r: &Value) -> String {
     let field = |k: &str| r.get(k).unwrap_or(&Value::Null);
     match name {
-        "bg_list" => {
-            let tasks = field("tasks").as_array().map(Vec::as_slice).unwrap_or_default();
-            tasks.iter().map(task_line).collect::<Vec<_>>().join("\n\n")
-        }
         "bg_output" => format!(
             "{}\n[{} bytes {}..{} of {}; next fromByte {}]",
             field("text").as_str().unwrap_or_default(),
@@ -344,6 +358,8 @@ esac
     /// With glaeda-gh on PATH the wait is its daemon's (one poller for every session, PR events where GitHub
     /// grants them), pinned to the head it read; a daemon that is down (exit 3) or a glaeda-gh too old for the
     /// arguments (64) falls back to the gh watch, so the wait never gets less reliable.
+    // Shell-script stand-ins for gh and glaeda-gh run through `sh`: unix only.
+    #[cfg(unix)]
     #[test]
     fn run_wait_waits_through_glaeda_gh_and_falls_back_to_gh() {
         let dir = cmux_unix_socket::short_test_dir("run-wait-glaeda");
@@ -504,7 +520,7 @@ impl RunWait {
             Target::Run(run) => {
                 let name = format!("Actions run {run} in {repo}");
                 lines.push(glaeda_wait(&format!("run {repo}/{run}")));
-                lines.push(format!("case $rc in 3|64) gh run watch {run} --repo {repo} --exit-status --interval 30 >/dev/null 2>&1; rc=$? ;; esac"));
+                lines.push(format!("case $rc in 3|64) gh run watch {run} --repo {repo} --exit-status --interval {GH_INTERVAL_S} >/dev/null 2>&1; rc=$? ;; esac"));
                 lines.push(format!("gh run view {run} --repo {repo} --json conclusion,url --jq '\"conclusion: \" + (.conclusion // \"none\") + \"  \" + .url'"));
                 lines.push(format!("failed=$(gh run view {run} --repo {repo} --json jobs --jq '[.jobs[] | select(.conclusion == \"failure\" or .conclusion == \"cancelled\" or .conclusion == \"timed_out\") | .name] | join(\", \")' 2>/dev/null)"));
                 lines.push("[ -n \"$failed\" ] && echo \"failed jobs: $failed\"".to_owned());
@@ -520,7 +536,7 @@ impl RunWait {
                 }
                 let pin = if sha.is_some() { " --sha \"$head\"" } else { "" };
                 lines.push(glaeda_wait(&format!("pr {repo}#{number}{pin}")));
-                lines.push(format!("case $rc in 3|64) gh pr checks {number} --repo {repo} --watch --fail-fast --interval 30 >/dev/null 2>&1; rc=$? ;; esac"));
+                lines.push(format!("case $rc in 3|64) gh pr checks {number} --repo {repo} --watch --fail-fast --interval {GH_INTERVAL_S} >/dev/null 2>&1; rc=$? ;; esac"));
                 lines.push(format!("failed=$(gh pr checks {number} --repo {repo} --json name,bucket --jq '[.[] | select(.bucket == \"fail\" or .bucket == \"cancel\") | .name] | join(\", \")' 2>/dev/null)"));
                 lines.push("[ -n \"$failed\" ] && echo \"failed checks: $failed\"".to_owned());
                 if let Some(sha) = sha {
@@ -534,6 +550,13 @@ impl RunWait {
         lines.join("\n")
     }
 }
+
+/// How often the gh fallback (no glaeda-gh, or one that refused) reads the run or the checks: each
+/// read spends the login's own REST quota (about 2 to 3 calls), so 120 s keeps one watcher near 60
+/// to 90 calls an hour, where 30 s spent about 240 to 360 (Leo, 2026-11-17, on the Claude desktop app
+/// showing a GitHub rate limit: "this is... interesting. so claude desktop shows rate limit on hover
+/// of the github links sometimes...").
+const GH_INTERVAL_S: u64 = 120;
 
 /// The wait itself, through glaeda-gh when it is installed: its daemon is the one poller for every session
 /// on the machine and waits on GitHub's pull request events (`gh event listen`) where the account has
