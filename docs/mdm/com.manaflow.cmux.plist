@@ -3551,11 +3551,11 @@
 		</dict>
 		<dict>
 			<key>pfm_description</key>
-			<string>Text size of tabs, the sidebar and chat. Terminals have their own size.</string>
+			<string>Text size of the sidebar, tabs, menus and chat. Terminals have their own size.</string>
 			<key>pfm_name</key>
 			<string>appearance.metrics.chromeFontSize</string>
 			<key>pfm_range_max</key>
-			<real>16</real>
+			<real>20</real>
 			<key>pfm_range_min</key>
 			<real>10</real>
 			<key>pfm_title</key>
