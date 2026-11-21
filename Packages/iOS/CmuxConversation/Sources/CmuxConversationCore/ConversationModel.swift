@@ -374,6 +374,9 @@ public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
         self.notifiedAnyway = notifiedAnyway
     }
 
+    /// The words a reply's quote of this message shows.
+    public var quoteText: String { text }
+
     /// A Send Later message still waiting on the server (or failed to send).
     public var isScheduled: Bool { scheduledAt != nil && seq == nil }
 
