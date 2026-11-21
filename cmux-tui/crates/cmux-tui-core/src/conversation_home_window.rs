@@ -81,6 +81,24 @@ impl ConversationStore {
             self.connection.query_row("SELECT total_changes()", [], |row| row.get(0))?;
         let data_version: i64 =
             self.connection.query_row("PRAGMA data_version", [], |row| row.get(0))?;
+        // The kept order's key is checked in place: no copy or sort of the
+        // caller's pins on an open after no change.
+        if let Some((kept, order)) = &self.home_order_cache.kept
+            && kept.total_changes == total_changes
+            && kept.data_version == data_version
+            && kept.me == input.me
+            && kept.scope == scope
+            && kept.deleted_chiefs == input.deleted_chiefs
+            && kept.pins.len() == input.states.len()
+            && kept.pins.iter().all(|(id, pinned, position)| {
+                input
+                    .states
+                    .get(id)
+                    .is_some_and(|state| state.pinned == *pinned && state.pin_position == *position)
+            })
+        {
+            return Ok((Arc::clone(order), false));
+        }
         let mut pins: Vec<(String, bool, Option<u64>)> = input
             .states
             .iter()
@@ -95,11 +113,6 @@ impl ConversationStore {
             deleted_chiefs: input.deleted_chiefs.clone(),
             pins,
         };
-        if let Some((kept, order)) = &self.home_order_cache.kept
-            && *kept == key
-        {
-            return Ok((Arc::clone(order), false));
-        }
         let heads = self.home_heads()?;
         let refs: Vec<HomeHead<'_>> =
             heads.iter().map(|(summary, activity_at)| HomeHead { summary, activity_at }).collect();

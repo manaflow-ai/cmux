@@ -170,7 +170,8 @@ fn a_store_change_orders_again() {
     let mut store = seeded_store(50, 3);
     let input = input(&mut Rng(3), 50);
     let first = HomeWindow::Range { offset: 0, limit: 5 };
-    assert!(store.home_window(&input, &first, HomeScope::All).unwrap().ordered_now);
+    let before = store.home_window(&input, &first, HomeScope::All).unwrap();
+    assert!(before.ordered_now);
     assert!(
         !store.home_window(&input, &first, HomeScope::All).unwrap().ordered_now,
         "no change: the kept order"
@@ -185,7 +186,8 @@ fn a_store_change_orders_again() {
         store.home_window(&input, &HomeWindow::Ids(vec![made.clone()]), HomeScope::All).unwrap();
     assert!(read.ordered_now, "a new conversation orders again");
     assert_eq!(read.rows.len(), 1);
-    assert_eq!(read.order.total(), 51);
+    // Not every seeded conversation is in this caller's list; the new one is.
+    assert_eq!(read.order.total(), before.order.total() + 1);
     let (cut, _, _) = whole_then_cut(&mut store, &input, &first);
     assert_eq!(store.home_window(&input, &first, HomeScope::All).unwrap().rows, cut);
 }

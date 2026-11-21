@@ -395,9 +395,14 @@ pub(super) fn list(mux: &Mux, client: u64) -> anyhow::Result<Value> {
 /// (`cmux_conversation::home_inbox`): the same summaries as
 /// `conversation-list`, with the caller's pins and marks, the Chief
 /// registry's current names and who types now.
-pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> anyhow::Result<Value> {
+pub(super) fn home_inbox(
+    mux: &Mux,
+    client: u64,
+    mut params: HomeInboxParams,
+) -> anyhow::Result<Value> {
     require_local(mux, client)?;
-    let owners = params.owners.unwrap_or_else(|| vec!["local".into(), "cloud".into()]);
+    let window = params.window()?;
+    let owners = params.owners.take().unwrap_or_else(|| vec!["local".into(), "cloud".into()]);
     anyhow::ensure!(
         owners.iter().all(|owner| owner == "local" || owner == "cloud"),
         "bad request: owners"
@@ -406,7 +411,6 @@ pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> any
         params.since.is_none() || owners.iter().all(|owner| owner == "local"),
         "bad request: since needs owners [\"local\"]"
     );
-    let window = params.window()?;
     anyhow::ensure!(
         window.is_none() || owners.iter().all(|owner| owner == "local"),
         "bad request: offset, limit and ids need owners [\"local\"]"
