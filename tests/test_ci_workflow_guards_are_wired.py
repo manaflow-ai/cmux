@@ -70,6 +70,10 @@ UNWIRED: set[str] = {
     # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It checks that every pool job in rust-workspaces, cmux-next-guards and the cloud VM image bake/roll removes a reused workspace left sparse or broken before checkout; it runs that step on fixture repos and reads the workflows as data. Run it by hand
     # when those workflows change. Exit: as below.
     "tests/test_ci_reused_sparse_checkout.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It checks that every reader of the
+    # Linux pools (fast gates' receipt and post, rescue, reconcile, artifact runner sets) reads the ephemeral-only pools;
+    # it reads the workflows and runners.json only as data. Run it by hand when those readers change. Exit: as below.
+    "tests/test_ci_ephemeral_pool_readers.py",
     # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). Policy tests of
     # scripts/ci/shed_superseded_runs.py over fixture runs (#47662); it reads ci-shed-superseded-runs.yml only as data.
     # Run it by hand when the script or that workflow changes. Exit: as below.
