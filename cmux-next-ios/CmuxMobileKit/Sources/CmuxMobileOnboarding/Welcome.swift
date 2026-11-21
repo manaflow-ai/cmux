@@ -205,6 +205,19 @@ public struct WelcomeView: View {
                     .opacity(controls)
                     .accessibilityAddTraits(.isHeader)
             }
+        case .lockup:
+            WelcomeHeroLockup(t: heroT) { markSlot(size: WelcomeHeroLockup<EmptyView>.markSize) }
+                .opacity(fade)
+        case .site:
+            WelcomeHeroSite(t: heroT, blinks: cursorBlinks).opacity(fade)
+        case .bloom:
+            WelcomeHeroBloom(t: heroT).opacity(fade)
+        case .morph:
+            WelcomeHeroMorph(t: heroT).opacity(fade)
+        case .decode:
+            WelcomeHeroDecode(t: heroT).opacity(fade)
+        case .shimmer:
+            WelcomeHeroShimmer(t: heroT).opacity(fade)
         case .raster:
             WelcomeHeroRaster(t: heroT).opacity(fade)
         case .draft:
@@ -216,6 +229,15 @@ public struct WelcomeView: View {
         case .tube:
             WelcomeHeroTube(t: heroT).opacity(fade)
         }
+    }
+
+    /// Site's caret blinks, except under Reduce Motion and in a frozen
+    /// (verification) capture.
+    private var cursorBlinks: Bool {
+        #if DEBUG
+        if WelcomeIntroClock.debugFreeze != nil { return false }
+        #endif
+        return !reduceMotion
     }
 
     // MARK: Lockup
@@ -351,23 +373,26 @@ public struct WelcomeView: View {
     private var buttons: some View {
         let apple = BuildCapabilities.current.appleSignIn
         let icon = min(scaledIcon, 28)
-        return VStack(spacing: theme.metrics.ctaWelcomeGap) {
-            if apple {
-                ProviderButton(title: "Continue with Apple", isPrimary: true, isBusy: auth.busyProvider == .apple) {
-                    Image(systemName: "apple.logo").font(.system(size: icon + 1, weight: .medium))
-                } action: { signIn(.apple) }
-            }
-            ProviderButton(title: "Continue with Google", isPrimary: !apple, isBusy: auth.busyProvider == .google) {
-                Image("GoogleLogo", bundle: .module).resizable().frame(width: icon, height: icon)
-            } action: { signIn(.google) }
-            ProviderButton(title: "Continue with GitHub", isPrimary: false, isBusy: auth.busyProvider == .github) {
-                Image("GitHubLogo", bundle: .module).renderingMode(.template).resizable().frame(width: icon, height: icon)
-            } action: { signIn(.github) }
-            ProviderButton(title: "Continue with email", isPrimary: false, isBusy: false) {
-                Image(systemName: "envelope").font(.system(size: icon - 1, weight: .medium))
-            } action: {
-                auth.errorMessage = nil
-                showsEmail = true
+        // One container so the rows' glass samples together; spacing 0 keeps them apart.
+        return GlassEffectContainer(spacing: 0) {
+            VStack(spacing: theme.metrics.ctaWelcomeGap) {
+                if apple {
+                    ProviderButton(title: "Continue with Apple", isPrimary: true, isBusy: auth.busyProvider == .apple) {
+                        Image(systemName: "apple.logo").font(.system(size: icon + 1, weight: .medium))
+                    } action: { signIn(.apple) }
+                }
+                ProviderButton(title: "Continue with Google", isPrimary: !apple, isBusy: auth.busyProvider == .google) {
+                    Image("GoogleLogo", bundle: .module).resizable().frame(width: icon, height: icon)
+                } action: { signIn(.google) }
+                ProviderButton(title: "Continue with GitHub", isPrimary: false, isBusy: auth.busyProvider == .github) {
+                    Image("GitHubLogo", bundle: .module).renderingMode(.template).resizable().frame(width: icon, height: icon)
+                } action: { signIn(.github) }
+                ProviderButton(title: "Continue with email", isPrimary: false, isBusy: false) {
+                    Image(systemName: "envelope").font(.system(size: icon - 1, weight: .medium))
+                } action: {
+                    auth.errorMessage = nil
+                    showsEmail = true
+                }
             }
         }
         .disabled(auth.isBusy)
@@ -516,9 +541,9 @@ struct CmuxLogoMark: View {
 }
 
 /// A welcome sign-in row: at least 50 pt, growing with Dynamic Type, its
-/// label wrapping centered with the icon on the first line. The first row is
-/// solid `accent`; the others are `surface` in dark and white with a hairline
-/// in light. Busy shows a spinner in place of the icon.
+/// label wrapping centered with the icon on the first line. Every row is
+/// Liquid Glass: the first tinted solid (black or white), the others clear.
+/// Busy shows a spinner in place of the icon.
 private struct ProviderButton<Icon: View>: View {
     let title: LocalizedStringKey
     let isPrimary: Bool
@@ -553,14 +578,14 @@ private struct ProviderButton<Icon: View>: View {
 
 private struct ProviderStyle: ButtonStyle {
     let isPrimary: Bool
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     func makeBody(configuration: Configuration) -> some View {
         let shape = RoundedRectangle(cornerRadius: theme.metrics.ctaWelcomeHeight / 2, style: .continuous)
-        let outlined = !isPrimary && colorScheme == .light
         // Sign-in buttons stay black or white whatever accent the user picked
-        // (Sign in with Apple's own colours).
+        // (Sign in with Apple's own colours). Interactive glass is the press
+        // feedback: it lights and flexes under the finger.
+        let glass: Glass = isPrimary ? .regular.tint(theme.colors.neutralAccent.color).interactive() : .regular.interactive()
         configuration.label
             .font(theme.type.cta)
             .foregroundStyle(isPrimary ? theme.colors.neutralOnAccent : theme.colors.label)
@@ -568,12 +593,8 @@ private struct ProviderStyle: ButtonStyle {
             .padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 20)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, minHeight: theme.metrics.ctaWelcomeHeight)
-            // Held: the pressed wash over the fill; the label never dims or shrinks.
-            .cmuxMobilePressFill(configuration.isPressed,
-                                 rest: isPrimary ? AnyShapeStyle(theme.colors.neutralAccent) : (outlined ? AnyShapeStyle(theme.colors.bg) : AnyShapeStyle(theme.colors.surface)),
-                                 in: shape)
-            .overlay { if outlined { shape.strokeBorder(theme.colors.separator, lineWidth: 1) } }
             .contentShape(shape)
+            .glassEffect(glass, in: shape)
     }
 }
 #endif

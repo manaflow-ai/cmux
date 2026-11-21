@@ -1,11 +1,11 @@
 import XCTest
 
 /// Prototype picker for the welcome's top section (`WelcomeHero.swift`,
-/// round 3): every direction is reachable from the picker, draws its own
+/// round 4): every direction is reachable from the picker, draws its own
 /// wordmark, and leaves the sign-in rows in place; a pinned launch hides the
 /// picker. Goes away with the prototype once a direction is picked.
 final class WelcomeHeroPrototypeUITests: XCTestCase {
-    private let directions = ["raster", "draft", "keys", "circuit", "tube"]
+    private let directions = ["lockup", "site", "bloom", "morph", "decode", "shimmer", "raster", "draft", "keys", "circuit", "tube"]
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -34,9 +34,9 @@ final class WelcomeHeroPrototypeUITests: XCTestCase {
 
     @MainActor
     func testPinnedDirectionHidesThePicker() throws {
-        let app = launch(arguments: ["-cmux-mobile-welcome-hero", "circuit"])
+        let app = launch(arguments: ["-cmux-mobile-welcome-hero", "morph"])
         defer { app.terminate() }
-        XCTAssertTrue(element(app, id: "welcome.wordmark.circuit").waitForExistence(timeout: 20))
+        XCTAssertTrue(element(app, id: "welcome.wordmark.morph").waitForExistence(timeout: 20))
         XCTAssertFalse(app.buttons["welcome.hero.raster"].exists, "a pinned launch must not show the picker")
         XCTAssertTrue(app.buttons["Continue with Google"].exists)
     }
@@ -44,7 +44,7 @@ final class WelcomeHeroPrototypeUITests: XCTestCase {
     private func launch(arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-cmux-mobile-no-restore",
-                                "-cmuxMobile.prototype.welcomeHero.v3", "1"]
+                                "-cmuxMobile.prototype.welcomeHero.v4", "1"]
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_CLEAR_AUTH"] = "1"
         app.launchArguments += arguments

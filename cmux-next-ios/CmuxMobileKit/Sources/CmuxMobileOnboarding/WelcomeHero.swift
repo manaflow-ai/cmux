@@ -5,23 +5,36 @@ import SwiftUI
 import UIKit
 
 private let theme = CmuxMobileTheme.standard
+private typealias E = IntroEase
 
-/// Prototype, round 3: directions for the welcome's top section. Each draws
-/// its own "cmux" wordmark (no stock font set as is), leads with the app
-/// icon's chevron in its gradient (the only colour on the page) and has its
-/// own reveal; one gray line under it, nothing at the top. The sign-in rows
-/// and the legal line are the same in every variant. `now` is the shipped
-/// design: Release shows it until a direction is picked; then the picked one
-/// replaces it and the rest of this file, the picker and the enum go
-/// (prototype skill, phase 6).
+/// Prototype, round 4: directions for the welcome's top section. Each leads
+/// with the app icon's chevron in its gradient (the only colour on the page)
+/// and sets "cmux" in Geist, the website's typeface, or draws it; each has
+/// its own reveal that plays once. One line under the mark, nothing at the
+/// top. The sign-in rows (Liquid Glass) and the legal line are the same in
+/// every variant. `now` is the shipped design: Release shows it until a
+/// direction is picked; then the picked one replaces it and the rest of this
+/// file, the picker and the enum go (prototype skill, phase 6).
 enum WelcomeHeroVariant: Int, CaseIterable, Identifiable, Sendable {
     /// Today: lockup at the top, Mac and phone line art, one line.
     case now
-    /// Heavy type cut into scan lines that thicken toward the baseline,
-    /// painted line by line.
+    /// The chevron and "cmux" in Geist SemiBold, as on the website; the
+    /// launch chevron glides into place.
+    case lockup
+    /// The website's hero on a phone: the app icon tile, "cmux", and the line
+    /// typed out with a blinking caret, left-aligned.
+    case site
+    /// The chevron traces its outline, fills and blooms; the letters rise out of a blur.
+    case bloom
+    /// A block cursor types "cmux", then bends into the chevron as it flies home.
+    case morph
+    /// Geist Mono letters scramble through terminal glyphs and lock in, left to right.
+    case decode
+    /// The lockup comes in from a blur; one gradient sheen sweeps across it.
+    case shimmer
+    /// Geist Black cut into scan lines that thicken toward the baseline.
     case raster
-    /// A geometric monoline drawn over its own construction (guides,
-    /// circles, the chevron's triangle), pen stroke by pen stroke.
+    /// A geometric monoline drawn over its own construction, stroke by stroke.
     case draft
     /// Five keycaps: c, m, u, x are typed, then the chevron key lights.
     case keys
@@ -35,6 +48,12 @@ enum WelcomeHeroVariant: Int, CaseIterable, Identifiable, Sendable {
     var name: String {
         switch self {
         case .now: "Now"
+        case .lockup: "Lockup"
+        case .site: "Site"
+        case .bloom: "Bloom"
+        case .morph: "Morph"
+        case .decode: "Decode"
+        case .shimmer: "Shimmer"
         case .raster: "Raster"
         case .draft: "Draft"
         case .keys: "Keys"
@@ -43,21 +62,30 @@ enum WelcomeHeroVariant: Int, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// The picker's two rows: round 4's Geist directions, then round 3's drawn marks.
+    static let pickerRows: [[WelcomeHeroVariant]] = [
+        [.lockup, .site, .bloom, .morph, .decode, .shimmer],
+        [.raster, .draft, .keys, .circuit, .tube],
+    ]
+
     /// The variants the picker offers (today's design is in the report, not the pill).
-    static let directions: [WelcomeHeroVariant] = [.raster, .draft, .keys, .circuit, .tube]
+    static let directions: [WelcomeHeroVariant] = pickerRows.flatMap { $0 }
 
     /// The launch screen's chevron glides into this variant's own chevron;
-    /// otherwise it dissolves in place while the wordmark comes in. Every
-    /// direction draws its chevron as part of the mark.
-    var carriesMark: Bool { self == .now }
+    /// otherwise it dissolves in place while the wordmark comes in.
+    var carriesMark: Bool { self == .now || self == .lockup }
 
     /// How long the variant's entrance runs (the welcome's timeline stays awake that long).
     var entranceDuration: Double {
         switch self {
         case .now: WelcomeArt.introDuration + 0.1
-        case .raster: 1.0
+        case .lockup: 0.9
+        case .raster, .decode: 1.0
         case .circuit: 1.2
-        case .draft, .keys, .tube: 1.3
+        case .draft, .keys, .tube, .bloom: 1.3
+        case .shimmer: 1.4
+        case .morph: 1.5
+        case .site: 1.6
         }
     }
 
@@ -78,14 +106,51 @@ enum WelcomeHeroVariant: Int, CaseIterable, Identifiable, Sendable {
         #endif
     }
 
-    static let storeKey = "cmuxMobile.prototype.welcomeHero.v3"
+    static let storeKey = "cmuxMobile.prototype.welcomeHero.v4"
+}
+
+/// Geist, the website's typeface (SIL Open Font License 1.1,
+/// `Resources/Fonts/Geist-OFL.txt`), bundled with this module and registered
+/// for this process on first use.
+enum Geist: String, Sendable {
+    case regular = "Geist-Regular"
+    case semibold = "Geist-SemiBold"
+    case black = "Geist-Black"
+    case monoMedium = "GeistMono-Medium"
+
+    private static let registered: Bool = {
+        for face in ["Geist-Regular", "Geist-SemiBold", "Geist-Black", "GeistMono-Medium"] {
+            // Processed resources land at the bundle's top level; look in Fonts/ too.
+            let url = Bundle.module.url(forResource: face, withExtension: "ttf")
+                ?? Bundle.module.url(forResource: face, withExtension: "ttf", subdirectory: "Fonts")
+            if let url { CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil) }
+        }
+        return true
+    }()
+
+    /// At a fixed size: a logo does not grow with Dynamic Type.
+    func font(size: CGFloat) -> Font {
+        _ = Self.registered
+        return .custom(rawValue, fixedSize: size)
+    }
+
+    /// Text that grows with Dynamic Type like `style`.
+    func font(size: CGFloat, relativeTo style: Font.TextStyle) -> Font {
+        _ = Self.registered
+        return .custom(rawValue, size: size, relativeTo: style)
+    }
+
+    func ctFont(size: CGFloat) -> CTFont {
+        _ = Self.registered
+        return CTFontCreateWithName(rawValue as CFString, size, nil)
+    }
 }
 
 /// The tagline every direction shares, so the comparison is about the mark.
 struct WelcomeHeroTagline: View {
     var body: some View {
         Text("Your Macs, in your pocket")
-            .font(.body)
+            .font(Geist.regular.font(size: 17, relativeTo: .body))
             .foregroundStyle(theme.colors.label2)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
@@ -109,18 +174,31 @@ private enum ChevronGradient {
     static func shading(from a: CGPoint, to b: CGPoint) -> GraphicsContext.Shading {
         .linearGradient(Gradient(colors: [color(at: 0), color(at: 1)]), startPoint: a, endPoint: b)
     }
+
+    /// Left to right across the view it fills.
+    static var style: LinearGradient {
+        LinearGradient(colors: [color(at: 0), color(at: 1)], startPoint: .leading, endPoint: .trailing)
+    }
 }
 
 /// The app icon's chevron, filled: `height` tall, 0.72 × `height` wide.
 private enum Chevron {
     static let aspect: CGFloat = 0.72
+    /// Its corners in units of its height: outer top, tip, outer bottom, then the notch.
+    static let corners: [(CGFloat, CGFloat)] = [(0, 0), (0.72, 0.5), (0, 1), (0, 0.76), (0.38, 0.5), (0, 0.24)]
 
     static func path(x: CGFloat, y: CGFloat, height h: CGFloat) -> Path {
-        let corners: [(CGFloat, CGFloat)] = [(0, 0), (0.72, 0.5), (0, 1), (0, 0.76), (0.38, 0.5), (0, 0.24)]
         var path = Path()
         path.addLines(corners.map { CGPoint(x: x + $0.0 * h, y: y + $0.1 * h) })
         path.closeSubpath()
         return path
+    }
+}
+
+/// The chevron as a shape, as tall as its frame.
+private struct ChevronShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        Chevron.path(x: rect.minX, y: rect.minY, height: rect.height)
     }
 }
 
@@ -148,28 +226,40 @@ private extension Path {
     }
 }
 
-/// Text as outlines in the system font (CoreText), so a mark built from it
-/// clips and animates as paths. Baseline at y = 0, y down.
+/// Text as outlines (CoreText), so a mark built from it clips and animates
+/// as paths. Baseline at y = 0, y down.
 private struct GlyphOutline: Sendable {
-    var path: Path
-    var xHeight: CGFloat
+    struct Glyph: Sendable {
+        var path: Path
+        var x: CGFloat
+        var advance: CGFloat
+    }
 
-    static func make(_ text: String, size: CGFloat, weight: UIFont.Weight, tracking: CGFloat = 0) -> GlyphOutline {
-        let font = UIFont.systemFont(ofSize: size, weight: weight) as CTFont
+    var path: Path
+    var glyphs: [Glyph]
+    var xHeight: CGFloat
+    /// The advance of the whole run.
+    var width: CGFloat
+
+    static func make(_ text: String, font: CTFont, tracking: CGFloat = 0) -> GlyphOutline {
         let characters = Array(text.utf16)
-        var glyphs = [CGGlyph](repeating: 0, count: characters.count)
-        _ = CTFontGetGlyphsForCharacters(font, characters, &glyphs, characters.count)
-        var advances = [CGSize](repeating: .zero, count: glyphs.count)
-        _ = CTFontGetAdvancesForGlyphs(font, .horizontal, glyphs, &advances, glyphs.count)
+        var ids = [CGGlyph](repeating: 0, count: characters.count)
+        _ = CTFontGetGlyphsForCharacters(font, characters, &ids, characters.count)
+        var advances = [CGSize](repeating: .zero, count: ids.count)
+        _ = CTFontGetAdvancesForGlyphs(font, .horizontal, ids, &advances, ids.count)
         var path = Path()
+        var glyphs: [Glyph] = []
         var x: CGFloat = 0
-        for (glyph, advance) in zip(glyphs, advances) {
-            if let outline = CTFontCreatePathForGlyph(font, glyph, nil) {
-                path.addPath(Path(outline), transform: CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: x, ty: 0))
+        for (id, advance) in zip(ids, advances) {
+            var glyph = Path()
+            if let outline = CTFontCreatePathForGlyph(font, id, nil) {
+                glyph.addPath(Path(outline), transform: CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: x, ty: 0))
             }
+            path.addPath(glyph)
+            glyphs.append(Glyph(path: glyph, x: x, advance: advance.width))
             x += advance.width + tracking
         }
-        return GlyphOutline(path: path, xHeight: CTFontGetXHeight(font))
+        return GlyphOutline(path: path, glyphs: glyphs, xHeight: CTFontGetXHeight(font), width: x - tracking)
     }
 }
 
@@ -286,15 +376,365 @@ private struct HeroStack<Mark: View>: View {
     }
 }
 
+// MARK: Lockup
+
+/// The cmux lockup as the website sets it: the chevron (the launch chevron
+/// glides into `slot`) and "cmux" in Geist SemiBold with tight tracking,
+/// which comes in from a blur beside it.
+struct WelcomeHeroLockup<Slot: View>: View {
+    var t: Double
+    @ViewBuilder var slot: () -> Slot
+
+    static var markSize: CGFloat { 46 }
+
+    var body: some View {
+        let word = IntroEase.outQuint(IntroEase.seg(t, 0.2, 0.62))
+        HeroStack(t: t, taglineAt: 0.4, spacing: 14, name: WelcomeHeroVariant.lockup.name) {
+            HStack(spacing: 12) {
+                slot()
+                Text(verbatim: "cmux")
+                    .font(Geist.semibold.font(size: 58))
+                    // The website's tracking-tight: -0.025 em.
+                    .tracking(-1.45)
+                    .foregroundStyle(theme.colors.label)
+                    .opacity(word)
+                    .blur(radius: 6 * (1 - word))
+                    .offset(x: -10 * (1 - word))
+            }
+            // The chevron's glow sits left of the slot: center the letters, not the box.
+            .offset(x: -4)
+        }
+    }
+}
+
+// MARK: Site
+
+/// The website's hero on a phone, left-aligned like the site: the app icon
+/// tile springs in, "cmux" comes in from a blur beside it, then the line is
+/// typed out in Geist with a caret that keeps blinking, as on cmux.com.
+struct WelcomeHeroSite: View {
+    var t: Double
+    /// The caret blinks after typing (not under Reduce Motion or a frozen capture).
+    var blinks: Bool
+
+    private static var line: String { String(localized: "Your Macs, in your pocket") }
+    private static var typeStart: Double { 0.62 }
+    private static var typeStep: Double { 0.03 }
+
+    var body: some View {
+        let tile = E.spring(t, duration: 0.62, bounce: 0.3)
+        let word = E.outQuint(E.seg(t, 0.22, 0.66))
+        let count = Self.line.count
+        let typed = !t.isFinite ? count : t < Self.typeStart ? 0 : min(count, Int((t - Self.typeStart) / Self.typeStep) + 1)
+        VStack(alignment: .leading, spacing: 24) {
+            HStack(spacing: 16) {
+                AppIconTile(size: 62)
+                    .scaleEffect(0.55 + 0.45 * tile)
+                    .opacity(E.out(E.seg(t, 0, 0.2)))
+                Text(verbatim: "cmux")
+                    .font(Geist.semibold.font(size: 44))
+                    .tracking(-1.1)
+                    .foregroundStyle(theme.colors.label)
+                    .opacity(word)
+                    .blur(radius: 8 * (1 - word))
+                    .offset(x: -12 * (1 - word))
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: "cmux"))
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("welcome.wordmark.site")
+            Group {
+                if blinks && typed == count {
+                    TimelineView(.periodic(from: .now, by: 0.53)) { context in
+                        typedLine(typed: typed, caret: Int(context.date.timeIntervalSinceReferenceDate / 0.53).isMultiple(of: 2))
+                    }
+                } else {
+                    typedLine(typed: typed, caret: t >= 0.4)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: Self.line))
+        }
+        .frame(maxWidth: 440, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 36)
+    }
+
+    /// The whole line is laid out from the start (untyped letters are
+    /// clear), so typing never reflows it.
+    private func typedLine(typed: Int, caret: Bool) -> some View {
+        let line = Self.line
+        let split = line.index(line.startIndex, offsetBy: typed)
+        var shown = AttributedString(String(line[..<split]))
+        var bar = AttributedString("|")
+        bar.foregroundColor = caret ? ChevronGradient.color(at: 0.4) : Color.clear
+        var rest = AttributedString(String(line[split...]))
+        rest.foregroundColor = Color.clear
+        shown.append(bar)
+        shown.append(rest)
+        return Text(shown)
+            .font(Geist.regular.font(size: 20, relativeTo: .title3))
+            .foregroundStyle(theme.colors.label)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// The app icon as the website shows it: a white rounded tile, the chevron in its gradient.
+private struct AppIconTile: View {
+    var size: CGFloat
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous)
+        shape
+            .fill(LinearGradient(colors: [rgb(0xFFFFFF), rgb(0xEDEFF4)], startPoint: .top, endPoint: .bottom))
+            .overlay { shape.strokeBorder(Color.black.opacity(0.08), lineWidth: 0.5) }
+            .overlay {
+                ChevronShape()
+                    .fill(ChevronGradient.style)
+                    .frame(width: size * 0.5 * Chevron.aspect, height: size * 0.5)
+                    .offset(x: size * 0.04)
+            }
+            .frame(width: size, height: size)
+            .shadow(color: .black.opacity(0.16), radius: 10, y: 4)
+    }
+}
+
+// MARK: Bloom
+
+/// The chevron traces its own outline, fills, and blooms (a soft glow in its
+/// gradient swells and settles), then "cmux" rises letter by letter out of a
+/// blur on a light spring.
+struct WelcomeHeroBloom: View {
+    var t: Double
+
+    private static var letters: [String] { ["c", "m", "u", "x"] }
+    private static var chevron: CGFloat { 44 }
+
+    var body: some View {
+        let trace = E.inOut(E.seg(t, 0.04, 0.5))
+        let fill = E.out(E.seg(t, 0.38, 0.62))
+        let pop = E.spring(t - 0.38, duration: 0.7, bounce: 0.38)
+        let swell = E.out(E.seg(t, 0.36, 0.72))
+        let glow = swell * (1 - 0.65 * E.out(E.seg(t, 0.72, 1.3)))
+        let h = Self.chevron
+        HeroStack(t: t, taglineAt: 1.0, spacing: 16, name: WelcomeHeroVariant.bloom.name) {
+            HStack(spacing: 16) {
+                ZStack {
+                    ChevronShape()
+                        .trim(from: 0, to: trace)
+                        .stroke(ChevronGradient.style, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                        .opacity(1 - fill)
+                    ChevronShape()
+                        .fill(ChevronGradient.style)
+                        .opacity(fill)
+                }
+                .frame(width: h * Chevron.aspect, height: h)
+                .scaleEffect(0.92 + 0.08 * pop)
+                .background {
+                    Circle()
+                        .fill(RadialGradient(colors: [ChevronGradient.color(at: 0.5).opacity(0.6), .clear],
+                                             center: .center, startRadius: 0, endRadius: 54))
+                        .frame(width: 120, height: 120)
+                        .scaleEffect(0.5 + 0.6 * swell)
+                        .opacity(glow)
+                        .allowsHitTesting(false)
+                }
+                HStack(spacing: 0) {
+                    ForEach(Array(Self.letters.enumerated()), id: \.offset) { i, letter in
+                        let start = 0.5 + 0.075 * Double(i)
+                        let shown = E.out(E.seg(t, start, start + 0.42))
+                        let rise = E.spring(t - start, duration: 0.7, bounce: 0.22)
+                        Text(verbatim: letter)
+                            .opacity(shown)
+                            .blur(radius: 9 * (1 - shown))
+                            .offset(y: 16 * (1 - rise))
+                    }
+                }
+                .font(Geist.semibold.font(size: 58))
+                .tracking(-1.45)
+                .foregroundStyle(theme.colors.label)
+            }
+        }
+    }
+}
+
+// MARK: Morph
+
+/// A block cursor in the chevron's gradient blinks, types "cmux" in Geist
+/// SemiBold, blinks once more, then bends into the chevron as it flies back
+/// to the front of the word: one shape, never a swap.
+struct WelcomeHeroMorph: View {
+    var t: Double
+
+    private static let word = GlyphOutline.make("cmux", font: Geist.semibold.ctFont(size: 100), tracking: -2.5)
+
+    var body: some View {
+        let word = Self.word
+        let xh = word.xHeight
+        let chevronHeight = xh * 1.42
+        let chevronWidth = chevronHeight * Chevron.aspect
+        let wordX = chevronWidth + xh * 0.42
+        let width = wordX + word.width + xh * 0.1
+        let height = chevronHeight
+        HeroStack(t: t, taglineAt: 1.3, spacing: 22, name: WelcomeHeroVariant.morph.name) {
+            Canvas { context, size in
+                typealias E = IntroEase
+                let scale = size.width / width
+                context.scaleBy(x: scale, y: scale)
+                let baseline = (height + xh) / 2
+                let label = GraphicsContext.Shading.color(theme.colors.label.color)
+
+                // Typing: one letter per 0.1 s; the cursor steps after each.
+                let typedAt = word.glyphs.indices.map { 0.45 + 0.1 * Double($0) }
+                for (glyph, at) in zip(word.glyphs, typedAt) {
+                    let shown = E.out(E.seg(t, at, at + 0.1))
+                    guard shown > 0 else { continue }
+                    var letter = context
+                    letter.opacity = shown
+                    letter.fill(glyph.path.applying(CGAffineTransform(translationX: wordX, y: baseline)), with: label)
+                }
+                let step = xh * 0.1
+                var cursorX = wordX
+                for (glyph, at) in zip(word.glyphs, typedAt) {
+                    let p = CGFloat(E.outQuint(E.seg(t, at, at + 0.08)))
+                    cursorX += (wordX + glyph.x + glyph.advance + step - cursorX) * p
+                }
+
+                // The cursor: a block a little taller than the x-height.
+                let blockWidth = xh * 0.6, blockHeight = xh * 1.2
+                let block = CGRect(x: cursorX, y: baseline + xh * 0.1 - blockHeight, width: blockWidth, height: blockHeight)
+                let blink = (0.22..<0.34).contains(t) || (0.86..<0.98).contains(t)
+                guard t >= 0.04, !blink else { return }
+                let m = E.inOut(E.seg(t, 1.0, 1.42))
+                // Eight points each, in the same order, so the block bends into
+                // the arrow: its right side becomes the tip, its left side the notch.
+                let from: [CGPoint] = [
+                    CGPoint(x: block.minX, y: block.minY), CGPoint(x: block.maxX, y: block.minY),
+                    CGPoint(x: block.maxX, y: block.midY), CGPoint(x: block.maxX, y: block.maxY),
+                    CGPoint(x: block.minX, y: block.maxY), CGPoint(x: block.minX, y: block.minY + 0.76 * blockHeight),
+                    CGPoint(x: block.minX, y: block.midY), CGPoint(x: block.minX, y: block.minY + 0.24 * blockHeight),
+                ]
+                let h = chevronHeight
+                let corners: [(CGFloat, CGFloat)] = [(0, 0), (0.36, 0.25), (0.72, 0.5), (0.36, 0.75), (0, 1), (0, 0.76), (0.38, 0.5), (0, 0.24)]
+                let to = corners.map { CGPoint(x: $0.0 * h, y: $0.1 * h) }
+                // A shallow arc on the way.
+                let lift = -CGFloat(sin(Double.pi * m)) * xh * 0.35
+                var shape = Path()
+                shape.addLines(zip(from, to).map { a, b in
+                    CGPoint(x: a.x + (b.x - a.x) * CGFloat(m), y: a.y + (b.y - a.y) * CGFloat(m) + lift)
+                })
+                shape.closeSubpath()
+                let box = shape.boundingRect
+                context.fill(shape, with: ChevronGradient.shading(from: CGPoint(x: box.minX, y: 0), to: CGPoint(x: box.maxX, y: 0)))
+            }
+            .aspectRatio(width / height, contentMode: .fit)
+            .frame(maxWidth: 292)
+            .padding(.horizontal, 40)
+        }
+    }
+}
+
+// MARK: Decode
+
+/// "cmux" in Geist Mono: each letter appears as terminal noise, scrambles,
+/// then locks in left to right with a flash of the gradient; the chevron
+/// blinks on first.
+struct WelcomeHeroDecode: View {
+    var t: Double
+
+    private static var target: [String] { ["c", "m", "u", "x"] }
+    private static var noise: [String] { ["<", ">", "/", "\\", "[", "]", "{", "}", "#", "$", "%", "&", "*", "+", "=", "?", "!", "0", "1", "_"] }
+
+    var body: some View {
+        let tick = t.isFinite ? Int(t * 24) : 0
+        let chevronOn = t >= 0.04 && !(0.1..<0.16).contains(t)
+        HeroStack(t: t, taglineAt: 0.95, spacing: 16, name: WelcomeHeroVariant.decode.name) {
+            HStack(spacing: 14) {
+                ChevronShape()
+                    .fill(ChevronGradient.style)
+                    .frame(width: 40 * Chevron.aspect, height: 40)
+                    .opacity(chevronOn ? 1 : 0)
+                HStack(spacing: 0) {
+                    ForEach(0..<4, id: \.self) { i in
+                        let appear = 0.12 + 0.05 * Double(i)
+                        let settle = 0.4 + 0.13 * Double(i)
+                        let locked = t >= settle
+                        let glyph = locked ? Self.target[i] : Self.noise[(tick * 7 + i * 13 + tick * i) % Self.noise.count]
+                        let flash = locked ? 1 - E.out(E.seg(t, settle, settle + 0.3)) : 0
+                        Text(verbatim: glyph)
+                            .foregroundStyle(locked ? theme.colors.label.color : theme.colors.label3.color)
+                            .overlay {
+                                Text(verbatim: glyph)
+                                    .foregroundStyle(ChevronGradient.style)
+                                    .opacity(flash)
+                            }
+                            .opacity(t >= appear ? 1 : 0)
+                    }
+                }
+                .font(Geist.monoMedium.font(size: 54))
+                .tracking(-2)
+            }
+        }
+    }
+}
+
+// MARK: Shimmer
+
+/// The lockup comes in from a blur, then one sheen in the chevron's gradient
+/// sweeps across the letters, left to right, and is gone.
+struct WelcomeHeroShimmer: View {
+    var t: Double
+
+    var body: some View {
+        let appear = E.outQuint(E.seg(t, 0.04, 0.6))
+        let sweep = CGFloat(E.inOut(E.seg(t, 0.5, 1.35)))
+        HeroStack(t: t, taglineAt: 0.8, spacing: 16, name: WelcomeHeroVariant.shimmer.name) {
+            lockup
+                .overlay {
+                    if sweep > 0 && sweep < 1 {
+                        GeometryReader { proxy in
+                            let band = proxy.size.width * 0.42
+                            LinearGradient(stops: [
+                                .init(color: ChevronGradient.color(at: 0).opacity(0), location: 0),
+                                .init(color: ChevronGradient.color(at: 0), location: 0.35),
+                                .init(color: ChevronGradient.color(at: 1), location: 0.65),
+                                .init(color: ChevronGradient.color(at: 1).opacity(0), location: 1),
+                            ], startPoint: .leading, endPoint: .trailing)
+                            .frame(width: band)
+                            .offset(x: -band + (proxy.size.width + band) * sweep)
+                        }
+                        .mask { lockup }
+                        .allowsHitTesting(false)
+                    }
+                }
+                .opacity(appear)
+                .blur(radius: 10 * (1 - appear))
+                .scaleEffect(0.95 + 0.05 * appear)
+        }
+    }
+
+    private var lockup: some View {
+        HStack(spacing: 12) {
+            ChevronShape()
+                .fill(ChevronGradient.style)
+                .frame(width: 46 * Chevron.aspect, height: 46)
+            Text(verbatim: "cmux")
+                .font(Geist.semibold.font(size: 60))
+                .tracking(-1.5)
+                .foregroundStyle(theme.colors.label)
+        }
+    }
+}
+
 // MARK: Raster
 
-/// "cmux" in SF Pro Black after the chevron, both cut into eight scan lines
+/// "cmux" in Geist Black after the chevron, both cut into eight scan lines
 /// across the x-height that thicken toward the baseline. The lines paint left
 /// to right, top to bottom.
 struct WelcomeHeroRaster: View {
     var t: Double
 
-    private static let word = GlyphOutline.make("cmux", size: 100, weight: .black, tracking: -2)
+    private static let word = GlyphOutline.make("cmux", font: Geist.black.ctFont(size: 100), tracking: -2)
     private static var lines: Int { 8 }
 
     var body: some View {
@@ -448,7 +888,7 @@ struct WelcomeHeroKeys: View {
     var t: Double
     @Environment(\.colorScheme) private var colorScheme
 
-    private static let legends = ["c", "m", "u", "x"].map { GlyphOutline.make($0, size: 27, weight: .medium) }
+    private static let legends = ["c", "m", "u", "x"].map { GlyphOutline.make($0, font: Geist.regular.ctFont(size: 27)) }
 
     var body: some View {
         let dark = colorScheme == .dark
@@ -710,52 +1150,61 @@ private enum TubeLight {
 
 #if DEBUG
 /// The prototype picker (prototype skill PICKER.md, in SwiftUI): a dark glass
-/// pill, here at the top because the sign-in rows fill the bottom. Tapping an
-/// item switches at once; only the highlight slides (250 ms, strong ease-out).
+/// panel at the top, two rows (round 4's Geist directions, then round 3's
+/// drawn marks), because the sign-in rows fill the bottom. Tapping an item
+/// switches at once; only the highlight slides (250 ms, strong ease-out).
 struct WelcomeHeroPicker: View {
     @Binding var selection: WelcomeHeroVariant
     var replay: () -> Void
     @Namespace private var highlight
 
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(WelcomeHeroVariant.directions) { variant in
-                Button {
-                    selection = variant
-                    UserDefaults.standard.set(variant.rawValue, forKey: WelcomeHeroVariant.storeKey)
-                } label: {
-                    Text(verbatim: variant.name)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.white.opacity(selection == variant ? 1 : 0.55))
-                        .padding(.horizontal, 10)
-                        .frame(height: 28)
-                        .background {
-                            if selection == variant {
-                                Capsule().fill(.white.opacity(0.12))
-                                    .matchedGeometryEffect(id: "highlight", in: highlight)
-                            }
-                        }
+        VStack(spacing: 2) {
+            HStack(spacing: 2) {
+                ForEach(WelcomeHeroVariant.pickerRows[0]) { item($0) }
+            }
+            HStack(spacing: 2) {
+                ForEach(WelcomeHeroVariant.pickerRows[1]) { item($0) }
+                Rectangle().fill(.white.opacity(0.12)).frame(width: 1, height: 14).padding(.horizontal, 3)
+                Button(action: replay) {
+                    Text(verbatim: "↻").font(.system(size: 13)).foregroundStyle(.white.opacity(0.55))
+                        .padding(.horizontal, 9).frame(height: 26)
                 }
                 .buttonStyle(.cmuxPressFill)
-                .accessibilityAddTraits(selection == variant ? .isSelected : [])
-                .accessibilityIdentifier("welcome.hero.\(variant.name.lowercased())")
+                .accessibilityLabel(Text(verbatim: "Replay"))
             }
-            Rectangle().fill(.white.opacity(0.12)).frame(width: 1, height: 16).padding(.horizontal, 4)
-            Button(action: replay) {
-                Text(verbatim: "↻").font(.system(size: 14)).foregroundStyle(.white.opacity(0.55))
-                    .padding(.horizontal, 10).frame(height: 28)
-            }
-            .buttonStyle(.cmuxPressFill)
-            .accessibilityLabel(Text(verbatim: "Replay"))
         }
         .padding(4)
-        .background(Color(red: 10 / 255, green: 10 / 255, blue: 10 / 255).opacity(0.82), in: Capsule())
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay { Capsule().strokeBorder(.white.opacity(0.08), lineWidth: 1) }
+        .background(Color(red: 10 / 255, green: 10 / 255, blue: 10 / 255).opacity(0.82),
+                    in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 17, style: .continuous).strokeBorder(.white.opacity(0.08), lineWidth: 1) }
         .shadow(color: .black.opacity(0.24), radius: 12, y: 8)
         .animation(Animation.timingCurve(0.23, 1, 0.32, 1, duration: 0.25).unlessReduceMotion, value: selection)
         .environment(\.colorScheme, .dark)
         .dynamicTypeSize(.large)
+    }
+
+    private func item(_ variant: WelcomeHeroVariant) -> some View {
+        Button {
+            selection = variant
+            UserDefaults.standard.set(variant.rawValue, forKey: WelcomeHeroVariant.storeKey)
+        } label: {
+            Text(verbatim: variant.name)
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(selection == variant ? 1 : 0.55))
+                .padding(.horizontal, 8)
+                .frame(height: 26)
+                .background {
+                    if selection == variant {
+                        Capsule().fill(.white.opacity(0.12))
+                            .matchedGeometryEffect(id: "highlight", in: highlight)
+                    }
+                }
+        }
+        .buttonStyle(.cmuxPressFill)
+        .accessibilityAddTraits(selection == variant ? .isSelected : [])
+        .accessibilityIdentifier("welcome.hero.\(variant.name.lowercased())")
     }
 }
 #endif
