@@ -82,6 +82,8 @@ public final class WorkspaceSync {
     @ObservationIgnored public private(set) var connectionSerial = 0
     @ObservationIgnored private let deviceID: String
     @ObservationIgnored private let deviceName: String
+    /// Which Macs take the first window (`ListFirstWindow`); tests use their own suite.
+    @ObservationIgnored var firstWindowDefaults: UserDefaults = .standard
 
     public init(deviceID: String, deviceName: String) {
         self.deviceID = deviceID
@@ -114,7 +116,8 @@ public final class WorkspaceSync {
             await channel.close(code: "eof", reason: "binding superseded")
             return
         }
-        let prepared = await Self.prepare(channel, deviceID: deviceID, deviceName: deviceName)
+        let prepared = await Self.prepare(channel, deviceID: deviceID, deviceName: deviceName,
+                                          firstWindow: ListFirstWindow.honors(macID, defaults: firstWindowDefaults))
         guard connectionSerial == serial, !Task.isCancelled else {
             prepared.replies.cancel()
             await prepared.client.close()
@@ -136,8 +139,11 @@ public final class WorkspaceSync {
     /// agents, list workspaces. The daemon answers a connection's lines in
     /// order; events after the subscribe wait in the client's stream. Does not
     /// wait for the answers (a Mac that pairs holds them until `auth` passes).
+    /// With `firstWindow` (the Mac advertised `list-workspaces-page-v1` last time) the list
+    /// is the first window only (`ListFirstWindow`); the whole tree follows after it is drawn.
     public nonisolated static func prepare(
         _ channel: any LinkChannel, deviceID: String, deviceName: String,
+        firstWindow: Bool = false,
         authorizationTimeout: Duration = LinkPairing.authorizationTimeout,
         replyTimeout: Duration = DaemonClient.defaultDeadline
     ) async -> Prepared {
@@ -153,7 +159,7 @@ public final class WorkspaceSync {
                 ("identify", [:]),
                 ("subscribe", ["tree_events": "deltas"]),
                 ("list-agents", [:]),
-                ("list-workspaces", [:]),
+                ("list-workspaces", ListFirstWindow.params(honors: firstWindow)),
             ], deadline: authorizationTimeout + replyTimeout)
             // This eager batch can be held behind auth's human approval. Only
             // setup gets that grace; subsequent daemon reads keep their normal bound.
@@ -225,6 +231,7 @@ public final class WorkspaceSync {
             }
             identity = setup.identity
             listsKnown = setup.listsKnown
+            ListFirstWindow.note(macID, honors: setup.pages, defaults: firstWindowDefaults)
             // A reconnect's list counts a prompt only by its own time (a turn already running
             // when the link came back is not a new prompt at the moment it is seen).
             for (surface, state) in setup.agents.bySurface where state.updatedAt != nil {
@@ -233,13 +240,18 @@ public final class WorkspaceSync {
             agents.bySurface = setup.agents.bySurface
             let snapshot = try replies[4].get()
             let known = (tree?.workspaces ?? []).filter { $0.macID == macID }
-            let next = try await projection.reset(snapshot: snapshot.data, macID: macID,
-                                                  previous: known.isEmpty ? cached : known,
+            let kept = known.isEmpty ? cached : known
+            var next = try await projection.reset(snapshot: snapshot.data, macID: macID,
+                                                  previous: kept,
                                                   agents: agents, activity: activity, arrangement: arrangement)
             guard self.client === client, !Task.isCancelled else {
                 await closeFailedClient(client)
                 return
             }
+            // A first window: draw it over the rows already held; the whole tree follows
+            // from `refresh()` below, in the background.
+            let partial = ListFirstWindow.isPartial(snapshot.data)
+            if partial { next = ListFirstWindow.drawn(next, keeping: kept) }
             // Setup subscribed before its list. Replay every setup event;
             // reply arrival is not a watermark for the captured snapshot.
             discardBeforeSnapshot()
@@ -461,7 +473,7 @@ public final class WorkspaceSync {
         }
     }
 
-    private nonisolated static func decodeSetup(_ replies: [Result<Data, any Error>]) throws -> (identity: String?, agents: AgentStates, listsKnown: Bool) {
+    private nonisolated static func decodeSetup(_ replies: [Result<Data, any Error>]) throws -> (identity: String?, agents: AgentStates, listsKnown: Bool, pages: Bool) {
         _ = try check(replies[0].get())
         let identify = try check(replies[1].get())["data"] as? [String: Any]
         _ = try check(replies[2].get())
@@ -473,7 +485,7 @@ public final class WorkspaceSync {
         }
         let identity = identify.map { "\($0["app"] as? String ?? "cmux-tui") \($0["version"] as? String ?? "") protocol \($0["protocol"] as? Int ?? 0)" }
         let capabilities = identify?["capabilities"] as? [String] ?? []
-        return (identity, agents, capabilities.contains(Self.knownCapability))
+        return (identity, agents, capabilities.contains(Self.knownCapability), capabilities.contains(ListFirstWindow.capability))
     }
 
     public func refresh() async {

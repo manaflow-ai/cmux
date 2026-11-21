@@ -92,3 +92,86 @@ fn a_part_of_the_tree_gives_no_revision_to_hold_and_a_whole_one_does() {
     assert_eq!(again["unchanged"], json!(true), "{again}");
     mux.shutdown();
 }
+
+/// `list-workspaces-page-v1`: `after` and `next` walk the sidebar order page by page, each
+/// row once, and the last page has no `next`.
+#[test]
+fn after_and_next_walk_every_workspace_once_in_sidebar_order() {
+    let mux = five_workspaces("limit-after");
+    let sidebar = sidebar_ids(&mux);
+    let mut seen = Vec::new();
+    let mut after = 0;
+    let mut pages = 0;
+    loop {
+        let page = run(&mux, json!({"cmd": "list-workspaces", "limit": 2, "after": after}));
+        assert_eq!(page["total"], json!(5), "{page}");
+        seen.extend(ids(&page));
+        pages += 1;
+        match page.get("next").and_then(Value::as_u64) {
+            Some(next) => after = next as usize,
+            None => break,
+        }
+    }
+    assert_eq!(pages, 3);
+    assert_eq!(seen, sidebar);
+    // A page past the end is empty, with the total and no `next`.
+    let past = run(&mux, json!({"cmd": "list-workspaces", "limit": 2, "after": 9}));
+    assert_eq!(past["workspaces"], json!([]), "{past}");
+    assert!(past.get("next").is_none(), "{past}");
+    // A later page is never a whole tree to hold.
+    let later = run(&mux, json!({"cmd": "list-workspaces", "known": {}, "limit": 50, "after": 1}));
+    assert!(later.get("tree_revision").is_none(), "{later}");
+    // `after` without `limit` changes nothing: the whole tree, as before.
+    let whole = run(&mux, json!({"cmd": "list-workspaces", "after": 3}));
+    assert_eq!(whole["workspaces"].as_array().unwrap().len(), 5);
+    assert!(whole.get("next").is_none() && whole.get("total").is_none(), "{whole}");
+    mux.shutdown();
+}
+
+/// A `limit` page stops at `LIST_WORKSPACES_PAGE_BYTES` of rows, whatever `limit` asks, so the
+/// phone's first window costs the same at any number of workspaces; `next` reads on.
+#[test]
+fn a_limit_page_stops_at_its_byte_budget_and_says_where_the_rest_starts() {
+    let mux = Mux::new_for_test("limit-budget", SurfaceOptions::default());
+    let count = 300;
+    for index in 0..count {
+        mux.create_empty_workspace(
+            Some(format!("workspace {index} {}", "x".repeat(200))),
+            None,
+            None,
+        )
+        .unwrap();
+    }
+    let page = run(&mux, json!({"cmd": "list-workspaces", "limit": 10_000}));
+    let rows = page["workspaces"].as_array().unwrap();
+    let row_bytes: usize = rows.iter().map(|row| row.to_string().len() + 1).sum();
+    assert!(rows.len() < count, "the page held all {count} rows ({row_bytes} bytes)");
+    assert!(!rows.is_empty());
+    assert!(row_bytes <= LIST_WORKSPACES_PAGE_BYTES, "{row_bytes} bytes of rows");
+    assert_eq!(page["total"], json!(count));
+    assert_eq!(page["next"], json!(rows.len()), "{}", page["next"]);
+    // Walking `next` reads every workspace once, in sidebar order.
+    let sidebar = sidebar_ids(&mux);
+    let mut seen = ids(&page);
+    let mut after = rows.len();
+    while after < count {
+        let next = run(&mux, json!({"cmd": "list-workspaces", "limit": 10_000, "after": after}));
+        let got = ids(&next);
+        assert!(!got.is_empty());
+        after += got.len();
+        seen.extend(got);
+    }
+    assert_eq!(seen, sidebar);
+    mux.shutdown();
+}
+
+#[test]
+fn paging_is_advertised() {
+    let mux = Mux::new_for_test("page-capability", SurfaceOptions::default());
+    let identify = run(&mux, json!({"cmd": "identify"}));
+    let capabilities = identify["capabilities"].as_array().unwrap();
+    for capability in [LIST_WORKSPACES_LIMIT_CAPABILITY, LIST_WORKSPACES_PAGE_CAPABILITY] {
+        assert!(capabilities.iter().any(|value| value == capability), "{capability}: {identify}");
+    }
+    mux.shutdown();
+}

@@ -1095,8 +1095,24 @@ mod tests {
         // A notification's own reply is PR B's narrow command, with only its notification
         // and text (`notification_reply_takes_only_its_notification_and_text`); a stray
         // field still refuses it.
-        let line = br#"{"cmd":"notification-reply","id":"m4","notification":1,"text":"y","surface":7}"#.as_slice();
+        let line =
+            br#"{"cmd":"notification-reply","id":"m4","notification":1,"text":"y","surface":7}"#.as_slice();
         assert!(matches!(policy().evaluate(line), Verdict::Refuse(_)));
+    }
+
+    /// The phone's first window (`list-workspaces-page-v1`, CmuxMobileLive
+    /// ListFirstWindow) and the pages after it are params of an allowed command,
+    /// not a new command: they pass as the whole list does.
+    #[test]
+    fn allows_the_first_window_and_its_pages() {
+        for line in [
+            br#"{"cmd":"list-workspaces","id":"m1"}"#.as_slice(),
+            br#"{"cmd":"list-workspaces","id":"m2","limit":40}"#,
+            br#"{"cmd":"list-workspaces","id":"m3","limit":40,"after":40}"#,
+            br#"{"cmd":"list-workspaces","id":"m4","known":{},"limit":40,"after":0}"#,
+        ] {
+            assert_eq!(policy().evaluate(line), Verdict::Forward, "{}", String::from_utf8_lossy(line));
+        }
     }
 
     /// The exact lines the iOS Feed sends for terminal agents (CmuxMobileLive
@@ -1528,7 +1544,11 @@ mod tests {
             br#"{"cmd":"set-size-policy","id":"s5","surface":7,"policy":{"mode":"fixed"}}"#.as_slice(),
             br#"{"cmd":"set-size-counts","id":"s6","surface":7,"counts":false}"#,
         ] {
-            assert!(matches!(policy().evaluate(line), Verdict::Refuse(_)), "{}", String::from_utf8_lossy(line));
+            assert!(
+                matches!(policy().evaluate(line), Verdict::Refuse(_)),
+                "{}",
+                String::from_utf8_lossy(line)
+            );
         }
         let line = br#"{"cmd":"set-client-info","id":"c1","device_kind":"mac","device_id":"someone-else","remote":false}"#;
         let Verdict::Rewrite(sent) = policy().evaluate(line) else { panic!("not rewritten") };
