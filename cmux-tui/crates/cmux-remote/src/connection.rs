@@ -1537,7 +1537,7 @@ async fn probe_by<T>(
     deadline: &mut tokio::time::Instant,
     network: &mut watch::Receiver<u64>,
     close_state: &mut watch::Receiver<CloseState>,
-    route_gone: &dyn Fn() -> bool,
+    route_gone: &(dyn Fn() -> bool + Sync),
 ) -> Result<Option<T>, ()> {
     tokio::pin!(phase);
     loop {
