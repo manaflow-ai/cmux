@@ -19,7 +19,7 @@ sha1 = "0.10"
 zstd.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-fuser = { version = "=0.14.0", default-features = false }
+fuser = { version = "=0.14.0", default-features = false, features = ["abi-7-31"] }
 libc.workspace = true
 
 [dev-dependencies]

@@ -32,6 +32,7 @@ Every parity agent (cmux next Swift app, GPUI, the Chrome port, cmux-browser) mu
 | K16 | 2026-08-02 cmux-browser [#95](https://github.com/manaflow-ai/cmux-browser/pull/95) (Chromium fork, Linux) | WebAuthn fails in custom panes with `NotAllowedError`. | Chromium refuses a request unless the frame is active and `ChromeWebAuthenticationDelegate::IsFocused` holds, which is `web_contents->GetVisibility() == VISIBLE` (`chromium:chrome/browser/webauthn/chrome_web_authentication_delegate.cc:251`), checked at the start and again when the result returns (`chromium:content/browser/webauth/authenticator_common_impl.cc:1334`, `:3255`). The pane's WebContents visibility did not follow the real pane. | Fixed in cmux-browser by syncing visibility. Applies to our CEF panes: hidden, hibernated, scrolled-away or reported-occluded tabs fail, and a ceremony whose own system sheet makes us report the page occluded fails at completion. | CEF: visible tab passes; hidden tab gets `NotAllowedError`; a page partly covered by the system sheet or a cmux overlay keeps `VISIBLE` and completes. |
 | K17 | Gaps in the legacy bridge (not crashes) | Sites that need these fail or degrade. | No PRF, `largeBlob`, `credProps`, `getClientCapabilities`, `signal*` methods, `parseCreationOptionsFromJSON`; cross-origin iframes refused even with `allow="publickey-credentials-get"`; parent-domain RP IDs native only for `google.com` (`main:.../BrowserWebAuthnSecurityOrigin.swift:112`); U2F `appid` falls back to WebKit. | n/a | Feature matrix test (section 7) on every engine. |
 | K18 | Process | Each fix was "verified" on a tagged build that cannot run a real ceremony. | Tagged DEV bundle ids have no profile that grants the entitlement (stated in #6718 and #15525). | n/a | Every passkey change lists its signed-build manual checks as UNVERIFIED until a signed nightly passes them. |
+| **K19** | **2026-11-20, Cloudflare dash 2FA "Verify with a security key" (a1237's escalate_auth)** | **"Security key verification did not finish" on every try, the person's own "try again" too.** | **Since 8eb6a24f (agent tabs refuse WebAuthn, 3.5) a tab any cmux control call touched (even `browser state`) stayed in `CMUX_WEBAUTHN_MODE_REFUSE` for its whole life; the fork's `ShouldDisallowCredentialRequest` answered NotAllowedError in 6 ms in a visible tab, before any key was asked. Chrome refuses only while its own agent acts on the tab (`IsActorActingOnWebContents`).** | **Fixed (section 12): the person's own HID click or key in the page takes the tab back; each agent call refuses again; the passkey hand-off runs its trigger handed over.** | **`CEFAgentWebAuthnTests` (person click allows, posted click does not, agent call refuses again, hand-off trigger), `BrowserPasskeyRequestsTests` (hand over before the trigger).** |
 
 Related, not passkey bugs (do not confuse): [#2154](https://github.com/manaflow-ai/cmux/issues/2154) Apple Passwords autofill (no public API for third-party WKWebView browsers), [#10528](https://github.com/manaflow-ai/cmux/issues/10528) Extensible SSO (misattributed; closed by reporter), [#4033](https://github.com/manaflow-ai/cmux/issues/4033) mTLS client certificates (keychain access group), [#1491](https://github.com/manaflow-ai/cmux/issues/1491) and [#7513](https://github.com/manaflow-ai/cmux/issues/7513) Google/Duo user-agent checks.
 
@@ -320,3 +321,37 @@ existing passkey entitlement and profiles; no new App ID and no Apple request fo
 stays without platform passkeys until it goes away; its NIGHTLY-identity copy (cx-x7hwx) is the
 signed build where Touch ID / iCloud Keychain passkeys are checked. The hybrid race fix ships in CEF
 `cef-154.0.28-cmux.25` (cmux CEF fork branch `cmux/8037-cmux25-rc`).
+
+## 12. Cloudflare security-key 2FA in an agent's tab, 2026-11-20 (K19)
+
+The person (43784): "cloudflare passkeys broken, compare our passkeys implementation with chrome's".
+a1237 had driven dash.cloudflare.com to its 2FA page and called escalate_auth; the page said "Security
+key verification did not finish. Try again or use another verification method."
+
+What Cloudflare runs (its `cf-SecurityKeyForm` bundle, read 2026-11-20): on mount and on "try again" it
+fetches `/api/v4/user/two_factor_authentication/security_key/login`, decodes `challenge` and each
+`allowCredentials[].id` from base64url, keeps the rest (`timeout`, `rpId`, `userVerification`, the
+credentials' `type` and `transports`) as sent, and calls `navigator.credentials.get({publicKey, signal})`
+with an AbortController. A non-discoverable credential with an allow list: a security key. A
+`NotAllowedError` becomes the red line above.
+
+Measured in the live tab (cmux NIGHTLY 1.0.0-nightly.4475022227601, CEF cef-157.0.0-cmux.53, Chromium
+157, tab visible, entitlement present): `get` with a USB allow list and `userVerification:
+"discouraged"` rejected with NotAllowedError after 6 ms, before any authenticator or sheet.
+
+| Step of a security-key `get` | Chrome 157 | cmux CEF tab before | cmux CEF tab after |
+| --- | --- | --- | --- |
+| Blink: options parsing, base64 ids, `allowCredentials` with `transports`, `userVerification`, `timeout` clamp, `signal` abort | Chromium's | same code (Chromium 157) | same |
+| Browser: secure context, rpId vs origin, related origins, permissions policy for iframes, user activation rules | `AuthenticatorCommonImpl` | same code | same |
+| Focus: `IsFocused` (tab VISIBLE, at start and at completion; K16) | yes | same; the live tab was visible | same |
+| Embedder veto `ShouldDisallowCredentialRequest` (`WebAuthnActorCheck`) | true only while Chrome's own agent acts on the tab (`IsActorActingOnWebContents`, `kActorLogin`); the person's take-over ends it | true for the tab's whole life once any cmux control call touched it (`markAgentDriven`, one-way) | true from an agent call (each `markAgentDriven`) until the person's own HID mouse or key input in the page (`PersonInputCheck`; a click another process posts does not count); the passkey hand-off's trigger runs handed over |
+| Invisible page window (detached hosting, remote presentation) | n/a | refused (the sheet has no window) | same |
+| Authenticators: USB/NFC/BLE security keys (CTAP2, U2F, PIN sheet), iCloud Keychain via ASAuthorization, hybrid QR | Chromium's request delegate | same code in the browser process (the app); nightly has `web-browser.public-key-credential` | same |
+| Popups (`window.open`, OAuth) | the actor's state per tab | the fork copies the opener's refusal; no way back | copied, tracked (`webAuthnRefused`); the person's input takes it back |
+| What the page sees on refusal | NotAllowedError (generic message, privacy) | same | same |
+| Mode read | when a request starts | when a request starts | same: an agent's later read of the tab never ends a ceremony the person started |
+
+Not verified by automation: a real HID click and a real key touch (only the HID system's input counts, so
+no script can play the person). The person's retry on Cloudflare, after a nightly with the fix, is the
+check.
+

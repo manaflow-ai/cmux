@@ -641,6 +641,7 @@ impl Hub {
             schema: META_SCHEMA.into(),
             id: id.clone(),
             name,
+            handle: None,
             name_given,
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
