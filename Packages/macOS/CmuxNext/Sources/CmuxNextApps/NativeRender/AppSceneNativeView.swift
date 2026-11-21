@@ -97,10 +97,14 @@ final class AppSceneNativeView: NSView {
         drawnStatus = model.status
         drawnReloadFailure = model.reloadFailure
         let before = rootView.map { $0.height(width: bounds.width) }
+        // A host sized to the scene's width (a titlebar status item) hears a width change too.
+        let widthBefore = rootView?.naturalWidth
         reconcile()
         needsLayout = true
         invalidateIntrinsicContentSize()
-        if before != rootView.map({ $0.height(width: bounds.width) }) || !failure.isHidden || markerChanged { onContentSizeChange?() }
+        if before != rootView.map({ $0.height(width: bounds.width) }) || widthBefore != rootView?.naturalWidth || !failure.isHidden || markerChanged {
+            onContentSizeChange?()
+        }
     }
 
     private func reconcile() {
@@ -203,6 +207,14 @@ final class AppSceneNativeView: NSView {
         if !failure.isHidden { return ceil(failure.height(width: width)) }
         let marker = reloadMarker.isHidden ? 0 : reloadMarker.height
         return ceil(rootView?.height(width: width) ?? 0) + marker
+    }
+
+    /// The scene's natural width (a status item's row), nil before a scene draws, while it shows a
+    /// failure, or when it fills whatever width it gets.
+    var preferredWidth: CGFloat? {
+        redrawIfNeeded()
+        guard failure.isHidden else { return nil }
+        return rootView?.naturalWidth.map { ceil($0) }
     }
 
     override var intrinsicContentSize: NSSize {
