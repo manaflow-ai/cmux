@@ -2000,6 +2000,11 @@ fn run_main() {
         let args = cli::acp_scope_args(&raw_args);
         client_log::exit(acp::run_scope(head, args));
     }
+    #[cfg(unix)]
+    if let Some(args) = cli::agent_acp_scope_args(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(acp::run_as(args, "cmux agent"));
+    }
     // Windows machine join installs the session engine as its own executable.
     // Launch that binary so its daemon and agent hosts use the Windows install.
     #[cfg(windows)]

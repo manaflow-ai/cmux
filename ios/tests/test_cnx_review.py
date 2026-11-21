@@ -193,7 +193,7 @@ class PhoneLaunchTests(unittest.TestCase):
     """phone_launch_and_check: the credentials reach only the signed-in launch, never argv; the
     credential-free relaunch carries none; the receipt of that very launch decides."""
 
-    def launch(self, session, receipt_fields, pair_url='', backend='', mobile=''):
+    def launch(self, session, receipt_fields, pair_url='', backend='', mobile='', phone='', phone_mobile=''):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / 'bin').mkdir()
@@ -229,7 +229,7 @@ else:
 set -euo pipefail
 source "{REVIEW}"
 BUNDLE_ID=dev.cmux.mobile.{TAG} MAC_DEVICE_ID=mac-tagged CNX_REVIEW_RECEIPT_TIMEOUT=2 SHA={SHA} SLUG={TAG} STATE="{root}/state"
-BACKEND_URL="{backend}" BACKEND_MOBILE_URL="{mobile}"
+BACKEND_URL="{backend}" BACKEND_MOBILE_URL="{mobile}" BACKEND_PHONE_URL="{phone}" BACKEND_PHONE_MOBILE_URL="{phone_mobile}"
 export DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND=https://ambient.example
 PERSONAL_EMAIL=me@example.com PERSONAL_PASSWORD=pw-secret PERSONAL_ACCOUNT=me@example.com
 export DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD=ambient-leak
@@ -302,6 +302,21 @@ if phone_launch_and_check {PHONE} client-1 {session} "{pair_url}"; then echo "PA
         self.assertIn('FAIL: restored launch: the app uses the mobile service https://cmux-mobile-api-dev.debussy.workers.dev, '
                       f'not the tag stack\'s {self.STACK_MOBILE}', r.stdout)
 
+    PUBLIC = 'https://api.s7.wdev.cmux.dev'
+    PUBLIC_MOBILE = 'https://mobile.s7.wdev.cmux.dev'
+
+    def test_a_stack_with_a_public_origin_gives_the_phone_that_origin(self):
+        # The Mac keeps the tailnet origin; the phone gets the same stack's public one, which works off the tailnet.
+        on_public = {**self.linked, 'cloud_backend': self.PUBLIC, 'api_base_url': self.PUBLIC_MOBILE}
+        r, _, env = self.launch('auto_login', on_public, backend=self.STACK, mobile=self.STACK_MOBILE,
+                                phone=self.PUBLIC, phone_mobile=self.PUBLIC_MOBILE)
+        self.assertIn('PASS: signed in (auto_login)', r.stdout, r.stderr)
+        self.assertEqual(env['DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND'], self.PUBLIC)
+        tailnet = {**on_public, 'cloud_backend': self.STACK, 'api_base_url': self.STACK_MOBILE}
+        r, _, _ = self.launch('restored', tailnet, backend=self.STACK, mobile=self.STACK_MOBILE,
+                              phone=self.PUBLIC, phone_mobile=self.PUBLIC_MOBILE)
+        self.assertIn(f'FAIL: restored launch: the app uses the Cloud backend {self.STACK}, not {self.PUBLIC}', r.stdout)
+
     def test_the_default_clears_a_kept_backend_and_proves_it(self):
         # `default` (not an empty value a launcher may drop) clears the kept override...
         r, _, env = self.launch('auto_login', self.linked)
@@ -312,7 +327,7 @@ if phone_launch_and_check {PHONE} client-1 {session} "{pair_url}"; then echo "PA
 
     def test_the_default_fails_when_the_phone_kept_an_earlier_override(self):
         # ...and the receipt must show it took: a phone still on a kept stack or preview fails.
-        for kept in (self.STACK, 'https://cmux-api-preview-7.debussy.workers.dev'):
+        for kept in (self.STACK, 'https://cmux-api-preview-7.debussy.workers.dev', 'https://api.s7.wdev.cmux.dev'):
             r, _, _ = self.launch('restored', {**self.linked, 'cloud_backend': kept})
             self.assertIn(f'FAIL: restored launch: the app still uses the kept Cloud backend {kept}', r.stdout)
         r, _, _ = self.launch('restored', {**self.linked, 'cloud_backend': ''})
@@ -340,13 +355,19 @@ class BackendTests(unittest.TestCase):
                             (m.DEVELOPMENT_API + '/', m.DEVELOPMENT_API),
                             ('preview-7', 'https://cmux-api-preview-7.debussy.workers.dev'),
                             (self.STACK + '/', self.STACK),
-                            ('https://cmux-dev-backend-1.tail137216.ts.net', 'https://cmux-dev-backend-1.tail137216.ts.net')]:
+                            ('https://cmux-dev-backend-1.tail137216.ts.net', 'https://cmux-dev-backend-1.tail137216.ts.net'),
+                            ('https://API.s7.wdev.cmux.dev/', 'https://api.s7.wdev.cmux.dev')]:
             self.assertEqual(m.backend_origin(value), want, value)
         for value in ['https://attacker.example', 'https://cloud-api.cmux.dev', 'prod', 'staging',
                       'http://cmux-dev-backend-1.tail137216.ts.net:3850', 'https://ts.net', 'https://tail137216.ts.net',
                       'https://cmux-dev-backend-1.tail137216.ts.net.attacker.example', self.STACK + '/v1',
                       self.STACK + '?x=1', 'https://user@cmux-dev-backend-1.tail137216.ts.net', 'https://a_b.tail.ts.net',
-                      'https://100.70.231.80', 'preview-0', 'http://localhost:8787', '']:
+                      'https://100.70.231.80', 'preview-0', 'http://localhost:8787', '',
+                      'https://mobile.s7.wdev.cmux.dev', 'https://api.s7.wdev.cmux.dev:8443', 'http://api.s7.wdev.cmux.dev',
+                      'https://api.s7777.wdev.cmux.dev', 'https://api.s7.wdev.cmux.dev.attacker.example', 'https://wdev.cmux.dev',
+                      # another tailnet's machine (a Funnel name is public), or a name under ours that is no machine
+                      'https://cmux-dev-backend-1.tail9999.ts.net:3850', 'https://evil.ts.net', 'https://a.b.tail137216.ts.net',
+                      'https://api.s7.other.cmux.dev', 'https://cmux.dev']:
             with self.assertRaises(ValueError, msg=value):
                 m.backend_origin(value)
 
@@ -387,6 +408,11 @@ class BackendTests(unittest.TestCase):
         r = self.resolve(self.STACK + '/')
         self.assertIn(f'URL={self.STACK}\n', r.stdout, r.stderr)
         self.assertIn(f'--backend {self.STACK}/', r.stdout)
+        public = self.resolve('tag-stack', '#!/bin/sh\ncase "$*" in *--public*--service*) echo https://mobile.s7.wdev.cmux.dev ;; '
+                              '*--public*) echo https://api.s7.wdev.cmux.dev ;; *--service*) echo https://cmux-dev-backend-1.tail137216.ts.net:3851 ;; '
+                              f'*) echo {self.STACK} ;; esac\n')
+        self.assertIn(f'URL={self.STACK}\n', public.stdout, public.stderr)
+        self.assertIn("the phone: https://api.s7.wdev.cmux.dev (its public origin)", public.stdout)
         r = self.resolve('tag-stack')
         self.assertIn(f"REPORT={self.STACK} (this tag's stack: API, mobile Worker and device hub)", r.stdout, r.stderr)
         self.assertIn('--backend tag-stack', r.stdout)

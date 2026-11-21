@@ -157,7 +157,9 @@ def main_thread_sample(path, limit=2500):
         for line in f:
             # `sample` names the main thread "DispatchQueue_1: com.apple.main-thread" or "Main Thread" (the
             # second on the first fleet run, step 76abb42ac4c65321ef27605b, so nothing was kept).
-            if not keep and ("com.apple.main-thread" in line or "Main Thread" in line):
+            # The main thread is the call graph's first thread, named "com.apple.main-thread", "Main Thread" or, once
+            # Chromium has started, "CrBrowserMain" (the fleet runs' samples, step 84264bd896bee5e0ba517815).
+            if not keep and ("com.apple.main-thread" in line or "Main Thread" in line or "CrBrowserMain" in line):
                 keep = True
             elif keep and (line.strip().startswith("Total number in stack")
                            or (lines and "Thread_" in line and line.lstrip().split(" ", 1)[0].isdigit()
