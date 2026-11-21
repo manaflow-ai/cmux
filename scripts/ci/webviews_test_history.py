@@ -30,8 +30,9 @@
     webviews_test_history.py early-known EARLY_DIR --sha BASE_SHA --replay FILES --known BASE.json
         take into BASE (known's output) the verdicts react-apps-base-early's artifacts in EARLY_DIR hold for the
         FILES list (known's replay list) at BASE_SHA, and rewrite FILES with the files still to replay
-    webviews_test_history.py heads SHARDS_DIR --count K --out DIR
-        join the K head shards' react-apps-head-results-shardI artifacts under SHARDS_DIR into one in DIR (their
+    webviews_test_history.py heads SHARDS_DIR (--count K | --matrix JSON) --out DIR
+        join the K head shards' (or the matrix's: a pull request runs only the shards webviews_pr_shards.py picks)
+        react-apps-head-results-shardI artifacts under SHARDS_DIR into one in DIR (their
         results map, runner and raw logs) for the one react-apps-base-check, and write DIR/shards.json ({file:
         shard}); a missing shard exits 1, an unreadable one leaves the joined results unreadable
     webviews_test_history.py rerun-fits FILES --shards SHARDS.json --cap N
@@ -364,7 +365,7 @@ HEAD_ARTIFACT = "react-apps-head-results-shard{}"
 HEAD_RESULTS = "webviews-head-results.json"
 
 
-def join_heads(shards: Path, count: int, out: Path) -> str | None:
+def join_heads(shards: Path, count: "int | list[int]", out: Path) -> str | None:
     """Join the COUNT head shards' artifacts under SHARDS into OUT, for the one react-apps-base-check that judges them
     all (it was one job a head shard, 12 jobs for what run 43409592440 answered in 0.3 to 0.9 min each). Their result
     maps and raw logs are disjoint (a test file runs in one shard; a log is named by its file), and every shard copies
@@ -374,7 +375,7 @@ def join_heads(shards: Path, count: int, out: Path) -> str | None:
     joined: dict | None = {}
     where: dict[str, int] = {}
     out.mkdir(parents=True, exist_ok=True)
-    for shard in range(1, count + 1):
+    for shard in (range(1, count + 1) if isinstance(count, int) else count):
         here = shards / HEAD_ARTIFACT.format(shard)
         if not (here / HEAD_RESULTS).is_file():
             return f"{HEAD_ARTIFACT.format(shard)} has no {HEAD_RESULTS}"
@@ -630,7 +631,9 @@ def main(argv: list[str]) -> int:
     fo.add_argument("--names", required=True)
     hd = sub.add_parser("heads")
     hd.add_argument("shards")
-    hd.add_argument("--count", type=int, required=True)
+    hd_count = hd.add_mutually_exclusive_group(required=True)
+    hd_count.add_argument("--count", type=int)
+    hd_count.add_argument("--matrix", help="the shard matrix JSON ([{\"shard\": I, ...}, ...]) of the shards that ran")
     hd.add_argument("--out", required=True)
     rf = sub.add_parser("rerun-fits")
     rf.add_argument("files")
@@ -713,7 +716,17 @@ def main(argv: list[str]) -> int:
             print(file)
         return 0
     if args.command == "heads":
-        why = join_heads(Path(args.shards), args.count, Path(args.out))
+        ran: "int | list[int]" = args.count
+        if args.matrix is not None:
+            try:
+                ran = sorted({int(entry["shard"]) for entry in json.loads(args.matrix)})
+            except (ValueError, TypeError, KeyError):
+                print(f"::error title=Webview head results::the shard matrix {args.matrix!r} is unreadable")
+                return 1
+            if not ran:
+                print("::error title=Webview head results::the shard matrix names no shard")
+                return 1
+        why = join_heads(Path(args.shards), ran, Path(args.out))
         if why:
             print(f"::error title=Webview head results::{why}: that head shard published no results to judge")
             return 1
