@@ -360,6 +360,29 @@ pub(crate) fn sanitize(raw: &str) -> Option<String> {
     (!slug.is_empty()).then(|| slug.to_owned())
 }
 
+/// The build the app bundle around `exe` holds on disk (`CFBundleVersion`, and
+/// `CFBundleShortVersionString` for display): the installed build. `None` outside a cmux app.
+#[cfg(unix)]
+pub(crate) fn bundle_build(exe: &Path) -> Option<crate::cli::InstalledApp> {
+    let bundle = containing_app_bundle(exe)?;
+    let info = plist::Value::from_file(bundle.join("Contents/Info.plist")).ok()?;
+    let dictionary = info.as_dictionary()?;
+    if !dictionary.get("CFBundleIdentifier")?.as_string()?.starts_with("com.cmuxterm.app") {
+        return None;
+    }
+    let text = |key: &str| {
+        dictionary
+            .get(key)
+            .and_then(plist::Value::as_string)
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+    };
+    Some(crate::cli::InstalledApp {
+        build: text("CFBundleVersion")?.to_owned(),
+        version: text("CFBundleShortVersionString").map(str::to_owned),
+    })
+}
+
 #[cfg(test)]
 #[path = "app_identity_tests.rs"]
 mod tests;
