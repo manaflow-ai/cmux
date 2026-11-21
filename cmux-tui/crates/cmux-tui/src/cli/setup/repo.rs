@@ -361,24 +361,28 @@ pub(super) fn check_text(report: &setup::Report, dir: &Path, strict: bool) -> St
     // Every string comes from the folder: shown inert.
     let value = inert(&serde_json::to_value(report).unwrap_or(Value::Null));
     let mut lines = Vec::new();
-    for finding in value["findings"].as_array().into_iter().flatten() {
+    for finding in at(&value, "/findings").as_array().into_iter().flatten() {
         let text = |key: &str| finding[key].as_str().unwrap_or_default().to_owned();
         let mut place = text("path");
-        if let Some(line) = finding["line"].as_u64() {
+        if let Some(line) = at(finding, "/line").as_u64() {
             place.push_str(&format!(":{line}"));
         }
-        if let Some(key) = finding["key"].as_str() {
+        if let Some(key) = at(finding, "/key").as_str() {
             place.push_str(&format!(" ({key})"));
         }
         lines.push(format!("{}[{}] {place}: {}", text("severity"), text("code"), text("message")));
-        if let Some(fix) = finding["fix"].as_str() {
+        if let Some(fix) = at(finding, "/fix").as_str() {
             lines.push(format!("  fix: {fix}"));
         }
     }
-    for skipped in value["skipped"].as_array().into_iter().flatten() {
-        lines.push(format!("note: not checked: {}", skipped["why"].as_str().unwrap_or_default()));
+    for skipped in at(&value, "/skipped").as_array().into_iter().flatten() {
+        lines.push(format!(
+            "note: not checked: {}",
+            at(skipped, "/why").as_str().unwrap_or_default()
+        ));
     }
-    let name = value["setup_id"].as_str().map_or_else(|| dir.display().to_string(), str::to_owned);
+    let name =
+        at(&value, "/setup_id").as_str().map_or_else(|| dir.display().to_string(), str::to_owned);
     let (errors, warnings) = (report.errors(), report.warnings());
     let count = |n: usize, what: &str| format!("{n} {what}{}", if n == 1 { "" } else { "s" });
     lines.push(if errors > 0 {
@@ -728,7 +732,7 @@ pub(super) fn card_text(card: &Value) -> String {
         at(card, "/source/commit").as_str().unwrap_or_default().get(..12).unwrap_or_default(),
     )];
     if card["reviewed"] != json!(true) {
-        lines.push(if card["source"]["local"] == json!(true) {
+        lines.push(if *at(card, "/source/local") == json!(true) {
             "Not reviewed by cmux: it comes straight from this folder.".to_owned()
         } else {
             "Not reviewed by cmux: it comes straight from the repo.".to_owned()
@@ -761,7 +765,7 @@ pub(super) fn card_text(card: &Value) -> String {
             ),
             "views" => format!(
                 "views in a layer of their own, {}; your own views stay",
-                setup["layer"].as_str().unwrap_or_default()
+                at(setup, "/layer").as_str().unwrap_or_default()
             ),
             part => part.trim_end_matches('s').to_owned(),
         };
@@ -794,7 +798,7 @@ pub(super) fn card_text(card: &Value) -> String {
     if let Some(requires) = setup["requires"].as_str() {
         lines.push(format!("Requires cmux {requires}."));
     }
-    match card["undo"].as_str() {
+    match at(card, "/undo").as_str() {
         Some(undo) => lines.push(format!("Undo: {undo}")),
         None => lines.push(format!(
             "Undo: cmux setup remove {}",
@@ -921,6 +925,7 @@ fn parse_source(text: &str) -> Result<SetupSource, Failure> {
     Ok(SetupSource::Folder { path: dir })
 }
 
+#[cfg(test)]
 pub(super) fn install(
     customize: &Customize,
     apps: &dyn Apps,
@@ -982,7 +987,7 @@ pub(super) fn install_as(
         "installed": receipt,
         "card": card,
         "extension_errors": extension_errors,
-        "undo": card["undo"],
+        "undo": at(&card, "/undo"),
         "page": opened.source.reference().map(Reference::page_url),
     }))
 }
@@ -1183,6 +1188,9 @@ pub(super) fn gallery(customize: &Customize) -> Result<Value, Failure> {
     serde_json::to_value(gallery).map_err(|error| refused("setup.gallery", error.to_string()))
 }
 
+/// Fetches a URL's body: `None` on a 404.
+pub(super) type FetchBody<'a> = dyn FnMut(&str) -> Result<Option<Vec<u8>>, String> + 'a;
+
 /// `cmux setup preview ID|REPO`: the first preview file the look has, as a
 /// data URL. An installed folder is read in place; a repo's file is fetched
 /// with `get` (the URL's body, `None` on a 404) and kept under the state dir
@@ -1192,7 +1200,7 @@ pub(super) fn preview(
     customize: &Customize,
     which: &str,
     scheme: Scheme,
-    get: &mut dyn FnMut(&str) -> Result<Option<Vec<u8>>, String>,
+    get: &mut FetchBody<'_>,
     now_ms: u64,
 ) -> Result<Value, Failure> {
     let catalog = looks::catalog()?;
@@ -1240,12 +1248,12 @@ pub(super) fn preview(
     let kept: Option<Value> =
         std::fs::read(&note).ok().and_then(|text| serde_json::from_slice(&text).ok());
     if let Some(kept) = kept.filter(|kept| {
-        kept["source"].as_str() == Some(version.as_str())
-            && kept["fetchedMs"]
+        at(kept, "/source").as_str() == Some(version.as_str())
+            && at(kept, "/fetchedMs")
                 .as_u64()
                 .is_some_and(|at| now_ms.saturating_sub(at) < looks::PREVIEW_MAX_AGE_SECS * 1000)
     }) {
-        let Some(path) = kept["path"].as_str() else { return Err(missing()) };
+        let Some(path) = at(&kept, "/path").as_str() else { return Err(missing()) };
         if let Ok(bytes) = std::fs::read(&image)
             && looks::is_png(&bytes)
         {
@@ -1294,18 +1302,18 @@ fn human(value: &Value) -> String {
     {
         let mut lines = vec!["Looks (cmux setup install REPO):".to_owned()];
         for look in looks {
-            let state = match &look["installed"] {
+            let state = match at(look, "/installed") {
                 Value::Null => "not installed".to_owned(),
-                row if row["on"] == json!(false) => {
-                    format!("installed, off, layer {}", row["position"])
+                row if *at(row, "/on") == json!(false) => {
+                    format!("installed, off, layer {}", at(row, "/position"))
                 }
-                row => format!("installed, layer {}", row["position"]),
+                row => format!("installed, layer {}", at(row, "/position")),
             };
             lines.push(format!(
                 "  {}  {}  {} ({state})",
-                look["name"].as_str().unwrap_or_default(),
-                look["repo"].as_str().unwrap_or_default(),
-                look["tagline"].as_str().unwrap_or_default(),
+                at(look, "/name").as_str().unwrap_or_default(),
+                at(look, "/repo").as_str().unwrap_or_default(),
+                at(look, "/tagline").as_str().unwrap_or_default(),
             ));
         }
         if !stack.is_empty() {
@@ -1313,10 +1321,10 @@ fn human(value: &Value) -> String {
             lines.extend(stack.iter().map(|row| {
                 format!(
                     "  {}. {}  {}  {}",
-                    row["position"],
-                    row["id"].as_str().unwrap_or_default(),
-                    if row["on"] == json!(false) { "off" } else { "on " },
-                    row["source"].as_str().unwrap_or_default(),
+                    at(row, "/position"),
+                    at(row, "/id").as_str().unwrap_or_default(),
+                    if *at(row, "/on") == json!(false) { "off" } else { "on " },
+                    at(row, "/source").as_str().unwrap_or_default(),
                 )
             }));
         }
@@ -1325,10 +1333,10 @@ fn human(value: &Value) -> String {
     if value.get("dataUrl").is_some() {
         return format!(
             "{}: {} ({}{}).",
-            value["id"].as_str().unwrap_or_default(),
-            value["path"].as_str().unwrap_or_default(),
-            value["scheme"].as_str().unwrap_or_default(),
-            if value["cached"] == json!(true) { ", cached" } else { "" },
+            at(value, "/id").as_str().unwrap_or_default(),
+            at(value, "/path").as_str().unwrap_or_default(),
+            at(value, "/scheme").as_str().unwrap_or_default(),
+            if *at(value, "/cached") == json!(true) { ", cached" } else { "" },
         );
     }
     if let Some(installed) = value.get("installed") {
@@ -1368,7 +1376,7 @@ fn human(value: &Value) -> String {
             line.push_str(&format!(" Kept the actions you changed since: {}.", names.join(", ")));
         }
         if let Some(shared) =
-            removed["shared_actions"].as_array().filter(|shared| !shared.is_empty())
+            at(removed, "/shared_actions").as_array().filter(|shared| !shared.is_empty())
         {
             let names: Vec<_> = shared.iter().filter_map(Value::as_str).collect();
             line.push_str(&format!(
@@ -1386,18 +1394,18 @@ fn human(value: &Value) -> String {
         if let Some(toggled) = value.get("toggled") {
             lines.push(format!(
                 "{} is {}.",
-                toggled["id"].as_str().unwrap_or_default(),
-                if toggled["on"] == json!(false) { "off (still installed)" } else { "on" }
+                at(toggled, "/id").as_str().unwrap_or_default(),
+                if *at(toggled, "/on") == json!(false) { "off (still installed)" } else { "on" }
             ));
         }
         lines.push("Top layer first:".to_owned());
         lines.extend(setups.iter().map(|setup| {
             format!(
                 "{}  {}  {}  {}",
-                setup["id"].as_str().unwrap_or_default(),
-                if setup["on"] == json!(false) { "off" } else { "on " },
-                setup["repository"].as_str().unwrap_or_default(),
-                setup["commit"].as_str().unwrap_or_default().get(..12).unwrap_or_default()
+                at(setup, "/id").as_str().unwrap_or_default(),
+                if *at(setup, "/on") == json!(false) { "off" } else { "on " },
+                at(setup, "/repository").as_str().unwrap_or_default(),
+                at(setup, "/commit").as_str().unwrap_or_default().get(..12).unwrap_or_default()
             )
         }));
         return lines.join("\n");

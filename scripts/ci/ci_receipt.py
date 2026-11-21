@@ -428,6 +428,12 @@ def produce_rust_workspaces(work: Path, head: str, base: str) -> int:
 
 def produce(args: argparse.Namespace) -> int:
     repo = Path(git(Path.cwd(), "rev-parse", "--show-toplevel").stdout.strip())
+    # The receipt names a commit's tree, and the merge is made from that commit: a tracked edit not in it would be
+    # neither tested nor named, so refuse it rather than claim a tree the edit is not in.
+    dirty = git(repo, "status", "--porcelain", "--untracked-files=no").stdout.strip()
+    if dirty:
+        log(f"ci-receipt: the checkout has tracked changes not in HEAD ({dirty.splitlines()[0]}...); commit them first")
+        return 2
     head = tested_head(repo)
     with tempfile.TemporaryDirectory(prefix="ci-receipt-") as scratch:
         work = Path(scratch) / "merge"

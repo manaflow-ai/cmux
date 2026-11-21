@@ -786,8 +786,8 @@ impl Customize {
 
     fn put_receipt_locked(&self, receipt: Receipt) -> Result<(), Error> {
         let mut file = self.read_setup_receipts()?;
-        match file.setups.iter().position(|old| old.id == receipt.id) {
-            Some(at) => file.setups[at] = receipt,
+        match file.setups.iter_mut().find(|old| old.id == receipt.id) {
+            Some(old) => *old = receipt,
             None => file.setups.insert(0, receipt),
         }
         self.write_setup_receipts(&file)

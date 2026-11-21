@@ -214,7 +214,7 @@ pub fn gallery(catalog: &Catalog, receipts: &[Receipt]) -> Gallery {
             installed: receipts
                 .iter()
                 .position(|receipt| is_look(look, receipt))
-                .map(|at| stack[at].clone()),
+                .and_then(|at| stack.get(at).cloned()),
         })
         .collect();
     Gallery { looks, stack }

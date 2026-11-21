@@ -769,7 +769,7 @@ fn a_setup_layer_that_appears_while_running_installs_with_its_reads_and_turns_of
     );
 
     index(json!([]));
-    let mut unread = prints.clone();
+    let mut unread = prints;
     unread.values_mut().for_each(|print| *print = u64::MAX);
     supervisor.reload_local_apps(&unread);
     let inner = supervisor.inner.lock().unwrap();
