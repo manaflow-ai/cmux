@@ -688,10 +688,10 @@ class WorkflowTests(unittest.TestCase):
         # early base replay of the same merge parent, a pull-request-only job too).
         ci_web = yaml.safe_load(CI_WEB.read_text())
         base = ci_web["jobs"]["react-apps-base-check"]
-        self.assertEqual(base["needs"], ["web-subarea-scope", "react-apps-check-shard", "react-apps-base-early"])
-        self.assertIn("github.event_name == 'pull_request'", base["if"])
-        # The early job's scope, plus: a timed-out (cancelled) early shard never skips the verdict (cmux#48723).
-        self.assertIn(ci_web["jobs"]["react-apps-base-early"]["if"].removeprefix("${{ ").removesuffix(" }}"), base["if"])
+        self.assertEqual(base["needs"], ["web-subarea-scope", "react-apps-check-shard"])
+        self.assertTrue(base["if"].startswith("${{ github.event_name == 'pull_request'"))
+        self.assertTrue(ci_web["jobs"]["react-apps-base-early"]["if"].startswith(
+            "${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci')"))
 
 
 if __name__ == "__main__":

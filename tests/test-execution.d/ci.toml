@@ -154,6 +154,11 @@ path = "tests/test_ci_evidence_outcomes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fast_check_route.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23, AGENTS.md:214). Checks scripts/ci/fast-check-inputs.json against the jobs and scripts each fast check reads, and that every routed job is wired to fast_check_route.py and covered by a push; run python3 tests/test_ci_fast_check_route.py yourself after changing fast_check_route.py, fast-check-inputs.json or a routed workflow (a few seconds, no build)."
+
+[[test]]
 path = "tests/test_ci_fast_checks_failover.py"
 lane = "linux-guard"
 
@@ -484,6 +489,10 @@ path = "tests/test_ci_post_merge_checks.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_pr_guards_list_files_from_git.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_media_privacy.py"
 lane = "linux-guard"
 
@@ -631,6 +640,10 @@ lane = "linux-guard"
 path = "tests/test_ci_reused_sparse_checkout.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_reused_sparse_checkout.py yourself after changing the workflow steps it reads."
+
+[[test]]
+path = "tests/test_ci_route_quota_reserve.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_route_refusal_detail.py"
@@ -848,6 +861,11 @@ lane = "linux-guard"
 path = "tests/test_ci_webviews_affected.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/webviews_affected.py's selection for the react-apps-check shards on pull requests; run python3 tests/test_ci_webviews_affected.py yourself after changing it or focused_tests.py's webviews graph (about 5 s, no build)."
+
+[[test]]
+path = "tests/test_ci_why.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins how scripts/ci-why (an opt-in script for authors, not a gate) reads base_red_excuse.py's verdicts; run python3 tests/test_ci_why.py yourself after changing either (under a second, no network)."
 
 [[test]]
 path = "tests/test_ci_workflow_file_size.py"

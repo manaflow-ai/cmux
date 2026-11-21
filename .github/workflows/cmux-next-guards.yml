@@ -98,6 +98,56 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Which fast checks this pull request can change the verdict of (scripts/ci/fast-check-inputs.json). The CI guard
+  # group runs when the change routes a guard group (detect_linux_guard_changes.classify_feat), reaches what the `ci`
+  # group reads (workflow_guard_groups.groups_for_path) or touches .github/, tests/ or scripts/ci/; a product-only
+  # change that does none of these skips it before it takes an 8 vCPU runner. A push runs every job here, so a miss is
+  # a fix-forward on base, and a push or a dispatch skips this job.
+  fast-check-route:
+    name: fast check route
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      ci_guard_group: ${{ steps.route.outputs.ci_guard_group }}
+      own_change_checks: ${{ steps.route.outputs.own_change_checks }}
+    steps:
+      # The guard ownership reads ci-guards.yml and the tests' imports.
+      - name: Checkout the merge commit's router (trees only)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/
+            /.github/
+            /tests/
+      # A router failure leaves the output empty, and the checks run.
+      - name: Route the pull request (scripts/ci/fast_check_route.py)
+        id: route
+        continue-on-error: true
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: python3 scripts/ci/fast_check_route.py route --workflow .github/workflows/cmux-next-guards.yml --labels "$LABELS"
+
+  # One run per 30-minute window on the feat-cmux-next tip (base-coalesce.yml): the first push of each window runs
+  # every job below, covering every push since the last run (each diffing step reads needs.coalesce.outputs.base
+  # where it read event.before); the other pushes' jobs report skipped, with no runner taken. 18,301 runner-minutes a
+  # day ran here on pushes alone (about 530 runs a day, ci-dash feed 2026-11-14/16/17); about 48 runs a day now.
+  # A red is seen within about 30 minutes plus the gap to the next push (median 1.3, max 73 minutes over
+  # 2026-11-13..21) plus the run, and base-red-watch bisects it over the covered range. Pull requests are unchanged
+  # (the coalesce job is skipped on them). vars.NEXT_GUARDS_COALESCE = '0' runs every push again.
+  coalesce:
+    uses: ./.github/workflows/base-coalesce.yml
+    with:
+      key: cmux-next-guards
+      hold_minutes: 30
+      no_coalesce: ${{ format('{0}', vars.NEXT_GUARDS_COALESCE) == '0' }}
+
   # A pin manifest is a publication contract: a source change that records a
   # missing artifact would otherwise fail much later on a cold pool VM.  This
   # uses the same read-only store credentials as the release path and a fresh
@@ -105,8 +155,9 @@ jobs:
   # Fork pull requests cannot receive the protected store key; their merge
   # push runs this check before any pool image or nightly can consume the pin.
   pinned-asset-store:
+    needs: coalesce
     name: pinned assets exist in store
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
@@ -147,7 +198,7 @@ jobs:
         id: base
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          BEFORE: ${{ needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           set -euo pipefail
           base=""
@@ -173,7 +224,8 @@ jobs:
         run: scripts/cmux-next/check-pinned-assets.sh "${{ steps.base.outputs.base }}"
 
   nightly-guards:
-    if: ${{ !cancelled() }}
+    needs: coalesce
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
     permissions:
       contents: read
       checks: read
@@ -199,8 +251,8 @@ jobs:
   # for the mini alone (no node, no Linux tools), where every step finished in 230 s.
   release-notary:
     name: release-notary guards at the tip
-    needs: [portable-placement]
-    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    needs: [coalesce, portable-placement]
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ') && needs.portable-placement.outputs.linux_runner || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 15
     permissions:
@@ -253,6 +305,8 @@ jobs:
   # (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7). Unset falls back to a Blacksmith
   # literal and passes. This job's own runner is a literal, so a variable at a missing label still goes red.
   signing-runner-variables:
+    needs: coalesce
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
     name: signing runner variables are ephemeral
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 2
@@ -279,8 +333,9 @@ jobs:
   # cant our minis just run them"). Every step fails open: no output keeps each job's Blacksmith route.
   # The placement code comes from the base branch, as macos-placement's does.
   portable-placement:
+    needs: coalesce
     name: portable job placement
-    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) }}
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && (github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor))) }}
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     # Placement's 4 minutes and the hot-only route's (the merge commit's checkout and the router).
@@ -439,7 +494,8 @@ jobs:
     # Linux only: fleet Linux (vars.LINUX_RUNNER when it names our own runner), then Blacksmith. Not a portable
     # job: on a mini 24 of its steps red (no python3.9 or node, temp-cwd scripts),
     # so portable-placement does not place it.
-    if: ${{ !cancelled() }}
+    needs: [coalesce, fast-check-route]
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.ci_guard_group != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 25
     permissions:
@@ -495,7 +551,7 @@ jobs:
         id: changes
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          BEFORE: ${{ needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           base=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
@@ -682,6 +738,8 @@ jobs:
   # filter, so a catalog edit or a renamed setting is red where it lands. It runs last: it writes the generated
   # strings into the checkout.
   static-checks:
+    needs: coalesce
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
     name: cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
@@ -795,6 +853,8 @@ jobs:
   # when a pull request or push changes a Rust manifest or the notices tooling,
   # so such a change is red at its own landing.
   rust-notices-tree:
+    needs: coalesce
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
     name: cmux-next Rust notices generate
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 25
@@ -832,7 +892,7 @@ jobs:
       - name: Changed notice inputs
         id: inputs
         env:
-          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           set -euo pipefail
           if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
@@ -885,6 +945,10 @@ jobs:
   # uncovered is a note, not this change's red.
   own-change-checks:
     name: cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files
+    # A pull request that touches none of these checks' trees, adds no file and touches no generated path or
+    # generator (fast-check-route) skips it.
+    needs: [coalesce, fast-check-route]
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.own_change_checks != 'false' }}
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # Each former job's cap goes to its steps (size cap 5, crash ratchet 10, localization 5, generated files 2+3+8), so
@@ -932,7 +996,7 @@ jobs:
         timeout-minutes: 5
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          BEFORE: ${{ needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           base=()
           if [[ "$EVENT_NAME" == pull_request ]]; then
@@ -958,7 +1022,7 @@ jobs:
         timeout-minutes: 10
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          BEFORE: ${{ needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: scripts/ci/crash-ratchet-against-base.sh
 
       # Every task and process has an owner (cmuxterm-hq#9096): no file gains a spawn with no
@@ -969,7 +1033,7 @@ jobs:
         timeout-minutes: 5
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          BEFORE: ${{ needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           base=()
           if [[ "$EVENT_NAME" == pull_request ]]; then
@@ -984,7 +1048,7 @@ jobs:
         timeout-minutes: 5
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          BEFORE: ${{ needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           base_ref=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
@@ -1028,7 +1092,7 @@ jobs:
         timeout-minutes: 8
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          BEFORE: ${{ needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           base_ref=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
@@ -1066,8 +1130,8 @@ jobs:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER. Others take fleet Linux, then a free
     # mini (portable-placement: stdlib Python with fakes, and bun), then Blacksmith. A hot-only pull request
     # (portable-placement's hot-only route) skips the mini: fleet Linux, else Blacksmith.
-    needs: [portable-placement]
-    if: ${{ !cancelled() }}
+    needs: [coalesce, portable-placement]
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' tooling-tests ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.hot_only != 'true' && needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' tooling-tests ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     steps:

@@ -3637,15 +3637,18 @@ pre.cv-math-source {
    if it were that row's second line (Leo, 2026-11-03, on "Thinking · 1m 23s total" under "Sent a
    message, finished 3 background tasks": "the indent looks bad"). It took the text column after
    "weird indenting /cut off text?" earlier that day (#33157). */
+/* Its row is the footer's slot (transcriptGrid.ts MARK_FOOTER_SLOT): its 32 line, 8 under a reply. Its words are drawn
+   in the live line's box at the top of that slot (transcriptGrid.ts TRANSCRIPT_LIVE_LINE_BOX, --cv-live-line-box), the
+   same box under a run, a reply or a prompt, so the row over it switching moves neither its top nor its words; the
+   rest of the slot is its row's room under it (below). Never a length here. */
 .cv-worked.is-below {
-  /* The footer's slot (transcriptGrid.ts MARK_FOOTER_SLOT): its 32 line, 8 under a reply. */
-  height: var(--cv-footer-row);
+  height: var(--cv-live-line-box, var(--cv-footer-row));
   padding-top: 0;
 }
-/* Right under a step row (model.ts isLiveStep) its box is transcriptGrid.ts's TRANSCRIPT_LIVE_STEP_BOX, set on the
+/* Right under a step row (model.ts isLiveStep) its row is transcriptGrid.ts's TRANSCRIPT_LIVE_STEP_BOX, set on the
    scroller as --cv-live-step-height (transcriptLiveVars): never a length here. Its ⌃B hint stays on its line. */
 .acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below {
-  height: var(--cv-live-step-height);
+  height: min(var(--cv-live-line-box, var(--cv-footer-row)), var(--cv-live-step-height));
 }
 /* Its "⌃B to run in background" keeps its room while it is offered, and pointing at the line changes
    only its opacity, on every live line (backgroundHintRoom.experiment.ts). It used to take its room
@@ -3708,7 +3711,12 @@ pre.cv-math-source {
    last footer's 32px and its estimate's (model.ts fallbackRowHeight). */
 .acpmux-row:is(.acpmux-thinking, .acpmux-working):has(> .cv-worked.is-below) {
   min-height: 0;
-  padding-bottom: 0;
+  padding-bottom: calc(var(--cv-footer-row) - var(--cv-live-line-box, var(--cv-footer-row)));
+}
+.acpmux-row--below.acpmux-row--after-step:is(.acpmux-thinking, .acpmux-working):has(> .cv-worked.is-below) {
+  padding-bottom: calc(
+    var(--cv-live-step-height) - min(var(--cv-live-line-box, var(--cv-footer-row)), var(--cv-live-step-height))
+  );
 }
 /* The live line waits, its height kept, while the answer streams over it (Thinking.tsx). */
 .cv-worked.is-quiet {
@@ -4544,8 +4552,11 @@ button.cv-worked:focus-visible {
    other tool calls are"; it lit only its chevron). A click leaves no lift: only keyboard focus is
    `:focus-visible`. Pointing at a session chip in the line lights the chip alone. A line with
    nothing behind it is no button and never lifts. test/transcript-row-word-lift-browser.test.ts. */
-button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-agent-tag.is-open:is(:hover, :focus)))
+button.cv-tool:not(.cv-sent, .cv-thought, :disabled):is(:hover, :focus-visible):not(:has(.cv-agent-tag.is-open:is(:hover, :focus)))
   > :is(.cv-tool__text, .cv-command__text, .cv-agent-activity__sentence),
+/* A thought's button spans its row for the click, but its words light only when the pointer is on its
+   glyph, words or chevron, not on the empty line after them (Lucas, 2026-11-06). */
+button.cv-thought.is-toggle:is(:focus-visible, :has(> :hover)) > .cv-tool__text,
 :is(.cv-disclosure__toggle:not(.is-chevron), .cv-disclosure__open, .cv-subagent-report__head):is(
     :hover,
     :focus-visible
@@ -4704,14 +4715,14 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   padding-block: 0;
 }
 /* The folded label uses the same row height as tools; full thought text keeps its padding. The
-   button is as wide as what it draws (its glyph, words and chevron), not the row: the words light
-   under the pointer only, and the empty line after them is no hover (Lucas, 2026-11-06: a thought
-   opened under the pointer stayed white after the pointer moved off its words). */
+   button spans the row, as a tool's and a command's do, so a click anywhere along the line opens it
+   (Leo, 2026-11-21: "inconsistent clicks (thought)": a button as wide as its words took a click on
+   them and dropped one on the empty line after them, 136 of 800 px). The words still draw the
+   same; only the hit target is the row. */
 .cv-thought.is-toggle {
   display: flex;
   align-items: center;
   gap: var(--cv-tool-gap);
-  width: fit-content;
   max-width: 100%;
   padding-block: 0;
 }
@@ -8458,7 +8469,7 @@ a.cv-sha:focus-visible {
   padding-bottom: 0;
 }
 .acpmux-row.acpmux-activityLine.acpmux-row--below .cv-activity {
-  min-height: var(--cv-footer-row);
+  min-height: var(--cv-live-line-box, var(--cv-footer-row));
 }
 /* Right under a step row it takes the live line's box in a run, as the Thinking line does (transcriptGrid.ts
    TRANSCRIPT_LIVE_STEP_BOX, --cv-live-step-height). */
@@ -8466,7 +8477,7 @@ a.cv-sha:focus-visible {
   height: var(--cv-live-step-height);
 }
 .acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step .cv-activity {
-  min-height: var(--cv-live-step-height);
+  min-height: min(var(--cv-live-line-box, var(--cv-footer-row)), var(--cv-live-step-height));
 }
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */

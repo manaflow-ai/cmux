@@ -279,8 +279,14 @@ mod silent_turn;
 mod stalled_turn;
 mod start_retry;
 mod start_watch;
+pub(crate) mod task_list;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
+/// A line of session text as every view may show it: masked (`secret_scan`), then cut to `max`
+/// characters (`task_list.rs`'s steps).
+pub(crate) fn masked_step(s: &str, max: usize) -> String {
+    session::masked_preview(s, max)
+}
 
 /// [`Hub::withdraws`]: each withdraw's answer once its notice is accepted or refused.
 type WithdrawsInFlight =
@@ -330,6 +336,7 @@ pub use paging::{
 pub use spawn::expand_env_value;
 pub mod approvers;
 mod former_names;
+mod harness_key;
 pub(crate) mod key_route;
 pub mod mac_approvers;
 pub mod no_session;
