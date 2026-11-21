@@ -108,7 +108,8 @@
 .acpmux-context{flex:none}
 .acpmux-context-ring{flex:none;display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
 .acpmux-context-ring svg{width:12px;height:12px}
-.acpmux-context-ring:disabled,.acpmux-context-ring[aria-disabled="true"]{background:none;color:var(--agent-muted);opacity:.5}
+/* Disabled ("Context window · Not reported"): the tertiary tier at full opacity, as every page's disabled controls (pageBase.css); the muted ink at half opacity read 1.4:1 (control-contrast audit). */
+.acpmux-context-ring:disabled,.acpmux-context-ring[aria-disabled="true"]{background:none;color:var(--cmux-text-tertiary,var(--agent-muted));opacity:1}
 .acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* The `percent` look of the context ring (experiment context-ring-look, not shipped): the percent used as a caption beside the ring. */
 .acpmux-context:has(.acpmux-context-caption){display:inline-flex;align-items:center}
@@ -246,7 +247,8 @@
 .acpmux-slash-hint{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
 /* Where a row comes from (cmux, Skill, Prompt, an extension) closes the row, quiet, in plain case. */
 .acpmux-slash-source{flex:none;order:1;margin-left:auto;padding-left:var(--ds-space-2,8px);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing,normal)}
-.acpmux-slash-description{flex:0 1000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
+/* No base width: what a command does takes only the room its name and arguments leave, so it is cut first. */
+.acpmux-slash-description{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
 /* The @ picker's rows (MentionMenu.tsx): the kind's icon, then a long chat title gives way to its place last. */
 .acpmux-mention-row{width:100%;box-sizing:border-box;margin:0;border:0;background:none;color:inherit;font:inherit;text-align:left;-webkit-appearance:none;appearance:none}
 .acpmux-mention-row.acpmux-slash-active{background:var(--acpmux-menu-hover)}
