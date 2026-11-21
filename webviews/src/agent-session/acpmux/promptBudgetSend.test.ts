@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { ComposerAttachment, PromptBlock } from "./attachments";
 import { PROMPT_INLINE_BUDGET, inlineBytes } from "./promptBudget";
+import { clearImageEntries } from "./conversation/imageEntries";
 import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -21,6 +22,8 @@ beforeAll(() => {
 });
 afterAll(async () => {
   await settleReact();
+  // The settled render loads the sent bubble's images; forget them so the next file starts empty.
+  clearImageEntries();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
