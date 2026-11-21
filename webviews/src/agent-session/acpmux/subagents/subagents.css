@@ -521,6 +521,9 @@ button.cv-subagent > :last-child {
   --acpmux-tray-inset: var(--acpmux-composer-inset, calc(8px * var(--cmux-interface-scale, 1)));
   /* The one trailing column every chevron ends in: the header's and each line's. */
   --acpmux-tray-chevron-width: var(--acpmux-composer-control, 28px);
+  /* The header row's heights under trayHeadHeight.experiment.ts (roomy, tall), named here once. */
+  --acpmux-tray-head-roomy: calc(34px * var(--cmux-interface-scale, 1));
+  --acpmux-tray-head-tall: calc(40px * var(--cmux-interface-scale, 1));
   box-sizing: border-box;
   padding: 0;
   overflow: hidden;
@@ -616,10 +619,10 @@ button.cv-subagent > :last-child {
 /* The header's height (trayHeadHeight.experiment.ts; Leo, 2026-11-21: "maybe it's too short rn?"): the
    folded tray is this one row, so it alone grows; the lines keep their row height. */
 .acpmux-running-tray[data-head-height="roomy"] > .acpmux-running-tray__head {
-  height: calc(34px * var(--cmux-interface-scale, 1));
+  height: var(--acpmux-tray-head-roomy);
 }
 .acpmux-running-tray[data-head-height="tall"] > .acpmux-running-tray__head {
-  height: calc(40px * var(--cmux-interface-scale, 1));
+  height: var(--acpmux-tray-head-tall);
 }
 /* The `kinds` arm (trayFoldHead.experiment.ts): each kind's mark then its count, the first mark in the
    lines' icon column, the kinds apart by the counts' separator. They give way before the time and the

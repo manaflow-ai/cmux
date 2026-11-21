@@ -32,7 +32,7 @@
     animation: none;
   }
   :root:not([data-status-indicators="static"]) .cv-spinner--dots .cv-spinner__pip {
-    animation: cv-spinner-pip 1200ms ease-in-out infinite;
+    animation: cv-spinner-pip var(--cmux-spinner-period) var(--cmux-breath-ease) infinite;
   }
 }
 @keyframes cv-spinner-pip {

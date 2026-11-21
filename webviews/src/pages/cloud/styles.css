@@ -348,7 +348,7 @@ select {
 
 .cloud-machine-disk {
   display: block;
-  margin-top: 2px;
+  margin-top: var(--grid-half-step);
 }
 
 .cloud-disk-health {

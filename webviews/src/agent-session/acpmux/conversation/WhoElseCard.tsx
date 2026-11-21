@@ -31,11 +31,13 @@ export function WhoElseCard({ item, call }: { item: AcpmuxActivity; call: WhoEls
     () => setOpen(true),
   );
   const answer = call.answer;
+  // whole-list-ok: the card is the list, not a row of it: `sessions` is this one tool call's answer (its rows below), not the app's session store
   const sessions = answer?.sessions ?? [];
   // Sessions acpmux left out of its answer (past its row cap) count in the line, but no row can
   // show them: "N more" opens only the rows the answer holds, and a note names the rest.
   const omitted = answer?.more ?? 0;
   const total = sessions.length + omitted;
+  // whole-list-ok: the line counts this answer's own sessions, the list the card renders
   const line = call.pending
     ? t("whoElse.looking")
     : total === 0

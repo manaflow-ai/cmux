@@ -45,7 +45,24 @@ await requireBrowserLane("chat-row-spacing.test.ts", async () => {
       });
       await page.waitForSelector("[data-row-id]");
       if (variant.startsWith("open-")) await page.waitForSelector(".acpmux-messageRun button[aria-expanded=true]");
-      await page.waitForTimeout(800);
+      // The rows stand where they land: no finite animation runs and no row moved over the last
+      // ten frames (a fold's height and a row's entrance both settle before this returns).
+      await page.waitForFunction(
+        () => {
+          const w = window as unknown as { __crsTops?: string; __crsStill?: number };
+          const tops = [...document.querySelectorAll("[data-row-id]")]
+            .map((e) => e.getBoundingClientRect().top)
+            .join(",");
+          const moving = document
+            .getAnimations()
+            .some((a) => a.playState === "running" && a.effect?.getTiming().iterations !== Infinity);
+          w.__crsStill = !moving && tops === w.__crsTops ? (w.__crsStill ?? 0) + 1 : 0;
+          w.__crsTops = tops;
+          return w.__crsStill >= 10;
+        },
+        undefined,
+        { polling: "raf", timeout: 10_000 },
+      );
       return await page.evaluate(() => {
         const rows = [...document.querySelectorAll("[data-row-id]")].map((e) => ({
           id: e.getAttribute("data-row-id")!,

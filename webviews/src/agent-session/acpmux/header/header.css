@@ -101,16 +101,16 @@
 .acpmux-header-pr[data-checks]:not([data-checks=none])::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--agent-status-success)}
 .acpmux-header-pr[data-checks=pending]::after{background:var(--agent-status-warning)}
 .acpmux-header-pr[data-checks=failing]::after{background:var(--agent-status-failure)}
-/* A worktree chat's branch (cx-lyqio.3b): a quiet label beside the PR chip, the full name in its tooltip. */
-.acpmux-header-tool.acpmux-header-worktree{width:auto;gap:4px;min-width:0;max-width:180px;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
+/* A worktree chat's branch (cx-lyqio.3b): a quiet label beside the PR chip, the full name in its tooltip.
+   The default-off live-tree slice is a quiet marker beside it, the same pill. */
+.acpmux-header-tool:is(.acpmux-header-worktree,.acpmux-header-live-tree){width:auto;gap:4px;min-width:0;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-header-tool.acpmux-header-worktree{max-width:180px}
 .acpmux-header-worktree>svg{flex:none}
 .acpmux-header-worktree-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-header-worktree-detail{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-/* The default-off live-tree slice: a quiet marker beside the chat's worktree pill. */
-.acpmux-header-tool.acpmux-header-live-tree{width:auto;gap:4px;min-width:0;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-header-live-tree>svg{flex:none}
 .acpmux-live-tree-status{width:280px}
-.acpmux-live-tree-path{display:block;margin-top:6px;padding:5px 6px;border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 5%,var(--agent-page-bg));color:var(--agent-text);font:inherit;font-size:var(--text-detail);overflow-wrap:anywhere}
+.acpmux-live-tree-path{display:block;margin-top:var(--ds-space-1);padding:var(--ds-space-1) var(--ds-space-2);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 5%,var(--agent-page-bg));color:var(--agent-text);font:inherit;font-size:var(--text-detail);overflow-wrap:anywhere}
 /* The pill's popover (cx-lyqio.4): the branch, what it is a worktree of, then Apply and where it stands. */
 .acpmux-worktree-status{width:280px}
 .acpmux-worktree-apply{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:2px;padding:8px 6px 2px;border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail);overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}
@@ -483,7 +483,7 @@
 .acpmux-thread-title.acpmux-glass-title{display:flex;flex-direction:column;justify-content:center;height:var(--acpmux-header-control-height);font-size:var(--text-detail);line-height:1.1}
 .acpmux-glass-title-name,.acpmux-glass-title-detail{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-glass-title-detail{color:var(--agent-muted);font-size:var(--text-caption);font-weight:normal;letter-spacing:var(--text-caption--letter-spacing)}
-.acpmux-live-tree-results{list-style:none;margin:0;padding:4px 6px;font-size:var(--text-detail)}
+.acpmux-live-tree-results{list-style:none;margin:0;padding:var(--ds-space-1) var(--ds-space-2);font-size:var(--text-detail)}
 .acpmux-live-tree-results li{display:flex;justify-content:space-between;gap:12px}
 /* The chat's rolling summary and next action beside its name (ChatSummaryLine.tsx): muted metadata, never wider
    than the room left, the next action a step brighter than the summary. */

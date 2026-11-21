@@ -98,20 +98,25 @@ async function scrollBack(awayMs: number) {
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-  const jump = async (top: number, key: string) => {
+  // The page's next frame (jsdom's visual requestAnimationFrame).
+  const frame = () =>
+    act(async () => void (await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(undefined)))));
+  /// Jumps the reader to `top`, then waits frame by frame (at most 60) until the virtual window holds
+  /// `ids`: it follows the scroll on the page's next frames.
+  const jump = async (top: number, key: string, ids: string[]) => {
     await act(
       async () => void scroller().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true })),
     );
     scroller().scrollTop = top;
     await act(async () => void scroller().dispatchEvent(new dom.window.Event("scroll")));
     releaseReaderScroll();
-    // The virtual window follows the scroll on the page's next frames.
-    await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 80))));
+    const mounted = () => ids.every((id) => host.querySelector(`[data-row-id="${id}"]`) !== null);
+    for (let n = 0; n < 60 && !mounted(); n++) await frame();
   };
   try {
     const rows = history();
     await render(rows);
-    await jump(0, "Home");
+    await jump(0, "Home", ["prompt-0"]);
     expect(host.querySelector('[data-row-id="reply-59"]')).toBeNull();
     const added = [
       arrival("late-1", "user", "Late prompt"),
@@ -122,7 +127,11 @@ async function scrollBack(awayMs: number) {
     // Not mounted: the reader is a long way from them (O16).
     for (const item of added) expect(host.querySelector(`[data-row-id="${item.id}"]`)).toBeNull();
     skew = awayMs;
-    await jump(scrollerEnd(scroller()), "End");
+    await jump(
+      scrollerEnd(scroller()),
+      "End",
+      added.map((item) => item.id),
+    );
     return added.map((item) => {
       const node = host.querySelector<HTMLElement>(`[data-row-id="${item.id}"]`);
       return {
