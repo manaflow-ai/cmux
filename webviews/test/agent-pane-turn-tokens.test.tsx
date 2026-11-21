@@ -454,11 +454,15 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
     expect(resynced().turnTokens).toBeUndefined();
     expect(snapshot().turnTokens).toBeUndefined();
 
-    // Release the deferred read only after the resync, then check its own emission as well.
-    await until(daemon.indexWaiting, "the deferred prompt-index request");
-    const beforeIndexReply = snapshots();
-    daemon.releaseIndex();
-    await until(() => snapshots() > beforeIndexReply, "the prompt-index emission");
+    // Release a deferred prompt-index read only after the resync, then check its own emission as
+    // well. The attach now reads the page before its own, so this short chat's whole history is held
+    // from the start and no index read is owed (`shownEarlierPrompts` asks only while history is
+    // left); a chat whose start is still unread defers its read here.
+    if (daemon.indexWaiting()) {
+      const beforeIndexReply = snapshots();
+      daemon.releaseIndex();
+      await until(() => snapshots() > beforeIndexReply, "the prompt-index emission");
+    }
     expect(snapshot().turnTokens).toBeUndefined();
 
     // The rebuild and its snapshot are synchronous.

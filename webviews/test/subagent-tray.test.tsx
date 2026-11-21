@@ -1910,7 +1910,10 @@ test("many live and finished commands share one terminal header mark without hid
       createElement(SubagentTray, { items, finished, working: true, waiting: new Set<string>(), onOpen: () => {} }),
     ),
     { open: true },
-  ).finally(unpin);
+  ).catch((error: unknown) => {
+    unpin();
+    throw error;
+  });
   try {
     const stack = shown.root.querySelector(".acpmux-running-tray__stack")!;
     expect(stack.querySelectorAll('[data-icon="terminal"]')).toHaveLength(1);
@@ -1942,5 +1945,6 @@ test("many live and finished commands share one terminal header mark without hid
     expect(shown.root.querySelectorAll(".acpmux-running-tray__stack .agent-mark")).toHaveLength(3);
   } finally {
     await shown.done();
+    unpin();
   }
 });
