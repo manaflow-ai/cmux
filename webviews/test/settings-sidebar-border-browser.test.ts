@@ -102,11 +102,18 @@ await requireBrowserLane("settings-sidebar-border-browser.test.ts", async () => 
   test("while the window's sidebar is hidden the line fades, as the section list's edge always did", async () => {
     const page = await open("light", 1000);
     try {
+      // The pointer off the list (it rests at 0,0, over the sidebar), so the list is not hovered.
+      await page.mouse.move(800, 320);
       await page.evaluate(() => (document.documentElement.dataset.appSidebar = "hidden"));
       await page.waitForFunction(
         () => getComputedStyle(document.querySelector(".settings > .sidebar")!).borderRightColor === "rgba(0, 0, 0, 0)",
       );
       expect((await edge(page)).color).toBe("rgba(0, 0, 0, 0)");
+      // Over the list it comes back.
+      await page.mouse.move(100, 320);
+      await page.waitForFunction(
+        () => getComputedStyle(document.querySelector(".settings > .sidebar")!).borderRightColor !== "rgba(0, 0, 0, 0)",
+      );
     } finally {
       await page.close();
     }
