@@ -1158,14 +1158,26 @@ async fn a_send_to_a_name_no_peer_has_goes_through_the_hub_and_is_delivered_with
     let said = keyed.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
     assert!(said.contains("--supersede") && !said.contains("no session"), "{keyed}");
     assert_eq!(fake.with(|s| s.sent.len()), posted, "a keyed send reached the hub");
-    // Nor a class but result, the default the target reads: refused, not sent as a result.
+    // A class cannot cross the hub's message format, so it is dropped with a warning and the
+    // text still reaches the target.
     let mut block = send_queue("dep-land", "prompt-0005");
     block["request"]["_meta"]["acpmux"]["class"] = json!("block");
     let block = sender.call("_acpmux/send_queue", block).await;
-    assert_eq!(block.pointer("/error/data/reason"), Some(&json!("mesh.no_class")), "{block}");
-    let said = block.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
-    assert!(said.contains("--class") && !said.contains("no session"), "{block}");
-    assert_eq!(fake.with(|s| s.sent.len()), posted, "a classified send reached the hub");
+    let classified_delivery = block
+        .pointer("/result/deliveryId")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("classified send was refused: {block}"))
+        .to_owned();
+    let warning = block.pointer("/result/warning").and_then(Value::as_str).unwrap_or_default();
+    assert!(warning.contains("--class") && warning.contains("dropped"), "{block}");
+    assert!(fake.with(|s| s.sent.len()) > posted, "a classified send reached the hub");
+    let classified_message = classified_delivery.trim_start_matches("mesh:");
+    fake.until("classified message delivered", |s| {
+        s.receipts.get(classified_message).is_some_and(|r| r.state == "delivered")
+    })
+    .await;
+    let classified = fake.with(|s| s.sent.last().cloned().unwrap());
+    assert_eq!(classified.body, "from another machine");
     relay.stop().await;
 }
 
