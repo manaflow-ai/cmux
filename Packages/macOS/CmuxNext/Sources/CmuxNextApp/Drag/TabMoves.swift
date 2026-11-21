@@ -454,8 +454,7 @@ extension TabMoves {
         guard let lead = source.tabs.first, let content = controller.workspace else { return completion(false) }
         let rest = Array(source.tabs.dropFirst())
         let landed: Completion = { ok in
-            guard ok, !rest.isEmpty else { return completion(ok) }
-            guard let home = services.locateTab(model: lead)?.1 else { return completion(false) }
+            guard ok, !rest.isEmpty, let home = services.locateTab(model: lead)?.1 else { return completion(ok && rest.isEmpty) }
             follow(rest[...], into: home, services: services, completion: completion)
         }
         switch target {
@@ -487,8 +486,7 @@ extension TabMoves {
 
     /// A pane of the screen that is not the one the move empties (the daemon refuses a pane's only tab leaving through itself).
     @MainActor private static func screenAnchor(_ screenID: LayoutScreenID, avoiding source: PaneModel, in content: WorkspaceContentController) -> PaneModel? {
-        guard let screen = content.layoutModel.screens.first(where: { $0.id == screenID }) else { return nil }
-        return screen.layout.panes.lazy.compactMap { layoutPane($0, in: content) }.first { $0 !== source }
+        content.layoutModel.screens.first { $0.id == screenID }?.layout.panes.lazy.compactMap { layoutPane($0, in: content) }.first { $0 !== source }
     }
 
     /// The pane to anchor a new column on (the last pane of the column the new one follows, else any other) and that column's daemon id.
