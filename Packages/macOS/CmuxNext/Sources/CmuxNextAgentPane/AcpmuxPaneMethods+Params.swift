@@ -109,6 +109,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/models": (["refresh", "localOnly"], []),
         "_acpmux/status": ([], []),
         "_acpmux/peers": ([], []),
+        "catalog.get": ([], []),
+        "catalog.refresh": ([], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
