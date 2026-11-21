@@ -35,7 +35,16 @@ FAILURES = []
 FAKE_CURL = r"""#!/usr/bin/env python3
 import json, os, sys
 args = sys.argv[1:]
-url = next(a for a in args if a.startswith("http")).split("?")[0]
+full = next(a for a in args if a.startswith("http"))
+url = full.split("?")[0]
+if os.environ.get("FAKE_CLAIM_OWNER") and "audience=cmux-ci-tree-claim" in full:
+    print(json.dumps({"value": "oidc"}))
+    sys.exit(0)
+if os.environ.get("FAKE_CLAIM_OWNER") and url.endswith("/github/tree-claim"):
+    owner = os.environ["FAKE_CLAIM_OWNER"]
+    open(args[args.index("-o") + 1], "w").write(json.dumps({"owner_run_id": int(owner), "granted": owner == "5"}))
+    sys.stdout.write("200")
+    sys.exit(0)
 if "/actions/" in url:
     print("{}")
     sys.exit(0)
@@ -164,6 +173,27 @@ def main():
     result, out = preflight(pin, event="workflow_dispatch", FAKE_PUBLISHED="1", FAKE_WINDOWS="1", FAKE_MARKER="1")
     _check(result.returncode == 0 and out.get("daemon_marker") == "false" and daemon_tests_run(out),
            f"a dispatch on a pin ref of a tested tree still tests it ({out.get('daemon_marker')})")
+
+    # A no-input dispatch on feat-cmux-next (the bot backfill) publishes the branch tree like a push: a
+    # published key builds nothing, and an unpublished one waits for the key's owner. Two backfills at
+    # successive tips built key eca1745577 twice (2026-11-21). A dispatch with inputs still builds.
+    feat = "refs/heads/feat-cmux-next"
+    claim = {"ACTIONS_ID_TOKEN_REQUEST_URL": "https://token.invalid/?x=1", "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "t"}
+    result, out = preflight(feat, event="workflow_dispatch", BRANCH_DISPATCH="true", FAKE_PUBLISHED="1", FAKE_WINDOWS="1")
+    _check(result.returncode == 0 and out.get("run_macos") == "false",
+           f"a feat-cmux-next backfill dispatch of a published tree builds nothing ({out.get('run_macos')}, {result.stderr.strip()[-300:]})")
+    result, out = preflight(feat, event="workflow_dispatch", BRANCH_DISPATCH="false", FAKE_PUBLISHED="1", FAKE_WINDOWS="1")
+    _check(result.returncode == 0 and out.get("run_macos") == "true",
+           f"a feat-cmux-next dispatch with macos_runner or include_windows still builds ({out.get('run_macos')})")
+    result, out = preflight(feat, event="workflow_dispatch", BRANCH_DISPATCH="true", FAKE_CLAIM_OWNER="4", **claim)
+    _check(result.returncode == 0 and out.get("owner_run_id") == "4",
+           f"a feat-cmux-next backfill dispatch of an unpublished key waits for the key's owner ({out.get('owner_run_id')!r}, {result.stderr.strip()[-300:]})")
+    result, out = preflight(feat, event="workflow_dispatch", BRANCH_DISPATCH="true", FAKE_CLAIM_OWNER="5", **claim)
+    _check(result.returncode == 0 and out.get("owner_run_id") == "" and out.get("run_macos") == "true",
+           f"a feat-cmux-next backfill dispatch that wins the claim builds ({out.get('owner_run_id')!r}, {out.get('run_macos')})")
+    result, out = preflight(feat, event="workflow_dispatch", BRANCH_DISPATCH="false", FAKE_CLAIM_OWNER="4", **claim)
+    _check(result.returncode == 0 and out.get("owner_run_id") == "",
+           f"a feat-cmux-next dispatch with inputs does not claim ({out.get('owner_run_id')!r})")
 
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")

@@ -23,7 +23,6 @@ import type { CloudPlanTeam, CloudPlanTeamRefusal } from "./cloudPlanTeams";
 import {
   CLOUD_PLAN_IDS,
   CLOUD_PLANS,
-  cloudSizeWords,
   sizeFits,
   type CloudPlanId,
   type CloudPlanView,
