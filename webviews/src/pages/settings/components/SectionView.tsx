@@ -1,4 +1,5 @@
 import { CloudEnvironmentsCard } from "./CloudEnvironmentsCard";
+import { CloudCredentialsCard } from "./CloudCredentialsCard";
 import { CloudModelsCard } from "./CloudModelsCard";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
 import type { ReactNode } from "react";
@@ -91,6 +92,7 @@ const CARDS: Record<
   server: () => <ServerCard />,
   cloudEnvironments: () => <CloudEnvironmentsCard />,
   cloudModels: (focus) => <CloudModelsCard focus={focus} />,
+  cloudCredentials: () => <CloudCredentialsCard />,
   sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
   customizeLibrary: (_focus, _workspace, reveal) => <CustomizeLibraryCard reveal={reveal} />,
   keys: (_focus, _workspace, reveal) => <KeysCard reveal={reveal} />,

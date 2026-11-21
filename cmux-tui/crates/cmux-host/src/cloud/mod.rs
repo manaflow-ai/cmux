@@ -60,6 +60,8 @@ pub mod github_repos;
 pub mod github_status;
 pub mod handoff;
 #[cfg(target_os = "linux")]
+pub mod oidc_token;
+#[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;
 pub mod session;

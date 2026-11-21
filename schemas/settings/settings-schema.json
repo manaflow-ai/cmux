@@ -1612,7 +1612,8 @@
         "id" : "cloud",
         "lead" : [
           "cloudModels",
-          "cloudEnvironments"
+          "cloudEnvironments",
+          "cloudCredentials"
         ],
         "symbol" : "cloud",
         "title" : {

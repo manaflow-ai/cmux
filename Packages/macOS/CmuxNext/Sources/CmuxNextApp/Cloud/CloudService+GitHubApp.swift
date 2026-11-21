@@ -24,6 +24,13 @@ extension CloudService {
         }
     }
 
+    /// The selected team's Cloud API with the person's session (Settings > Cloud > Cloud Credentials reads its issuer).
+    func selectedTeamOwnerAPI() throws -> CloudOwnerAPIClient {
+        let auth = auth, team = try auth.accessTokenTeam(requested: nil)
+        return CloudOwnerAPIClient(baseURL: FeedService.apiBaseURL(auth: auth), accessToken: { try await auth.tokens().access },
+                                   teamID: { team }, buildSpace: auth.configuration.buildSpace)
+    }
+
     /// 8 s for the App check, then at most 30 s for the setup exec (25 s plus 5 s), under 40 s.
     static let gitHubAppDeadline: Duration = .seconds(8)
 
