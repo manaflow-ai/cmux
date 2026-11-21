@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { candidateRuns, gh, guardedVarGate, holdOff, holdPinned, holdReleases, isPromotableLineage, main, missingSecrets, pickCandidate, rollbackPlan, serving, stagingRuns, SOAK_MINUTES, type Approvals, type GitRunner } from "../prod-promote.ts"
+import { candidateRuns, gh, GH_RATE_LIMIT_WAIT_MS, guardedVarGate, holdOff, holdPinned, holdReleases, isPromotableLineage, main, missingSecrets, pickCandidate, rollbackPlan, serving, stagingRuns, SOAK_MINUTES, type Approvals, type GitRunner } from "../prod-promote.ts"
 
 const SHA = "0123456789abcdef0123456789abcdef01234567"
 const OTHER = "89abcdef0123456789abcdef0123456789abcdef"
@@ -460,6 +460,65 @@ describe("gh() retries GitHub 5xx", () => {
   })
 })
 
+
+describe("gh() waits once for a spent GITHUB_TOKEN hour", () => {
+  // 2026-11-21: the repository token's hour still ran out a few minutes before each reset (14:49Z for 14:51Z),
+  // and a promote-gates read in those minutes failed the promote ("API rate limit exceeded for installation").
+  // GitHub says when the hour resets; one bounded wait until then and one retry is cheaper than a failed promote.
+  const saved: { fetch: typeof fetch; token: string | undefined } = { fetch: globalThis.fetch, token: undefined }
+  const NOW = 1_795_272_563_000 // 14:49:23Z
+  const limited = (resetIn: number, remaining = "0") => new Response(JSON.stringify({ message: "API rate limit exceeded for installation." }), {
+    status: 403, headers: { "x-ratelimit-remaining": remaining, "x-ratelimit-reset": String(Math.floor(NOW / 1000) + resetIn) },
+  })
+  const stub = (answers: Array<() => Response>) => {
+    const calls: Array<string> = []
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      calls.push(String(input))
+      return (answers.shift() ?? (() => new Response(JSON.stringify({ ok: true }), { status: 200 })))()
+    }) as typeof fetch
+    return calls
+  }
+  const clock = () => {
+    const slept: Array<number> = []
+    return { slept, limits: { now: () => NOW, sleep: async (ms: number) => { slept.push(ms) } } }
+  }
+  beforeAll(() => {
+    saved.fetch = globalThis.fetch
+    saved.token = process.env.GITHUB_TOKEN
+    process.env.GITHUB_TOKEN = "test-token"
+  })
+  afterEach(() => { globalThis.fetch = saved.fetch })
+  afterAll(() => { if (saved.token === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = saved.token })
+
+  it("a rate-limit 403 waits until the reset, then the retry's 200 is the answer", async () => {
+    const calls = stub([() => limited(145)])
+    const { slept, limits } = clock()
+    expect(await gh("/actions/workflows/backend.yml/runs", {}, [0, 0, 0], limits)).toEqual({ ok: true })
+    expect(calls.length).toBe(2)
+    expect(slept).toEqual([146_000])
+  })
+  it("waits at most once: a second refusal throws with the rate-limit detail", async () => {
+    const calls = stub([() => limited(145), () => limited(145)])
+    const { slept, limits } = clock()
+    await expect(gh("/actions/workflows/backend.yml/runs", {}, [0, 0, 0], limits)).rejects.toThrow("HTTP 403")
+    expect(calls.length).toBe(2)
+    expect(slept.length).toBe(1)
+  })
+  it("a reset past GH_RATE_LIMIT_WAIT_MS throws at once instead of outliving the job", async () => {
+    const calls = stub([() => limited(Math.ceil(GH_RATE_LIMIT_WAIT_MS / 1000) + 60)])
+    const { slept, limits } = clock()
+    await expect(gh("/actions/workflows/backend.yml/runs", {}, [0, 0, 0], limits)).rejects.toThrow("rate limit")
+    expect(calls.length).toBe(1)
+    expect(slept).toEqual([])
+  })
+  it("a 403 with requests left is a permission, never waited on", async () => {
+    const calls = stub([() => limited(145, "4200")])
+    const { slept, limits } = clock()
+    await expect(gh("/issues/9", {}, [0, 0, 0], limits)).rejects.toThrow("HTTP 403")
+    expect(calls.length).toBe(1)
+    expect(slept).toEqual([])
+  })
+})
 
 describe("G1 excludes a source-fenced staging skip", () => {
   it("a superseded push neither proves green nor poisons another commit's soak; real smoke failures still count", async () => {

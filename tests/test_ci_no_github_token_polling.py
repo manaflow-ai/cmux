@@ -43,8 +43,6 @@ ALLOWED: dict[str, str] = {
     "ios-testflight.yml: Decide whether a TestFlight upload is needed":
         "orders uploads: waits only while an earlier TestFlight run is active, listing runs and jobs "
         "each pass; a candidate for a concurrency group",
-    "merge-group-fail-fast.yml: Locate and watch the merge-group CI run":
-        "per merge group: finds and watches its CI run (lawrencecchen's #16224 cuts it)",
     'cmux-next-base-autofix.yml: Wait for the GhosttyKit release':
         'per feat-cmux-next push touching its paths, only while the ghostty gitlink has no published GhosttyKit release: one release read every 120 s, at most 45 passes, one run at a time; a candidate for workflow_run on build-ghosttykit.yml',
     "cmux-next.yml: Decide the fleet build's REF capture":
@@ -64,8 +62,6 @@ ALLOWED: dict[str, str] = {
         "per feat-cmux-next app-ffi-release run (app_ffi_rescue.py, #45076, #45176, hq#3690): one jobs page every "
         "120 s, at most 50 reads, ending once the build has a runner; a candidate for the owned-pool rescue's one "
         "sweeper",
-    'published-in.yml: Comment the release on its PRs':
-        'per stable release: one comment per PR, 7.5 s apart for the secondary limit on content writes; stops at the first rate-limit refusal',
     'nightly.yml: Comment the build on its PRs':
         'per published nightly-next build: one comment per PR, 7.5 s apart; stops at the first rate-limit refusal',
     'auto-resume-nightly-notarization.yml: Prepare publication notes':

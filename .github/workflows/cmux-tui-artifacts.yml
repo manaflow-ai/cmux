@@ -67,20 +67,23 @@ on:
   # gitlink. Trusted pushes to the cmux-next branches publish
   # cmux-tui/tree/<key>/ after the build and the cmux_next_ daemon tests pass.
   #
-  # Every other branch of this repository publishes its pushed head too
+  # Every non-lane branch of this repository publishes its pushed head too
   # (cx-r2is), so a same-repository branch can repair its own tree without a
   # hand-pushed cmux-tui-pin-* ref, but only a head an open pull request has
   # (or a cmux-next dispatch, or the Cmux-Daemon-Tests: run trailer, asks
   # for): tree-preflight's superseded step skips the rest before any build
-  # (scripts/ci/cmux_tui_superseded_push.py). Those lane-branch pushes publish without
-  # the daemon tests (tree-preflight's daemon-policy step). Forks never push
-  # here. Pull requests do not publish synthetic merge trees: path routing
-  # skips a cold own tree with a named reason until a trusted feat-cmux-next
-  # publication exists. A push trigger cannot filter paths per branch, so
-  # tree-preflight is the filter: a branch push whose tree key is already
-  # published spends no macOS time (run_macos=false) and publishes nothing.
+  # (scripts/ci/cmux_tui_superseded_push.py). Lane branches are excluded from
+  # this push trigger entirely because their trees have no nightly or release
+  # consumer. The feat-cmux-next tree-request workflow remains the repair path
+  # for a missing tree. Forks never push here. Pull requests do not publish
+  # synthetic merge trees: path routing skips a cold own tree with a named
+  # reason until a trusted feat-cmux-next publication exists. A branch push
+  # whose tree key is already published spends no macOS time (run_macos=false)
+  # and publishes nothing.
   push:
-    branches: ["**"]
+    branches:
+      - "**"
+      - "!lane/**"
     # The published binaries do not contain the prose under cmux-tui/docs.
     # Keep the publisher asleep for docs-only commits; v2 tree-key computation
     # excludes the same non-runtime subtree. A push that also changes code
@@ -196,6 +199,26 @@ jobs:
           echo "::error title=cmux-tui pin ref rejected::cmux-tui-pin-* refs are not a publisher. Land the reviewed change, then re-run after a trusted feat-cmux-next publication. A fleet build can bundle its own daemon without publishing it."
           exit 1
 
+  # One build per HOLD-minute window on the feat-cmux-next tip (base-coalesce.yml), not one per merge.
+  # 2026-11-21 05-11Z: feat-cmux-next pushes built about 9 new tree keys an hour, each key's three
+  # targets plus its daemon tests, about 1,700 runner-minutes an hour (cmuxterm-hq
+  # docs/ci/ci-cut-ledger.md). The first push of each window runs this workflow as before; every other
+  # push stops here (tree-preflight and everything after it skip, no runner taken). Only that first
+  # push builds a tree: commits after it resolve through the readers' fallback to the newest published
+  # tree, or through cmux-tui-tree-request.yml re-running the commit's own run on demand (a re-run,
+  # attempt > 1, always runs).
+  # nightly-next pushes, main, dispatches and every other ref never coalesce (the coalesce job is
+  # skipped on them). Bisect on a red: base-red-watch's commit_bisect over the window's range.
+  # vars.NEXT_TUI_ARTIFACTS_COALESCE = '0' builds every push again; vars.NEXT_TUI_ARTIFACTS_HOLD_MINUTES
+  # sets the window (default 60: about 48 pushes fit the marker search's 40 commits
+  # and the probe fallback's 50 only up to an hour; about 24 builds a day).
+  coalesce:
+    uses: ./.github/workflows/base-coalesce.yml
+    with:
+      key: cmux-tui-artifacts
+      hold_minutes: ${{ fromJSON(vars.NEXT_TUI_ARTIFACTS_HOLD_MINUTES || '60') }}
+      no_coalesce: ${{ format('{0}', vars.NEXT_TUI_ARTIFACTS_COALESCE) == '0' }}
+
   # A superseded lane-branch push stops here, before it takes a preflight-sized runner.
   # On 2026-11-18 at 06:35Z 418 runs of this workflow sat queued, the oldest since
   # 11-17 22:00Z, each waiting for a Blacksmith Linux runner only to run tree-preflight.
@@ -246,14 +269,15 @@ jobs:
   tree-preflight:
     name: cmux-tui tree preflight
     # push-gate is skipped for trunk pushes and dispatches; !cancelled() runs this job then.
-    needs: push-gate
-    if: ${{ !cancelled() && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && needs.push-gate.outputs.stale != 'true' }}
+    # coalesce is skipped (run empty) everywhere but a feat-cmux-next push, so only a coalesced push stops here.
+    needs: [push-gate, coalesce]
+    if: ${{ !cancelled() && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && needs.push-gate.outputs.stale != 'true' && needs.coalesce.outputs.run != 'false' }}
     # Secrets only: no deployment on the PR. The tree-claim authority checks the token's
     # repository and workflow_ref, not its subject (cmuxterm-hq controller tree_claim.go).
     environment:
       name: ci-routing-agent
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # The feat-cmux-next election fetches each active run's commit. The musl legs' owned-Linux
     # placement may wait up to 2 more minutes for a fleet runner (linux-build-placement).
     timeout-minutes: 10
@@ -824,6 +848,19 @@ jobs:
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
+      # The janitor's pool snapshot as a feat-cmux-next push job last read it (this ref's newest entry, else the
+      # base or default branch's): the placement step reuses a copy read under 5 minutes ago instead of two
+      # GITHUB_TOKEN artifact calls, from the hour the promote gates share (scripts/ci/pr_runner_pool.py
+      # kept_snapshot_path). The key below is never saved, so the newest `cmux-pool-snapshot-` entry restores.
+      # The Actions cache is not the REST API.
+      - name: Restore the shared pool snapshot
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-pool-snapshot
+          key: cmux-pool-snapshot-newest
+          restore-keys: |
+            cmux-pool-snapshot-
       - name: Look for a free mini for the macOS targets
         id: darwin-mac
         if: steps.darwin-builder.outputs.builder == 'linux' && steps.inspect.outputs.place_macos == 'true'
@@ -931,6 +968,20 @@ jobs:
           ROUTE_TOKEN_FALLBACK: ${{ github.token }}
           SNAPSHOT_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/portable_job_placement.py
+      # Only a feat-cmux-next push job that read the API saves a new entry, keyed by when it read (pr_runner_pool
+      # writes the marker then); pull requests and lane branches restore the base branch's newest one.
+      - name: Check whether this job read the pool snapshot
+        id: pool-snapshot-fetched
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: if [ -f "$RUNNER_TEMP/cmux-pool-snapshot.fetched" ]; then echo "fetched=$(cat "$RUNNER_TEMP/cmux-pool-snapshot.fetched")" >> "$GITHUB_OUTPUT"; fi
+      - name: Save the shared pool snapshot
+        if: ${{ !cancelled() && steps.pool-snapshot-fetched.outputs.fetched != '' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-pool-snapshot
+          key: cmux-pool-snapshot-${{ steps.pool-snapshot-fetched.outputs.fetched }}
 
       # Observation only: an unavailable marker must never hold up a build.
       - name: Record tree owner observation
@@ -970,7 +1021,7 @@ jobs:
     environment:
       name: ci-routing-agent
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     outputs:
       # A deferring run's re-check can still take the key over (below).
@@ -2091,7 +2142,7 @@ jobs:
     # is a green build-only run (publish-ref-notice says how to publish).
     if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build-darwin-fallback.result == 'success' || needs.darwin-fallback-plan.outputs.recovered == 'true') && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     needs: [build, darwin-fallback-plan, build-darwin-fallback]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # 15 minutes of work, plus the 50 minutes the attestation retry may wait for the API budget.
     timeout-minutes: 75
     permissions:
@@ -3338,7 +3389,7 @@ jobs:
       github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') &&
       (needs.tree-preflight.outputs.run_macos != 'true' ||
       (needs.tree-preflight.outputs.owns_key != 'true' && needs.tree-owner-wait.outputs.takeover != 'true')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # About 25 s to read the tree's 1.1 GB (29 binaries for tree 77865e8e) and
     # the same to upload it, plus one attestation back-off.
     timeout-minutes: 30
@@ -3564,7 +3615,7 @@ jobs:
     needs: [tree-preflight, publish-tree, adopt-commit-manifest]
     if: ${{ !cancelled() && github.event_name == 'push' && needs.tree-preflight.result == 'success' &&
       (needs.publish-tree.result == 'success' || needs.adopt-commit-manifest.outputs.state == 'adopted') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     # Secrets only: no deployment on the PR. The spare token (below) is the cmux-bot App's.
     environment:
@@ -3691,7 +3742,7 @@ jobs:
     name: publish the Windows daemon to R2
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.build-windows.outputs.windows_built == 'true' }}
     needs: [publish, build-windows]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # As publish: the shared steps' attestation retry may wait up to 50 minutes.
     timeout-minutes: 75
     permissions:
@@ -3943,7 +3994,7 @@ jobs:
     # jobs queued for the one promote runner
     # (tests/test_cmux_tui_feat_publish_order.py).
     needs: [tree-preflight, publish]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # A slow companion fetch may take its retries (fetch below).
     timeout-minutes: 30
     # Ownership is elected before expensive work; publication stays per run
@@ -4488,7 +4539,7 @@ jobs:
     name: add the Windows daemon to the tree
     if: ${{ !cancelled() && needs.publish-tree.result == 'success' && needs.publish-windows.result == 'success' }}
     needs: [tree-preflight, publish-tree, publish-windows]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # As publish-tree, whose steps it runs: a slow companion fetch may take its retries.
     timeout-minutes: 30
     concurrency:
@@ -4560,7 +4611,7 @@ jobs:
     name: request the Team-signed tree
     needs: [tree-preflight, publish-tree-tested]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     continue-on-error: true
     # Secrets only: no deployment. The dispatch's spare token (below) is the cmux-bot App's.
@@ -4812,7 +4863,7 @@ jobs:
     name: re-run the runs of commits whose manifest is missing
     needs: [tree-preflight, mark-tree-commits]
     if: ${{ !cancelled() && github.event_name == 'push' && needs.mark-tree-commits.result == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     # Secrets only: no deployment on the PR. The spare token (below) is the cmux-bot App's.
     environment:
@@ -4876,7 +4927,7 @@ jobs:
     name: start the cmux-next tree jobs a refused tree notify left
     needs: [tree-preflight, mark-tree-commits]
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.mark-tree-commits.result == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     # Secrets only: no deployment on the PR. The spare token (below) is the cmux-bot App's.
     environment:
@@ -5194,7 +5245,7 @@ jobs:
     name: request the Cloud VM image roll
     needs: [publish, verify-publish]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' && needs.publish.outputs.image_roll_requested != 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     # Secrets only: no deployment. The dispatch's spare token (below) is the cmux-bot App's.
     environment:
@@ -5260,7 +5311,7 @@ jobs:
     # After mark-tree-commits (whatever its result): the request needs the marker.
     needs: [tree-preflight, tree-owner-wait, publish-tree-tested, mark-tree-commits]
     if: ${{ !cancelled() && github.event_name == 'push' && needs.tree-preflight.result == 'success' && ((github.ref == 'refs/heads/feat-cmux-next' && (needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.takeover == 'false' || needs.publish-tree-tested.result == 'success')) || (github.ref != 'refs/heads/feat-cmux-next' && needs.publish-tree-tested.result == 'success')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # One fetch of the branch's recent history plus a jobs lookup per candidate.
     timeout-minutes: 15
     # Secrets only: no deployment. The request's spare token (below) is the cmux-bot App's.
@@ -5347,7 +5398,7 @@ jobs:
     # job, so a run re-run below finds this owner ended (cx-urd.26).
     needs: [tree-preflight, tree-owner-wait, build-linux, build, build-windows, cmux-next-daemon-tests, publish, publish-windows, publish-tree, publish-tree-windows, macos-cross-shadow, macos-cross-runtime-x86_64]
     if: ${{ !cancelled() && needs.tree-preflight.result == 'success' && ((needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') && needs.publish-tree.result != 'success') || (needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false' && needs.tree-owner-wait.outputs.unmarked == 'true')) && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     # Secrets only: no deployment on the PR. The hand-off's spare token (below) is the cmux-bot App's.
     environment:
@@ -5435,7 +5486,7 @@ jobs:
   # 300 an hour, must not spend the 1,000-an-hour budget every workflow shares.
   drop-build-artifacts:
     name: drop this run's build artifacts
-    needs: [reject-untrusted-pin-ref, push-gate, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
+    needs: [reject-untrusted-pin-ref, push-gate, coalesce, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.
