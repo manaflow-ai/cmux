@@ -444,6 +444,15 @@ impl Hub {
         // No `git` record exists yet; retain that baseline even if the chat grows before attach.
         self.restore_git_branch(&session, session.meta().git_branch);
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
+        // daemon.log keeps each chat's open, close and registration (`close_record.rs`).
+        tracing::info!(
+            target: "acpmux::lifecycle",
+            session = %session.id,
+            name = %session.read_meta(|m| m.name.clone()),
+            harness = %agent,
+            watch = adopt.as_ref().is_some_and(|a| a.watch),
+            "session opened"
+        );
         // Opt-in usage patterns: one more chat on this harness (its kind, not the chat).
         cmux_usage_patterns::count("agent-chat", agent);
         if let Some(a) = &adopt {

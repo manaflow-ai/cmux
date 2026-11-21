@@ -351,6 +351,10 @@ pub struct Session {
     /// Set when the chat is closed (`kill`) until its agent starts again: its host may still
     /// hold its record while it ends, and it is not running (`policy_mode.rs` `follow_policy`).
     pub(super) closing: AtomicBool,
+    /// Why its next close happens, noted by the closer (`close_record.rs`); the close takes it.
+    pub(super) close_cause: StdMutex<Option<close_record::CloseCause>>,
+    /// Its agent process's last exit (`close_record::exit_value`), which a close records.
+    pub(super) last_exit: StdMutex<Option<Value>>,
     /// How many times the chat was stopped (`kill`). A start reads it when its request came
     /// (`Hub::child_for_since`); a stop since then ends that start and keeps the chat closed.
     pub(super) stops: AtomicU64,

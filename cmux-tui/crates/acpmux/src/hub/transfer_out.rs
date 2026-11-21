@@ -668,7 +668,12 @@ impl Hub {
             "transferred",
             json!({"transferId": transfer_id, "to": to, "epoch": session.ownership_epoch()}),
         );
-        self.kill(session, false).await?;
+        let mut cause = super::close_record::CloseCause::new(super::close_record::reason::MOVED);
+        cause.detail = Some(format!(
+            "moved to {}",
+            to.get("host").and_then(Value::as_str).unwrap_or("another daemon")
+        ));
+        self.kill_because(session, false, cause).await?;
         let _ = crate::home_fs::remove_dir_all(transfers_dir().join(transfer_id));
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}))
     }
