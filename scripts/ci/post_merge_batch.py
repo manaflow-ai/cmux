@@ -62,17 +62,50 @@ PR_RE = re.compile(r"\(#(\d+)\)\s*$")
 # ---------------------------------------------------------------------------- GitHub and git
 
 
-def gh_api(path: str, *, method: str = "GET", fields: dict | None = None) -> object:
-    """One GitHub API call through gh (GH_TOKEN). Fields go as JSON on stdin."""
+# The repository's workflow token shares one rate limit with every workflow in the repo; when it is
+# spent, a call waits for the reset instead of failing the job, up to this many seconds in all
+# (--api-wait-seconds). Batch run 44878722147's judge died on it (2026-11-21).
+API_WAIT_BUDGET = {"seconds": 0.0}
+RATE_LIMITED = re.compile(r"rate limit|HTTP 429|secondary rate", re.I)
+
+
+def rate_limit_wait(now: float, reset: float | None, left: float) -> float:
+    """Seconds to sleep before retrying a rate-limited call: until the reset plus a little, at
+    least 15 s, never more than the budget left (0 = give up)."""
+    if left <= 0:
+        return 0.0
+    want = (reset - now + 5) if reset else 60.0
+    return max(0.0, min(max(want, 15.0), left))
+
+
+def _core_reset() -> float | None:
+    """When the token's core limit resets (gh api rate_limit is not counted against it)."""
+    out = subprocess.run(["gh", "api", "rate_limit"], capture_output=True, text=True)
+    try:
+        return float(json.loads(out.stdout)["resources"]["core"]["reset"])
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=subprocess.run, sleep=time.sleep, clock=time.time, reset_at=_core_reset) -> object:
+    """One GitHub API call through gh (GH_TOKEN). Fields go as JSON on stdin. A rate-limited
+    call waits for the reset and retries within API_WAIT_BUDGET."""
     argv = ["gh", "api", "-X", method, path]
     data = None
     if fields is not None:
         argv += ["--input", "-"]
         data = json.dumps(fields)
-    out = subprocess.run(argv, input=data, capture_output=True, text=True)
-    if out.returncode:
-        raise RuntimeError(f"gh api {method} {path}: {(out.stderr or out.stdout).strip()[-400:]}")
-    return json.loads(out.stdout) if out.stdout.strip() else None
+    while True:
+        out = run(argv, input=data, capture_output=True, text=True)
+        if not out.returncode:
+            return json.loads(out.stdout) if out.stdout.strip() else None
+        text = (out.stderr or out.stdout).strip()
+        pause = rate_limit_wait(clock(), reset_at(), API_WAIT_BUDGET["seconds"]) if RATE_LIMITED.search(text) else 0.0
+        if pause <= 0:
+            raise RuntimeError(f"gh api {method} {path}: {text[-400:]}")
+        print(f"gh api {method} {path}: rate limited; retrying in {pause:.0f} s", file=sys.stderr)
+        API_WAIT_BUDGET["seconds"] -= pause
+        sleep(pause)
 
 
 def git(*argv: str, cwd: Path | None = None) -> str:
@@ -299,7 +332,9 @@ class Probe:
 
 def new_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of) -> tuple[list[tuple[str, str, str]], list[str]]:
     """Red jobs of this batch run that were green on the newest earlier batch run where they
-    finished: (job name, suite, good sha). Also the notes for the reds that are not new."""
+    finished: (job name, suite, good sha). Also the notes for the reds that are not new.
+    jobs_of(run id) gives that run's verdicts, or (verdicts, judged): a red on a run whose judge
+    job did not succeed counts as no verdict, so it is still bisected later."""
     reds = [name for name, (_, conclusion) in sorted(verdicts.items()) if conclusion == "failure"]
     earlier = [r for r in runs if is_batch(r) and r.get("status") == "completed" and r.get("head_sha") != sha]
     found: list[tuple[str, str, str]] = []
@@ -311,7 +346,14 @@ def new_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], j
         for run in earlier:
             if run["id"] not in cache:
                 cache[run["id"]] = jobs_of(run["id"])
-            before = cache[run["id"]].get(name)
+            got = cache[run["id"]]
+            judged = True
+            if isinstance(got, tuple):
+                got, judged = got
+            before = got.get(name)
+            # A red on a run whose judge never finished was never bisected: look past it.
+            if before and before[1] == "failure" and not judged:
+                continue
             if before and before[1] in ("success", "failure"):
                 last = (run, before[1])
                 break
@@ -369,7 +411,12 @@ def cmd_judge(args: argparse.Namespace) -> int:
     out: dict[str, str] = {"culprit": "", "job": "", "good": "", "origin": ""}
     if args.mode != PROBE:
         runs = list_runs(args.repo, args.branch)
-        found, notes = new_reds(args.sha, verdicts, runs, lambda rid: suite_verdicts(run_jobs(args.repo, rid), suites))
+        def jobs_of(rid: int) -> tuple[dict[str, tuple[str, str]], bool]:
+            earlier = run_jobs(args.repo, rid)
+            judged = any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in earlier)
+            return suite_verdicts(earlier, suites), judged
+
+        found, notes = new_reds(args.sha, verdicts, runs, jobs_of)
         for note in notes:
             summary(args.summary, f"- {note}")
         if not found:
@@ -483,6 +530,7 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT"))
         p.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"))
         p.add_argument("--dry-run", action="store_true")
+        p.add_argument("--api-wait-seconds", type=float, default=None, help="total wait for a spent rate limit (judge 600, others 120)")
 
     def probe_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("--mode", choices=[BATCH, PROBE], default=BATCH)
@@ -524,6 +572,7 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_revert)
 
     args = parser.parse_args(argv)
+    API_WAIT_BUDGET["seconds"] = args.api_wait_seconds if args.api_wait_seconds is not None else (600.0 if args.cmd == "judge" else 120.0)
     return args.func(args)
 
 

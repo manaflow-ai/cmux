@@ -76,6 +76,53 @@ class PlanAndJudgeTest(unittest.TestCase):
         self.assertIn("known red", notes[0])
 
 
+    def test_a_red_on_an_unjudged_run_is_still_bisected(self) -> None:
+        # Run 2's judge died (rate limit), so its red was never bisected: look past it to run 1's green.
+        verdicts = {"web / check": ("web", "failure")}
+        runs = [run(2, "b" * 40, "2026-11-21T10:00:00Z"), run(1, "c" * 40, "2026-11-21T08:00:00Z")]
+        older = {2: ({"web / check": ("web", "failure")}, False), 1: ({"web / check": ("web", "success")}, True)}
+        found, _ = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid])
+        self.assertEqual(found, [("web / check", "web", "c" * 40)])
+        older[2] = ({"web / check": ("web", "failure")}, True)
+        found, notes = pmb.new_reds("a" * 40, verdicts, runs, lambda rid: older[rid])
+        self.assertEqual(found, [])
+        self.assertIn("known red", notes[0])
+
+
+class RateLimitTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.saved = pmb.API_WAIT_BUDGET["seconds"]
+
+    def tearDown(self) -> None:
+        pmb.API_WAIT_BUDGET["seconds"] = self.saved
+
+    def call(self, replies: list[tuple[int, str]], budget: float) -> tuple[object, list[float]]:
+        pmb.API_WAIT_BUDGET["seconds"] = budget
+        slept: list[float] = []
+
+        def fake_run(argv, **_):
+            code, text = replies.pop(0)
+            return subprocess.CompletedProcess(argv, code, stdout=text if not code else "", stderr=text if code else "")
+
+        got = pmb.gh_api("repos/x/y/actions/runs/1/jobs", run=fake_run, sleep=slept.append, clock=lambda: 1000.0, reset_at=lambda: 1100.0)
+        return got, slept
+
+    def test_waits_for_the_reset_then_retries(self) -> None:
+        limited = "gh: API rate limit exceeded for installation ID 1. (HTTP 403)"
+        got, slept = self.call([(1, limited), (0, '{"jobs": []}')], 600)
+        self.assertEqual(got, {"jobs": []})
+        self.assertEqual(slept, [105.0])
+
+    def test_gives_up_past_the_budget_and_never_retries_other_errors(self) -> None:
+        limited = "gh: API rate limit exceeded for installation ID 1. (HTTP 403)"
+        with self.assertRaises(RuntimeError):
+            self.call([(1, limited), (1, limited), (1, limited)], 120)
+        with self.assertRaises(RuntimeError):
+            self.call([(1, "HTTP 404: Not Found")], 600)
+        self.assertEqual(pmb.rate_limit_wait(0, None, 30), 30)
+        self.assertEqual(pmb.rate_limit_wait(0, 1, 0), 0)
+
+
 class BisectTest(unittest.TestCase):
     def walk(self, commits: list[str], culprit: str) -> tuple[str, int]:
         """Drives next_step from the confirming probe to its end with a red from culprit on."""
