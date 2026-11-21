@@ -188,7 +188,13 @@ struct TerminalComposer: View {
         // rounded shape clips the cut lines at the corners too.
         .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
         .clipShape(.rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
-        .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous), interactive: false)
+        // Clear glass, not regular: regular glass changes its material with
+        // the shape's size, so the field turned a lighter gray once a draft
+        // passed three lines (Leo, 2026-11-21: "the composer brightening up
+        // when you have >3 lines"). Clear glass looks the same at every
+        // height, the look a one-line draft always had
+        // (TerminalComposerLookUITests: 1, 3, 4 and 8 lines).
+        .glassEffect(.clear, in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
     }
 
     private var sendButton: some View {
@@ -352,13 +358,8 @@ extension View {
     /// The composer's Liquid Glass (classic: the field container and the
     /// round buttons). No opaque backing: the screen's own backing under the
     /// dock keeps scrolled rows from showing through (SPEC M3).
-    ///
-    /// `interactive: false` for the text field (as the agent chat's
-    /// composers draw theirs): interactive glass is for controls, and on the
-    /// field it brightened once the draft passed three lines (Leo,
-    /// 2026-11-21: "the composer brightening up when you have >3 lines").
-    func glassSurface(in shape: some Shape, interactive: Bool = true) -> some View {
-        glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+    func glassSurface(in shape: some Shape) -> some View {
+        glassEffect(.regular.interactive(), in: shape)
     }
 }
 
