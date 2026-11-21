@@ -1,6 +1,10 @@
 //! A registration's reported state through a mint outage and a clock jump past its ticket
 //! (split out of `relay_tests.rs`).
 
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+use tokio::net::TcpListener;
+
 use super::tests::{accept_with_authorization, receive_test_control, send_test_control};
 use super::*;
 
