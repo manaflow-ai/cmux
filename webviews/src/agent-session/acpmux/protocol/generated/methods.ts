@@ -326,6 +326,8 @@ export interface AcpmuxRequests {
   "_acpmux/machine_route_probe": { params: unknown; result: unknown };
   "_acpmux/share_host_status": { params: unknown; result: unknown };
   "_acpmux/machine_enroll": { params: unknown; result: unknown };
+  "_acpmux/machine_join_ssh": { params: unknown; result: unknown };
+  "_acpmux/machine_candidates": { params: unknown; result: unknown };
   "_acpmux/machine_leave_if_auto": { params: unknown; result: unknown };
   "_acpmux/machine_signed_in": { params: unknown; result: unknown };
   "_acpmux/machine.tunnel.attach": { params: unknown; result: unknown };
@@ -369,6 +371,7 @@ export interface AcpmuxNotifications {
   "_acpmux/cancel_refused": unknown;
   "_acpmux/unsent": unknown;
   "_acpmux/lagged": unknown;
+  "_acpmux/machine_join_progress": unknown;
 }
 
 /** Daemon to client requests the client answers. */
@@ -718,6 +721,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/machine_route_probe", kind: "request", acp: false, typed: false },
   { name: "_acpmux/share_host_status", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_enroll", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_join_ssh", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_candidates", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_leave_if_auto", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_signed_in", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine.tunnel.attach", kind: "request", acp: false, typed: false },
@@ -743,5 +748,6 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/cancel_refused", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/unsent", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/lagged", kind: "notification", acp: false, typed: false },
+  { name: "_acpmux/machine_join_progress", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/disconnected", kind: "client_local", acp: false, typed: false },
 ];
