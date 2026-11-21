@@ -658,11 +658,41 @@ class PullRequestTiers(unittest.TestCase):
     def test_checks_job_inputs_a_build_reads_keep_the_mac_tiers(self):
         """Admitted for the checks job's tests too, but each can change what the app build gets: the GhosttyKit
         download, the reload script's instance stop, the release strip and its symbol map, and the checkout's
-        text attributes (the bundled license texts are `-text`). They stay out of CI_ONLY."""
+        text attributes (the bundled license texts are `-text`). They stay out of CI_ONLY. The scripts are outside
+        every Swift compile's inputs (NO_SWIFT_COMPILE_ROOTS): the scheme compile runs, the SwiftPM app compiles
+        (`native`) do not."""
         for path in ("scripts/download-prebuilt-ghosttykit.sh", "scripts/lib/stop-app-instances.sh",
                      "scripts/strip-release-bundle.sh", "scripts/write-app-symbol-map.py", ".gitattributes"):
             with self.subTest(path=path):
-                self.assertEqual(tiers([path])["native"], "true")
+                result = tiers([path])
+                self.assertEqual(result["scheme"], "true")
+                self.assertEqual(result["native"], "false" if path.startswith("scripts/") else "true")
+
+    def test_a_tree_no_swift_compile_reads_runs_no_app_compile(self):
+        """Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period". A measure script, a
+        script test, Chief's Rust (a scheme build phase builds it) or a Python test changes nothing the fleet's
+        SwiftPM app compiles read (Packages/ only): no `native`, so no fleet Release compile and no app compile
+        (build fleet); the scheme compile still lists it. Beside a Swift change, `native` stays."""
+        for path in ("scripts/measure/launch.py", "scripts/cmux-next/tests/foo.test.sh",
+                     "Native/OptChat/optchat-chief/src/main.rs", "backend/apps/api/src/index.ts",
+                     "cmux-next-ios/scripts/x.sh", ".github/actionlint.yaml"):
+            with self.subTest(path=path):
+                result = tiers([path])
+                self.assertEqual(result["native"], "false")
+                self.assertEqual(result["scheme"], "true")
+        mixed = tiers(["scripts/measure/launch.py", "Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift"])
+        self.assertEqual(mixed["native"], "true")
+        # A packaging input the build names keeps native, under scripts/ or not.
+        self.assertEqual(tiers(["scripts/cmux-next/check-release-compile.sh"])["native"], "true")
+        self.assertEqual(tiers(["THIRD_PARTY_LICENSES.md"])["native"], "true")
+        self.assertEqual(tiers(["App/main.swift"])["native"], "true")
+        # An unknown top-level tree still runs it (fail open).
+        self.assertEqual(tiers(["somewhere-new/thing.txt.cfg"])["native"], "true")
+
+    def test_a_ci_file_beside_another_change_adds_no_app_compile(self):
+        """A CI file alone runs no Mac tier; beside a Native/ change it adds no `native` either."""
+        result = tiers(["scripts/ci/pr_router.py", "Native/OptChat/optchat-chief/src/main.rs"])
+        self.assertEqual(result["native"], "false")
 
     def test_native_script_inputs_run_the_app_compiles(self):
         """Every file the app build or its packaging reads runs the app compiles, whatever its name: the
