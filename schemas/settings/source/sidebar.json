@@ -1185,10 +1185,17 @@
           },
           "help": {
             "key": "settings.sidebar.groupHeader.background.help",
-            "text": "How a group's background draws. Sections shows plain headings instead."
+            "text": "How a group draws. Folders shows plain folders; Sections shows plain headings."
           },
           "kind": "choice",
           "choices": [
+            {
+              "value": "folder",
+              "title": {
+                "key": "settings.choice.groupBackgroundFolder",
+                "text": "Folders"
+              }
+            },
             {
               "value": "auto",
               "title": {
@@ -1218,7 +1225,7 @@
               }
             }
           ],
-          "default": "auto",
+          "default": "folder",
           "keywords": [
             "sidebar",
             "group",

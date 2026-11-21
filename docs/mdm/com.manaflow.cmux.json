@@ -3387,6 +3387,12 @@
       "title" : "EnrollmentToken",
       "type" : "string"
     },
+    "experiments.glassToolbarGroups" : {
+      "default" : false,
+      "description" : "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
+      "title" : "Glass Toolbar Groups",
+      "type" : "boolean"
+    },
     "feed.agentPermissionPrompts" : {
       "default" : false,
       "description" : "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it.",
@@ -3590,6 +3596,12 @@
       "title" : "Show Chief When Opening Workspaces",
       "type" : "boolean"
     },
+    "home.chiefDock.sidePanel" : {
+      "default" : false,
+      "description" : "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it.",
+      "title" : "Chief in Side Panel",
+      "type" : "boolean"
+    },
     "home.chiefEngine" : {
       "default" : "auto",
       "description" : "Auto uses this Mac's Chief while it runs, else the Hosted Chief.",
@@ -3676,7 +3688,7 @@
     },
     "labs.agentCustomization" : {
       "default" : false,
-      "description" : "Show and edit the MCP servers Claude Code and Codex use, in their own config files.",
+      "description" : "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files.",
       "title" : "Claude Code and Codex Customization",
       "type" : "boolean"
     },
@@ -5043,18 +5055,6 @@
       "description" : "When an agent waited for your input or finished its turn, in the card's history.",
       "title" : "Show Waits in Workspace Cards",
       "type" : "boolean"
-    },
-    "sidebar.look" : {
-      "default" : "cmux",
-      "description" : "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win.",
-      "enum" : [
-        "cmux",
-        "claude",
-        "codex",
-        "studio"
-      ],
-      "title" : "Sidebar Look",
-      "type" : "string"
     },
     "sidebar.minimal" : {
       "default" : false,

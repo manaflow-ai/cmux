@@ -67,6 +67,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         view?.applyLiveTree()
         if let view { AgentPaneSessionStatus.push(to: view) }
         if let view { AgentPaneSuggestedTasks.shared.push(to: view) }
+        view?.replayExperiments()
         view?.applyEditedFiles()
         view?.replayCustomization()
         view?.announceSessionInfo()
