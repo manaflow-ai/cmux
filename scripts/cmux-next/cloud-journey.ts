@@ -1812,7 +1812,7 @@ async function waitMachine(api: Api, machine: string, want: (m: any) => boolean,
 }
 
 /** ES256 over the UTF-8 message, base64url raw r||s (host-agent.ts signMessage). */
-async function sign(key: CryptoKey, message: string): Promise<string> {
+export async function sign(key: CryptoKey, message: string): Promise<string> {
   const sig = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, new TextEncoder().encode(message)));
   return Buffer.from(sig).toString("base64url");
 }
