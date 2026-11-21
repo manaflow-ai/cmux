@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { classifyCodexCanaryOutcome, edgeCanaryProblems } from "../scripts/cloud-vm/canaryOutcome.mjs";
+import {
+  classifyCodexCanaryOutcome,
+  edgeCanaryProblems,
+  retryGuestEdgeRequest,
+} from "../scripts/cloud-vm/canaryOutcome.mjs";
 
 describe("classifyCodexCanaryOutcome", () => {
   test("accepts the legacy no-account response", () => {
@@ -47,5 +51,53 @@ describe("edgeCanaryProblems", () => {
       "GET /api/coderouter/vm-usage/self from the guest returned 503",
       "codex turn through the edge did not answer: coderouter_unavailable",
     ]);
+  });
+});
+
+describe("retryGuestEdgeRequest", () => {
+  test("retries a transient resolver miss after the edge was ready", async () => {
+    const responses = [
+      { stdout: "codex-exit 0\ncurl: (6) Could not resolve host: coderouter.cmux.internal", stderr: "", exitCode: 0 },
+      { stdout: '{"error":"no_usable_account"}', stderr: "", exitCode: 0 },
+    ];
+    let calls = 0;
+    const result = await retryGuestEdgeRequest(
+      async () => {
+        calls += 1;
+        return responses.shift();
+      },
+      "coderouter.cmux.internal",
+      { delayMs: 0 },
+    );
+
+    expect(calls).toBe(2);
+    expect((result as { stdout?: string } | undefined)?.stdout).toContain("no_usable_account");
+  });
+
+  test("does not retry an HTTP or authentication failure", async () => {
+    let calls = 0;
+    const result = await retryGuestEdgeRequest(
+      async () => {
+        calls += 1;
+        return { stdout: '{"error":"no_usable_account"}', stderr: "", exitCode: 0 };
+      },
+      "coderouter.cmux.internal",
+      { delayMs: 0 },
+    );
+
+    expect(calls).toBe(1);
+    expect((result as { stdout?: string } | undefined)?.stdout).toContain("no_usable_account");
+  });
+
+  test("cancels a pending retry delay", async () => {
+    const controller = new AbortController();
+    const pending = retryGuestEdgeRequest(
+      async () => ({ stdout: "Could not resolve host: coderouter.cmux.internal", stderr: "", exitCode: 0 }),
+      "coderouter.cmux.internal",
+      { delayMs: 50, signal: controller.signal },
+    );
+    queueMicrotask(() => controller.abort());
+
+    await expect(pending).rejects.toBeTruthy();
   });
 });
