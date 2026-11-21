@@ -24,7 +24,7 @@ from pathlib import Path
 
 import yaml
 
-from test_ci_fork_runner_routing import evaluate_runs_on, parse_expression, runner_label_errors
+from test_ci_fork_runner_routing import FAST_CHECKS_ADMISSION_EXPRESSION, evaluate_runs_on, parse_expression, runner_label_errors
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "fast-checks.yml"
 POOL = "cmux-fleet-linux-x64"
@@ -62,7 +62,7 @@ class FastChecksFailoverTests(unittest.TestCase):
                           if selector.startswith("${{") else selector)
                 # Only the smallest measured Blacksmith size: a picker's re-run
                 # route is never 16 or 32 vCPU.
-                expected = requested if requested == "blacksmith-8vcpu-ubuntu-2404" else "ubuntu-24.04"
+                expected = requested if requested == "blacksmith-8vcpu-ubuntu-2404" else "cmux-gcp-pr-control-jit-x64"
                 self.assertEqual(actual, expected)
 
     def test_admission_guard_keeps_the_overflow_set_exact(self) -> None:
@@ -70,16 +70,20 @@ class FastChecksFailoverTests(unittest.TestCase):
         self.assertEqual(runner_label_errors(selector), [])
         for unsafe in (
             selector.replace("blacksmith-8vcpu-ubuntu-2404", POOL),
-            selector.replace("'ubuntu-24.04'", "'self-hosted'"),
+            selector.replace("'cmux-gcp-pr-control-jit-x64'", "'self-hosted'"),
+            selector.replace("'cmux-gcp-pr-control-jit-x64'", "'cmux-linux'"),
             selector.replace("contains(", "startsWith("),
             selector.replace("&& inputs.runner", "&& inputs.other_runner"),
-            # A picker's re-run route is the smallest measured size only.
-            selector.replace('"blacksmith-8vcpu-ubuntu-2404"',
-                             '"blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"'),
-            selector.replace('"blacksmith-8vcpu-ubuntu-2404"', '"blacksmith-32vcpu-ubuntu-2404"'),
         ):
             with self.subTest(selector=unsafe):
                 self.assertNotEqual(runner_label_errors(unsafe), [])
+        # A picker's re-run route is the smallest measured size only. With a one-job JIT default the
+        # structural check admits any Blacksmith size, so the size is pinned to the exact selector.
+        self.assertEqual(selector, FAST_CHECKS_ADMISSION_EXPRESSION)
+        for wider in (selector.replace('"blacksmith-8vcpu-ubuntu-2404"',
+                                       '"blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"'),
+                      selector.replace('"blacksmith-8vcpu-ubuntu-2404"', '"blacksmith-32vcpu-ubuntu-2404"')):
+            self.assertNotEqual(wider, FAST_CHECKS_ADMISSION_EXPRESSION)
 
     def run_fast_checks_script(self, command: str, source: str | None = None) -> tuple[subprocess.CompletedProcess[str], dict | None]:
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -119,6 +123,15 @@ class FastChecksFailoverTests(unittest.TestCase):
             shutil.copy(root / ".github/runners.json", target / ".github/runners.json")
             workflow = target / ".github/workflows/fast-checks.yml"
             text = workflow.read_text()
+            # The admission now takes the PR control JIT label, so the fixture restores its old hosted
+            # route and declaration to keep exercising the hosted_light_jobs rules.
+            jit = "'cmux-gcp-pr-control-jit-x64' }} # light read-only runner admission on a one-job JIT VM"
+            self.assertIn(jit, text)
+            text = text.replace(jit, "'ubuntu-24.04' }} # github-hosted-required: light read-only runner admission", 1)
+            runners = json.loads((target / ".github/runners.json").read_text())
+            runners["hosted_light_jobs"]["fast-checks.yml:admit"] = {
+                "runner": "ubuntu-24.04", "why": "Read-only live runner admission; no source snapshot or arbitrary test command"}
+            (target / ".github/runners.json").write_text(json.dumps(runners))
             if admission_change:
                 before, after = admission_change
                 text = text.replace(before, after, 1)

@@ -40,8 +40,10 @@ POOL_READ = re.compile(r"fromJSON\(\s*vars\.RUNNER_POOLS\s*\)\.([A-Za-z0-9_]+)")
 
 # workflow file -> (why it is not on a pool yet, its jobs that still name only literals)
 PINNED: dict[str, tuple[str, set[str]]] = {
-    'fast-checks.yml': ('the hosted admission picker is a light read-only job; checks use its live fleet output',
+    'fast-checks.yml': ('the admission picker is a light read-only job on the PR control one-job JIT label; checks use its live fleet output',
      {'admit'}),
+    'web-complexity-trusted.yml': ('reads untrusted pull request source: only the one-job cmux-gcp-pr-control-jit-x64, never a pool a variable can move',
+     {'complexity'}),
     'auto-resume-nightly-notarization.yml': ('nightly signing and notarization: an ephemeral label the signing rule checks literally',
      {'preflight', 'poll', 'wait-and-staple', 'poll-outer', 'staple-outer', 'poll-stapled', 'staple-stapled', 'verify-stapled', 'publish', 'generate-deltas', 'republish-deltas'}),
     'cloud-journey-prod.yml': ('holds the production journey environment secrets: the fork-routing secret rule forbids a variable-movable runner',
@@ -52,7 +54,7 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'matrix'}),
     'build-ghosttykit.yml': ('not yet on a pool; moves in its own PR',
      {'build-ghosttykit'}),
-    'ci-queue-janitor.yml': ('the queue repair job must not depend on the pools it repairs: GitHub-hosted ubuntu-24.04, '
+    'ci-queue-janitor.yml': ('the queue repair job must not depend on the pools it repairs: the one-job cmux-gcp-repair-jit-x64, '
                              'or cmux-fleet-linux-x64 when CI_QUEUE_JANITOR_ON_FLEET=1 (check_queue_janitor_runs_off_the_pools_it_judges)',
      {'sweep'}),
     'cmux-next-cua-helper-dev-sign.yml': ('DEV Computer Use helper signing: an ephemeral label the signing rule checks literally',
