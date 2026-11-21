@@ -85,7 +85,7 @@ if [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] && ! command -v mold 
   mold_dir="$scratch/mold"
   mold_tgz="$mold_dir/mold-3.0.0-x86_64-linux.tar.gz"
   mkdir -p "$mold_dir"
-  if curl -fsSL --retry 3 -o "$mold_tgz" https://github.com/rui314/mold/releases/download/v3.0.0/mold-3.0.0-x86_64-linux.tar.gz \
+  if curl -fsSL --retry 3 --retry-all-errors -o "$mold_tgz" https://github.com/rui314/mold/releases/download/v3.0.0/mold-3.0.0-x86_64-linux.tar.gz \
     && echo "6c90d4a474c7c0409dfb575be03a5345878ac14fdba18de8b40fa58c60121189  $mold_tgz" | sha256sum -c --quiet; then
     tar -xzf "$mold_tgz" -C "$mold_dir"
     export PATH="$mold_dir/mold-3.0.0-x86_64-linux/bin:$PATH"
@@ -107,7 +107,7 @@ if [[ -n "$tests" ]] && ! command -v cargo-nextest >/dev/null; then
   nextest_tgz="$nextest_dir/cargo-nextest.tar.gz"
   mkdir -p "$nextest_dir/bin"
   if [[ -n "$nextest_target" ]] \
-    && curl -fsSL --retry 3 -o "$nextest_tgz" "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-$nextest_version/cargo-nextest-$nextest_version-$nextest_target.tar.gz" \
+    && curl -fsSL --retry 3 --retry-all-errors -o "$nextest_tgz" "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-$nextest_version/cargo-nextest-$nextest_version-$nextest_target.tar.gz" \
     && python3 -c 'import hashlib,sys; sys.exit(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest()!=sys.argv[2])' "$nextest_tgz" "$nextest_sha"; then
     tar -xzf "$nextest_tgz" -C "$nextest_dir/bin"
     export PATH="$nextest_dir/bin:$PATH"
@@ -136,7 +136,7 @@ if [[ ",$variants," == *,blaze,* ]]; then
   export BLAZE_HOME="$(blaze_home_path "$scratch/cmux-rust-dev-loop-blaze-home-$$")"
   blaze_tgz="$blaze_dir/blaze-v$blaze_version-$blaze_target.tar.gz"
   if [[ -n "$blaze_target" ]] \
-    && curl -fsSL --retry 3 -o "$blaze_tgz" "https://github.com/indexable-inc/blaze/releases/download/v$blaze_version/blaze-v$blaze_version-$blaze_target.tar.gz" \
+    && curl -fsSL --retry 3 --retry-all-errors -o "$blaze_tgz" "https://github.com/indexable-inc/blaze/releases/download/v$blaze_version/blaze-v$blaze_version-$blaze_target.tar.gz" \
     && python3 -c 'import hashlib,sys; sys.exit(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest()!=sys.argv[2])' "$blaze_tgz" "$blaze_sha"; then
     tar -xzf "$blaze_tgz" -C "$blaze_dir/bin"
     blaze_bin="$(dirname "$(find "$blaze_dir/bin" -type f -name blaze -perm -u+x | head -1)")"

@@ -7,4 +7,10 @@ public protocol AutoArchiveDocument: AnyObject {
     /// Archives or unarchives `items` as one undo step titled `title` (the reducer's `archive` and
     /// `unarchive`: groups follow their members).
     func setArchived(_ items: [String], archived: Bool, title: String) throws(SidebarDocSendRefusal)
+    /// Runs `body`, whose changes nobody here asked for (the background pass): a refusal is logged, never shown.
+    func automatically<T, E: Error>(_ body: () throws(E) -> T) throws(E) -> T
+}
+
+extension AutoArchiveDocument {
+    public func automatically<T, E: Error>(_ body: () throws(E) -> T) throws(E) -> T { try body() }
 }

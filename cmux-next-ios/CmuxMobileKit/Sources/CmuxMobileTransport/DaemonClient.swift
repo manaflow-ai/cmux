@@ -128,7 +128,7 @@ public actor DaemonClient {
     private func expire(_ id: String, after deadline: Duration, clock: any Clock<Duration>) async {
         do { try await clock.sleep(for: deadline) } catch { return }
         guard !Task.isCancelled else { return }
-        fail(id: id, error: LinkError(code: Self.replyTimeout, message: "The Mac didn't answer. Retry."))
+        fail(id: id, error: LinkError(code: Self.replyTimeout, message: "reply timed out"))
     }
 
     /// Sends every request in one write, in order, and returns their replies
@@ -185,7 +185,7 @@ public actor DaemonClient {
         do {
             let channel = self.channel
             try await LinkDeadline.run(timeout: deadline,
-                                       timeoutError: LinkError(code: "write_timeout", message: "The Mac didn't answer. Retry."),
+                                       timeoutError: LinkError(code: "write_timeout", message: "write timed out"),
                                        operation: { try await channel.send(line) },
                                        onCancel: {
                                            if closeChannelOnCancel {
@@ -267,6 +267,9 @@ public actor DaemonClient {
     private func readLoop() async {
         do {
             while let chunk = try await channel.receive() {
+                #if DEBUG
+                ReceivedByteCount.shared.add(chunk.count)
+                #endif
                 buffer.append(chunk)
                 while let newline = buffer.firstIndex(of: 0x0A) {
                     let line = buffer[buffer.startIndex..<newline]

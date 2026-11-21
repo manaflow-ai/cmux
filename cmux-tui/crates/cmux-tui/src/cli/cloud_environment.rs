@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use cmux_cloud_environment::{Environment, Resolver, check_create_capabilities};
+use cmux_cloud_environment::{Environment, Resolver};
 use cmux_json::JsonSet as _;
 use serde_json::Value;
 
@@ -106,7 +106,9 @@ fn launch_backend(args: &[String]) -> Result<Option<String>, String> {
 
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, words) = super::parse_globals(args).ok()?;
-    let [scope, noun, rest @ ..] = words.as_slice() else { return None };
+    let [scope, noun, rest @ ..] = words.as_slice() else {
+        return None;
+    };
     if scope != "cloud" || noun != "env" {
         return None;
     }
@@ -186,7 +188,7 @@ fn run(command: Command, global: &GlobalArgs, cache_first: bool) -> Result<Value
     };
     // A failed read cannot prevent an explicit set from repairing malformed
     // state. set() independently enforces permissions and I/O failures.
-    let previous = switching.then(|| resolver.resolve(None).ok()).flatten();
+    let previous = switching.then(|| resolver.resolve_persisted().ok()).flatten();
     let selection = match command {
         Command::Get => resolver.resolve(
             std::env::var("CMUX_NEXT_CLOUD_BACKEND")
@@ -194,7 +196,8 @@ fn run(command: Command, global: &GlobalArgs, cache_first: bool) -> Result<Value
                 .or_else(|| std::env::var("CMUX_NEXT_CLOUD_ENV").ok())
                 .as_deref(),
         )?,
-        Command::GetPersisted => resolver.resolve(None)?,
+        // The picker's own choice: never a launch seed or the dev build's tag file (backend.json).
+        Command::GetPersisted => resolver.resolve_persisted()?,
         Command::GetBackend(backend) => resolver.resolve(Some(&backend))?,
         Command::CheckCreate { backend, .. } => resolver.resolve(Some(&backend))?,
         Command::Set(environment) => resolver.set(environment)?,
@@ -204,13 +207,8 @@ fn run(command: Command, global: &GlobalArgs, cache_first: bool) -> Result<Value
         .enable_all()
         .build()
         .map_err(|error| format!("create client-config runtime: {error}"))?;
-    let selection = if cache_first && reads {
-        runtime.block_on(resolver.client_config_cache_first(selection))?
-    } else {
-        runtime.block_on(resolver.client_config(selection))?
-    };
     if let Some((_, params)) = check_create {
-        check_create_capabilities(&selection, &params)?;
+        let selection = runtime.block_on(resolver.check_create(selection, &params))?;
         return Ok(serde_json::json!({
             "check_create": true,
             "ok": true,
@@ -218,6 +216,11 @@ fn run(command: Command, global: &GlobalArgs, cache_first: bool) -> Result<Value
             "config_source": selection.config_source,
         }));
     }
+    let selection = if cache_first && reads {
+        runtime.block_on(resolver.client_config_cache_first(selection))?
+    } else {
+        runtime.block_on(resolver.client_config(selection))?
+    };
     let scheduled = if switching { apply(global, &selection)? } else { false };
     let changed = switching
         && previous.is_none_or(|previous| previous.auth_namespace != selection.auth_namespace);

@@ -86,6 +86,28 @@ import Testing
         #expect(short.note(owner: nil) == "50×20 · set by another device")
     }
 
+    /// A shorter grid on the primary screen pins to the top: the bottom
+    /// inset puts its last row `hostRows` rows below the top, the rest is
+    /// the letterbox. A grid that fills the page keeps the usual inset.
+    @Test func aShorterGridPinsToTheTopOfThePage() throws {
+        let short = layout(host: (30, 12), rows: 40)
+        let inset = try #require(short.pinnedBottomInset(pageHeight: 844, top: 59))
+        #expect(abs((844 - inset - 59) - 12 * 16) < 0.001)
+        #expect(layout(host: (50, 40), rows: 40).pinnedBottomInset(pageHeight: 844, top: 59) == nil)
+        #expect(layout(host: (50, 60), rows: 40).pinnedBottomInset(pageHeight: 844, top: 59) == nil)
+        #expect(layout(host: nil).pinnedBottomInset(pageHeight: 844, top: 59) == nil)
+    }
+
+    /// A grid that fills the page gets the compact chip; the phone's own grid none.
+    @Test func theCompactNoteNamesTheGridAndHiddenColumns() {
+        #expect(layout(host: (120, 60), rows: 40).compactNote == "120×60")
+        #expect(layout(host: (50, 40), rows: 40).compactNote == nil)
+        #expect(layout(host: nil).compactNote == nil)
+        let capped = TerminalHostGridLayout(viewportWidth: 390, cell: CGSize(width: 7, height: 15), scale: 3,
+                                            hostColumns: 500, hostRows: 40, visibleRows: 40)
+        #expect(capped.compactNote == "500×40 · \(500 - capped.columns) cols hidden")
+    }
+
     @Test func aTallerTUIShiftsOnlyToKeepTheCursorOnScreen() {
         let tall = layout(host: (50, 60), rows: 40)
         #expect(tall.letterbox == nil)

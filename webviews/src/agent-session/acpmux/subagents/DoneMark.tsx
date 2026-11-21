@@ -1,7 +1,8 @@
 // How a finished line ends: in the running tray's lines (AgentLine.tsx) and in the composer hat's header
 // when it holds one finished item (SubagentTray.tsx). Leo, 2026-11-07, on "Done · 8m 12s": "I just feel
 // like there's something off about this ... I know that the thing is aligned, but it just doesn't look
-// that... Great." The default is a bare check stroke in a muted success colour and the total in tabular figures;
+// that... Great." The default is a bare check stroke in the line's muted ink (no success green: an ended line is no
+// success state, Leo 2026-11-14) and the total in tabular figures;
 // the word stays for screen readers. hatParts.experiment.ts holds the arms.
 import type { ReactNode } from "react";
 import { Icon } from "../icons/Icon";

@@ -46,7 +46,11 @@ pub async fn serve(
     incoming: IncomingChannel,
 ) {
     let IncomingChannel { service, args, lane, channel } = incoming;
-    let (sender, mut receiver) = channel.split();
+    let (mut sender, mut receiver) = channel.split();
+    // Every payload byte of the channel counts toward its kind (traffic.rs).
+    let meter = crate::traffic::TRAFFIC.meter(crate::traffic::Kind::of_service(&service, &args));
+    sender.count_into(Arc::clone(&meter));
+    receiver.count_into(meter);
     tracing::info!(
         service,
         channel = sender.id(),

@@ -294,3 +294,150 @@ export function changeArea(subject: string): string | undefined {
   }
   return area;
 }
+
+// What a change means for the person, for the Updated popover beside the sidebar (Leo 2026-11-14,
+// on "Redesign Cloud connection gates with human targets" and "The plan's Loading... waits 1 s, as
+// the page's first read does": "theese are kinda crappy looking icons and stuff"). A reviewed title
+// or a pull request's changelog line can still say how the app is built rather than what changed;
+// here it reads as a plain sentence about what changed ("Cloud connects with clearer status",
+// "Plans no longer flash a loading state"), or, when nothing a person sees changed, it folds into
+// the popover's one "Maintenance and fixes" line. English only: another language's line is a
+// reviewed translation and stays as written.
+
+/** Words that name how the app is built, not what a person sees: a line with one is maintenance. */
+export const JARGON = new RegExp(
+  String.raw`\b(?:gates?|targets?|first read|occlusion|pathspecs?|provenance|watchdogs?|evidence|pager|tunables?|rim|` +
+    String.raw`wash|rhythm|rails?|coalesc\w*|bridges?|index(?:es|ed)?|cache[ds]?|caching|snapshots?|immutable|` +
+    String.raw`normali[sz]ed|receipts?|lifecycle|persist\w*|daemons?|orphan|grace|respawn\w*|probes?|parity|diagnostics?|` +
+    String.raw`stage log|hitch(?:es)?|frame check|gpu|measured|scans?|pushes|hydrat\w*|reconcil\w*|debounc\w*|` +
+    String.raw`throttl\w*|seams?|carriers?|lanes?|ops|payloads?|endpoints?|handshakes?|idempotent\w*|mutex\w*|` +
+    String.raw`regressions?|fallbacks?|plumbing|expectations?|keep-alive|insets?|spawn\w*|harness\w*|` +
+    String.raw`verification|revisions?|superseded|redundant|inputs?|state (?:sync|machine)|re-?maps?|re-?runs?|` +
+    String.raw`cells?|surfaces? (?:degraded|coverage)|coverage|tab strips?|traffic[- ]lights?|lays out|subject box|` +
+    String.raw`(?:pre)?warm(?:s|ed|ing)?|spare (?:windows?|process\w*)|signals?|chunks?|idle moments)\b`,
+  "i",
+);
+/** "chrome" in its UI-builder sense ("Align composer control chrome"), not the browser. */
+const JARGON_CASED = /\bchrome\b/;
+/** Apple UI names a person knows, camel-cased like code ("VoiceOver"): plain words to the judgment. */
+const UI_NAMES =
+  /\b(?:VoiceOver|FaceTime|AirDrop|AirPlay|AirPods|TestFlight|QuickTime|QuickLook|FileVault|TouchID|FaceID|CarPlay|SharePlay|AppleScript)\b/g;
+/** A pull request named anywhere in a parenthesis ("(#20706 slice 1)"): the whole parenthesis is a ref. */
+const PR_PAREN = /\s*\([^()]*#\d{2,}[^()]*\)/gu;
+
+/** readableChange's judgment of `text`, with Apple UI names read as plain words. */
+function judged(text: string): ReadableChange {
+  return readableChange(text.replace(UI_NAMES, "Apple"));
+}
+
+/** Builder verbs a title can open with that never describe a change a person sees. */
+const BUILDER_VERB =
+  /^(?:avoid|expose|fail closed|refresh|release|stabili[sz]e|coalesce|index|cache|preserve|skip|carry|persist|drop|surface|paint|theme|respawn|align|wire|plumb|route|gate|hoist|inline|split out|extract|rename|bump|tune)\b/i;
+/** A measured time outside quotes ("waits 1 s", "after 8 s", "350 ms"); a quoted UI string
+    ("Thought for 12s") is what a person reads, so it stays. */
+const TIMING = /\b\d+(?:\.\d+)?\s?(?:ms|s|sec|seconds?)\b/i;
+/** A UI string quoted with its own punctuation ("Loading...", "Loading…"), which reads as a label. */
+const LOADING_LABEL = /["“]?\bloading(?:\.\.\.|…)["”]?/i;
+/** Words that say a connection's state was made clearer. */
+const CLEARER = /\b(?:redesign\w*|rework\w*|rewrit\w*|clarif\w*|humani[sz]\w*|human|plain|clearer|readable)\b/i;
+const CONNECTION = /\b(?:connection|connects?|connecting|reconnect\w*|offline)\b/i;
+const CONNECTED_THING = /\b(Cloud|Remote|iPhone|iOS|SSH)\b/i;
+const REDESIGN = /^(?:redesign|rework|restyle|refresh the look of)\s+(.+)$/i;
+const POSSESSIVE_LOADING = /^(?:the |a |an )?([\p{L} -]+?)['’]s\s+["“]?loading\b/iu;
+
+export interface PlainChange {
+  title: string;
+  /** What the description adds, when it reads as plainly as the title; undefined when it does not. */
+  detail?: string;
+}
+
+/** `noun` as a plural a sentence can start with: "plan" → "Plans", "gallery" → "Galleries". */
+function pluralNoun(noun: string): string {
+  const word = noun.trim();
+  const plural = /s$/i.test(word) ? word : /[^aeiou]y$/i.test(word) ? `${word.slice(0, -1)}ies` : `${word}s`;
+  return capitalized(plural);
+}
+
+/** Whether `text` says how the app is built rather than what a person sees. */
+export function isJargon(text: string): boolean {
+  const unquoted = text.replace(/["“][^"”]*["”]/gu, "");
+  return (
+    JARGON.test(unquoted) ||
+    JARGON_CASED.test(unquoted) ||
+    BUILDER_VERB.test(unquoted) ||
+    TIMING.test(unquoted) ||
+    LOADING_LABEL.test(text) ||
+    judged(unquoted).internal
+  );
+}
+
+/** A known shape of builder's line said the way a person notices it, else undefined. */
+function rewritten(text: string): string | undefined {
+  if (CONNECTION.test(text) && CLEARER.test(text)) {
+    const thing = CONNECTED_THING.exec(text)?.[1];
+    return `${thing ? capitalized(thing.toLowerCase() === "ios" ? "iOS" : thing) : "cmux"} connects with clearer status`;
+  }
+  if (/\bloading\b/i.test(text) && (TIMING.test(text) || /\b(?:waits?|flash\w*|flicker\w*)\b/i.test(text))) {
+    const noun = POSSESSIVE_LOADING.exec(text)?.[1];
+    return `${noun ? pluralNoun(noun) : "Pages"} no longer flash a loading state`;
+  }
+  const redesigned = REDESIGN.exec(text)?.[1];
+  if (redesigned && !isJargon(redesigned)) return `${capitalized(redesigned)} has a new design`;
+  return undefined;
+}
+
+/** A change's title and detail as the popover says them (see above), or undefined when nothing a
+    person sees changed: the line folds into "Maintenance and fixes". `past` puts an imperative
+    title's verb in the past tense, as the popover's release notes read; the card's line keeps the
+    page's own words. */
+export function plainChange(
+  title: string,
+  detail: string | undefined,
+  language: string,
+  past = true,
+): PlainChange | undefined {
+  if (!/^en\b/i.test(language)) return { title, ...(detail ? { detail } : {}) };
+  const raw = strip(plainLine(title.replace(PR_PAREN, "")));
+  if (!raw) return undefined;
+  const plain = rewritten(raw);
+  // The line without its area label ("Agent pane: …"): the popover heads it with its area.
+  const text = readableChange(raw).title || raw;
+  if (plain) return { title: plain };
+  if (judged(raw).internal || isJargon(text)) return undefined;
+  // The detail keeps its own sentence punctuation; only refs and stream codes come off.
+  const line = detail ? plainLine(detail.replace(PR_PAREN, "").replace(REFS, "")).trim() : "";
+  return {
+    title: past ? pastTense(capitalized(text)) : capitalized(text),
+    ...(line && !isJargon(line) ? { detail: capitalized(line) } : {}),
+  };
+}
+
+/** An imperative title's leading verb in the past tense, as release notes say what changed ("Fix the
+    tab bar" reads "Fixed the tab bar"; Leo's reference, 2026-11-14). Only verbs whose past form
+    always reads right; "Show …", "Undo …" and "Go …" name what a person can do and stay. */
+const PAST: Record<string, string> = {
+  add: "Added",
+  fix: "Fixed",
+  keep: "Kept",
+  stop: "Stopped",
+  remove: "Removed",
+  restore: "Restored",
+  improve: "Improved",
+  change: "Changed",
+  rename: "Renamed",
+  reduce: "Reduced",
+  update: "Updated",
+  hide: "Hid",
+  move: "Moved",
+  allow: "Allowed",
+  enable: "Enabled",
+  support: "Added support for",
+  speed: "Sped",
+};
+
+/** `text` with its leading imperative verb in the past tense (PAST), else as it is. */
+export function pastTense(text: string): string {
+  const match = /^([A-Za-z]+)\b/.exec(text);
+  const past = match ? PAST[match[1]!.toLowerCase()] : undefined;
+  return past ? past + text.slice(match![1]!.length) : text;
+}

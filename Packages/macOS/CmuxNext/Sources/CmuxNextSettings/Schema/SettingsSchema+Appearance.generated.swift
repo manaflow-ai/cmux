@@ -46,6 +46,12 @@ extension ThemeFileSetting {
     public nonisolated static let configPath = ["appearance", "themeFile"]
 }
 
+extension ThemeFileExceptionsSetting {
+    /// `appearance.themeFileExceptions`.
+    public nonisolated static let configPath = ["appearance", "themeFileExceptions"]
+    public nonisolated static let fallback: [String] = []
+}
+
 extension HighlightColorSetting {
     /// `appearance.highlightColor`.
     public nonisolated static let configPath = ["appearance", "highlightColor"]
@@ -64,6 +70,21 @@ extension BackdropSelectionSetting {
     /// `appearance.backgroundRotation`.
     public nonisolated static let rotationPath = ["appearance", "backgroundRotation"]
     public nonisolated static let rotationDefault: BackdropRotation = .daily
+    public nonisolated static let rotationRange: ClosedRange<Double> = 1...1440
+    public nonisolated static let rotationPlaceholder: Double = 30
+    /// `appearance.backgroundLight`: The picture of Background's Light and Dark (appearance) in the light appearance: any fixed background id (art, desktop, system:, file:). Unset: the dark side's picture.
+    public nonisolated static let lightPath = ["appearance", "backgroundLight"]
+    /// `appearance.backgroundDark`: The picture of Background's Light and Dark (appearance) in the dark appearance: any fixed background id. Unset: the light side's picture.
+    public nonisolated static let darkPath = ["appearance", "backgroundDark"]
+    /// `appearance.backgroundSchedule`: Background's Time of Day (schedule): when -> fixed background id. When is HH:MM (24 h, local) or sunrise | sunset | dawn | dusk | noon with an optional offset (sunset-30m, sunrise+1h). Now's picture is the latest entry at or before now (before the first: yesterday's last); a sun event that does not happen today is skipped (BackdropTimeOfDay).
+    public nonisolated static let schedulePath = ["appearance", "backgroundSchedule"]
+    /// `appearance.backgroundDynamic`: How a dynamic macOS wallpaper (system: .madesktop or .heic) changes: appearance shows its light or dark frame; time follows the sun (solar metadata), the clock (h24), or for a light/dark-only or not downloaded picture the sun above or below -6 degrees.
+    public nonisolated static let dynamicPath = ["appearance", "backgroundDynamic"]
+    public nonisolated static let dynamicDefault: BackdropDynamicMode = .appearance
+    /// `appearance.backgroundLocation`: LAT,LON in degrees for sun events and solar frames; unset: the system time zone's coordinates from /usr/share/zoneinfo/zone.tab (no location permission).
+    public nonisolated static let locationPath = ["appearance", "backgroundLocation"]
+    /// `appearance.backgroundMemory`: What Background's modes last showed, so switching modes never loses one (Leo, 2026-11-19: "it lost the folder ... i couldn't get back into it"): rotate is Rotate's last shuffle (daily or folder:<path>), folder the last folder it shuffled, off the picture Off last showed (none for No Wallpaper). The Settings page's Background card writes it when the background moves to another mode and reads it back in a new page or after a restart; the app's engine never reads it.
+    public nonisolated static let memoryPath = ["appearance", "backgroundMemory"]
     /// `appearance.displayBackgrounds`.
     public nonisolated static let displayBackgroundsPath = ["appearance", "displayBackgrounds"]
     /// `appearance.displayBackgroundRotations`.
@@ -79,6 +100,18 @@ extension PaneBackgroundsSetting {
 extension ReducedBackgroundsSetting {
     /// `ui.reducedBackgrounds`.
     public nonisolated static let configPath = ["ui", "reducedBackgrounds"]
+    public nonisolated static let fallback = false
+}
+
+extension AgentGlowSetting {
+    /// `appearance.agentGlow`.
+    public nonisolated static let configPath = ["appearance", "agentGlow"]
+    public nonisolated static let fallback = false
+}
+
+extension PreviousGlassSetting {
+    /// `appearance.previousGlass`: Web pages only: on sends glassLevels "previous" with the web theme (WebTheme), data-glass-levels="previous" on <html>, and webviews ui/glass/glass.css (PREVIOUS GLASS) restores the glass numbers from before the one glass system (design/glass-system.md, cmux#48174). Off (default) draws the one glass system.
+    public nonisolated static let configPath = ["appearance", "previousGlass"]
     public nonisolated static let fallback = false
 }
 
@@ -152,8 +185,14 @@ extension UIScaleSetting {
 extension InterfaceSizeSetting {
     /// `appearance.metrics.chromeFontSize`.
     public nonisolated static let configPath = ["appearance", "metrics", "chromeFontSize"]
-    public nonisolated static let range: ClosedRange<Double> = 10...16
+    public nonisolated static let range: ClosedRange<Double> = 10...20
     public nonisolated static let placeholder: Double = 12
+}
+
+extension FontSmoothingSetting {
+    /// `appearance.fontSmoothing`: How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Chrome text cmux draws itself (ChromeLabel, ChromeTextLayer: the sidebar, tabs) follows live too (ProcessFontSmoothing.chrome). Ghostty's font-thicken is not affected.
+    public nonisolated static let configPath = ["appearance", "fontSmoothing"]
+    public nonisolated static let fallback: FontSmoothing = .auto
 }
 
 extension InterfaceScaleSetting {
@@ -305,7 +344,7 @@ nonisolated enum AppearanceSettingsSchema {
                 help: SettingsText.keyed("settings.appearance.iconTheme.help", "The icon drawings used by cmux."),
                 kind: .choice([
                     SettingChoice(NekoIconTheme.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
-                    SettingChoice(NekoIconTheme.neko.rawValue, "Neko"),
+                    SettingChoice(NekoIconTheme.neko.rawValue, SettingsText.keyed("settings.choice.neko", "Neko")),
                 ]),
                 default: .string(NekoIconThemeSetting.fallback.rawValue),
                 keywords: ["icons", "icon", "theme", "neko", "cat"]

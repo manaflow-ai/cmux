@@ -13,7 +13,7 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
 
     package let model: TextBoxModel
     package let textView = TextBoxTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 20))
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let placeholder = NSTextField(labelWithString: TextBoxStrings.placeholder)
     private let actionButton = NSButton()
     private let attachButton = NSButton()

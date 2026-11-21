@@ -30,8 +30,12 @@ for tool_dir in "$account_home/.bun/bin" "$account_home/.local/node/bin"; do
   [ -n "$account_home" ] && [ -d "$tool_dir" ] && export PATH="$tool_dir:$PATH"
 done
 bun_dir="$(mktemp -d)"
+# Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
+trap 'rm -rf -- "$bun_dir"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 RUNNER_TEMP="$bun_dir" GITHUB_PATH="$bun_dir/bun-path" ./scripts/cmux-next/private-bun.sh
 PATH="$(tail -n 1 "$bun_dir/bun-path"):$PATH"
 export PATH
 echo "STRUCTURAL-REBUILD-MACHINE sha=$(git rev-parse HEAD) model=$(sysctl -n hw.model) cores=$(sysctl -n hw.ncpu) macos=$(sw_vers -productVersion) load=\"$(uptime | sed 's/.*load averages*: //')\""
-exec python3 scripts/measure/structural-rebuild.py --out "$(pwd)/artifacts/structural-rebuild" "$@"
+python3 scripts/measure/structural-rebuild.py --out "$(pwd)/artifacts/structural-rebuild" "$@"

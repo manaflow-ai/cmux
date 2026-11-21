@@ -5,7 +5,6 @@
 //! connection loop (`serve_client*`) over `HostStream`.
 
 use crate::panic_free::RecoverPoison;
-use std::io::Write;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel as mpsc_channel;
 use std::sync::{Arc, TryLockError};
@@ -472,16 +471,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     if !granted_rights.contains(CapabilityRights::INPUT) {
                         break;
                     }
-                    let bracketed = command_host.term.lock().recover_poison().mode(2004, false);
-                    let mut writer = command_host.writer.lock().recover_poison();
-                    if bracketed {
-                        let _ = writer.write_all(b"\x1b[200~");
-                    }
-                    let _ = writer.write_all(&frame.payload);
-                    if bracketed {
-                        let _ = writer.write_all(b"\x1b[201~");
-                    }
-                    let _ = writer.flush();
+                    command_host.write_paste_frame(&frame.payload);
                 }
                 MessageKind::ViewerSize if frame.payload.len() == 4 => {
                     if !granted_rights.contains(CapabilityRights::RESIZE) {
