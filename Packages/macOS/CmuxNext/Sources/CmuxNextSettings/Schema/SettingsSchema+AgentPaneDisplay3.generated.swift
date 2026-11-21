@@ -6,33 +6,6 @@ extension AgentPaneDisplaySettingsSchema {
         let group = SettingsText.keyed("settings.group.agentChat", "Agent Chat")
         return [
             SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.thinkingJumpButtonPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.thinking.jumpButton", "Jump to Latest While Working"),
-                help: SettingsText.keyed("settings.agentPane.display.thinking.jumpButton.help", "What the Jump to latest button shows while the agent works."),
-                kind: .choice([
-                    SettingChoice("arrow", SettingsText.keyed("settings.choice.thinkingJumpArrow", "Arrow")),
-                    SettingChoice("dots", SettingsText.keyed("settings.choice.dots", "Dots")),
-                ]),
-                default: .string(AgentPaneDisplaySettingsSchema.thinkingJumpButtonDefault),
-                keywords: ["agent", "chat", "acp", "display", "thinking", "jump", "latest", "scroll", "button", "arrow", "dots", "claude"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.harnessPlacementPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.harnessPlacement", "Model Picker Harness Placement"),
-                kind: .choice([
-                    SettingChoice("symbols", SettingsText.keyed("settings.choice.harnessSymbols", "Top Row of Symbols")),
-                    SettingChoice("left", SettingsText.keyed("settings.choice.harnessLeft", "Left Rail with Names")),
-                    SettingChoice("top", SettingsText.keyed("settings.choice.harnessTop", "Top Strip with Names")),
-                    SettingChoice("compact", SettingsText.keyed("settings.choice.harnessCompact", "Compact Left Rail")),
-                ]),
-                default: .string(AgentPaneDisplaySettingsSchema.harnessPlacementDefault),
-                keywords: ["agent", "chat", "acp", "display", "reading", "model", "picker", "harness", "placement", "left", "top", "symbols"]
-            ),
-            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.railSidePath,
                 section: .appearance,
                 group: group,
