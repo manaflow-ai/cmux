@@ -228,7 +228,7 @@ public actor DaemonConnection {
     /// another transport, maybe to a daemon that numbers surfaces anew, took its place.
     func request<R: DaemonRequest>(_ request: R, timeout: Duration?, on serial: UInt64?) async throws -> R.Response {
         await waitOutHandoff()
-        guard let ready, serial.map({ $0 == ready.serial }) ?? true else { throw DaemonError.notConnected }
+        guard let ready, serial.map({ $0 == ready.serial }) ?? true else { return try await configuration.answers.answer(request, on: self) }
         requestStarted()
         defer { requestEnded() }
         try R.requireServed(by: identity)
@@ -270,7 +270,7 @@ public actor DaemonConnection {
     /// once `DaemonStore.appliedSequence` reaches it, the store reflects
     /// every event the daemon emitted before that reply (the reply's
     /// `eventBarrier` is at most this). Sequences grow across reconnects.
-    public func eventSequence() -> UInt64? { ready?.eventSequence }
+    public func eventSequence() -> UInt64? { ready?.eventSequence ?? configuration.answers.answerer?.eventSequence }
 
     /// Sends one `cmux.protocol/2` resource request (`ResourceRequestEnvelope`)
     /// on the control socket and decodes its `result`; `timeout` replaces the request deadline.
