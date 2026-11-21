@@ -491,10 +491,7 @@ public final class TabStripView: NSView {
             return
         }
         // What changed while out of sight lands at once in its final place: nobody saw it move.
-        if syncHold.takeOwedSync() {
-            layOutPaneIfOneTabChanged()
-            sync(fromModel: true, animating: false)
-        }
+        syncHold.syncOwed(self)
         hoverCards.register(hoverCard)
         applyMultiSelection()
         if appearanceIsStale {
