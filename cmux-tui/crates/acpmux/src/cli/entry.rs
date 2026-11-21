@@ -155,8 +155,8 @@ const LOG_FLUSH_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
 /// How long a lowered `--take-over` start that moved to a login-session job waits for that job's
 /// daemon to take the home, so the update swap that started it sees the hand-over: the swap's own
 /// wait for a take-over start to ask (`daemon/exe_swap.rs` `HANDOVER_WITHIN`).
-// timeout: a stop condition on a wait for launchd's job, not a correctness decision; the job serves the home either way
 #[cfg(target_os = "macos")]
+// timeout: a stop condition on a wait for launchd's job, not a correctness decision; the job serves the home either way
 const HANDOVER_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// The worker count `args` (without the program name) runs with: None is
@@ -349,6 +349,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             #[cfg(target_os = "macos")]
             if ready_fd.is_none() && person_key_fd.is_none() && !memory && !dev {
                 let home = crate::config::home();
+                // timeout: no wait unless a take-over swap waits on this start (HANDOVER_WAIT says why)
                 let wait = if take_over { HANDOVER_WAIT } else { std::time::Duration::ZERO };
                 if crate::daemon::login_session::leave_lowered_run(
                     &home,
