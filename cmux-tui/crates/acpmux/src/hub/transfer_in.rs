@@ -725,6 +725,7 @@ impl Hub {
                     None,
                     None,
                 );
+                pct.at("r.append");
                 let stored = appended
                     && self.store.flush_session(&session.id).map(|()| true).unwrap_or_else(|error| {
                         tracing::warn!(session = %session.id, "sync transferred_in receipt: {error:#}");
@@ -747,6 +748,7 @@ impl Hub {
                     }
                     return Err(transfer_error("store", "could not durably record transferred_in"));
                 }
+                pct.at("r.flush");
                 if guard.is_none() {
                     self.note_received(&session, &transfer_id, bundle_meta.last_seq);
                 }

@@ -185,11 +185,14 @@ impl Hub {
     /// that is not is refused at a later stage by its digest: the source's record there differs.
     pub(in crate::hub) fn note_received(&self, session: &Session, transfer_id: &Value, seq: u64) {
         let Some(note) = self.base_note(&session.id) else { return };
-        let (Some(transfer_id), Ok(stamp), Ok(Some(digest))) = (
-            transfer_id.as_str(),
-            self.store.log_stamp(&session.id),
-            self.digest_at(&session.id, seq),
-        ) else {
+        let mut pct = Pct::new("note");
+        let stamp = self.store.log_stamp(&session.id);
+        pct.at("stamp");
+        let digest = self.digest_at(&session.id, seq);
+        pct.at("digest");
+        let (Some(transfer_id), Ok(stamp), Ok(Some(digest))) =
+            (transfer_id.as_str(), stamp, digest)
+        else {
             let _ = crate::home_fs::remove_file(&note);
             return;
         };
