@@ -1,0 +1,404 @@
+diff a/scripts/cmux-next/perf-cron.py b/scripts/cmux-next/perf-cron.py	(rejected hunks)
+@@ -228,22 +228,25 @@ PARTS = [
+     # six benches take about 13 minutes. Then the paired transcript-replay rounds (GOD_PAIRED_*): the god and small
+     # chats played at once, whose median per-round ratio replaces the transcript_replay god_ratio rows.
+     {"name": "web-ui-god", "where": "linux", "kind": "webui", "needs": "web-ui-god"},
+     # Infinite items (scripts/measure/infinite-items.py, CMUX-571): a release acpmux and headless cmux-tui with 10, 100
+     # and 1,000 workspaces (a terminal tab and an agent chat each) through simulated days; memory vs empty, idle CPU
+     # and growth per day, the rows behind goal infinite-items-flat in cmuxterm-hq's NOW.
+-    {"name": "infinite-items", "where": "linux", "kind": "webui", "needs": "infinite-items"},
++    # Its own runner pool (runner): the cold release build of acpmux, cmux-tui and cmux-tui-host (thin LTO, one codegen
++    # unit) ran past its 30-minute cap on 4 vCPU (run 44120699264), so the part never wrote a result.
++    {"name": "infinite-items", "where": "linux", "kind": "webui", "needs": "infinite-items", "runner": "linux_16"},
+     # A 1,000,000-event chat (webviews/bench/million-event-chat.bench.ts, CMUX-571, cmux#37713): the pane client's open,
+     # one older page and its heap, for long turns and for 4-record turns. Its own part (about 2 minutes).
+     {"name": "web-ui-million", "where": "linux", "kind": "webui", "needs": "web-ui-million"},
+     # A chat at any length (webviews/bench/chat-100k-flat.bench.ts, goal chats-flat-at-any-length in cmuxterm-hq's NOW):
+     # a 100k-row chat opened and grown live, one and 20 at once, against empty chats: renderer idle CPU, streaming CPU
+     # and PSS, and the worst of those ratios (chat_100k_flat.ratio_max). Its own part, under the 30-minute run cap.
+     {"name": "web-ui-flat", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
+-    # Its 20 chats grown live to 100k rows each, about 28 minutes on its own (chat_100k_flat.grown_many.*).
+-    {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
++    # Its 20 chats grown live to 100k rows each, about 28 minutes on its own (chat_100k_flat.grown_many.*): a 45-minute
++    # run cap (run_seconds), not the 30 minutes it timed out against on 2026-11-17 (bench cap 1770 s).
++    {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat", "run_seconds": 2700},
+     # Composer typing under load (webviews/bench/composer-typing.bench.ts, CMUX-571): 500 keys in Chromium and WebKit
+     # under idle, a focused stream, ten streaming documents and a focused 100k-row stream; keydown to paint p95/p99
+     # (webui.composer_typing.*) against report-only 16/33 ms targets. Its own part, under the 30-minute run cap.
+     {"name": "web-ui-typing", "where": "linux", "kind": "webui", "needs": "web-ui-typing"},
+     # One live chat's disk growth (scripts/measure/chat-disk-growth.py, the same goal): a release acpmux streams one
+     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
+@@ -477,12 +480,28 @@ def part_for_row(name):
+     for pattern, part in ROW_PARTS:
+         if re.search(pattern, name):
+             return part
+     return None
+ 
+ 
++def linux_part_classes(rows):
++    """{Linux part: the runner classes its rows here carry} (pure). Each Linux part runs on its own runner (the linux
++    matrix; a part's PARTS runner may differ from the others'), so a class change is judged per part."""
++    out = {}
++    for name in rows:
++        if linux_row(name):
++            out.setdefault(part_for_row(name), set()).add(row_host(name))
++    return out
++
++
++def linux_class_changed(name, classes):
++    """A Linux row whose part ran here on another runner class (pure): it is never measured on its class again."""
++    part = part_for_row(name) if linux_row(name) else None
++    return bool(part and classes.get(part)) and row_host(name) not in classes[part]
++
++
+ def linux_row(name):
+     """A row of the Linux part (its host is a GitHub runner class, not a Mac)."""
+     part = part_for_row(name)
+     return part is not None and is_linux_part(part)
+ 
+ 
+@@ -992,13 +1011,13 @@ def linux_bench_runs(root, part="diff-viewer"):
+         script = os.path.join(root, CHAT_DISK)
+         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
+     if part == "daemon-restart":
+         script = os.path.join(root, DAEMON_RESTART)
+         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
+     if part == "infinite-items":
+-        # The release build first, in a run of its own: each run has its own 30-minute cap (LINUX_RUN_SECONDS) and the
++        # The release build first, in a run of its own: each run has its own 30-minute cap (linux_run_seconds) and the
+         # linux job's cap covers both (linux_job_minutes). A cold build of acpmux, cmux-tui and its Zig terminal engine
+         # outlasted 38 minutes on a 4-vCPU runner (2026-11-17), so the workflow runs this part on 16 vCPUs.
+         # The suite's build is then a no-op; its rows are the part's (a webui part keeps the last run's).
+         script = os.path.join(root, INFINITE_ITEMS)
+         return {"build": (["bash", script, "build-only"], root or ".", {}),
+                 "suite": (["bash", script, "pages=0", "days=1", "--window=5"], root or ".", {})}
+@@ -1354,13 +1373,15 @@ def wait_for_tree(cur, t, tree_ready):
+     cur.pop("tree_wait_since", None)
+     return ""
+ 
+ 
+ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable=lambda sha: True, mac_disabled=None,
+            controller_route=False, tree_ready=lambda sha: True):
+-    """The tick's work: {'action': 'part'|'none'|'finish', 'part': a fleet part or '', 'linux_part': '' or one}.
++    """The tick's work: {'action': 'part'|'none'|'finish', 'part': a fleet part or '', 'linux_parts': [every Linux
++    part still to do]}. The Linux parts run at once, one runner each (the workflow's linux matrix): one at a time, a
++    measurement's ten Linux parts took ten ticks, each paying a runner queue wait of up to hours.
+     May set state['current'] (a new measurement). With both a candidate and a bisect step, the bisect goes first
+     unless a tip measurement is due (tip_due): a newer tip always exists, so 'bisect when idle' would never bisect.
+     candidate: the newest measurable tip commit newer than the last one measured (or None).
+     bisect: {'sha', 'range': {good, bad}, 'rows': [row names]}: a measurable commit inside one group of regressed
+     rows' culprit range (or None); the step measures only the parts of those rows.
+     supported_parts(sha) -> the PARTS names the commit can run. github_busy: a reason string or None (it holds
+@@ -1396,13 +1417,13 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
+         return {"action": "none", "reason": "nothing new to measure: the newest measurable feat-cmux-next commit "
+                                             "was measured, and no regression range to bisect"}
+     if not cur["parts_todo"]:
+         return {"action": "finish", "sha": cur["sha"],
+                 "reason": f"its Mac parts have no host ({no_host}); report only" if no_host else "every part ran; report only"}
+     todo = part_order(state, cur["parts_todo"], t)  # a part past PART_STALE_HOURS goes first
+-    linux = next((p for p in todo if is_linux_part(p)), "")
++    linux = [p for p in todo if is_linux_part(p)]
+     fleet = "" if tree_wait else next((p for p in todo if not is_linux_part(p)), "")
+     done = f"{len(cur['parts'])} of {len(cur['parts']) + len(cur['parts_todo'])} done"
+     if tree_wait and not linux:
+         return {"action": "none", "sha": cur["sha"], "reason": tree_wait}
+     # A nightly or dev build waiting for a Mac holds back only a part that could take a Mac from it. The bench host
+     # runs no CI job (it is a controller worker only), so a part there takes nothing: a measurement not pinned to
+@@ -1420,19 +1441,19 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
+         return {"action": "none", "sha": cur["sha"], "reason": github_busy, "yielded": True}
+     if fleet:
+         # give_up_host's clock for a pinned host, no_host_for_tip's for any host: cleared by the next Mac part result.
+         cur.setdefault("host_asked_since", iso(t))
+     if fleet and controller_route:
+         start_yield(cur, t)
+-    what = " and ".join(x for x in (fleet, linux) if x)
++    what = " and ".join(x for x in (fleet, ", ".join(linux)) if x)
+     waits = f"; {tree_wait}" if tree_wait else ""
+     if github_busy and bench_only:
+         waits = f"; only on {BENCH_WORKER}, which runs no CI job: {github_busy}"
+     elif github_busy and linux:
+         waits = f"; the Mac parts wait: {github_busy}"
+-    return {"action": "part", "sha": cur["sha"], "kind": cur["kind"], "part": fleet, "linux_part": linux,
++    return {"action": "part", "sha": cur["sha"], "kind": cur["kind"], "part": fleet, "linux_parts": linux,
+             "worker": (BENCH_WORKER if bench_only else cur.get("host") or "") if fleet else "",
+             "reason": f"{cur['kind']} measurement of {cur['sha'][:12]}: part {what} ({done})" + waits}
+ 
+ 
+ def bisect_midpoint(commits, measurable, skip=()):
+     """commits: first-parent commits strictly between good and bad, oldest first. The measurable one nearest
+@@ -2873,17 +2894,17 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
+     # consecutive runs on that host, and its range from row_ok to first_bad holds the culprit whatever their gap).
+     # A part that failed or yielded did not judge the row: that keeps it (done-failed-done confirms). A row whose host
+     # is gone (host_gone, while Mac parts ran elsewhere) or whose Linux runner class changed is never judged again.
+     ran_here = {row_host(n) for n in part_rows}
+     done_parts = {n for n, p in cur["parts"].items() if p.get("state") == "done"}
+     mac_ran = {mac_host(n) for n in part_rows} - {None}
+-    linux_classes = {row_host(n) for n in part_rows if linux_row(n)}
++    linux_classes = linux_part_classes(part_rows)
+     for name in list(state.get("pending") or {}):
+         unjudged = name not in judged and row_host(name) in ran_here and part_for_row(name) in done_parts
+         gone = bool(mac_ran) and bool(mac_host(name)) and host_gone(state, mac_host(name), t)
+-        class_changed = linux_row(name) and bool(linux_classes) and row_host(name) not in linux_classes
++        class_changed = linux_class_changed(name, linux_classes)
+         if unjudged or gone or class_changed:
+             state["pending"].pop(name)
+     # A candidate's value is never a good value (review 1 of the confirm rule): it moves neither row_ok nor the
+     # baseline, so a later confirmation's range starts at the newest commit good against the reference. A row whose
+     # baseline is still building takes it (confirm_regressions).
+     held = candidates - building
+@@ -2931,18 +2952,17 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
+         h = hist.get(name) if isinstance(hist.get(name), list) else []
+         hist[name] = h + [{"at": v.get("at"), "p95": v["p95"], **({"sha": v["sha"]} if is_sha(v.get("sha")) else {})}
+                           for v in values if isinstance(v.get("p95"), (int, float))]
+     state["last_good"] = {**state["last_good"], "rows": {**(state["last_good"].get("rows") or {}), **accepted}}
+     remember_good(state, accepted, refresh_ms, t, good, sha=cur["sha"])
+     ran_on = {row_host(n) for n in part_rows}
+-    linux_classes = {row_host(n) for n in part_rows if linux_row(n)}
+-    class_gone = sorted(n for n in old if n not in judged and linux_row(n) and linux_classes
+-                        and row_host(n) not in linux_classes)
++    linux_classes = linux_part_classes(part_rows)
++    class_gone = sorted(n for n in old if n not in judged and linux_class_changed(n, linux_classes))
+     if class_gone:
+-        notes.append(note_list(f"the Linux runner class is now {', '.join(sorted(map(str, linux_classes)))}, not judged",
+-                               class_gone))
++        now = sorted({c for n in class_gone for c in linux_classes[part_for_row(n)]})
++        notes.append(note_list(f"the Linux runner class is now {', '.join(map(str, now))}, not judged", class_gone))
+     elsewhere = sorted(n for n in old if n not in judged and n not in class_gone and row_host(n) not in ran_on)
+     # A Mac host that ran no part for HOST_GONE_HOURS while this measurement ran Mac parts elsewhere has left the
+     # fleet or is never idle: its regressions can never be confirmed or cleared, so they close (not judged). A host
+     # with nothing on record starts its clock here. A measurement with no Mac part (the Mac route is down) retires none.
+     mac_ran = {mac_host(n) for n in part_rows} - {None}
+     for h in mac_ran:
+@@ -3046,19 +3066,62 @@ def clear_parts(d):
+     """Delete the stored part reports (the state directory's parts/, uploaded with the state)."""
+     parts = os.path.join(d, "parts")
+     for name in os.listdir(parts) if os.path.isdir(parts) else []:
+         os.remove(os.path.join(parts, name))
+ 
+ 
++# A Linux part's benches each run under this cap (cmd_run_linux_part; a part's run_seconds overrides it), after about
++# LINUX_SETUP_MINUTES of the job's checkout, toolchain and browser installs.
++LINUX_RUN_TIMEOUT_S = 1800
++LINUX_SETUP_MINUTES = 10
++
++
++def linux_run_seconds(part):
++    """The cap of each of a Linux part's bench runs (pure): its run_seconds, else LINUX_RUN_TIMEOUT_S."""
++    return int(PART_BY_NAME[part].get("run_seconds") or LINUX_RUN_TIMEOUT_S)
++
++
++# The runner pools a Linux part may name as its own (PARTS `runner`): each has a plan output linux_runner_<vCPUs>
++# in the workflow, the label a leg with that runner runs on (a fork's is a GitHub-hosted runner).
++LINUX_PART_POOLS = {"linux_16": "linux_runner_16"}
++
++
++def linux_runner(part):
++    """The runner pool of a Linux part's matrix leg (pure): its PARTS `runner` (a LINUX_PART_POOLS key), or "" for the
++    plan's linux_runner. Its rows carry the label the leg ran on as their host, so a changed pool starts their
++    baseline again (linux_part_classes)."""
++    pool = PART_BY_NAME[part].get("runner") or ""
++    return pool if pool in LINUX_PART_POOLS else ""
++
++
++def linux_job_minutes(part):
++    """The timeout of a Linux part's job (pure): its setup and every bench's cap, so GitHub never kills a part that
++    is still within them (a killed job leaves no result; infinite-items, a build and a suite of up to 30 minutes
++    each, outlived the old flat 40 minutes). The paired god rounds stop starting a round at GOD_PAIRED_DEADLINE_S
++    after the part's start, and a round may then run GOD_PAIRED_ROUND_TIMEOUT_S more."""
++    runs = linux_bench_runs("", part)
++    benches = sum(linux_run_seconds(part) for name in runs if name != "paired")
++    if "paired" in runs:
++        benches = max(benches, GOD_PAIRED_DEADLINE_S + GOD_PAIRED_ROUND_TIMEOUT_S)
++    return LINUX_SETUP_MINUTES + -(-benches // 60)
++
++
++def linux_matrix(parts):
++    """The plan's linux_matrix output (pure): a JSON list of {part, minutes, runner}, the workflow's linux job matrix
++    (one runner per part, all at once; runner is a LINUX_PART_POOLS key, or "" for the plan's linux_runner)."""
++    return json.dumps([{"part": p, "minutes": linux_job_minutes(p), "runner": linux_runner(p)} for p in parts],
++                      separators=(",", ":"))
++
++
+ def cmd_plan(o):
+     try:
+         plan(o)
+     except RateLimited as error:
+         # Nothing written: the state file stays the one fetched, so the report saves nothing and the next tick
+         # starts from the same state.
+-        out = {"action": "none", "sha": "", "part": "", "linux_part": "", "worker": "", "frame_pacing": "false",
++        out = {"action": "none", "sha": "", "part": "", "linux_matrix": "[]", "worker": "", "frame_pacing": "false",
+                "rate_limited": "true", "reason": f"GitHub rate limit ({error}); the next tick tries again"}
+         print(f"perf-cron plan: {json.dumps(out)}")
+         write_outputs(o.output, out)
+     print_calls("plan")
+ 
+ 
+@@ -3146,21 +3209,20 @@ def plan(o):
+     state["mac_off"] = no_mac  # the issue says why no Mac row is measured
+     if state.get("current") and isinstance(tip_version, int):
+         # The measurement version its Mac rows carry (fleet_runs measures only commits of the tip's version).
+         state["current"].setdefault("measure_version", tip_version)
+     if measurement_id(state.get("current")) != loaded_id:
+         clear_parts(o.dir)  # a dropped or replaced measurement's part files must never be read as the new one's
+-    for requested in (d.get("part"), d.get("linux_part")):
++    for requested in [d.get("part"), *(d.get("linux_parts") or [])]:
+         if requested and state.get("current"):
+             # What this file asks the part to measure with: its rows carry it (a later tick may run a newer file).
+             state["current"].setdefault("configs", {})[requested] = part_config(requested)
+-    out = {"action": d["action"], "sha": d.get("sha", ""), "part": d.get("part", ""), "linux_part": d.get("linux_part", ""),
++    out = {"action": d["action"], "sha": d.get("sha", ""), "part": d.get("part", ""),
++           "linux_matrix": linux_matrix(d.get("linux_parts") or []),
+            "worker": d.get("worker", ""), "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1),
+            "not_measuring": state.get("not_measuring") or ""}
+-    if d.get("linux_part"):
+-        out["linux_minutes"] = linux_job_minutes(d["linux_part"])
+     if d.get("part"):
+         p = PART_BY_NAME[d["part"]]
+         out["run_seconds"] = p.get("run_seconds", PART_RUN_SECONDS)
+         out["step_minutes"], out["job_minutes"] = part_minutes(out["run_seconds"])
+         out["args"] = json.dumps(part_args(p, out["run_seconds"]))
+         out["artifact"] = p["artifact"]
+@@ -3320,13 +3382,14 @@ def cmd_run_part(o):
+ 
+ 
+ # A Linux part that failed before its bench could measure anything: the runner had no browser (Playwright's
+ # "Executable doesn't exist", runs 43809071719 and 43812228014 on 2026-11-16) or refused the job. The commit is not
+ # to blame, so record_part runs the part once more (a runner that writes no result at all is NO_RESULT, a yield).
+ SETUP_FAILURE_RE = re.compile(r"Executable doesn't exist|Please run the following command to download new browsers"
+-                              r"|browserType\.launch(?:Server)?: |The runner refused the job|No space left on device")
++                              r"|browserType\.launch(?:Server)?: |The runner refused the job|No space left on device"
++                              r"|runner left no result")
+ 
+ 
+ def setup_failure(result):
+     """The line of a failed part's tail that names a setup failure (SETUP_FAILURE_RE), or None (pure)."""
+     return next((str(line) for line in result.get("tail") or [] if SETUP_FAILURE_RE.search(str(line))), None)
+ 
+@@ -3334,18 +3397,27 @@ def setup_failure(result):
+ NOT_STARTED = "not-started.json"  # a part dir with this file: the fleet check said no, no part ran (no attempt)
+ NO_RESULT = {"state": "yielded", "no_result": True,
+              "reason": "the job ended without the part's result (cancelled, timed out, no fleet client, or a setup step "
+                        "failed): one attempt"}
+ 
+ 
+-def missing_result(part_dir):
++def missing_result(part_dir, part=None, linux_job="", linux_download=""):
+     """The result to record for a part whose job wrote none (pure but for the file checks): None when the fleet
+     check said no (not an attempt), else NO_RESULT (it counts against MAX_YIELDS, so a part whose job keeps dying
+-    ends as failed instead of being retried every tick)."""
++    ends as failed instead of being retried every tick). A Linux part's runner of the linux matrix that left no
++    result failed, with why (its job died in setup, hit its timeout or lost its runner), unless the run was
++    cancelled (linux_job 'cancelled': not the commit's failure, so one attempt as before) or the report could not
++    download the results (linux_download other than '' or 'success': the same). The failure names SETUP_FAILURE_RE's
++    "runner left no result", so it runs once more first (record_part's setup retry)."""
+     if os.path.exists(os.path.join(part_dir, NOT_STARTED)):
+         return None
++    if part and is_linux_part(part) and linux_job != "cancelled" and linux_download in ("", "success"):
++        job = f"the linux job ended {linux_job}" if linux_job else "the linux job's result is unknown"
++        return {"state": "failed", "no_result": True,
++                "tail": [f"perf cron: the {part} runner left no result ({job}: a setup step failed, it hit its "
++                         f"{linux_job_minutes(part)}-minute timeout, or it lost its runner)"]}
+     return dict(NO_RESULT)
+ 
+ 
+ def cmd_part_cleanup(o):
+     """The gateway job's last step (always runs, also on a cancel or the job timeout): when run-part wrote no
+     result.json, cancel the fleet step it started (its id is in step.log) and write a result that counts as one
+@@ -3426,30 +3498,12 @@ def restart_note(restarts):
+     """The sentence that names baseline restarts to check by hand."""
+     names = sorted({str(x.get("name")) for x in restarts})
+     return (f"{len(restarts)} baseline restart(s) to check by hand (listed in the body): {', '.join(names[:6])}"
+             + (f" and {len(names) - 6} more" if len(names) > 6 else "") + ". Close this issue when they are checked")
+ 
+ 
+-# Each of a Linux part's bench runs gets LINUX_RUN_SECONDS (cmd_run_linux_part); the linux job's cap is the sum of its
+-# runs' caps plus LINUX_SETUP_MINUTES (checkout, bun install, browsers, artifact upload), never under the old fixed
+-# 40 minutes. With that one fixed cap for every part, infinite-items' build-only run alone outlasted the job on a
+-# 4-vCPU runner (2026-11-17, runs 44104871256 and 44112712262: still in rustc at 38 minutes when GitHub cancelled the
+-# job), so the job left no result three ticks running, the part ended yielded_out, and no infinite_items row was
+-# stored after 2026-11-17 06:41Z.
+-LINUX_RUN_SECONDS = 1800
+-LINUX_SETUP_MINUTES = 10
+-LINUX_JOB_MIN_MINUTES = 40
+-
+-
+-def linux_job_minutes(name):
+-    """The linux job's timeout-minutes for Linux part NAME (pure): its runs' caps and the setup. web-ui-god's paired
+-    rounds stop at GOD_PAIRED_DEADLINE_S of the part's time, so they add no run of their own."""
+-    runs = [n for n in linux_bench_runs("", name) if n != "paired"]
+-    return max(LINUX_JOB_MIN_MINUTES, LINUX_SETUP_MINUTES + len(runs) * -(-LINUX_RUN_SECONDS // 60))
+-
+-
+ def run_capped(argv, cwd, env, timeout):
+     """(stdout, stderr, exit code) of argv; the exit code is None when it ran past timeout seconds. It runs in its
+     own process group, and a timeout kills the whole group: subprocess.run's timeout kills only the direct child (bash),
+     so a build-only run past its cap left its cargo building, and the suite's own cargo build then waited on that
+     build's lock until GitHub cancelled the job and the part left no result at all."""
+     proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+@@ -3516,16 +3570,16 @@ def cmd_run_linux_part(o):
+     for name, (argv, cwd, extra) in runs.items():
+         if name == "paired":
+             report["paired"] = run_paired_rounds(argv, cwd, {**env, **extra}, started)
+             tail += [f"paired: {len(report['paired']['rounds'])} rounds, {report['paired']['stopped']}"]
+             continue
+         before = host_contention() if part != "web-ui" else []
+-        stdout, stderr, code = run_capped(argv, cwd, {**env, **extra}, LINUX_RUN_SECONDS)
++        stdout, stderr, code = run_capped(argv, cwd, {**env, **extra}, linux_run_seconds(part))
+         value = last_json_object(stdout) if code is not None else None
+         if code is None:
+-            code = f"timeout ({LINUX_RUN_SECONDS} s)"
++            code = f"timeout ({linux_run_seconds(part)} s)"
+         tail += [f"{name}: exit {code}"] + stderr.splitlines()[-10:]
+         if before:
+             load[name] = contention_factor(before + host_contention())
+         if PART_BY_NAME[part]["kind"] == "webui":
+             if isinstance(value, dict):
+                 report = value
+@@ -3839,13 +3893,13 @@ def report(o, t=None):
+         if not (cur and part in PART_BY_NAME and part in cur["parts_todo"]):
+             continue
+         try:
+             with open(path) as f:
+                 result = json.load(f)
+         except (OSError, ValueError):
+-            result = missing_result(part_dir)
++            result = missing_result(part_dir, part, getattr(o, "linux_job", ""), getattr(o, "linux_download", ""))
+         if result is None and not is_linux_part(part):
+             # The fleet check said no: no attempt, but the wait does not count against ABANDON_HOURS, the issue
+             # says when the bench host is gone from the controller, and a host it found offline is not pinned.
+             changed = True
+             start_yield(cur, t)
+             reason, worker = not_started_reason(part_dir)
+@@ -4087,13 +4141,14 @@ def result_refusal(state, value):
+ 
+ 
+ def result_plan(o, state, t):
+     """A run the controller started with a part's result: plan nothing new; the report job stores the part
+     (result_refusal says which results it drops)."""
+     value = controller_result(o.perf_result)
+-    out = {"action": "none", "sha": "", "part": "", "linux_part": "", "frame_pacing": "false", "stale_hours": round(stale_hours(state, t), 1)}
++    out = {"action": "none", "sha": "", "part": "", "linux_matrix": "[]", "frame_pacing": "false",
++           "stale_hours": round(stale_hours(state, t), 1)}
+     why = result_refusal(state, value)
+     if why:
+         out["reason"] = why
+     else:
+         out.update({"action": "result", "sha": value["sha"], "part": value["part"],
+                     "reason": f"the controller's {value['state']} result of part {value['part']} at {value['sha'][:12]}"
+@@ -4269,12 +4324,16 @@ def main(argv=None):
+     s = sub.add_parser("report", help="store the parts, finish the measurement, keep the issue (Linux)")
+     s.add_argument("--repo", required=True)
+     s.add_argument("--dir", required=True)
+     s.add_argument("--result", action="append", default=[], metavar="PART=DIR",
+                    help="a part that ran this tick and the directory with its result.json (repeatable)")
+     s.add_argument("--run-url", default="")
++    s.add_argument("--linux-job", default="",
++                   help="the linux matrix job's result (needs.linux.result): why a Linux part left no result.json")
++    s.add_argument("--linux-download", default="",
++                   help="the outcome of the report's download of the Linux parts' artifacts (not success: one attempt)")
+     s.add_argument("--finish", action="store_true", help="finish a measurement whose parts all ran")
+     s.add_argument("--issues", action="store_true", help="open, update or close the regression issue")
+     s.add_argument("--output")
+     s = sub.add_parser("fetch-result", help="write a controller result's result.json and report.json (report job)")
+     s.add_argument("--result", required=True, help="the perf_result JSON")
+     s.add_argument("--out", required=True)
