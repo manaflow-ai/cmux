@@ -2906,6 +2906,76 @@ class BlacksmithPrRescue(unittest.TestCase):
         # pr-rescue never turns the repository-wide switch on.
         self.assertFalse(cascade.blacksmith_on(rescue_env()))
 
+    def test_dispatch_rescue_rechecks_the_open_branch_head(self):
+        job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["macos-placement"]
+        step = next(step for step in job["steps"] if step.get("id") == "rescue-dispatch")
+        sha, repo, branch = "a" * 40, "manaflow-ai/cmux", "lane/rescue"
+        pull = {"head": {"sha": sha, "repo": {"full_name": repo}, "ref": branch}}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            gh = path / "gh"
+            gh.write_text('#!/bin/sh\necho called >> "$CALLS"\nprintf "%s\\n" "$PULLS"\n')
+            gh.chmod(0o755)
+            out = path / "output"
+            calls = path / "calls"
+            env = {**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "GITHUB_REPOSITORY": repo,
+                   "GITHUB_REPOSITORY_OWNER": "manaflow-ai", "GITHUB_REF_NAME": branch, "GITHUB_SHA": sha,
+                   "GITHUB_OUTPUT": str(out), "CALLS": str(calls), "PR_RESCUE_RUNNER": SMALL}
+            for attempt, pulls, expected in (("1", [pull], ""), ("2", [pull], "runner=" + SMALL),
+                    ("2", [], ""), ("2", [pull, pull], ""), ("2", [{"head": {**pull["head"], "sha": "b" * 40}}], ""),
+                    ("2", [{"head": {**pull["head"], "repo": {"full_name": "fork/cmux"}}}], "")):
+                out.write_text("")
+                subprocess.run(["bash", "-ec", step["run"]], check=True, env={
+                    **env, "GITHUB_RUN_ATTEMPT": attempt, "PULLS": json.dumps(pulls)})
+                self.assertEqual(out.read_text().strip(), expected)
+                if attempt == "1":
+                    self.assertFalse(calls.exists())
+
+    def test_dispatch_rescue_uses_the_configured_pool_even_with_no_free_slot(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        placement = jobs["macos-placement"]
+        self.assertIn("dispatch_rescue_runner", placement["outputs"])
+        step = next(step for step in placement["steps"] if step.get("id") == "rescue-dispatch")
+        context = github_context("workflow_dispatch", CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=SIDE,
+                                 CI_BLACKSMITH_MACOS=RESCUE)
+        sha = "a" * 40
+        context["github"].update(ref_type="branch", sha=sha, run_attempt="2", triggering_actor=RERUN_BOT)
+        context["needs"] = {"push-head-preflight": {"outputs": {"current": "true"}},
+                            "path_route": {"outputs": {"macos": "true"}}}
+        same_tree = dict(same_tree_sha="b" * 40, same_tree_origin="pull_request", same_tree_status_sha=sha,
+                         same_tree_state="ready", same_tree_tiers="daemon,scheme")
+        for inputs in (*NOT_A_PULL_DISPATCH, {**same_tree, "same_tree_status_sha": "c" * 40},
+                       {**same_tree, "same_tree_state": "failed"}):
+            self.assertFalse(evaluate(step["if"], {**context, "inputs": inputs}), inputs)
+        active_placement = placement["if"].replace("!cancelled()", "true")
+        for inputs in ({}, same_tree):
+            context["inputs"] = inputs
+            context["github"]["triggering_actor"] = "a-person"
+            self.assertFalse(evaluate(active_placement, context))
+            context["github"]["triggering_actor"] = RERUN_BOT
+            self.assertTrue(evaluate(active_placement, context))
+            for label in (SMALL, LARGE, SIDE):
+                context["vars"]["RUNNER_POOLS"] = json.dumps({"macos_26": label})
+                self.assertEqual(bool(evaluate(step["if"], context)), label != SIDE)
+                if label == SIDE:
+                    continue
+                runner = evaluate(step["env"]["PR_RESCUE_RUNNER"], context)
+                context["steps"] = {"rescue-dispatch": {"outputs": {"runner": runner}}}
+                output = evaluate(placement["outputs"]["dispatch_rescue_runner"], context)
+                for placed in ("1", "2"):
+                    # Full, stalled and unread pools all produce empty measured placement job lists.
+                    context["needs"]["macos-placement"] = {"outputs": {
+                        "dispatch_rescue_runner": output, "placed_attempt": placed}}
+                    for key in RETRY_JOBS:
+                        job = jobs[key]
+                        for expression in (job["runs-on"], (job.get("env") or {}).get("CMUX_NEXT_RUNNER")):
+                            if expression:
+                                value = evaluate(expression, context)
+                                if placed == "2":
+                                    self.assertEqual(value, label, key)
+                                else:
+                                    self.assertNotEqual(value, label, key)
+
     def test_placement_overflows_only_past_the_owned_route_threshold_under_the_cap(self):
         full, busy = DeadEndRoute.FULL, DeadEndRoute.BUSY_SMALL
         seen = DeadEndRoute.INCIDENT
