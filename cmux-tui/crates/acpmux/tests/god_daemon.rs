@@ -68,7 +68,24 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_CHURN_BUSY",
     "ACPMUX_CHURN_FOLLOW",
     "ACPMUX_CHURN_ARENAS",
+    // The growth lab's knobs (`god_daemon/growth.rs`).
+    "ACPMUX_GROWTH_SECS",
+    "ACPMUX_GROWTH_ROWS",
+    "ACPMUX_GROWTH_STABLE",
+    "ACPMUX_GROWTH_CHURN",
+    "ACPMUX_GROWTH_SSH_DOWN",
+    "ACPMUX_GROWTH_CUT_MS",
+    "ACPMUX_GROWTH_CHATS",
+    "ACPMUX_GROWTH_CLIENTS",
+    "ACPMUX_GROWTH_CLIENT_MS",
+    "ACPMUX_GROWTH_SLOW",
+    "ACPMUX_GROWTH_STACKS",
 ]);
+
+/// The growth lab: a daemon with many sessions under a mesh of peers that come and go.
+#[cfg(target_os = "linux")]
+#[path = "god_daemon/growth.rs"]
+mod growth;
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::god_fixture::{self, Shape};

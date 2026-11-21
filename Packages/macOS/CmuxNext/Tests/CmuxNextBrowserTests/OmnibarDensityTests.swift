@@ -49,8 +49,7 @@ import Testing
         let bar: CGFloat = preset == .cozy ? 34 : (28 / 0.9 * t * 2).rounded() / 2
         #expect(metrics.barHeight == bar && metrics.buttonSize == (preset == .cozy ? 28 : bar), "\(preset)")
         let font = preset == .cozy ? CGFloat((11 - 0.31) / 0.70459) : CGFloat((10 - 0.31) / 0.70459 / 0.9) * t
-        // Compact's is the user's tuned 13.753 (2026-11-19), the scaled size to three places.
-        #expect(abs(metrics.fontSize - font) < (preset == .compact ? 0.000_5 : 0.000_001), "\(preset): the omnibar font is \(metrics.fontSize), want \(font)")
+        #expect(abs(metrics.fontSize - font) < 0.000_001, "\(preset): the omnibar font is \(metrics.fontSize), want \(font)")
     }
 
     /// Lucas 2026-11-17: Default's omnibar is Compact's, every size the bar draws, on Chrome's 34 pt bar with 11 pt
@@ -210,7 +209,9 @@ import Testing
             let label = "\(preset) height \(String(describing: height)) font \(String(describing: fontSize))"
 
             let barRect = view.rect(bar), toolbar = view.rect(view.chrome.toolbar), page = view.rect(view.chrome.contentContainer)
-            #expect(barRect.height == expected.barHeight, "\(label): the bar is \(barRect.height) pt")
+            // On the window's pixels: a 1x display draws whole points (Spacious's 37.5 pt bar drew 37 there before).
+            let scale = view.window.backingScaleFactor
+            #expect(barRect.height == ((expected.barHeight) * scale).rounded() / scale, "\(label): the bar is \(barRect.height) pt at \(scale)x")
             #expect(Self.inside(barRect, toolbar), "\(label): the bar \(barRect) runs out of the toolbar \(toolbar)")
             #expect(page.maxY <= toolbar.minY + 0.5, "\(label): the page overlaps the toolbar")
             #expect(abs((bar.field.font?.pointSize ?? 0) - expected.fontSize) < 0.01, "\(label)")
@@ -230,7 +231,8 @@ import Testing
             #expect(field.maxX <= star.minX + 0.5, "\(label): the URL runs under the star")
             for button in [view.chrome.backButton, view.chrome.reloadButton] {
                 let frame = view.rect(button)
-                #expect(frame.width == expected.buttonSize && frame.height == expected.buttonSize, "\(label): a button is \(frame.size)")
+                let side = ((expected.buttonSize) * scale).rounded() / scale
+                #expect(frame.width == side && frame.height == side, "\(label): a button is \(frame.size), want \(side)")
                 #expect(Self.inside(frame, toolbar), "\(label): a toolbar button \(frame) leaves the toolbar \(toolbar)")
                 #expect(frame.maxX <= barRect.minX + 0.5, "\(label): a button overlaps the bar")
             }
