@@ -183,10 +183,11 @@ public final class SidebarSessionTree {
         }
     }
 
-    /// Folds or opens the subtree under `id`.
-    public func toggle(_ id: WorkspaceID) {
+    /// Folds or opens the subtree under `id`. `keeping`: the rows that are parents of subagents (a chat's
+    /// subagents nest under its row, `SidebarSubagentStrip`), whose folds stay though no session lists under them.
+    public func toggle(_ id: WorkspaceID, keeping: Set<WorkspaceID> = []) {
         if collapsed.remove(id) == nil { collapsed.insert(id) }
-        save()
+        save(keeping: keeping)
     }
 
     /// Opens every fold above `id` (a selected session, or one the needs-you tray goes to).
@@ -207,9 +208,9 @@ public final class SidebarSessionTree {
     /// prunes only on the user's own fold while the tree has parents: before the first pass every
     /// fold is kept, and `reveal` (which runs for the restored selection at launch, while the lanes
     /// may still be loading) never prunes.
-    private func save(pruning: Bool = true) {
+    private func save(pruning: Bool = true, keeping: Set<WorkspaceID> = []) {
         if pruning, let parents = state?.parents, !parents.isEmpty {
-            let live = Set(parents.values)
+            let live = Set(parents.values).union(keeping)
             collapsed = collapsed.filter(live.contains)
         }
         defaults.set(collapsed.map(\.rawValue).sorted(), forKey: Self.collapsedKey)
