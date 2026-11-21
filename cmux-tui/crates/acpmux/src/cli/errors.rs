@@ -104,7 +104,7 @@ impl AppError {
             return Self::new(
                 Code::NoSession,
                 "no_session",
-                crate::hub::no_session::not_a_peer_text(host, name, &crate::cli::entry::program()),
+                crate::hub::no_session::not_a_peer_text(host, name, crate::cli::entry::program()),
             )
             .with_data(serde_json::json!({"reason": "no_session", "session": key,
                 "candidates": Vec::<String>::new(), "host": host, "name": name,
