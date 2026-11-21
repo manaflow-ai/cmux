@@ -47,7 +47,9 @@ public nonisolated struct LaunchTimesRecorder: Sendable {
 
     /// Writes the record of this launch with `marks` (milliseconds since ``processStart``) on a files lane: appends
     /// it, or rewrites this launch's row when it is written already (``LaunchTimesFile/append(_:rewritingLast:)``).
-    public func write(marks: [String: Double]) {
+    /// `written`, when given, gets the record as written (its ``LaunchTimesRecord/firstLaunchOfBuild`` set), on the
+    /// files lane: the field launch timing (startup-tti) reads it.
+    public func write(marks: [String: Double], written: (@Sendable (LaunchTimesRecord) -> Void)? = nil) {
         let recorder = self
         work.post(.bestEffort, mayBlock: .files) {
             let log = Logger(subsystem: "com.cmuxterm.app.next", category: "launch")
@@ -58,6 +60,7 @@ public nonisolated struct LaunchTimesRecorder: Sendable {
                                              rewritingLast: written)
                 }
                 log.notice("launch-times \(line, privacy: .public)")
+                if let written, let record = try? JSONDecoder().decode(LaunchTimesRecord.self, from: Data(line.utf8)) { written(record) }
             } catch {
                 log.error("launch-times not written: \(String(describing: error), privacy: .public)")
             }

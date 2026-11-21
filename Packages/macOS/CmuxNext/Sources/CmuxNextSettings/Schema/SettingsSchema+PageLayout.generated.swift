@@ -149,7 +149,7 @@ extension SettingsSchema {
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .editor: ["fileEditor.importEditorSettings"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
-        case .home: ["chief.importMemories", "diagnostics.viewHangReport"]
+        case .home: ["diagnostics.viewHangReport"]
         case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
         case .notifications: ["toasts.showHidden"]
         case .accounts: ["accounts.refresh", "palette.mobileConnect"]
