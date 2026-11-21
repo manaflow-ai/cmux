@@ -51,6 +51,10 @@ public final class HomeConversationSession {
         observers[token] = nil
     }
 
+    /// A window shows it, or a send waits for (or failed on) the owner: it stays live
+    /// (``HomeLiveSessions``) however many other conversations open after it.
+    public var isHeld: Bool { !observers.isEmpty || !log.isEmpty }
+
     private func emit(_ change: Change) {
         for observer in observers.values { observer(change) }
     }

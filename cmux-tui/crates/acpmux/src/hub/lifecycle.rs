@@ -325,8 +325,9 @@ impl Hub {
         // A Cloud chat's owner credential (`agent_credentials.rs`) takes only an entry warmed with
         // that same credential (`_acpmux/prewarm` `credentials`, cmux#45953): the key's auth
         // fingerprint hashes the credentialed spawn env, so another credential, or none, misses.
+        let mut asked = None;
         let pooled = if shaped {
-            self.pool_claim(&meta, &profile, &defaults.env, credential.as_ref()).await
+            self.pool_claim(&meta, &profile, &defaults.env, credential.as_ref(), &mut asked).await
         } else {
             None
         };
@@ -395,6 +396,7 @@ impl Hub {
             meta.wait_start = wait_start;
             meta.throwaway = throwaway;
             let session = self.make_session(meta);
+            *session.codex_answer_asked.lock().unwrap_or_else(|e| e.into_inner()) = asked;
             session.person.store(person, Ordering::SeqCst);
             // Before the session is published, so its first spawn already has it; memory only.
             *session.credential.lock().unwrap_or_else(|e| e.into_inner()) = credential;
@@ -1293,6 +1295,9 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
+            // The translator starts in the mode the process runs in, also over a profile that
+            // pins its own: Claude Code reports it only with the first turn's `system/init`.
+            let run_mode = crate::claude_stdio::spawn_mode(profile, &mode).to_owned();
             // The chat's Sources (`additional_dirs.rs`), at every start.
             let mut plan = plan;
             plan.args.extend(super::additional_dirs::claude_args(&meta));
@@ -1304,7 +1309,7 @@ impl Hub {
             if self.agent_hosts_enabled() {
                 let translator = crate::agent_host::TranslatorSpec {
                     acp_session_id: session.id.clone(),
-                    mode: mode.clone(),
+                    mode: run_mode.clone(),
                     model: model.clone(),
                     effort: effort.clone(),
                     fast,
@@ -1324,7 +1329,7 @@ impl Hub {
             } else {
                 let tr = crate::claude_stdio::Translator::new(
                     session.id.clone(),
-                    &mode,
+                    &run_mode,
                     &model,
                     &effort,
                 );
@@ -1526,6 +1531,8 @@ impl Hub {
             return Ok(child);
         }
         let existing = session.meta().agent_session_id;
+        // This start's answer for the person's own `cmux` entry (`record_spawn_inputs`).
+        let codex_answer = session.codex_answer.lock().unwrap_or_else(|e| e.into_inner()).clone();
         // What the user had chosen before; replayed after load or new.
         let saved = session.meta();
         let loaded = match existing {
@@ -1535,7 +1542,14 @@ impl Hub {
                 let res = child
                     .request(
                         method::SESSION_LOAD,
-                        self.acp_params(&session.id, &meta, profile, Some(&sid), &child),
+                        self.acp_params(
+                            &session.id,
+                            &meta,
+                            profile,
+                            Some(&sid),
+                            &child,
+                            &codex_answer,
+                        ),
                     )
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
@@ -1573,7 +1587,7 @@ impl Hub {
             let res = match child
                 .request(
                     method::SESSION_NEW,
-                    self.acp_params(&session.id, &meta, profile, None, &child),
+                    self.acp_params(&session.id, &meta, profile, None, &child, &codex_answer),
                 )
                 .await
             {
