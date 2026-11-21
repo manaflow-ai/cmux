@@ -414,10 +414,15 @@ fn settle_the_replay(mux: &Mux) {
 
 /// Sets the stored projection's `updated_at_ms`, in the type it is stored in.
 fn set_projection_updated_at(mux: &Mux, terminal_id: &TerminalPublicId, at_ms: u64) {
-    mux.workspace_registry.lock().unwrap().edit_agent_projection_for_test(terminal_id, |row| {
-        let stamp = &mut row["updated_at_ms"];
-        *stamp = if stamp.is_string() { Value::String(at_ms.to_string()) } else { at_ms.into() };
-    });
+    mux.workspace_registry
+        .lock()
+        .unwrap()
+        .edit_agent_projection_for_test(terminal_id, |row| {
+            let stamp = &mut row["updated_at_ms"];
+            *stamp =
+                if stamp.is_string() { Value::String(at_ms.to_string()) } else { at_ms.into() };
+        })
+        .unwrap();
 }
 
 /// A replay from zero held at its gate, and a direct report of `state` from
@@ -478,7 +483,8 @@ fn the_replays_reconcile_repairs_a_stale_projection_stamped_later() {
     mux.workspace_registry
         .lock()
         .unwrap()
-        .edit_agent_projection_for_test(&terminal_id, |row| row["state"] = "idle".into());
+        .edit_agent_projection_for_test(&terminal_id, |row| row["state"] = "idle".into())
+        .unwrap();
     set_projection_updated_at(&mux, &terminal_id, t0 + 3_600_000);
     let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
     let (release, release_rx) = std::sync::mpsc::sync_channel(0);
