@@ -474,6 +474,19 @@ export function computerUseWorkerCommand(): string {
   ].join("; ");
 }
 
+/** The worker runs, its display and AT-SPI units are active, and its env points at that display and bus, headless. */
+function workerStartedByComputerUse(w: Record<string, string>, bus: string): boolean {
+  return (
+    w["worker-pid"] !== "none" &&
+    w[`worker-unit-${DISPLAY_UNIT}`] === "active" &&
+    w[`worker-unit-${A11Y_UNIT}`] === "active" &&
+    w["worker-env-DISPLAY"] === AGENT_DISPLAY &&
+    w["worker-env-XAUTHORITY"] === AGENT_XAUTHORITY &&
+    w["worker-env-CMUX_CU_HEADLESS"] === "1" &&
+    w["worker-env-DBUS_SESSION_BUS_ADDRESS"] === bus
+  );
+}
+
 /**
  * CU_SERVER's machine checks: the first call started the display, its AT-SPI bus and the worker on it,
  * headless; the worker cannot gain privileges and finds the refusing sudo/apt first (role cua-video
@@ -484,7 +497,7 @@ async function computerUseChecks(vm: Vm, check: Checker, ffmpegInstalled: string
   const bus = `unix:path=/run/cmux-agent-a11y-${AGENT_DISPLAY.slice(1)}/bus`;
   check(
     "display-and-worker-started-by-computer-use",
-    w["worker-pid"] !== "none" && w[`worker-unit-${DISPLAY_UNIT}`] === "active" && w[`worker-unit-${A11Y_UNIT}`] === "active" && w["worker-env-DISPLAY"] === AGENT_DISPLAY && w["worker-env-XAUTHORITY"] === AGENT_XAUTHORITY && w["worker-env-CMUX_CU_HEADLESS"] === "1" && w["worker-env-DBUS_SESSION_BUS_ADDRESS"] === bus,
+    workerStartedByComputerUse(w, bus),
     JSON.stringify({ worker: w["worker-pid"], display: w[`worker-unit-${DISPLAY_UNIT}`], a11y: w[`worker-unit-${A11Y_UNIT}`], DISPLAY: w["worker-env-DISPLAY"], headless: w["worker-env-CMUX_CU_HEADLESS"], bus: w["worker-env-DBUS_SESSION_BUS_ADDRESS"] }),
   );
   const report = await readGuest(vm, `${PROBE_DIR}/mcp-${CU_SERVER}.json`).then((t) => JSON.parse(t) as { tools: string[]; calls: Array<{ name: string; text: string }> }).catch(() => null);
