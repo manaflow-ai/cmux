@@ -168,6 +168,9 @@ fn state(row: &Value, pauses: &BTreeMap<String, String>) -> String {
     if pending(row) > 0 {
         return "waiting".into();
     }
+    if let Some(count) = row["capacityWaitCount"].as_u64().filter(|&count| count > 0) {
+        return format!("Waiting for capacity ({count})");
+    }
     row["state"]
         .as_str()
         .map_or_else(|| row.get_str("status").unwrap_or("").to_owned(), str::to_owned)

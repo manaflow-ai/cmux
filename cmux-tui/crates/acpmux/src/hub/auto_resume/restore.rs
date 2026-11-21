@@ -385,8 +385,13 @@ impl Hub {
                 }
                 return;
             }
-            // A restored `rate_limit` wait holds the chat again until its deadline.
-            hub.wait_retry(&session, &turn_id, retry.reason, retry.next_at, &wake).await;
+            if super::super::capacity::exhausted(&error) {
+                hub.restore_capacity_retry(&session, &error, last.at, not_before).await;
+            }
+            if !hub.retry_waits_for_capacity(&session, &error).await {
+                // A restored rate limit holds the chat again until its deadline.
+                hub.wait_retry(&session, &turn_id, retry.reason, retry.next_at, &wake).await;
+            }
             let cut = CutTurn {
                 from: from.as_deref(),
                 prompt_id: &retry.prompt_id,

@@ -6134,6 +6134,12 @@
           "description": "`_acpmux/process/background` (Ctrl-B) moves its foreground work: its\nharness is Claude Code (claude-stdio), whatever the harness's name.\nClients offer Ctrl-B from this, not from `harness`.",
           "type": "boolean"
         },
+        "capacityWaitCount": {
+          "description": "Number of queued turns or retries waiting for gateway capacity.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "children": {
           "description": "Its sub-sessions that are not closed.",
           "format": "uint32",
@@ -6906,6 +6912,12 @@
         "backgroundsWork": {
           "description": "`_acpmux/process/background` (Ctrl-B) moves its foreground work: its\nharness is Claude Code (claude-stdio), whatever the harness's name.\nClients offer Ctrl-B from this, not from `harness`.",
           "type": "boolean"
+        },
+        "capacityWaitCount": {
+          "description": "Number of queued turns or retries waiting for gateway capacity.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "children": {
           "description": "Its sub-sessions that are not closed.",

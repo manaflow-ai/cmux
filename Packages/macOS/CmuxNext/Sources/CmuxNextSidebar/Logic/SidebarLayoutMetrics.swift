@@ -228,9 +228,13 @@ nonisolated extension SidebarLayoutOptions {
         // What the agent needs, for the row's accessibility label only: a row draws no status words
         // (Leo 2026-10-21), its badge's dot says it. Worded on the main actor by the row view.
         if let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }
-        // A row that already has a second line says there what its agent does now; a one-line row
-        // keeps its height, so rows do not grow and shrink as agents start and stop.
-        if content.detail != nil, let step = ws.agentStep {
+        // A capacity hold is visible even when a workspace has no optional detail line.
+        if ws.capacityWaitCount > 0 {
+            let count = ws.capacityWaitCount.formatted()
+            content.detail = String(localized: "sidebar.workspace.waitingForCapacity",
+                                    defaultValue: "Waiting for capacity (\(count))", bundle: .module)
+        } else if content.detail != nil, let step = ws.agentStep {
+            // Ordinary agent activity uses a detail line only when the row already has one.
             (content.now, content.detail) = (step, step)
         }
         // Steps left in the agent's task list: a quiet "3/7" where a one-line status would sit, never

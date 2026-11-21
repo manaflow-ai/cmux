@@ -302,6 +302,10 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub retry_deciding: bool,
+    /// Number of queued turns or retries waiting for gateway capacity.
+    #[serde(default, skip_serializing_if = "capacity_wait_count_is_zero")]
+    #[schemars(default)]
+    pub capacity_wait_count: u64,
     /// Attached clients.
     pub attached: u64,
     /// Some attached client shows the chat.
@@ -1016,6 +1020,10 @@ pub struct SessionChanged {
     /// The list position this change took (`hub/row_log.rs`): the client's cursor for
     /// `_acpmux/watch {afterSeq}` is the highest it applied.
     pub list_seq: u64,
+}
+
+fn capacity_wait_count_is_zero(count: &u64) -> bool {
+    *count == 0
 }
 
 /// To a watcher that asked for batches (`initialize` `_meta.acpmux.peerRowBatches`), in place of

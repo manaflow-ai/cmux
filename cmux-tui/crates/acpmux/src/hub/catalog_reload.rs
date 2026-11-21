@@ -110,6 +110,7 @@ impl Hub {
                 artifacts,
                 composer_max_rows,
                 tui,
+                capacity,
                 // Kept until a restart: each is read once, when the daemon starts what it
                 // configures (`daemon.rs`), or is this run's own state.
                 acpmux_v2: _,      // the v2 surfaces are registered at start
@@ -198,6 +199,7 @@ impl Hub {
             current.artifacts = artifacts;
             current.composer_max_rows = composer_max_rows;
             current.tui = tui;
+            current.capacity = capacity;
             // The next agent started gets the new login variables (`login_env.rs`).
             crate::login_env::set_extra_allow(login_env_allow.clone());
             current.login_env_allow = login_env_allow;

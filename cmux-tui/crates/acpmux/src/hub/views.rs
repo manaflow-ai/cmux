@@ -175,6 +175,7 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         // so the parent's own row says so, whatever its own turn does (`asks_below.rs`).
         _ if summary["subsessionsWaiting"].as_u64().unwrap_or(0) > 0 => Some("input"),
         "running" => Some("working"),
+        _ if summary["capacityWaitCount"].as_u64().unwrap_or(0) > 0 => None,
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
         // A peer gone unreachable takes its work with it; a local chat whose harness stopped
@@ -691,6 +692,12 @@ impl Hub {
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
         // After `turn`: a retry's turn that started since is seen there (`retry_row`).
         let (retry, retry_deciding) = self.retry_row(session, m.last_turn.as_ref());
+        let capacity_retry = (retry.is_some() || retry_deciding)
+            && m.last_turn
+                .as_ref()
+                .and_then(|turn| turn["errorText"].as_str())
+                .is_some_and(super::capacity::exhausted);
+        let capacity_wait_count = self.capacity_wait_count(session, &m, capacity_retry);
         let loop_episode = if m.status == SessionStatus::Closed
             || turn.as_ref().is_none_or(|current| {
                 session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()).as_deref()
@@ -901,6 +908,7 @@ impl Hub {
             // A retry of its failed last turn waits, or is being decided (`auto_resume.rs`).
             retry,
             retry_deciding,
+            capacity_wait_count,
             attached: session.attached.load(Ordering::SeqCst) as u64,
             // Some attached client shows the chat (`hub/seen.rs`).
             shown: self.shown(session),

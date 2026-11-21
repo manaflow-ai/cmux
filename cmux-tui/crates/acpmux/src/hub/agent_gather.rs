@@ -35,7 +35,7 @@ pub(in crate::hub) fn gathers(session: &Session, p: &super::super::queue::Slot<'
         && !p.no_queue
         // A steer its turn ended before reading, or a prompt let in again: it waited already.
         && !p.admitted
-        && !p.after_turn
+        && p.after_turn.is_none()
         && !p.interrupt
         && !p.steer_on_start
         && !matches!(p.class, Some(PromptClass::Block | PromptClass::Question))

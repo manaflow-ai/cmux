@@ -86,6 +86,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let usageWarnings: [String]
     /// What is done and next across the chat's turns (the summary's `taskList`); nil without one.
     public let taskList: AgentTaskList?
+    public let capacityWaitCount: Int
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
                 workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil,
@@ -94,7 +95,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                 usageWarnings: [String] = [], sidebarRequiresOpen: Bool = false,
                 turnPrompt: String? = nil, turnActivity: String? = nil, turnPlanStep: String? = nil,
                 chiefChildren: String? = nil, chiefParticipant: String? = nil,
-                agentSession: String? = nil, shortName: String? = nil, taskList: AgentTaskList? = nil) {
+                agentSession: String? = nil, shortName: String? = nil, taskList: AgentTaskList? = nil,
+                capacityWaitCount: Int = 0) {
         self.id = id
         self.taskList = taskList
         self.agentSession = agentSession
@@ -126,6 +128,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.markKey = markKey
         self.preview = preview
         self.usageWarnings = usageWarnings
+        self.capacityWaitCount = capacityWaitCount
     }
 
     /// A person should look: it waits on them, failed or was lost.
@@ -169,7 +172,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  chiefChildren: nonEmpty((summary["tags"] as? [String: Any])?["mux.children"]),
                                  chiefParticipant: nonEmpty((summary["tags"] as? [String: Any])?["cmux.chief.participant"]),
                                  agentSession: nonEmpty(summary["agentSessionId"]), shortName: nonEmpty(summary["shortName"]),
-                                 taskList: AgentTaskList.of(summary["taskList"]))
+                                 taskList: AgentTaskList.of(summary["taskList"]),
+                                 capacityWaitCount: (summary["capacityWaitCount"] as? NSNumber)?.intValue ?? 0)
     }
 
     /// A summary's epoch-milliseconds field as a date; nil when absent or not a number.

@@ -1532,6 +1532,8 @@ export type SessionDetail = {
    * Clients offer Ctrl-B from this, not from `harness`.
    */
   backgroundsWork: boolean;
+  /** Number of queued turns or retries waiting for gateway capacity. */
+  capacityWaitCount?: number;
   /** Its sub-sessions that are not closed. */
   children: number;
   configOptions?: unknown;
@@ -1905,6 +1907,8 @@ export type SessionSummary = {
    * Clients offer Ctrl-B from this, not from `harness`.
    */
   backgroundsWork: boolean;
+  /** Number of queued turns or retries waiting for gateway capacity. */
+  capacityWaitCount?: number;
   /** Its sub-sessions that are not closed. */
   children: number;
   createdAt: number;

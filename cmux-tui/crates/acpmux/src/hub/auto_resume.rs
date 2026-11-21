@@ -385,6 +385,14 @@ pub(super) fn check_cut(
     }
 }
 
+pub(super) fn check_capacity_cut(session: &Session, cut: &str) -> Result<(), RpcError> {
+    let pending = session.auto_resume.lock();
+    if matches!(pending.as_ref(), Some(Mark::Stopping(t) | Mark::Stopped(t)) if t == cut) {
+        return Err(stopped());
+    }
+    check_cut(session, Some(cut), false)
+}
+
 /// Whether `session`'s account rate limit holds it while its compaction runs (`rate_hold.rs`):
 /// that one prompt goes ahead of what the hold queued, which goes in after it with the
 /// continuation.
@@ -701,7 +709,7 @@ impl Hub {
                 hub.take_pending(&session, &turn_id);
                 return;
             };
-            if set {
+            if set && !hub.retry_waits_for_capacity(&session, &error).await {
                 hub.wait_retry(&session, &turn_id, reason, next_at, &wake).await;
             }
             let cut = CutTurn {
@@ -1076,6 +1084,7 @@ impl Hub {
             (None, None) => pending.take(),
         };
         drop(pending);
+        session.queue_moved.notify_waiters();
         // A row may have shown this turn's retry being decided: watchers and peers hear it
         // settle, though an idle Stop records nothing else (Codex review, round 3).
         if let Some(turn) = settles {

@@ -626,7 +626,14 @@ impl Hub {
         {
             return Err(super::turn_cap::steer_unavailable(capped));
         }
+        let capacity_blocks_steer = if steer && running.is_some() {
+            let route = super::capacity::Route::of(&*self.config.read().await, &session.meta());
+            self.capacity_waits(route.as_ref())
+        } else {
+            false
+        };
         let steer_now = steer
+            && !capacity_blocks_steer
             && !trigger_held
             && session.steering.load(Ordering::SeqCst)
             && running.is_some()
@@ -732,7 +739,7 @@ impl Hub {
             replaced: &replaced,
             no_queue: opts.no_queue,
             admitted: opts.admitted,
-            after_turn: after_turn.is_some(),
+            after_turn: after_turn.as_deref(),
             steer_on_start,
         };
         let (turn_id, waiting, mut guard, run) =
@@ -1770,6 +1777,22 @@ impl Hub {
         if let Some(e) = harness_failure {
             result = Err(e);
         }
+        let capacity_exhausted = if let Err(error) = &result
+            && super::capacity::exhausted(&error.message)
+        {
+            let route = super::capacity::Route::of(&*self.config.read().await, &session.meta());
+            if let Some(route) = route {
+                let at = now_ms();
+                let reset = super::capacity::retry_at(&error.message, at)
+                    .max(super::auto_resume::reset_hint::error_reset_at(error.data.as_ref(), at));
+                self.capacity_close(route, reset);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
         // The agent messages that went in with it go back before anything here waits, so one sent
         // from now on goes behind them (`digest.rs`).
         // A turn the account's limit refused before its model read a word: every agent message in
@@ -1956,7 +1979,7 @@ impl Hub {
                     }
                     self.append(session, "mux", "turn_error", record);
                     self.note_model_refusal(session, &e.message);
-                    if !detached {
+                    if !detached && !capacity_exhausted {
                         self.pause_queue(session, turn_id);
                     }
                     self.summary_turn_ended(session, false, None);
