@@ -136,6 +136,14 @@ import UIKit
 
         // The first attach fails (the dropped link) and gives up.
         try await waitUntil { if case .failed = inner.connectionState { true } else { false } }
+        func diagCmds() -> [String] {
+            daemon.recorded.compactMap { object -> String? in
+                guard let cmd = object["cmd"] as? String else { return nil }
+                if let cols = object["cols"] as? Int, let rows = object["rows"] as? Int { return "\(cmd):\(cols)x\(rows)" }
+                return cmd
+            }
+        }
+        var diag = "phase1 t=\(Int((CACurrentMediaTime() - started) * 1000)) state=\(inner.connectionState) attached=\(inner.isAttached) err=\(inner.lastError ?? "-") writes=\(daemon.writes) cmds=\(diagCmds()) events=\(session.events.count)\n"
         #expect(!inner.isAttached)
         // The outage.
         let outageEnd = CACurrentMediaTime() + 0.4
@@ -143,7 +151,10 @@ import UIKit
         // The link is back (`finishServing` reconnects every open terminal).
         let back = CACurrentMediaTime()
         inner.reconnect()
+        diag += "phase2 t=\(Int((CACurrentMediaTime() - started) * 1000)) state=\(inner.connectionState) model=\(model.connectionState) writes=\(daemon.writes)\n"
         try await waitUntil { inner.isAttached && model.coldFrame == nil }
+        diag += "phase3 t=\(Int((CACurrentMediaTime() - started) * 1000)) state=\(inner.connectionState) model=\(model.connectionState) attached=\(inner.isAttached) cold=\(model.coldFrame != nil) err=\(inner.lastError ?? "-") writes=\(daemon.writes) cmds=\(diagCmds()) events=\(session.events.map { String(describing: $0).prefix(60) })\n"
+        Attachment.record(diag, named: "reconnect-diag.txt")
         numbers.timeToContentMs = model.coldFrame == nil ? (CACurrentMediaTime() - back) * 1000 : -1
         if let since = blankSince { numbers.blankMs += (CACurrentMediaTime() - since) * 1000 }
         numbers.transportBytes = session.bytesBeforeAttach
