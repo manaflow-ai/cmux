@@ -16,7 +16,6 @@
     {"glob": "web/data/*.generated.json", "why": "web/scripts/export-docs-shortcuts.ts output"},
     {"glob": "web/data/next-docs/*.generated.json", "why": "web/scripts/export-next-docs.ts output"},
     {"glob": "clients/ts/cloud/src/generated.ts", "why": "backend/packages/protocol/scripts/export-client.ts"},
-    {"glob": "cmux-tui/bindings/**/.cmux-resource-api.json", "why": "SDK codegen, sync-resource-api.py"},
     {"glob": "cmux-tui/bindings/**/.cmux-sdk-manifest.json", "why": "SDK codegen manifest"},
     {"glob": "cmux-tui/bindings/go/raw/generated_*.go", "why": "SDK codegen (Go)"},
     {"glob": "cmux-tui/bindings/java/src/com/cmux/raw/**", "why": "SDK codegen (Java)"},
