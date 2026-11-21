@@ -11,8 +11,11 @@ import CmuxNextDesignTokens
 /// themes/modes". The native half of the control contrast audit (the web half is
 /// webviews/test/control-contrast-N.test.ts): every shared button look cmux draws in AppKit and
 /// SwiftUI is rendered for real in an offscreen window, in a spread of light, dark and
-/// terminal-tinted themes, on the three grounds a control sits on (the window, a popover's card over
-/// the worst desktop, and a see-through window over the worst desktop), enabled and disabled. Each
+/// terminal-tinted themes, on the three grounds a control sits on (the window, a popover's surface,
+/// and a see-through window over the worst desktop), enabled and disabled. The popover is a real
+/// ``OverlaySurfaceView`` on its opaque popup surface (Reduce Transparency; the glass does not render
+/// offscreen), so each control fits its inks to the ground it finds in the view tree, as in the app.
+/// It was the ``CardMaterial`` fill over the worst desktop, which no native overlay draws. Each
 /// control's label is read from the painted pixels: its ink against its own fill must reach 4.5:1
 /// for text (3:1 for an icon), and a disabled control's 2.5:1, the legible floor.
 ///
@@ -141,13 +144,11 @@ import CmuxNextDesignTokens
         let scope = ThemeScope(level: .room)
         scope.setOverride(try #require(ThemeSpec("Audit \(theme.name)")), input: input, animated: false)
         let tokens = scope.tokens
-        // What is behind the controls: the worst desktop for the theme under a card or a see-through window.
+        // What is behind a see-through window: the worst desktop for the theme.
         let desktop: ThemeRGB = tokens.isDark ? .white : .black
         let groundColor: ThemeRGB = switch ground {
         case .window: tokens.windowBackground.withAlpha(1)
-        case .popover:
-            CardMaterial(tokens, lift: ChromeTunables.opaqueOverlayLift.value, minimumOpacity: ChromeTunables.cardOpacity.value)
-                .tint.composited(over: desktop)
+        case .popover: tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)
         case .seeThrough: tokens.windowBackground.composited(over: desktop)
         }
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 760, height: 360))
@@ -162,6 +163,14 @@ import CmuxNextDesignTokens
         defer { window.close() }
         scope.adopt(window)
         scope.root(container)
+        // On a popover the controls sit in a real overlay surface, which paints the ground itself.
+        var host: NSView = container
+        if ground == .popover {
+            let surface = OverlaySurfaceView(material: .opaque, interactive: true, cornerRadius: 0)
+            surface.frame = container.bounds
+            container.addSubview(surface)
+            host = surface.contentView
+        }
         // A swatch of a known color: the capture must give it back, or no reading of it can be trusted.
         let swatchColor = ThemeRGB(red: 0xd9 / 255.0, green: 0x3b / 255.0, blue: 0x31 / 255.0)
         let swatch = NSView(frame: NSRect(x: 0, y: 0, width: 8, height: 8))
@@ -170,10 +179,12 @@ import CmuxNextDesignTokens
         container.addSubview(swatch)
         let samples = catalog(scope: scope, disabled: disabled)
         // The most any ink reaches on a see-through ground: the theme's own primary text there.
-        let ceiling = ground == .seeThrough ? tokens.textPrimary.withAlpha(1).contrast(with: groundColor) : .infinity
+        // Read as the capture holds them, 8 bits a channel: Rose Pine Dawn's text is 2.363:1 on its exact ground and
+        // 2.354:1 on the 8-bit one, so the theme's own ink failed its own ceiling.
+        let ceiling = ground == .seeThrough ? tokens.textPrimary.withAlpha(1).eightBit.contrast(with: groundColor.eightBit) : .infinity
         var x: CGFloat = 16, y: CGFloat = 16, rowHeight: CGFloat = 0
         for sample in samples {
-            container.addSubview(sample.view)
+            host.addSubview(sample.view)
             let size = sample.view.fittingSize
             let width = max(size.width, 24), height = max(size.height, 22)
             if x + width > container.bounds.width - 16 { x = 16; y += rowHeight + 16; rowHeight = 0 }
@@ -210,7 +221,9 @@ import CmuxNextDesignTokens
                                     percentile: sample.isIcon ? 0.99 : 0.95)
             else { return nil }
             let standard = disabled ? disabledMinimum : sample.isIcon ? iconMinimum : textMinimum
-            let minimum = min(standard, ceiling * standard / textMinimum)
+            // Under a see-through ceiling the theme's own text is the best any ink can do; its antialiased edge pulls the
+            // patch's percentile a hair under the ink itself (Dracula's text read 3.73:1 against a 3.75:1 ceiling).
+            let minimum = min(standard, ceiling * standard / textMinimum - (ceiling < textMinimum ? 0.05 : 0))
             return Reading(theme: theme.label, ground: ground, control: sample.name, disabled: disabled,
                            ratio: patch.ratio, minimum: minimum, ink: patch.ink, fill: patch.fill,
                            isReference: sample.isReference)
@@ -352,5 +365,13 @@ private extension ThemeRGB {
     /// `#rrggbb`, for the report.
     var auditHex: String {
         String(format: "#%02x%02x%02x", Int((red * 255).rounded()), Int((green * 255).rounded()), Int((blue * 255).rounded()))
+    }
+}
+
+private extension ThemeRGB {
+    /// The color as an 8-bit capture holds it.
+    var eightBit: ThemeRGB {
+        func channel(_ value: Double) -> Double { (value * 255).rounded() / 255 }
+        return ThemeRGB(red: channel(red), green: channel(green), blue: channel(blue), alpha: alpha)
     }
 }

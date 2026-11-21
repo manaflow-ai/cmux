@@ -2291,7 +2291,6 @@ async fn dispatch_request_with_identity(
                 reply_reader: reader.as_ref().map(super::prompt_cancel::ReaderGone::subscribe),
                 inbox: inbox_on
                     && crate::hub::inbox::plain_send(
-                        conn.origin == super::Origin::Peer,
                         flag("teamMessage") == Some(true),
                         supersede_set,
                         flag("steerOnly") == Some(true),
