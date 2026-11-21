@@ -297,6 +297,48 @@ class RowsTests(unittest.TestCase):
         self.assertFalse(cron.over_target(name, rows[name], 16.67))
         self.assertNotIn("launch.warm.did_finish_launching_start", rows, "the Dock part's rows never mix with the direct exec's")
 
+    def test_dock_relaunch_time_before_main_is_a_row(self):
+        """The code-sign clone's rescan before main on a Dock relaunch (about 600 ms) shows as launch.dock.warm.main_start
+        over its 166 ms budget."""
+        part = cron.PART_BY_NAME["launch-dock"]
+        rows = cron.rows_of_part(part, {"split-spring": {"warm": [{"main_start": v} for v in (598, 616, 640)]}},
+                                 budgets_mod, {"rows": {}})
+        name = "launch.dock.warm.main_start"
+        self.assertEqual(cron.target_of(name, rows[name], 16.67), 166)
+        self.assertTrue(cron.over_target(name, rows[name], 16.67))
+
+    def test_cold_launch_rows_judge_home_against_600_ms(self):
+        """A cold launch (no daemon, empty home, a fresh copy of the bundle each run) stores launch.cold.<mark> rows: Home
+        on screen against 600 ms (goals/next-launch-instant.md) and the first frame against 300 ms (launch-shell-first.md);
+        a run that never showed Home is a missing_runs row, not a dropped value."""
+        part = cron.PART_BY_NAME["launch-cold"]
+        args = part["args"]
+        for word in ("--mode=cold", "--fresh-copy", "--ready-mark=reveal.home", "--activation=active",
+                     "--window-placement=restore"):
+            self.assertIn(word, args)
+        self.assertLessEqual(len(args) + 1, 16, "the controller's step takes at most 16 args (with --vdisplay-hold)")
+        slow = {"split-spring": {"cold": [{"main_start": 1500, "first_window_frame_committed": v, "reveal.home": v + 150}
+                                          for v in (2790, 2800, 2950)] + [{"main_start": 1490, "first_window_frame_committed": 2810}]},
+                "not_run": []}
+        rows = cron.rows_of_part(part, slow, budgets_mod, {"rows": {}})
+        home, frame = "launch.cold.reveal.home", "launch.cold.first_window_frame_committed"
+        self.assertEqual(rows[home]["p50"], 2950)
+        self.assertEqual(cron.target_of(home, rows[home], 16.67), 600)
+        self.assertEqual(cron.target_of(frame, rows[frame], 16.67), 300)
+        self.assertTrue(cron.over_target(home, rows[home], 16.67))
+        self.assertEqual(rows[home + ".missing_runs"]["p95"], 1, "the run that never showed Home")
+        self.assertEqual(rows[frame + ".missing_runs"]["p95"], 0)
+        for name in (home, frame, home + ".missing_runs"):
+            self.assertEqual(cron.part_for_row(name), "launch-cold")
+        self.assertEqual(cron.part_for_row("launch.warm.reveal.home"), "launch")
+        self.assertNotIn("launch.cold.sidebar_rows_shown", rows, "only the cold budget's marks are rows")
+        regs = cron.find_regressions({home: rows[home]}, {}, 16.67, 16.67, budgets_mod)
+        self.assertEqual([r["name"] for r in regs], [home], "over 600 ms with no reference is still listed")
+        fast = {"split-spring": {"cold": [{"first_window_frame_committed": v, "reveal.home": v + 200} for v in (240, 260, 280)]}}
+        rows = cron.rows_of_part(part, fast, budgets_mod, {"rows": {}})
+        self.assertFalse(cron.over_target(home, rows[home], 16.67))
+        self.assertFalse(cron.over_target(frame, rows[frame], 16.67))
+
     def test_stress_pane_summary_rows(self):
         report = {"summary": [{"action": "close", "layout": "stress", "frames_p50_ms": 16.6, "frames_p95_ms": 33.3}],
                   "runs": [{"refresh_ms": 16.67}]}
@@ -1882,7 +1924,6 @@ class ControllerRouteTests(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(out, "report.json")))
 
 
-
 class HostTests(OneRunRule):
     """Lead decision 2026-10-24: a part runs on any idle measure worker; every part of one measurement on one host;
     rows compare only with values of the same host; each row and the issue name the host and its macOS."""
@@ -2314,7 +2355,6 @@ class MeasureVersionTests(unittest.TestCase):
         with mock.patch.object(cron, "measure_version", versions.get):
             self.assertEqual([c for c in "abcd" if cron.fleet_runs(c, 2)], ["a", "b"])
             self.assertFalse(cron.fleet_runs("d", None), "a tip with no version measures nothing")
-
 
 
 class RateLimitTests(unittest.TestCase):
@@ -2882,7 +2922,6 @@ class HostWaitTests(unittest.TestCase):
         self.assertEqual(cron.migrate_state(fresh)["current"]["parts"]["motion"]["worker"], X)
 
 
-
 class NoHostTipTests(OneRunRule):
     """2026-11-16 00:59Z: tip 83b6f50f waited on cmux20-bench (reserved, given up twice) for memory-agents and
     throughput, and no newer tip could start before the 48 h cap: the Linux parts that failed on it (web-ui-flat, no
@@ -3285,7 +3324,6 @@ class MeasureVersionGateTests(OneRunRule):
         self.assertEqual(cron.measure_version_of("626c77accc2f511146571fbb9314b1af95d2d7c9", "#!/bin/bash\n"), 2)
 
 
-
 class HostGoneSignalTests(unittest.TestCase):
     """The controller sends host_gone when a request named a worker it does not have (hq perf_cron.go goneLocked):
     the cron retires that host at once, its open regressions close at the next Mac measurement elsewhere."""
@@ -3314,7 +3352,6 @@ class HostGoneSignalTests(unittest.TestCase):
         self.assertTrue(cron.result_files(value)["host_gone"])
 
 
-
 class BisectGoneHostTests(unittest.TestCase):
     """Review of hq #3854, finding 4: a bisect step for a gone host's rows would get host_gone back on every step."""
     tick = PlanReportTests.tick
@@ -3339,6 +3376,37 @@ class BisectGoneHostTests(unittest.TestCase):
                     self.assertEqual(plan["action"], "none", "no bisect step for a gone host's rows")
                 else:
                     self.assertEqual((plan["action"], plan["sha"], plan["worker"]), ("part", "b" * 40, "cmux21"))
+
+
+class StaleTipFirstTests(unittest.TestCase):
+    """2026-11-21 (run 44846739082): the rows were 136.8 h old, a tip measurement that waited for the fleet was just
+    abandoned, and that abandon made the next tick start a bisect step. Only a tip stores rows, so while the rows are
+    stale (no complete tip within STALE_HOURS) the tip goes before any bisect step."""
+
+    def state(self, measured_h, tried_h):
+        state = cron.empty_state(T0)
+        state["last"] = {"sha": "e" * 40, "measured_at": cron.iso(at(measured_h))}
+        state["last_tried"] = {"sha": "f" * 40, "at": cron.iso(at(tried_h))}
+        return state
+
+    def test_a_tip_tried_lately_still_waits_while_the_rows_are_fresh(self):
+        self.assertFalse(cron.tip_due(self.state(measured_h=20, tried_h=29), at(30)))
+
+    def test_stale_rows_make_the_tip_due_even_right_after_a_tip_was_tried(self):
+        self.assertTrue(cron.tip_due(self.state(measured_h=0, tried_h=29), at(30)))
+
+    def test_an_abandoned_tip_in_the_history_does_not_hold_a_stale_tip_back(self):
+        state = self.state(measured_h=0, tried_h=0)
+        state["history"] = [{"sha": "d" * 40, "kind": "tip", "status": "abandoned", "at": cron.iso(at(29.9))}]
+        self.assertTrue(cron.tip_due(state, at(30)))
+
+    def test_decide_starts_the_tip_not_the_bisect_when_the_rows_are_stale(self):
+        tip, step = "a" * 40, "b" * 40
+        for measured_h, kind, sha in ((20, "bisect", step), (0, "tip", tip)):
+            state = self.state(measured_h=measured_h, tried_h=29)
+            bisect = {"sha": step, "range": {"good": "c" * 40, "bad": "d" * 40}, "rows": ["tab_switch.e2e@cmux21"]}
+            cron.decide(state, at(30), tip, bisect, lambda sha: [p["name"] for p in cron.PARTS], None)
+            self.assertEqual((state["current"]["kind"], state["current"]["sha"]), (kind, sha), measured_h)
 
 
 class BisectBudgetTests(unittest.TestCase):
@@ -3396,7 +3464,6 @@ class BisectBudgetTests(unittest.TestCase):
             self.assertEqual(looked["place"], 2 * cron.BISECT_JUDGED_PER_TICK)
 
 
-
 class DiffBenchVersionTests(unittest.TestCase):
     """Lead 2026-10-24: a change to the diff benches at the measured commit is version-gated like split-spring.sh."""
 
@@ -3437,7 +3504,6 @@ class DiffBenchVersionTests(unittest.TestCase):
         self.assertEqual(cron.version_changed(now, legacy), every, "a reference stored before versions is unscaled v1")
 
 
-
 class RebaseListTests(OneRunRule):
     """Lead 2026-10-24: every version rebase shows in the issue body, also one of an incomplete measurement."""
     NAME = "cmd_d.e2e@" + cron.BENCH_WORKER
@@ -3461,7 +3527,6 @@ class RebaseListTests(OneRunRule):
         body = cron.issue_body(self.state, "o/r", at(9))
         self.assertIn("Rebases", body)
         self.assertIn("measurement version or part args changed, 1 row(s) (" + self.NAME, body)
-
 
 
 class NotMeasuringTests(unittest.TestCase):
