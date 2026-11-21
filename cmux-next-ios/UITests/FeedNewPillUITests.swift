@@ -15,7 +15,6 @@ final class FeedNewPillUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_LIVE"] = "3"
         app.launchArguments += ["-cmux-mobile-tab", "feed", "-cmux-mobile-no-restore"]
         app.launch()
-        defer { stopLiveStress(app) }
 
         let all = feedChipsAfterSetup(app)
         // The Finished filter: no open asks pinned above the events (FeedStore.pinningNeedsYou), so
