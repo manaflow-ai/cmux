@@ -80,7 +80,9 @@ on:
   # tree-preflight is the filter: a branch push whose tree key is already
   # published spends no macOS time (run_macos=false) and publishes nothing.
   push:
-    branches: ["**"]
+    # Draft pushes (lane/draft/**) back up an agent's unpushed work; they
+    # never need a tree publication, so they start no run.
+    branches: ["**", "!lane/draft/**"]
     # The published binaries do not contain the prose under cmux-tui/docs.
     # Keep the publisher asleep for docs-only commits; v2 tree-key computation
     # excludes the same non-runtime subtree. A push that also changes code
