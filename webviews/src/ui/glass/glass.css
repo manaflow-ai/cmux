@@ -195,6 +195,19 @@
   --glass-backdrop: none;
   --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
 }
+/* The page's status hues, resolved on the root, for the status inks on glass (below): a custom
+   property cannot read its own inherited value, so the glass mixes from these. */
+:root {
+  --glass-hue-failure: var(--agent-status-failure);
+  --glass-hue-warning: var(--agent-status-warning);
+  --glass-hue-success: var(--agent-status-success);
+  --glass-hue-agent-danger: var(--agent-danger);
+  --glass-hue-danger: var(--ds-color-danger);
+  --glass-hue-attention: var(--ds-color-attention);
+  --glass-hue-ds-success: var(--ds-color-success);
+  --glass-hue-merged: var(--agent-status-merged);
+  --glass-hue-agent-warning: var(--agent-warning);
+}
 /* THE SECONDARY INK ON GLASS (design/glass-system.md, rule 5): a hint, a detail line or a
    placeholder on glass keeps 3:1 over the glass laid on pure black, pure white and a busy wallpaper.
    The page's own secondary ink is fitted to the opaque page, so on a level that lets a white page
@@ -207,14 +220,18 @@
    surface) and the previous glass keep the page's ink; Increase Contrast keeps the full text, as
    on the page. */
 @media (not (prefers-reduced-transparency: reduce)) and (not (prefers-contrast: more)) {
-  /* The onboarding import cards are the chrome level on classes of their own (onboarding/styles.css). */
+  /* The onboarding import cards (onboarding/styles.css) and the Chief dock (acpmux styles.css) are
+     glass levels on classes of their own. */
   :root:not([data-reduce-transparency], [data-glass-levels="previous"])
-    :is(.ui-glass, .onb-import .onb-import-list, .onb-import .onb-import-options, .onb-import .onb-express-ask) {
-    --glass-ink-secondary: color-mix(
-      in srgb,
-      var(--agent-text, var(--cmux-text, CanvasText)) var(--ds-glass-ink-secondary),
-      transparent
-    );
+    :is(
+      .ui-glass,
+      .onb-import .onb-import-list,
+      .onb-import .onb-import-options,
+      .onb-import .onb-express-ask,
+      .acpmux-chief-dock
+    ) {
+    --glass-ink-text: var(--agent-text, var(--cmux-text, CanvasText));
+    --glass-ink-secondary: color-mix(in srgb, var(--glass-ink-text) var(--ds-glass-ink-secondary), transparent);
     --cmux-text-secondary: var(--glass-ink-secondary);
     --agent-muted: var(--glass-ink-secondary);
     --agent-soft: var(--glass-ink-secondary);
@@ -223,6 +240,31 @@
     --cmux-text-tertiary: var(--glass-ink-secondary);
     --page-text-2: var(--glass-ink-secondary);
     --page-text-3: var(--glass-ink-secondary);
+    /* THE STATUS INKS ON GLASS (design/glass-system.md, rule 5): a red, amber, green or purple word
+       on glass ("Checks failed" or "Merged" on a hover card, "Needs input", a failed step in Session
+       Info, a destructive menu row). The
+       page's status hues are fitted to the opaque page (AgentPaneTheme lifts the ANSI slots to 4.5:1
+       over it), so under dark glass on a white page the red fell to 2.2:1. Each takes the design
+       scale's --ds-glass-ink-status share of its hue and the rest the theme's text (glassInk.status:
+       65% in light, deepened toward the dark text; 55% in dark, lifted toward the light text), so
+       it stays the same hue family and moves with the text. The hues are the page's, kept on :root (below),
+       so a glass inside a glass is not lifted twice. A solid destructive button keeps the hue
+       (controls.css reads --glass-hue-danger). */
+    --agent-status-failure: color-mix(in srgb, var(--glass-hue-failure) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --agent-status-warning: color-mix(in srgb, var(--glass-hue-warning) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --agent-status-success: color-mix(in srgb, var(--glass-hue-success) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --agent-danger: color-mix(in srgb, var(--glass-hue-agent-danger) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --agent-diff-add: var(--agent-status-success);
+    --agent-diff-del: var(--agent-status-failure);
+    --ds-color-danger: color-mix(in srgb, var(--glass-hue-danger) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --ds-color-attention: color-mix(in srgb, var(--glass-hue-attention) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --ds-color-success: color-mix(in srgb, var(--glass-hue-ds-success) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --agent-status-merged: color-mix(in srgb, var(--glass-hue-merged) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --agent-warning: color-mix(in srgb, var(--glass-hue-agent-warning) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --acpmux-needs-you-mark: var(--agent-warning, var(--agent-accent, var(--agent-text)));
+    /* For a status ink a rule mixes on the spot (the unread blue, startedSessions.css): the share on
+       glass, none off it. */
+    --glass-ink-status-share: var(--ds-glass-ink-status);
   }
   /* A field on glass with no placeholder colour of its own takes the glass's secondary ink, not the
      browser's grey (#757575, 1.4:1 under dark glass on a white page). :where keeps any field's own. */
@@ -249,6 +291,13 @@
    rim. Reduce Transparency keeps the opaque fill and the hairline rim (below), and
    appearance.borders none clears the rim and the sheen (--glass-rim 0); the shadow stays. */
 :root {
+  /* The sheen's share in dark: 3.5%, the composer's own (composerStates.css, half of 7% under its
+     glint). The sheen is a white band 16 px into the top, under a first line of text; at 7% on dark
+     glass over a white page it lifted the glass toward the page and took the text from 5.25:1 to
+     about 4.5:1 (4.48 on a dimmer theme ink), the band touching the text floor (design/glass-system.md,
+     rule 5). At 3.5% the text keeps about 4.9:1 there and the band still reads. Light keeps 34% (a
+     white band under dark text only adds contrast). The previous glass brings back the 7% (below). */
+  --glass-material-sheen-dark: 3.5%;
   --glass-material-blur: var(--ds-glass-popover-radius); /* the popover level's radius and its saturation */
   --glass-material-saturate: var(--ds-glass-saturation); /* the one saturation (design/glass-system.md); 1.8 until the one glass system */
   --glass-material-backdrop: blur(var(--glass-material-blur)) saturate(var(--glass-material-saturate));
@@ -265,7 +314,7 @@
   );
   --glass-material-sheen: light-dark(
     color-mix(in srgb, var(--cmux-tone-light, #fff) calc(34% * var(--glass-rim)), transparent),
-    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(7% * var(--glass-rim)), transparent)
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(var(--glass-material-sheen-dark) * var(--glass-rim)), transparent)
   );
   --glass-material-rim:
     inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--glass-material-specular),
@@ -547,10 +596,12 @@
    data-glass-levels="previous" on <html>): the glass numbers from before the one glass system
    (design/glass-system.md, cmux#48174), for people who want the old look back. One tint for light
    and dark (chrome 60%, popover 70%, menu 78%), the old saturations (chrome 1.4, popover 1.25, the
-   composer material 1.8, the selection reply 1.4), no lit top edge, the 70% see-through underlay,
-   content cards as chrome glass, and the private tints the system folded into its levels (Jump to
-   latest and the since pill 72%, the Chief dock 64%, the onboarding import cards 62% with the old
-   popover blur). The same numbers as the `now` arm of scripts/gallery/glass-system.capture.json;
+   composer material 1.8, the selection reply 1.4), the material's 7% sheen in dark, no lit top
+   edge, the 70% see-through underlay, content cards as chrome glass, and the
+   private tints the system folded into its levels (Jump to latest and the since pill 72%, the pill
+   under the chrome blur; the Chief dock 64% with its 8% text wash, its own rims and the chrome blur;
+   the onboarding import cards 62% with the old popover blur). The same numbers as the `now` arm of
+   scripts/gallery/glass-system.capture.json;
    test/previous-glass.test.ts checks the two agree. Reduce Transparency still draws every glass
    solid: its rules above hold the surface with !important, and the per-surface tints below stand
    down under it. Every value here is a token or a tint, never an opaque fill. */
@@ -568,6 +619,7 @@
   --ds-glass-saturation: 1.4;
   --ds-glass-edge-top: 0%;
   --glass-material-saturate: 1.8;
+  --glass-material-sheen-dark: 7%;
 }
 :root[data-glass-levels="previous"] .ui-glass.ui-glass-content {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-chrome-tint), transparent);
@@ -578,8 +630,24 @@
     :is(.acpmux-jump-latest, .acpmux-since-jump) {
     --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
   }
+  :root[data-glass-levels="previous"]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency])
+    .acpmux-since-jump {
+    --glass-backdrop: var(--ds-glass-chrome-blur);
+  }
   :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .acpmux-chief-dock {
     --chief-glass-fill: color-mix(in srgb, var(--acpmux-base, var(--agent-page-bg)) 64%, transparent);
+    --chief-glass-backdrop: var(--ds-glass-chrome-blur);
+    --chief-glass-wash: 8%;
+    --chief-glass-edge: color-mix(in srgb, var(--agent-text) 26%, transparent);
+    --chief-glass-rim:
+      inset 0 1px 0 color-mix(in srgb, var(--agent-text) 30%, transparent),
+      inset 0 -1px 0 color-mix(in srgb, var(--acpmux-base, var(--agent-page-bg)) 20%, transparent);
+  }
+  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .acpmux-chief-dock-rail {
+    --chief-glass-edge: color-mix(in srgb, var(--agent-text) 28%, transparent);
+    --chief-glass-rim:
+      inset 0 1px 0 color-mix(in srgb, var(--agent-text) 30%, transparent),
+      inset 0 -1px 0 color-mix(in srgb, var(--acpmux-base, var(--agent-page-bg)) 22%, transparent);
   }
   :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .onb-import {
     --onb-card-glass: color-mix(in srgb, var(--ds-color-surface) 62%, transparent);

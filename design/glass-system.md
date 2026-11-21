@@ -50,6 +50,12 @@ does. Native glass (the window, sidebar, native menus, the native tooltip) is no
    the composer placeholder and dim words, and a field's own placeholder) read inside `.ui-glass`.
    The page's secondary ink is fitted to an opaque page, so under dark glass on a white page it fell
    to 1.6-2.8:1 (the audit, cmux#48174); an alpha of the text moves with what the glass lets through.
+   A status word on glass (red, amber, green, merged purple, the unread blue: `--agent-status-*`,
+   `--agent-danger`, `--agent-warning` and the needs-you mark, the diff marks,
+   `--ds-color-danger/attention/success`) is one ink too: the design scale's `glassInk.status` share
+   of its hue (65% light, 55% dark), the rest the theme's text, so "Checks failed" on a dark hover
+   card over a white page keeps 3:1 (it was 2.2:1) and "Needs input" on a light one over black keeps
+   it (it was 1.9:1). A solid destructive button keeps the hue (`--glass-hue-danger`).
 6. **See-through pages.** Where the page can blur itself under a surface (`seeThroughBlur.ts`,
    `data-glass-over`), it does, and the surface lays no underlay. Where it cannot, the underlay is
    40%, so a menu (80% over 40%) covers 88% of the text under it, not 93%.
@@ -160,9 +166,9 @@ surface takes after this change.
 | Summary popover | chrome via `.ui-glass-floats`, page blurs in place | popover | chrome numbers now 62% / 62%, 1.6; level name is a follow-up |
 | Workflow side tab; thread minimap card; image viewer; chat gallery | popover 70%, 24 px | popover | 72% / 70%, 1.6 |
 | PDF viewer, paste view, tool visual card | chrome plus 70% underlay | popover | 62% / 62% over 40% underlay |
-| Jump to latest, jump up, since-divider pill, needs-you pill | page background at a private 72% (clear over art), fisheye lens | popover | the popover level (72% / 70%); the fisheye stays its own mode |
+| Jump to latest, jump up, since-divider pill, needs-you pill | page background at a private 72% (clear over art), fisheye lens | popover | the popover level (72% / 70%) and its blur (the since pill took the chrome blur); the fisheye stays its own mode |
 | Selection reply pill | surface at 90%, `blur(6px) saturate(1.4)` | chip, 5 | saturation now the one 1.6; 90% kept (its contrast test) |
-| Chief dock rail and cards | text 7-8% over surface at a private 64%, chrome blur | popover | the popover level (72% / 70%); chrome blur now 1.6 |
+| Chief dock rail and cards | text 7-8% over surface at a private 64%, chrome blur | popover | the popover level (72% / 70%) and its blur, no text wash, the one edge, the glass's secondary ink |
 | Changelog lightbox, Home channels lightbox | surface at 60% / 72% plus chrome blur | scrim | follow-up: the scrim level |
 | Files sidebar scrim | 38% black plus `blur(2px)` | scrim | none (allowlisted softening) |
 | Diff hunk pill, Stage-all bar | text at 4% plus 20 px blur, underlay | chip | follow-up |

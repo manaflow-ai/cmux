@@ -432,6 +432,18 @@
 .onb-import-access.ui-btn {
   font-size: var(--text-caption);
 }
+/* A quiet button on the import cards' glass (Open System Settings) rests at the control level
+   (design/chat-surfaces.md): no fill, the ink's 16% outline. The subtle fill is the text's own 6%,
+   which in dark lifts the glass toward a white wallpaper under it, so the button's words fell to
+   4.2:1 while the card's held 4.6:1. Hover and press keep their fills; the previous glass keeps the
+   old filled rest. */
+:root:not([data-glass-levels="previous"])
+  .onb-import
+  :is(.onb-import-list, .onb-import-options, .onb-express-ask)
+  .ui-btn[data-variant="subtle"]:not(:hover, :active, [data-popup-open], [data-disabled]) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--ds-surface-control-line);
+}
 
 .onb-kinds {
   display: flex;

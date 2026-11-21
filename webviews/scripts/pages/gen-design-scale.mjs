@@ -77,6 +77,13 @@ function load() {
       data.glassInk.darkSecondary < 100,
     "the secondary ink on glass stays a step under the text, and no fainter in dark (dark glass passes more of a white page)",
   );
+  assert(
+    data.glassInk.status > 0 &&
+      data.glassInk.status <= 100 &&
+      data.glassInk.darkStatus >= 40 &&
+      data.glassInk.darkStatus <= data.glassInk.status,
+    "a status word on glass keeps most of its hue, and no more hue in dark (dark glass passes more of a white page)",
+  );
   const levels = data.glass.filter((level) => level.kind === "level").map((level) => level.name);
   assert(
     levels.join() === "chrome,popover,menu,chip",
@@ -185,6 +192,7 @@ function cssBlock(data) {
   out.push(`  --ds-glass-content-tint: ${data.glassContent.tint}%;`);
   out.push(`  /* glass ink: ${data.glassInk.for} */`);
   out.push(`  --ds-glass-ink-secondary: ${data.glassInk.secondary}%;`);
+  out.push(`  --ds-glass-ink-status: ${data.glassInk.status}%;`);
   out.push(`  /* glass underlay: ${data.glassUnderlay.for} */`);
   out.push(`  --ds-glass-underlay: ${data.glassUnderlay.value}%;`);
   out.push(`  /* glass material: ${data.glassMaterial.for} */`);
@@ -239,6 +247,7 @@ function cssBlock(data) {
     `    --ds-glass-edge-top: ${data.glassEdge.topDark}%;`,
     `    --ds-glass-content-tint: ${data.glassContent.darkTint}%;`,
     `    --ds-glass-ink-secondary: ${data.glassInk.darkSecondary}%;`,
+    `    --ds-glass-ink-status: ${data.glassInk.darkStatus}%;`,
   ];
   out.push("@media (prefers-color-scheme: dark) {", '  :root:not([data-theme="light"]) {', ...dark, "  }", "}");
   out.push(':root[data-theme="dark"] {', ...dark.map((line) => line.slice(2)), "}");

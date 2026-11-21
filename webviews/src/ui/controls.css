@@ -106,14 +106,16 @@
 .ui-btn[data-danger]:not([data-variant="solid"]) {
   color: var(--ds-color-danger);
 }
+/* A destructive solid is a fill, not text: it keeps the page's danger hue on glass too (glass.css
+   lifts --ds-color-danger toward the text only for words). */
 .ui-btn[data-danger][data-variant="solid"] {
-  background: var(--ds-color-danger);
+  background: var(--glass-hue-danger, var(--ds-color-danger));
   color: var(--ds-color-on-accent);
 }
 /* Keep destructive solids in the danger colour family while hovering or holding a popup open. */
 .ui-btn[data-danger][data-variant="solid"]:hover:not([data-disabled]),
 .ui-btn[data-danger][data-variant="solid"][data-popup-open] {
-  background: color-mix(in srgb, var(--ds-color-danger) 88%, var(--ds-color-on-accent));
+  background: color-mix(in srgb, var(--glass-hue-danger, var(--ds-color-danger)) 88%, var(--ds-color-on-accent));
 }
 .ui-btn[data-disabled] {
   opacity: 0.4;

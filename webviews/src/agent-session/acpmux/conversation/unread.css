@@ -150,8 +150,11 @@
   opacity: 0;
   pointer-events: none;
 }
+/* One level (design/glass-system.md): the popover level's tint and its blur, as Jump to latest
+   (jumpPair.css); it took the popover tint under the chrome blur. */
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-since-jump {
   --glass-tint: color-mix(in srgb, var(--agent-page-bg) var(--ds-glass-popover-tint), transparent);
+  --glass-backdrop: var(--ds-glass-popover-blur);
 }
 :root[data-borders="none"] .acpmux-since-jump {
   --glass-edge: transparent;
@@ -207,7 +210,9 @@
 }
 .acpmux-since-jump .acpmux-since-jump__action {
   border-inline-start: var(--cmux-hairline) solid var(--unread-separator);
-  color: var(--unread-accent-text);
+  /* Accent words on glass take the status inks' share of their hue, the rest the text (glass.css,
+     THE STATUS INKS ON GLASS): Mark read fell to 2.4:1 on the dark pill over a white page. */
+  color: color-mix(in srgb, var(--unread-accent-text) var(--glass-ink-status-share, 100%), var(--agent-text));
   font-weight: var(--weight-emphasis);
 }
 .acpmux-since-jump .acpmux-since-jump__toggle {
