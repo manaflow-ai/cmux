@@ -494,7 +494,7 @@ print(dns.upstreams_from(text))
   });
 
   test("the stub's edge pair is the firewall's default edge addresses", async () => {
-    const edges = freestyleEdgeAddresses({}).map((cidr) => cidr.replace(/\/(32|128)$/, ""));
+    const edges = freestyleEdgeAddresses({} as NodeJS.ProcessEnv).map((cidr) => cidr.replace(/\/(32|128)$/, ""));
     expect(await python(String.raw`
 print(sorted([*dns.EDGE_RESOLVER_IPV6.keys(), *dns.EDGE_RESOLVER_IPV6.values()]))
 `)).toEqual([`[${[...edges].sort().map((edge) => `'${edge}'`).join(", ")}]`]);
