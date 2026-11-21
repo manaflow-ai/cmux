@@ -284,6 +284,16 @@ public final class CloudAuth {
     /// in memory and never opens the Keychain or the file fallback.
     static func tokenStore(configuration: CloudConfiguration, memoryOnly: Bool = false) -> any StackAuthTokenStoreProtocol {
         if memoryOnly { return MemoryStackTokenStore() }
+        let own = ownTokenStore(configuration: configuration)
+        guard let shared = configuration.sharedSession.map({
+            KeychainStackTokenStore(service: $0.keychainService, accessGroup: $0.accessGroup)
+        }) else { return own }
+        return SharedSessionTokenStore(own: own, shared: shared)
+    }
+
+    /// This build's own Keychain store with its file fallback, adopting once from the namespaced store its
+    /// update used.
+    static func ownTokenStore(configuration: CloudConfiguration) -> any StackAuthTokenStoreProtocol {
         let own = FallbackTokenStore(
             primary: KeychainStackTokenStore(service: configuration.keychainService),
             fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
@@ -307,6 +317,15 @@ public final class CloudAuth {
             magicLinkCallbackURL: configuration.authWebOrigin.appendingPathComponent("auth/callback").absoluteString,
             apiBaseURL: configuration.apiBaseURL.absoluteString
         )
+        // A session adopted from cmux NIGHTLY, or imported from the shared item, is the other build's own: a
+        // sign-out here leaves it alive on the server.
+        var keepsServerSession: (@Sendable (String) async -> Bool)?
+        let base: any StackAuthTokenStoreProtocol = (tokenStore as? CaptureFencedTokenStore)?.base ?? tokenStore
+        if let sharing = base as? any KeepsSharedSessions {
+            keepsServerSession = { (refreshToken: String) async -> Bool in
+                await sharing.isShared(refreshToken: refreshToken)
+            }
+        }
         return StackAuthClient(config: config, tokenStore: .custom(tokenStore),
                                baseURL: configuration.stackBaseURL.absoluteString, noAutomaticPrefetch: true)
     }
