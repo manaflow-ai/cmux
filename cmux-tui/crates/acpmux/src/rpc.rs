@@ -472,6 +472,9 @@ pub mod method {
     /// `acpmux register NAME`: the session the caller's shell runs in takes a stable name
     /// (`hub/register.rs`). Local unix socket only.
     pub const MUX_REGISTER: &str = "_acpmux/register";
+    /// A Claude Code session's own MCP server polls for the deliveries into that session's inbox
+    /// and writes them itself (`claude_inbox_relay.rs`). Local unix socket only.
+    pub const MUX_INBOX_RELAY: &str = "_acpmux/inbox_relay";
     pub const MUX_KILL: &str = "_acpmux/kill";
     pub const MUX_KEEP: &str = "_acpmux/keep";
     pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";

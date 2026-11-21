@@ -9766,7 +9766,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>Unfinished surfaces, such as the agent session's coverage label and Pull requests view.</string>
+			<string>Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view.</string>
 			<key>pfm_name</key>
 			<string>labs.previewFeatures</string>
 			<key>pfm_title</key>

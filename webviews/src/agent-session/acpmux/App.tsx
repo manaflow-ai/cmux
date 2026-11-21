@@ -894,6 +894,7 @@ import { applyPaneTheme, applyPaneThemeCSS } from "./paneTheme";
 import { dismissFocusRing } from "../../ui/focusModality";
 import { useDraftWaitOver } from "./draftSettleHold";
 import { focusRoute } from "../../ui/focusRoute";
+import { LiveTreePill } from "./header/LiveTreePill";
 export { VirtualTranscript } from "./VirtualTranscript";
 export type { ScrollAnchor } from "./VirtualTranscript";
 
@@ -929,6 +930,8 @@ declare global {
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
+      /// The default-off live-tree status card (Settings > Advanced > Labs, `labs.liveTree`).
+      applyLiveTree?(on: boolean): void;
       /// How a Cloud start goes (cloudStartProgress.ts `cloudStartPushed`): `{key, step?, machine?,
       /// size?, secrets?, network?}` for the start `cloud.startChat {key}` began.
       cloudStartProgress?(push: unknown): void;
@@ -1627,6 +1630,7 @@ export type InitialChat = {
   snapshot: AcpmuxSnapshot;
   machineName?: string;
   workflowLabs?: boolean;
+  liveTree?: boolean;
 };
 
 /// The newest turn end of a settled view's fork points, if it named any.
@@ -1678,6 +1682,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// default, not behind Labs: Leo asked for them (2026-10-24, "leo dynamic workflows ... idk how we
   /// wanna display but here"). A host `workflowLabs` push of false still turns them off.
   const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(initialChat?.workflowLabs !== false);
+  /// The first live-tree slice is opt-in from Settings > Advanced > Labs; the default pane stays unchanged.
+  const [liveTreeEnabled, setLiveTreeEnabled] = useState(initialChat?.liveTree === true);
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
   /// Where this New Tab page's new chat starts, as the app knew it when the page loaded
@@ -3825,6 +3831,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Session Info shows: every listed chat's usage is read now (direct.ts `refreshUsage`).
   const refreshUsage = useCallback(() => directClient.current?.refreshUsage(), []);
   // Session Info's Changes row reads the folder's git changes (session-info/changeCounts.ts).
+  const readLiveTree = useCallback(
+    () =>
+      snapshot.sessionId
+        ? (directClient.current?.liveTreeStatus(snapshot.sessionId) ?? Promise.resolve(undefined))
+        : Promise.resolve(undefined),
+    [snapshot.sessionId],
+  );
   const readChanges = useCallback(
     (scope: string) => directClient.current?.gitDiffCounts(scope) ?? Promise.reject(new Error()),
     [],
@@ -3844,6 +3857,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               listProcesses: processSource.listProcesses,
               tailProcess: (processId, maxBytes) =>
                 directClient.current?.tailProcess(processId, maxBytes) ?? Promise.reject(new Error()),
+              tailTask: (taskId, maxBytes) =>
+                directClient.current?.bgTail(shownSessionId, taskId, maxBytes) ?? Promise.reject(new Error()),
             },
           }
         : undefined,
@@ -8257,6 +8272,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // pick; nothing creates a paid VM without one.
         setPromptSurfaces(on === true);
         // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
+      },
+      applyLiveTree(on) {
+        setLiveTreeEnabled(on === true);
       },
       applyWorkflowLabs(on) {
         setWorkflowLabsEnabled(on === true);
@@ -14208,6 +14226,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     )}
                   </ChatHeaderStatus>
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
+                    {liveTreeEnabled && snapshot.sessionId && (
+                      <LiveTreePill key={snapshot.sessionId} cwd={snapshot.summary?.cwd} readStatus={readLiveTree} />
+                    )}
                     <LivePresenceStack
                       sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                       fallback={snapshot.presence}

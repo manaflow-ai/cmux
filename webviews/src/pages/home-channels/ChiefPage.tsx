@@ -152,7 +152,7 @@ export function ChiefPage({ service, strings, chief: given, picture, chiefName }
   const runCheck = (harness: string) => {
     if (!harness || harness === (chief?.engine?.harness ?? "")) return setCheck({ state: "idle" });
     setCheck({ state: "checking", harness });
-    service.checkBackend(harness).then(
+    service.checkBackend(harness, chief?.id).then(
       (result) =>
         setCheck((now) =>
           now.state === "checking" && now.harness === harness

@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 import unittest
 import urllib.error
@@ -7887,6 +7888,138 @@ class WsCheckFailureText(unittest.TestCase):
                           ("test_y (__main__.A.test_y)", ["KeyError: 'k'"])])
 
 
+class SourceCacheBound(unittest.TestCase):
+    """git_cache's bound on its bare repo (source_cache_hold): past SOURCE_CACHE_MAX_BYTES and a day old, the next run
+    no other run shares it with makes it again from nothing; a repo another run holds, or one under the cap or made
+    today, is kept as it is."""
+    REPO = "o/r"
+
+    def setUp(self):
+        top = tempfile.TemporaryDirectory(prefix="bre-bound-")
+        self.addCleanup(top.cleanup)
+        self.cache = Path(top.name, "src")
+        self.where = self.cache / "o__r.git"
+        for patch in (unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_ENV: str(self.cache),
+                                                            excuse.SOURCE_CACHE_MAX_BYTES_ENV: "4096"}),
+                      unittest.mock.patch.dict(excuse._SOURCE_CACHE_LOCKS, clear=True)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.addCleanup(self.release)
+        git_fixture_env.init_repo(self.where, "--bare")
+        self.blob = subprocess.run(["git", "--git-dir", str(self.where), "hash-object", "-w", "--stdin"],
+                                   input=os.urandom(64 * 1024), capture_output=True, check=True).stdout.decode().strip()
+
+    def release(self):
+        for fd in excuse._SOURCE_CACHE_LOCKS.values():
+            os.close(fd)
+
+    def has_blob(self) -> bool:
+        return subprocess.run(["git", "--git-dir", str(self.where), "cat-file", "-e", self.blob],
+                              capture_output=True).returncode == 0
+
+    def age(self, seconds):
+        stamp = self.where / excuse.SOURCE_CACHE_STAMP
+        stamp.touch()
+        when = time.time() - seconds
+        os.utime(stamp, (when, when))
+
+    def test_a_repo_past_the_cap_is_made_again_from_nothing(self):
+        self.assertIsNotNone(excuse.git_cache(self.REPO))
+        self.assertFalse(self.has_blob())
+        self.assertTrue((self.where / "HEAD").is_file())
+        self.assertTrue((self.where / excuse.SOURCE_CACHE_STAMP).is_file())
+        self.assertEqual(sorted(path.name for path in self.cache.iterdir()), ["o__r.git", "o__r.git.lock"])
+        config = subprocess.run(["git", "--git-dir", str(self.where), "config", "remote.origin.partialclonefilter"],
+                                capture_output=True, text=True)
+        self.assertEqual(config.stdout.strip(), "blob:none")
+
+    def test_a_repo_under_the_cap_is_kept(self):
+        with unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_MAX_BYTES_ENV: str(1 << 30)}):
+            excuse.git_cache(self.REPO)
+        self.assertTrue(self.has_blob())
+
+    def test_a_repo_made_within_the_day_is_kept_past_the_cap(self):
+        self.age(excuse.SOURCE_CACHE_MIN_AGE_SECONDS - 600)
+        excuse.git_cache(self.REPO)
+        self.assertTrue(self.has_blob())
+        self.age(excuse.SOURCE_CACHE_MIN_AGE_SECONDS + 600)
+        self.release()  # the first run exits; a later one starts
+        excuse._SOURCE_CACHE_LOCKS.clear()
+        excuse.git_cache(self.REPO)
+        self.assertFalse(self.has_blob())
+
+    def test_a_repo_another_run_holds_is_never_moved(self):
+        import fcntl
+        other = os.open(self.where.with_name("o__r.git.lock"), os.O_RDWR | os.O_CREAT)
+        self.addCleanup(os.close, other)
+        fcntl.flock(other, fcntl.LOCK_SH)
+        excuse.git_cache(self.REPO)
+        self.assertTrue(self.has_blob())
+
+    def test_a_run_holds_its_repo_shared_until_it_exits(self):
+        import fcntl
+        excuse.git_cache(self.REPO)
+        excuse.git_cache(self.REPO)  # once per process: no second lock, no second check
+        self.assertEqual(len(excuse._SOURCE_CACHE_LOCKS), 1)
+        other = os.open(self.where.with_name("o__r.git.lock"), os.O_RDWR)
+        self.addCleanup(os.close, other)
+        fcntl.flock(other, fcntl.LOCK_SH | fcntl.LOCK_NB)  # readers share
+        fcntl.flock(other, fcntl.LOCK_UN)
+        with self.assertRaises(OSError):
+            fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)  # no rebuild under a live run
+
+    def test_a_copy_an_earlier_rebuild_left_is_removed_when_no_run_holds_the_repo(self):
+        left = self.cache / "o__r.git.retired-1-2"
+        (left / "objects").mkdir(parents=True)
+        with unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_MAX_BYTES_ENV: str(1 << 30)}):
+            excuse.git_cache(self.REPO)
+        self.assertFalse(left.exists())
+        self.assertTrue(self.has_blob())
+
+
+class JobsCacheBound(unittest.TestCase):
+    """prune_kept, the jobs cache's prune (kept job lists and settled reads): past its age, a crashed write's spare
+    file past an hour, then the oldest answers until the directory fits JOBS_CACHE_MAX_BYTES."""
+
+    def setUp(self):
+        top = tempfile.TemporaryDirectory(prefix="bre-jobs-")
+        self.addCleanup(top.cleanup)
+        self.where = Path(top.name)
+
+    def kept(self, name, size, age):
+        path = self.where / name
+        path.write_bytes(b"x" * size)
+        when = time.time() - age
+        os.utime(path, (when, when))
+        return path
+
+    def test_the_oldest_answers_go_until_the_directory_fits_the_cap(self):
+        oldest, older, newest = self.kept("a.json", 400, 300), self.kept("b.json", 400, 200), self.kept("c.json", 400, 100)
+        (self.where / "settled").mkdir()
+        with unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_MAX_BYTES_ENV: "900"}):
+            excuse.prune_kept(self.where, 3600)
+        self.assertEqual([path.exists() for path in (oldest, older, newest)], [False, True, True])
+        self.assertTrue((self.where / "settled").is_dir())
+
+    def test_answers_past_their_age_and_stale_spare_files_go_under_the_cap(self):
+        old, fresh = self.kept("old.json", 10, 7200), self.kept("new.json", 10, 10)
+        spare, live = self.kept(".x.json.1", 10, 2 * excuse.KEPT_SPARE_SECONDS), self.kept(".y.json.2", 10, 5)
+        other = self.kept("notes.txt", 10, 7200)
+        excuse.prune_kept(self.where, 3600)
+        self.assertEqual([path.exists() for path in (old, fresh, spare, live, other)], [False, True, False, True, True])
+
+    def test_settled_put_prunes_the_settled_store_by_size(self):
+        settled = self.where / "settled"
+        settled.mkdir()
+        stale = self.kept("settled/0.json", 2000, 100)
+        with unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: str(self.where),
+                                                   excuse.JOBS_CACHE_MAX_BYTES_ENV: "1000"}), \
+                unittest.mock.patch.object(excuse, "_SETTLED_PRUNED", []):
+            excuse.settled_put("repos/o/r/actions/jobs/1", {"id": 1})
+            self.assertEqual(excuse.settled_get("repos/o/r/actions/jobs/1"), {"id": 1})
+        self.assertFalse(stale.exists())
+
+
 class WsCheckSquashTree(unittest.TestCase):
     """ws_check_squash_tree in a real git repository: the tree a pinned squash of the head onto the base tip makes, cut
     to leo-workspace's hosted paths, whichever checkout or runner made the run. Compared by tree, never by path."""
@@ -12264,8 +12397,10 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
             self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, base + [negative], base))
 
     def test_a_red_that_names_nothing_is_refused(self):
+        # Nothing printed before the runner's exit annotation (the line above it is the runner's own `##[endgroup]`):
+        # no last words either (last_words), so nothing to compare.
         with self.assertRaisesRegex(excuse.Refused, "names no failing test or error line"):
-            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, ["just output"], ["just output"]))
+            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, [], []))
 
     def test_the_scripts_echo_is_never_a_red(self):
         # The runner echoes each step's script: a `::error::` the script could print is not one it did.
@@ -12275,6 +12410,58 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         red = ["##[error]red check: Scrollbars thin, one style"]
         said = self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, echo + red, red))
         self.assertIn("compared whole", said)
+
+
+class ShellStepLastWordsAreItsErrorLine(unittest.TestCase):
+    """2026-11-20, cmuxterm-hq#15467 at 4aa7a17c (cmuxterm-hq#15575): 'Fleet tests' (job 136408981140) failed
+    "Validate the fleet client install and the tag policy" on the same plain line as main's Skills tests run
+    44769654200 (job 136405799814), `Bundled fleet client is stale. Run scripts/sync-fleet-skill-client.py.` then the
+    runner's exit annotation. Its log is unplaced and names no failing test or error line, so it was refused as having
+    nothing to compare. Recorded from both jobs' logs: the line before each exit annotation is that step's error line,
+    on both sides, so the same red is excused and a new or different one is still the PR's own."""
+
+    JOB = "Fleet tests"
+    STEP = "Validate the fleet client install and the tag policy"
+    STALE = "Bundled fleet client is stale. Run scripts/sync-fleet-skill-client.py."
+    # The step's own header and the runner's echo of its script, as both logs print them, then its last words.
+    RED = ("##[group]Run python3 scripts/sync-fleet-skill-client.py --check",
+           "\x1b[36;1mpython3 scripts/sync-fleet-skill-client.py --check\x1b[0m",
+           "\x1b[36;1mpython3 -m unittest discover -s build-fleet -p 'client_install_test.py'\x1b[0m",
+           "shell: /usr/bin/bash -e {0}", "##[endgroup]", STALE)
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def github(self, head=RED, base=RED):
+        return UnplacedGitHub(self.JOB, self.STEP, head, base)
+
+    def test_15467_the_same_failed_step_and_last_words_as_the_base_are_excused(self):
+        said = self.judge(self.github())
+        self.assertIn("excused 'Fleet tests'", said)
+        self.assertIn(f"last words before exit 1: {self.STALE}", said)
+
+    def test_other_last_words_are_the_prs_own(self):
+        other = (*self.RED[:-1], "Tag policy: lane/foo is not an allowed tag.")
+        with self.assertRaisesRegex(excuse.Refused, "error lines are not .*more on this head: .*Tag policy"):
+            self.judge(self.github(head=other))
+
+    def test_a_step_that_fails_besides_is_the_prs_own(self):
+        github = self.github()
+        github.jobs[1]["steps"].append({"name": "Run the fleet policy tests", "status": "completed",
+                                        "conclusion": "failure"})
+        with self.assertRaisesRegex(excuse.Refused, r"its failed steps \(.*Run the fleet policy tests"):
+            self.judge(github)
+
+    def test_a_second_exit_on_the_head_is_the_prs_own(self):
+        with self.assertRaisesRegex(excuse.Refused, "error lines are not"):
+            self.judge(self.github(head=(*self.RED, "##[error]Process completed with exit code 1.", self.STALE)))
+
+    def test_a_named_error_line_keeps_last_words_out(self):
+        # A log that names an error line is compared by it alone, as before: last words are only for a log that
+        # names nothing.
+        mine = excuse.unplaced_signature(failed_job(1, 10, HEAD, self.JOB, self.STEP),
+                                         unplaced_log(self.JOB, self.STEP, "##[error]red check: x", self.STALE))
+        self.assertFalse([error for error in mine.errors if error.startswith(excuse.LAST_WORDS)])
 
 
 class FailedViewIsTheOnlyReader(unittest.TestCase):
