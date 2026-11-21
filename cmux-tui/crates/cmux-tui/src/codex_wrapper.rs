@@ -19,8 +19,8 @@ use anyhow::Context as _;
 
 use crate::agent_hook_install;
 
-const VERB: &str = "codex-wrapper";
-const SHIM_MARKER: &str = "# cmux-tui-codex-shim";
+pub(crate) const VERB: &str = "codex-wrapper";
+pub(crate) const SHIM_MARKER: &str = "# cmux-tui-codex-shim";
 const HOOKS_DISABLED_ENV: &str = "CMUX_TUI_CODEX_HOOKS_DISABLED";
 
 /// Returns the wrapper's arguments when argv (without the program name)
@@ -41,6 +41,7 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
         current_executable().ok().and_then(|exe| crate::own_build_helpers::wrapper_shim_dir(&exe));
     let Some(codex) = find_real_codex(&path, shim_dir.as_deref()) else {
         eprintln!("{}", messages.agent_not_found);
+        eprintln!("{}", messages.codex_install_hint);
         return 127;
     };
 
