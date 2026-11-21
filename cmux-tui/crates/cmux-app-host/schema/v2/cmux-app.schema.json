@@ -33,6 +33,10 @@
     "description": {
       "$ref": "#/$defs/text"
     },
+    "tagline": {
+      "description": "One line for the App Store, at most 80 characters in en: what the person gets (\"Start, pause and connect to your Cloud machines\").",
+      "$ref": "#/$defs/text"
+    },
     "publisher": {
       "type": "object",
       "additionalProperties": false,

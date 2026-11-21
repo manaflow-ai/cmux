@@ -49,6 +49,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Toggle Terminal and Chat (WorkspaceTabsSource+TerminalChat.swift): the face each paired tab
     /// shows, once the person chose one (else Rust's default).
     var chosenFaces: [String: TabFace] = [:]
+    /// Tab groups this phone's own edit (Ungroup, Close, Remove) emptied: their page goes at once,
+    /// not after the reconnect grace (`groupStaysGone`).
+    @ObservationIgnored var groupsEmptiedHere: Set<String> = []
     /// The View Only chat this phone had the Mac open for a terminal's session (`macID|harness|session`).
     var openedTerminalChats: [String: String] = [:]
     /// Macs whose acpmux makes no View Only chat for a phone (`remote.adopt_refused`): asked once.
@@ -1660,6 +1663,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             guard await confirmClose(members, in: workspace) else { return }
         }
         let before = workspace.tabs
+        if edit == .ungroup || edit == .close || edit == .remove, let group = tab.group { groupsEmptiedHere.insert(group.id) }
         apply(edit, to: tab)
         refreshTabs()
         do {

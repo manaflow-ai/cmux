@@ -2044,6 +2044,8 @@ impl LocalStore {
             anyhow::bail!("no segment writer for session {id}");
         };
         w.used = clock;
+        #[cfg(debug_assertions)]
+        disk_fault::write()?;
         #[cfg(test)]
         let wrote = match test_write_fault::take() {
             Some(kept) => w.file.write_all(&line[..kept.min(line.len())]).and(Err(
@@ -2128,33 +2130,10 @@ fn cut_torn_tail(file: &File, path: &Path) -> Result<u64> {
     Ok(end)
 }
 
-/// The next log append on this thread writes only its first `kept` bytes and then fails as a
-/// full disk does (`ENOSPC`), the partial write a full disk or a killed process leaves.
+#[cfg(debug_assertions)]
+pub(crate) mod disk_fault;
 #[cfg(test)]
-pub(crate) mod test_write_fault {
-    use std::cell::Cell;
-
-    thread_local!(static NEXT: Cell<Option<usize>> = const { Cell::new(None) });
-    thread_local!(static FAIL_CUT: Cell<bool> = const { Cell::new(false) });
-
-    pub(crate) fn partial(kept: usize) {
-        NEXT.with(|n| n.set(Some(kept)));
-    }
-
-    /// `partial`, and the cut back after it fails too (the disk refuses the truncate).
-    pub(crate) fn partial_and_failed_cut(kept: usize) {
-        partial(kept);
-        FAIL_CUT.with(|f| f.set(true));
-    }
-
-    pub(super) fn take() -> Option<usize> {
-        NEXT.with(Cell::take)
-    }
-
-    pub(super) fn take_cut_failure() -> bool {
-        FAIL_CUT.with(|f| f.replace(false))
-    }
-}
+pub(crate) mod test_write_fault;
 
 /// [`LocalStore::history_writer`]'s segment `000000`.
 struct SegmentZero {
@@ -2476,6 +2455,7 @@ impl Store for LocalStore {
     /// Through the copies of the kinds (`store/kind_index.rs`), past `after`: a scan of the log
     /// from the segment that holds `after + 1` parses that whole segment, for each fold of a
     /// load, and read more than the copies do (`a_restored_chats_log_load_reads_the_copies_not_its_log`).
+    /// Only the copies from the segment that holds `after + 1` on (`scan_kinds_past`).
     fn scan_kinds_after(
         &self,
         id: &str,
