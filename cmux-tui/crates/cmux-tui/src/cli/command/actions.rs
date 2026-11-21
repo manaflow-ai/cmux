@@ -892,10 +892,10 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
     action(
         "attention next",
         None,
-        "Show the next tab that needs you (blocked agents, then unread notifications)",
+        "Show the next tab that needs you (blocked agents, then unread errors and warnings, then finished agent turns, then other unread notifications)",
         &[
-            opt("after", "<tab_id>", "Start after this tab (default: the focused tab)"),
-            switch("focus", "Also focus that tab"),
+            opt("after", "<tab_id>", "Start after this tab (default: the most urgent tab)"),
+            switch("focus", "Also focus that tab; without --after, start after the focused tab"),
         ],
     ),
     action("attention list", None, "List the tabs that need you, in visiting order", &[]),
