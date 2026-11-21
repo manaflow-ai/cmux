@@ -826,6 +826,7 @@ jobs:
           CLOUD: ${{ steps.areas.outputs.cloud }}
           GHOSTTY: ${{ steps.areas.outputs.ghostty }}
           FMT: ${{ steps.areas.outputs.fmt }}
+          JOB_INPUTS: ${{ steps.areas.outputs.jobinputs }}
         run: |
           set -euo pipefail
           args=()
@@ -853,6 +854,8 @@ jobs:
           [[ "$SETTINGS" == true && "$SETTINGS_VERIFIED" != true ]] && grep -q -- '--unverified-settings-exports)' "$AUTOFIX/base-autofix.sh" && args+=(--unverified-settings-exports)
           [[ "$RATCHETS" == true ]] && args+=(--ratchets)
           [[ "$CLOUD" == true ]] && args+=(--cloud-clients)
+          # A workflow job no router declares is recorded as runs-always (scripts/ci/job_inputs.py fix), never refused.
+          [[ "$JOB_INPUTS" == true ]] && grep -q -- '--job-inputs)' "$AUTOFIX/base-autofix.sh" && args+=(--job-inputs)
           [[ -s "$RUNNER_TEMP/webviews-fmt.patch" ]] && args+=(--webviews-fmt-patch "$RUNNER_TEMP/webviews-fmt.patch")
           [[ "$FMT" == true ]] || args+=(--no-fmt)
           cat "$RUNNER_TEMP/clippy.txt" 2>/dev/null > "$RUNNER_TEMP/autofix.txt" || true
