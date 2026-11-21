@@ -58,8 +58,13 @@ struct HomeAgentMessages {
     /// `started` are the agents known to have started (the Chief's acpmux listed their session,
     /// ``HomeStore/agentsStarted(_:)``, or the spawn records name one, ``HomeStore/followAgentSessions(_:in:)``):
     /// one queued at its newest message started since, so its pill says Working.
+    ///
+    /// `sessionStarts` is when each agent's newest session began (``HomeStore/agentsStarted(_:startedAt:)``): a pill
+    /// counts from it when it is later than the Chief's message (the agent waited in the queue or took a while to
+    /// spawn), and from it alone for an agent whose row holds no message of the Chief to it.
     func inserting(into items: [TranscriptItem], summary: ConversationSummary?,
-                   expanded: Set<String> = [], seen: [String: Date] = [:], started: Set<String> = []) -> [TranscriptItem] {
+                   expanded: Set<String> = [], seen: [String: Date] = [:], started: Set<String> = [],
+                   sessionStarts: [String: Date] = [:]) -> [TranscriptItem] {
         guard !runs.isEmpty else { return items }
         var byKey: [IdempotencyKey: Int] = [:]
         var byMessageID: [MessageID: Int] = [:]
@@ -132,7 +137,7 @@ struct HomeAgentMessages {
             // share a timestamp; their opaque IDs are not a chronological key.
             let messages = (after[index] ?? []).sorted { $0.createdAt < $1.createdAt }
             return [item] + Self.folded(messages, expanded: expanded, seen: seen, titles: titles, started: started,
-                                        pillGroup: pillGroup)
+                                        sessionStarts: sessionStarts, pillGroup: pillGroup)
         }
     }
 
@@ -176,7 +181,8 @@ struct HomeAgentMessages {
     /// the agent's pill), so a lone task is a pill too and five "stopped without a report" notes are no
     /// second row.
     private static func folded(_ messages: [TranscriptItem], expanded: Set<String>, seen: [String: Date],
-                               titles: [String: String], started: Set<String>, pillGroup: [String: String]) -> [TranscriptItem] {
+                               titles: [String: String], started: Set<String>, sessionStarts: [String: Date],
+                               pillGroup: [String: String]) -> [TranscriptItem] {
         guard !messages.isEmpty else { return messages }
         var groups: [String] = []
         var byGroup: [String: [TranscriptItem]] = [:]
@@ -186,7 +192,7 @@ struct HomeAgentMessages {
             byGroup[group, default: []].append(message)
         }
         return groups.flatMap { fold(byGroup[$0] ?? [], group: $0, expanded: expanded, seen: seen, titles: titles,
-                                     started: started, pillGroup: pillGroup) }
+                                     started: started, sessionStarts: sessionStarts, pillGroup: pillGroup) }
     }
 
     /// One agents row for `members`, then every member in order when the group is open.
@@ -198,7 +204,7 @@ struct HomeAgentMessages {
     /// is not shown.
     private static func fold(_ members: [TranscriptItem], group: String, expanded: Set<String>,
                              seen: [String: Date], titles known: [String: String], started: Set<String>,
-                             pillGroup: [String: String]) -> [TranscriptItem] {
+                             sessionStarts: [String: Date], pillGroup: [String: String]) -> [TranscriptItem] {
         guard let first = members.first else { return [] }
         var peers: [String] = [], seenPeers: Set<String> = []
         var states: [String: HomeAgentMessageRow.PeerState] = [:], latest: String?, titles: [String: String] = [:]
@@ -243,8 +249,17 @@ struct HomeAgentMessages {
         fold.agentMessage?.peerStates = peers.map { states[$0] ?? .told }
         fold.agentMessage?.latest = latest
         fold.agentMessage?.peerTitles = peers.map { known[$0] ?? titles[$0] ?? $0 }
-        fold.agentMessage?.peerStarted = peers.map { begun[$0] }
-        fold.agentMessage?.peerEnded = peers.map { states[$0] == .reported || states[$0] == .stopped ? ended[$0] : nil }
+        let peerEnded = peers.map { states[$0] == .reported || states[$0] == .stopped ? ended[$0] : nil }
+        fold.agentMessage?.peerEnded = peerEnded
+        fold.agentMessage?.peerStarted = zip(peers, peerEnded).map { peer, end in
+            // A session that began after this task ended (a newer task's) says nothing of this one.
+            let session = sessionStarts[peer].flatMap { start in end.map { start <= $0 } ?? true ? start : nil }
+            // The later of the Chief's message and the session's start: a session older than the task ran an earlier one.
+            switch (begun[peer], session) {
+            case let (told?, session?): return max(told, session)
+            case let (told, session): return told ?? session
+            }
+        }
         fold.agentMessage?.peerUnread = peers.map { peer in
             guard states[peer] == .reported, let at = reportedAt[peer] else { return false }
             return seen[peer].map { $0 < at } ?? true

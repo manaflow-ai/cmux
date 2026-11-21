@@ -10,10 +10,25 @@ or installed. Read [cmux-next-ios/SECURITY.md](../../cmux-next-ios/SECURITY.md),
 parity rule in the root `CLAUDE.md` and the HIG rule in [Packages/iOS/AGENTS.md](../../Packages/iOS/AGENTS.md).
 iOS is Aziz's area (`azooz2003-bit`).
 
+## See your change first
+
+Pick the fastest route that covers your change. The table and its numbers are in
+[cmux-next-ios/CLAUDE.md](../../cmux-next-ios/CLAUDE.md), "See your change".
+
+| Change | Route | Edit to visible |
+|---|---|---|
+| Swift values, strings, colors or logic in a running DEBUG app | Swift live code, `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397)) | about 2 s |
+| Any change, sent from your checkout to an always-on simulator on another Mac | `scripts/ios-live/ios-live swift` or `swap` ([#45435](https://github.com/manaflow-ai/cmux/pull/45435)) | about 5 s live, about 16 s rebuild |
+| PR evidence: tests, UI tests, benches, video | the fleet simulator step below | about 15 min |
+
+Both live routes are open PRs and aren't on `feat-cmux-next` yet, so until they land the fleet
+step is the only route that works from a branch. Once they land, use them for every edit and keep
+the fleet step for the evidence a PR cites.
+
 ## Build and test on the fleet
 
 - Nothing builds or boots a simulator on the person's Mac. The fleet's `cmux-ci build ios` builds the classic app, not this one.
-- Simulator run: `cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg MODE --artifact artifacts/ios-sim/evidence.zip`. Modes: `release-build` (compile only), `build` (install, launch, screenshot), `test`, `bench`, `all`.
+- Simulator run: `cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg MODE --artifact artifacts/ios-sim/evidence.zip`. Modes: `release-build` (compile only), `build` (install, launch, screenshot), `test`, `bench`, `all`, and `pair-e2e`, `shots`, `clips`, `listperf`, `energy`, `chief-live-perf`, `chief-live-perf-baseline`, `handoff` (sent as `shots handoff=TAG`); the script's header describes each. After any mode that boots a simulator, `--arg device=iPhone,16e` (commas for spaces; an unknown type exits 3 with the runtime's iPhone types) picks the iPhone type, and `--arg reducemotion=1` turns Reduce Motion on; SUMMARY.md names the device and the read-back, and a reducemotion=1 run whose app does not report `isReduceMotionEnabled=true` exits 3. Through the fleet controller these pass only after `shots` with a real scene (`--arg shots --arg device=iPhone,16e --arg settings=-cmux-mobile-tab,settings`) until the HQ controller change for them lands; its argument pattern has no spaces or parentheses, so a name with parentheses uses its identifier form (`device=iPhone-SE-3rd-generation`).
 - `test` takes more `--arg`s, comma-separated without spaces: `only=TARGET/SUITE`, `ui=SUITE`, `video` (before/after video, with a small copy for PR media), `profile` (Time Profiler, needs `ui=`). The script's header is the reference.
 - Swift Testing suites: `scripts/ci/run-swift-testing-suites.sh <package>` with `--env CMUX_SWIFT_TEST_SUITES=Suite[,Suite]` ([example](../cmux-testing/references/local-vs-ci-validation.md)).
 - Name only real suites of that package. `scripts/ci/swift_suite_names_precheck.py <package> <name>...` refuses a name its tests never mention, before a build that takes 11 to 58 minutes.

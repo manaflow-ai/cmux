@@ -2,7 +2,7 @@
 """cmux-next guardrails: refuse new architecture debt in what a push adds; warn on hot paths and owned areas.
 
 Run by the pre-push hook through `prepush-gate.py --pre-push` (and by a plain local `prepush-gate.py`),
-never by CI (Lawrence 2026-10-23: no new CI gates). Only Swift lines the push ADDS under
+never by CI (Lawrence 2026-10-23: no new CI gates, lifted 2026-11-18). Only Swift lines the push ADDS under
 Packages/macOS/CmuxNext/Sources count, plus unchanged lines that become debt because the push changed the
 line that gives them their context (`struct` -> `class` around a static, a view renamed to a `...Row`, an
 edited or deleted deinit in a generic class's body, or a type made generic around the classes in its
@@ -111,7 +111,7 @@ SHIPPED_BUILD_SPECS = (".github/workflows", "scripts/build-sign-upload.sh", "Pac
 # The shell scripts plist-missing-file reads (and the workflows, above).
 SHELL_SPECS = (":(glob)scripts/**/*.sh",)
 APP = SOURCES + "CmuxNextApp/"
-UPSTREAM = "origin/feat-cmux-next"
+UPSTREAM = "refs/remotes/origin/feat-cmux-next"  # full name, never a local branch `origin/...` (push_range.UPSTREAM)
 OWNERS = "plans/cmux-next/OWNERS.md"
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
 SKIP_ENV = "CMUX_GUARDRAILS_SKIP_REASON"
