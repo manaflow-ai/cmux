@@ -21,6 +21,9 @@
 //!   connection goes silent for good (no reset reaches the phone: its peer's packets go to the
 //!   old address) and new connections stall for the profile's handoff stall, then flow.
 //!
+//! [`UdpShaper`] is the same link for datagrams (the phone's real transport is UDP): no
+//! retransmission, jitter reorders, plus a NAT rebinding and one-way loss.
+//!
 //! Loopback adds nothing worth counting next to these numbers; the proxy runs on the bench's
 //! machine beside the daemon.
 
@@ -39,6 +42,9 @@ use tokio::time::Instant;
 
 use crate::rng::Rng;
 use crate::trace::Trace;
+
+mod udp;
+pub use udp::{UdpCounters, UdpShaper, Way};
 
 /// One TCP segment's payload (an MSS on a 1500-byte path).
 pub const SEGMENT: usize = 1460;
