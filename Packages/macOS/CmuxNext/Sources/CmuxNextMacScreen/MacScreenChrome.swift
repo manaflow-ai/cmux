@@ -85,7 +85,9 @@ final class MacScreenChromeHost {
     let actions = MacScreenChromeActions()
     let toolbar: MacScreenToolbarView
     let card: MacScreenCardView
-    private let model: MacScreenPaneModel
+    /// Look B's status strip, made the first time a look with ``MacScreenViewerStyle/statusStrip`` is shown.
+    var statusStrip: MacScreenStatusStrip?
+    let model: MacScreenPaneModel
 
     init(model: MacScreenPaneModel) {
         self.model = model

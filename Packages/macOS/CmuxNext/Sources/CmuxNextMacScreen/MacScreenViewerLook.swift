@@ -58,6 +58,8 @@ struct MacScreenViewerStyle {
         case black
         /// The theme's chrome color.
         case chrome
+        /// The pane's page fill (the window material, as on other page tabs): the picture letterboxes on the window's ground.
+        case page
     }
 
     var toolbarPlacement = ToolbarPlacement.topBar
@@ -74,7 +76,19 @@ struct MacScreenViewerStyle {
     var cardCornerRadius: CGFloat?
     var cardFill: KeyPath<MacScreenColors, NSColor> = \.popup
     var cardBordered = true
+    /// The toolbar and the state card give way to a fixed status strip on top (``MacScreenStatusStrip``): it carries the
+    /// state and its buttons, and the screen area below holds only the picture or a calm mark.
+    var statusStrip = false
 
     /// The pane as shipped.
     static var current: MacScreenViewerStyle { MacScreenViewerStyle() }
+
+    /// The pane's color around the letterboxed picture, in `colors` (the toolbar's resolved colors).
+    func backdropColor(_ colors: MacScreenColors) -> NSColor {
+        switch backdrop {
+        case .black: .black
+        case .chrome: colors.chrome
+        case .page: colors.page
+        }
+    }
 }

@@ -115,6 +115,8 @@ struct AAMacScreenViewerGalleryTests {
         }
         pane.view.chrome.toolbar.resolveColors()
         pane.view.chrome.card.resolveColors()
+        pane.view.chrome.statusStrip?.bar.resolveColors()
+        pane.view.chrome.statusStrip?.body.resolveColors()
         for _ in 0 ..< 20 { await Task.yield() }
         pane.view.layoutSubtreeIfNeeded()
         for view in AANestedGroupsGalleryTests.all(root) { view.needsDisplay = true; view.displayIfNeeded() }

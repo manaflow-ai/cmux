@@ -231,7 +231,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
 
     // MARK: Menus
 
-    private func accessMenu() -> NSMenu {
+    func accessMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         for (scope, title) in [(SessionScope.view, L.t("macScreen.scope.view", "View Only")), (.full, L.t("macScreen.scope.full", "Full Control"))] {
@@ -262,7 +262,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         return menu
     }
 
-    private func displayMenu() -> NSMenu {
+    func displayMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         for (index, size) in model.displays.enumerated() {
@@ -272,7 +272,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         return menu
     }
 
-    private func qualityMenu() -> NSMenu {
+    func qualityMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         guard let session = model.session else { return menu }
@@ -288,7 +288,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         return menu
     }
 
-    private func sendKeysMenu() -> NSMenu {
+    func sendKeysMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         if let shortcuts = model.systemShortcuts {

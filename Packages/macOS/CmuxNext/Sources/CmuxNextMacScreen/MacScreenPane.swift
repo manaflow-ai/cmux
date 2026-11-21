@@ -334,7 +334,7 @@ public final class MacScreenPaneView: NSView {
     private let pictureShadow = CALayer()
     private var style: MacScreenViewerStyle { model.viewerLook.style }
     /// The toolbar's own height at the pane's width (a floating toolbar uses its capsule's width).
-    var toolbarHeight: CGFloat { chrome.toolbar.height(for: toolbarFrame(height: false).width) }
+    var toolbarHeight: CGFloat { style.statusStrip ? MacScreenStatusStrip.height : chrome.toolbar.height(for: toolbarFrame(height: false).width) }
     /// The room the toolbar takes from the screen: all of it in a top bar, none when it floats over the picture.
     var reservedToolbarHeight: CGFloat { style.toolbarPlacement == .topBar ? toolbarHeight : 0 }
 
@@ -397,7 +397,7 @@ public final class MacScreenPaneView: NSView {
         let style = style
         chrome.toolbar.frame = toolbarFrame()
         capture.frame = screenRect
-        layer?.backgroundColor = (style.backdrop == .chrome ? chrome.toolbar.colors.chrome : NSColor.black).cgColor
+        layer?.backgroundColor = style.backdropColor(chrome.toolbar.colors).cgColor
         // Auto streams at the pane's size; the next session (Connect, a quality change) reads it.
         let pixels = Int((screenRect.width * (window?.backingScaleFactor ?? 2)).rounded(.up))
         if pixels > 0, let session = model.session, session.paneWidthPixels != pixels { session.paneWidthPixels = pixels }
@@ -412,7 +412,7 @@ public final class MacScreenPaneView: NSView {
         pictureShadow.cornerRadius = style.pictureCornerRadius
         pictureShadow.frame = video.frame
         cursor.update()
-        let showsCard = chrome.showsCard
+        let showsCard = chrome.layoutStatusStrip(style, in: self)
         chrome.card.isHidden = !showsCard
         capture.isHidden = model.gate != .open
         if showsCard {
