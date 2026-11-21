@@ -47,6 +47,9 @@ mod billing;
 #[cfg(unix)]
 mod caller_browser;
 mod capability_cache;
+// `cmux settings change-background [VALUE]`: a YouTube address, file or id as the picker sets it.
+#[cfg(unix)]
+mod change_background;
 #[cfg(unix)]
 mod chat_cd;
 #[cfg(unix)]
@@ -650,7 +653,9 @@ pub(crate) fn hoist_leading_json(args: &mut Vec<String>) {
         args.drain(..lead);
         let end = args.iter().position(|w| w == "--").unwrap_or(args.len());
         args.insert(end, "--json".to_owned());
-    } else if only_json && JSON_AFTER_SCOPE.contains(&scope.as_str()) {
+    } else if only_json
+        && (JSON_AFTER_SCOPE.contains(&scope.as_str()) || agent_engine_requested(rest))
+    {
         // acpmux's global `--json`, right after the scope word: never after a verb whose
         // trailing words are another program's (`acp gh pr list`).
         args.drain(..lead);
@@ -665,11 +670,40 @@ fn harness_tab_run(words: &[String]) -> bool {
         && words.iter().take_while(|w| *w != "--").any(|w| w == "--tab")
 }
 
-/// The acpmux argv of `cmux acp …` (the words after `acp`) and of its
+/// Existing terminal agent commands and app actions keep their own dispatch.
+/// Other session commands, including aliases, come from the engine's grammar.
+pub(crate) fn agent_engine_requested(args: &[String]) -> bool {
+    let [scope, rest @ ..] = args else { return false };
+    if scope != "agent" {
+        return false;
+    }
+    let Some(verb) =
+        rest.iter().find(|word| !matches!(word.as_str(), "--json" | "--suppress-reads"))
+    else {
+        return false;
+    };
+    !matches!(
+        verb.as_str(),
+        "list"
+            | "message"
+            | "inbox"
+            | "start"
+            | "resume"
+            | "report"
+            | "hook"
+            | "plugin"
+            | "open"
+            | "open-tab"
+            | "help"
+    ) && acpmux::cli::entry::is_command(verb)
+}
+
+/// The acpmux argv of `cmux agent …` and `cmux acp …` (the words after the scope) and of its
 /// `harness`/`chats` aliases (the whole command line, alias first).
 #[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) fn acp_scope_args(raw_args: &[String]) -> Vec<std::ffi::OsString> {
-    let skip = usize::from(raw_args.first().is_some_and(|head| head == "acp"));
+    let skip =
+        usize::from(raw_args.first().is_some_and(|head| matches!(head.as_str(), "acp" | "agent")));
     raw_args.iter().skip(skip).map(std::ffi::OsString::from).collect()
 }
 
@@ -876,6 +910,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| community::run_if_requested(args))
         .or_else(|| theme_scheme::run_if_requested(args))
         .or_else(|| wallpaper::run_if_requested(args))
+        .or_else(|| change_background::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -1675,7 +1710,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   browser       Navigate and attach to browsers
   notification  List and create notifications
   attention     Mark tabs where the person must act; find the next one
-  agent         List and report agent state
+  agent         Manage agent sessions and terminal agents
   room          Organize workspaces into rooms
   space         List and organize spaces
   closed        List and reopen closed tabs, screens, workspaces
@@ -1767,6 +1802,14 @@ USAGE
                   [--split right|down|left|up] [--cwd DIR] [--no-focus]
                   [--timeout 90s] [--no-wait] [-- ARGS...]
   cmux agent resume NAME [the same options]
+  cmux agent ls [--json]
+  cmux agent send SESSION [TEXT...]
+  cmux agent history SESSION
+  cmux agent search QUERY...
+  cmux agent resolve SESSION
+  cmux agent register NAME
+  cmux agent bg start|list [ARGS...]
+  cmux agent notices [ARGS...]
   cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]
   cmux agent open-tab <session id> [--target PANE_OR_TAB] [--host HOST] [--focus]
   cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->

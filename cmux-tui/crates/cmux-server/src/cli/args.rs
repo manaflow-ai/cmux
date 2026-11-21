@@ -43,6 +43,7 @@ pub static VERBS: &[VerbSpec] = &[
             ("yes", false),
             ("nightly", false),
             ("user", false),
+            ("label", true),
         ],
         help: "keep cmux running here as a service (or on ssh://[user@]host[:port], installed there first)",
     },

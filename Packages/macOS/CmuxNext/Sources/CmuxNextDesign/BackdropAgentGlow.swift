@@ -9,7 +9,7 @@ public import CmuxTheme
 /// for it, so a calm window costs nothing and a glowing one costs one composited layer.
 ///
 /// ```swift
-/// let glow = BackdropAgentGlow(agents: [.init(machine: "big-red", state: .waiting)]) { MachineColor(name: $0).rgb(...) }
+/// let glow = BackdropAgentGlow(agents: [.init(machine: "my-vm", state: .waiting)]) { MachineColor(name: $0).rgb(...) }
 /// ```
 public nonisolated struct BackdropAgentGlow: Hashable, Sendable {
     /// How loud the backdrop is, in the order one agent's state outranks another's.

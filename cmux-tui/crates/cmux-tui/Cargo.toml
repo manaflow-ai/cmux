@@ -95,6 +95,8 @@ cmux-scope.workspace = true
 cmux-vm = { path = "../../../workers/cmux-vm/cli/crates/cmux-vm", default-features = false }
 # `cmux vm token create`'s mint rules, shared with the app (cli/vm.rs `mint_exit`).
 cmux-cloud-config.workspace = true
+# `cmux vm pool`: the CI runner pool surge and idle pause (cli/vm.rs).
+cmux-vm-pool.workspace = true
 cmux-api-compat.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
