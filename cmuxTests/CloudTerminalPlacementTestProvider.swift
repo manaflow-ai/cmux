@@ -23,6 +23,7 @@ final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
     private(set) var requestedDirectories: [String?] = []
     private(set) var materialized: [SurfaceProjection] = []
     private(set) var layoutSources: [(tabID: String, direction: SurfaceSplitDirection?)] = []
+    private(set) var creationRequests: [CloudTerminalCreationRequest] = []
     var returnedWorkspaceID: String?
     var projectedWorkspaceID: String?
     var projectedMachine: SurfaceMachineID?
@@ -83,6 +84,26 @@ final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
     func createTerminal(nearTabID: String, splitDirection: SurfaceSplitDirection?) async throws -> SurfaceResource {
         layoutSources.append((nearTabID, splitDirection))
         return try await createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remote.id)
+    }
+
+    func createTerminal(
+        nearTabID: String,
+        splitDirection: SurfaceSplitDirection?,
+        request: CloudTerminalCreationRequest
+    ) async throws -> SurfaceResource {
+        creationRequests.append(request)
+        return try await createTerminal(nearTabID: nearTabID, splitDirection: splitDirection)
+    }
+
+    func createTerminal(
+        command: [String]?,
+        cwd: String?,
+        name: String?,
+        remoteWorkspaceID: String?,
+        request: CloudTerminalCreationRequest
+    ) async throws -> SurfaceResource {
+        creationRequests.append(request)
+        return try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
     }
 
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {

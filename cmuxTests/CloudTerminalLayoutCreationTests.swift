@@ -52,6 +52,23 @@ struct CloudTerminalLayoutCreationTests {
     }
 
     @Test
+    func tabForwardsTheRequestedCommandAndWorkingDirectory() async throws {
+        let runner = LayoutCreationRunner(responses: [
+            .success(try Self.snapshot()), .success(try Self.created())
+        ])
+        var creation = operation(runner)
+        creation.terminalCommand = SSHTuiConnection.commandArguments("printf 'hello world'")
+        creation.terminalWorkingDirectory = "/remote/project"
+
+        _ = try await creation.run(nearTabID: "tab_source", splitDirection: nil)
+
+        let command = try #require(await runner.commands.last)
+        #expect(command.operation == "pane.run")
+        #expect(command.params["argv"] as? [String] == SSHTuiConnection.commandArguments("printf 'hello world'"))
+        #expect(command.params["cwd"] as? String == "/remote/project")
+    }
+
+    @Test
     func revisionConflictRefreshesTheTargetAndRetainsTheMutationKey() async throws {
         let runner = LayoutCreationRunner(responses: [
             .success(try Self.snapshot()),

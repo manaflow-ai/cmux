@@ -219,7 +219,7 @@ struct CloudTerminalPlacementTests {
         }
     }
 
-    @Test("Cloud launch overrides fail closed instead of creating local terminals")
+    @Test("Cloud tabs accept command and cwd overrides while splits stay fail closed")
     func launchOverrides() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let app = try VaultPaneAppFixture()
@@ -236,11 +236,54 @@ struct CloudTerminalPlacementTests {
             let source = try #require(workspace.focusedPanelId)
             let pane = try #require(workspace.paneId(forPanelId: source))
             let before = Set(workspace.panels.keys)
-            #expect(!workspace.newTerminalSurfaceOutcome(inPane: pane, initialCommand: "echo must-not-run-locally").isAccepted)
+            #expect(workspace.newTerminalSurfaceOutcome(
+                inPane: pane, workingDirectory: "/remote/project", initialCommand: "echo runs-remotely"
+            ).isAccepted)
+            // The new tab waits for its pending source terminal; let the source finish.
+            provider.release.resolve(true)
+            // The fixture also records the source's creation, so find this request by its command.
+            try await settled { provider.creationRequests.contains { $0.commandOverride?.last == "echo runs-remotely" } }
+            let request = try #require(provider.creationRequests.first { $0.commandOverride?.last == "echo runs-remotely" })
+            #expect(request.workingDirectory == "/remote/project")
+            // `cmux new-surface --command` sends the command as one typed line.
+            #expect(workspace.newTerminalSurfaceOutcome(inPane: pane, initialInput: "echo typed-remotely\r").isAccepted)
+            try await settled { provider.creationRequests.contains { $0.commandOverride?.last == "echo typed-remotely" } }
+            let typed = try #require(provider.creationRequests.first { $0.commandOverride?.last == "echo typed-remotely" })
+            #expect(typed.commandOverride == SSHTuiConnection.typedCommandArguments("echo typed-remotely"))
+            #expect(!workspace.newTerminalSurfaceOutcome(inPane: pane, initialInput: "one\ntwo\r").isAccepted)
+            #expect(!workspace.newTerminalSurfaceOutcome(
+                inPane: pane, initialCommand: "echo both", initialInput: "echo typed\r"
+            ).isAccepted)
             #expect(!workspace.newTerminalSplitOutcome(from: source, orientation: .horizontal, workingDirectory: "/tmp").isAccepted)
             #expect(!workspace.newTerminalSplitOutcome(from: source, orientation: .horizontal, initialDividerPosition: 0.3).isAccepted)
-            #expect(Set(workspace.panels.keys) == before)
+            #expect(workspace.panels.count == before.count + 2)
             #expect(workspace.cloudPaneCreationFailureStore.failure?.machine == provider.machine)
+        }
+    }
+
+    @Test("Mirrored-Mac tabs keep refusing command and cwd overrides they cannot apply")
+    func deviceLaunchOverridesStayRejected() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            let provider = CloudTerminalPlacementTestProvider(
+                machine: .device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "launch-overrides"))
+            )
+            let workspace = app.workspace
+            SurfaceCatalog.shared.register(provider)
+            defer {
+                workspace.cloudPaneCreationFailureStore.cancelAll()
+                provider.release.resolve(true)
+                SurfaceCatalog.shared.unregister(machine: provider.machine)
+                app.tearDown()
+            }
+            #expect(workspace.openCloudTerminalOptimistically(on: provider.machine, remoteWorkspaceID: provider.remote.id))
+            let source = try #require(workspace.focusedPanelId)
+            let pane = try #require(workspace.paneId(forPanelId: source))
+            let before = Set(workspace.panels.keys)
+            #expect(!workspace.newTerminalSurfaceOutcome(inPane: pane, initialCommand: "echo dropped").isAccepted)
+            #expect(!workspace.newTerminalSurfaceOutcome(inPane: pane, workingDirectory: "/remote/project").isAccepted)
+            #expect(!workspace.newTerminalSurfaceOutcome(inPane: pane, initialInput: "echo dropped\r").isAccepted)
+            #expect(Set(workspace.panels.keys) == before)
         }
     }
 

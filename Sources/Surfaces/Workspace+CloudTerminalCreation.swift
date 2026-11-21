@@ -140,14 +140,21 @@ extension Workspace {
     /// Routes a Cmd+T-style new tab in a pane whose selected tab projects a cloud
     /// resource to that machine. False reports rejection; the caller's prior Cloud
     /// ownership check prevents a rejected request from entering local creation.
-    func routeCloudPaneTerminalTab(inPane paneID: PaneID, focus: Bool) -> Bool {
+    func routeCloudPaneTerminalTab(
+        inPane paneID: PaneID,
+        focus: Bool,
+        commandOverride: [String]? = nil,
+        workingDirectory: String? = nil
+    ) -> Bool {
         guard let selectedTab = bonsplitController.selectedTab(inPane: paneID),
               let selectedPanelID = panelIdFromSurfaceId(selectedTab.id),
               let source = cloudTerminalSourcePlacement(forPanel: selectedPanelID) else { return false }
         return routeCloudPaneTerminalCreate(
             source: source, sourcePanelID: selectedPanelID,
             destination: .tab(workspaceID: id, paneID: paneID.id.uuidString, index: nil),
-            focus: focus
+            focus: focus,
+            commandOverride: commandOverride,
+            workingDirectory: workingDirectory
         ).isAccepted
     }
 
@@ -162,7 +169,8 @@ extension Workspace {
         focus: Bool,
         splitDirection: SurfaceSplitDirection? = nil,
         pendingPane: PaneID? = nil,
-        commandOverride: [String]? = nil
+        commandOverride: [String]? = nil,
+        workingDirectory: String? = nil
     ) -> TerminalPanelCreationOutcome {
         let catalog = SurfaceCatalog.shared
         let machine = source.machine
@@ -185,7 +193,12 @@ extension Workspace {
             return .routedToRemote
         }
         let effectiveCommand = commandOverride ?? (machine.isSSH ? remoteConfiguration.map { SSHTuiConnection(configuration: $0).shellCommand } : nil)
-        let request = CloudTerminalCreationRequest(id: requestID, remoteWorkspaceID: source.remoteWorkspaceID, commandOverride: effectiveCommand)
+        let request = CloudTerminalCreationRequest(
+            id: requestID,
+            remoteWorkspaceID: source.remoteWorkspaceID,
+            commandOverride: effectiveCommand,
+            workingDirectory: workingDirectory
+        )
         let reservationDestination: SurfaceDestination = pendingPane.map {
             .tab(workspaceID: id, paneID: $0.id.uuidString, index: nil)
         } ?? destination
@@ -234,7 +247,9 @@ extension Workspace {
                     )
                 } else {
                     let workingDirectory: String?
-                    if let resource = resolvedSource.resource { workingDirectory = await provider.currentWorkingDirectory(of: resource) }
+                    if let requestedWorkingDirectory = request.workingDirectory {
+                        workingDirectory = requestedWorkingDirectory
+                    } else if let resource = resolvedSource.resource { workingDirectory = await provider.currentWorkingDirectory(of: resource) }
                     else { workingDirectory = nil }
                     guard catalog.provider(for: machine) === provider else { throw SurfaceCatalogError.noProvider(machine) }
                     try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: resolvedWorkspaceID)

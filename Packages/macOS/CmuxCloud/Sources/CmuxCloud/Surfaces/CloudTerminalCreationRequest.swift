@@ -12,15 +12,24 @@ import Foundation
 public final class CloudTerminalCreationRequest {
     public let id: UUID
     public let commandOverride: [String]?
+    /// The requested working directory for the created terminal, when explicit.
+    public let workingDirectory: String?
     public private(set) var remoteWorkspaceID: String?
     public let correlationKey: String
     public private(set) var attemptKey: String
     private var submitted = false
     private var adoptsDurableAttempt = false
 
-    public init(id: UUID = UUID(), remoteWorkspaceID: String? = nil, commandOverride: [String]? = nil, restoring: Bool = false) {
+    public init(
+        id: UUID = UUID(),
+        remoteWorkspaceID: String? = nil,
+        commandOverride: [String]? = nil,
+        workingDirectory: String? = nil,
+        restoring: Bool = false
+    ) {
         self.id = id
         self.commandOverride = commandOverride
+        self.workingDirectory = workingDirectory
         self.remoteWorkspaceID = remoteWorkspaceID
         let key = "cmux-cloud-create-\(id.uuidString.lowercased())"
         correlationKey = key

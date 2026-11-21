@@ -192,8 +192,38 @@ public struct SSHTuiConnection: Sendable {
         return ["/bin/sh", "-c", "exec \"${SHELL:-/bin/sh}\" -l"]
     }
 
-    public func commandArguments(_ command: String) -> [String] {
+    /// Returns argv that runs a command through the remote user's login shell.
+    public static func commandArguments(_ command: String) -> [String] {
         ["/bin/sh", "-c", "exec \"${SHELL:-/bin/sh}\" -lc \"$1\"", "cmux-ssh", command]
+    }
+
+    /// Returns argv that runs a command through the remote user's login shell.
+    public func commandArguments(_ command: String) -> [String] {
+        Self.commandArguments(command)
+    }
+
+    /// Returns argv for a command the caller asked to have typed into a new shell
+    /// (`initial_input`). A remote terminal can't receive input before its shell is
+    /// ready, so the command runs through the login shell and an interactive login
+    /// shell replaces it afterwards, as a typed command would leave one behind.
+    /// The wrapper ignores Ctrl-C while the command runs, so interrupting the
+    /// command still leaves the shell instead of closing the tab. Unlike typing,
+    /// the command runs in a non-interactive login shell: interactive-only aliases
+    /// are unavailable, and `cd` or `export` do not carry over.
+    public static func typedCommandArguments(_ command: String) -> [String] {
+        ["/bin/sh", "-c", "trap : INT; \"${SHELL:-/bin/sh}\" -lc \"$1\"; trap - INT; exec \"${SHELL:-/bin/sh}\" -l", "cmux-ssh", command]
+    }
+
+    /// Returns the command in `initial_input` when it is exactly one line ended by
+    /// Return, which is what `--command` sends. Any other input, such as partial
+    /// keystrokes or several lines, returns nil so the caller keeps rejecting it.
+    public static func typedCommand(fromInitialInput input: String) -> String? {
+        guard input.hasSuffix("\r") else { return nil }
+        let command = String(input.dropLast())
+        // By scalar: Swift folds CRLF into one Character that equals neither "\r" nor "\n".
+        guard !command.unicodeScalars.contains(where: { $0 == "\r" || $0 == "\n" }),
+              !command.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return command
     }
 
     public func arguments(stateDirectory: String, deviceName: String, upgrade: Bool = false) -> [String] {
