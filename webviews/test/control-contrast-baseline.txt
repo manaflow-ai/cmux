@@ -1,3 +1,6 @@
-# Known control contrast failures (test/control-contrast-N.test.ts), one key per line:
-#   <entry>/<variant>@<scheme>:<state> <text|icon> <control label>   # owner and why it waits
-# A line no part reports any more is printed by the part that reads its stage: drop it then.
+# Known control contrast failures (test/control-contrast-N.test.ts): a ratchet, one line per control class:
+#   <tag.class.class> <text|icon> <floor>
+# A failing reading of a listed class passes while it reads at least its floor (the class's worst reading
+# when the line was written); a new class, or a reading under the floor, fails. Raise a floor or drop a line
+# as fixes land: with CONTRAST_AUDIT_OUT set each part writes its worst reading per class
+# (control-contrast-N.baseline.txt).

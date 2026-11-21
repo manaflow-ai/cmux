@@ -11,10 +11,14 @@
 // large), its icons and other marks 3:1, and a disabled control's ink the legible floor of 2.5:1:
 // measured on the painted pixels (test/support/controlContrastScan.ts).
 //
-// A reading under its minimum fails the part unless its key is in test/control-contrast-baseline.txt
-// (a known violation waiting on a fix, owner noted there); a baseline line no stage of the part
-// reports any more is printed so it can be dropped. With CONTRAST_AUDIT_OUT (or FAST_CHECKS_OUT) set,
-// each part also writes every failing reading, baselined or not, as a table: control-contrast-N.md.
+// A reading under its minimum fails the part unless its control class is in
+// test/control-contrast-baseline.txt (a known violation waiting on a fix) and the reading is no worse
+// than the floor recorded there: a ratchet, one line per class (`<class> <text|icon> <floor>`), so a
+// new failing control or a known one that gets worse fails, and each fix raises or drops a line.
+// A class is the control's tag and first classes (`button.ui-button.ui-tabs-trigger`), its label
+// without the text. With CONTRAST_AUDIT_OUT (or FAST_CHECKS_OUT) set, each part also writes every
+// failing reading, baselined or not, as a table (control-contrast-N.md) and the part's worst reading
+// per class as baseline lines (control-contrast-N.baseline.txt).
 //
 // Shipped themes (Resources/ghostty/themes and Resources/cmux-themes, over 600) are also read, at rest
 // with the theme's own accent, on the entries that hold the shared controls (SWEEP_ENTRIES): a theme
@@ -117,7 +121,10 @@ const stageName = (stage: Stage): string => `${stage.entry}/${stage.variant}@${s
 /** One failing reading. */
 export type Failure = { key: string; stage: string; state: State; control: Control; reading: Reading; minimum: number };
 
-/** The baseline key of a failing reading: `<entry>/<variant>@<scheme>:<state> <kind> <control label>`. */
+/** A control's class for the baseline: its label without the text, and the reading's kind. */
+export const classKey = (label: string, kind: string): string => `${label.replace(/ ".*$/, "")} ${kind}`;
+
+/** A failing reading's name in the report: `<entry>/<variant>@<scheme>:<state> <kind> <control label>`. */
 export const failureKey = (stage: string, state: State, kind: string, label: string): string =>
   `${stage}:${state} ${kind} ${label}`;
 
@@ -135,12 +142,17 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
     setDefaultTimeout(600_000);
     const webviews = path.resolve(import.meta.dir, "../..");
     const baselineFile = path.join(webviews, "test/control-contrast-baseline.txt");
-    const baseline = new Set(
+    const baseline = new Map(
       fs
         .readFileSync(baselineFile, "utf8")
         .split("\n")
         .map((line) => line.replace(/\s+#.*$/, "").trim())
-        .filter((line) => line && !line.startsWith("#")),
+        .filter((line) => line && !line.startsWith("#"))
+        .map((line) => {
+          const [, key, floor] = /^(.*) (\d+(?:\.\d+)?)$/.exec(line) ?? [];
+          if (!key || !floor) throw new Error(`control-contrast-baseline.txt: no floor on ${JSON.stringify(line)}`);
+          return [key, Number(floor)] as const;
+        }),
     );
     const sweep = sweepSchemes(process.env.CONTROL_CONTRAST_SWEEP === "1");
     const sweepEntries = new Set<string>(SWEEP_ENTRIES);
@@ -172,12 +184,6 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
       test.skip(`control contrast part ${part} of ${parts}: CONTROL_CONTRAST_ENTRIES runs in part 1`, () => {});
       return;
     }
-    const mine = new Set(stages.map(stageName));
-    const names = everyStage.map(stageName).sort((a, b) => b.length - a.length);
-    const ownedHere = (key: string): boolean => {
-      const stage = names.find((name) => key.startsWith(`${name}:`));
-      return stage === undefined ? part === 1 : mine.has(stage);
-    };
 
     const { createServer } = await import("vite");
     let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -338,6 +344,7 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
 
       const fresh: string[] = [];
       const reported = new Set<string>();
+      const worst = new Map<string, number>();
       const all: Failure[] = [];
       let controls = 0;
       for (const result of results.sort((a, b) => a.stage.localeCompare(b.stage))) {
@@ -350,16 +357,24 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
           if (reported.has(failure.key)) continue;
           reported.add(failure.key);
           all.push(failure);
-          if (baseline.has(failure.key)) continue;
           const r = failure.reading;
+          const known = classKey(failure.control.label, r.kind);
+          worst.set(known, Math.min(worst.get(known) ?? Infinity, r.ratio));
+          if (r.ratio >= (baseline.get(known) ?? Infinity)) continue;
           fresh.push(`${failure.key}  (${r.ratio}:1 < ${failure.minimum}:1, ink ${r.ink} on ${r.ground})`);
         }
       }
-      for (const key of baseline)
-        if (ownedHere(key) && !reported.has(key))
-          console.warn(`control-contrast: baseline line no longer found, drop it: ${key}`);
       const out = process.env.CONTRAST_AUDIT_OUT || process.env.FAST_CHECKS_OUT;
-      if (out) writeReport(path.join(out, `control-contrast-${part}.md`), all, part, parts, results, controls);
+      if (out) {
+        writeReport(path.join(out, `control-contrast-${part}.md`), all, part, parts, results, controls);
+        fs.writeFileSync(
+          path.join(out, `control-contrast-${part}.baseline.txt`),
+          [...worst]
+            .map(([key, floor]) => `${key} ${floor}`)
+            .sort()
+            .join("\n") + "\n",
+        );
+      }
       const read = results.filter((result) => !("error" in result));
       console.log(
         `control-contrast: read ${read.length} of ${stages.length} stages, ${controls} controls, ${all.length} failing readings, ${fresh.length} new`,
