@@ -1205,38 +1205,7 @@ export default agentPaneEntry({
       ready: { draft: "Compare the recording with the build that works." },
       snapshot: chat(finished),
       native: MIXED_NATIVE,
-      play: async (ctx) => {
-        // PROBE (temporary): every frame's chip boxes and the composer's height.
-        const view = ctx.document.defaultView!;
-        const log: string[] = [];
-        let on = true;
-        const t0 = view.performance.now();
-        const sample = () => {
-          if (!on) return;
-          const box = ctx.document.querySelector(".acpmux-composer-box")?.getBoundingClientRect();
-          const chips = [...ctx.document.querySelectorAll(".acpmux-md [data-inline-attachment]")].map((node) => {
-            const r = node.getBoundingClientRect();
-            const inner = node.querySelector(".acpmux-md-inline-chip, .acpmux-attachment");
-            const cls = (inner?.className ?? "")
-              .toString()
-              .replace(/acpmux-/g, "")
-              .slice(0, 60);
-            const st = inner?.getAttribute("data-state") ?? "";
-            const sz = (inner?.hasAttribute("data-sizing") ? "S" : "") + (inner?.hasAttribute("data-held") ? "H" : "");
-            return `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)}x${Math.round(r.height)}:${cls}:${st}${sz}`;
-          });
-          log.push(`${Math.round(view.performance.now() - t0)} h=${box?.height.toFixed(1)} | ${chips.join(" ; ")}`);
-          view.requestAnimationFrame(sample);
-        };
-        view.requestAnimationFrame(sample);
-        await dropMixedKinds(ctx, "inline", "Compare the recording ".length);
-        await new Promise((done) => view.setTimeout(done, 300));
-        on = false;
-        const dedup = log.filter(
-          (line, i) => i === 0 || line.split(" ").slice(1).join(" ") !== log[i - 1]!.split(" ").slice(1).join(" "),
-        );
-        throw new Error(`PROBE ${dedup.join(" || ")}`);
-      },
+      play: (ctx) => dropMixedKinds(ctx, "inline", "Compare the recording ".length),
     },
     "attachments-top-mixed": {
       note: "Attachments at Top (as common chat apps draw it): the same three kinds all in one row over the text, the recording, the screenshot and the file side by side; never a second row split by kind.",
