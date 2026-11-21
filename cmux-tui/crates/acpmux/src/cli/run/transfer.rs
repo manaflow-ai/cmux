@@ -12,6 +12,7 @@ pub(super) async fn run(
     cwd: Option<String>,
     name: Option<String>,
     interrupt: bool,
+    after_turn: bool,
     json_out: bool,
 ) -> Result<()> {
     let src = connect(true).await?;
@@ -25,10 +26,13 @@ pub(super) async fn run(
     let id = resolve_id(&src, session).await?;
     // The source asks the target itself if this client goes away midway (`hub/transfer_watch.rs`).
     let socket = std::path::absolute(to)?;
-    let to_meta = json!({"socket": to});
+    // Absolute, as the watch's: an outbox that finds the chat moved hands its messages to the
+    // daemon at this socket (`server/outbox.rs` `hand_to_socket`), whatever its own folder.
+    let to_meta = json!({"socket": socket});
     let watch = json!({"socket": socket});
+    let running = (interrupt, after_turn);
     let moved =
-        move_chat(&src, &dst, &dst_init, &id, Some(watch), cwd, name, interrupt, to_meta).await?;
+        move_chat(&src, &dst, &dst_init, &id, Some(watch), cwd, name, running, to_meta).await?;
     if json_out {
         print_json(&moved);
     } else {
@@ -60,9 +64,9 @@ pub(super) async fn begin_move(
     src: &Client,
     id: &str,
     watch: Option<Value>,
-    interrupt: bool,
+    running: (bool, bool),
 ) -> Result<Begun> {
-    begin_move_after(src, id, watch, interrupt, None).await
+    begin_move_after(src, id, watch, running, None).await
 }
 
 /// [`begin_move`] after `staged` (see [`precopy`]), whose bundle then holds only the records
@@ -72,16 +76,16 @@ pub(super) async fn begin_staged(
     src: &Client,
     id: &str,
     watch: Option<Value>,
-    interrupt: bool,
+    running: (bool, bool),
     staged: Option<&Staged>,
 ) -> Result<Begun> {
     if let Some(staged) = staged {
-        match begin_move_after(src, id, watch.clone(), interrupt, Some(staged)).await {
+        match begin_move_after(src, id, watch.clone(), running, Some(staged)).await {
             Err(e) if refused_as(&e, "transfer.diverged") => {}
             begun => return begun,
         }
     }
-    begin_move(src, id, watch, interrupt).await
+    begin_move(src, id, watch, running).await
 }
 
 /// [`begin_move`]; after `staged`, the bundle holds only the records past its prefix.
@@ -89,13 +93,15 @@ async fn begin_move_after(
     src: &Client,
     id: &str,
     watch: Option<Value>,
-    interrupt: bool,
+    (interrupt, after_turn): (bool, bool),
     staged: Option<&Staged>,
 ) -> Result<Begun> {
     // This client hands the bundle on only to a receiver whose own `initialize` listed queue
     // approval when it carries approved prompts that still wait (`receiver_takes`).
-    let mut begin_params =
-        json!({"sessionId": id, "interrupt": interrupt, "gatesQueueApproval": true});
+    // `afterTurn`: a running turn ends on its own first, the chat unfrozen meanwhile
+    // (`hub/transfer_out.rs` `transfer_begin`); an older daemon ignores it and refuses as busy.
+    let mut begin_params = json!({"sessionId": id, "interrupt": interrupt,
+                                  "afterTurn": after_turn, "gatesQueueApproval": true});
     if let Some(to) = watch {
         begin_params.set("to", to);
     }
@@ -134,13 +140,13 @@ pub(super) async fn move_chat(
     watch: Option<Value>,
     cwd: Option<String>,
     name: Option<String>,
-    interrupt: bool,
+    running: (bool, bool),
     to_meta: Value,
 ) -> Result<Value> {
     // Pre-copied when both daemons can: the freeze then costs only what changed since. A target
     // that lost its stage refuses the bundle, and the move is made again in full.
     let staged = precopy(src, dst, dst_init, id).await;
-    let begun = begin_staged(src, id, watch.clone(), interrupt, staged.as_ref()).await?;
+    let begun = begin_staged(src, id, watch.clone(), running, staged.as_ref()).await?;
     if begun.stage_id.is_some() {
         let (cwd, name, meta) = (cwd.clone(), name.clone(), to_meta.clone());
         match finish_move(src, dst, dst_init, id, &begun, cwd, name, meta).await {
@@ -150,7 +156,7 @@ pub(super) async fn move_chat(
     } else {
         return finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await;
     }
-    let begun = begin_move(src, id, watch, interrupt).await?;
+    let begun = begin_move(src, id, watch, running).await?;
     finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await
 }
 

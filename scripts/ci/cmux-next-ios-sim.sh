@@ -504,6 +504,16 @@ for runtime in devices.values():
             print(d["udid"])
 ' "$name" || true)
 }
+# sim_set_dir WORK MOUNT: the step's simulator device set. WORK/sims when WORK's volume (MOUNT) is the boot
+# volume; else a fresh directory under $TMPDIR. TCC refuses CoreSimulatorService on another volume: aws-m4pro-3's
+# job root is the instance store /Volumes/ephemeral0, where every `simctl --set ... create` failed EINVAL
+# (2026-11-17..21; tests/test_ios_sim_set_volume.py). The EXIT trap's cleanup removes either.
+sim_set_dir() {
+  case "$2" in
+    /|/System/Volumes/Data) mkdir -p "$1/sims" && printf '%s\n' "$1/sims" ;;
+    *) local root="${CMUX_CI_SIM_SET_ROOT:-${TMPDIR:-/tmp}}"; mkdir -p "$root" && mktemp -d "${root%/}/cmux-ios-sim-sims.XXXXXX" ;;
+  esac
+}
 # --- end sim_create
 
 # xcodegen: a pinned release, checksum-verified, in a temp dir of this step's
@@ -540,8 +550,7 @@ if [[ "$mode" != release-build ]]; then
   read -r runtime device_type <<< "$sim_choice"
   # The step's iPhone is made before anything is built (booted after the build), so a creation that
   # cannot succeed fails the step in seconds, not after the build.
-  sims="$work/sims"
-  mkdir -p "$sims"
+  sims="$(sim_set_dir "$work" "$(df -P "$work" | awk 'NR==2 {print $6}')")"
   udid="$(sim_create cmux-next-ios-sim "$device_type" "$runtime" "$sims")"
 fi
 simctl() { xcrun simctl --set "$sims" "$@"; }
