@@ -19,6 +19,7 @@ pub mod hybrid;
 pub mod keepalive;
 pub mod link;
 pub mod media;
+pub mod reliable;
 mod send_queue;
 pub mod signaling;
 #[cfg(feature = "testing")]
@@ -28,8 +29,10 @@ pub mod timing;
 pub use build_space::BuildSpace;
 pub use dial::{Connected, DialError, DialOptions, LinkPath, TransportKind, UltraSetting};
 pub use link::{
-    Channel, ChannelEvent, CloseInfo, IncomingChannel, Lane, LaneState, Link, LinkConfig, LinkError, Role,
+    Accepted, Channel, ChannelEvent, ChannelResume, CloseInfo, IncomingChannel, Lane, LaneState, Link,
+    LinkConfig, LinkError, ResumeReport, Role,
 };
+pub use reliable::{Carrier, RELIABLE_LANE, ReliableConfig, ReliableStats, ResumeRegistry};
 pub use signaling::SignalingClient;
 pub use timing::Timeline;
 

@@ -25,6 +25,8 @@ use tokio::time::Instant;
 use tokio_util::codec::{FramedRead, FramedWrite};
 
 use crate::frame::{Frame, FrameCodec, FrameType};
+use crate::reliable::{self as rel, Carrier, Hello, HelloKind, ReliableConfig, ReliableStats, Token};
+use cmux_remote_protocol::reliable::{Cursors, Inbound, ReplayLog};
 
 /// Events queued per channel before the link reader waits for the owner.
 const CHANNEL_DEPTH: usize = 1024;
@@ -124,6 +126,10 @@ pub struct LinkConfig {
     /// same instants as the phone's other keepalives, instead of
     /// `keepalive` after the last pong.
     pub aligned: bool,
+    /// The reliable link ([`crate::reliable`]): set only when both sides
+    /// listed [`crate::reliable::RELIABLE_LANE`]. `None` (the default) sends
+    /// exactly the frames of a link without it.
+    pub reliable: Option<ReliableConfig>,
 }
 
 impl Default for LinkConfig {
@@ -132,6 +138,7 @@ impl Default for LinkConfig {
             keepalive: Some(Duration::from_secs(15)),
             keepalive_timeout: Duration::from_secs(20),
             aligned: false,
+            reliable: None,
         }
     }
 }
@@ -289,7 +296,18 @@ impl Outbox {
     /// Queue a channel's data frame, waiting while that channel already
     /// has [`CHANNEL_QUEUE_BYTES`] queued. Gives up once the writer is gone
     /// or the channel is `closed` (its close wakes the wait).
-    async fn push_data(&self, class: Class, frame: Frame, closed: &AtomicBool) -> Pushed {
+    ///
+    /// A reliable link also counts what the channel sent and the peer has not
+    /// acked (`logged`), up to `budget`: the replay buffer's bound. Without one
+    /// `logged` is 0 and `budget` unbounded, so the check is today's.
+    async fn push_data(
+        &self,
+        class: Class,
+        frame: Frame,
+        closed: &AtomicBool,
+        logged: &(dyn Fn(u32) -> usize + Sync),
+        budget: usize,
+    ) -> Pushed {
         loop {
             let room = self.room.notified();
             tokio::pin!(room);
@@ -303,7 +321,10 @@ impl Outbox {
                     return Pushed::ChannelClosed;
                 }
                 let used = queues.bytes.get(&frame.channel).copied().unwrap_or(0);
-                if used == 0 || used + frame.payload.len() <= CHANNEL_QUEUE_BYTES {
+                let held = used + logged(frame.channel);
+                if (used == 0 || used + frame.payload.len() <= CHANNEL_QUEUE_BYTES)
+                    && (held == 0 || held.saturating_add(frame.payload.len()) <= budget)
+                {
                     Self::enqueue(&mut queues, class, frame);
                     drop(queues);
                     self.ready.notify_one();
@@ -472,8 +493,79 @@ impl Inbox {
     }
 }
 
-struct Inner {
+/// A reliable link's state ([`crate::reliable`]).
+struct Reliable {
+    config: ReliableConfig,
+    token: Token,
+    state: Mutex<RelState>,
+    carrier: watch::Sender<Carrier>,
+    /// The current carrier's generation; a carrier's tasks stop once it moves
+    /// on (the carrier dropped or another took its place).
+    generation: watch::Sender<u64>,
+    /// Wakes the ack task: frames arrived and wait for their ack.
+    ack_wake: Notify,
+    /// Taken by a reader while it judges and delivers one frame, so the
+    /// reader of a dropped carrier that is still delivering finishes before
+    /// the next carrier's reader delivers anything.
+    deliver: tokio::sync::Mutex<()>,
+    /// Link::close was called: the writer ends the carrier with `bye`.
+    bye: AtomicBool,
+    stats: Mutex<ReliableStats>,
+    /// Per channel: unacked payload bytes when carriers dropped, and bytes
+    /// replayed, summed over resumes.
+    channel_stats: Mutex<HashMap<u32, ChannelResume>>,
+}
+
+/// One channel's share of a reliable link's resumes ([`Link::channel_resume`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ChannelResume {
+    /// Payload bytes of this channel sent and not acked when carriers dropped.
+    pub unacked_at_drop_bytes: u64,
+    /// Payload bytes of this channel replayed.
+    pub replayed_bytes: u64,
+    pub replayed_frames: u64,
+}
+
+#[derive(Default)]
+struct RelState {
+    log: ReplayLog<u32, rel::Logged>,
+    cursors: Cursors<u32>,
+    /// The highest channel the peer opened that this side has seen.
+    max_peer_opened: u32,
+    /// Per channel, the highest sequence received and not yet acked.
+    pending: HashMap<u32, u64>,
+    pending_bytes: usize,
+    forgotten: rel::Forgotten,
+}
+
+impl Reliable {
+    fn lock(&self) -> std::sync::MutexGuard<'_, RelState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn stats(&self) -> std::sync::MutexGuard<'_, ReliableStats> {
+        self.stats.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// A carrier's generation and the watch that says when it is over.
+type CarrierTag = Option<(watch::Receiver<u64>, u64)>;
+
+/// Resolves once the carrier `tag` names is over; never without one.
+async fn superseded(tag: &mut CarrierTag) {
+    match tag {
+        None => std::future::pending().await,
+        Some((generation, mine)) => {
+            let mine = *mine;
+            let _ = generation.wait_for(|current| *current != mine).await;
+        }
+    }
+}
+
+pub(crate) struct Inner {
     role: Role,
+    /// `Some` on a reliable link only.
+    reliable: Option<Reliable>,
     /// Per stream: [`MAIN`] and [`INPUT`].
     outboxes: [Outbox; 2],
     lane: watch::Sender<LaneState>,
@@ -515,6 +607,250 @@ impl Inner {
         LinkError::Closed(self.closed_reason().unwrap_or_else(|| "writer stopped".into()))
     }
 
+    /// Unacked bytes of `channel` (0 without the reliable link).
+    fn logged_bytes(&self, channel: u32) -> usize {
+        self.reliable.as_ref().map_or(0, |reliable| reliable.lock().log.stream_bytes(channel))
+    }
+
+    /// On a reliable link, gives a channel frame its sequence and keeps it
+    /// for replay; `None` drops it (its channel was closed by the peer).
+    /// Runs as the writer takes the frame, so sequences follow wire order.
+    fn seal(&self, frame: Frame) -> Option<Frame> {
+        let Some(reliable) = &self.reliable else { return Some(frame) };
+        if frame.channel == 0 || !matches!(frame.kind, FrameType::Open | FrameType::Data | FrameType::Close) {
+            return Some(frame);
+        }
+        let channel = frame.channel;
+        let last = frame.kind == FrameType::Close;
+        let (sequence, over) = {
+            let mut state = reliable.lock();
+            if state.forgotten.contains(channel) {
+                return None;
+            }
+            let logged = rel::Logged { kind: frame.kind, payload: frame.payload.clone() };
+            let sequence = state.log.record(channel, logged, last);
+            if last {
+                // Nothing of the peer's on this channel matters here any more.
+                state.cursors.close(channel);
+            }
+            // Senders wait at the budget; only control-class frames bypass
+            // it, so this is a peer that never acks.
+            let over =
+                state.log.stream_bytes(channel) > 4 * reliable.config.replay_bytes_per_channel + DATA_CHUNK;
+            (sequence, over)
+        };
+        if over {
+            self.shut("replay budget exceeded");
+            return None;
+        }
+        Some(Frame::new(channel, FrameType::Seq, rel::seq_payload(sequence, frame.kind, &frame.payload)))
+    }
+
+    /// Sends what arrived and is not yet acked.
+    fn flush_acks(&self) {
+        let Some(reliable) = &self.reliable else { return };
+        let acks: Vec<(u32, u64)> = {
+            let mut state = reliable.lock();
+            state.pending_bytes = 0;
+            state.pending.drain().collect()
+        };
+        if !acks.is_empty() {
+            let _ = self.send_control(Frame::new(0, FrameType::Ack, rel::ack_payload(&acks)));
+        }
+    }
+
+    /// This side's hello: its token, cursors and what it saw the peer open.
+    fn hello(&self, kind: HelloKind) -> Hello {
+        let reliable = self.reliable.as_ref().expect("a reliable link");
+        let state = reliable.lock();
+        Hello {
+            kind,
+            token: reliable.token,
+            max_peer_opened: state.max_peer_opened,
+            cursors: state.cursors.snapshot(),
+        }
+    }
+
+    /// The carrier `generation` failed: a reliable link waits for the next
+    /// one, any other link closes as today.
+    fn carrier_failed(self: &Arc<Self>, tag: &CarrierTag, reason: &str) {
+        match tag {
+            Some((_, generation)) if self.reliable.is_some() => {
+                self.suspend(*generation, reason);
+            }
+            _ => self.shut(reason),
+        }
+    }
+
+    /// Drops the current carrier, whatever it is.
+    fn lose_carrier(self: &Arc<Self>, reason: &str) {
+        if let Some(reliable) = &self.reliable {
+            let generation = *reliable.generation.borrow();
+            self.suspend(generation, reason);
+        }
+    }
+
+    /// Ends carrier `generation` (if it is still the current one and up):
+    /// its tasks stop, channels stay open, and the link closes as today
+    /// unless a new carrier resumes it within the resume window.
+    fn suspend(self: &Arc<Self>, generation: u64, reason: &str) -> bool {
+        let Some(reliable) = &self.reliable else { return false };
+        if self.closed_reason().is_some() {
+            return false;
+        }
+        let moved = reliable.generation.send_if_modified(|current| {
+            let mine = *current == generation;
+            if mine {
+                *current += 1;
+            }
+            mine
+        });
+        if !moved {
+            return false;
+        }
+        reliable.carrier.send_replace(Carrier::Down);
+        let (unacked, per_channel) = {
+            let state = reliable.lock();
+            let per_channel: Vec<(u32, usize)> =
+                state.log.streams().map(|channel| (channel, state.log.stream_bytes(channel))).collect();
+            (state.log.bytes() as u64, per_channel)
+        };
+        {
+            let mut channels = reliable.channel_stats.lock().unwrap_or_else(PoisonError::into_inner);
+            for (channel, bytes) in per_channel {
+                channels.entry(channel).or_default().unacked_at_drop_bytes += bytes as u64;
+            }
+        }
+        reliable.stats().unacked_at_drop_bytes += unacked;
+        tracing::info!(reason, unacked, "link carrier dropped; waiting for a resume");
+        let transport = self.transport.lock().unwrap_or_else(PoisonError::into_inner).take();
+        drop(transport);
+        self.tasks.lock().unwrap_or_else(PoisonError::into_inner).retain(|task| !task.is_finished());
+        let link = Arc::downgrade(self);
+        let window = reliable.config.resume_window;
+        let next = generation + 1;
+        let reason = reason.to_owned();
+        tokio::spawn(async move {
+            tokio::time::sleep(window).await;
+            if let Some(inner) = link.upgrade()
+                && let Some(reliable) = &inner.reliable
+                && *reliable.generation.borrow() == next
+                && *reliable.carrier.borrow() == Carrier::Down
+            {
+                inner.shut(&format!("no resume within {window:?} ({reason})"));
+            }
+        });
+        true
+    }
+
+    /// Waits while a reliable link's carrier is down.
+    async fn carrier_up(&self) {
+        if let Some(reliable) = &self.reliable {
+            let mut carrier = reliable.carrier.subscribe();
+            let mut closed = self.closed.subscribe();
+            tokio::select! {
+                _ = carrier.wait_for(|carrier| *carrier == Carrier::Up) => {}
+                _ = closed.wait_for(Option::is_some) => {}
+            }
+        }
+    }
+
+    fn carrier_is_down(&self) -> bool {
+        self.reliable.as_ref().is_some_and(|reliable| *reliable.carrier.borrow() == Carrier::Down)
+    }
+
+    /// What the peer (whose hello is `peer`) lacks, oldest first per channel.
+    /// Everything at or below its cursors is acked by the same step.
+    fn replay_frames(&self, peer: &Hello) -> Vec<Frame> {
+        let reliable = self.reliable.as_ref().expect("a reliable link");
+        let cursors: HashMap<u32, u64> = peer.cursors.iter().copied().collect();
+        let mut state = reliable.lock();
+        let streams: Vec<u32> = state.log.streams().collect();
+        let mut frames = Vec::new();
+        for channel in streams {
+            let ours = !self.role.peer_owns(channel);
+            let from = match cursors.get(&channel) {
+                Some(cursor) => Some(*cursor),
+                // The peer never saw this channel's open: all of it.
+                None if ours && channel > peer.max_peer_opened => Some(0),
+                // The peer closed it: nothing of it matters.
+                None => None,
+            };
+            match from {
+                Some(cursor) => {
+                    for (sequence, logged) in state.log.resume_from(channel, cursor) {
+                        let payload = rel::seq_payload(sequence, logged.kind, &logged.payload);
+                        frames.push(Frame::new(channel, FrameType::Seq, payload));
+                    }
+                }
+                None => {
+                    state.log.forget(channel);
+                }
+            }
+        }
+        frames
+    }
+
+    /// Writes `peer`'s missing frames to the new carrier.
+    async fn replay<W>(&self, sink: &mut FramedWrite<W, FrameCodec>, peer: &Hello) -> Result<(), LinkError>
+    where
+        W: AsyncWrite + Send + Unpin,
+    {
+        let reliable = self.reliable.as_ref().expect("a reliable link");
+        let frames = self.replay_frames(peer);
+        let count = frames.len() as u64;
+        // Payload bytes of the replayed channel frames (what the log holds).
+        let mut bytes = 0u64;
+        {
+            let mut channels = reliable.channel_stats.lock().unwrap_or_else(PoisonError::into_inner);
+            for frame in &frames {
+                let size = frame.payload.len().saturating_sub(9) as u64;
+                bytes += size;
+                let entry = channels.entry(frame.channel).or_default();
+                entry.replayed_bytes += size;
+                entry.replayed_frames += 1;
+            }
+        }
+        for frame in frames {
+            sink.feed(frame).await.map_err(|error| LinkError::Closed(format!("replay failed: {error}")))?;
+        }
+        sink.flush().await.map_err(|error| LinkError::Closed(format!("replay failed: {error}")))?;
+        let mut stats = reliable.stats();
+        stats.replayed_frames += count;
+        stats.replayed_bytes += bytes;
+        drop(stats);
+        for outbox in &self.outboxes {
+            outbox.room.notify_waiters();
+        }
+        Ok(())
+    }
+
+    /// Runs carrier `generation` of a reliable link (or the only carrier of
+    /// any link, `tag` `None`) over `sink` and `source`.
+    fn run_carrier<R, W>(
+        self: &Arc<Self>,
+        tag: CarrierTag,
+        sink: FramedWrite<W, FrameCodec>,
+        source: FramedRead<R, FrameCodec>,
+    ) where
+        R: AsyncRead + Send + Unpin + 'static,
+        W: AsyncWrite + Send + Unpin + 'static,
+    {
+        let Some(incoming) = self.incoming_tx.lock().unwrap_or_else(PoisonError::into_inner).clone() else {
+            return;
+        };
+        self.received();
+        let writer = tokio::spawn(write_loop(Arc::clone(self), MAIN, sink, tag.clone()));
+        let reader = tokio::spawn(read_loop(Arc::clone(self), MAIN, source, incoming, tag));
+        let mut tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner);
+        tasks.retain(|task| !task.is_finished());
+        tasks.extend([writer, reader]);
+        drop(tasks);
+        if let Some(reliable) = &self.reliable {
+            reliable.carrier.send_replace(Carrier::Up);
+        }
+    }
+
     /// Queue a frame that never waits (control, open, close).
     fn push(&self, stream: usize, class: Class, frame: Frame) -> Result<(), LinkError> {
         if self.closed_reason().is_some() || !self.outboxes[stream].push(class, frame) {
@@ -554,6 +890,11 @@ impl Inner {
             return;
         }
         tracing::debug!(reason, "link closed");
+        if let Some(reliable) = &self.reliable
+            && let Some(registry) = &reliable.config.registry
+        {
+            registry.remove(&reliable.token);
+        }
         let channels: Vec<_> = self.lock_channels().drain().map(|(_, route)| route.inbox).collect();
         for inbox in channels {
             inbox.push_now(ChannelEvent::Closed(CloseInfo::new("link_closed", reason)));
@@ -586,6 +927,41 @@ pub struct IncomingChannel {
     pub channel: Channel,
 }
 
+/// What [`Link::accept_reliable`] made of a carrier.
+pub enum Accepted {
+    /// A new link: serve it.
+    New(Link),
+    /// The carrier resumed this (already served) link.
+    Resumed(Link),
+}
+
+/// What one [`Link::resume`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResumeReport {
+    /// Round trips before channel data flowed again.
+    pub round_trips: u64,
+    /// Frames and payload bytes this side replayed.
+    pub replayed_frames: u64,
+    pub replayed_bytes: u64,
+    pub took: Duration,
+}
+
+async fn read_hello<R>(source: &mut FramedRead<R, FrameCodec>) -> Result<Hello, LinkError>
+where
+    R: AsyncRead + Send + Unpin,
+{
+    let first =
+        tokio::time::timeout(rel::HELLO_TIMEOUT, source.next()).await.map_err(|_| LinkError::Timeout)?;
+    match first {
+        Some(Ok(frame)) if frame.kind == FrameType::Hello && frame.channel == 0 => {
+            Hello::decode(frame.payload).ok_or_else(|| LinkError::Closed("bad hello".into()))
+        }
+        Some(Ok(_)) => Err(LinkError::Closed("the carrier did not open with a hello".into())),
+        Some(Err(error)) => Err(LinkError::Closed(format!("read failed: {error}"))),
+        None => Err(LinkError::Closed("the carrier ended before its hello".into())),
+    }
+}
+
 /// A running link. Cheap to clone; every clone is the same link. Call
 /// [`Link::close`] to end it; it also ends when the transport does.
 #[derive(Clone)]
@@ -602,13 +978,50 @@ impl std::fmt::Debug for Link {
 impl Link {
     /// Run a link over `stream`. `transport` is kept alive until the link
     /// closes (a peer connection, a tunnel, a task guard).
+    ///
+    /// With [`LinkConfig::reliable`] a phone's link opens with its `hello`;
+    /// a Mac takes a reliable link's carriers with [`Link::accept_reliable`].
     pub fn new<S>(stream: S, role: Role, config: LinkConfig, transport: Option<Box<dyn Any + Send>>) -> Self
     where
         S: AsyncRead + AsyncWrite + Send + 'static,
     {
+        let token = config.reliable.as_ref().map(|_| rel::new_token());
+        let inner = Self::build(role, &config, transport, token);
+        if inner.reliable.is_some() && role == Role::Phone {
+            let _ = inner.send_control(Frame::new(0, FrameType::Hello, inner.hello(HelloKind::New).encode()));
+        }
+        let (read_half, write_half) = tokio::io::split(stream);
+        let tag = inner.reliable.as_ref().map(|reliable| (reliable.generation.subscribe(), 0));
+        inner.run_carrier(
+            tag,
+            FramedWrite::new(write_half, FrameCodec),
+            FramedRead::new(read_half, FrameCodec),
+        );
+        Self::start(inner, &config)
+    }
+
+    fn build(
+        role: Role,
+        config: &LinkConfig,
+        transport: Option<Box<dyn Any + Send>>,
+        token: Option<Token>,
+    ) -> Arc<Inner> {
         let (incoming_tx, incoming_rx) = mpsc::channel(64);
-        let inner = Arc::new(Inner {
+        let reliable = config.reliable.clone().zip(token).map(|(config, token)| Reliable {
+            config,
+            token,
+            state: Mutex::new(RelState::default()),
+            carrier: watch::channel(Carrier::Up).0,
+            generation: watch::channel(0).0,
+            ack_wake: Notify::new(),
+            deliver: tokio::sync::Mutex::new(()),
+            bye: AtomicBool::new(false),
+            stats: Mutex::new(ReliableStats::default()),
+            channel_stats: Mutex::new(HashMap::new()),
+        });
+        Arc::new(Inner {
             role,
+            reliable,
             outboxes: [Outbox::default(), Outbox::default()],
             lane: watch::channel(LaneState::Unavailable).0,
             lane_attached: AtomicBool::new(false),
@@ -621,21 +1034,17 @@ impl Link {
             rtt: watch::channel(None).0,
             closed: watch::channel(None).0,
             incoming: tokio::sync::Mutex::new(incoming_rx),
-            incoming_tx: Mutex::new(Some(incoming_tx.clone())),
+            incoming_tx: Mutex::new(Some(incoming_tx)),
             tasks: Mutex::new(Vec::new()),
             transport: Mutex::new(transport),
             media: Mutex::new(None),
-        });
-        let (read_half, write_half) = tokio::io::split(stream);
-        let writer =
-            tokio::spawn(write_loop(Arc::clone(&inner), MAIN, FramedWrite::new(write_half, FrameCodec)));
-        let reader = tokio::spawn(read_loop(
-            Arc::clone(&inner),
-            MAIN,
-            FramedRead::new(read_half, FrameCodec),
-            incoming_tx,
-        ));
-        let mut tasks = vec![writer, reader];
+        })
+    }
+
+    /// The link's own tasks beside its carrier: the keepalive and, on a
+    /// reliable link, the ack timer.
+    fn start(inner: Arc<Inner>, config: &LinkConfig) -> Self {
+        let mut tasks = Vec::new();
         if let Some(interval) = config.keepalive
             && config.aligned
         {
@@ -643,20 +1052,23 @@ impl Link {
             tasks.push(tokio::spawn(aligned_keepalive(link, interval, config.keepalive_timeout)));
         } else if let Some(interval) = config.keepalive {
             let link = Self { inner: Arc::clone(&inner) };
+            let timeout = config.keepalive_timeout;
             tasks.push(tokio::spawn(async move {
                 let mut closed = link.inner.closed.subscribe();
-                loop {
+                'beat: loop {
                     tokio::select! {
                         () = tokio::time::sleep(interval) => {}
                         _ = closed.wait_for(Option::is_some) => return,
                     }
+                    // A reliable link's dropped carrier is not pinged.
+                    link.inner.carrier_up().await;
                     let sent = Instant::now();
                     let ping = link.ping();
                     tokio::pin!(ping);
                     loop {
                         // Wait for the pong, but count any inbound frame as
                         // life: a pong can trail a full transmit queue.
-                        let deadline = link.inner.last_received().max(sent) + config.keepalive_timeout;
+                        let deadline = link.inner.last_received().max(sent) + timeout;
                         tokio::select! {
                             result = &mut ping => {
                                 if result.is_err() {
@@ -666,7 +1078,11 @@ impl Link {
                             }
                             () = tokio::time::sleep_until(deadline) => {
                                 let quiet_since = link.inner.last_received().max(sent);
-                                if quiet_since + config.keepalive_timeout <= Instant::now() {
+                                if quiet_since + timeout <= Instant::now() {
+                                    if link.inner.reliable.is_some() {
+                                        link.inner.lose_carrier("keepalive timed out");
+                                        continue 'beat;
+                                    }
                                     link.inner.shut("keepalive timed out");
                                     return;
                                 }
@@ -676,8 +1092,172 @@ impl Link {
                 }
             }));
         }
-        *inner.tasks.lock().unwrap_or_else(PoisonError::into_inner) = tasks;
+        if inner.reliable.is_some() {
+            let link = Arc::clone(&inner);
+            tasks.push(tokio::spawn(async move {
+                let Some(reliable) = &link.reliable else { return };
+                let mut closed = link.closed.subscribe();
+                loop {
+                    tokio::select! {
+                        () = reliable.ack_wake.notified() => {}
+                        _ = closed.wait_for(Option::is_some) => return,
+                    }
+                    tokio::time::sleep(rel::ACK_DELAY).await;
+                    link.flush_acks();
+                }
+            }));
+        }
+        inner.tasks.lock().unwrap_or_else(PoisonError::into_inner).extend(tasks);
         Self { inner }
+    }
+
+    /// Mac side of a reliable link: takes a new carrier, which opens with
+    /// the phone's `hello`. A new link is [`Accepted::New`] (serve it like
+    /// any link); a resume moves the carrier into the link it names
+    /// ([`Accepted::Resumed`], already being served), which replays what the
+    /// phone lacks. A resume of a link this Mac no longer has is refused, and
+    /// the phone opens a new link, as today.
+    pub async fn accept_reliable<S>(
+        stream: S,
+        config: LinkConfig,
+        transport: Option<Box<dyn Any + Send>>,
+    ) -> Result<Accepted, LinkError>
+    where
+        S: AsyncRead + AsyncWrite + Send + 'static,
+    {
+        let registry = config
+            .reliable
+            .as_ref()
+            .and_then(|reliable| reliable.registry.clone())
+            .ok_or_else(|| LinkError::Closed("a reliable Mac link needs a resume registry".into()))?;
+        let (read_half, write_half) = tokio::io::split(stream);
+        let mut sink = FramedWrite::new(write_half, FrameCodec);
+        let mut source = FramedRead::new(read_half, FrameCodec);
+        let hello = read_hello(&mut source).await?;
+        match hello.kind {
+            HelloKind::New => {
+                let inner = Self::build(Role::Mac, &config, transport, Some(hello.token));
+                registry.insert(hello.token, Arc::downgrade(&inner));
+                let tag = inner.reliable.as_ref().map(|reliable| (reliable.generation.subscribe(), 0));
+                inner.run_carrier(tag, sink, source);
+                Ok(Accepted::New(Self::start(inner, &config)))
+            }
+            HelloKind::Resume => {
+                let target = registry.get(&hello.token).filter(|target| target.closed_reason().is_none());
+                let Some(target) = target else {
+                    let refused = Hello {
+                        kind: HelloKind::Refused,
+                        token: hello.token,
+                        max_peer_opened: 0,
+                        cursors: Vec::new(),
+                    };
+                    let _ = sink.send(Frame::new(0, FrameType::Hello, refused.encode())).await;
+                    return Err(LinkError::Closed("no link to resume".into()));
+                };
+                // The old carrier may not have noticed it is gone yet.
+                target.lose_carrier("the phone resumed over a new carrier");
+                let reliable = target.reliable.as_ref().expect("a registered link is reliable");
+                let generation = *reliable.generation.borrow();
+                let ok = target.hello(HelloKind::ResumeOk);
+                sink.send(Frame::new(0, FrameType::Hello, ok.encode()))
+                    .await
+                    .map_err(|error| LinkError::Closed(format!("resume failed: {error}")))?;
+                target.replay(&mut sink, &hello).await?;
+                if *reliable.generation.borrow() != generation || target.closed_reason().is_some() {
+                    return Err(LinkError::Closed("another carrier resumed the link".into()));
+                }
+                *target.transport.lock().unwrap_or_else(PoisonError::into_inner) = transport;
+                reliable.stats().resumes += 1;
+                target.run_carrier(Some((reliable.generation.subscribe(), generation)), sink, source);
+                Ok(Accepted::Resumed(Self { inner: target }))
+            }
+            HelloKind::ResumeOk | HelloKind::Refused => Err(LinkError::Closed("unexpected hello".into())),
+        }
+    }
+
+    /// Phone side of a reliable link: resume it over a new carrier
+    /// (`stream`, from a new dial; `transport` as in [`Link::new`]). Sends
+    /// this side's cursors, waits one round trip for the Mac's, replays
+    /// only what the Mac lacks, and the channels carry on where they were.
+    /// When the Mac no longer has the link, the link closes as today and the
+    /// caller opens a new one.
+    pub async fn resume<S>(
+        &self,
+        stream: S,
+        transport: Option<Box<dyn Any + Send>>,
+    ) -> Result<ResumeReport, LinkError>
+    where
+        S: AsyncRead + AsyncWrite + Send + 'static,
+    {
+        let Some(reliable) = &self.inner.reliable else {
+            return Err(LinkError::Closed("not a reliable link".into()));
+        };
+        if self.is_closed() {
+            return Err(self.inner.closed_error());
+        }
+        let started = Instant::now();
+        self.inner.lose_carrier("resuming over a new carrier");
+        let generation = *reliable.generation.borrow();
+        let (read_half, write_half) = tokio::io::split(stream);
+        let mut sink = FramedWrite::new(write_half, FrameCodec);
+        let mut source = FramedRead::new(read_half, FrameCodec);
+        let hello = self.inner.hello(HelloKind::Resume);
+        sink.send(Frame::new(0, FrameType::Hello, hello.encode()))
+            .await
+            .map_err(|error| LinkError::Closed(format!("resume failed: {error}")))?;
+        let reply = read_hello(&mut source).await?;
+        match reply.kind {
+            HelloKind::ResumeOk if reply.token == reliable.token => {}
+            HelloKind::Refused => {
+                self.inner.shut("the Mac no longer has this link");
+                return Err(self.inner.closed_error());
+            }
+            _ => return Err(LinkError::Closed("unexpected hello".into())),
+        }
+        if *reliable.generation.borrow() != generation || self.is_closed() {
+            return Err(LinkError::Closed("another carrier resumed the link".into()));
+        }
+        let before = *reliable.stats();
+        self.inner.replay(&mut sink, &reply).await?;
+        *self.inner.transport.lock().unwrap_or_else(PoisonError::into_inner) = transport;
+        self.inner.run_carrier(Some((reliable.generation.subscribe(), generation)), sink, source);
+        let mut stats = reliable.stats();
+        stats.resumes += 1;
+        stats.resume_round_trips = 1;
+        Ok(ResumeReport {
+            round_trips: 1,
+            replayed_frames: stats.replayed_frames - before.replayed_frames,
+            replayed_bytes: stats.replayed_bytes - before.replayed_bytes,
+            took: started.elapsed(),
+        })
+    }
+
+    /// A reliable link's counters (`None` without it).
+    pub fn reliable_stats(&self) -> Option<ReliableStats> {
+        let reliable = self.inner.reliable.as_ref()?;
+        let mut stats = *reliable.stats();
+        stats.unacked_bytes = reliable.lock().log.bytes() as u64;
+        Some(stats)
+    }
+
+    /// Channel `id`'s share of a reliable link's resumes (`None` without it).
+    pub fn channel_resume(&self, id: u32) -> Option<ChannelResume> {
+        let reliable = self.inner.reliable.as_ref()?;
+        let channels = reliable.channel_stats.lock().unwrap_or_else(PoisonError::into_inner);
+        Some(channels.get(&id).copied().unwrap_or_default())
+    }
+
+    /// Whether a reliable link's carrier is up (`None` without it). A
+    /// dropped carrier waits for [`Link::resume`] (phone) or
+    /// [`Link::accept_reliable`] (Mac) up to the resume window.
+    pub fn carrier(&self) -> Option<watch::Receiver<Carrier>> {
+        self.inner.reliable.as_ref().map(|reliable| reliable.carrier.subscribe())
+    }
+
+    /// Drops the current carrier now, as if the network had (tests, and a
+    /// phone that knows its path changed).
+    pub fn drop_carrier(&self, reason: &str) {
+        self.inner.lose_carrier(reason);
     }
 
     /// Attaches the media lane the dial negotiated.
@@ -698,7 +1278,9 @@ impl Link {
     /// [`Link::attach_input_lane`] (or [`Link::input_lane_failed`]), opening
     /// an input-lane channel waits briefly for it.
     pub fn expect_input_lane(&self) {
-        if !self.is_closed() {
+        // A reliable link resumes one stream: its input-lane channels ride
+        // the main stream at input priority.
+        if !self.is_closed() && self.inner.reliable.is_none() {
             self.inner.lane.send_if_modified(|state| {
                 let changed = *state == LaneState::Unavailable;
                 if changed {
@@ -730,7 +1312,10 @@ impl Link {
     where
         S: AsyncRead + AsyncWrite + Send + 'static,
     {
-        if self.is_closed() || self.inner.lane_attached.swap(true, Ordering::AcqRel) {
+        if self.is_closed()
+            || self.inner.reliable.is_some()
+            || self.inner.lane_attached.swap(true, Ordering::AcqRel)
+        {
             return;
         }
         let (read_half, write_half) = tokio::io::split(stream);
@@ -744,12 +1329,14 @@ impl Link {
             Arc::clone(&self.inner),
             INPUT,
             FramedWrite::new(write_half, FrameCodec),
+            None,
         ));
         let reader = tokio::spawn(read_loop(
             Arc::clone(&self.inner),
             INPUT,
             FramedRead::new(read_half, FrameCodec),
             incoming,
+            None,
         ));
         // The lane is used only once the peer is heard on it: each side
         // says hello (a ping) when it attaches, and the first frame that
@@ -820,6 +1407,9 @@ impl Link {
         let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
         let closed = Arc::new(AtomicBool::new(false));
         let inbox = Inbox::new(tx, &self.inner, stream, id);
+        if let Some(reliable) = &self.inner.reliable {
+            reliable.lock().cursors.open(id);
+        }
         self.inner.lock_channels().insert(id, Route { inbox, closed: Arc::clone(&closed) });
         let payload = serde_json::to_vec(&OpenRequest { service: service.to_owned(), args, lane })
             .expect("open request serializes");
@@ -931,45 +1521,90 @@ impl Link {
 
     /// Close the link and its transport.
     pub fn close(&self, reason: &str) {
+        if let Some(reliable) = &self.inner.reliable {
+            // The peer closes too instead of waiting for a resume.
+            reliable.bye.store(true, Ordering::Release);
+        }
         self.inner.shut(reason);
     }
 }
 
-async fn write_loop<W>(inner: Arc<Inner>, stream: usize, mut sink: FramedWrite<W, FrameCodec>)
-where
+async fn write_loop<W>(
+    inner: Arc<Inner>,
+    stream: usize,
+    mut sink: FramedWrite<W, FrameCodec>,
+    mut tag: CarrierTag,
+) where
     W: AsyncWrite + Send + Unpin,
 {
     let outbox = &inner.outboxes[stream];
     loop {
         // Highest priority first; feed what is queued, flushing every
-        // FLUSH_BYTES so the transport sees frames in priority order.
-        let frame = match outbox.next().await {
+        // FLUSH_BYTES so the transport sees frames in priority order. A
+        // reliable link logs each channel frame as it is taken (`seal`), so
+        // a carrier that drops mid-write loses nothing: the next replays it.
+        let next = tokio::select! {
+            next = outbox.next() => next,
+            () = superseded(&mut tag) => return,
+        };
+        let frame = match next {
             Next::Frame(frame) => frame,
             Next::Shutdown => {
+                say_bye(&inner, &mut sink).await;
                 let _ = sink.close().await;
                 return;
             }
         };
-        let mut pending = frame.payload.len();
-        let mut result = sink.feed(frame).await;
-        while result.is_ok() && pending < FLUSH_BYTES {
-            match outbox.pop() {
-                Some(Next::Frame(frame)) => {
-                    pending += frame.payload.len();
-                    result = sink.feed(frame).await;
+        let Some(frame) = inner.seal(frame) else { continue };
+        let batch = async {
+            let mut pending = frame.payload.len();
+            let mut result = sink.feed(frame).await;
+            let mut shutdown = false;
+            while result.is_ok() && pending < FLUSH_BYTES {
+                match outbox.pop() {
+                    Some(Next::Frame(frame)) => {
+                        let Some(frame) = inner.seal(frame) else { continue };
+                        pending += frame.payload.len();
+                        result = sink.feed(frame).await;
+                    }
+                    Some(Next::Shutdown) => {
+                        shutdown = true;
+                        break;
+                    }
+                    None => break,
                 }
-                Some(Next::Shutdown) => {
-                    let _ = sink.flush().await;
-                    let _ = sink.close().await;
-                    return;
-                }
-                None => break,
+            }
+            if shutdown {
+                let _ = sink.flush().await;
+                say_bye(&inner, &mut sink).await;
+                let _ = sink.close().await;
+                return None;
+            }
+            Some(result.and(sink.flush().await))
+        };
+        let written = tokio::select! {
+            written = batch => written,
+            () = superseded(&mut tag) => return,
+        };
+        match written {
+            None => return,
+            Some(Ok(())) => {}
+            Some(Err(error)) => {
+                inner.carrier_failed(&tag, &format!("write failed: {error}"));
+                return;
             }
         }
-        if let Err(error) = result.and(sink.flush().await) {
-            inner.shut(&format!("write failed: {error}"));
-            return;
-        }
+    }
+}
+
+/// A reliable link closed on purpose tells the peer, so it closes too
+/// instead of waiting for a resume.
+async fn say_bye<W>(inner: &Inner, sink: &mut FramedWrite<W, FrameCodec>)
+where
+    W: AsyncWrite + Send + Unpin,
+{
+    if inner.reliable.as_ref().is_some_and(|reliable| reliable.bye.load(Ordering::Acquire)) {
+        let _ = sink.send(Frame::new(0, FrameType::Bye, Bytes::new())).await;
     }
 }
 
@@ -992,6 +1627,12 @@ async fn aligned_keepalive(link: Link, interval: Duration, timeout: Duration) {
         tokio::select! {
             _ = closed.wait_for(Option::is_some) => return,
             () = tokio::time::sleep_until(beat) => {
+                if link.inner.carrier_is_down() {
+                    // A reliable link's dropped carrier is not pinged.
+                    unanswered = None;
+                    beat = crate::keepalive::next_beat(beat, interval);
+                    continue;
+                }
                 // The pinger waits one beat for its pong (the RTT it reports);
                 // any frame, the pong too, counts as the answer above.
                 let pinger = link.clone();
@@ -1006,6 +1647,11 @@ async fn aligned_keepalive(link: Link, interval: Duration, timeout: Duration) {
                     && link.inner.last_received() < sent
                     && sent + timeout <= Instant::now()
                 {
+                    if link.inner.reliable.is_some() {
+                        link.inner.lose_carrier("keepalive timed out");
+                        unanswered = None;
+                        continue;
+                    }
                     link.inner.shut("keepalive timed out");
                     return;
                 }
@@ -1019,11 +1665,18 @@ async fn read_loop<R>(
     stream: usize,
     mut source: FramedRead<R, FrameCodec>,
     incoming: mpsc::Sender<IncomingChannel>,
+    mut tag: CarrierTag,
 ) where
     R: AsyncRead + Send + Unpin,
 {
     let reason = loop {
-        let frame = match source.next().await {
+        let next = tokio::select! {
+            // A carrier that is over reads no more.
+            biased;
+            () = superseded(&mut tag) => return,
+            next = source.next() => next,
+        };
+        let frame = match next {
             Some(Ok(frame)) => frame,
             Some(Err(error)) => break format!("read failed: {error}"),
             None => break "peer closed the link".to_owned(),
@@ -1042,90 +1695,191 @@ async fn read_loop<R>(
                 changed
             });
         }
-        match frame.kind {
-            FrameType::Ping => {
-                let _ = inner.push(stream, Class::Control, Frame::new(0, FrameType::Pong, frame.payload));
+        if inner.reliable.is_some() {
+            if let Err(reason) = handle_reliable(&inner, stream, frame, &incoming).await {
+                inner.shut(&reason);
+                return;
             }
-            FrameType::Pong => {
-                if let Ok(bytes) = <[u8; 8]>::try_from(&frame.payload[..]) {
-                    let nonce = u64::from_be_bytes(bytes);
-                    let waiter = inner.pings.lock().unwrap_or_else(PoisonError::into_inner).remove(&nonce);
-                    if let Some(waiter) = waiter {
-                        let _ = waiter.send(Instant::now());
+        } else {
+            handle_frame(&inner, stream, frame, &incoming).await;
+        }
+    };
+    inner.carrier_failed(&tag, &reason);
+}
+
+/// One inbound frame of a reliable link: a channel frame is delivered once,
+/// in order, whatever carrier it came on. `Err`: the link ends.
+async fn handle_reliable(
+    inner: &Arc<Inner>,
+    stream: usize,
+    frame: Frame,
+    incoming: &mpsc::Sender<IncomingChannel>,
+) -> Result<(), String> {
+    let reliable = inner.reliable.as_ref().expect("a reliable link");
+    match frame.kind {
+        FrameType::Seq => {
+            let channel = frame.channel;
+            let (sequence, kind, payload) =
+                rel::open_seq(frame.payload).ok_or_else(|| format!("bad seq frame on channel {channel}"))?;
+            let _turn = reliable.deliver.lock().await;
+            let (verdict, flush) = {
+                let mut state = reliable.lock();
+                let peer_opens = kind == FrameType::Open && inner.role.peer_owns(channel);
+                let new_stream = peer_opens && channel > state.max_peer_opened;
+                let verdict = state.cursors.accept(channel, sequence, new_stream);
+                let mut flush = false;
+                match verdict {
+                    Inbound::Deliver => {
+                        if peer_opens {
+                            state.max_peer_opened = state.max_peer_opened.max(channel);
+                        }
+                        if kind == FrameType::Close {
+                            // The peer is done with the channel: what this side
+                            // still holds or queues for it is moot.
+                            state.cursors.close(channel);
+                            state.log.forget(channel);
+                            state.forgotten.insert(channel);
+                        }
+                        state.pending.insert(channel, sequence);
+                        state.pending_bytes += payload.len() + 9;
+                        flush = state.pending_bytes >= rel::ACK_BYTES;
                     }
-                }
-            }
-            FrameType::Open => {
-                if !inner.role.peer_owns(frame.channel) || inner.lock_channels().contains_key(&frame.channel)
-                {
-                    refuse(
-                        &inner,
-                        stream,
-                        frame.channel,
-                        "bad_channel",
-                        "channel id is not the peer's or in use",
-                    );
-                    continue;
-                }
-                let Ok(request) = serde_json::from_slice::<OpenRequest>(&frame.payload) else {
-                    refuse(&inner, stream, frame.channel, "bad_request", "open payload is not JSON");
-                    continue;
-                };
-                // Replies go back on the stream the open came on, at the
-                // priority of the lane the peer asked for.
-                let class = Class::from(request.lane);
-                let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
-                let closed = Arc::new(AtomicBool::new(false));
-                let inbox = Inbox::new(tx, &inner, stream, frame.channel);
-                inner.lock_channels().insert(frame.channel, Route { inbox, closed: Arc::clone(&closed) });
-                let channel = Channel::new(frame.channel, stream, class, Arc::clone(&inner), rx, closed);
-                let accepted = IncomingChannel {
-                    service: request.service,
-                    args: request.args,
-                    lane: request.lane,
-                    channel,
-                };
-                if incoming.send(accepted).await.is_err() {
-                    // Nobody accepts; the channel's drop refuses it.
-                }
-            }
-            FrameType::Data => {
-                let inbox = inner.lock_channels().get(&frame.channel).map(|route| route.inbox.clone());
-                if let Some(inbox) = inbox {
-                    // The reader never waits on one channel's owner (see
-                    // `Inbox`), only on a channel holding its whole buffer.
-                    // Past the stall budget that channel is closed `overflow`
-                    // on both sides and the link goes on.
-                    if inbox.owner_gone() {
-                        inner.lock_channels().remove(&frame.channel);
-                    } else if !inbox.push(ChannelEvent::Data(frame.payload)).await
-                        && inner.lock_channels().remove(&frame.channel).is_some()
-                    {
-                        tracing::warn!(
-                            channel = frame.channel,
-                            "channel held {CHANNEL_BUFFER_BYTES} bytes for {CHANNEL_STALL:?}; closing it"
-                        );
-                        refuse(&inner, stream, frame.channel, "overflow", "the channel was not read");
+                    Inbound::Duplicate => {
+                        if let Some(cursor) = state.cursors.get(channel) {
+                            state.pending.insert(channel, cursor);
+                        }
                     }
+                    Inbound::Unknown | Inbound::Gap { .. } => {}
                 }
-            }
-            FrameType::Close => {
-                let info = serde_json::from_slice::<CloseInfo>(&frame.payload)
-                    .unwrap_or_else(|_| CloseInfo::new("closed", ""));
-                let route = inner.lock_channels().remove(&frame.channel);
-                if let Some(route) = route {
-                    // The peer is gone from this channel: our sends stop, a
-                    // send waiting for room included, and no close goes back.
-                    route.closed.store(true, Ordering::Release);
-                    for outbox in &inner.outboxes {
-                        outbox.room.notify_waiters();
+                (verdict, flush)
+            };
+            match verdict {
+                Inbound::Deliver => {
+                    if flush {
+                        inner.flush_acks();
+                    } else {
+                        reliable.ack_wake.notify_one();
                     }
-                    route.inbox.push_now(ChannelEvent::Closed(info));
+                    if kind == FrameType::Close {
+                        for outbox in &inner.outboxes {
+                            outbox.room.notify_waiters();
+                        }
+                    }
+                    handle_frame(inner, stream, Frame { channel, kind, payload }, incoming).await;
+                }
+                Inbound::Duplicate => {
+                    reliable.stats().duplicates_dropped += 1;
+                    reliable.ack_wake.notify_one();
+                }
+                Inbound::Unknown => {}
+                Inbound::Gap { expected } => {
+                    return Err(format!("channel {channel} skipped from {expected} to {sequence}"));
                 }
             }
         }
-    };
-    inner.shut(&reason);
+        FrameType::Ack => {
+            let acks = rel::open_ack(frame.payload).ok_or("bad ack frame")?;
+            let mut freed = 0;
+            {
+                let mut state = reliable.lock();
+                for (channel, sequence) in acks {
+                    freed += state.log.ack(channel, sequence);
+                }
+            }
+            if freed > 0 {
+                for outbox in &inner.outboxes {
+                    outbox.room.notify_waiters();
+                }
+            }
+        }
+        FrameType::Bye => return Err("peer closed the link".into()),
+        // A phone's opening hello (a Mac built with `Link::new`): nothing to do.
+        FrameType::Hello => {}
+        _ => handle_frame(inner, stream, frame, incoming).await,
+    }
+    Ok(())
+}
+
+/// One inbound frame, as every link handles it.
+async fn handle_frame(
+    inner: &Arc<Inner>,
+    stream: usize,
+    frame: Frame,
+    incoming: &mpsc::Sender<IncomingChannel>,
+) {
+    match frame.kind {
+        FrameType::Ping => {
+            let _ = inner.push(stream, Class::Control, Frame::new(0, FrameType::Pong, frame.payload));
+        }
+        FrameType::Pong => {
+            if let Ok(bytes) = <[u8; 8]>::try_from(&frame.payload[..]) {
+                let nonce = u64::from_be_bytes(bytes);
+                let waiter = inner.pings.lock().unwrap_or_else(PoisonError::into_inner).remove(&nonce);
+                if let Some(waiter) = waiter {
+                    let _ = waiter.send(Instant::now());
+                }
+            }
+        }
+        FrameType::Open => {
+            if !inner.role.peer_owns(frame.channel) || inner.lock_channels().contains_key(&frame.channel) {
+                refuse(inner, stream, frame.channel, "bad_channel", "channel id is not the peer's or in use");
+                return;
+            }
+            let Ok(request) = serde_json::from_slice::<OpenRequest>(&frame.payload) else {
+                refuse(inner, stream, frame.channel, "bad_request", "open payload is not JSON");
+                return;
+            };
+            // Replies go back on the stream the open came on, at the
+            // priority of the lane the peer asked for.
+            let class = Class::from(request.lane);
+            let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
+            let closed = Arc::new(AtomicBool::new(false));
+            let inbox = Inbox::new(tx, inner, stream, frame.channel);
+            inner.lock_channels().insert(frame.channel, Route { inbox, closed: Arc::clone(&closed) });
+            let channel = Channel::new(frame.channel, stream, class, Arc::clone(inner), rx, closed);
+            let accepted =
+                IncomingChannel { service: request.service, args: request.args, lane: request.lane, channel };
+            if incoming.send(accepted).await.is_err() {
+                // Nobody accepts; the channel's drop refuses it.
+            }
+        }
+        FrameType::Data => {
+            let inbox = inner.lock_channels().get(&frame.channel).map(|route| route.inbox.clone());
+            if let Some(inbox) = inbox {
+                // The reader never waits on one channel's owner (see
+                // `Inbox`), only on a channel holding its whole buffer.
+                // Past the stall budget that channel is closed `overflow`
+                // on both sides and the link goes on.
+                if inbox.owner_gone() {
+                    inner.lock_channels().remove(&frame.channel);
+                } else if !inbox.push(ChannelEvent::Data(frame.payload)).await
+                    && inner.lock_channels().remove(&frame.channel).is_some()
+                {
+                    tracing::warn!(
+                        channel = frame.channel,
+                        "channel held {CHANNEL_BUFFER_BYTES} bytes for {CHANNEL_STALL:?}; closing it"
+                    );
+                    refuse(inner, stream, frame.channel, "overflow", "the channel was not read");
+                }
+            }
+        }
+        // Reliable-link frames outside a reliable link: ignored.
+        FrameType::Seq | FrameType::Ack | FrameType::Hello | FrameType::Bye => {}
+        FrameType::Close => {
+            let info = serde_json::from_slice::<CloseInfo>(&frame.payload)
+                .unwrap_or_else(|_| CloseInfo::new("closed", ""));
+            let route = inner.lock_channels().remove(&frame.channel);
+            if let Some(route) = route {
+                // The peer is gone from this channel: our sends stop, a
+                // send waiting for room included, and no close goes back.
+                route.closed.store(true, Ordering::Release);
+                for outbox in &inner.outboxes {
+                    outbox.room.notify_waiters();
+                }
+                route.inbox.push_now(ChannelEvent::Closed(info));
+            }
+        }
+    }
 }
 
 /// Refuse or end `channel` with a `close` frame on `stream`, ahead of data.
@@ -1215,7 +1969,13 @@ impl ChannelSender {
             }
             let size = chunk.len();
             let frame = Frame::new(self.id, FrameType::Data, chunk);
-            match self.inner.outboxes[self.stream].push_data(self.class, frame, &self.closed).await {
+            let budget =
+                self.inner.reliable.as_ref().map_or(usize::MAX, |r| r.config.replay_bytes_per_channel);
+            let logged = |channel| self.inner.logged_bytes(channel);
+            match self.inner.outboxes[self.stream]
+                .push_data(self.class, frame, &self.closed, &logged, budget)
+                .await
+            {
                 Pushed::Queued => {
                     if let Some(meter) = &self.meter {
                         meter.add_sent(size);
@@ -1347,6 +2107,224 @@ mod tests {
             Link::new(a, Role::Phone, LinkConfig::default(), None),
             Link::new(b, Role::Mac, LinkConfig::default(), None),
         )
+    }
+
+    /// A carrier the test can cut: two duplexes with a pump between; a cut
+    /// loses whatever is in flight, as a dropped path does.
+    fn cuttable() -> (tokio::io::DuplexStream, tokio::io::DuplexStream, Vec<JoinHandle<()>>) {
+        let (a, pump_a) = tokio::io::duplex(64 * 1024);
+        let (pump_b, b) = tokio::io::duplex(64 * 1024);
+        let (ra, wa) = tokio::io::split(pump_a);
+        let (rb, wb) = tokio::io::split(pump_b);
+        let copy = |mut r: tokio::io::ReadHalf<tokio::io::DuplexStream>,
+                    mut w: tokio::io::WriteHalf<tokio::io::DuplexStream>| {
+            tokio::spawn(async move {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                // About 16 MB/s with a chunk held in the path each
+                // millisecond, so a cut always lands mid-stream and loses it.
+                let mut buf = vec![0u8; 16 * 1024];
+                while let Ok(n) = r.read(&mut buf).await {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                    if n == 0 || w.write_all(&buf[..n]).await.is_err() {
+                        return;
+                    }
+                }
+            })
+        };
+        let pumps = vec![copy(ra, wb), copy(rb, wa)];
+        (a, b, pumps)
+    }
+
+    /// The reliable link: a carrier cut mid-stream is resumed over a new one,
+    /// and the channel sees every byte once, in order, both ways, without a
+    /// reopen; only what the peer lacked is replayed.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn reliable_link_resumes_a_cut_carrier_without_loss_or_duplicates() {
+        let registry = Arc::new(rel::ResumeRegistry::default());
+        let config = LinkConfig {
+            keepalive: None,
+            reliable: Some(ReliableConfig {
+                registry: Some(Arc::clone(&registry)),
+                ..ReliableConfig::default()
+            }),
+            ..LinkConfig::default()
+        };
+        let (a, b, pumps) = cuttable();
+        let phone = Link::new(a, Role::Phone, config.clone(), None);
+        let mac_config = config.clone();
+        let (carriers_tx, mut carriers) = mpsc::unbounded_channel::<tokio::io::DuplexStream>();
+        let _ = carriers_tx.send(b);
+        let server = tokio::spawn(async move {
+            let mut served = Vec::new();
+            while let Some(stream) = carriers.recv().await {
+                match Link::accept_reliable(stream, mac_config.clone(), None).await.unwrap() {
+                    Accepted::New(mac) => {
+                        let mut incoming = mac.accept().await.expect("incoming");
+                        served.push(tokio::spawn(async move {
+                            // Echo every byte back.
+                            while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                                incoming.channel.send(bytes).await.unwrap();
+                            }
+                            mac
+                        }));
+                    }
+                    Accepted::Resumed(_) => {}
+                }
+            }
+        });
+        let channel = phone.open("echo", serde_json::json!({})).await.unwrap();
+        let (sender, mut receiver) = channel.split();
+        let total = 4 * 1024 * 1024;
+        let data: Vec<u8> = (0..total).map(|i| (i * 7 + i / 251) as u8).collect();
+        let expected = data.clone();
+        let writer = tokio::spawn(async move {
+            for chunk in data.chunks(10_000) {
+                sender.send(Bytes::copy_from_slice(chunk)).await.unwrap();
+            }
+            sender
+        });
+        let reader = tokio::spawn(async move {
+            let mut got = Vec::with_capacity(total);
+            while got.len() < total {
+                match receiver.recv().await.unwrap() {
+                    ChannelEvent::Data(bytes) => got.extend_from_slice(&bytes),
+                    other => panic!("the channel saw {other:?}"),
+                }
+            }
+            got
+        });
+        // Cut the carrier three times while bytes flow both ways.
+        let mut pumps = pumps;
+        for _ in 0..3 {
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            for pump in pumps.drain(..) {
+                pump.abort();
+            }
+            let (a, b, next) = cuttable();
+            pumps = next;
+            let _ = carriers_tx.send(b);
+            let report = phone.resume(a, None).await.expect("resume");
+            assert_eq!(report.round_trips, 1);
+        }
+        let got =
+            tokio::time::timeout(Duration::from_secs(30), reader).await.expect("all bytes back").unwrap();
+        assert!(got == expected, "every byte once, in order");
+        let _sender = writer.await.unwrap();
+        let stats = phone.reliable_stats().unwrap();
+        assert_eq!(stats.resumes, 3);
+        assert_eq!(
+            stats.duplicates_dropped, 0,
+            "only what the Mac lacked was replayed to the phone: {stats:?}"
+        );
+        assert!(stats.replayed_bytes <= stats.unacked_at_drop_bytes, "{stats:?}");
+        assert!(stats.unacked_at_drop_bytes > 0, "the cuts came mid-stream: {stats:?}");
+        assert!(
+            stats.replayed_bytes > 0,
+            "a cut lost bytes in flight and the resume replayed them: {stats:?}"
+        );
+        println!("phone {stats:?}");
+        for (metric, value) in [
+            ("dups", stats.duplicates_dropped as f64),
+            ("holes", 0.0),
+            ("reattaches", 0.0),
+            ("resume_bytes", stats.replayed_bytes as f64),
+            ("unacked_at_drop_bytes", stats.unacked_at_drop_bytes as f64),
+            ("resume_round_trips", stats.resume_round_trips as f64),
+        ] {
+            println!(
+                "after NETCOND {{\"surface\":\"terminal\",\"profile\":\"cut-40ms@1\",\"phase\":\"reconnect\",\"scale\":\"1x\",\"metric\":\"{metric}\",\"value\":{value},\"run\":0,\"seed\":0}}"
+            );
+        }
+        assert!(!phone.is_closed());
+        phone.close("done");
+        drop(carriers_tx);
+        server.await.unwrap();
+    }
+
+    /// BEFORE (today's link, `reliable: None`), the same cut: the link shuts,
+    /// the channel closes mid-stream and the bytes in flight are gone, so the
+    /// phone must redial, reopen and re-fetch.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn before_a_cut_carrier_closes_the_link_and_its_channels() {
+        let config = LinkConfig { keepalive: None, ..LinkConfig::default() };
+        let (a, b, pumps) = cuttable();
+        let phone = Link::new(a, Role::Phone, config.clone(), None);
+        let mac = Link::new(b, Role::Mac, config, None);
+        let server = tokio::spawn(async move {
+            let mut incoming = mac.accept().await.expect("incoming");
+            while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                if incoming.channel.send(bytes).await.is_err() {
+                    break;
+                }
+            }
+        });
+        let channel = phone.open("echo", serde_json::json!({})).await.unwrap();
+        let (sender, mut receiver) = channel.split();
+        let total = 4 * 1024 * 1024;
+        let writer = tokio::spawn(async move {
+            let mut sent = 0usize;
+            for chunk in vec![1u8; total].chunks(10_000) {
+                if sender.send(Bytes::copy_from_slice(chunk)).await.is_err() {
+                    break;
+                }
+                sent += chunk.len();
+            }
+            sent
+        });
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        for pump in pumps {
+            pump.abort();
+        }
+        let mut got = 0usize;
+        let closed = loop {
+            match tokio::time::timeout(Duration::from_secs(10), receiver.recv()).await {
+                Ok(Some(ChannelEvent::Data(bytes))) => got += bytes.len(),
+                Ok(_) => break true,
+                Err(_) => break false,
+            }
+        };
+        assert!(closed, "today's channel ends with the carrier");
+        let sent = writer.await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !phone.is_closed() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("today's link shuts with its carrier");
+        let lost = sent.saturating_sub(got);
+        println!("before: sent {sent} echoed {got} lost {lost}");
+        for (metric, value) in
+            [("dups", 0.0), ("holes", lost as f64), ("reattaches", 1.0), ("resume_round_trips", f64::NAN)]
+        {
+            let value = if value.is_nan() { "null".to_string() } else { value.to_string() };
+            println!(
+                "before NETCOND {{\"surface\":\"terminal\",\"profile\":\"cut-40ms@1\",\"phase\":\"reconnect\",\"scale\":\"1x\",\"metric\":\"{metric}\",\"value\":{value},\"run\":0,\"seed\":0}}"
+            );
+        }
+        assert!(lost > 0);
+        server.abort();
+    }
+
+    /// A reliable link whose Mac no longer has it: the resume is refused and
+    /// the link closes as today.
+    #[tokio::test]
+    async fn a_resume_the_mac_does_not_know_is_refused() {
+        let config = LinkConfig {
+            keepalive: None,
+            reliable: Some(ReliableConfig {
+                registry: Some(Arc::new(rel::ResumeRegistry::default())),
+                ..ReliableConfig::default()
+            }),
+            ..LinkConfig::default()
+        };
+        let (a, _b) = tokio::io::duplex(64 * 1024);
+        let phone = Link::new(a, Role::Phone, config.clone(), None);
+        let (a, b) = tokio::io::duplex(64 * 1024);
+        let mac = tokio::spawn(Link::accept_reliable(b, config, None));
+        assert!(phone.resume(a, None).await.is_err());
+        assert!(phone.is_closed());
+        assert!(mac.await.unwrap().is_err());
     }
 
     #[tokio::test]
@@ -1780,6 +2758,7 @@ mod tests {
             keepalive: Some(Duration::from_millis(50)),
             keepalive_timeout: Duration::from_millis(600),
             aligned: false,
+            reliable: None,
         };
         let phone = Link::new(a, Role::Phone, config, None);
         // A peer that streams data frames and never answers pings.
