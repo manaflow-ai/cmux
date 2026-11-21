@@ -30,7 +30,7 @@ public final class ShareCmuxView: NSView {
     let messageView = ShareCmuxMessageTextView()
     private let titleLabel = ChromeLabel(wrappingLabelWithString: ShareCmuxStrings.title)
     private let bodyLabel = ChromeLabel(wrappingLabelWithString: ShareCmuxStrings.body)
-    private let messageScroll = NSScrollView()
+    private let messageScroll = OverlayScrollView()
     private let stack = NSStackView()
     /// The modal's material, below the lines (like the tip card, cx-367y): this Mac's glass with
     /// no card fill, like every overlay since #23801, solid only under Reduce Transparency (Leo 2026-10-21: "glass is never
@@ -42,7 +42,7 @@ public final class ShareCmuxView: NSView {
     /// (tests record it instead).
     public init(writeToPasteboard: @escaping @MainActor (String) -> Void = ShareCmuxView.writeToGeneralPasteboard) {
         self.writeToPasteboard = writeToPasteboard
-        surface = OverlaySurfaceView(interactive: true)
+        surface = Glass.makeOverlayPanel(interactive: true, tone: .neutralGlass(.transient))
         copyButton = CmuxDialogButtonView(CmuxDialogButton(id: "copy-link", title: ShareCmuxStrings.copyLink, role: .default),
                                           hint: .return,
                                           target: nil, action: #selector(ShareCmuxView.copyMessage))
@@ -164,7 +164,7 @@ public final class ShareCmuxView: NSView {
         messageScroll.drawsBackground = false
         messageScroll.borderType = .noBorder
         messageScroll.wantsLayer = true
-        messageScroll.layer?.cornerRadius = Metrics.controlCornerRadius
+        messageScroll.layer?.cornerRadius = Metrics.controlCornerRadius // radius-allow: a text box, a field, not a button
         messageScroll.layer?.cornerCurve = .continuous
         messageScroll.translatesAutoresizingMaskIntoConstraints = false
         messageScroll.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true

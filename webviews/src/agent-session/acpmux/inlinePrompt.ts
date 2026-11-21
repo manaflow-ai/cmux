@@ -200,16 +200,31 @@ export function recordedPromptParts(msg: any, known?: readonly PromptContentPart
     };
   });
 }
-/// Move complete attachment tokens across a plain-text edit. Literal U+FFFC stays ordinary text.
-export function carryInline(input: string, text: string, attachments: ComposerAttachment[]): string {
+/// `input` as text a person reads and edits: its words and the text of its pasted and text chips,
+/// each other attachment's token taken out and kept by where it was (`marks`).
+function plainRuns(input: string, attachments: readonly ComposerAttachment[]) {
   let plain = "";
   const marks: { at: number; token: string }[] = [];
-  for (const run of orderedDraftParts(input, attachments)) {
+  // A chip left in the strip goes after the words as its own paragraph, as an unedited send puts it.
+  const apart = (id: string) => (!input.includes(inlineToken(id)) && plain && !plain.endsWith("\n\n") ? "\n\n" : "");
+  for (const run of orderedDraftParts(input, [...attachments])) {
     if (run.type === "text") plain += run.text;
-    else if (run.attachment.kind === "pasted") plain += run.attachment.text ?? "";
-    else if (run.attachment.kind === "text") plain += promptText("", [run.attachment]);
+    else if (run.attachment.kind === "pasted") plain += apart(run.attachment.id) + (run.attachment.text ?? "");
+    else if (run.attachment.kind === "text") plain += apart(run.attachment.id) + promptText("", [run.attachment]);
     else marks.push({ at: plain.length, token: inlineToken(run.attachment.id) });
   }
+  return { plain, marks };
+}
+
+/// The text of a draft `input` a queued row shows and edits (`carryInline` puts its tokens back):
+/// never an attachment's token, whose id is no text the person wrote (#41016).
+export function inlinePlainText(input: string, attachments: readonly ComposerAttachment[]): string {
+  return plainRuns(input, attachments).plain;
+}
+
+/// Move complete attachment tokens across a plain-text edit. Literal U+FFFC stays ordinary text.
+export function carryInline(input: string, text: string, attachments: ComposerAttachment[]): string {
+  const { plain, marks } = plainRuns(input, attachments);
   let head = 0,
     tail = 0;
   while (head < plain.length && head < text.length && plain[head] === text[head]) head += 1;

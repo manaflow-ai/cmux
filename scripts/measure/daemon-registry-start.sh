@@ -2,7 +2,7 @@
 # Start time of the cmux-tui session daemon on a large registry, before and after an agent-roster
 # reducer version bump (2026-11-09: a 59 GB registry took 26 min to restore after a bump).
 #   cmux-ci run --class exclusive --measurement --script scripts/measure/daemon-registry-start.sh \
-#     --ref SHA --os macos [--arg=size_gb=10] [--arg=bump=1] [--arg=seal=1] [--arg=output_gb=0] \
+#     --ref SHA --os macos [--arg=size_gb=10] [--arg=bump=1] [--arg=seal=1] [--arg=segments=N] [--arg=output_gb=0] \
 #     [--arg=rounds=1] --artifact .build/daemon-registry-start/report.json --timeout 7200
 # It builds release `cmux-tui` and cmux-tui-core's `synth_registry` example, writes a registry of
 # about size_gb (96% personal.session.put rows of ~6 KiB, agent hook events, legacy output, sealed
@@ -27,15 +27,39 @@
 # replaces DRS-GEN: sizes, journal head and roster version as found. The report holds only sizes,
 # counts, versions and timings, no paths or row contents. The scratch dir with the clone goes at
 # exit. An owner that exits before ready leaves its last log line on stderr (DRS-OWNER-EXIT).
+#
+# On a registry that an older build made (what a schema change costs at the first start after an
+# update):
+#   ... --arg=made_by=SHA --arg=bump=0 --arg=trees=1
+# made_by=SHA: the generator is built from commit SHA (a scratch copy of that commit with its own
+# target directory, both gone before the first start) and writes the registry; each start is this
+# checkout's `cmux-tui`. With bump=0, `plain-0` is the first start of this build on that file and
+# `after` is a start with nothing left to change. SHA must pin the ghostty-next commit of this
+# checkout. Not with registry=.
+# trees=1: DRS-TREES {json} before the first start and after each start: the pages and bytes of
+# each b-tree (`dbstat`, read by this checkout's synth_registry --trees) and the file's page count
+# and free pages; all of them in the report (trees_before, each start's trees_after). The read goes
+# through the whole file, so the file is in the file cache at the next start: compare start times
+# only between runs with the same trees value.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 session=drs
-size_gb=2 bump=1 seal=1 output_gb=0 rounds=1 ready_timeout=3600 registry= pepper=
+size_gb=2 bump=1 seal=1 segments= output_gb=0 rounds=1 ready_timeout=3600 registry= pepper=
+# workspaces=N: the workspaces of the generated registry. creates_early=N, creates_late=N: after
+# each start is ready, N timed workspace.create requests at once and N after the daemon wrote its
+# after_ready laps, with the daemon's server-stats (locks, resource_projection) around them.
+workspaces=24 creates_early=0 creates_late=0 made_by="" trees=0
 for kv in "$@"; do
   case "$kv" in
+    made_by=*) made_by="${kv#*=}" ;;
+    trees=*) trees="${kv#*=}" ;;
+    workspaces=*) workspaces="${kv#*=}" ;;
+    creates_early=*) creates_early="${kv#*=}" ;;
+    creates_late=*) creates_late="${kv#*=}" ;;
     size_gb=*) size_gb="${kv#*=}" ;;
     bump=*) bump="${kv#*=}" ;;
     seal=*) seal="${kv#*=}" ;;
+    segments=*) segments="${kv#*=}" ;;
     output_gb=*) output_gb="${kv#*=}" ;;
     rounds=*) rounds="${kv#*=}" ;;
     ready_timeout=*) ready_timeout="${kv#*=}" ;;
@@ -47,17 +71,15 @@ done
 if [[ -n "$registry" && ( "$registry" != /* || ! -f "$registry" ) ]]; then
   echo "error: registry= needs the absolute path of an existing registry file" >&2; exit 2
 fi
+if [[ -n "$made_by" && -n "$registry" ]]; then
+  echo "error: made_by= is for a generated registry, not with registry=" >&2; exit 2
+fi
 out="$root/.build/daemon-registry-start"
 rm -rf "$out" && mkdir -p "$out"
 # ghostty-vt-sys builds libghostty-vt from the ghostty-next submodule (as cmux-tui-rust-check.sh).
 if [[ ! -f "$root/ghostty-next/build.zig" ]]; then
   git -C "$root" submodule update --init --depth 1 ghostty-next
 fi
-export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$root/.build/cmux-tui-rust-target}"
-(cd "$root/cmux-tui" && cargo build --release --locked -p cmux-tui --bin cmux-tui \
-  && cargo build --release --locked -p cmux-tui-core --example synth_registry)
-bin="$CARGO_TARGET_DIR/release/cmux-tui"
-synth="$CARGO_TARGET_DIR/release/examples/synth_registry"
 
 # The registry is tens of GB: on disk, not /tmp (Linux /tmp can be RAM). The socket stays short.
 scratch="${CMUX_DRS_SCRATCH:-$HOME/.cache/cmux-daemon-registry-start}/run-$$"
@@ -65,6 +87,44 @@ socket_dir="$(mktemp -d /tmp/cmux-drs.XXXXXX)"
 trap 'rm -rf "$scratch" "$socket_dir"' EXIT
 mkdir -p "$scratch/state" "$scratch/home"
 chmod 700 "$scratch" "$scratch/state"
+
+# made_by: the generator of that commit, from a copy of the commit's tree (no worktree: nothing
+# is written to this checkout's git folder). Its build has its own target directory, so this
+# checkout's target directory keeps no output of a scratch path.
+made_synth="" made_sha=""
+if [[ -n "$made_by" ]]; then
+  # A depth only in a checkout that is already shallow (a CI one): never turn a full clone shallow.
+  depth=""
+  [[ "$(git -C "$root" rev-parse --is-shallow-repository)" != true ]] || depth=--depth=1
+  # A fleet step's checkout has no `origin` remote: a commit that it does not hold then comes
+  # from the repository's URL (as app-at-commit.sh).
+  fetch_url="${CMUX_MEASURE_FETCH_URL:-https://github.com/manaflow-ai/cmux.git}"
+  git -C "$root" cat-file -e "$made_by^{commit}" 2>/dev/null \
+    || git -C "$root" fetch -q --no-tags --no-recurse-submodules $depth origin "$made_by" \
+    || git -C "$root" fetch -q --no-tags --no-recurse-submodules $depth "$fetch_url" "$made_by" \
+    || { echo "error: cannot fetch made_by=$made_by from origin or from $fetch_url" >&2; exit 2; }
+  made_sha="$(git -C "$root" rev-parse "$made_by^{commit}")"
+  made_ghostty="$(git -C "$root" rev-parse "$made_sha:ghostty-next")"
+  if [[ "$made_ghostty" != "$(git -C "$root" rev-parse HEAD:ghostty-next)" ]]; then
+    echo "error: made_by=$made_sha pins another ghostty-next commit than this checkout" >&2; exit 2
+  fi
+  mkdir -p "$scratch/made-by"
+  git -C "$root" archive "$made_sha" | tar -x -C "$scratch/made-by"
+  made_started=$(date +%s)
+  (cd "$scratch/made-by/cmux-tui" && CMUX_GHOSTTY_SRC="$root/ghostty-next" \
+    CARGO_TARGET_DIR="$scratch/made-target" \
+    cargo build --release --locked -p cmux-tui-core --example synth_registry)
+  made_synth="$scratch/made-by-synth"
+  cp "$scratch/made-target/release/examples/synth_registry" "$made_synth"
+  rm -rf "$scratch/made-by" "$scratch/made-target"
+  echo "DRS made_by $made_sha: its generator built in $(( $(date +%s) - made_started )) s"
+fi
+
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$root/.build/cmux-tui-rust-target}"
+(cd "$root/cmux-tui" && cargo build --release --locked -p cmux-tui --bin cmux-tui \
+  && cargo build --release --locked -p cmux-tui-core --example synth_registry)
+bin="$CARGO_TARGET_DIR/release/cmux-tui"
+synth="$CARGO_TARGET_DIR/release/examples/synth_registry"
 free_gb=$(( $(df -Pk "$scratch" | awk 'NR==2 {print $4}') / 1048576 ))
 echo "DRS host $(hostname -s) $(uname -sm) free ${free_gb} GB at $scratch"
 
@@ -156,15 +216,18 @@ else
   puts=$(( size_gb * 1024 * 1024 * 1024 * 96 / 100 / 6750 ))
   events=$(( puts / 24 ))
   args=(--out "$scratch/state" --session "$session" --session-puts "$puts" --agent-events "$events"
-    --output-bytes "$(( output_gb * 1024 * 1024 * 1024 ))" --workspaces 24 --quiet)
+    --output-bytes "$(( output_gb * 1024 * 1024 * 1024 ))" --workspaces "$workspaces" --quiet)
   [[ "$seal" != 1 ]] || args+=(--seal)
+  [[ -z "$segments" ]] || args+=(--seal-segments "$segments")
   [[ "$bump" != 1 ]] || args+=(--roster-version-bump)
   gen_started=$(date +%s)
-  "$synth" "${args[@]}" > "$out/generate.json"
-  echo "DRS-GEN $(cat "$out/generate.json") wall_s=$(( $(date +%s) - gen_started ))"
+  "${made_synth:-$synth}" "${args[@]}" > "$out/generate.json"
+  echo "DRS-GEN $(cat "$out/generate.json") wall_s=$(( $(date +%s) - gen_started ))${made_sha:+ made_by=$made_sha}"
 fi
 
 python3 "$root/scripts/measure/daemon-registry-start.py" \
   --bin "$bin" --state "$scratch/state" --home "$scratch/home" --session "$session" \
   --socket "$socket_dir/mux.sock" --generate "$out/generate.json" \
-  --rounds "$rounds" --bump "$bump" --ready-timeout "$ready_timeout" --report "$out/report.json"
+  --rounds "$rounds" --bump "$bump" --ready-timeout "$ready_timeout" --report "$out/report.json" \
+  --creates-early "$creates_early" --creates-late "$creates_late" \
+  --trees "$trees" --synth "$synth" --made-by "$made_sha"

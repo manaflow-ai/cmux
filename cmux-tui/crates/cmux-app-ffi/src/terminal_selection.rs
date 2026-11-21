@@ -67,7 +67,9 @@ pub unsafe extern "C" fn cmux_terminal_selection_following(
 /// # Safety
 /// `state` is null or points to a writable `CmuxTerminalSelection`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_terminal_selection_dragged(state: *mut CmuxTerminalSelection) -> bool {
+pub unsafe extern "C" fn cmux_terminal_selection_dragged(
+    state: *mut CmuxTerminalSelection,
+) -> bool {
     // SAFETY: `state` is null or writable per the contract above.
     unsafe { state.as_mut() }.is_some_and(|s| s.dragged())
 }
@@ -106,7 +108,10 @@ mod tests {
     fn a_null_state_changes_nothing() {
         unsafe {
             assert!(!cmux_terminal_selection_press_asks_capture(std::ptr::null(), KEY_OPTION));
-            assert_eq!(cmux_terminal_selection_press(std::ptr::null_mut(), KEY_OPTION, true), KEY_OPTION);
+            assert_eq!(
+                cmux_terminal_selection_press(std::ptr::null_mut(), KEY_OPTION, true),
+                KEY_OPTION
+            );
             assert_eq!(cmux_terminal_selection_following(std::ptr::null(), KEY_OPTION), KEY_OPTION);
             assert!(!cmux_terminal_selection_dragged(std::ptr::null_mut()));
             cmux_terminal_selection_released(std::ptr::null_mut());

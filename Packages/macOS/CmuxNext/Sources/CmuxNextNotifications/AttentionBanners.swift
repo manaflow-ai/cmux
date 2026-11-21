@@ -2,7 +2,6 @@ import AppKit
 package import CmuxNextAgentPane
 package import CmuxNextDaemon
 package import CmuxNextDaemonService
-package import CmuxNextFeed
 package import CmuxNextSettings
 import Foundation
 

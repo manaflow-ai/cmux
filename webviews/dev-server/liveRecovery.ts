@@ -5,9 +5,9 @@
 /// back to and stayed blank. Now the page shows one small note and loads again: from the server
 /// when it answers, else the app gives it the shipped page. A few tries, then the note stays.
 ///
-/// `liveRecovery` runs inline, first in the document's head, so it works when no module loads;
-/// src/devkit/liveNote.dev.ts (a module) tells it whether the Vite client is connected and shows the
-/// note while the HMR socket is down (the Vite client reloads the page when the server is back). A
+/// `liveRecovery` runs inline, first in the document's head, so it works when no module loads, and
+/// watches the Vite client's HMR socket to know whether the client is connected;
+/// src/devkit/liveNote.dev.ts (a module) shows the note while the HMR socket is down (the Vite client reloads the page when the server is back). A
 /// failure while the client is connected is the server's own answer (a build error, an outdated
 /// dependency): Vite's overlay or its full reload handles it, so the guard does nothing.
 
@@ -17,6 +17,7 @@ export const LIVE_RECOVERY = { tries: 4, firstDelayMs: 500, settledMs: 60_000, s
 type RecoveryWindow = Pick<Window, "addEventListener" | "setTimeout" | "location" | "sessionStorage" | "document"> & {
   __cmuxLiveNote?: (text: string | null) => void;
   __cmuxLiveConnected?: boolean;
+  WebSocket?: typeof WebSocket;
 };
 
 /// A failed module load, a failed dynamic import or Vite's preload error: the page cannot run.
@@ -58,6 +59,25 @@ export function liveRecovery(win: RecoveryWindow, options: typeof LIVE_RECOVERY)
     if (pill) pill.textContent = text;
   };
   win.__cmuxLiveNote = note;
+
+  // Whether the Vite client holds the server, from its HMR socket (protocol "vite-hmr"): this script
+  // runs before /@vite/client, so it sees the socket open even when liveNote.dev.ts, which only hears
+  // later vite:ws events, loads after it connected.
+  const Native = win.WebSocket;
+  if (Native) {
+    win.WebSocket = class extends Native {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols);
+        if (!([] as string[]).concat(protocols ?? []).includes("vite-hmr")) return;
+        this.addEventListener("open", () => {
+          win.__cmuxLiveConnected = true;
+        });
+        this.addEventListener("close", () => {
+          win.__cmuxLiveConnected = false;
+        });
+      }
+    };
+  }
 
   const read = (): { tries: number; at: number } => {
     try {

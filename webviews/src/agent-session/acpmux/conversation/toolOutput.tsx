@@ -6,8 +6,8 @@
 import { useT } from "../i18n";
 import { ExpandRow } from "./ExpandRow";
 import { useOutput } from "./toolOutputModel";
-/// Show all output / Show less under an output long enough to have been cut (and too few lines for
-/// a preview, which opens it instead: BlockParts.tsx `PreviewMore`). The block's whole bottom row (ExpandRow.tsx).
+/// Show all output / Show less under an output long enough that only its end is drawn (its box
+/// scrolls through that end; this draws the rest). The block's whole bottom row (ExpandRow.tsx).
 export function OutputMore({ output }: { output: ReturnType<typeof useOutput> }) {
   const t = useT();
   if (!output.long) return null;

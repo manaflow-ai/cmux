@@ -3,7 +3,9 @@
 //! `claude -p` failed with "Failed to authenticate: OAuth token revoked" and the same call 2 s
 //! later ran; Leo, 2026-10-30: "like the initial 0 to 1 chat auto it sends to cloud").
 //!
-//! - Only that failure ([`crate::claude_auth::is_revoked_token`]), only on the chat's first turn
+//! - Only that failure ([`crate::claude_auth::is_revoked_token`]), or a chat the gateway fallback
+//!   just moved onto cmux's gateway ([`crate::claude_auth::is_gateway_fallback`], `reason:
+//!   "gateway_fallback"`), only on the chat's first turn
 //!   (no turn before it, [`retries`]) and only for a prompt of its own, never an attempt
 //!   (`P~resume-n`): the retry is `P~resume-1`, so one that fails the same way is not retried
 //!   again and the chat shows the failure as before.
@@ -34,7 +36,16 @@ pub const FIRST_SEND_RETRY_MS: u64 = 2_000;
 /// Whether `error` is one a first send is retried on (`retry_row`, `settled_unretried`: a row
 /// may show its retry being decided).
 pub(super) fn retried_error(error: &str) -> bool {
-    crate::claude_auth::is_revoked_token(error)
+    crate::claude_auth::is_revoked_token(error) || crate::claude_auth::is_gateway_fallback(error)
+}
+
+/// The log's `reason` for a first send that goes again on `error`.
+fn retry_reason(error: &str) -> &'static str {
+    if crate::claude_auth::is_gateway_fallback(error) {
+        "gateway_fallback"
+    } else {
+        "token_revoked"
+    }
 }
 
 /// Whether the turn `cut` failed is the chat's first send on a revoked token: its own prompt
@@ -55,7 +66,7 @@ impl Hub {
         wake: Arc<Notify>,
     ) {
         let (root, _) = split_attempt(cut.prompt_id);
-        let msg = json!({"promptId": root, "turnId": cut.turn_id, "delayMs": FIRST_SEND_RETRY_MS, "reason": "token_revoked"});
+        let msg = json!({"promptId": root, "turnId": cut.turn_id, "delayMs": FIRST_SEND_RETRY_MS, "reason": retry_reason(cut.error)});
         self.append_retry(session, "first_send_retry", msg);
         let by = RetryBy {
             control: cut.control,

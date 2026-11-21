@@ -47,7 +47,7 @@ import Testing
 struct TerminalWindowFrameSyncTests {
     typealias Screen = TerminalKeyResizeFrameTests.PaneScreen
 
-    /// Case 1. Reduce Motion, one Ctrl-Shift-H press on p2: the divider jumps right in one frame, p2 shrinks and p1
+    /// Case 1. Reduce Motion, one Ctrl-Shift-L press on p2: the divider jumps right in one frame, p2 shrinks and p1
     /// grows. In every committed turn from the press to rest, each terminal shows a frame drawn at its layer's size (b);
     /// its layer has its pane's area (a) in every turn from 2 refreshes after the press on (a jump has no next size to
     /// draw ahead: the last frame and bounds stay until the new frame is drawn, m18's 2-refresh allowance).
@@ -65,7 +65,7 @@ struct TerminalWindowFrameSyncTests {
         let turns = recorder.take()
 
         try #require(motion.steps <= 2, "Reduce Motion: the press ran \(motion.steps) frames, so a spring ran")
-        try #require(motion.moved, "Ctrl-Shift-H on p2 moved nothing")
+        try #require(motion.moved, "Ctrl-Shift-L on p2 moved nothing")
         try #require(turns.count >= 3, "only \(turns.count) committed turns were sampled from the press to rest")
         try #require(before[1].area.width - rest[1].area.width >= 10,
                      "p2 did not shrink: its area went from \(before[1].area) to \(rest[1].area)")
@@ -86,7 +86,7 @@ struct TerminalWindowFrameSyncTests {
                 "frame check (b) failed in \(found.frameTurns) of \(turns.count) committed turns (the shown frame is not the layer's size): \(found.frame.prefix(8))")
     }
 
-    /// Case 2. A key spring (normal motion), one Ctrl-Shift-H press on p2, stepped one frame per refresh as the frame
+    /// Case 2. A key spring (normal motion), one Ctrl-Shift-L press on p2, stepped one frame per refresh as the frame
     /// tick runs it (the step, its layout pass, its commit, then commits until one refresh of wall-clock time passed, the
     /// time the renderer has to draw the size asked ahead), with output in both terminals every frame: the same two
     /// checks in every committed turn of the spring and up to rest. (b) catches an off-main present of a frame drawn
@@ -104,7 +104,7 @@ struct TerminalWindowFrameSyncTests {
         let rest = recorder.snapshot()
         let turns = recorder.take()
 
-        try #require(motion.moved, "Ctrl-Shift-H on p2 moved nothing")
+        try #require(motion.moved, "Ctrl-Shift-L on p2 moved nothing")
         let ahead = TerminalFramePresenter.forWindow(screen.window).stats.drawnAhead
         try #require(ahead > 0, "no size was drawn ahead in the spring: the draw-ahead path did not run")
         // Held, not discarded (m26): the frame drawn at the size asked ahead in refresh n is the one its commit n+1
@@ -165,7 +165,7 @@ struct TerminalWindowFrameSyncTests {
         screen.root.context.reduceMotionOverride = false
         let refresh = Duration.milliseconds(Self.refreshMs(of: screen.window))
         recorder.start()
-        try #require(PaneResize.press("p2", .left, model: screen.model, view: screen.root), "Ctrl-Shift-H on p2 moved nothing")
+        try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "Ctrl-Shift-L on p2 moved nothing")
         var moving = true, steps = 0, hidAndShown = false
         while moving, steps < 240 {
             let stepped = ContinuousClock.now
@@ -246,7 +246,7 @@ struct TerminalWindowFrameSyncTests {
     }
 
     /// Case 5, the PTY gets the sizes its pane shows, before they show (cmux-ad m18 and m26; RESIZE P0 11 replaced
-    /// STATUS 14461's "only after they show", see (f)). A held key (3 Ctrl-Shift-H presses 4 spring frames apart, one
+    /// STATUS 14461's "only after they show", see (f)). A held key (3 Ctrl-Shift-L presses 4 spring frames apart, one
     /// spring retargeted), stepped one frame per refresh with output in both terminals and an owner that announces each
     /// grid it gets (the daemon), so announcements arrive while a size drawn ahead is with Ghostty:
     /// - (a) in every committed turn, the grid the view gives its PTY owner is the grid its committed layer bounds fit, or
@@ -374,7 +374,7 @@ struct TerminalWindowFrameSyncTests {
 
         let jump = await Self.jump(screen, recorder: recorder)
         let jumpTurns = recorder.take()
-        let spring = await Self.spring(screen, recorder: recorder, direction: .right)
+        let spring = await Self.spring(screen, recorder: recorder, direction: .left)
         let springTurns = recorder.take()
 
         try #require(jump.moved && jump.steps <= 2, "the Reduce Motion press did not jump (moved \(jump.moved), \(jump.steps) frames)")
@@ -415,11 +415,11 @@ struct TerminalWindowFrameSyncTests {
 
     // MARK: Motions
 
-    /// Warm-up press (Ctrl-Shift-L on p2, a spring) and rest: one-time setup is not the press under test, and the split
-    /// is at 0.45 so the next Ctrl-Shift-H shrinks p2 (p2 is the right pane: Ctrl-Shift-L grows it, plans/cmux-next/pane-keys.md).
+    /// Warm-up press (Ctrl-Shift-H on p2, a spring) and rest: one-time setup is not the press under test, and the split
+    /// is at 0.45 so the next Ctrl-Shift-L shrinks p2.
     static func warmUp(_ screen: Screen) async throws {
         screen.root.context.reduceMotionOverride = false
-        try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "the warm-up press moved nothing")
+        try #require(PaneResize.press("p2", .left, model: screen.model, view: screen.root), "the warm-up press moved nothing")
         var moving = true, steps = 0
         while moving, steps < 240 {
             moving = screen.root.advanceFrame(1.0 / 120)
@@ -430,14 +430,14 @@ struct TerminalWindowFrameSyncTests {
         await rest(screen)
     }
 
-    /// Reduce Motion, one Ctrl-Shift-H press on p2, recorded from the press to rest. No layout pass of the test's own:
+    /// Reduce Motion, one Ctrl-Shift-L press on p2, recorded from the press to rest. No layout pass of the test's own:
     /// the press presents in the key's turn and AppKit's display cycle lays the hosts out, as in the app.
     static func jump(_ screen: Screen, recorder: TurnRecorder) async -> (moved: Bool, steps: Int) {
         screen.root.context.reduceMotionOverride = true
         defer { screen.root.context.reduceMotionOverride = false }
         let frame = screen.root.context.hosts["p2"]?.frame
         recorder.start()
-        let pressed = PaneResize.press("p2", .left, model: screen.model, view: screen.root)
+        let pressed = PaneResize.press("p2", .right, model: screen.model, view: screen.root)
         var moving = true, steps = 0
         while moving, steps < 4 {
             moving = screen.root.advanceFrame(1.0 / 120)
@@ -449,7 +449,7 @@ struct TerminalWindowFrameSyncTests {
         return (pressed && screen.root.context.hosts["p2"]?.frame != frame, steps)
     }
 
-    /// Normal motion, one press on p2 (`direction`, default Ctrl-Shift-H: p2 shrinks), stepped one frame per commit
+    /// Normal motion, one press on p2 (`direction`, default Ctrl-Shift-L: p2 shrinks), stepped one frame per commit
     /// (the step, its layout pass, its commit) to the landing, recorded from the press to rest.
     /// `pacedByRefresh`: after each frame's commit, commits until one refresh of wall-clock time passed since the step
     /// (the renderer draws the size asked ahead meanwhile), with a line of output in each terminal. Returns whether p2
@@ -459,7 +459,7 @@ struct TerminalWindowFrameSyncTests {
     /// `oneCommitPerRefresh`: the app's cadence (review of 5840aea3a603, P1 #1): after the step and its layout, EXACTLY
     /// one commit, then a sleep to the next refresh with no extra main turns (the renderer draws meanwhile). With
     /// `pacedByRefresh` the extra commits of the wait hid a draw-ahead that stopped after one late frame.
-    static func spring(_ screen: Screen, recorder: TurnRecorder, direction: LayoutDirection = .left,
+    static func spring(_ screen: Screen, recorder: TurnRecorder, direction: LayoutDirection = .right,
                        pacedByRefresh: Bool = false, oneCommitPerRefresh: Bool = false, presses: Int = 1,
                        framesBetweenPresses: Int = 4) async -> (moved: Bool, steps: Int, firstFrameMs: Double, stepMs: [Double]) {
         screen.root.context.reduceMotionOverride = false

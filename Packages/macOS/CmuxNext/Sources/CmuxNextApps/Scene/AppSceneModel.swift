@@ -14,7 +14,7 @@ extension AppSceneInteraction {
     public func reload() {}
 }
 
-/// The observable mirror of one mounted contribution, for `AppSceneView`.
+/// The observable mirror of one mounted contribution, for `AppSceneHostingView`.
 /// Written only by the supervisor's scene stream for the mount (`apps-scene`);
 /// hover and press stay in the views.
 @MainActor
@@ -35,6 +35,9 @@ public final class AppSceneModel {
     /// Why the app's last saved script did not load while this view kept drawing the script before
     /// it (`apps-reload-failed`); nil once a scene of a script that loaded replaces it.
     public var reloadFailure: String?
+    /// Why a widget's last render threw while its view keeps the last good scene (`apps-widget-health`
+    /// stale); nil once a render answers again. The tile dims and says it retries; it never blanks.
+    public var staleReason: String?
     /// Counts applied batches and resets, so an AppKit renderer can tell in `layout()` whether the
     /// scene changed since it last drew, without comparing scenes.
     @ObservationIgnored public private(set) var revision = 0

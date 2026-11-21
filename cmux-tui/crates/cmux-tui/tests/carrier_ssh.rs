@@ -421,3 +421,48 @@ fn carrier_faults_ssh_row_relay_cut_fails_over_to_ssh_through_wg_dial_and_back()
     drop(stdin);
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
 }
+
+/// A state directory ssh would expand (`${` in the path) is no ssh route
+/// on either side: `carrier capabilities` says `no_key`, and the dial
+/// connects on the relay with `ssh=no_key` in its route line.
+#[test]
+fn a_state_dir_ssh_would_expand_is_no_key_in_capabilities_and_the_dial() {
+    let world = world_ssh(true);
+    let home = world.dir.path().join("a${b}");
+    std::fs::create_dir_all(&home).unwrap();
+    let out = Command::new(BIN)
+        .args(["carrier", "capabilities", "--json", "--wg-hub"])
+        .arg(&world.hub)
+        .env_clear()
+        .env("HOME", &home)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "capabilities: {out:?}");
+    let caps: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(caps["carriers"]["ssh"]["code"], "no_key", "{caps}");
+    assert_eq!(caps["routes"], json!(["relay"]), "{caps}");
+
+    let mut child = Command::new(BIN)
+        .args(["carrier", "dial", "--machine", MACHINE, "--deadline-ms", "30000", "--wg-hub"])
+        .arg(&world.hub)
+        .args(["--cloud-api", &format!("http://{}", world.platform)])
+        .env_clear()
+        .env("HOME", &home)
+        .env("CMUX_CLOUD_ACCESS_TOKEN", TOKEN)
+        .env("CMUX_CARRIER_SSH_BINARY", &world.fake_ssh)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(reply["ok"], true, "{reply}");
+    drop(child.stdin.take());
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+    let log =
+        std::fs::read_to_string(home.join(".local/state/cmux-tui/sessions/carrier/connect.log"))
+            .unwrap_or_default();
+    assert!(log.contains("phase=connect ssh=no_key carrier=relay:0 outcome=ok"), "{log}");
+    assert!(world.ssh.asked.lock().unwrap().is_empty(), "no key asked without a route");
+}

@@ -908,3 +908,57 @@ fn permission_mode_control_sets_names_and_clears_the_turn_mode() {
     assert!(cleared["choice"]["permission_mode"].is_null());
     assert_eq!(cleared["engine"]["permission_mode"], "bypassPermissions");
 }
+
+/// `/` in a Chief composer on the phone, or on a Mac whose Chief host runs
+/// elsewhere, lists what this host would run (2026-11-09: typing `/` in the
+/// iPhone's Chief chat showed nothing). The engine answer carries the
+/// host's slash skills (slash_skills.rs `catalog`): the Chief's own over a
+/// shared one of the same name, each once, with where it comes from.
+#[test]
+fn the_engine_answer_offers_the_skills_slash_lists() {
+    let base = tempfile::tempdir().unwrap();
+    // host.json's folder is `<mux home>/optchat` (state.rs `mux_home`).
+    let dir = base.path().join("home").join("optchat");
+    std::fs::create_dir_all(&dir).unwrap();
+    let skill = |root: &std::path::Path, name: &str, description: &str| {
+        let folder = root.join(name);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            folder.join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: {description}\n---\n\nSteps.\n"),
+        )
+        .unwrap();
+    };
+    skill(
+        &base.path().join("home/skills"),
+        "cmux-views",
+        "Own: build a view.",
+    );
+    skill(
+        &base.path().join("skills"),
+        "cmux-views",
+        "Shared: build a view.",
+    );
+    skill(&base.path().join("skills"), "triage", "Sort the inbox.");
+
+    let mut brain = brain(&dir, &[]);
+    let answer = engine(&mut brain, EngineRequest::Show);
+    let skills = answer["offered"]["skills"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let named = |name: &str| {
+        skills
+            .iter()
+            .filter(|s| s["name"] == name)
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        named("cmux-views"),
+        vec![json!({"name": "cmux-views", "description": "Own: build a view.", "source": "chief"})],
+        "{answer:#}"
+    );
+    assert_eq!(named("triage").len(), 1, "{answer:#}");
+    assert_eq!(named("triage")[0]["source"], "chief");
+}

@@ -2,8 +2,9 @@
 // Run on the fleet: bun run bench/permission-card-estimates.ts.
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { chromium } from "playwright";
+import { chromium } from "./browsers";
 import { createServer } from "vite";
+import { buildLabel, requireProductionReact, installReactWatch } from "./support/benchPage";
 import { refusePlaywrightOnMacs, useSystemChrome } from "../test/support/systemChrome";
 import { galleryFrame, warmGalleryFrame } from "../test/support/galleryFrame";
 
@@ -20,6 +21,10 @@ const results: { entry: string; scheme: string; width: number; drawn: number; be
 try {
   await server.listen();
   const { port } = server.httpServer!.address() as { port: number };
+  // A dev server, knowingly: the gallery frame's warmup takes one (test/support/galleryFrame.ts),
+  // and this bench measures drawn heights, not frame cost, so React's development bundle changes
+  // nothing it prints. Labelled all the same (bench/support/benchPage.ts).
+  console.log(`permission-card-estimates build=${buildLabel({ dev: true })} (gallery frames need the dev server)`);
   for (const [entry, variant, file, selector] of [
     ["agent-pane.permission-card", "grid-transcript", "PermissionCard.gallery.tsx", ".acpmux-permission-ask"],
     ["agent-pane.question-card", "pending-single", "question/QuestionCard.gallery.tsx", ".acpmux-question-ask"],
@@ -29,7 +34,10 @@ try {
       for (const width of [360, 720]) {
         const page = await browser.newPage({ viewport: { width, height: 900 }, deviceScaleFactor: 2 });
         try {
+          // Before the page's own code (bench/support/benchPage.ts installReactWatch).
+          await installReactWatch(page);
           await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry!, { variant, colorScheme: scheme })}`);
+          await requireProductionReact(page, { dev: true });
           await page.locator(selector!).waitFor();
           await page.evaluate(() => document.fonts.ready);
           const result = await page.evaluate(

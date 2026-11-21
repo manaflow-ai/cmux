@@ -50,5 +50,8 @@ extension UpdaterService {
         scheduleInstallTick()
     }
     /// The install ended with this app running: its relaunch record goes (``UpdateInstallCheck``), the windows come back.
-    func abandonInstall() { UpdateInstallCheck.write(nil, defaults: defaults); installAbandoned?() }
+    func abandonInstall() {
+        UpdateInstallCheck.write(nil, defaults: defaults)
+        installAbandoned?()
+    }
 }

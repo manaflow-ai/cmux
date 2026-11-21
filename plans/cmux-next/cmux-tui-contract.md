@@ -118,7 +118,7 @@ Recommended Swift launch path:
   | `TERM` | `xterm-ghostty`; `xterm-256color` when the bundle has no terminfo | Prompt themes and tools branch on the name. oh-my-zsh `half-life` uses the theme palette (`%F{magenta}`) under `xterm-ghostty` but the fixed 256-color cube (`%F{135}`) under `*256color`, so the same prompt showed a different purple. |
   | `TERMINFO` | `<app>/Contents/Resources/terminfo` (sibling of `ghostty/`) | macOS has no `xterm-ghostty` entry. The bundled entry includes cmux's overlay (`Resources/terminfo-overlay`). |
   | `COLORTERM` | `truecolor` | 24-bit SGR is drawn losslessly. The daemon also sets it (`surface.rs`), so it holds for older apps. |
-  | `TERM_PROGRAM` | `ghostty` | Feature detection (neovim and others) as in Ghostty and the old cmux. `TERM_PROGRAM_VERSION` stays unset because cmux forwards full-screen TUI mouse reports instead of providing Ghostty's native selection path; advertising a version makes Codex disable its copy-on-select fallback. |
+  | `TERM_PROGRAM` | `cmux` | Names the terminal (user, 2026-11-11). The daemon sets it with `TERM_PROGRAM_VERSION` = the cmux version on every terminal child (`cmux_pty::TERMINAL_IDENTITY`), over any inherited Ghostty identity. The `claude`/`codex` wrappers start those agents with `TERM_PROGRAM=ghostty` and no version (`agent_terminal_identity`): they key notifications, links and the progress bar on `ghostty`, and a Ghostty version turns off their copy-on-select fallback (cmux#22585). |
   | `GHOSTTY_RESOURCES_DIR` | the resolved Ghostty resources directory | Theme and shell-integration lookups. |
 
   Shell integration (`GhosttyShellIntegration`, applied last by

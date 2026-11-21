@@ -34,6 +34,8 @@ extension WebUpdates {
                     }
                 }
             },
+            // Swaps the served web back from disk, which may outlast the 2 s deadline on a busy Mac
+            // (as updates.rollback).
             .mainActor("updates.web.rollback") { _ in
                 guard let updater = web.updater else {
                     throw ControlError(code: "web_updates_unavailable", message: "web updates run on NIGHTLY builds only")
@@ -45,7 +47,7 @@ extension WebUpdates {
                     try await updater.rollBack()
                     return await MainActor.run { Self.json(web) }
                 }
-            },
+            }.withDeadline(.fixed(.seconds(60))),
             .mainActor("updates.web.apply") { _ in
                 let reloaded = web.applyPending()
                 guard case .object(var fields) = Self.json(web) else { return .value(.null) }

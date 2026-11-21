@@ -169,16 +169,18 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                         .padding(.vertical, 6)
                         // Grows with Dynamic Type: at AX sizes the text and badge stay inside the capsule.
                         .frame(minHeight: 36)
-                        .background(store.filter == filter ? Color.cmuxMobileFillSelected : Color.clear, in: .capsule)
+                        .cmuxMobilePressBackground(store.filter == filter ? Color.cmuxMobileFillSelected : Color.clear, in: .capsule)
                         // 44 pt target around the 36 pt capsule.
                         .frame(minHeight: 44)
                         .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFillInLabel)
                     .accessibilityAddTraits(store.filter == filter ? .isSelected : [])
                 }
             }
-            .padding(.horizontal, 20)
+            // 16 pt: the first chip's capsule shares a left edge with the rows' avatars
+            // (FeedRowLayout's avatar x) and the navigation bar's leading button.
+            .padding(.horizontal, 16)
         }
         .scrollIndicators(.hidden)
         .trailingOverflowFade(width: 32)
@@ -198,7 +200,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             } label: {
                 Image(systemName: "xmark").font(.footnote.weight(.semibold)).frame(width: 28, height: 28)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .accessibilityLabel("Dismiss")
         }
         .padding(.horizontal, 16)
@@ -223,7 +225,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     // so a tap on the glass around the text fell through to the row under the pill.
                     .contentShape(.capsule)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressGlass)
             .glassEffect(.regular.interactive(), in: .capsule)
             .accessibilityIdentifier("feed.newPill")
             .padding(.top, 8)
@@ -248,6 +250,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             Image(systemName: store.filter == .all ? "bubble.left.and.text.bubble.right" : "line.3.horizontal.decrease")
                 .font(.system(size: 28))
                 .padding(.bottom, 10)
+                .accessibilityHidden(true)
             Text(store.filter == .all ? "No events" : "No matching events").font(.headline)
             Text(store.filter == .all ? "Agent updates, questions and finished tasks show up here." : "Try another filter.")
                 .font(.subheadline)
@@ -310,7 +313,7 @@ private struct FeedFilterMenu: View {
                     guard let mark = FeedRouting.shared.markAllNotificationsRead else { return }
                     Task {
                         do { _ = try await mark() } catch {
-                            markFailure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                            markFailure = UserFacingError.message(error)
                         }
                     }
                 }
@@ -323,7 +326,7 @@ private struct FeedFilterMenu: View {
                     Button("Clear All Notifications", systemImage: "clear", role: .destructive) {
                         Task {
                             do { try await clear() } catch {
-                                clearFailure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                                clearFailure = UserFacingError.message(error)
                             }
                         }
                     }

@@ -11,6 +11,8 @@
 # Environment: DMG, EXPECT_SHA256, SIGNED (true|false), RUNNER_TEMP, GITHUB_OUTPUT.
 set -euo pipefail
 : "${DMG:?}" "${EXPECT_SHA256:?}" "${SIGNED:?}" "${RUNNER_TEMP:?}"
+# Absolute: console-session.sh starts the journey in GITHUB_WORKSPACE, not here (run 42918010143).
+DMG="$(cd "$(dirname "$DMG")" && pwd)/$(basename "$DMG")"
 
 actual="$(shasum -a 256 "$DMG" | awk '{print $1}')"
 [ "$actual" = "$EXPECT_SHA256" ] || { echo "the DMG is $actual, the sign job made $EXPECT_SHA256" >&2; exit 1; }
@@ -42,7 +44,22 @@ for attempt in 1 2; do
   [ "$(cat "$dir/status-$attempt" 2>/dev/null)" = 0 ] && passed=true
 done
 if [ "$passed" != true ]; then
-  echo "::error title=cmux NEXT Stable::launch smoke $verdict on macOS $(sw_vers -productVersion)"
+  # What failed, from the last attempt's report: the reason the Slack thread shows.
+  why="$(python3 -I - "$dir" <<'PY' || true
+import json, sys
+from pathlib import Path
+for attempt in (2, 1):
+    report = Path(sys.argv[1]) / f"attempt-{attempt}" / "report.json"
+    try:
+        failures = json.loads(report.read_text()).get("failures") or []
+    except (OSError, ValueError):
+        continue
+    print("\n".join(f"attempt {attempt}: {line}" for line in failures[:6]))
+    break
+PY
+)"
+  why="$(printf '%s' "$why" | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"}1')"
+  echo "::error title=cmux NEXT Stable::launch smoke $verdict on macOS $(sw_vers -productVersion)${why:+%0A$why}"
   exit 1
 fi
 echo "tested=$actual" >> "${GITHUB_OUTPUT:-/dev/null}"

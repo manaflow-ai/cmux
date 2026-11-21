@@ -9,7 +9,7 @@ Usage:
 Environment:
   IPHONE_SIM_ID   Required if no booted iPhone simulator can be auto-detected.
   IPAD_SIM_ID     Required if no booted iPad simulator can be auto-detected.
-  SOAK_ROOT       Output directory. Defaults to /tmp/cmux-mobile-soak-<tag>-<profile>.
+  SOAK_ROOT       Output directory. Defaults to a new /tmp/cmux-mobile-soak-<tag>-<profile>.XXXXXX.
   CMUX_MOBILE_DEV_STACK_AUTH_TOKEN
                  DEBUG-only token used by simulator apps and the tagged Mac host.
 
@@ -117,8 +117,13 @@ EOF
   exit 1
 fi
 
-root="${SOAK_ROOT:-/tmp/cmux-mobile-soak-${tag}-${profile}}"
-mkdir -p "$root"
+# The default is a folder mktemp makes, never a guessable /tmp name another account could make first.
+if [[ -n "${SOAK_ROOT:-}" ]]; then
+  root="$SOAK_ROOT"
+  mkdir -p "$root"
+else
+  root="$(mktemp -d "/tmp/cmux-mobile-soak-${tag}-${profile}.XXXXXX")"
+fi
 
 session_prefix="cmux-${tag}-${profile}"
 

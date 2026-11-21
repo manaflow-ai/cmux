@@ -88,9 +88,14 @@ public nonisolated enum AgentPaneReply {
     /// The handshake as the dictionary the page receives. Nil fields are left
     /// out so the page sees `undefined`, as the TypeScript type expects. The
     /// Codable DTO is encoded once at the bridge boundary; NewTab projection
-    /// and presentation limits belong to the web page.
-    public static func handshake(_ handshake: AgentPaneHandshake) -> [String: Any] {
+    /// and presentation limits belong to the web page. `newTab`: the New Tab context as the page's document
+    /// gets it (``AgentPaneModel/newTabReply(_:always:)``: its own part, with the shared text only when the
+    /// document does not have it), in place of the DTO's whole context.
+    public static func handshake(_ handshake: AgentPaneHandshake, newTab: [String: Any]? = nil) -> [String: Any] {
+        var handshake = handshake
+        if newTab != nil { handshake.newTab = nil }
         var value = encodedObject(handshake)
+        if let newTab { value["newTab"] = newTab }
         value["handoffStrings"] = AgentPaneHandoffStrings().values
         value["checkpointStrings"] = AgentPaneCheckpointStrings().values
         return success(value)

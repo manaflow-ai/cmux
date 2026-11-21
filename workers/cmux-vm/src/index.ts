@@ -9,6 +9,7 @@ import { ciTrustLayer, parseCiTrust } from "./auth/ci-trust.ts";
 import { serviceKeysLayer } from "./auth/service-keys.ts";
 import { checkSchema, makeSchemaGate } from "./db/schema-check.ts";
 import { hyperdriveSqlLayer, withRequestConnection } from "./db/sql.ts";
+import { parseDbFault, withDbFault } from "./db/fault.ts";
 import { sqlStoresLayer } from "./db/stores.ts";
 import type { TenantLimitsObject } from "./limits/durable-object.ts";
 import { durableObjectLimitsLayer } from "./limits/service.ts";
@@ -66,16 +67,25 @@ export interface Env {
   readonly CMUX_VM_RECEIVER_POLICY_LEASE_MS?: string;
   /** Stack Auth webhook signing secret (whsec_...); optional, the webhook answers 503 without it (G1, cx-0op.6). */
   readonly STACK_WEBHOOK_SECRET?: string;
+  /** The commit this Worker was deployed from (scripts/deploy.sh `--var COMMIT_SHA:$GITHUB_SHA`); /healthz names it. */
+  readonly COMMIT_SHA?: string;
   /** Service keys (cx-b4h.13): JSON array of { id, sha256, scopes, labels, teams? }; hashes only. See src/auth/service-keys.ts. */
   readonly CMUX_VM_SERVICE_KEYS?: string;
   /** JSON object of service key id to extra scopes, limited to acl:read and acl:write. See src/auth/service-keys.ts. */
   readonly CMUX_VM_SERVICE_KEY_SCOPE_GRANTS?: string;
   /** GitHub Actions jobs trusted by their OIDC token, a JSON array of trust rows (no secret). See src/auth/ci-trust.ts. */
   readonly CMUX_VM_CI_TRUST?: string;
+  /** Team keys: a JSON array of { id, team, sha256[], scopes, labels, maxVms, maxUsdPerHour }; hashes only. See src/auth/team-keys.ts. */
+  readonly CMUX_VM_TEAM_KEYS?: string;
+  /** Staging only: the database fault switch, off unless set (src/db/fault.ts). Every other environment ignores it. */
+  readonly CMUX_VM_DB_FAULT?: string;
 }
 
 const liveServices = (env: Env) => {
-  const sql = hyperdriveSqlLayer(env.HYPERDRIVE.connectionString);
+  const sql = withDbFault(
+    hyperdriveSqlLayer(env.HYPERDRIVE.connectionString),
+    parseDbFault(env.CMUX_VM_DB_FAULT, parseEnvironment(env.ENVIRONMENT)),
+  );
   const policy = tenantPolicyLayer({
     httpsProxyOrigins: parseHttpsProxyOrigins(env.VM_HTTPS_PROXY_ORIGINS),
     environment: parseEnvironment(env.ENVIRONMENT),
@@ -91,7 +101,7 @@ const liveServices = (env: Env) => {
     ),
     policy,
     vmImagesLayer(env.VM_BOOT_IMAGES),
-    serviceKeysLayer(env.CMUX_VM_SERVICE_KEYS, env.CMUX_VM_SERVICE_KEY_SCOPE_GRANTS),
+    serviceKeysLayer(env.CMUX_VM_SERVICE_KEYS, env.CMUX_VM_SERVICE_KEY_SCOPE_GRANTS, env.CMUX_VM_TEAM_KEYS),
     ciTrustLayer(env.CMUX_VM_CI_TRUST),
     // TODO(cx-b4h, owner: Lawrence Chen): the real billing source; see Entitlements.
     entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),
@@ -242,9 +252,22 @@ const served = (env: Env): Served => {
   return cached;
 };
 
+/**
+ * /healthz names the commit it serves in `x-cmux-commit`, so NOW's cloud_deploy_gate can pair the live Worker with a
+ * journey verdict on that same commit (cmuxterm-hq goals/cloud-deploy-checked.md). No commit set: no header.
+ */
+export const withCommit = (response: Response, env: Pick<Env, "COMMIT_SHA">): Response => {
+  const commit = env.COMMIT_SHA ?? "";
+  if (!/^[0-9a-f]{40}$/.test(commit)) return response;
+  const named = new Response(response.body, response);
+  named.headers.set("x-cmux-commit", commit);
+  return named;
+};
+
 export default {
-  fetch(request: Request, env: Env): Promise<Response> {
-    return served(env).handler(request);
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const response = await served(env).handler(request);
+    return new URL(request.url).pathname === "/healthz" ? withCommit(response, env) : response;
   },
   /** Cron (wrangler.jsonc triggers): the agent reaper and the orphan sweep. */
   scheduled(_controller: ScheduledController, env: Env, context: ExecutionContext): void {

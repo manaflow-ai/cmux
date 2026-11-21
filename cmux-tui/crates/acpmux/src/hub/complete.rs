@@ -79,24 +79,55 @@ impl Hub {
             return Err(CompleteError::LocalOnly.into());
         }
         let req = Request::parse(params)?;
+        self.complete_request(&req).await.map_err(RpcError::from)
+    }
+
+    /// The harness `asked` names, else the daemon's default, with its profile.
+    pub(crate) async fn completion_harness(
+        &self,
+        asked: Option<&str>,
+    ) -> Result<(String, HarnessProfile), CompleteError> {
+        let cfg = self.config.read().await;
+        let name = asked
+            .map(str::to_owned)
+            .or_else(|| cfg.default_harness.clone())
+            .ok_or_else(|| CompleteError::UnknownHarness("(no default harness)".into()))?;
+        let profile = cfg
+            .harnesses
+            .get(&name)
+            .cloned()
+            .ok_or_else(|| CompleteError::UnknownHarness(name.clone()))?;
+        Ok((name, profile))
+    }
+
+    /// Whether harness `asked` (else the default) could answer a completion here: it has a
+    /// headless recipe and its program is installed. Runs nothing; a signed-out CLI passes.
+    pub(crate) async fn completion_ready(
+        &self,
+        asked: Option<&str>,
+    ) -> Result<String, CompleteError> {
+        let (name, profile) = self.completion_harness(asked).await?;
+        let recipe = recipes::recipe_for(&name, &profile)?;
+        recipes::program(recipe, &profile, &profile.env, &crate::config::which).ok_or_else(
+            || CompleteError::NotInstalled {
+                harness: name.clone(),
+                program: profile.argv.first().cloned().unwrap_or_default(),
+            },
+        )?;
+        Ok(name)
+    }
+
+    /// One checked completion, for a caller past the origin gate (`complete::allowed`). Logs
+    /// the harness, model and duration only.
+    pub(crate) async fn complete_request(
+        self: &Arc<Self>,
+        req: &Request,
+    ) -> Result<Value, CompleteError> {
         let started = std::time::Instant::now();
         let deadline = tokio::time::Instant::now() + req.timeout;
-        let (name, profile) = {
-            let cfg = self.config.read().await;
-            let name = req
-                .harness
-                .clone()
-                .or_else(|| cfg.default_harness.clone())
-                .ok_or_else(|| CompleteError::UnknownHarness("(no default harness)".into()))?;
-            let profile = cfg
-                .harnesses
-                .get(&name)
-                .cloned()
-                .ok_or_else(|| CompleteError::UnknownHarness(name.clone()))?;
-            (name, profile)
-        };
+        let (name, profile) = self.completion_harness(req.harness.as_deref()).await?;
         let recipe = recipes::recipe_for(&name, &profile)?;
-        let reply = self.complete_with(&name, &profile, recipe, &req, deadline).await;
+        let reply = self.complete_with(&name, &profile, recipe, req, deadline).await;
         let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         match &reply {
             Ok(v) => tracing::info!(
@@ -107,7 +138,32 @@ impl Hub {
             ),
             Err(e) => tracing::info!(agent = %name, reason = e.reason(), ms, "complete failed"),
         }
-        reply.map_err(RpcError::from)
+        reply
+    }
+
+    /// One headless call for the daemon's own use (`prompt_coach.rs`): harness `name` (else the
+    /// default harness) on its small model, the answer cut to about `max_tokens` tokens. The
+    /// prompt is the daemon's, so `_acpmux/complete`'s prompt size limit does not apply.
+    pub(super) async fn complete_own(
+        self: &Arc<Self>,
+        name: Option<&str>,
+        prompt: String,
+        max_tokens: u32,
+        timeout: std::time::Duration,
+    ) -> Result<String, CompleteError> {
+        let (name, profile) = {
+            let cfg = self.config.read().await;
+            let found = |n: &str| cfg.harnesses.get(n).cloned().map(|p| (n.to_owned(), p));
+            name.and_then(found)
+                .filter(|(n, p)| recipes::recipe_for(n, p).is_ok())
+                .or_else(|| cfg.default_harness.as_deref().and_then(found))
+                .ok_or_else(|| CompleteError::UnknownHarness("(no default harness)".into()))?
+        };
+        let recipe = recipes::recipe_for(&name, &profile)?;
+        let req = Request { prompt, harness: Some(name.clone()), model: None, max_tokens, timeout };
+        let deadline = tokio::time::Instant::now() + timeout;
+        let reply = self.complete_with(&name, &profile, recipe, &req, deadline).await?;
+        Ok(reply.get("text").and_then(Value::as_str).unwrap_or_default().to_owned())
     }
 
     /// The harness's small model (`model_pick`). None: the CLI's default.

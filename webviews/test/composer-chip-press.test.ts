@@ -11,7 +11,8 @@
 //   2026-10-19: no mousedown and mouseup click feedback).
 // - A mouse click leaves no focus ring, on the chip or on the menu it opens, even right after
 //   typing (WebKit draws a programmatic focus as keyboard focus once a key was pressed).
-//   Keyboard focus on the same chip still shows: the soft hover pill, with no outline (#23745, Leo
+//   Keyboard focus on the same chip (a real Tab; code focus earns nothing, FOCUS-RING,
+//   src/ui/focusModality.ts) still shows: the soft hover pill, with no outline (#23745, Leo
 //   2026-10-21: no focus rings in the agent pane).
 // - Every chip takes a press over a box at least 24 px tall, the small folder chip included.
 // - A menu row takes a press anywhere on it, its check gutter and trailing edge included.
@@ -22,6 +23,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -252,8 +254,7 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
             // Keyboard focus on the chip draws the soft pill and no ring (#23745).
             await page.keyboard.press("Escape");
             await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-            await page.keyboard.press("Shift");
-            await page.locator(chip(name)).first().focus();
+            await focusByKey(page, chip(name));
             const keyboard = { ring: (await rings(page, name)).chip, pill: await pill(page, name) };
             expect({ name, keyboard }).toEqual({ name, keyboard: { ring: false, pill: true } });
             await page.close();
@@ -343,6 +344,39 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
     });
 
   for (const [engine] of engines)
+    test(`${engine}: the model menu's width grip takes no press inside the menu, over a row or its scroller`, async () => {
+      // The grip sat half inside the menu's edge, over the last 4 px of the edge column: its rows' trailing edge
+      // where no scroller gutter is drawn, else the scroller's gutter. Its hover line, though unseen at rest, took
+      // presses too. Both menu edges are probed: the grip sits on the edge away from the chip. A press inside the
+      // menu is the menu's.
+      const misses: string[] = [];
+      // The new chat's model chip opens the columns menu (effort and Fast mode in the edge column).
+      const page = await open(engine, STAGES[1]!, 760);
+      await clickChip(page, "Model");
+      const menu = page.locator(".acpmux-cols.ui-popup");
+      await menu.waitFor();
+      await page.evaluate(() => document.addEventListener("click", (event) => event.stopImmediatePropagation(), true));
+      const box = (await menu.boundingBox())!;
+      for (const row of await page
+        .locator(".acpmux-cols-tune [role='radio'], .acpmux-cols-tune [role='switch']")
+        .all()) {
+        const r = (await row.boundingBox())!;
+        for (const x of [box.x + 1, box.x + box.width - 1]) {
+          const target = await page.evaluate(
+            ([px, py]) => (document.elementFromPoint(px!, py!) as Element | null)?.className?.toString() ?? "",
+            [x, r.y + r.height / 2],
+          );
+          if (target.includes("acpmux-cols-resize"))
+            misses.push(
+              `${Math.round(x - box.x)} px into the menu at "${(await row.textContent())?.trim()}": ${target}`,
+            );
+        }
+      }
+      await page.close();
+      expect(misses).toEqual([]);
+    });
+
+  for (const [engine] of engines)
     test(`${engine}: the 400 px picker rail draws no pill at rest, and a pill on hover and while open`, async () => {
       const page = await open(engine, PILL_STAGE, 400);
       const state = (name: string) =>
@@ -356,6 +390,8 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
               background: style.backgroundColor,
               boxShadow: style.boxShadow,
               radius: parseFloat(style.borderTopLeftRadius),
+              // The button radius that the page resolves (desktop.css), not a number of this test.
+              control: parseFloat(style.getPropertyValue("--ds-radius-control")),
               height: rect.height,
             };
           });
@@ -364,9 +400,10 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
         // No pill at rest: the label and chevron only (Leo 2026-10-19, the Claude app's chips).
         expect(value.background, `${PILL_STAGE.chips[index]} draws no fill at rest`).toBe("rgba(0, 0, 0, 0)");
         expect(value.boxShadow, `${PILL_STAGE.chips[index]} draws no edge at rest`).toBe("none");
-        expect(value.radius, `${PILL_STAGE.chips[index]} is pill-shaped`).toBeGreaterThanOrEqual(
-          value.height / 2 - 0.5,
-        );
+        // Every button rounds as a tab (Lawrence 2026-11-12, a660569b1c62): the chip's corner is
+        // the button radius, not half its height.
+        expect(value.control, "the page resolves the button radius").toBeGreaterThan(0);
+        expect(value.radius, `${PILL_STAGE.chips[index]} takes the button radius`).toBe(value.control);
         expect(value.height, `${PILL_STAGE.chips[index]} remains a usable target`).toBeGreaterThanOrEqual(24);
       }
 

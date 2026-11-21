@@ -2,7 +2,8 @@
 //! agent stops working (`idle`), a permission or question dialog is pending
 //! (`dialog`), or text reaches a terminal's screen (`text`), then answer a
 //! receipt with a fresh composed snapshot. A timeout is an answer
-//! (`matched: false`), not an error, so an agent never polls snapshots.
+//! (`matched: false`, `timed_out: true`; the CLI exits 124), not an error,
+//! so an agent never polls snapshots.
 //!
 //! Waits wake on events. `text` is the daemon's own `terminal.wait`, which
 //! wakes on terminal output. `idle` and `dialog` hold the daemon's
@@ -169,7 +170,7 @@ pub(super) fn parse(args: &[&str], max_seconds: u64) -> Result<WaitRequest, Usag
 }
 
 /// Waits as `request` says and answers the receipt `{until, matched,
-/// waited_seconds, match, state}`. Only a request that names nothing, or an
+/// timed_out, waited_seconds, match, state}`. Only a request that names nothing, or an
 /// owner that refuses the first read, fails.
 pub(in crate::cli) fn run<B: Backend>(
     backend: &B,
@@ -194,6 +195,8 @@ pub(in crate::cli) fn run<B: Backend>(
         "schema_version": 1,
         "until": request.until.name(),
         "matched": found.is_some(),
+        // Only the deadline ends a wait without a match, as for `terminal send`.
+        "timed_out": found.is_none(),
         "waited_seconds": waited,
         "match": found.unwrap_or(Value::Null),
         "state": fresh_state(backend, session),

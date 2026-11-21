@@ -49,6 +49,11 @@ public nonisolated enum DiffPageStrings {
         String(localized: "diff.page.chooseButton", defaultValue: "Open Diff", table: "DiffPage", bundle: .module)
     }
 
+    static var pullRequestFailed: String {
+        String(localized: "diff.page.pullRequestFailed", defaultValue: "The pull request could not be opened. Try again.",
+               table: "DiffPage", bundle: .module)
+    }
+
     // MARK: Revert (DiffPageProvider+Revert.swift)
 
     static var revertOneTitle: String {

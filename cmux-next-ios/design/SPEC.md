@@ -331,7 +331,7 @@ TabView(selection: $tab) {
 
 ### 3.3 Team sidebar (push-aside drawer)
 
-Scope: team switching only (Stack Auth teams) plus "Invite to team". No navigation destinations,
+Scope: team switching only (Stack Auth teams) plus Invite. No navigation destinations,
 no recents (that is the tab bar's job).
 
 Geometry (measured ChatGPT 330, Claude 320 on a 440 pt screen):
@@ -384,10 +384,12 @@ Swipe rules (app-wide, user decision 2026-10-13, `verify/swipes.md`):
 
 Content (top to bottom):
 
-1. Header row, 20 pt side margin, centered at the toolbar line: "cmux" wordmark text
-   (`sidebarTitle`) leading; trailing 44 pt glass circle `plus` → menu: "Create team",
-   "Join with invite link". (Header layout is `chatgpt-03-sidebar`.)
-2. Section label "Teams" (`meta`, `label2`), 20 pt margin, 24 pt above the first row.
+1. Header row, 20 pt side margin, centered at the toolbar line: the title "Teams"
+   (`sidebarTitle`, one line) leading, no brand wordmark (Aziz 2026-11-18: the app icon
+   already says cmux). Trailing: the 44 pt glass circle `plus` → menu: "Create team",
+   "Join with invite link".
+   (Header layout is `chatgpt-03-sidebar`.)
+2. No section label: the header names the list; 16 pt above the first row.
 3. Team rows (`List` style plain, no separators), each 60 pt:
    - Leading avatar 36 x 36, rounded square radius 10 continuous: team color fill with the
      emoji (22 pt) centered, or the team initial (`headline`, `onAccent`-style white) if no emoji.
@@ -403,14 +405,16 @@ Content (top to bottom):
    - Context menu (long press): "Change color and emoji" (`paintpalette`), "Invite to team"
      (`person.badge.plus`), "Copy team name", divider, "Leave team" (destructive, confirmation
      alert). Pattern: `grok-15-row-context-menu`.
-4. Row "Invite to team" (`person.badge.plus`, `body`), 48 pt, after the team list. Opens the
-   share sheet with the Stack invitation URL from `POST /v1/teams/:teamId/invites` (show a
-   `ProgressView` in the row while fetching).
-5. Bottom bar (pinned, 20 pt margins, 8 pt above the bottom safe area):
-   - Leading: primary capsule "Invite" with `person.badge.plus` (48 h, `accent` fill,
-     `onAccent` text, `cta` font). Measured `claude-01-sidebar` "New session".
-   - Trailing: 48 pt circle avatar of the signed-in user (initials on `surfaceRaised`, like
-     Claude's "AA"), opens Settings > Account and closes the drawer.
+4. No "Invite to team" row under the list (it read as another team and did not say which
+   team it invited to). Instead, a bottom toolbar item at the trailing edge (Aziz
+   2026-11-19): "Invite" (`person.badge.plus` + "Invite" in a 44 pt glass capsule, 20 pt
+   margin, 8 pt above the bottom safe area, for the selected team; VoiceOver "Invite to
+   <team>"; spinner while the link is made; glyph only, in a 44 pt circle, at accessibility
+   text sizes; absent for the personal space). It opens the share sheet with the Stack invitation
+   URL from `POST /v1/teams/:teamId/invites`; another team is invited from its row's
+   context menu.
+5. Bottom bar (pinned, 20 pt margins, 8 pt above the bottom safe area): only Invite, at the
+   trailing edge (item 4). The account lives in Settings, not here.
 
 Team switch: tap row → `.selection` haptic, row highlight moves (`snap`), drawer closes
 (`drawer`), then the shell crossfades (`gentle`) to the new team's data; lists show skeletons
@@ -817,8 +821,8 @@ When the agent requests permission (ACP `session/request_permission`):
 
 ### 6.6 Questions (AskUserQuestion / ACP elicitation)
 
-- `QuestionCard`: `surface` radius 20, padding 16; header `questionmark.bubble` + question text
-  (`headline`); optional `rowSubtitle` context.
+- `QuestionCard`: `surface` radius 20, padding 16; header row: the item's header (caption, uppercased) and "1 of N",
+  no icon; then the question text (`headline`); optional `rowSubtitle` context.
 - Single choice: options as 48 h rows inside the card, radius 14, `fill`; selected:
   `fillSelected` + trailing `checkmark` (`label`). Multi-select: trailing `circle` /
   `checkmark.circle.fill`. Last row "Other..." expands an inline text field.
@@ -885,8 +889,9 @@ pulsing (new content below).
 | Alert style (mode change notice) | `claude-04-new-session-alert` |
 
 No reference exists for tool rows, permission and question cards, or plans: compare against
-Claude's and Codex's own mobile session views when captured (TapKit only with explicit
-permission), and against Cursor iOS / T3 Code App Store screenshots.
+Claude's and Codex's own mobile session views when captured (from the user's real phone only
+when the user explicitly asks and the phone is connected), and against Cursor iOS / T3 Code
+App Store screenshots.
 
 ---
 
@@ -1209,8 +1214,11 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
   is opened until it has newer activity. Copy says "is waiting": the Mac does not say
   whether it is a permission or a question.
 - Tap: a needs-you workspace opens on its waiting tab, which shows the pending permission or
-  question card; otherwise the last tab used on this device, else the Mac's active tab
-  (`Workspace.activeTabID`), else the first. Offline: no push; an alert "<Mac> is offline"
+  question card; otherwise the tab left on screen there in this launch (back to the list and
+  in again lands where you were; Leo 2026-11-14), else the active tab of the layout's
+  top-left pane, else the Mac's active tab (`Workspace.activeTabID`), else the first
+  (`WorkspaceOpeningTab`). An open that names a tab (a notification, link, Feed card, row
+  menu or search result) opens that tab. Offline: no push; an alert "<Mac> is offline"
   with last seen.
 - Hold a row: a menu headed "<Mac> · <branch or directory>" ("· Offline"): one item per tab
   (opens that tab; an agent tab is titled with its task, as on the row, with the agent as

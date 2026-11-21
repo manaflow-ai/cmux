@@ -1,3 +1,4 @@
+import CmuxNextCloud
 public import CmuxNextDaemon
 public import Foundation
 
@@ -72,6 +73,14 @@ public enum CloudStrings {
     /// Team Picker's `team` names no team of this account.
     public static func noSuchTeam(_ team: String) -> String {
         String(format: String(localized: "cloud.failed.noSuchTeam", defaultValue: "No team named “%@” in this account.", table: "Cloud", bundle: .module), team)
+    }
+    /// A team list's second line for the person's own team, when no email is known.
+    public static var teamKindPersonal: String { String(localized: "cloud.team.kind.personal", defaultValue: "Personal", table: "Cloud", bundle: .module) }
+    /// A team list's second line for a team shared with other people.
+    public static var teamKindTeam: String { String(localized: "cloud.team.kind.team", defaultValue: "Team", table: "Cloud", bundle: .module) }
+    /// A team's plan on a team list's second line ("Pro plan"); `plan` is the plan's name.
+    public static func teamPlan(_ plan: String) -> String {
+        String(format: String(localized: "cloud.team.plan", defaultValue: "%@ plan", table: "Cloud", bundle: .module), plan)
     }
     public static var noTeams: String { String(localized: "cloud.failed.noTeams", defaultValue: "This account has no teams.", table: "Cloud", bundle: .module) }
     public static var invalidPort: String { String(localized: "cloud.failed.invalidPort", defaultValue: "Port must be between 1 and 65535.", table: "Cloud", bundle: .module) }
@@ -156,7 +165,6 @@ public enum CloudStrings {
     public static var fileContentsTitle: String { String(localized: "cloud.result.fileContentsTitle", defaultValue: "Cloud File Contents", table: "Cloud", bundle: .module) }
     public static var fileStatTitle: String { String(localized: "cloud.result.fileStatTitle", defaultValue: "Cloud File Details", table: "Cloud", bundle: .module) }
     public static var scpTitle: String { String(localized: "cloud.result.scpTitle", defaultValue: "Cloud File Transfer", table: "Cloud", bundle: .module) }
-    public static var firewallTitle: String { String(localized: "cloud.result.firewallTitle", defaultValue: "Cloud Firewall Rules", table: "Cloud", bundle: .module) }
     public static var networkTitle: String { String(localized: "cloud.result.networkTitle", defaultValue: "Cloud Networks", table: "Cloud", bundle: .module) }
     public static var removeFileTitle: String { String(localized: "cloud.prompt.removeFile", defaultValue: "Remove this Cloud file?", table: "Cloud", bundle: .module) }
     public static var removeFileBody: String { String(localized: "cloud.prompt.removeFileBody", defaultValue: "The selected file or directory is permanently removed.", table: "Cloud", bundle: .module) }
@@ -189,4 +197,19 @@ public nonisolated enum CloudUpgradeReason: Equatable, Sendable {
     case atLimit(Int)
     /// The classic link's 402 for the plan's shared vCPU and memory pool, which counts only running machines.
     case pool
+}
+
+public extension CloudStrings {
+    /// A Keychain call on one of cmux's own items that Rust's deadline ended (cmux-cloud-config `keychain`), as the
+    /// local ``KeychainTimedOut`` or as the credential relay's refusal back through the Cloud app server (its
+    /// `details.keychain`): the item as Keychain Access lists it, the seconds waited and the next step. Nil for any
+    /// other error.
+    nonisolated static func keychainTimedOut(_ error: any Error) -> String? {
+        let stall = (error as? KeychainTimedOut)?.stall ?? (error as? CloudAppOpFailure).flatMap { KeychainStall(details: $0.details) }
+        guard let stall else { return nil }
+        return String(format: String(localized: "cloud.error.keychainTimedOut",
+                                     defaultValue: "The Keychain didn't answer for \"%1$@\" (account %2$@) within %3$lld s. Unlock it or allow cmux access, then try again.",
+                                     table: "Cloud", bundle: .module),
+                      stall.service, stall.account, Int64(stall.seconds))
+    }
 }

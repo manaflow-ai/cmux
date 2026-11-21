@@ -156,4 +156,30 @@ import Testing
         #expect(!stripped.contains("CMUX_NEXT_MOBILE_MACHINE_ID"))
         #expect(stripped.contains("CMUX_MOBILE_MACHINE_ID"))
     }
+
+    /// A NEXT terminal exports its Cloud backend (`CMUX_NEXT_CLOUD_ENV=prod` in NIGHTLY). A DEV build
+    /// opened from that terminal drops it, so `cloud env get` resolves the DEV build's own selection
+    /// (dev, Stack project 454ecd03) instead of prod; set on purpose with no other cmux, it is kept.
+    @Test func anotherCmuxsCloudBackendIsStrippedAtLaunch() {
+        let cloud = ["CMUX_NEXT_CLOUD_ENV": "prod", "CMUX_NEXT_CLOUD_BACKEND": "https://cloud-api.cmux.dev",
+                     "CMUX_NEXT_CLOUD_RUNTIME": "1"]
+        let fromNightly = cloud.merging(["CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly"]) { $1 }
+        let stripped = Set(LaunchIdentity.inheritedKeys(processEnvironment: fromNightly,
+                                                        bundledEnvironment: ["CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.t"]))
+        #expect(stripped.isSuperset(of: cloud.keys))
+        #expect(LaunchIdentity.inheritedKeys(processEnvironment: cloud, bundledEnvironment: [:]).isEmpty)
+    }
+
+    /// The live code proof (scripts/measure/live-code-app.py) launches a bench build with the live folder in its
+    /// environment, not in the bundle's `LSEnvironment`. Before: the strip dropped it as an inherited `CMUX*`
+    /// variable, so the engine never started and no patch ever loaded.
+    @Test func aHarnessLiveCodeFolderSurvivesTheLaunchStripButNotOneFromAnotherCmux() {
+        let harness = ["CMUX_LIVE_CODE_DIR": "/tmp/cmux-live-code.x"]
+        for debug in [true, false] {
+            #expect(LaunchIdentity.inheritedKeys(processEnvironment: harness, bundledEnvironment: [:], isDebugBuild: debug)
+                .isEmpty)
+        }
+        let nested = harness.merging(["CMUX_SOCKET_PATH": "/tmp/other.sock"]) { $1 }
+        #expect(LaunchIdentity.inheritedKeys(processEnvironment: nested, bundledEnvironment: [:]).contains("CMUX_LIVE_CODE_DIR"))
+    }
 }

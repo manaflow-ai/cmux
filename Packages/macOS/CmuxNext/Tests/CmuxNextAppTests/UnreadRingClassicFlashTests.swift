@@ -33,7 +33,7 @@ import Testing
         try body()
     }
 
-    @Test(arguments: [NotificationTrigger.click, .keystroke, .open])
+    @Test(arguments: [NotificationTrigger.focus, .click, .keystroke, .open])
     func goingIntoThePaneFlashesByDefault(_ trigger: NotificationTrigger) throws {
         try Self.withAttention({ _ in }) {
             let (service, tab) = try Self.unreadTab()
@@ -42,7 +42,7 @@ import Testing
         }
     }
 
-    @Test(arguments: [NotificationTrigger.click, .keystroke, .open])
+    @Test(arguments: [NotificationTrigger.focus, .click, .keystroke, .open])
     func theFlashSettingTurnsItOff(_ trigger: NotificationTrigger) throws {
         try Self.withAttention({ $0.flashesOnRead = false }) {
             let (service, tab) = try Self.unreadTab()

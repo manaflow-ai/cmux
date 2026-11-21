@@ -40,9 +40,10 @@ export function togglesHeader(header: Element, target: EventTarget | null): bool
 }
 
 /// The header's click handler: `toggle` for a primary click anywhere on it but its own controls.
-export function headerToggleClick(toggle: () => void) {
+export function headerToggleClick(toggle: (event: MouseEvent<HTMLElement>) => unknown) {
   return (event: MouseEvent<HTMLElement>) => {
     if (event.defaultPrevented || event.button !== 0) return;
-    if (togglesHeader(event.currentTarget, event.target)) toggle();
+    // The click goes to the toggle, so a drag across the header opens nothing (`deliberateClick`).
+    if (togglesHeader(event.currentTarget, event.target)) toggle(event);
   };
 }

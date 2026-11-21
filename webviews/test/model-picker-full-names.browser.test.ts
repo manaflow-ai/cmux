@@ -4,7 +4,9 @@
 // deepseek flash it is, like there's many versions of deepseek flash v4.1". Real Chromium lays out
 // OpenCode's own DeepSeek list (src/gallery/fixtures/modelSearch.ts): every model and provider name
 // reads whole (the menu grows to fit, then wraps; it never clips), the provider reads "OpenCode Go",
-// rows that share a name show their model id under it, and every row's tooltip names its id.
+// rows that share a name show their model id under it, and every row names its provider to assistive tech
+// (Lucas 2026-11-11: the tooltip is the model's name alone). A narrowed menu puts the chosen row's check in
+// the star's place, so the star replaces it on hover and never sits on it.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -53,7 +55,7 @@ await requireBrowserLane("model-picker-full-names.browser.test.ts", async () => 
   }
 
   /// Each model row and each provider row: its name, whether any of it is cut off, its visible id
-  /// line, and its tooltip.
+  /// line, the provider it names to assistive tech, and (a model row) its search group's heading.
   const read = (page: Page) =>
     page.evaluate(() => {
       const menu = document.querySelector<HTMLElement>(".acpmux-cols")!;
@@ -68,13 +70,19 @@ await requireBrowserLane("model-picker-full-names.browser.test.ts", async () => 
           name: label.textContent ?? "",
           cut: cut(label) || text.right > box.right + 1 || (!!id && cut(id)),
           id: id?.textContent ?? "",
-          title: element.title,
+          provider: element.getAttribute("aria-description") ?? "",
         };
       };
       return {
         width: menu.getBoundingClientRect().width,
         fontSize: parseFloat(getComputedStyle(menu).fontSize),
-        models: [...menu.querySelectorAll<HTMLElement>("[role=listbox] [role=option]")].map(row),
+        models: (() => {
+          let heading = "";
+          return [...menu.querySelector<HTMLElement>("[role=listbox]")!.children].flatMap((child) => {
+            if (child.matches(".acpmux-cols-group")) heading = child.textContent ?? "";
+            return child.matches("[role=option]") ? [{ ...row(child as HTMLElement), heading }] : [];
+          });
+        })(),
         providers: [...menu.querySelectorAll<HTMLElement>(".acpmux-cols-tune .acpmux-cols-row")].map(row),
       };
     });
@@ -112,10 +120,10 @@ await requireBrowserLane("model-picker-full-names.browser.test.ts", async () => 
     await page.close();
   });
 
-  test("rows that share a name show their model id, and every tooltip names the id", async () => {
+  test("rows that share a name show their model id, and every row names its provider", async () => {
     const page = await searched("sol 6.1", "sol");
     const { models } = await read(page);
-    const twins = models.filter((model) => model.name === "GPT-6.1 Sol" && model.title.includes("OpenCode"));
+    const twins = models.filter((model) => model.name === "GPT-6.1 Sol" && model.heading === "OpenCode");
     expect(twins).toHaveLength(2);
     expect(twins.map((model) => model.id).sort()).toEqual([
       "openrouter/openai/gpt-6.1-sol",
@@ -123,9 +131,50 @@ await requireBrowserLane("model-picker-full-names.browser.test.ts", async () => 
     ]);
     // A name no other row shares needs no id line.
     expect(models.find((model) => model.name === "GPT-6.1 Sol Fast")?.id).toBe("");
-    expect(models.every((model) => model.title.length > 0)).toBe(true);
-    const fast = models.find((model) => model.name === "GPT-6.1 Sol Fast");
-    expect(fast?.title).toContain("openai/gpt-6.1-sol-fast");
+    // A row names the provider it lands to assistive tech, as its tooltip once did.
+    expect(twins.every((model) => model.provider.length > 0)).toBe(true);
+    await page.close();
+  });
+
+  test("a narrowed menu puts the chosen row's check in the star's place, and widening brings it back", async () => {
+    const port = (vite!.httpServer!.address() as { port: number }).port;
+    const page = await browser!.newPage({ viewport: { width: 1200, height: 900 } });
+    await page.goto(`http://127.0.0.1:${port}/test/browser/model-search.html`);
+    await page.click(".acpmux-picker-button");
+    const chosen = page.locator('.acpmux-cols [role=listbox] [role=option][aria-selected="true"]').first();
+    await chosen.waitFor();
+    // What a drag on the menu's edge sets (startResize): the width, and the drag's floor (260 px) in place of
+    // the default's 28.5em one. The list's size change alone must re-measure the rows: the ResizeObserver
+    // re-measures after it; wait for the row's answer, then read it.
+    const marks = async (width: number, cover: string | undefined) => {
+      await page.evaluate((w) => {
+        const menu = document.querySelector<HTMLElement>(".acpmux-cols")!;
+        menu.style.width = `${w}px`;
+        menu.style.minWidth = "260px";
+      }, width);
+      await page.waitForFunction(
+        (want) =>
+          document.querySelector<HTMLElement>('.acpmux-cols [role=listbox] [role=option][aria-selected="true"]')
+            ?.dataset.starCover === (want ?? undefined),
+        cover ?? null,
+      );
+      return chosen.evaluate((row) => ({
+        check: row.querySelector(".acpmux-cols-check")!.getBoundingClientRect().toJSON() as DOMRect,
+        star: row.querySelector(".acpmux-cols-star")!.getBoundingClientRect().toJSON() as DOMRect,
+      }));
+    };
+    const wide = await marks(400, undefined);
+    expect(wide.check.right).toBeLessThan(wide.star.left);
+    const narrow = await marks(260, "check");
+    expect(Math.abs(narrow.check.left - narrow.star.left)).toBeLessThan(1);
+    expect(Math.abs(narrow.check.right - narrow.star.right)).toBeLessThan(1);
+    await chosen.hover();
+    expect(await chosen.locator(".acpmux-cols-check").evaluate((check) => getComputedStyle(check).visibility)).toBe(
+      "hidden",
+    );
+    await page.mouse.move(0, 0);
+    const again = await marks(400, undefined);
+    expect(again.check.right).toBeLessThan(again.star.left);
     await page.close();
   });
 });
