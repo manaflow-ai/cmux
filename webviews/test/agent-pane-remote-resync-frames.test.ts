@@ -425,13 +425,23 @@ test("a hidden pane's left-out stream is read from where the hole started when i
   daemon.log.push(end);
   daemon.notify("_acpmux/event", end);
   await flush();
-  // While hidden, nothing is read: no list, no events.
-  expect(daemon.asked.slice(asked).filter((message) => message.method !== "_acpmux/attach")).toEqual([]);
+  // The chat's own reads (a finished turn's transcript check, `kinds`) are not the hole's: only those that read the
+  // whole stream after a seq count.
+  const holeReads = (from: number) =>
+    daemon.asked
+      .slice(from)
+      .filter(
+        (message) =>
+          message.method === "_acpmux/events" &&
+          message.params?.beforeSeq === undefined &&
+          message.params?.kinds === undefined,
+      );
+  // While hidden, the hole is not read, and the list is not read again.
+  expect(holeReads(asked)).toEqual([]);
+  const shown = daemon.asked.length;
   daemon.notify("_acpmux/lagged", { dropped: 3, reason: "host_hidden" });
   await flush();
-  const reads = daemon.asked
-    .slice(asked)
-    .filter((message) => message.method === "_acpmux/events" && message.params?.beforeSeq === undefined);
+  const reads = holeReads(shown);
   // One read, from the seq the chat was whole through, and no list read (only the stream was left out).
   expect(reads.map((message) => message.params?.afterSeq)).toEqual([16]);
   expect(daemon.asked.slice(asked).some((message) => message.method === "_acpmux/watch")).toBe(false);
