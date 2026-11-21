@@ -38,6 +38,9 @@ pub struct Persisted {
 /// The staleness context a restore captures at entry (Swift `checkExistingSessionBody`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RestoreTicket {
+    /// Which restore run this answer belongs to: one run at a time owns the
+    /// restore, and the answers of a finished run are dropped.
+    pub id: u64,
     pub generation: u64,
     pub store_write_high_water: u64,
     pub retry_on_storage_available: bool,
@@ -84,8 +87,8 @@ impl SignInKind {
 pub enum AfterTeams {
     /// Nothing: a plain refresh.
     Nothing,
-    /// The restore with this ticket finishes.
-    Restore,
+    /// The restore run with this id finishes.
+    Restore { id: u64 },
     /// The sign-in flow completes.
     SignIn(SignInFlow),
 }
@@ -240,6 +243,22 @@ pub enum Event {
     DevAuthAccessTokenFinished {
         got_token: bool,
     },
+}
+
+impl Event {
+    /// The restore ticket this event answers, if it answers a restore effect.
+    pub fn restore_ticket(&self) -> Option<&RestoreTicket> {
+        match self {
+            Self::TokensProbed { ticket, .. }
+            | Self::TokenStorageAvailability { ticket, .. }
+            | Self::ProbeRetryDue { ticket, .. }
+            | Self::CachedSessionValidated { ticket, .. }
+            | Self::SurvivingRefreshTokenRead { ticket, .. }
+            | Self::StaleSessionCleared { ticket, .. }
+            | Self::AutoLoginFinished { ticket, .. } => Some(ticket),
+            _ => None,
+        }
+    }
 }
 
 /// An output of the reducer: I/O or a publication for the caller to run.

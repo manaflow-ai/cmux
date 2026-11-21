@@ -12,8 +12,11 @@ pub(crate) fn run(args: Vec<OsString>) -> i32 {
     run_as(args, "cmux acp")
 }
 
-/// `cmux <head> <args>` for `head` = `acp`, `chats` or `harness`.
+/// Enter the session engine under the name the caller typed.
 pub(crate) fn run_scope(head: &str, args: Vec<OsString>) -> i32 {
+    if head == "agent" {
+        return run_engine(args, "cmux agent");
+    }
     run_as(args, if head == "acp" { "cmux acp" } else { "cmux" })
 }
 
@@ -47,6 +50,10 @@ pub(crate) fn run_as(args: Vec<OsString>, display_name: &str) -> i32 {
             .collect();
         return harness_tab(&words);
     }
+    run_engine(args, display_name)
+}
+
+fn run_engine(args: Vec<OsString>, display_name: &str) -> i32 {
     let home = std::env::var("HOME").ok().map(PathBuf::from);
     finish(
         entry::main(
