@@ -215,6 +215,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "cloudStartProgress":
       // How a Cloud start goes (cloudStartProgress.ts): the page checks every field.
       return bridge?.cloudStartProgress?.(event.value);
+    case "lateDraft":
+      // The text of the tab this chat replaces, typed after this page took its seed (App.tsx `lateDraft`).
+      return bridge?.lateDraft?.(event.value);
     case "revealTurn":
       return bridge?.revealTurn?.(String(event.value));
     case "command":

@@ -43,6 +43,17 @@ export function mergedDraft(typed: string, saved: string | undefined): string {
   return `${saved}${DRAFT_SEPARATOR}${typed}`;
 }
 
+/**
+ * A Cloud start's late draft (App.tsx `lateDraft`): what the prompt holds after it. `late` is the text
+ * of the tab the chat replaces as it closed, `replaces` what the handshake's draft put in the prompt
+ * before it. A prompt still holding that draft, or nothing, takes `late` (an emptied one included);
+ * text typed in the prompt meanwhile stays, after `late`.
+ */
+export function lateDraftText(typed: string, late: string, replaces: string): string {
+  if (!typed.trim() || typed === replaces) return late;
+  return mergedDraft(typed, late);
+}
+
 /** What goes between a saved draft and text typed after it (`mergedDraft`). */
 const DRAFT_SEPARATOR = "\n\n";
 
