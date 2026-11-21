@@ -105,6 +105,7 @@ export interface AcpmuxRequests {
   "_acpmux/process/list": { params: ProcessListParams; result: unknown };
   "_acpmux/process/tail": { params: ProcessTailParams; result: unknown };
   "_acpmux/process/kill": { params: ProcessKillParams; result: unknown };
+  "_acpmux/process/census": { params: unknown; result: unknown };
   "_acpmux/bg/start": { params: unknown; result: unknown };
   "_acpmux/bg/list": { params: unknown; result: unknown };
   "_acpmux/bg/output": { params: unknown; result: unknown };
@@ -493,6 +494,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/process/list", kind: "request", acp: false, typed: true },
   { name: "_acpmux/process/tail", kind: "request", acp: false, typed: true },
   { name: "_acpmux/process/kill", kind: "request", acp: false, typed: true },
+  { name: "_acpmux/process/census", kind: "request", acp: false, typed: false },
   { name: "_acpmux/bg/start", kind: "request", acp: false, typed: false },
   { name: "_acpmux/bg/list", kind: "request", acp: false, typed: false },
   { name: "_acpmux/bg/output", kind: "request", acp: false, typed: false },
