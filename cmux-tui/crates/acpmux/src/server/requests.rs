@@ -801,8 +801,6 @@ async fn dispatch_brief(
     )
 }
 
-/// The tag the chat lists hide a session by (webviews sessionList.ts `ARCHIVED_TAG`).
-const ARCHIVED_TAG: &str = "archived";
 // The tag that marks a side chat, valued with its chat's session (`hub/btw.rs`).
 
 /// An agent a remote device drives (its caller session's turn, or its last one, is a Web turn,
@@ -2969,15 +2967,18 @@ async fn dispatch_request_with_identity(
                 .get("archived")
                 .and_then(Value::as_bool)
                 .ok_or_else(|| RpcError::invalid_params("archived must be true or false"))?;
-            if archived {
-                let mut set = serde_json::Map::new();
-                set.insert(ARCHIVED_TAG.into(), Value::String(crate::store::now_ms().to_string()));
-                hub.set_tags_answered(&s, Some(&set), &[], None)?;
-            } else {
+            // `hub/inactive_archive.rs`: nothing logged when nothing changes (an unarchive of a
+            // chat that is not archived); `changed` says which.
+            let changed = hub.set_archived(&s, archived, false)?;
+            if !archived {
                 // A settled chat also loses its reason (`hub/auto_settle.rs`).
                 hub.unarchive(&s)?;
             }
-            Ok(hub.session_summary(&s))
+            let mut summary = hub.session_summary(&s);
+            if let Some(obj) = summary.as_object_mut() {
+                obj.insert("changed".into(), Value::Bool(changed));
+            }
+            Ok(summary)
         }
         // A true archive: the chat's log goes into one compressed file (`hub/cold_archive.rs`).
         method::MUX_COLD_ARCHIVE => {
