@@ -938,6 +938,8 @@ pub(super) async fn handle_request(
     mut params: Value,
     sender_token: Option<crate::sender_token::Presented>,
 ) -> Result<Value, RpcError> {
+    // Freed memory goes back to the system once requests stop (malloc_quiet_trim.rs).
+    cmux_tui_platform::malloc_quiet_trim::note_activity();
     if conn.is_trigger() && !m.starts_with("trigger/chat.") {
         return Err(RpcError::new(
             -32001,
@@ -1222,6 +1224,19 @@ async fn dispatch_request_with_identity(
                 .collect();
             return Ok(json!({"harnesses": rows}));
         }
+    }
+    if m == method::MUX_SESSION_SEARCH && params.get("allSessions") == Some(&Value::Bool(true)) {
+        if params.get("sessionId").is_some() || params.get("session").is_some() {
+            return Err(RpcError::invalid_params("allSessions cannot name a session"));
+        }
+        let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
+        if !crate::hub::vm_boundary::owner(conn.auth, control, &params) {
+            return Err(RpcError::new(
+                -32001,
+                "history search requires the owner's local or peer connection",
+            ));
+        }
+        return hub.search_history(&params, conn.origin != Origin::Peer).await;
     }
     // Rows by key (`info.rs`) are answered here, a peer's from its mirror: never forwarded, and
     // refused when they name one session beside them.
