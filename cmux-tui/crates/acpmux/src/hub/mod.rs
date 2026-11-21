@@ -928,6 +928,11 @@ pub struct Hub {
     pub(super) inline_btw: StdMutex<HashMap<String, InlineBtwOwner>>,
     /// Every change watchers hear of, each a list position (`list_guard.rs`, `row_log.rs`).
     pub(super) events: list_guard::Events,
+    /// Live edited-file index for conflict radar. Entries are updated by edit records, so an
+    /// overlap lookup visits only sessions that share one of the newly edited files.
+    pub(super) overlap_files: StdMutex<HashMap<(String, String), HashSet<String>>>,
+    /// Session pairs that already received a durable overlap event.
+    pub(super) overlap_pairs: StdMutex<HashSet<String>>,
     /// The v2 list stream on peer links: the v2 handle when `peers` is on, and the counters
     /// (`link_v2.rs`).
     pub(crate) link_v2: Arc<crate::link_v2::Shared>,
@@ -1483,6 +1488,8 @@ impl Hub {
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             inline_btw: StdMutex::new(HashMap::new()),
             events,
+            overlap_files: StdMutex::new(HashMap::new()),
+            overlap_pairs: StdMutex::new(HashSet::new()),
             link_v2: Arc::default(),
             list_guard: Default::default(),
             list_order: Default::default(),
@@ -2037,6 +2044,12 @@ impl Hub {
     }
 
     pub(super) fn make_session(&self, mut meta: SessionMeta) -> Arc<Session> {
+        let restored_edits: Vec<(String, String)> = meta
+            .touched_files
+            .iter()
+            .filter(|file| file.edited)
+            .map(|file| (file.repo.clone(), file.path.clone()))
+            .collect();
         // Hibernated before a restart: marked again, so it draws no row; it wakes on its next
         // turn or typing, never on an open alone (`idle.rs` `wake_for`).
         let hibernated_at = if meta.hibernated_ms != 0 { self.clock_now().max(1) } else { 0 };
@@ -2228,10 +2241,17 @@ impl Hub {
             pr_creates: StdMutex::new(Default::default()),
             pr_closes: StdMutex::new(Default::default()),
             touch_queue: StdMutex::new(Default::default()),
+            changed_hunks: StdMutex::new(Default::default()),
             overlaps_told: StdMutex::new(Default::default()),
             start_calls: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),
         });
+        if !restored_edits.is_empty() {
+            let mut index = self.overlap_files.lock().unwrap_or_else(|e| e.into_inner());
+            for key in restored_edits {
+                index.entry(key).or_default().insert(session.id.clone());
+            }
+        }
         if let Some(hub) = self.hub_ref.get() {
             let _ = session.hub_ref.set(hub.clone());
         }
@@ -2273,6 +2293,14 @@ impl Hub {
 
     pub(super) fn remove_live_session_index(&self, id: &str) {
         self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+        self.overlap_files.lock().unwrap_or_else(|e| e.into_inner()).retain(|_, owners| {
+            owners.remove(id);
+            !owners.is_empty()
+        });
+        self.overlap_pairs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|pair| !pair.split('\0').any(|member| member == id));
         // A purged session leaves the map; a replacement may take its id.
         self.chat_activity_cache.invalidate();
     }

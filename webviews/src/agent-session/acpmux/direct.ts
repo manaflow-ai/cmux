@@ -37,6 +37,7 @@ import type {
   AcpmuxRow,
   AcpmuxSessionStart,
   AcpmuxSnapshot,
+  AcpmuxOverlap,
   ClaimCheck,
   MissingSessionReason,
   PromptImage,
@@ -3265,6 +3266,7 @@ export class AcpmuxDirectClient {
   /// (requestBudget.ts). Reset with the connection.
   private budget = new RequestBudget();
   private events: EventRecord[] = [];
+  private overlaps = new Map<string, AcpmuxOverlap>();
   private rows = new OrderedRows();
   /// Each drawn offer's row (a suggested tasks card), by offer id (offer/SuggestedTasks.tsx).
   private offerRows = new Map<string, string>();
@@ -4894,6 +4896,7 @@ export class AcpmuxDirectClient {
     this.runningTurnId = undefined;
     this.stoppingEnded();
     this.events = [];
+    this.overlaps.clear();
     this.streamedOutputs.clear();
     this.turnOpener = undefined;
     this.turnPrompt = undefined;
@@ -9032,8 +9035,12 @@ export class AcpmuxDirectClient {
     for (const row of frozenBefore === undefined ? this.rows.values() : this.rows.rowsFrom(frozenBefore))
       previous.set(row.id, row);
     // Past a cut, a sender a row above it named before the chat was listed stays unknown: a listing
-    // that names it later refolds the whole chat (`recheckSenders`).
-    if (frozenBefore === undefined) this.unknownSenders.clear();
+    // that names it later refolds the whole chat (`recheckSenders`). Overlap events replay with the
+    // whole chat too, so a partial refold keeps the ones above the cut.
+    if (frozenBefore === undefined) {
+      this.unknownSenders.clear();
+      this.overlaps.clear();
+    }
     // A prompt still in flight keeps its optimistic row until an event settles it; a failed one stays to show it was not sent.
     // Only prompts still awaiting acceptance are retained before replay. Durable keys are used
     // when their replayed user_message is reduced, but retaining every historical key here would
@@ -10002,6 +10009,11 @@ export class AcpmuxDirectClient {
       typeof msg.promptId === "string"
     )
       this.unsentTaken(msg.promptId);
+    if (event.dir === "mux" && event.kind === "worktree_overlap") {
+      const peer = typeof msg.peerSessionId === "string" ? msg.peerSessionId : "";
+      if (peer && Array.isArray(msg.files)) this.overlaps.set(peer, msg as AcpmuxOverlap);
+      return;
+    }
     if (event.dir === "mux" && event.kind === NATIVE_HISTORY_KIND) {
       // Draws nothing: where the transcript's older turns end. The oldest one held is the seeded
       // page's (a page of the log seq order puts first).
@@ -11808,6 +11820,7 @@ export class AcpmuxDirectClient {
       ...(Object.keys(changedProgress).length > 0 ? { subagentProgress: changedProgress } : {}),
       subagentStructureVersion: progressSource.structureVersion,
       sessions: this.sessionEntryList(),
+      ...(this.overlaps.size > 0 ? { overlaps: [...this.overlaps.values()] } : {}),
       peers: this.peers,
       peerKinds: this.peerKinds,
       peerConnected: this.peerConnected,

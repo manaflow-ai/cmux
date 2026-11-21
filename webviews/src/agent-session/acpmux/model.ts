@@ -1209,6 +1209,23 @@ export function linkUp(connection: string): boolean {
   return connection !== "disconnected" && !connection.startsWith("connecting");
 }
 
+/// A live pair of worktrees edited the same repository lines (or the same file when line metadata
+/// was unavailable). The daemon persists this as a
+/// `worktree_overlap` event, so reconnecting a pane restores the quiet header chip without a diff
+/// scan.
+export type AcpmuxOverlap = {
+  peerSessionId: string;
+  peerName: string;
+  peerBranch?: string;
+  files: {
+    repo: string;
+    path: string;
+    ranges: { mine: { start: number; end: number } | null; theirs: { start: number; end: number } | null }[];
+  }[];
+  suggestedOrder: "smallerFirst";
+  smallerSessionId: string;
+};
+
 /** Incremental journal attribution for the Session Info "Where the time went" chart. */
 export type AcpmuxTimeCategory = {
   id: string;
@@ -1271,6 +1288,7 @@ export type AcpmuxSnapshot = {
   /// Monotonic structural revision for the subagent list; usage-only updates do not change it.
   subagentStructureVersion?: number;
   sessions: AcpmuxSessionEntry[];
+  overlaps?: AcpmuxOverlap[];
   /// Who else has a shared chat open and who of them types (multiplayer/participants.ts).
   presence?: ChatPresence;
   /// A Fork Conversation acpmux has not answered yet, since when (Unix ms): the line above the

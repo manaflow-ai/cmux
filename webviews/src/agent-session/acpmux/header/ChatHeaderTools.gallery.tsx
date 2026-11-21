@@ -15,6 +15,7 @@ import type { QuickAction } from "./quickActions";
 import type { NativeRowToolsHost } from "./useNativeRowTools";
 import type { NativeRowNeedsYou } from "./nativeRowTools";
 import { NeedsYouButton } from "../needsYou/NeedsYou";
+import type { AcpmuxOverlap } from "../model";
 import { FORK_ICON } from "../icons/forkIcon";
 import { MOTION_MS } from "../../../motion/scale.generated";
 
@@ -53,6 +54,8 @@ type HeaderToolsProps = {
   readStatus?: () => Promise<unknown>;
   onApplyWorktree?: (key: string) => Promise<unknown>;
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
+  overlaps?: readonly AcpmuxOverlap[];
+  onTellOverlap?: (overlap: AcpmuxOverlap) => Promise<unknown> | void;
   working?: boolean;
   motion?: "still" | "animated-cue" | "animated-spring" | "animated-morph";
 };
@@ -558,6 +561,43 @@ const quietWhenUnfocused: Play = async (ctx) => {
 
 const changes = { hasChanges: true, onChanges: () => undefined } as const;
 
+const overlap = (peerSessionId: string, peerName: string, files: AcpmuxOverlap["files"]): AcpmuxOverlap => ({
+  peerSessionId,
+  peerName,
+  peerBranch: `lane/${peerSessionId}`,
+  files,
+  suggestedOrder: "smallerFirst",
+  smallerSessionId: "session-1",
+});
+const singleOverlap = overlap("session-2", "fix-login", [
+  {
+    repo: "github.com/manaflow-ai/cmux",
+    path: "src/auth.rs",
+    ranges: [{ mine: { start: 42, end: 48 }, theirs: { start: 44, end: 50 } }],
+  },
+]);
+const manyOverlaps = [
+  singleOverlap,
+  overlap("session-3", "fix-sidebar", [
+    {
+      repo: "github.com/manaflow-ai/cmux",
+      path: "webviews/src/agent-session/acpmux/App.tsx",
+      ranges: [
+        { mine: { start: 11340, end: 11360 }, theirs: { start: 11348, end: 11372 } },
+        { mine: { start: 11802, end: 11809 }, theirs: { start: 11800, end: 11805 } },
+      ],
+    },
+  ]),
+  overlap("session-4", "rename-model", [
+    {
+      repo: "github.com/manaflow-ai/cmux",
+      path: "cmux-tui/crates/acpmux/src/hub/touched.rs",
+      ranges: [{ mine: null, theirs: null }],
+    },
+  ]),
+];
+const tellOverlap = async (_value: AcpmuxOverlap) => undefined;
+
 const base: HeaderToolsProps = {
   onTerminal: () => undefined,
   onSplitDown: () => undefined,
@@ -567,6 +607,11 @@ const base: HeaderToolsProps = {
   summary,
   menu: menuRows,
   onMenuOpen: async () => undefined,
+};
+
+const openOverlap = async (ctx: PlayContext) => {
+  await ctx.click({ role: "button", name: "Overlaps with fix-login" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-overlap-status"));
 };
 
 const nativeComparison: HeaderToolsProps = {
@@ -834,6 +879,24 @@ export default componentEntry<HeaderToolsProps>({
     },
   },
   variants: {
+    "conflict-radar-single": {
+      note: "Conflict radar: one live worktree overlaps this chat's auth hunk. The compact chip opens the file range and the one-line handoff action.",
+      props: { ...base, overlaps: [singleOverlap], onTellOverlap: tellOverlap },
+      play: async (ctx) => {
+        await openOverlap(ctx);
+        await ctx.click({ role: "button", name: "Tell the other agent" });
+        await ctx.waitFor(() => ctx.find({ role: "button", name: "Told the other agent" }));
+      },
+    },
+    "conflict-radar-many": {
+      note: "Conflict radar: two peers overlap different files. Each peer gets one compact chip; details stay in its own popover instead of expanding the header row.",
+      props: { ...base, overlaps: manyOverlaps, onTellOverlap: tellOverlap },
+    },
+    "conflict-radar-narrow": {
+      note: "Conflict radar at the narrow header width: the peer name truncates in the chip while the popover retains every file and hunk range.",
+      props: { ...base, overlaps: [singleOverlap], onTellOverlap: tellOverlap },
+      play: openOverlap,
+    },
     "two-panes": {
       note: "Chosen (Leo 2026-11-07, two chats side by side): every pane's tools end on one column, the pane toolbar's trailing gap from its edge, with no empty slot after the chat's own •••; Session Info is open in both, but only the focused (left) pane shows its selected square. The right pane has no ± (nothing changed) and is exactly one button narrower.",
       props: {
