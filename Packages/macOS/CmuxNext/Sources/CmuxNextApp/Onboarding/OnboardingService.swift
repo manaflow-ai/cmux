@@ -152,11 +152,11 @@ final class OnboardingService {
     }
 
     /// Home's Set Up cmux card (``FirstRunSetup``): what a first run offers, in place of the first-run windows.
-    private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.launchSteps.skipsFirstRun)
+    private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.launchSteps == .none)
 
-    /// Meet Chief (``ChiefOnboarding``): a fresh install's first look at Chief, on the empty Chief chat.
+    /// Meet Chief (``ChiefOnboarding``): a fresh install's first look at Chief, in its chat (no window: no `--onboarding` needed).
     private(set) lazy var chief = ChiefOnboarding(defaults: .standard, settings: HomeChiefOnboardingSettings { [weak services] in services?.settings },
-                                                  skipsOnboarding: services.environment.launchSteps.skipsFirstRun)
+                                                  skipsOnboarding: services.environment.launchSteps == .none)
 
     /// The launch's steps (``AppEnvironment/launchSteps``): with onboarding on, a first run starts Home's Set Up cmux card
     /// (the Agents window and the CLI toast count as shown), else the first-run windows

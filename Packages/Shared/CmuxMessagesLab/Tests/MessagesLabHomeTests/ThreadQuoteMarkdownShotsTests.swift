@@ -17,9 +17,7 @@ import UniformTypeIdentifiers
 
     init() {
         HomeMarkdownPolicy.install()
-        CustomRows.unregister(HomeTableRowProvider.kind)
-        CustomRows.unregister(HomePlanRowProvider.kind)
-        HomeTableRowProvider.install()
+        HomeTableRowProvider.reinstall()
     }
 
     /// The quote row and the reply under it, as `RowDraw` draws them, stacked by their gaps.
