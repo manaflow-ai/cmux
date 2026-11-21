@@ -62,6 +62,7 @@
         "sidebar.textSize",
         "sidebar.detailedStatusIcons",
         "sidebar.showTimestamps",
+        "sidebar.settleFinished",
         "sidebar.showColors",
         "sidebar.showLocalMachine",
         "workspaceColors.indicatorStyle"
@@ -258,7 +259,8 @@
         "appearance.backgroundDark",
         "appearance.backgroundSchedule",
         "appearance.backgroundDynamic",
-        "appearance.backgroundLocation"
+        "appearance.backgroundLocation",
+        "appearance.backgroundMemory"
       ]
     },
     {
@@ -479,13 +481,6 @@
         "home.chiefDock.edge",
         "home.chiefPanel.style",
         "home.chiefDock.openBeside"
-      ]
-    },
-    {
-      "agent": "userOnly",
-      "why": "On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.",
-      "keys": [
-        "home.chiefPanel.seesScreen"
       ]
     },
     {

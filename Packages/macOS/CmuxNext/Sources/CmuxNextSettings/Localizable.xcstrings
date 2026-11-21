@@ -1117,6 +1117,270 @@
         }
       }
     },
+    "settings.appearance.backgroundMemory": {
+      "comment": "Settings > Appearance > Window Background: title of the hidden setting that keeps what each background mode last showed (CLI and docs only)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background Mode Memory"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ذاكرة أوضاع الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memorija načina pozadine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hukommelse for baggrundstilstande"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gedächtnis der Hintergrundmodi"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memoria de los modos de fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mémoire des modes d’arrière-plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memoria delle modalità di sfondo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景モードの記憶"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចងចាំរបៀបផ្ទៃខាងក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경 모드 기억"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minne for bakgrunnsmoduser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pamięć trybów tła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memória dos modos de fundo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Память режимов фона"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน่วยความจำโหมดพื้นหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arka Plan Modu Belleği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пам’ять режимів тла"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bộ nhớ chế độ nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景模式记忆"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景模式記憶"
+          }
+        }
+      }
+    },
+    "settings.appearance.backgroundMemory.help": {
+      "comment": "Settings > Appearance > Window Background: help of the hidden setting that keeps each background mode's last folder and picture",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The folder and picture each background mode last showed, so switching back restores them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المجلد والصورة اللذان عرضهما كل وضع خلفية آخر مرة، لتستعيدهما عند الرجوع إليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mapa i slika koje je svaki način pozadine posljednje prikazao, da ih povratak vrati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den mappe og det billede hver baggrundstilstand sidst viste, så de vender tilbage, når du skifter tilbage."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner und Bild, die jeder Hintergrundmodus zuletzt zeigte, damit sie beim Zurückwechseln wiederkommen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La carpeta y la imagen que mostró por última vez cada modo de fondo, para recuperarlas al volver."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le dossier et l’image que chaque mode d’arrière-plan a montrés en dernier, rétablis quand vous y revenez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cartella e l’immagine mostrate per ultime da ogni modalità di sfondo, ripristinate quando ci torni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各背景モードが最後に表示したフォルダと画像。モードを戻すと復元されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតនិងរូបភាពដែលរបៀបផ្ទៃខាងក្រោយនីមួយៗបានបង្ហាញចុងក្រោយ ដើម្បីស្ដារវាវិញពេលប្ដូរត្រឡប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 배경 모드가 마지막으로 보여 준 폴더와 그림으로, 다시 전환하면 복원됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappen og bildet hver bakgrunnsmodus sist viste, så de kommer tilbake når du bytter tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder i obraz, które każdy tryb tła pokazał ostatnio, aby powrót do trybu je przywracał."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pasta e a imagem que cada modo de fundo mostrou por último, restauradas ao voltar a ele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Папка и изображение, которые каждый режим фона показывал последними, чтобы вернуть их при возврате."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟลเดอร์และรูปภาพที่แต่ละโหมดพื้นหลังแสดงล่าสุด เพื่อกู้คืนเมื่อสลับกลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her arka plan modunun en son gösterdiği klasör ve resim; moda geri dönünce geri gelir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тека та зображення, які кожен режим тла показував останніми, щоб повернути їх під час повернення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thư mục và ảnh mà mỗi chế độ nền hiển thị lần cuối, để khôi phục khi chuyển lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每种背景模式上次显示的文件夹和图片，切换回来时会恢复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每種背景模式上次顯示的資料夾和圖片，切換回來時會還原。"
+          }
+        }
+      }
+    },
     "settings.default.fromTimeZone": {
       "comment": "Settings default label: the sun location comes from the time zone.",
       "extractionState": "manual",
@@ -2175,6 +2439,33 @@
             "value": "Tác vụ có ít nhất ngần này từ sẽ vào thanh bên."
           }
         }
+      }
+    },
+    "settings.sidebarSection.more": {
+      "comment": "Settings window sidebar: the header of the last section, which starts closed and holds the pages a person opens less often (New Tab, Menus, Keys, Privacy, Advanced, ...). A click opens or closes it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "More"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "المزيد"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Više"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Mere"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Mehr"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Más"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Plus"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Altro"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "その他"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ច្រើនទៀត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "더 보기"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Mer"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Więcej"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mais"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Ещё"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เพิ่มเติม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Daha Fazla"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Більше"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thêm"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "更多"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "更多"}}
       }
     },
     "settings.agentPane.display.thinking.shimmer": {
@@ -85624,127 +85915,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الرئيسية"
+            "value": "Chief"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Početna"
+            "value": "Chief"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem"
+            "value": "Chief"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inicio"
+            "value": "Chief"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Accueil"
+            "value": "Chief"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ホーム"
+            "value": "Chief"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទំព័រដើម"
+            "value": "Chief"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "홈"
+            "value": "Chief"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem"
+            "value": "Chief"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Strona główna"
+            "value": "Chief"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Início"
+            "value": "Chief"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Главная"
+            "value": "Chief"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน้าแรก"
+            "value": "Chief"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ana Sayfa"
+            "value": "Chief"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Головна"
+            "value": "Chief"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trang chủ"
+            "value": "Chief"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主页"
+            "value": "Chief"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主頁"
+            "value": "Chief"
           }
         }
       }
@@ -114191,6 +114482,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "顯示空間"
+          }
+        }
+      }
+    },
+    "settings.sidebar.showSpaces.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تظهر المساحات عندما يكون لديك أكثر من مساحة واحدة. «مساحة جديدة» موجودة في لوحة الأوامر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prostori se prikazuju kada ih imate više od jednog. „Novi prostor“ je u paleti naredbi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Områder vises, når du har mere end ét. „Nyt område“ findes i kommandopaletten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spaces werden angezeigt, sobald du mehr als einen hast. „Neuer Space“ findest du in der Befehlspalette."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spaces show once you have more than one. New Space is in the command palette."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los espacios se muestran cuando tienes más de uno. «Nuevo espacio» está en la paleta de comandos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les espaces s’affichent dès que vous en avez plusieurs. « Nouvel espace » se trouve dans la palette de commandes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gli spazi compaiono quando ne hai più di uno. «Nuovo spazio» è nella palette dei comandi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スペースは2つ以上になると表示されます。「新規スペース」はコマンドパレットにあります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លំហបង្ហាញនៅពេលអ្នកមានច្រើនជាងមួយ។ «លំហថ្មី» មាននៅក្នុងផ្ទាំងពាក្យបញ្ជា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스페이스는 두 개 이상일 때 표시됩니다. ‘새 스페이스’는 명령 팔레트에 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Områder vises når du har mer enn ett. «Nytt område» finner du i kommandopaletten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obszary pojawiają się, gdy masz więcej niż jeden. „Nowy obszar” jest w palecie poleceń."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os espaços aparecem quando você tem mais de um. “Novo Espaço” está na paleta de comandos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Области показываются, когда их больше одной. «Новая область» есть в палитре команд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่จะแสดงเมื่อคุณมีมากกว่าหนึ่ง “พื้นที่ใหม่” อยู่ในพาเลตคำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alanlar birden fazla olduğunda görünür. “Yeni Alan” komut paletinde."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Простори з’являються, коли їх більше одного. «Новий простір» є в палітрі команд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian hiện khi bạn có nhiều hơn một. “Không gian mới” có trong bảng lệnh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "有多个空间时才会显示空间。“新建空间”在命令面板中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "有多個空間時才會顯示空間。「新增空間」在命令面板中。"
           }
         }
       }
@@ -158786,6 +159208,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "隱藏的 Chromium 分頁會停止執行直到你顯示它，以節省電力。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.settleFinished": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settle Finished Chats"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طي المحادثات المنتهية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skloni završene razgovore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Læg afsluttede chats væk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abgeschlossene Chats einklappen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recoger los chats terminados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ranger les discussions terminées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riponi le chat concluse"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了したチャットをまとめる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រមូលការជជែកដែលបានបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끝난 채팅 정리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legg bort avsluttede chatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odkładaj zakończone czaty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recolher conversas concluídas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убирать завершённые чаты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เก็บแชตที่เสร็จแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamamlanan sohbetleri topla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прибирати завершені чати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gom các cuộc trò chuyện đã xong"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起已完成的对话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收合已完成的對話"
+          }
+        }
+      }
+    },
+    "settings.sidebar.settleFinished.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A chat whose answer you have read folds into Settled at the end of its list until its next turn."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المحادثة التي قرأت ردها تنتقل إلى «منتهية» في آخر قائمتها حتى دورها التالي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovor čiji ste odgovor pročitali prelazi u Riješeno na kraju liste do svog sljedećeg kruga."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En chat, hvis svar du har læst, flyttes til Afsluttede nederst i listen indtil næste tur."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Chat, dessen Antwort du gelesen hast, wandert bis zu seinem nächsten Zug in „Abgeschlossen“ am Ende seiner Liste."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un chat cuya respuesta ya leíste pasa a Cerrados al final de su lista hasta su siguiente turno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une discussion dont vous avez lu la réponse passe dans « Réglées » en bas de sa liste jusqu’à son prochain tour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una chat di cui hai letto la risposta passa in Concluse in fondo alla lista fino al turno successivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答を読んだチャットは、次のターンまでリストの最後の「完了済み」にまとめられます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកដែលអ្នកបានអានចម្លើយ នឹងចូលទៅក្នុង បានបញ្ចប់ នៅចុងបញ្ជី រហូតដល់វេនបន្ទាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "답변을 읽은 채팅은 다음 턴까지 목록 끝의 정리됨으로 들어갑니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En chat der du har lest svaret, flyttes til Avsluttet nederst i listen til neste tur."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat, którego odpowiedź przeczytano, trafia do Zakończonych na końcu listy aż do następnej tury."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma conversa cuja resposta você leu vai para Concluídas no fim da lista até a próxima vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат, ответ в котором вы прочитали, уходит в «Завершённые» в конце списка до следующего хода."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตที่คุณอ่านคำตอบแล้วจะย้ายไปที่ เสร็จแล้ว ท้ายรายการจนกว่าจะมีรอบถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yanıtını okuduğunuz bir sohbet, sonraki turuna kadar listenin sonundaki Tamamlananlar bölümüne geçer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат, відповідь у якому ви прочитали, переходить у «Завершені» в кінці списку до наступного ходу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện mà bạn đã đọc câu trả lời sẽ vào mục Đã xong ở cuối danh sách cho đến lượt tiếp theo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已读完回复的对话会收进列表末尾的“已处理”，直到它的下一轮。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已讀完回覆的對話會收進列表末尾的「已處理」，直到它的下一輪。"
           }
         }
       }
@@ -217325,165 +218009,6 @@
         }
       }
     },
-    "settings.home.chiefPanelSeesScreen": {
-      "comment": "Settings > Chief > Chief Dock: the floating Chief gets one look at the screen when it opens.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Chief Sees Your Screen When It Opens"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "يرى Chief شاشتك عند فتحه"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Chief vidi tvoj ekran kad se otvori"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Chief ser din skærm, når den åbnes"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Chief sieht deinen Bildschirm beim Öffnen"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Chief ve tu pantalla al abrirse"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Chief voit votre écran à l’ouverture"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Chief vede lo schermo quando si apre"}},
-        "ja": {"stringUnit": {"state": "needs_review", "value": "開いたときに Chief が画面を見る"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "Chief មើលអេក្រង់របស់អ្នក ពេលបើក"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "열릴 때 Chief가 화면 보기"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Chief ser skjermen din når den åpnes"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Chief widzi Twój ekran po otwarciu"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O Chief vê sua tela ao abrir"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Chief видит ваш экран при открытии"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "Chief เห็นหน้าจอของคุณเมื่อเปิด"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Chief açıldığında ekranınızı görsün"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Chief бачить ваш екран під час відкриття"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Chief thấy màn hình của bạn khi mở"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "打开时 Chief 查看屏幕"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "開啟時 Chief 查看螢幕"}}
-      }
-    },
-    "settings.home.chiefPanelSeesScreen.help": {
-      "comment": "Settings > Chief > Chief Dock: help for the floating Chief's look at the screen.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The floating Chief takes one look at your screen when it opens. The eye turns it off."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يلقي Chief العائم نظرة واحدة على شاشتك عند فتحه. تطفئه العين."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plutajući Chief jednom pogleda tvoj ekran kad se otvori. Oko to isključuje."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Den svævende Chief kigger én gang på din skærm, når den åbnes. Øjet slår det fra."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Der schwebende Chief wirft beim Öffnen einen Blick auf deinen Bildschirm. Das Auge schaltet es aus."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief flotante echa un vistazo a tu pantalla al abrirse. El ojo lo desactiva."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief flottant jette un coup d’œil à votre écran à l’ouverture. L’œil le désactive."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief mobile dà un’occhiata allo schermo quando si apre. L’occhio lo disattiva."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "フローティング Chief を開くと、画面を一度見ます。目のボタンでオフにできます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief អណ្ដែតមើលអេក្រង់របស់អ្នកម្ដង ពេលវាបើក។ ភ្នែកបិទវា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "떠 있는 Chief가 열릴 때 화면을 한 번 봅니다. 눈 버튼으로 끕니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Den svevende Chief tar ett blikk på skjermen din når den åpnes. Øyet slår det av."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pływający Chief raz patrzy na Twój ekran po otwarciu. Oko to wyłącza."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O Chief flutuante dá uma olhada na sua tela ao abrir. O olho desliga isso."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Плавающий Chief один раз смотрит на ваш экран при открытии. Глаз это выключает."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief แบบลอยจะดูหน้าจอของคุณหนึ่งครั้งเมื่อเปิด ปุ่มรูปตาใช้ปิด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Serbest Chief açıldığında ekranınıza bir kez bakar. Göz bunu kapatır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Плаваючий Chief один раз дивиться на ваш екран під час відкриття. Око це вимикає."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief nổi xem màn hình của bạn một lần khi mở. Biểu tượng mắt tắt tính năng này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "浮动 Chief 打开时会看一眼你的屏幕。眼睛按钮可关闭此功能。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "浮動 Chief 開啟時會看一眼你的螢幕。眼睛按鈕可關閉此功能。"
-          }
-        }
-      }
-    },
     "settings.choice.chiefPanelStyle.seeThrough": {
       "comment": "Floating Chief style: the chat's bubbles over the workspace, as in Messages.",
       "extractionState": "manual",
@@ -225521,137 +226046,6 @@
         "vi": {"stringUnit": {"state": "translated", "value": "%@, một tác nhân đang dùng Computer Use"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "%@，有代理正在使用 Computer Use"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "%@，有代理程式正在使用 Computer Use"}}
-      }
-    },
-    "settings.category.personalization": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "التخصيص"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalizacija"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalisering"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalisierung"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalization"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalización"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personnalisation"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalizzazione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パーソナライズ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការកំណត់ផ្ទាល់ខ្លួន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "개인화"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalisering"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalizacja"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalização"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Персонализация"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การปรับแต่งส่วนตัว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kişiselleştirme"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Персоналізація"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cá nhân hóa"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "个性化"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "個人化"
-          }
-        }
       }
     },
     "settings.sessions.keepAwakeForCommands": {
