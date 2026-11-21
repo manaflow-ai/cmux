@@ -13,9 +13,10 @@ import Foundation
 ///   shows its data (the Workspaces list, the Feed, one of its workspaces),
 ///   or it was shown less than `idleAfter` ago. A Mac nothing asked for is
 ///   never dialed (lazy), and one left alone is closed (idle).
-/// - A targeted Mac that presence calls offline is not dialed (its
-///   `LinkMachine` waits in `macOffline`, or probes a live link: a signaling
-///   reset says "offline" for a moment while the link is fine).
+/// - A targeted Mac that presence calls offline shows as offline (its
+///   `LinkMachine` is in `macOffline`) and gets a few quiet dials per app
+///   open, since presence can be stale; a live link is probed instead (a
+///   signaling reset says "offline" for a moment while the link is fine).
 /// - A Mac whose pairing code the phone holds (`pinned`) is targeted next
 ///   after the focused one, so the code reaches it whatever else is shown.
 /// - At most `maxLinks` Macs: the focused one, the pinned one, then online

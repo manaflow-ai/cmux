@@ -360,7 +360,7 @@ public final class LinkController {
                 guard let self, !Task.isCancelled, generation == self.machine.generation else { return }
                 switch state {
                 case .connected(_, let path, let rtt):
-                    if case .connecting = self.machine.phase {
+                    if self.machine.isDialing {
                         self.connected(link, generation: generation, path: path)
                     }
                     self.send(.linkUpdated(generation: generation, path: path, rttMillis: rtt))
@@ -377,7 +377,7 @@ public final class LinkController {
         }
         // A link that knows it is up is connected now: the state stream's first
         // element would only say so a main-actor turn later.
-        if let path = link.connectedPath, case .connecting = machine.phase {
+        if let path = link.connectedPath, machine.isDialing {
             connected(link, generation: generation, path: path)
         }
     }

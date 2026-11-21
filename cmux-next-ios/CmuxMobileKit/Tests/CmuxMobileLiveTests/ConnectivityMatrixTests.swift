@@ -303,7 +303,8 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
     // MARK: Host side
 
     /// The Mac sleeps (presence goes offline) for 1 min or 8 h (god), then
-    /// wakes. While asleep: "Offline" and no dials at all. After wake:
+    /// wakes. While asleep: "Offline", and only the few quiet dials one
+    /// presence-offline series makes (presence can be stale). After wake:
     /// connected within one dial; 8 h within 1.2x of 1 min.
     @Test func cellHostMacAsleepThenWakes() {
         var results: [Duration] = []
@@ -324,7 +325,10 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
             report("host_mac_asleep_then_wakes", variant, [
                 "asleep_s": asleep.seconds, "reconnect_ms": (reconnected?.seconds ?? -1) * 1000, "dials": timeline.dials,
             ])
-            #expect(timeline.dials == 2, "\(variant): dialed a sleeping Mac (\(timeline.dials) dials)")
+            // The first link, the quiet series while asleep (bounded: the 8 h sleep costs what
+            // the 1 min one does), and the dial at wake.
+            let quiet = LinkMachine(transport: .webRTC).offlineBackoff.count + 1
+            #expect(timeline.dials <= 2 + quiet, "\(variant): \(timeline.dials) dials to a sleeping Mac")
             #expect(timeline.statusLines(from: sleep + .seconds(2), to: wake) == ["Offline"])
             #expect(reconnected != nil && reconnected! <= dialTime + .milliseconds(1))
             results.append(reconnected ?? .seconds(3600))

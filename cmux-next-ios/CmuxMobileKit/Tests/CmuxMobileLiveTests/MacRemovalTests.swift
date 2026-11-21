@@ -118,7 +118,7 @@ final class ServiceStub: URLProtocol, @unchecked Sendable {
         snapshots.flush()
         return LiveCoordinator(
             store: store, api: api(), identity: DeviceIdentity(link: UUID().uuidString, presence: UUID().uuidString),
-            userID: userID, deviceName: "iPhone", transport: .wireGuard, dialer: MockDialer(fail: false),
+            userID: userID, deviceName: "iPhone", transport: .wireGuard, dialer: MockDialer(fail: false, offlineMacs: ["m2"]),
             feedStore: FeedStore(items: []), snapshots: snapshots
         )
     }

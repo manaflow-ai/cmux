@@ -26,7 +26,8 @@ public struct LinkMachine: Sendable {
     public enum Phase: Equatable, Sendable {
         /// No Mac selected.
         case idle
-        /// The selected Mac's presence is offline; no dial until it returns.
+        /// The selected Mac's presence is offline. The phone still tries it
+        /// quietly (``LinkMachine/offlineDial``): presence can be stale.
         case macOffline
         case connecting(TransportKind, attempt: Int)
         case connected(TransportKind, LinkPathKind, rttMillis: UInt32?)
@@ -105,6 +106,25 @@ public struct LinkMachine: Sendable {
     public var backoff: [Int] = [1, 2, 4, 8, 15, 30]
     /// Failed dials retried at once, before any failure shows.
     public static let silentRetries = 1
+    /// Delays in seconds between the quiet dials to a Mac that presence calls
+    /// offline (``Phase/macOffline``): one at once, then one after each delay. Presence can be wrong or late (a stale warm-start snapshot, a
+    /// signaling socket that reset on a loaded Mac) while the Mac answers a dial,
+    /// so the phone tries the Mac itself instead of waiting for presence (the
+    /// user, 2026-11-21: "just connect ... from iOS to Mac. Like just do it well").
+    public var offlineBackoff: [Int] = [3, 10, 30]
+    /// The quiet dial in ``Phase/macOffline``: its attempt number while one is in
+    /// flight, nil otherwise. The phase stays `macOffline` (no "Reconnecting…", no
+    /// incident) until the dial succeeds.
+    public private(set) var offlineDial: Int?
+    /// The attempt the next quiet dial in ``Phase/macOffline`` makes.
+    private var offlineAttempts = 0
+
+    /// A dial is in flight: a normal one (``Phase/connecting``) or a quiet one
+    /// to a Mac presence calls offline. `LinkController` adopts a link only then.
+    public var isDialing: Bool {
+        if case .connecting = phase { return true }
+        return offlineDial != nil
+    }
 
     public init(transport: TransportKind, relayOnly: Bool = false, blockUDP: Bool = false) {
         self.transport = transport
@@ -144,7 +164,10 @@ public struct LinkMachine: Sendable {
                 // for a moment while the link is fine. Keep it and probe it;
                 // a dead one fails the probe (termfix-r13 D2a, T-LIFE-17).
                 if sameMac, case .connected = phase { return [.quickProbe(generation: generation)] }
-                return reset(to: .macOffline)
+                // Already offline for this Mac: its quiet dials go on (`applyLinks`
+                // sends the target again on every list or focus change).
+                if sameMac, phase == .macOffline { return [] }
+                return goOffline()
             }
             if sameMac, isActive { return [] }
             return dial(attempt: 1, closing: true)
@@ -165,11 +188,20 @@ public struct LinkMachine: Sendable {
             guard transport == .wireGuard, let target, target.isOnline else { return [] }
             return dial(attempt: 1, closing: true)
         case .dialSucceeded(let gen, let path):
-            guard gen == generation, case .connecting = phase else { return [] }
+            guard gen == generation, isDialing else { return [] }
+            // A quiet dial to a Mac presence called offline got through: presence was wrong.
+            offlineDial = nil
+            offlineAttempts = 0
             phase = .connected(transport, path, rttMillis: nil)
             return []
         case .dialFailed(let gen, let reason):
-            guard gen == generation, case .connecting(_, let attempt) = phase else { return [] }
+            guard gen == generation else { return [] }
+            if phase == .macOffline, offlineDial != nil {
+                // The Mac did not answer either: it stays offline, and the next quiet dial waits.
+                offlineDial = nil
+                return scheduleOfflineDial()
+            }
+            guard case .connecting(_, let attempt) = phase else { return [] }
             // The first failure retries at once and says nothing: most are a
             // signaling socket the service just reset (a deploy resets them
             // all) or a stale warm socket, and the next dial opens a new one.
@@ -185,8 +217,8 @@ public struct LinkMachine: Sendable {
             return []
         case .linkDropped(let gen, _), .probeFailed(let gen, _):
             guard gen == generation, case .connected = phase else { return [] }
-            // The Mac is offline: nothing to dial until presence brings it back.
-            if target?.isOnline == false { return reset(to: .macOffline) }
+            // Presence says the Mac is offline: say so, and try it quietly (presence can be late).
+            if target?.isOnline == false { return goOffline() }
             // Redial at once; a failure then takes the usual retry path.
             return [.close] + dial(attempt: 1, closing: false)
         case .macSignaled:
@@ -200,6 +232,7 @@ public struct LinkMachine: Sendable {
             // come only when a Mac's socket connects, closes or is renamed, so
             // this restarts a dial only when the host is newly reachable.
             case .connecting(_, let attempt): return dial(attempt: attempt, closing: false)
+            case .macOffline: return offlineDialNow()
             default: return []
             }
         case .networkChanged:
@@ -209,15 +242,24 @@ public struct LinkMachine: Sendable {
             // dial timeout (25 s) and then a backoff step after the network
             // was back (iOS reliability matrix, network_back_during_inflight_dial).
             case .connecting(_, let attempt): return dial(attempt: attempt, closing: false)
+            case .macOffline: return offlineDialNow()
             default: return []
             }
         case .retryDue(let gen):
-            guard gen == generation, case .waiting(_, let attempt, _, _) = phase else { return [] }
+            guard gen == generation else { return [] }
+            if phase == .macOffline {
+                // In the background nothing dials; the next foreground does.
+                guard offlineDial == nil, !isBackgrounded else { return [] }
+                return quietDial()
+            }
+            guard case .waiting(_, let attempt, _, _) = phase else { return [] }
             return dial(attempt: attempt + 1, closing: false)
         case .foreground:
             switch phase {
             case .waiting(_, let attempt, _, _): return dial(attempt: attempt + 1, closing: false)
             case .connected: return [.probe(generation: generation)]
+            // Opening the app is when presence is most likely stale: try the Mac now.
+            case .macOffline: return offlineDialNow()
             default: return []
             }
         }
@@ -231,16 +273,56 @@ public struct LinkMachine: Sendable {
     }
 
     private mutating func reset(to next: Phase) -> [Effect] {
-        let wasActive = isActive
+        // A quiet dial in flight or waiting is dropped with the link.
+        let wasActive = isActive || offlineDial != nil
         generation += 1
         media = .off
         phase = next
+        offlineDial = nil
+        offlineAttempts = 0
         return wasActive ? [.close] : []
+    }
+
+    /// Presence says the target Mac is offline: the phase says so, and a quiet
+    /// dial tries it at once (presence can be stale while the Mac answers).
+    private mutating func goOffline() -> [Effect] {
+        reset(to: .macOffline) + (isBackgrounded ? [] : quietDial())
+    }
+
+    /// A quiet dial now (the app came forward, the network or the Mac's
+    /// signaling changed), unless one is in flight; its backoff starts over.
+    private mutating func offlineDialNow() -> [Effect] {
+        guard offlineDial == nil, !isBackgrounded else { return [] }
+        offlineAttempts = 0
+        return quietDial()
+    }
+
+    /// Dials the Mac presence calls offline, keeping the phase `macOffline`.
+    private mutating func quietDial() -> [Effect] {
+        guard let target, phase == .macOffline else { return [] }
+        generation += 1
+        media = .off
+        offlineAttempts += 1
+        offlineDial = offlineAttempts
+        return [.dial(generation: generation, macID: target.macID, transport: transport)]
+    }
+
+    /// The next quiet dial after `offlineBackoff`, on this generation. After the
+    /// last delay nothing more is scheduled: a Mac that is really off (one last
+    /// seen months ago is listed too) costs a few dials per app open, not one
+    /// every half minute. The app coming forward, a network change, the Mac's
+    /// signaling coming back or Retry start the series again.
+    private mutating func scheduleOfflineDial() -> [Effect] {
+        guard !isBackgrounded, offlineAttempts <= offlineBackoff.count else { return [] }
+        let seconds = offlineBackoff[max(offlineAttempts - 1, 0)]
+        return [.scheduleRetry(generation: generation, after: .seconds(seconds))]
     }
 
     private mutating func dial(attempt: Int, closing: Bool) -> [Effect] {
         guard let target else { return [] }
-        let wasActive = isActive
+        let wasActive = isActive || offlineDial != nil
+        offlineDial = nil
+        offlineAttempts = 0
         generation += 1
         media = .off
         phase = .connecting(transport, attempt: attempt)

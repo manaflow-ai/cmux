@@ -22,14 +22,65 @@ import Testing
         #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
     }
 
-    @Test func offlineMacIsNotDialed() {
+    /// A Mac presence calls offline says "offline" and is still tried, quietly:
+    /// presence can be stale (a warm-start snapshot, a signaling socket reset
+    /// on a loaded Mac) while the Mac answers. Presence bringing it back dials.
+    @Test func offlineMacIsTriedQuietlyThenDialedWhenPresenceReturns() {
         var machine = LinkMachine(transport: .webRTC)
         var offline = mac
         offline.isOnline = false
-        #expect(machine.handle(.target(offline)) == [])
+        #expect(machine.handle(.target(offline)) == [.dial(generation: 2, macID: "m1", transport: .webRTC)])
         #expect(machine.phase == .macOffline)
-        // Presence brings it back: dial.
-        #expect(machine.handle(.target(mac)) == [.dial(generation: 2, macID: "m1", transport: .webRTC)])
+        #expect(machine.isDialing)
+        // The same target again (applyLinks resends it) does not restart the dial.
+        #expect(machine.handle(.target(offline)) == [])
+        // Presence brings it back: a normal dial replaces the quiet one.
+        #expect(machine.handle(.target(mac)) == [.close, .dial(generation: 3, macID: "m1", transport: .webRTC)])
+        #expect(machine.phase == .connecting(.webRTC, attempt: 1))
+    }
+
+    /// Leo, 2026-11-21 (ask-11e0b66ea3): the app opened, the terminal said
+    /// "cosmic-gray is offline" though the Mac was up, and only a trip to the
+    /// background and back loaded it. A quiet dial gets through while presence
+    /// still says offline, and the link connects with no foreground needed.
+    @Test func staleOfflinePresenceStillConnectsOnOpen() {
+        var machine = LinkMachine(transport: .webRTC)
+        var offline = mac
+        offline.isOnline = false
+        #expect(machine.handle(.target(offline)) == [.dial(generation: 2, macID: "m1", transport: .webRTC)])
+        #expect(machine.handle(.dialSucceeded(generation: 2, path: .direct)) == [])
+        #expect(machine.phase == .connected(.webRTC, .direct, rttMillis: nil))
+        #expect(!machine.isDialing)
+        // Presence still says offline afterwards: the live link is only probed.
+        #expect(machine.handle(.target(offline)) == [.quickProbe(generation: 2)])
+    }
+
+    /// A Mac that is really off costs a few quiet dials per app open, not one
+    /// every half minute; the app coming forward starts the series again, and
+    /// nothing dials in the background.
+    @Test func quietDialsToAnOfflineMacAreBoundedAndRestartOnForeground() {
+        var machine = LinkMachine(transport: .webRTC)
+        var offline = mac
+        offline.isOnline = false
+        var dials = machine.handle(.target(offline)).filter { if case .dial = $0 { true } else { false } }.count
+        var delays: [Duration] = []
+        for _ in 0..<10 {
+            let effects = machine.handle(.dialFailed(generation: machine.generation, reason: "offline"))
+            guard case .scheduleRetry(let gen, let after)? = effects.first else { break }
+            delays.append(after)
+            dials += machine.handle(.retryDue(generation: gen)).count
+        }
+        #expect(delays == machine.offlineBackoff.map { .seconds($0) })
+        #expect(dials == machine.offlineBackoff.count + 1)
+        #expect(machine.phase == .macOffline)
+        #expect(!machine.isDialing)
+        // Background: nothing. Foreground: a quiet dial at once.
+        #expect(machine.handle(.background) == [])
+        #expect(machine.handle(.resume) == [.dial(generation: machine.generation, macID: "m1", transport: .webRTC)])
+        #expect(machine.phase == .macOffline)
+        // A failure in the background schedules nothing.
+        _ = machine.handle(.background)
+        #expect(machine.handle(.dialFailed(generation: machine.generation, reason: "offline")) == [])
     }
 
     @Test func failuresBackOffAndRetry() {
@@ -159,18 +210,20 @@ import Testing
         #expect(machine.phase == .connecting(.wireGuard, attempt: attempt + 1))
     }
 
-    /// The link really died while presence says the Mac is offline: no dial
-    /// until presence brings it back (then at once).
-    @Test func aDeadLinkToAnOfflineMacWaitsForPresence() {
+    /// The link really died while presence says the Mac is offline: it says
+    /// offline, tries the Mac once quietly, and dials at once when presence
+    /// brings it back.
+    @Test func aDeadLinkToAnOfflineMacSaysOfflineAndTriesQuietly() {
         var machine = LinkMachine(transport: .webRTC)
         _ = machine.handle(.target(mac))
         _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
         var offline = mac
         offline.isOnline = false
         _ = machine.handle(.target(offline))
-        #expect(machine.handle(.probeFailed(generation: 1, reason: "timeout")) == [.close])
+        #expect(machine.handle(.probeFailed(generation: 1, reason: "timeout")) == [.close, .dial(generation: 3, macID: "m1", transport: .webRTC)])
         #expect(machine.phase == .macOffline)
-        #expect(machine.handle(.target(mac)) == [.dial(generation: 3, macID: "m1", transport: .webRTC)])
+        #expect(machine.handle(.dialFailed(generation: 3, reason: "offline")) == [.scheduleRetry(generation: 3, after: .seconds(3))])
+        #expect(machine.handle(.target(mac)) == [.dial(generation: 4, macID: "m1", transport: .webRTC)])
     }
 
     /// A Mac that comes back online while the phone waits out a backoff is
@@ -288,11 +341,14 @@ import Testing
 
 struct MockDialer: MacLinkDialer {
     let fail: Bool
+    /// Macs that are really off: a dial to one fails as offline (a quiet dial included).
+    var offlineMacs: Set<String> = []
     var dialed: (@Sendable (LinkEndpoint) -> Void)?
     var roamed: (@Sendable (String) -> Void)?
     func dial(_ endpoint: LinkEndpoint, transport: CmuxMobileTransport.TransportKind, accessToken: String) async throws -> any MacLink {
         dialed?(endpoint)
         if fail { throw LinkError(code: "timeout", message: "") }
+        if offlineMacs.contains(endpoint.macDeviceID) { throw LinkError(code: "offline", message: "") }
         return MockMacLink(transport: transport)
     }
 
@@ -310,6 +366,21 @@ struct MockDialer: MacLinkDialer {
         var handed: (any MacLink)?
         controller.onLink = { handed = $0 }
         controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
+        for _ in 0..<200 where !controller.phase.isConnected { await Task.yield() }
+        #expect(controller.phase.isConnected)
+        #expect(handed != nil)
+    }
+
+    /// ask-11e0b66ea3: presence calls the Mac offline (stale), the Mac answers.
+    /// The quiet dial's link is adopted and handed out while the phase said
+    /// offline, so the terminal loads with no trip to the background.
+    @Test func adoptsAQuietDialToAMacPresenceCallsOffline() async throws {
+        let controller = LinkController(transport: .wireGuard, dialer: MockDialer(fail: false), accessToken: { _ in "t" })
+        controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
+        var handed: (any MacLink)?
+        controller.onLink = { handed = $0 }
+        controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: false)))
+        #expect(controller.phase == .macOffline)
         for _ in 0..<200 where !controller.phase.isConnected { await Task.yield() }
         #expect(controller.phase.isConnected)
         #expect(handed != nil)
