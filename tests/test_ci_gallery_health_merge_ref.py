@@ -182,7 +182,7 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertNotIn("needs", job, "it runs beside the shards, not before them")
         self.assertNotIn("needs", workflow["jobs"]["health"])
         runs_on = "\n".join(workflow_jobs.runs_on_cells(job) or ["<unresolved matrix>"])
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runs_on)
+        self.assertIn("'cmux-linux'", runs_on)
         self.assertNotIn("blacksmith", runs_on)
         # It checks out what the shards check out, and restores the base by the judge step's own command.
         self.assertEqual(job["steps"][0]["with"], step("Checkout")["with"])
