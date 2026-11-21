@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 641,
+  "count": 640,
   "sections": [
     {
       "id": "general",
@@ -6213,14 +6213,6 @@
             "local",
             "hosted"
           ]
-        },
-        {
-          "key": "home.chiefPanel.seesScreen",
-          "title": "Chief Sees Your Screen When It Opens",
-          "help": "The floating Chief takes one look at your screen when it opens. The eye turns it off.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Chief Dock"
         },
         {
           "key": "home.chiefPanel.style",

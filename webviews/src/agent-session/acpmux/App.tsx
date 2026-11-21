@@ -596,6 +596,7 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
+  pageOnOtherMachine,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -4851,6 +4852,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     snapshot.isWorking,
     snapshot.summary?.machine,
   ]);
+  /// The page's chat runs on another machine (cloudRun.ts): Cloud is never this new chat's choice there (cmux#47679).
+  const onOtherMachinePage = pageOnOtherMachine({ cloudMachineID, origin: snapshot.origin, summary: snapshot.summary });
   /// Run as is a new chat's choice, in a pane with tabs (not the floating chat).
   /// Not once a chat is starting here (a harness pick, a deferred start): its session would replace
   /// the sandbox's result. The host refuses `sandbox.run` then too (AcpmuxPaneReplacements). Not
@@ -4898,7 +4901,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   });
   /// Cloud as where this new chat runs: wherever Sandboxed is, in an empty local chat, and on a page
   /// that holds only a pick.
-  const cloudOfferable = sandboxOfferable || emptyLocalChat || pickOnlyChat;
+  const cloudOfferable = !onOtherMachinePage && (sandboxOfferable || emptyLocalChat || pickOnlyChat);
   const cloudOffered = sandbox.checked && cloudOfferable;
   /// The chat a Cloud reserve made here names as the one its Send replaces: the empty local chat, else none.
   const cloudReserveReplaces = emptyLocalChat ? (snapshot.sessionId ?? undefined) : undefined;
@@ -5031,7 +5034,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// refusal said here, also while Cloud is picked but not offered now (as `sandboxPickedNotOffered`).
   /// The host says its own progress and failures (toasts), and the chat shows the start under the
   /// message as it goes (CloudStartView; the host's `cloudStartProgress` pushes fill it in).
-  const cloudPicked = sandbox.mode === "cloud" && (!snapshot.sessionId || emptyLocalChat);
+  /// Never on a page of another machine (`onOtherMachinePage`): a Cloud pick carried over from the chat before
+  /// is no Cloud start there, the send starts the chat in this pane on that machine.
+  const cloudPicked = sandbox.mode === "cloud" && !onOtherMachinePage && (!snapshot.sessionId || emptyLocalChat);
   // The permission mode picked for that Cloud start (cloudModePick.ts).
   const cloudModePick = useCloudModePick();
   // A warm machine is reserved wherever Cloud is offered: before a chat opened here, or in an empty local chat,
