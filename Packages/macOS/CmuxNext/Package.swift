@@ -29,7 +29,7 @@ import PackageDescription
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
-//   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
+//   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups, Compat (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
 //   CmuxNextControl -> Actions, Settings, Daemon, CCmuxAppFFI (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui;
 //     Diagnostics/AppHealth asks the Rust health model, cmux-health-core)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime, CCmuxAppFFI (Stack auth, /api/vm REST, the Cloud start's Rust decisions,
@@ -53,15 +53,14 @@ import PackageDescription
 //   CmuxNextHomeEngine -> AgentPane, Actions, Cloud, Compat, Daemon, Design, Home, HomeModel, Icons, Wakeups,
 //     CmuxHomeCore, CmuxHomeRender, CmuxAgentQuestion (Home sources, Chief host and migration, Home strings; the App
 //     supplies HomeService over AppServices)
-//   CmuxNextDaemonService -> Daemon, Actions, AgentPane, Apps, Compat, Control, Layout, Wakeups
+//   CmuxNextDaemonService -> Daemon, Actions, AgentPane, Apps, Compat, Control, Layout, Wakeups, WindowRules (Update When Idle)
 //     (DaemonService: one machine's daemon connection, command funnels, launch snapshot; FrameBatcher;
 //     the Refusals and Cloud strings it shows; no AppServices; the App sets its launch-mark hook)
 //   CmuxNextFocusUI -> Actions, Design (AppKit overlays of keys: the shortcut hint overlay and capture
 //     waiter, the which-key controller, overlay, rows and strings; the focus state machine, key rules
 //     and key delivery stay in the App)
-//   CmuxNextComputerUse -> AgentActivity, Compat, Settings, Wakeups (the macOS Computer Use helper:
-//     launch, v2 helper and its disclaimed spawner, signed Unix peer checks, the cua helper manifest
-//     reader; setup stays in the App)
+//   CmuxNextComputerUse -> Compat, Wakeups (the embedded cmux Remote, the live sessions model and the
+//     Screen Sharing helper's signed launch; Computer Use itself runs in cmux Remote's worker; setup stays in the App)
 //   CmuxNextHistory -> Design, Icons (history model and addresses; the History page is React; no daemon)
 //   CmuxNextHistoryDaemon -> Daemon, History, Wakeups (the daemon history module's client, `history-v1`)
 //   CmuxNextStash -> Compat, Daemon, DaemonService (Stash on this Mac's daemon: Save and Close, the
@@ -192,7 +191,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 9478c1ee2ae40ac0c6c7e35b0422307b730b3643e99e81ceb7eecb6cff14b8c4
+// app-ffi-pin-checksum: 3c41717f227faf8c22f88a83dd35d9464fa1a4b8e1fa959cbc06bd44ed9356d9
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -258,7 +257,9 @@ let uiLayerPreviewTargets: [Target] = [
 // before the next launch can start: about 500 ms for a 100 MB executable, 20 ms
 // for a stub (a pool M4 Pro, Dock launches). A framework nobody links stays scanned.
 // The live code build (docs/cmux-next/live-code.md) interposes symbols of the one
-// image it links, so it keeps the static link.
+// image it links, so it keeps the static link; its xcodebuild settings skip the app's
+// Embed Frameworks copy of CmuxNextApp, which a static link does not make
+// (scripts/live-code/lib/xcodebuild-args.sh).
 let appLinksStatically = Context.environment["CMUX_LIVE_CODE_BUILD"] == "1"
 
 /// The framework's link, outside live code builds: it exports only the C
@@ -281,7 +282,12 @@ let appFrameworkLinkerSettings: [LinkerSetting] = [
 ] + (appLinksStatically ? [] : [
     .unsafeFlags(["-Xlinker", "-objc_stubs_small"]),
     // Release only: a Debug or `swift test` link of a test bundle keeps every symbol.
-    .unsafeFlags(["-Xlinker", "-exported_symbol", "-Xlinker", "_cmux_next_*", "-Xlinker", "-dead_strip"],
+    // A release test bundle gets these flags too (it links this target), and swiftpm-testing-helper
+    // finds the bundle's Swift Testing runner with dlsym("main"): with only `_cmux_next_*` exported
+    // it found nothing and every release suite ran 0 tests. `_mai[n]` is a pattern, so the
+    // framework, which has no `main`, links as before.
+    .unsafeFlags(["-Xlinker", "-exported_symbol", "-Xlinker", "_cmux_next_*",
+                  "-Xlinker", "-exported_symbol", "-Xlinker", "_mai[n]", "-Xlinker", "-dead_strip"],
                  .when(configuration: .release)),
 ])
 
@@ -304,6 +310,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextWakeups",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -360,6 +367,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCodeRouter",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
+                "CmuxNextComputerUsePreview",
                 "CmuxNextControl",
                 "CmuxNextCookieImport",
                 "CmuxNextCrashReporting",
@@ -825,6 +833,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextOnboarding",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextAgentIntegrations",
                 "CmuxNextBrowserImport",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
@@ -890,6 +899,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextDesignTokens",
                 "CmuxNextIcons",
+                .product(name: "CmuxChiefList", package: "CmuxChiefList"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
             ],
@@ -955,6 +965,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextHomeEngineTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
                 "CmuxNextDictation",
@@ -980,6 +991,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextHomeEngine",
                 "CmuxNextRemote",
+                .product(name: "CmuxChiefList", package: "CmuxChiefList"),
             ],
             resources: [
                 .process("Resources"),
@@ -1004,6 +1016,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextFiles",
                 "CmuxNextLayout",
                 "CmuxNextWakeups",
+                "CmuxNextWindowRules",
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
             ],
             resources: [
@@ -1045,17 +1058,25 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // The macOS Computer Use helper (moved out of CmuxNextApp/ComputerUse): helper
-        // launch, the v2 helper and its disclaimed spawner, the cua helper manifest
-        // reader. Setup (ComputerUseSetup) stays in the App.
+        // Computer Use's app-side models: the embedded cmux Remote (whose worker hosts the cmux
+        // Computer Use engine) and the live sessions the File menu acts on, and the signed helper
+        // launch the Screen Sharing helper uses (SignedHelperLaunch). Setup (ComputerUseSetup) stays in the App.
         .target(
             name: "CmuxNextComputerUse",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                "CmuxNextActions",
-                "CmuxNextAgentActivity",
                 "CmuxNextCompat",
-                "CmuxNextSettings",
                 "CmuxNextWakeups",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Computer Use's live preview in the surface its agent runs in (ComputerUsePreviewRouter):
+        // the daemon's `computer-use-preview` events to the agent chat's or the terminal pane's card.
+        .target(
+            name: "CmuxNextComputerUsePreview",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextAgentPane",
+                "CmuxNextDaemon",
+                "CmuxNextTerminal",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -1605,6 +1626,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextAgentActivity",
                 "CmuxNextChiefViews",
+                "CmuxNextDesign",
                 "CmuxNextPages",
                 "CmuxNextSettings",
                 "CmuxNextTestSupport",
@@ -1786,11 +1808,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextMacScreenTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
+                "CmuxNextComputerUse",
                 "CmuxNextControl",
+                "CmuxNextDaemon",
                 "CmuxNextDevices",
                 "CmuxNextMacScreen",
                 "CmuxNextRemoteView",
                 "CmuxNextSettings",
+                "CmuxNextWakeupsTestSupport",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -1830,6 +1855,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextRemote",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             resources: [
                 .process("Resources"),
@@ -1967,6 +1993,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2560,6 +2587,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextSettingsTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
+                "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextSettings",
                 "CmuxNextTestSupport",
@@ -2570,6 +2598,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextSettingsWindow",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
+                "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
                 "CmuxNextSettings",
@@ -2591,6 +2620,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextProcessEnvironment",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             resources: [
                 .process("Localizable.xcstrings"),
@@ -2650,6 +2680,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextActions",
                 "CmuxNextAgentCursor",
                 "CmuxNextAgentCursorVisibility",
+                "CmuxNextAgentIntegrations",
                 "CmuxNextAgentLanes",
                 "CmuxNextAgentPane",
                 "CmuxNextAgentPermissions",
@@ -2671,6 +2702,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCloudUI",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
+                "CmuxNextComputerUsePreview",
                 "CmuxNextCookieImport",
                 "CmuxNextCopyMode",
                 "CmuxNextCrashReporting",
@@ -2734,6 +2766,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWindowRules",
                 "CmuxNextWorkspaceNaming",
                 "CmuxNextWorkspaceRepair",
+                // BuildSpaceFailClosedTests builds the misconfigured build space a dev build refuses with.
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 // GhosttyGlassMinimumContrastTests builds a Ghostty config.
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
@@ -2761,6 +2795,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextWakeups",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2783,6 +2818,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextRemoteBrowser",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             resources: [
                 .process("Resources"),
@@ -2811,6 +2847,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextMobile",
                 "CmuxNextTestSupport",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 .product(name: "CmuxMobileRPC", package: "CmuxMobileRPC"),
                 .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
@@ -2844,6 +2881,8 @@ let package = Package(
         // Vendored from manaflow-ai/cmux-cua at CMUX_CUA_PINNED_SHA (scripts/cmux_agent_cursor_vendor.py).
         .package(path: "../../Shared/CmuxAgentCursor"),
         .package(path: "../../Shared/CmuxHomeCore"),
+        // The one Chief list rule, shared with the iPhone's Home.
+        .package(path: "../../Shared/CmuxChiefList"),
         .package(path: "../../Shared/CmuxFeedPushCore"),
         .package(path: "../../Shared/CmuxHomeRender"),
         // Agent questions: one harness-neutral model (plans/cmux-next/agent-questions.md).

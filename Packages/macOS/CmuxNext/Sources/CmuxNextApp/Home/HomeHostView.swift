@@ -68,8 +68,8 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
     lazy var turnActions = control.services.home.chiefHomes.turnActions(for: transcript)
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
-    /// The header's location chip and the card's Runs On row, on the Chief that `cmux chief move` moves.
-    private var teleportChips: ChiefTeleportChips?
+    /// The card's Runs On chip, on the Chief that `cmux chief move` moves (the header has none).
+    private var runsOn: ChiefRunsOnChip?
     /// Where attachments open and their right-click menu (the transcript holds it weakly).
     private var fileActions: HomeFileActions?
 
@@ -162,10 +162,9 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
             await service?.renameChief(conversation: conversation, to: name) ?? .noConnection
         }
         settingsView.bindPrimary(directory: service.directory, conversation: conversation)  // the Primary Chief row
-        teleportChips = ChiefTeleportChips(model: services.chiefTeleport)
-        teleportChips?.follow(for: self, { [weak service] in service?.showsTeleport(conversation: conversation) ?? false }) { [weak self] in
-            self?.transcript.headerPillAccessory = $0
-            self?.settingsView.showTeleport($1)
+        runsOn = ChiefRunsOnChip(model: services.chiefTeleport)
+        runsOn?.follow(for: self, { [weak service] in service?.showsTeleport(conversation: conversation) ?? false }) { [weak self] in
+            self?.settingsView.showTeleport($0)
         }
         // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry
@@ -355,7 +354,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         // with history never flashes it (at once when the page is cached).
         transcript.holdsFirstRun = true
         let binding = transcript.binding
-        let reveal = services.launchReveal
+        let reveal = services.launchReveal, spareWait = services.newTabSpares.shownChats // the launch's New Tab spare waits for this page
         // task-owner: lives as long as this view; ends when the first page is in
         firstPage = Task { [weak self] in
             await binding.firstDrawable() // the first page, or an owner-named empty conversation: nothing to read for
@@ -364,7 +363,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
             guard let self, !Task.isCancelled else { return }
             transcript.holdsFirstRun = false
             // A launch holds a Home still being made until here (WorkspaceContentController).
-            reveal.markReady(.home); DebugTimings.markLaunch("home.first_page")
+            reveal.markReady(.home); DebugTimings.markLaunch("home.first_page"); spareWait.homePageDrew()
         }
         wantsLayer = true
         clipsToBounds = true
