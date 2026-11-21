@@ -96,11 +96,7 @@ impl Hot {
                 .get("formerNames")
                 .and_then(Value::as_array)
                 .map(|names| -> Box<[Box<str>]> {
-                    names
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(Box::from)
-                        .collect()
+                    names.iter().filter_map(Value::as_str).map(Box::from).collect()
                 })
                 .filter(|names| !names.is_empty()),
             status: text("status"),
@@ -173,11 +169,7 @@ impl PeerRow {
     pub fn new(summary: &Value) -> Self {
         let hot = Hot::of(summary);
         let Some(map) = summary.as_object() else {
-            return Self {
-                base: json_text(summary).into(),
-                hot,
-                ..Self::default()
-            };
+            return Self { base: json_text(summary).into(), hot, ..Self::default() };
         };
         let mut base = String::from("{");
         let mut apart = Vec::new();
@@ -201,13 +193,7 @@ impl PeerRow {
             base.push_str(&json_text(value));
         }
         base.push('}');
-        Self {
-            base: base.into(),
-            apart: apart.into(),
-            short_title,
-            hot,
-            mark: None,
-        }
+        Self { base: base.into(), apart: apart.into(), short_title, hot, mark: None }
     }
 
     /// The row as JSON text: every member, `stale` as `stale` says (else as kept), `peerState`
@@ -215,10 +201,7 @@ impl PeerRow {
     /// `timeBreakdown`, a long title cut) unless `tools`.
     fn text_with(&self, stale: Option<bool>, peer_state: Option<&str>, tools: bool) -> String {
         if let Some(last_seen) = self.mark {
-            let plain = Self {
-                mark: None,
-                ..self.clone()
-            };
+            let plain = Self { mark: None, ..self.clone() };
             let mut summary = plain.value();
             super::peer_cache::mark_stale(&mut summary, last_seen);
             return Self::new(&summary).text_with(stale, peer_state, tools);
@@ -288,9 +271,7 @@ impl PeerRow {
 
     /// Whether it carries tools (`tools` or `toolsMutable`).
     pub(super) fn has_tools(&self) -> bool {
-        self.apart
-            .iter()
-            .any(|(which, _)| matches!(which, Apart::Tools | Apart::ToolsMutable))
+        self.apart.iter().any(|(which, _)| matches!(which, Apart::Tools | Apart::ToolsMutable))
     }
 
     /// Its `tools` and `toolsMutable`, as kept.
@@ -319,11 +300,7 @@ impl PeerRow {
     /// a connection writes the row, and `marked`'s hot fields. A peer's outage announces every row
     /// of it, and the 8,192-event ring holds each announcement until every connection read it.
     pub(super) fn stale_announced(before: &Self, marked: &Self, last_seen: Option<u64>) -> Self {
-        Self {
-            hot: marked.hot.clone(),
-            mark: Some(last_seen),
-            ..before.clone()
-        }
+        Self { hot: marked.hot.clone(), mark: Some(last_seen), ..before.clone() }
     }
 
     pub fn session_id(&self) -> Option<&str> {
@@ -344,10 +321,7 @@ impl PeerRow {
 
     /// Whether `name` is one of its former names (`formerNames`, `hub/former_names.rs`).
     pub fn has_former_name(&self, name: &str) -> bool {
-        self.hot
-            .former_names
-            .as_deref()
-            .is_some_and(|names| names.iter().any(|n| &**n == name))
+        self.hot.former_names.as_deref().is_some_and(|names| names.iter().any(|n| &**n == name))
     }
 
     pub fn status(&self) -> Option<&str> {
@@ -397,10 +371,7 @@ impl PeerRow {
 
     /// Its `(mux.parent, mux.handle)` tags.
     pub fn pair(&self) -> Option<(String, String)> {
-        self.hot
-            .pair
-            .as_ref()
-            .map(|(parent, handle)| (parent.to_string(), handle.to_string()))
+        self.hot.pair.as_ref().map(|(parent, handle)| (parent.to_string(), handle.to_string()))
     }
 }
 
@@ -431,11 +402,7 @@ mod tests {
         assert_eq!(row, PeerRow::new(&row.value()));
         assert_eq!(row.pair(), Some(("p".into(), "h".into())));
         assert_eq!(
-            (
-                row.updated_ms(),
-                row.created_at(),
-                row.pending_permissions()
-            ),
+            (row.updated_ms(), row.created_at(), row.pending_permissions()),
             (5, Some(3), 2)
         );
         let listed: Value = serde_json::from_str(&row.listed(Some("connected"), false)).unwrap();
@@ -445,20 +412,14 @@ mod tests {
         let with: Value = serde_json::from_str(&row.listed(None, true)).unwrap();
         assert_eq!(with, summary);
         assert_eq!(row.listed(None, true).matches("\"stale\"").count(), 1);
-        assert_eq!(
-            row.listed(Some("x"), true).matches("\"peerState\"").count(),
-            1
-        );
+        assert_eq!(row.listed(Some("x"), true).matches("\"peerState\"").count(), 1);
         assert_eq!(serde_json::to_value(&row).unwrap(), summary);
     }
 
     #[test]
     fn an_empty_or_non_object_row_lists_as_it_was() {
         let empty = PeerRow::new(&json!({}));
-        assert_eq!(
-            empty.listed(Some("ok"), false),
-            r#"{"stale":false,"peerState":"ok"}"#
-        );
+        assert_eq!(empty.listed(Some("ok"), false), r#"{"stale":false,"peerState":"ok"}"#);
         assert_eq!(PeerRow::new(&Value::Null).listed(None, false), "null");
         assert_eq!(PeerRow::new(&json!([1])).value(), json!([1]));
     }
