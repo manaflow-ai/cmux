@@ -599,8 +599,10 @@ pub(super) fn execute(
             }
         },
         Request::Try { source, duration_ms } => {
-            let profile =
-                source.as_deref().map(|source| load_profile_or_recipe(customize, source)).transpose()?;
+            let profile = source
+                .as_deref()
+                .map(|source| load_profile_or_recipe(customize, source))
+                .transpose()?;
             Answer::TriedOn(customize.try_on(profile.as_ref(), duration_ms, origin, now_ms)?)
         }
         Request::Keep => Answer::Settled(customize.keep()?.into_iter().collect(), "keep"),
