@@ -158,7 +158,7 @@ pub(super) fn bind(
     let mut capabilities = vec!["agent-session-attach-v1", "agent-session-observe-v1"];
     if presence && !is_guest(&author) {
         mux.control_clients.agent_sessions.set_proxy_presence(client);
-        capabilities.push(super::AGENT_SESSION_PRESENCE_CAPABILITY);
+        capabilities.push(AGENT_SESSION_PRESENCE_CAPABILITY);
     }
     // No host paths, session inventory or machine metadata in the handshake.
     ok(
