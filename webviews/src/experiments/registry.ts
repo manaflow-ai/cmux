@@ -7,6 +7,7 @@ import { steerQueueExperiment } from "../agent-session/acpmux/steerQueue/steerQu
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
 import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.experiment";
+import { homeCardGlow } from "../agent-session/acpmux/newtab/homeCardGlow.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlaceholder.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
@@ -39,6 +40,7 @@ import { threadMinimapCard } from "../agent-session/acpmux/threadMinimap/card.ex
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
 import { codeActionsLook } from "../agent-session/acpmux/conversation/codeActions.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
+import { agentDotGrid } from "../agent-session/acpmux/dotGrid/agentDotGrid.experiment";
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
 import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
 import { commandLabelLook } from "../agent-session/acpmux/conversation/commandLabel.experiment";
@@ -97,6 +99,7 @@ import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.
 import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
+import { composerV2Look } from "../agent-session/acpmux/composerV2.experiment";
 import { composerShellLook } from "../agent-session/acpmux/composer/shellLook.experiment";
 import { composerFooterControls } from "../agent-session/acpmux/composer/footerControls.experiment";
 import { composerEmptyHeight } from "../agent-session/acpmux/composer/emptyHeight.experiment";
@@ -110,6 +113,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   chiefDock,
   hoverActions,
   startedSessionCards,
+  agentDotGrid,
   fileKindIcon,
   followMotion,
   finishedTaskLook,
@@ -128,6 +132,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapRestTick,
   newTabComposerTrailingGap,
   newTabIconColumn,
+  homeCardGlow,
   threadMinimapLit,
   threadMinimapMark,
   threadMinimapWave,
@@ -204,6 +209,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   teamAudit,
   jumpPairLook,
   glassToolbarLook,
+  composerV2Look,
   composerShellLook,
   composerFooterControls,
   composerEmptyHeight,
