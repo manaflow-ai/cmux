@@ -122,8 +122,12 @@ pub(crate) async fn host_health_with(
             }
             v.set("problems", super::machine_health::sanitize(&problems));
         }
-        (Some(problems), None) => v.set("problems", problems),
-        (None, Some(rss)) => v.set("problems", json!([rss])),
+        (Some(problems), None) => {
+            v.set("problems", problems);
+        }
+        (None, Some(rss)) => {
+            v.set("problems", json!([rss]));
+        }
         (None, None) => {}
     }
     if !origin.web_class() {
