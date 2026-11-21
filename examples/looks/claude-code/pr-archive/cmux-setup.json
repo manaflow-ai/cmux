@@ -1,0 +1,11 @@
+{
+  "cmuxSetup": 1,
+  "cmuxProfile": 1,
+  "id": "manaflow-ai/claude-code-pr-archive",
+  "name": "Archive chats after pull requests finish",
+  "description": "Archive a chat once all the pull requests it opened have merged or closed and the chat has no work in progress.",
+  "settings": {
+    "agents.autoSettle.onMerge": true,
+    "agents.autoSettle.onClose": true
+  }
+}
