@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4490110668301",
+  "notes": "notes/4490110668301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 48879,
+      "title": "plans: break 7 is a stale running app, not a Cloud bug",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48770,
+      "title": "dev-loop bench: edit-to-running over its stage-floor bound",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48856,
+      "title": "acpmux: the new relay finds a bare program name the way the send relay does (~/.local/bin, login PATH)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48875,
+      "title": "base red: LaunchStages passes the namespace-type lint",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
