@@ -9,9 +9,15 @@
 ///   or devices turns sharing on with no sheet while Screen Recording is
 ///   granted; each device's access still decides who views or controls.
 ///   Finishing the Share This Mac sheet once turns it on; MDM can force it.
+/// - `defaultQuality` (Auto by default): the quality a new Mac Screen tab
+///   starts with; the toolbar still changes the session's live.
+/// - `defaultAccess` (Full Control by default): what a new tab's Connect
+///   card asks for first (its Return button).
 public nonisolated struct MacScreenSettings: Sendable, Equatable {
     public var systemShortcuts = MacScreenSettings.systemShortcutsDefault
     public var shareWithoutAsking = MacScreenSettings.shareWithoutAskingDefault
+    public var defaultQuality = MacScreenSettings.defaultQualityDefault
+    public var defaultAccess = MacScreenSettings.defaultAccessDefault
 
     public init() {}
 
@@ -20,6 +26,8 @@ public nonisolated struct MacScreenSettings: Sendable, Equatable {
         guard var reader = ConfigFieldReader(root, at: ["macScreen"], diagnostics: &diagnostics) else { return settings }
         if let value = reader.bool("systemShortcuts") { settings.systemShortcuts = value }
         if let value = reader.bool("shareWithoutAsking") { settings.shareWithoutAsking = value }
+        if let value = reader.choice("defaultQuality", MacScreenDefaultQuality.self) { settings.defaultQuality = value }
+        if let value = reader.choice("defaultAccess", MacScreenDefaultAccess.self) { settings.defaultAccess = value }
         diagnostics = reader.diagnostics
         return settings
     }

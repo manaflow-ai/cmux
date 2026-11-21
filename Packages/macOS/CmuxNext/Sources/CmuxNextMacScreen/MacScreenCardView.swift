@@ -195,7 +195,7 @@ final class MacScreenCardView: MacScreenThemedView {
             glyph("desktopcomputer")
             title(String(format: L.t("macScreen.hub.connectTitle", "Connect to %@"), name))
             detail(L.t("macScreen.hub.connectBody", "View Only shows the screen. Full Control also sends your clicks and keys."))
-            scopeButtons(primary: .full)
+            scopeButtons(primary: model.hub?.lastScope ?? .full)
         case let .hubRequesting(scope):
             spinner()
             title(String(format: L.t("macScreen.hub.requesting", "Connecting to %@…"), name))

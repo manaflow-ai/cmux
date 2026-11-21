@@ -21,12 +21,11 @@ public nonisolated enum MobileTerminalSizing: String, Sendable, Hashable, CaseIt
     case priority
 }
 
-/// Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra): auto (the default) sends no repair data on a clean link and UltraMode::SETTING (rs:4:4) within about one round trip of a loss (cmux-wg UltraChoice::Auto); always sends it on every datagram; CMUX_WG_ULTRA still wins. Replaces the toggle remote.ultraMode, whose true still reads as always.
-public nonisolated enum UltraConnectionMode: String, Sendable, Hashable, CaseIterable {
-    /// No repair data.
-    case off
-    /// No extra data on a clean link; repair data from the first loss.
+/// Seeds ScreenPreferences.quality of each new Mac Screen tab (MacScreenPages.makeHubPane); its first offer's a=cmux-rd-max-width / a=cmux-rd-max-fps come from it (MacScreenRdDocument.wish). The values are ScreenQuality's raw values (CmuxVNCWebRTC).
+public nonisolated enum MacScreenDefaultQuality: String, Sendable, Hashable, CaseIterable {
     case auto
-    /// Repair data on every datagram, about 2-3x the bytes.
-    case always
+    case smooth
+    case low
+    case medium
+    case high
 }
