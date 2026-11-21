@@ -38,7 +38,7 @@ pub(super) fn tool() -> Value {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "to": {"type": "string", "description": "The session: its name, id, or host/name for a session on a peer (as ls lists them)."},
+                "to": {"type": "string", "description": "The session: its name, id, or host/name for a session on a peer (as ls lists them). host/claude or host/codex names the one session on that host running that harness, or the only session that host has; two or more are refused with each one's host/name."},
                 "text": {"type": "string", "description": "The message, self-contained."},
                 "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step. false: queued behind the running turn."},
                 "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "What the message asks of the receiver: block or blocker (you cannot go on until it acts; wakes an idle receiver), question (you wait for its answer; wakes it too), result or action (work you finished or work for it; the default; wakes an idle receiver only when you started it or gave it its first work) or fyi (wakes no one)."},

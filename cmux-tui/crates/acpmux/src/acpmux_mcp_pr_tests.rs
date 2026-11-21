@@ -204,6 +204,49 @@ fn targets_take_numbers_and_urls() {
 fn the_tool_takes_a_description() {
     let t = tool();
     assert_eq!(t["name"], NAME);
-    assert_eq!(t["inputSchema"]["required"], json!(["pr"]));
+    // `pr` is optional: with none the call reads the session's own pull request, which the
+    // property's own description says.
+    assert_eq!(t["inputSchema"]["required"], json!([]));
+    let pr = t["inputSchema"]["properties"]["pr"]["description"].as_str().unwrap();
+    assert!(pr.contains("Optional") && pr.contains("this session opened"), "{pr}");
+    assert!(t["description"].as_str().unwrap().contains("With no pr"));
     assert!(t["inputSchema"]["properties"]["description"].is_object());
+}
+
+/// With no `pr`, the newest pull request the session opened, else no selector at all (gh reads
+/// the folder's branch); an explicit `pr` or `repo` is read exactly as before.
+#[test]
+fn no_pr_reads_the_sessions_own_pull_request() {
+    let own = ["https://github.com/acme/widgets/pull/7".to_owned(), "not a url".to_owned()];
+    assert_eq!(
+        target_or_own(&json!({}), &own).unwrap(),
+        Target { selector: "7".into(), repo: Some("acme/widgets".into()) }
+    );
+    // Several: the newest, the last one it opened.
+    let two = [
+        "https://github.com/acme/widgets/pull/7".to_owned(),
+        "https://github.com/acme/widgets/pull/9".to_owned(),
+    ];
+    assert_eq!(target_or_own(&json!({}), &two).unwrap().selector, "9");
+    // An explicit `pr` wins, and an empty one counts as none.
+    assert_eq!(target_or_own(&json!({"pr": 12}), &two).unwrap().selector, "12");
+    assert_eq!(target_or_own(&json!({"pr": "  "}), &two).unwrap().selector, "9");
+    // None recorded: no selector, so gh reads the branch in the chat's folder.
+    let t = target_or_own(&json!({"repo": "acme/widgets"}), &[]).unwrap();
+    assert_eq!(t, Target { selector: String::new(), repo: Some("acme/widgets".into()) });
+    assert_eq!(gh_args(&t)[..4], ["pr", "view", "-R", "acme/widgets"]);
+    // A bad `repo` is still refused with no `pr`.
+    assert!(target_or_own(&json!({"repo": "no-slash"}), &own).is_err());
+}
+
+/// Where neither the session nor the folder's branch has one, the refusal names the forms that
+/// name a pull request, so the next call works.
+#[test]
+fn an_unresolvable_pull_request_names_the_argument_forms() {
+    let hint = no_pr_hint("gh pr view failed (exit 1): no pull requests found for branch \"wt\"");
+    assert!(hint.contains("no pull requests found"), "{hint}");
+    assert!(hint.contains("pr: 123"), "{hint}");
+    assert!(hint.contains("#123"), "{hint}");
+    assert!(hint.contains("https://github.com/owner/repo/pull/123"), "{hint}");
+    assert!(hint.contains("repo: \"owner/repo\""), "{hint}");
 }

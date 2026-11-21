@@ -7,6 +7,11 @@
 //! (the first line) and `status`: `ok` (open with nothing failing or pending, merged, or
 //! closed), `failed` (a failing check, or a BLOCK at the head) or `running` (checks pending).
 //!
+//! `pr` is optional: with none the call reads the session's own pull request, the newest one it
+//! opened (`SessionMeta::pull_requests`), else the one of the branch checked out in the chat's
+//! folder (`gh pr view` with no selector). Where neither has one the refusal names the forms
+//! that name a pull request ([`no_pr_hint`]).
+//!
 //! Like every condensed tool it takes an optional `description`, a few words the transcript
 //! titles the row with. The data is one `gh pr view` run by this server, which the chat's agent
 //! started with its environment, in the chat's folder, so without `repo` gh reads the folder's
@@ -33,15 +38,15 @@ const NAMES_SHOWN: usize = 3;
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "One pull request's state in one call, instead of several gh commands in a shell. The first line is the outcome (\"#1609 open at 4db9066b: mergeable, 1 failing check (ws-check), SHIP at head\" or \"#1557 merged as f0175fe0\"); then head and base, mergeability, failing checks by name and the pending count, the newest review receipt (a `Review (...): SHIP at <sha>` or `BLOCK at <sha>` comment line) and whether it is at the head, and HOLD lines or hold labels. structuredContent.status is ok, failed (a failing check, or BLOCK at head) or running (checks pending).",
+        "description": "One pull request's state in one call, instead of several gh commands in a shell. The first line is the outcome (\"#1609 open at 4db9066b: mergeable, 1 failing check (ws-check), SHIP at head\" or \"#1557 merged as f0175fe0\"); then head and base, mergeability, failing checks by name and the pending count, the newest review receipt (a `Review (...): SHIP at <sha>` or `BLOCK at <sha>` comment line) and whether it is at the head, and HOLD lines or hold labels. structuredContent.status is ok, failed (a failing check, or BLOCK at head) or running (checks pending). With no pr it reads your own: the newest pull request this session opened, else the pull request of the branch checked out in the chat's folder.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "pr": {"type": "string", "description": "The pull request: its number, #number, or its URL."},
+                "pr": {"type": "string", "description": "The pull request: its number, #number, or its URL. Optional: with no pr this reads your own pull request, the newest one this session opened, else the one of the branch checked out in the chat's folder."},
                 "repo": {"type": "string", "description": "OWNER/REPO (default: the chat folder's origin, or the URL's)."},
                 "description": {"type": "string", "description": "A few words on why you look, shown as this call's title."}
             },
-            "required": ["pr"]
+            "required": []
         }
     })
 }
@@ -53,18 +58,52 @@ pub(super) struct Target {
     pub repo: Option<String>,
 }
 
+/// `repo` as gh takes it, or why it is refused.
+fn repo_arg(args: &Value) -> Result<Option<String>, String> {
+    let repo = arg(args, "repo").map(str::to_owned);
+    match &repo {
+        Some(r) if !valid_repo(r) => Err(format!("repo must be OWNER/REPO, not {r:?}")),
+        _ => Ok(repo),
+    }
+}
+
+/// Which pull request a call with no `pr` means: the newest of `own` (the pull requests the
+/// calling session opened, `SessionMeta::pull_requests`, oldest first), else no selector at all,
+/// which gh reads as the pull request of the branch checked out in the chat's folder. The call
+/// explains itself ([`no_pr_hint`]) where neither finds one. A call that names `pr` is read
+/// exactly as before ([`target`]).
+pub(super) fn target_or_own(args: &Value, own: &[String]) -> Result<Target, String> {
+    let named = match args.get("pr") {
+        Some(Value::Number(_)) => true,
+        Some(Value::String(s)) => !s.trim().is_empty(),
+        _ => false,
+    };
+    if named {
+        return target(args);
+    }
+    let repo = repo_arg(args)?;
+    if let Some((url_repo, n)) = own.iter().rev().find_map(|u| parse_url(u)) {
+        return Ok(Target { selector: n, repo: repo.or(Some(url_repo)) });
+    }
+    Ok(Target { selector: String::new(), repo })
+}
+
+/// Why no pull request could be read for a call that named none, and the forms that name one.
+pub(super) fn no_pr_hint(why: &str) -> String {
+    format!(
+        "{why}\nNo pull request of this session's own: it opened none, and the branch in the \
+         chat's folder has none gh can read. Name one: pr: 123, pr: \"#123\", pr: \
+         \"https://github.com/owner/repo/pull/123\", or pr: 123 with repo: \"owner/repo\"."
+    )
+}
+
 /// `pr` and `repo` as gh takes them, or why they are refused.
 pub(super) fn target(args: &Value) -> Result<Target, String> {
-    let repo = arg(args, "repo").map(str::to_owned);
-    if let Some(repo) = &repo
-        && !valid_repo(repo)
-    {
-        return Err(format!("repo must be OWNER/REPO, not {repo:?}"));
-    }
+    let repo = repo_arg(args)?;
     let raw = match args.get("pr") {
         Some(Value::Number(n)) => n.to_string(),
         Some(Value::String(s)) => s.trim().to_owned(),
-        _ => return Err("pr is required: a number, #number or a pull request URL".to_owned()),
+        _ => return Err("pr must be a number, #number or a pull request URL".to_owned()),
     };
     let number = raw.strip_prefix('#').unwrap_or(&raw);
     if !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()) {
@@ -96,7 +135,11 @@ fn parse_url(url: &str) -> Option<(String, String)> {
 
 /// The gh command line for a target.
 pub(super) fn gh_args(t: &Target) -> Vec<String> {
-    let mut v: Vec<String> = ["pr", "view", t.selector.as_str()].map(str::to_owned).into();
+    let mut v: Vec<String> = ["pr", "view"].map(str::to_owned).into();
+    // No selector: gh reads the pull request of the branch checked out in the folder it runs in.
+    if !t.selector.is_empty() {
+        v.push(t.selector.clone());
+    }
     if let Some(repo) = &t.repo {
         v.extend(["-R".to_owned(), repo.clone()]);
     }
@@ -105,13 +148,16 @@ pub(super) fn gh_args(t: &Target) -> Vec<String> {
 }
 
 pub(super) async fn call(daemon: &Arc<Client>, session: &str, args: &Value) -> Value {
-    let target = match target(args) {
+    let (cwd, own) = chat_context(daemon, session).await;
+    let target = match target_or_own(args, &own) {
         Ok(t) => t,
         Err(e) => return error_result(e),
     };
-    let cwd = chat_cwd(daemon, session).await;
+    let own_branch = target.selector.is_empty();
     let out = match run_gh(&gh_args(&target), cwd).await {
         Ok(out) => out,
+        // Nothing named the pull request: say which forms do.
+        Err(e) if own_branch => return error_result(no_pr_hint(&e)),
         Err(e) => return error_result(e),
     };
     let pr: Value = match serde_json::from_slice(&out) {
@@ -127,17 +173,27 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, args: &Value) -> V
     ok(text, structured)
 }
 
-/// The chat's folder, where gh finds the default repo; this server's own when the daemon
-/// does not say.
-async fn chat_cwd(daemon: &Arc<Client>, session: &str) -> Option<PathBuf> {
+/// The chat's folder, where gh finds the default repo (this server's own when the daemon does
+/// not say), and the pull requests the calling session opened (`pullRequests`, oldest first),
+/// which a call with no `pr` reads its own from. One `info` read, as before.
+async fn chat_context(daemon: &Arc<Client>, session: &str) -> (Option<PathBuf>, Vec<String>) {
     if session.is_empty() {
-        return None;
+        return (None, Vec::new());
     }
-    let info = daemon
-        .request(method::MUX_INFO, json!({"sessionId": session, "waitLogs": false}))
-        .await
-        .ok()?;
-    text(&info, "cwd").map(PathBuf::from).filter(|p| p.is_dir())
+    let Ok(info) =
+        daemon.request(method::MUX_INFO, json!({"sessionId": session, "waitLogs": false})).await
+    else {
+        return (None, Vec::new());
+    };
+    let cwd = text(&info, "cwd").map(PathBuf::from).filter(|p| p.is_dir());
+    let own: Vec<String> = field(&info, "pullRequests")
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect();
+    (cwd, own)
 }
 
 async fn run_gh(args: &[String], cwd: Option<PathBuf>) -> Result<Vec<u8>, String> {

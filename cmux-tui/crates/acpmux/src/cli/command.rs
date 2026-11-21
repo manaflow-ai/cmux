@@ -344,6 +344,8 @@ pub enum Command {
     Send {
         /// The session: a name, `HOST/NAME`, an id or an id prefix. A bare name or prefix names
         /// the one live session that has it on this host or its peers; several are refused.
+        /// `HOST/claude` or `HOST/codex` names the one session on that host running that
+        /// harness, or the only session that host has.
         #[arg(required_unless_present_any = ["status", "tag"])]
         session: Option<String>,
         /// Prompt text. Reads stdin when omitted or "-".

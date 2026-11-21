@@ -12,6 +12,11 @@
 //! the same way. Keys this daemon already reads exactly (an id, a qualified id, `HOST/NAME` with
 //! a peer's or this machine's name and a session's exact name) are left as they are.
 //!
+//! Where no session on that host is named `NAME`, `HOST/<harness>` (`HOST/claude`,
+//! `HOST/codex`) names the one session there running that harness, and where none runs it, the
+//! one session that host has: a host with a single session is reachable without knowing its
+//! name. Two or more are refused with each one's `HOST/NAME`.
+//!
 //! The request path (`server/requests.rs`, the unix socket only) asks [`Hub::key_route`] before
 //! anything else reads the key, and swaps a name for the route it found, so every session
 //! method, `send` (through the outbox) included, finds the same session.
@@ -236,6 +241,11 @@ impl Hub {
             }
         }
         let Some(first) = found.iter().map(|(at, _, _)| *at).min() else {
+            // Nothing there is named `rest`: `HOST/claude`, `HOST/codex` names the session that
+            // runs that harness, so a host with one session is reachable without its name.
+            if let Some(route) = self.harness_on(machine, key, rest)? {
+                return Ok(Some(route));
+            }
             return Ok(match machine {
                 Machine::Peer(peer) if !exact => Some(format!("{peer}/{rest}")),
                 _ => None,
@@ -247,6 +257,76 @@ impl Hub {
         }
         let tier: Vec<Candidate> = best.into_iter().map(|(_, _, c)| c).collect();
         pick(key, &tier).map(|c| c.map(|c| c.route.clone()))
+    }
+
+    /// The route of the session `rest` names as a harness on `machine` (`HOST/claude`,
+    /// `HOST/codex`), where no name, id or short name there matched: the one session on that
+    /// machine that runs `rest` (its harness, or the model family of its profile, ignoring
+    /// case); where no session there runs it, the one session that machine has, so a host with a
+    /// single session answers to `HOST/<harness>` whatever that session is named. Two or more are
+    /// refused with each one's `HOST/NAME` ([`ambiguous`]), so the caller's next call names one.
+    /// `Ok(None)` where `rest` names no harness any session this daemon knows runs: such a key
+    /// reads exactly as it did before.
+    fn harness_on(
+        &self,
+        machine: &Machine,
+        key: &str,
+        rest: &str,
+    ) -> Result<Option<String>, RpcError> {
+        let runs_rest = |harness: Option<&str>, family: Option<&str>| {
+            [harness, family]
+                .into_iter()
+                .flatten()
+                .any(|h| !h.is_empty() && h.eq_ignore_ascii_case(rest))
+        };
+        // Every session on that machine, and those of them that run `rest`; `known` is whether
+        // `rest` is a harness any session anywhere runs, which is all this daemon can ask
+        // without its config (read under a lock elsewhere).
+        let mut there: Vec<Candidate> = Vec::new();
+        let mut runs: Vec<Candidate> = Vec::new();
+        let mut known = false;
+        for s in self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values() {
+            let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mine = runs_rest(Some(meta.harness.as_str()), meta.family.as_deref());
+            known |= mine;
+            if let Machine::Here(own) = machine {
+                let c = Candidate {
+                    host: own.clone(),
+                    name: meta.name.clone(),
+                    route: s.id.clone(),
+                    closed: meta.status == SessionStatus::Closed,
+                };
+                if mine {
+                    runs.push(c.clone());
+                }
+                there.push(c);
+            }
+        }
+        for (route, r) in self.remote_sessions.read().iter() {
+            let mine = runs_rest(r.summary.harness(), r.summary.family());
+            known |= mine;
+            if let Machine::Peer(peer) = machine
+                && &r.peer == peer
+            {
+                let name = r.summary.name().unwrap_or_default();
+                let bare = name.strip_prefix(&format!("{peer}/")).unwrap_or(name);
+                let c = Candidate {
+                    host: peer.clone(),
+                    name: bare.to_owned(),
+                    route: route.clone(),
+                    closed: r.summary.closed(),
+                };
+                if mine {
+                    runs.push(c.clone());
+                }
+                there.push(c);
+            }
+        }
+        if !known {
+            return Ok(None);
+        }
+        let found = if runs.is_empty() { there } else { runs };
+        pick(key, &found).map(|c| c.map(|c| c.route.clone()))
     }
 
     /// The sessions here and on peers that `key` names, in the tiers `key_route` tries in turn:
@@ -519,6 +599,68 @@ mod tests {
         // Only closed ones: still one to name, so `session info` reads a finished lane.
         list(&hub, "hb", "0199eeee-5555", "done", "closed");
         assert_eq!(hub.key_route("done").unwrap().as_deref(), Some("hb/0199eeee-5555"));
+    }
+
+    /// Peer `peer`'s session `id` as peers list them, running harness `harness`.
+    fn running(hub: &Hub, peer: &str, id: &str, name: &str, harness: &str) {
+        let row = RemoteSession {
+            peer: peer.into(),
+            summary: json!({
+                "sessionId": id,
+                "name": format!("{peer}/{name}"),
+                "status": "idle",
+                "harness": harness,
+            })
+            .into(),
+            receipt: SessionReceipt {
+                host_id: peer.into(),
+                mux_session_id: id.into(),
+                agent_session_id: None,
+                generation: 1,
+            },
+        };
+        hub.remote_sessions.write().insert(format!("{peer}/{id}"), row);
+    }
+
+    /// `HOST/claude` reaches the one session a host runs under that harness, whatever it is
+    /// named, and a host with one session answers to a harness key either way.
+    #[tokio::test]
+    async fn a_hosts_one_session_is_found_by_its_harness() {
+        let hub = test_hub();
+        running(&hub, "hb", "0199aaaa-1111", "acpmux-owner", "claude");
+        running(&hub, "cmux16", "0199bbbb-2222", "builder", "codex");
+        assert_eq!(hub.key_route("hb/claude").unwrap().as_deref(), Some("hb/0199aaaa-1111"));
+        let builder = Some("cmux16/0199bbbb-2222");
+        assert_eq!(hub.key_route("cmux16/codex").unwrap().as_deref(), builder);
+        // The one session on that host, even under another harness.
+        assert_eq!(hub.key_route("cmux16/claude").unwrap().as_deref(), builder);
+        // A key naming no harness any session runs reads as it did before.
+        assert_eq!(hub.key_route("hb/gemini").unwrap().as_deref(), Some("hb/gemini"));
+    }
+
+    /// Two sessions of one harness on a host are refused with each one's `HOST/NAME`, so the
+    /// next call names one.
+    #[tokio::test]
+    async fn two_sessions_of_one_harness_on_a_host_are_refused_with_their_names() {
+        let hub = test_hub();
+        running(&hub, "hb", "0199aaaa-1111", "review", "claude");
+        running(&hub, "hb", "0199cccc-3333", "deploy", "claude");
+        let e = hub.key_route("hb/claude").unwrap_err();
+        let data = e.data.clone().unwrap();
+        assert_eq!(data["reason"], AMBIGUOUS, "{e:?}");
+        assert_eq!(data["count"], 2, "{e:?}");
+        let msg = e.message.clone();
+        assert!(msg.contains("hb/review") && msg.contains("hb/deploy"), "{msg}");
+        // Each choice is a key that routes on its own.
+        for used in data["choices"].as_array().unwrap().iter().filter_map(|c| c["use"].as_str()) {
+            assert!(hub.key_route(used).unwrap().is_some(), "{used}");
+        }
+        // A host with two sessions under other harnesses lists them too.
+        running(&hub, "cmux16", "0199dddd-4444", "one", "codex");
+        running(&hub, "cmux16", "0199eeee-5555", "two", "codex");
+        let e = hub.key_route("cmux16/claude").unwrap_err();
+        let msg = e.message.clone();
+        assert!(msg.contains("cmux16/one") && msg.contains("cmux16/two"), "{msg}");
     }
 
     fn c(host: &str, name: &str, route: &str, closed: bool) -> Candidate {
