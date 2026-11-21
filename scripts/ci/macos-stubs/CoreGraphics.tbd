@@ -18,7 +18,6 @@ exports:
                        '_CGEventGetIntegerValueField',
                        '_CGEventGetLocation',
                        '_CGEventKeyboardSetUnicodeString',
-                       '_CGEventPost',
                        '_CGEventPostToPid',
                        '_CGEventSetFlags',
                        '_CGEventSetIntegerValueField',
