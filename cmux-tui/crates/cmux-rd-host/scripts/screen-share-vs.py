@@ -134,6 +134,7 @@ import ipaddress
 import json
 import os
 import queue
+import re
 import select
 import shlex
 import signal
@@ -378,7 +379,8 @@ def quality_summary(scores, why_none):
     }
 
 
-def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=None, source=None):
+def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=None, source=None,
+                 host_args=None, viewer_args=None):
     """The budget record. CMUX: {"rows", "ledgers", "presented", "motion_rows", "scores",
     "quality_null"} or {"skipped": why}; APPLE: {"g2g"} or {"skipped": why}."""
     cmux = cmux or {"skipped": "not run (--stacks)"}
@@ -401,6 +403,7 @@ def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=Non
     return {
         "schema": BUDGET_SCHEMA, "label": label, "rev": rev, "link": link, "rtt": rtt,
         "source": source or "screen", "rows": rows,
+        "host_args": list(host_args or []), "viewer_args": list(viewer_args or []),
         "mbps": {"cmux": c_mbps, "apple": null(why_apple or WHY_APPLE["mbps"])},
         "quality": {"cmux": c_quality,
                     "apple": {"frame_score": null(why_apple or WHY_APPLE["quality"]),
@@ -423,6 +426,12 @@ def cell_text(cell, keys=("p50", "p95")):
     return text
 
 
+def args_text(b):
+    """The run's extra cmux-rd flags (`run --host-arg`, `--viewer-arg`), for a table header."""
+    return (f"host args: {' '.join(b.get('host_args') or []) or '(none)'}; "
+            f"viewer args: {' '.join(b.get('viewer_args') or []) or '(none)'}")
+
+
 def format_budget(b):
     """The table as text lines; every null cell is footnoted with its reason."""
     notes = {}
@@ -440,7 +449,10 @@ def format_budget(b):
         title += f": {b.get('label') or ''} {('@ ' + b['rev'][:12]) if b.get('rev') else ''}".rstrip()
     if b.get("source") == "synthetic":
         title += " (--source synthetic)"
-    lines = [title, f"  {'row':<11} {'budget':>6}  {'cmux':<26} {'Apple Screen Sharing':<26} from, to"]
+    lines = [title]
+    if b.get("host_args") or b.get("viewer_args"):
+        lines.append("  " + args_text(b))
+    lines.append(f"  {'row':<11} {'budget':>6}  {'cmux':<26} {'Apple Screen Sharing':<26} from, to")
     for r in b["rows"]:
         lines.append(f"  {r['row']:<11} {r['budget_ms']:>6}  {show(r['cmux']):<26} "
                      f"{show(r['apple']):<26} {r['span']}")
@@ -506,6 +518,8 @@ def format_compare(before, after):
     lines = [f"budget table, {name(before, 'before')} -> {name(after, 'after')} (ms, p50 / p95)",
              f"  {'row':<11} {'budget':>6}  {'cmux before':<22} {'cmux after':<22} {'p50 change':>10}  "
              f"{'Apple (after run)':<20}"]
+    if any(x.get("host_args") or x.get("viewer_args") for x in (before, after)):
+        lines[1:1] = [f"  before {args_text(before)}", f"  after  {args_text(after)}"]
     rows_before = {r["row"]: r for r in before["rows"]}
     for r in after["rows"]:
         b = rows_before.get(r["row"], {})
@@ -764,6 +778,39 @@ def cmd_clock_probe(args):
 
 SERVE_FLAGS = {"--profile": ("high", "baseline"), "--codec": ("videotoolbox", "openh264")}
 MARKER_FLAGS = ("--motion", "--tick", "--verbose")
+# `run --host-arg` / `--viewer-arg`: the only extra flags a run passes to `cmux-rd serve` and to
+# `cmux-rd bench`, checked here and again by the rig (the rig command runs on a fleet Mac). Each
+# maps to the pattern of its value, or None for a switch, which is sent as `--flag 1` (cmux-rd's
+# options all take a value; `--flag=0` turns a switch off).
+NUMBER = r"[0-9]{1,9}"
+HOST_ARGS = {"--resolution-ladder": None, "--max-qp": NUMBER, "--max-kbps": NUMBER}
+VIEWER_ARGS = {"--caps": r"[a-z0-9._-]+(,[a-z0-9._-]+)*"}
+
+
+def checked_args(items, allowed, what):
+    """The argv for ITEMS (`--flag`, `--flag=VALUE` or `--flag VALUE`), each flag in ALLOWED
+    with a value matching its pattern; anything else raises ValueError naming WHAT."""
+    argv, seen = [], set()
+    for item in items or []:
+        if not isinstance(item, str):
+            raise ValueError(f"--{what}-arg {item!r}: not a string")
+        flag, sep, value = item.strip().replace(" ", "=", 1).partition("=")
+        if flag not in allowed:
+            raise ValueError(f"--{what}-arg {item!r}: {flag} is not allowed "
+                             f"(allowed: {', '.join(sorted(allowed))})")
+        if flag in seen:
+            raise ValueError(f"--{what}-arg {item!r}: {flag} given twice")
+        seen.add(flag)
+        pattern = allowed[flag]
+        if pattern is None:
+            if sep and value not in ("0", "1"):
+                raise ValueError(f"--{what}-arg {item!r}: {flag} is a switch (no value, or =0/=1)")
+            argv += [flag, value if sep else "1"]
+        elif not sep or not re.fullmatch(pattern, value):
+            raise ValueError(f"--{what}-arg {item!r}: {flag} needs a value matching {pattern}")
+        else:
+            argv += [flag, value]
+    return argv
 
 
 def rig_paths(root):
@@ -850,6 +897,7 @@ def cmd_rig(args):
                 for k, v in (req.get("flags") or {}).items():
                     if k in SERVE_FLAGS and v in SERVE_FLAGS[k]:
                         argv += [k, v]
+                argv += checked_args(req.get("args"), HOST_ARGS, "host")  # refused, not dropped
                 bind = req.get("link_bind")
                 if bind:
                     socket.inet_aton(bind)  # an IPv4 literal, or this request fails
@@ -1196,6 +1244,14 @@ class Orchestrator:
         self.apple_skipped = None
         self.marker_bin = self.ocr_bin = None
         self.rev = getattr(args, "rev", None)
+        # Extra `cmux-rd serve` / `cmux-rd bench` flags (HOST_ARGS, VIEWER_ARGS), as given.
+        self.host_args = list(getattr(args, "host_arg", None) or [])
+        self.viewer_args = list(getattr(args, "viewer_arg", None) or [])
+        try:
+            self.host_argv = checked_args(self.host_args, HOST_ARGS, "host")
+            self.viewer_argv = checked_args(self.viewer_args, VIEWER_ARGS, "viewer")
+        except ValueError as e:
+            raise SystemExit(str(e))
         if getattr(args, "tools", None):
             tools = os.path.expanduser(args.tools)
             if not os.path.isdir(tools):
@@ -1211,7 +1267,7 @@ class Orchestrator:
                     self.rev = f.read().strip() or None
 
     def log(self, rec):
-        line = json.dumps(rec)
+        line = json.dumps({**rec, "host_args": self.host_args, "viewer_args": self.viewer_args})
         print(line, flush=True)
         if self.out:
             self.out.write(line + "\n")
@@ -1302,6 +1358,8 @@ class Orchestrator:
                 bench += " --marker-log 1"
             if snapshot:
                 bench += f" --snapshot {snapshot}"
+        if self.viewer_argv:
+            bench += " " + " ".join(shlex.quote(a) for a in self.viewer_argv)
         viewer = self.viewer.popen(bench)
         host = None
         try:
@@ -1313,6 +1371,7 @@ class Orchestrator:
                 host = self.host.popen(f"{self.py} {self.me} rig-call --root {self.root} "
                                        + shlex.quote(json.dumps({"cmd": "serve", "timing": mode == "key",
                                                                  "flags": {"--profile": "high"},
+                                                                 "args": self.host_args,
                                                                  "link_bind": self.a.link_bind})))
             setup = {"session": session, "peer_key": viewer_key, "scope": "control", "stun": [],
                      "display": "main", "max_fps": self.a.max_fps,
@@ -1499,6 +1558,7 @@ class Orchestrator:
         if self.a.link_bind:
             ipaddress.IPv4Address(self.a.link_bind)  # an IPv4 literal, or this attempt fails
             argv += ["--link-bind", f"{self.a.link_bind}:0"]
+        argv += self.host_argv
         # Both modes log timing: key trials for the breakdown, fps trials for `host_frames`.
         timing = self.synthetic_timing_path()
         env = f": > {timing} && CMUX_RD_TIMING_LOG={timing} "
@@ -1713,7 +1773,8 @@ class Orchestrator:
         if "apple" in stacks:
             apple = {"skipped": self.apple_skipped} if self.apple_skipped else {"g2g": self.apple_g2g}
         b = build_budget(cmux, apple, label=self.a.label, rev=self.rev, link=self.a.link,
-                         rtt=clock.get("rtt_min_ms"), source=self.a.source)
+                         rtt=clock.get("rtt_min_ms"), source=self.a.source,
+                         host_args=self.host_args, viewer_args=self.viewer_args)
         print()
         print("\n".join(format_budget(b)))
         self.log({"budget": b})
@@ -1723,6 +1784,8 @@ class Orchestrator:
         print()
         print(f"link {self.a.link} {self.a.host} -> {self.a.viewer} ({self.a.host_ip}): "
               f"udp rtt min {clock['rtt_min_ms']:.2f} ms, p50 {rtt.get('p50')} ms, p95 {rtt.get('p95')} ms")
+        if self.host_args or self.viewer_args:
+            print(args_text({"host_args": self.host_args, "viewer_args": self.viewer_args}))
         print(f"{'stack':<22} {'first_frame_ms p50/p95':>24} {'key_to_frame_ms p50/p95':>25} "
               f"{'fps (motion) p50':>17} {'n':>10}")
         summ = {}
@@ -1809,6 +1872,13 @@ def main():
     r.add_argument("--synthetic-scene", choices=["bars", "text", "noise", "churn"],
                    help="what the synthetic picture shows under the marker (default bars; text "
                    "and noise translate; churn is new content every frame)")
+    r.add_argument("--host-arg", action="append", metavar="ARG",
+                   help="an extra `cmux-rd serve` flag, repeatable, in the = form since it starts "
+                        "with - (--host-arg=--resolution-ladder --host-arg=--max-qp=40); only "
+                        + ", ".join(sorted(HOST_ARGS)) + " (a switch is sent as `--flag 1`)")
+    r.add_argument("--viewer-arg", action="append", metavar="ARG",
+                   help="an extra `cmux-rd bench` flag for the viewer, repeatable, in the = form "
+                        "(--viewer-arg=--caps=video.scaled); only " + ", ".join(sorted(VIEWER_ARGS)))
     r.add_argument("--trials", type=int, default=10)
     r.add_argument("--warmup", type=int, default=1, help="uncounted key attempts first")
     r.add_argument("--fps-trials", type=int, default=3)
