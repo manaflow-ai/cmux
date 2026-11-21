@@ -1,7 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`. A key that is a harness's name (`claude`, `codex`), and no
 //! session's name, id, handle or former name, names no one session, even when one session's
 //! name starts with it (`claude-3`, a default `HARNESS-N` name) or one session runs that
-//! harness: `acpmux send gcp-codex-lane-12/claude` reached `ux-error-recovery` (alias
+//! harness: `acpmux send HOST/claude` reached `ux-error-recovery` (alias
 //! `claude-sr2`) by a name prefix, and four of a coordinator's replies went to the wrong session
 //! in two hours (2026-11-21). [`Hub::harness_key_refusal`] refuses such a key before
 //! `key_route`'s prefix and short-name tiers (and the exact lookup's prefixes after it) can pick

@@ -531,7 +531,7 @@ mod tests {
         assert_eq!(hub.key_route("done").unwrap().as_deref(), Some("hb/0199eeee-5555"));
     }
 
-    /// 2026-11-21: `send gcp-codex-lane-12/claude` reached an unrelated session whose name
+    /// 2026-11-21: `send HOST/claude` reached an unrelated session whose name
     /// starts with `claude`. A harness's name no session has as its name or id is refused, on a
     /// peer and here, with each session it might mean (name and id); a session that has it as
     /// its whole name, and an id, still name it.
