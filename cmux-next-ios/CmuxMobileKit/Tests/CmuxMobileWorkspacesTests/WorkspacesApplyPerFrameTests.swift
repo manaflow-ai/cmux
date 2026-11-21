@@ -217,6 +217,8 @@ import UIKit
         // The finger lifts with no fling: UIKit says so while the list still reads as scrolling.
         host.list.scrollViewDidEndDragging(host.view, willDecelerate: false)
         #expect(host.list.restedApplyCount == 1)
+        // The rest apply runs while UIKit still reports the drag: it is not a move under the finger.
+        #expect(host.list.movedWhileScrollingCount == 0)
         #expect(host.list.shownItemIDs(inSection: "recent") == next.sections[0].items)
     }
 
