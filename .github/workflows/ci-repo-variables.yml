@@ -37,16 +37,19 @@ on:
 permissions:
   contents: read
 
+# One run at a time and at most one waiting (GitHub replaces an older waiting run with a newer one),
+# so scheduled runs never pile up after an outage; a running one is never cut short
+# (tests/test_ci_cron_concurrency.py).
 concurrency:
   group: ci-repo-variables-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   check:
     name: Check repository variables
     if: ${{ github.repository == 'manaflow-ai/cmux' }}
     # The linux pool, not LINUX_RUNNER: this job checks LINUX_RUNNER, so it must not wait on it.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -181,6 +184,7 @@ jobs:
             CI_PERF_CRON_GATEWAY=${{ vars.CI_PERF_CRON_GATEWAY }}
             CI_PIN_DAEMON_POOL=${{ vars.CI_PIN_DAEMON_POOL }}
             CI_PR_POOL_OWNED=${{ vars.CI_PR_POOL_OWNED }}
+            CI_QUEUE_JANITOR_ON_FLEET=${{ vars.CI_QUEUE_JANITOR_ON_FLEET }}
             CI_REPAIR_SKIP_FLEET=${{ vars.CI_REPAIR_SKIP_FLEET }}
             CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
             CI_SESSION_LABEL=${{ vars.CI_SESSION_LABEL }}
