@@ -51,9 +51,7 @@ The pack does not install the source's entire modal key table.
 
 The [Terminal settings reference](https://www.superlogical.com/rex/docs/reference/mac-settings#terminal)
 documents controls, not a fixed font, size, color palette, or cursor preset.
-The source capture is `/tmp/rex-source-settings` (2026-11-21). These mappings
-describe supported customization owners; they are not settings applied by this
-pack:
+The shortcut layer leaves these display preferences with their existing owners.
 
 | Source control | cmux owner / limit |
 | --- | --- |

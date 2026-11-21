@@ -64,7 +64,3 @@ All paths below are relative to the repository root:
 - `cmux-tui/crates/cmux-customize/src/setup/reference.rs`: installation from a
   repository subdirectory with `@REF`.
 - `examples/looks/basalt/cmux-setup.json`: setup/profile manifest precedent.
-
-The optional private design-reference checkout was absent on this lane. This
-feature uses the supplied screenshot and vendor documentation as its evidence;
-no unobserved private reference or live app result is claimed.
