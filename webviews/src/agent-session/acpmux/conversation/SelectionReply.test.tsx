@@ -514,11 +514,15 @@ test("the chip never covers the selected text: it goes above or below the select
   }
 });
 
-test("a row opening or closing above the selection moves the chip with its words, never over them", () => {
+test("a row opening or closing above the selection moves the chip with its words, never over them", async () => {
   // Leo's 2026-11-21 05:30Z video: the chip was placed on pointerup, the click then opened a row
   // above, the words moved down under the chip and it stayed, covering them. Leo: "there are like 10
   // different extremely odd situations that go on here."
-  const doc = mount(`<div id=scroller style="overflow-y: auto">${PARAGRAPH}</div>`);
+  // The transcript's own tree: the scroller's child is a spacer whose size need not change, and the
+  // rows sit in the thread inside it.
+  const doc = mount(
+    `<div class="acpmux-scroll" style="overflow-y: auto"><div class="acpmux-spacer"><div class="acpmux-thread"><div class="acpmux-row" data-row-id="thought">Thinking</div>${PARAGRAPH}</div></div></div>`,
+  );
   const view = doc.defaultView! as unknown as Record<string, unknown>;
   const observers: { fire: () => void; observed: Element[] }[] = [];
   view.ResizeObserver = class {
@@ -547,14 +551,23 @@ test("a row opening or closing above the selection moves the chip with its words
     });
     const before = parseFloat(chip(doc)!.style.top);
     expect(Number.isFinite(before)).toBe(true);
-    // The transcript's content is watched while the chip shows.
-    expect(observers.some((o) => o.observed.length > 0)).toBe(true);
+    // The row above the selection is watched while the chip shows.
+    const thought = doc.querySelector('[data-row-id="thought"]')!;
+    expect(observers.some((o) => o.observed.includes(thought))).toBe(true);
+    // So is a row the transcript mounts while the chip shows.
+    const mounted = doc.createElement("div");
+    mounted.className = "acpmux-row";
+    mounted.dataset.rowId = "mounted";
+    doc.querySelector(".acpmux-thread")!.prepend(mounted);
+    await Promise.resolve();
+    expect(observers.some((o) => o.observed.includes(mounted))).toBe(true);
     // A row above opens: every line moves 40 px down.
     for (const line of Object.values(PARAGRAPH_LINES)) {
       line.top += 40;
       line.bottom += 40;
     }
-    act(() => observers.forEach((o) => o.fire()));
+    // The thought row opened: only what watches it hears.
+    act(() => observers.filter((o) => o.observed.includes(thought)).forEach((o) => o.fire()));
     const button = chip(doc)!;
     const top = parseFloat(button.style.top);
     expect(top).toBe(before + 40);
