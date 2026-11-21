@@ -36,9 +36,12 @@ Layers (each one only on files the push changes under Packages/macOS/CmuxNext, c
                motion, scrollbars, state roots, process scan, Swift CLI, closed history, test
                notification centers, string tables, module resources, capability text, browser
                chrome icons, App Store review rules (also on cmux-next-ios/ changes), the perf
-               source guard, fleet host names in gallery fixtures (also on Packages/ changes)
+               source guard, fleet host names in gallery fixtures (also on Packages/ changes), lists draw
+               only visible rows (check-visible-only.py: the visible-only-* ast-grep rules, counted per file
+               against visible-only-baseline.tsv; also on Packages/Shared, Packages/iOS and cmux-next-ios changes)
   ast-grep     scripts/cmux-next/lint/ast-grep-rules: try!, blocking calls, raw font sizes, system
-               dialogs, opaque glass (tree-sitter, so comments, strings and `case .alert` never match)
+               dialogs, opaque glass (tree-sitter, so comments, strings and `case .alert` never match); not the
+               visible-only-* rules, which the visible-only scanner ratchets per file
   swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf; local only: the pre-push hook and a plain
                local run, never --base/--head, --commits or GitHub Actions (no new CI gate, lead 2026-10-27)
   rustfmt      changed cmux-tui/**/*.rs through the pinned rustfmt (cmux-tui/rustfmt.toml); local only, like
@@ -201,10 +204,16 @@ except ImportError:  # a copy of this script outside scripts/: the same helper (
         except (BrokenPipeError, OSError, ValueError):
             pass
 
-DEFAULT_BASE_REFS = ("origin/feat-cmux-next",)
+# Full remote-tracking names, never `origin/feat-cmux-next`: git reads a short name as a local branch of that name
+# (refs/heads/origin/feat-cmux-next, which some tool creates) when one exists (push_range.UPSTREAM, 2026-11-20).
+# Reports print them without refs/remotes/.
+DEFAULT_BASE_REFS = ("refs/remotes/origin/feat-cmux-next",)
 PKG = "Packages/macOS/CmuxNext"
 SCRIPTS = "scripts/cmux-next"
 SCOPES = (PKG + "/", "cmux-tui/", "webviews/")
+# The paths the trees hold: SCOPES and the Swift outside the macOS package some scanners judge (the visible-only
+# ratchet's Packages/Shared, Packages/iOS and cmux-next-ios; the App Store rules' cmux-next-ios).
+CHANGED_SCOPES = SCOPES + ("Packages/Shared/", "Packages/iOS/", "cmux-next-ios/")
 SWIFT_SCOPE = PKG + "/"
 # Files a scanner reads besides the changed ones: present in both trees, so they never differ.
 CONTEXT = (
@@ -215,7 +224,11 @@ CONTEXT = (
     "cmux.xcodeproj/project.pbxproj",
     "cmux-next-ios/project.yml",
     "schemas/motion-scale/motion-scale.json",  # check-motion-tokens.py reads the scale's steps
+    "backend/apps/api/wrangler.jsonc",  # check-build-spaces.py reads every Durable Object binding
+    "backend/apps/api/src/build-space.ts",  # and its two lists of them
 )
+# The cloud API Worker's sources: only check-build-spaces.py reads them.
+BUILD_SPACES_SCOPE = "backend/apps/api/"
 # Check code outside scripts/cmux-next: check-package-dependency-lists.py imports the masker from scripts/ (an installed
 # copy reads its own, beside it). Like the check code, it is the head's on both sides.
 CHECK_CODE = ("scripts/swift_source_mask.py",)
@@ -227,6 +240,10 @@ DATA_SUFFIXES = (".tsv", ".json")
 MANIFEST = PKG + "/Package.swift"
 MANIFEST_SOURCES = (PKG + "/Sources/", PKG + "/Tests/")
 DEPS_CHECK = "Package dependency lists sorted"
+VISIBLE_ONLY_CHECK = "Lists draw only visible rows (check-visible-only.py, visible-only-baseline.tsv)"
+# The ast-grep rules whose hits that scanner counts per file against its baseline: the ast-grep layer leaves them out,
+# so a hit is judged once, by count (an edit to a listed line is not a new hit).
+RATCHETED_RULE_PREFIX = "visible-only-"
 SURFACE_MATERIALS_CHECK = "Each surface's material is one its kind allows (design/surface-materials.md)"
 # The check reads its manifest and every file it judges, not only the changed ones: it gets each side's whole set.
 SURFACE_MATERIALS_DATA = "schemas/surface-materials/"
@@ -241,8 +258,9 @@ DEPS_CHECKER = "scripts/cmux-next/check-package-dependency-lists.py"
 # keeps this list in step with the workflow.
 # The exit codes each scanner's verdicts use (audited 2026-11-11): 0 for none and 1 for findings, all of them. Exit 2
 # is a refusal to judge in check-crash-safety.sh (not a git checkout), check-state-roots.sh, check-no-process-scan.py,
-# check-no-raw-spawn.py and check-no-raw-flock.py (a bad baseline row); any other code, or a signal, is no verdict
-# either. A scanner whose verdicts use other codes names them here.
+# check-no-raw-spawn.py, check-no-raw-flock.py and check-visible-only.py (a bad baseline row; for the last also an
+# ast-grep failure); any other code, or a signal, is no verdict either. A scanner whose verdicts use other codes
+# names them here.
 SCANNER_VERDICT_CODES: dict[str, tuple[int, ...]] = {}
 DEFAULT_VERDICT_CODES = (0, 1)
 
@@ -298,11 +316,27 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-perf-source-guard.py", "{root}"], (PKG + "/",)),
     ("No fleet host names in gallery fixtures",
      ["python3", "-I", "{s}/check-fixture-host-names.py", "{root}"], ("Packages/", "webviews/src/")),
+    # Leo 2026-11-18: "we draw the visible area, right? ... there are so many places where I'm pretty sure we're just
+    # drawing the whole list. And we need to be able to guard against that."
+    (VISIBLE_ONLY_CHECK, ["python3", "-I", "{s}/check-visible-only.py", "{root}"],
+     (PKG + "/Sources/", "Packages/Shared/", "Packages/iOS/", "cmux-next-ios/", "scripts/cmux-next/visible-only-baseline.tsv")),
     # A target's new import of another local target must be declared (2026-10-29: a63986a4 and e875485c each pushed
     # an undeclared test import straight to feat-cmux-next and turned this CI step red on every pull request).
     # Pure Python, no build: it reads the manifest and the pushed Swift files.
     ("Package dependency lists sorted",
      ["python3", "-I", "{s}/check-package-dependency-lists.py", "{pkg}/Package.swift"], (PKG + "/",)),
+    # Dev builds do not intertwine (AGENTS.md "Dev builds are separate"): every Durable Object binding is classified
+    # per build or account-wide, and no entry point or object reaches an object outside its build space.
+    ("Build spaces (backend/apps/api/src/build-space.ts)",
+     ["python3", "-I", "{s}/check-build-spaces.py", "{root}"], (BUILD_SPACES_SCOPE, "scripts/cmux-next/check-build-spaces.py")),
+    # The user, 2026-11-16: "for dev builds we must make sure that all such values and configurations have a dev
+    # build isolation that prevents each dev build from deriving state from each other even from prod." A new path
+    # every build shares (~/.config/cmux, a fixed Application Support or Caches folder, Keychain service or defaults
+    # suite) needs BuildStatePaths or a reviewed row in dev-build-state-baseline.tsv.
+    ("Dev build state is its own (BuildStatePaths)",
+     ["python3", "-I", "{s}/check-dev-build-state.py", "{root}"],
+     (PKG + "/Sources/", "cmux-tui/crates/", "scripts/cmux-next/check-dev-build-state.py",
+      "scripts/cmux-next/dev-build-state-baseline.tsv")),
 )
 
 # Ghostty's default split keys stay Ghostty's (Lawrence 2026-10-20, after 2f3e1f95983).
@@ -339,9 +373,23 @@ PORT_DRIFT_TIP = "refs/remotes/origin/feat-cmux-next"  # drift already here is n
 # The production journey's schedule registers from main, so main's copy of this workflow is what runs; only the
 # scripts come from feat-cmux-next. cmux#43781's --preclaim-login sat on feat-cmux-next's copy and never reached
 # production until cmux#43866 synced main's. Local only (CLAUDE.md: no new CI gates; Lawrence, 2026-10-23).
-MAIN_TWIN_CHECK = "Production journey workflow matches main's (the schedule runs main's copy)"
-MAIN_TWIN_FILE = ".github/workflows/cloud-journey-prod.yml"
+#
+# Every scheduled workflow is held the same way (cmuxterm-hq docs/investigations/2026-11-18-boneheaded-designs.md
+# section 10: thirteen scheduled files existed only here and never fired, and all 33 on both branches differed): a push
+# that changes a workflow with a `schedule:` is refused when main has no copy of it (the schedule never fires) or when
+# its jobs or crons now differ from main's, unless a pushed commit names the main twin in a `Main-Twin:` trailer.
+# NO_MAIN_TWIN lists the scheduled files that stay here on purpose, each with why.
+MAIN_TWIN_CHECK = "Scheduled workflows match main's (a schedule runs main's copy)"
+MAIN_TWIN_FILE = ".github/workflows/cloud-journey-prod.yml"  # compared whether or not it has a schedule
+MAIN_TWIN_DIR = ".github/workflows/"
 MAIN_TWIN_REF = "refs/remotes/origin/main"
+MAIN_TWIN_SCHEDULE = re.compile(r"^  schedule:[ \t]*(#.*)?$", re.MULTILINE)
+MAIN_TWIN_CRON = re.compile(r"^\s*-\s*cron:\s*['\"]?([^'\"#\n]+?)['\"]?\s*(#.*)?$", re.MULTILINE)
+NO_MAIN_TWIN = {
+    "ios-testflight.yml": "a TestFlight delivery workflow (secrets, uploads): turning its schedule on is its owner's call",
+    "ios-internal-nightly-trigger.yml": "the INTERNAL nightly builder's trigger: turning it on is the nightly owner's call",
+    "nightly-next-cua-signed-host.yml": "an hourly nightly-next Mac check: turning it on is the nightly owner's call",
+}
 MAIN_TWIN_TRAILER = re.compile(r"^Main-Twin:[ \t]*\S", re.MULTILINE)
 # feat-cmux-next's `environment: {name, deployment: false}` and main's `environment: NAME` are one setting to compare.
 MAIN_TWIN_ENV_BLOCK = re.compile(r"^(\s*)environment:\n\s+name: (\S+)\n\s+deployment: false$")
@@ -456,6 +504,7 @@ RATCHET_BASELINES = {
     "spawn-owner-baseline.tsv": ((0,), 1),
     "app-id-special-cases-baseline.tsv": ((0,), 1),
     "swift-type-scale-baseline.tsv": ((0, 1), 2),
+    "visible-only-baseline.tsv": ((0, 1), 2),
 }
 # Shrink-only baselines kept as a list of lines (path and the line's text): a push that fixes a listed site removes
 # its line, and the installed copy over both trees then reads the fix as "fixed, remove from the baseline", a new
@@ -471,7 +520,7 @@ APP_ENTRY = PKG + "/Sources/CmuxNextApp/CmuxNextApp.swift"
 # push whose head has no PKG manifest skips them all (2026-11-17: a main-based push touching Packages/Shared/ ran
 # "Main-thread concurrency", whose check-concurrency.sh died with FileNotFoundError in package_targets, and the hook
 # refused the push without a verdict).
-MAIN_REF = "origin/main"
+MAIN_REF = "refs/remotes/origin/main"  # full name: see DEFAULT_BASE_REFS
 CRASH_RATCHET_CHECK = "Crash ratchet (crash_ratchet.py: no crate gains a Rust unwrap, expect, panic or exit)"
 CRASH_RATCHET = "crash_ratchet.py"
 RUST_CRATES = "cmux-tui/crates/"
@@ -638,7 +687,7 @@ def load_push_range(repo: Path, trusted_scripts: Path | None):
 
 def changed_files(repo: Path, base: str, head: str) -> list[str]:
     names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head).decode()
-    return sorted(n for n in names.split("\0") if n and n.startswith(SCOPES + ("Packages/Shared/", "cmux-next-ios/")))
+    return sorted(n for n in names.split("\0") if n and n.startswith(CHANGED_SCOPES + (BUILD_SPACES_SCOPE,)))
 
 
 def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
@@ -650,7 +699,7 @@ def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
         rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count) if blob else {}
                 for blob in (blob_at(repo, rev, f"{SCRIPTS}/{name}") for rev in (base, head))]
         files.update(key[0] for key in rows[0].keys() | rows[1].keys() if rows[0].get(key) != rows[1].get(key))
-    return sorted(p for p in files if p.startswith(SCOPES) and blob_at(repo, base, p) is not None
+    return sorted(p for p in files if p.startswith(CHANGED_SCOPES) and blob_at(repo, base, p) is not None
                   and blob_at(repo, head, p) is not None)
 
 
@@ -1138,7 +1187,7 @@ def ast_grep(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
     lines = []
     for m in matches:
         rel, index = m["file"], m["range"]["start"]["line"]
-        if escaped(tree, rel, index, m["ruleId"]):
+        if m["ruleId"].startswith(RATCHETED_RULE_PREFIX) or escaped(tree, rel, index, m["ruleId"]):
             continue
         lines.append(f"{rel}:{index + 1}: [{m['ruleId']}] {m['message']}")
     return "\n".join(sorted(lines))
@@ -1910,36 +1959,145 @@ def _journey_jobs(text: str) -> str:
     return "\n".join(out)
 
 
-def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_REF) -> list[str]:
-    """What head adds to MAIN_TWIN_CHECK: a change to the production journey workflow's jobs that main's copy lacks.
+def _twin_shape(text: str) -> tuple[str, tuple[str, ...]]:
+    """What a schedule runs from a workflow file: its jobs as _journey_jobs reads them, and its crons."""
+    crons = tuple(sorted(m.group(1).strip() for m in MAIN_TWIN_CRON.finditer(text))) if MAIN_TWIN_SCHEDULE.search(
+        text) else ()
+    return _journey_jobs(text), crons
 
-    The schedule registers from main, so main's definition is what runs in production; only the scripts come from
-    feat-cmux-next. cmux#43781 changed feat-cmux-next's copy (--preclaim-login) and production never ran it until
-    cmux#43866 brought main's copy along. A push that changes MAIN_TWIN_FILE's jobs so they differ from main's is
-    refused, unless a pushed commit that changes the file names the main twin PR in a `Main-Twin:` trailer. A push
-    that leaves the jobs as base had them (comments only) or makes them match main passes, and so does a push when
-    main's copy cannot be read (local only: the twin rule is not a CI gate)."""
-    names = git(repo, "diff", "--name-only", "--no-renames", base, head, "--", MAIN_TWIN_FILE,
-                check=False).decode(errors="replace").split()
-    if MAIN_TWIN_FILE not in names:
+
+def _cut_from_main(repo: Path, head: str, main_ref: str) -> bool:
+    """True when HEAD is a branch off main, by git objects alone: feat-cmux-next has the CmuxNext app entry and HEAD
+    does not, or the commit where HEAD left main is not on feat-cmux-next (main_based's test, without a head tree)."""
+    feat = DEFAULT_BASE_REFS[0]
+
+    def ok(*args: str) -> bool:
+        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True).returncode == 0
+
+    if not ok("rev-parse", "--verify", "--quiet", feat):
+        return False
+    if ok("cat-file", "-e", f"{feat}:{APP_ENTRY}") and not ok("cat-file", "-e", f"{head}:{APP_ENTRY}"):
+        return True
+    fork = git(repo, "merge-base", head, main_ref, check=False).decode().strip()
+    return bool(fork) and subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", fork, feat],
+                                         capture_output=True).returncode == 1
+
+
+def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_REF) -> list[str]:
+    """What head adds to MAIN_TWIN_CHECK: a scheduled workflow that main lacks, or whose jobs or crons main's lacks.
+
+    A schedule registers from main, so main's definition is what runs; only scripts come from feat-cmux-next.
+    cmux#43781 changed feat-cmux-next's copy of the production journey (--preclaim-login) and production never ran it
+    until cmux#43866 brought main's copy along; thirteen scheduled files never fired at all (boneheaded-designs
+    section 10). For each workflow the push changes that has a `schedule:` (here or on main; MAIN_TWIN_FILE always):
+    a file main has no copy of is refused unless NO_MAIN_TWIN lists it; a file whose jobs or crons differ from main's
+    is refused, unless the push left them as base had them or a pushed commit that changes the file names the main
+    twin PR in a `Main-Twin:` trailer. A push when main cannot be read passes (local only: not a CI gate)."""
+    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", base, head, "--", MAIN_TWIN_DIR,
+                            check=False).decode(errors="replace").split()
+             if n.endswith((".yml", ".yaml")) and "/" not in n[len(MAIN_TWIN_DIR):]]
+    if not names:
+        return []
+    main_readable = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", main_ref],
+                                   capture_output=True).returncode == 0
+    if not main_readable:
+        return []
+    if _cut_from_main(repo, head, main_ref):
+        # The main twin PR itself (cmux#48672's scheduled shim, 2026-11-21): the file this push adds or changes is
+        # main's copy, the one that fires, so it names no twin.
         return []
 
-    def read(rev: str) -> str | None:
-        done = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{MAIN_TWIN_FILE}"], capture_output=True)
+    def read(rev: str, name: str) -> str | None:
+        done = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{name}"], capture_output=True)
         return done.stdout.decode(errors="replace") if done.returncode == 0 else None
 
-    ours, before, main = read(head), read(base), read(main_ref)
-    if ours is None or main is None:
+    problems = []
+    for name in names:
+        ours, before, main = read(head, name), read(base, name), read(main_ref, name)
+        if ours is None:
+            continue  # deleted here: nothing of this branch's is left to fire
+        scheduled = bool(MAIN_TWIN_SCHEDULE.search(ours) or (main and MAIN_TWIN_SCHEDULE.search(main)))
+        if name != MAIN_TWIN_FILE and not scheduled:
+            continue
+        messages = git(repo, "log", "--format=%B%x1e", f"{base}..{head}", "--", name,
+                       check=False).decode(errors="replace")
+        if MAIN_TWIN_TRAILER.search(messages):
+            continue
+        if main is None:
+            if name == MAIN_TWIN_FILE or Path(name).name in NO_MAIN_TWIN or not MAIN_TWIN_SCHEDULE.search(ours):
+                continue
+            problems.append(f"{name}: has a schedule, but {main_ref} has no copy of it, so the schedule never fires. "
+                            f"Add the same file to main, or drop the schedule, or list it in NO_MAIN_TWIN with why. "
+                            f"{MAIN_TWIN_HINT}")
+            continue
+        shape = _twin_shape(ours)
+        if re.search(rf"gh workflow run {re.escape(Path(name).name)}\b[^\n]*--ref feat-cmux-next", main):
+            # main's copy is a dispatcher (cmux-next-ios-kit.yml's shape): its cron starts this file on
+            # feat-cmux-next, so this copy's jobs are what run; only the crons must agree.
+            crons = shape[1]
+            if not crons or crons == _twin_shape(main)[1] or (before is not None and crons == _twin_shape(before)[1]):
+                continue
+            problems.append(f"{name}: its crons {list(crons)} differ from {main_ref}'s dispatcher "
+                            f"{list(_twin_shape(main)[1])}, which is what fires. {MAIN_TWIN_HINT}")
+            continue
+        if shape == _twin_shape(main) or (before is not None and shape == _twin_shape(before)):
+            continue
+        problems.append(f"{name}: its jobs or crons now differ from {main_ref}'s, and the schedule runs main's copy, so "
+                        f"this change never runs on its schedule. {MAIN_TWIN_HINT}")
+    return problems
+
+
+# A job with no timeout-minutes runs for GitHub's 6 h default when it hangs; a job-level always() with no !cancelled()
+# still queues on a cancelled run and holds its group on a label with no free runner (boneheaded-designs section 11).
+# Local only, like the twin check (CLAUDE.md: no new CI gates); tests/test_ci_workflow_job_bounds.py is the manual check.
+JOB_BOUNDS_CHECK = "Workflow jobs are bounded (a timeout-minutes; no always() on a cancelled run)"
+JOB_BOUNDS_ALLOW = ".github/workflow-job-bounds.json"
+
+
+def job_bounds_drift(repo: Path, base: str, head: str) -> list[str]:
+    """What head adds to JOB_BOUNDS_CHECK: a job in a changed workflow that has no timeout-minutes, or a job-level
+    always() with no !cancelled() that .github/workflow-job-bounds.json (at head) does not list. A finding base already
+    had is not the push's. The reader is the trusted hook copy beside this gate (install-git-hooks.sh), else
+    scripts/ci's; a push passes when neither is there."""
+    here = Path(__file__).resolve()
+    module_path = next((p for p in (here.with_name("workflow_job_bounds.py"),
+                                    here.parent.parent / "ci" / "workflow_job_bounds.py") if p.is_file()), None)
+    if module_path is None:
         return []
-    jobs = _journey_jobs(ours)
-    if jobs == _journey_jobs(main) or (before is not None and jobs == _journey_jobs(before)):
+    spec = importlib.util.spec_from_file_location("cmux_workflow_job_bounds", module_path)
+    bounds = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bounds)
+    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", base, head, "--", MAIN_TWIN_DIR,
+                            check=False).decode(errors="replace").split()
+             if n.endswith((".yml", ".yaml")) and "/" not in n[len(MAIN_TWIN_DIR):]]
+    if not names:
         return []
-    messages = git(repo, "log", "--format=%B%x1e", f"{base}..{head}", "--", MAIN_TWIN_FILE,
-                   check=False).decode(errors="replace")
-    if MAIN_TWIN_TRAILER.search(messages):
-        return []
-    return [f"{MAIN_TWIN_FILE}: its jobs now differ from {main_ref}'s, and the schedule runs main's copy, so this change "
-            f"never reaches production. {MAIN_TWIN_HINT}"]
+
+    def read(rev: str, name: str) -> str | None:
+        done = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{name}"], capture_output=True)
+        return done.stdout.decode(errors="replace") if done.returncode == 0 else None
+
+    try:
+        allow = json.loads(read(head, JOB_BOUNDS_ALLOW) or "{}").get("always_on_cancel") or {}
+    except ValueError:
+        allow = {}
+    problems = []
+    for name in names:
+        ours = read(head, name)
+        if ours is None:
+            continue
+        short = Path(name).name
+        missing, unguarded = bounds.text_bounds(short, ours)
+        before = read(base, name)
+        old_missing, old_unguarded = bounds.text_bounds(short, before) if before is not None else ([], {})
+        for where in missing:
+            if where not in old_missing:
+                problems.append(f"{where}: no timeout-minutes; size it to the job's p99 plus headroom")
+        for where, cond in unguarded.items():
+            if where not in old_unguarded and where not in allow:
+                problems.append(f"{where}: if: {cond} still queues on a cancelled run; use !cancelled(), or list it in "
+                                f"{JOB_BOUNDS_ALLOW} with why it must run on a cancel")
+    return problems
 
 
 def port_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
@@ -2561,7 +2719,8 @@ def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path |
     code_rev = next((ref for ref in DEFAULT_BASE_REFS if rev_ok(repo, ref)), None) if trusted_scripts else head
     try:
         if code_rev is None:
-            raise ValueError(f"no {' or '.join(DEFAULT_BASE_REFS)} in this clone to read the validator from")
+            raise ValueError(f"no {' or '.join(r.removeprefix('refs/remotes/') for r in DEFAULT_BASE_REFS)} in this "
+                             "clone to read the validator from")
         blobs = git_batch.cat_file(repo, [f"{code_rev}:{p}" for p in HIGHLIGHTS_CODE] + [f"{head}:{p}" for p in files])
         if any(blobs[f"{code_rev}:{p}"] is None for p in HIGHLIGHTS_CODE):
             return []  # a validator older than the highlights' rules: CI's test is older too
@@ -2867,6 +3026,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         drift = main_twin_drift(repo, base, head)
         if drift:
             reserved.append((MAIN_TWIN_CHECK, drift))
+    # Local only, like the twin check (CLAUDE.md: no new CI gates).
+    if (highlights_layer if only is None else "job-bounds" in only) and restrict is None:
+        unbounded = job_bounds_drift(repo, base, head)
+        if unbounded:
+            reserved.append((JOB_BOUNDS_CHECK, unbounded))
     if only is None or "sidebar" in only:
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
@@ -2944,6 +3108,9 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             runs = any(p.startswith(prefixes) for p in changed) or (name == SURFACE_MATERIALS_CHECK and materials_data)
             if runs and (only is None or "scanners" in only):
                 jobs[name] = ("cmd", cmd)
+        if VISIBLE_ONLY_CHECK in jobs and lock.is_file():
+            # The scanner runs the pinned ast-grep the layer below runs (downloaded once, sha256 checked).
+            os.environ["CMUX_AST_GREP"] = str(ensure_tool(lock, "ast-grep"))
         if (dropped or deleted) and DEPS_CHECK not in jobs and has_package:
             jobs[DEPS_CHECK] = ("cmd", next(cmd for name, cmd, _ in SCANNERS if name == DEPS_CHECK))
         if DEPS_CHECK in jobs and (MANIFEST in changed or dropped):
@@ -3330,8 +3497,10 @@ def stale_hook_warning(repo: Path, trusted_scripts: Path) -> None:
         if tracked.returncode == 0 and hook.is_file() and hook.read_bytes() != tracked.stdout:
             stale.append("pre-push (the hook)")
         if stale:
-            log(f"prepush-gate: WARNING: this clone's installed hook copy of {', '.join(stale)} is not {ref}'s, so its "
-                f"rules may be old: run scripts/install-git-hooks.sh from a checkout at {ref} (rebase and fetch do not).")
+            shown = ref.removeprefix("refs/remotes/")
+            log(f"prepush-gate: WARNING: this clone's installed hook copy of {', '.join(stale)} is not {shown}'s, so "
+                f"its rules may be old: run scripts/install-git-hooks.sh from a checkout at {shown} (rebase and fetch do "
+                "not).")
         return
 
 
@@ -3653,7 +3822,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
-                                       "settings-export-keys,main-twin")
+                                       "settings-export-keys,main-twin,job-bounds")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child

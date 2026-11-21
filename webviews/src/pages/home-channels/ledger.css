@@ -79,7 +79,8 @@
   border: 1px solid var(--lg-line);
   border-radius: var(--ds-radius-control);
   background: var(--lg-fill);
-  color: var(--page-text-3);
+  /* A control's label is text: the secondary ink (4.5:1), not the tertiary hint (3:1). */
+  color: var(--page-text-2);
   font: inherit;
   font-size: var(--text-detail);
   text-align: start;
