@@ -87,17 +87,18 @@ const LOOK_PREFIXES: [&str; 7] = [
     "app.uiScale",
 ];
 /// Look keys outside those prefixes: the terminal font; the sidebar's shape,
-/// edges, text, group headers and buttons; the tab strip's and titlebar's
-/// buttons and inactive tabs; pane corners; and the agent chat's text sizes,
-/// sender marks and Session Info. Keep in step with Swift
-/// `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 35] = [
+/// edges, text, group headers and buttons, and the sidebar look
+/// (`sidebar_look`); the tab strip's and titlebar's buttons and inactive tabs;
+/// pane corners; and the agent chat's text sizes, sender marks and Session
+/// Info. Keep in step with Swift `ThemeFileOverlay.lookKeys`.
+const LOOK_KEYS: [&str; 36] = [
     "terminal.fontFamily",
     "terminal.fontSize",
     "sidebar.style",
     "sidebar.border",
     "sidebar.borderWidth",
     "sidebar.sectionLook",
+    "sidebar.look",
     "sidebar.density",
     "sidebar.textSize",
     "sidebar.groupHeader.background",

@@ -557,6 +557,19 @@ nonisolated enum MacScreenUnixStream {
     }
 }
 
+extension MacScreenSession {
+    /// A fixture state for the viewer gallery (`AAMacScreenViewerGalleryTests`): the session reads as `phase` with
+    /// no process or network, so the pane draws the card or the picture that state shows.
+    func showPreviewState(phase: Phase, failureCause: FailureCause? = nil, linkConnected: Bool = false,
+                          frameSize: CGSize = .zero, stalled: Bool = false) {
+        self.phase = phase
+        self.failureCause = failureCause
+        self.linkConnected = linkConnected
+        self.frameSize = frameSize
+        isStalled = stalled
+    }
+}
+
 extension VNCKeysym {
     /// The USB HID usage of this key (the inverse of `init?(hidUsage:)`): the Send Keys menu's chords
     /// go to a cmux.rd host as physical keys.
