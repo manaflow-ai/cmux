@@ -342,6 +342,33 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
       );
       expect(shared!.failure, "the shared Chromium").toBeUndefined();
 
+      // A new failure holds only when a second read of its stage, on a fresh page, finds it again: one
+      // capture taken mid-paint (a palette's rows drawn white on white, a hover fill caught half in)
+      // must not fail a part. The second read's failures replace the first's for that stage.
+      const isFresh = (failure: Failure) =>
+        failure.reading.ratio < (baseline.get(classKey(failure.control.label, failure.reading.kind)) ?? Infinity);
+      const recheck = stages.filter((stage) =>
+        results.some(
+          (result) => result.stage === stageName(stage) && "failures" in result && result.failures.some(isFresh),
+        ),
+      );
+      if (recheck.length) {
+        const page = await shared!.page();
+        const cdp = await page.context().newCDPSession(page);
+        for (const stage of recheck) {
+          // fixed-wait: the stage's deadline above; each stage ends as soon as it is read.
+          const again = await scanWithin(page, cdp, stage);
+          if ("error" in again) continue;
+          const seen = new Set(again.failures.map((failure) => failure.key));
+          const index = results.findIndex((result) => result.stage === again.stage);
+          const first = results[index]!;
+          if ("failures" in first)
+            results[index] = { ...first, failures: first.failures.filter((f) => !isFresh(f) || seen.has(f.key)) };
+        }
+        await shared!.closePage(page);
+        console.log(`control-contrast: read ${recheck.length} stage(s) again to confirm their new failures`);
+      }
+
       const fresh: string[] = [];
       const reported = new Set<string>();
       const worst = new Map<string, number>();

@@ -200,6 +200,14 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  /* A prompt's attachments are part of its message (Leo, 2026-11-21: "if you sent it iinline you prob
+     shouldn't have such odd stuff"): every sent image, video and file sits in the bubble's column,
+     its right edge on the bubble's, this far above it, with the bubble's corner (model.ts
+     ATTACHMENT_BAND_BELOW mirrors the gap). */
+  --cv-user-attachment-gap: 6px;
+  --cv-user-attachment-radius: calc(
+    3 * var(--grid-base) * var(--cmux-chat-text-scale, 1) / var(--cmux-interface-scale, 1)
+  );
 }
 /* Waiting controls use the same footer slot as a delivered prompt. The bubble and its footer stay
    right-aligned together, so accepting Send now changes only the footer contents, never the bubble's
@@ -315,7 +323,26 @@
   justify-content: flex-end;
   gap: var(--ds-space-2);
   max-width: 70%;
-  margin-bottom: var(--ds-space-2);
+  margin-bottom: var(--cv-user-attachment-gap, 6px);
+}
+/* A prompt whose attachments were placed in its text draws them in the same block above its bubble
+   (UserBubble.tsx): the bubble's column, its tiles' 4px side margins outside it so their edges are
+   the bubble's, the same gap under it (each tile's 2px bottom margin and this). */
+/* A prompt's file chips (UserBubble.tsx legacy band) keep the same column and gap. */
+.cv-user__files:not(.cv-user__inline-strip, .cv-message__files) {
+  max-width: 70%;
+  margin-bottom: var(--cv-user-attachment-gap, 6px);
+}
+.cv-user__files.cv-user__inline-strip {
+  max-width: calc(70% + 8px);
+  margin-inline-end: -4px;
+  margin-bottom: calc(var(--cv-user-attachment-gap, 6px) - 2px);
+}
+/* A tile in the strip lays its thumbnail out as a flex box, not on a text line: a line adds the
+   font's descent (3px) under the thumbnail, so the gap to the bubble would be 9px, not the 6px
+   model.ts reserves. */
+.cv-user__inline-strip > .cv-user__inline-image {
+  display: flex;
 }
 .cv-user__images button,
 .cv-user__inline-image button {
@@ -327,22 +354,24 @@
   background: none;
   cursor: zoom-in;
 }
-/* Each a rounded thumbnail of the whole image in its own shape, at most 120px tall and never larger
-   than the image (UserBubble.tsx sentImageSize sets its size), so a wide screenshot is a whole strip,
-   not a magnified crop of its middle. A neutral backing under it, so a transparent image still shows
-   its content. An image sent inline in the text (InlinePromptContent.tsx) is the same thumbnail.
-   Its size is a width and an aspect ratio, so a narrow bubble scales it down whole. */
+/* Each a rounded thumbnail of the whole image in its own shape, at most 160px tall and 480px wide and
+   never larger than the image (userBubbleModel.ts sentImageSize sets its size), so a wide screenshot
+   is a whole strip, not a magnified crop of its middle. `contain`: a box whose shape was reserved
+   from a size that turns out wrong letterboxes the image, never crops it. A neutral backing under it,
+   so a transparent image still shows its content, and the bubble's corner with a faint hairline,
+   not a bright frame. An image sent inline in the text (InlinePromptContent.tsx) is the same
+   thumbnail. Its size is a width and an aspect ratio, so a narrow bubble scales it down whole. */
 .cv-user__images img,
 .cv-user__inline-image img {
   display: block;
-  width: 120px;
+  width: 160px;
   max-width: 100%;
   height: auto;
   aspect-ratio: 1;
-  object-fit: cover;
-  border-radius: var(--cv-media-radius);
-  outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
-  outline-offset: -1px;
+  object-fit: contain;
+  border-radius: var(--cv-user-attachment-radius, var(--cv-media-radius));
+  outline: var(--cmux-hairline, 1px) solid color-mix(in srgb, var(--agent-text) 16%, transparent);
+  outline-offset: calc(-1 * var(--cmux-hairline, 1px));
   background: var(--ds-surface-inset);
 }
 /* A sent video (SentVideoTile.tsx): its poster at a sent image's height and shape, a glass play glyph
@@ -404,7 +433,7 @@
   display: grid;
   place-items: center;
   padding: 8px;
-  border-radius: var(--cv-media-radius);
+  border-radius: var(--cv-user-attachment-radius, var(--cv-media-radius));
   line-height: 1.25;
   text-align: center;
   white-space: normal;
@@ -422,11 +451,11 @@
 /* The slot a thumbnail holds while acpmux reads it: its height, square until the image's shape is known. */
 .cv-user__image-placeholder {
   display: block;
-  flex: 0 0 120px;
-  width: 120px;
+  flex: 0 0 160px;
+  width: 160px;
   max-width: 100%;
   aspect-ratio: 1;
-  border-radius: var(--cv-media-radius);
+  border-radius: var(--cv-user-attachment-radius, var(--cv-media-radius));
   background: var(--ds-surface-inset);
 }
 /* An image that cannot be drawn: the same slot, a picture glyph over a short note. */
@@ -437,12 +466,12 @@
   align-items: center;
   justify-content: center;
   gap: var(--ds-space-1);
-  width: 120px;
+  width: 160px;
   max-width: 100%;
   aspect-ratio: 1;
   overflow: hidden;
   padding: 0 var(--ds-space-3);
-  border-radius: var(--cv-media-radius);
+  border-radius: var(--cv-user-attachment-radius, var(--cv-media-radius));
   outline: 1px dashed color-mix(in srgb, var(--agent-text) 24%, transparent);
   outline-offset: -1px;
   background: var(--ds-surface-card);
