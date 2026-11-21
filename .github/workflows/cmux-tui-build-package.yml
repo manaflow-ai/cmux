@@ -350,7 +350,14 @@ jobs:
     needs: plan-build
     # target_set=windows selects no Unix target (an empty matrix is an error).
     if: needs.plan-build.outputs.unix_targets == 'true'
-    runs-on: ${{ github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && !matrix.darwin_on_linux && inputs.macos_retry_runner || matrix.runner }}
+    # A re-run never re-plans: "re-run failed jobs" keeps plan-build's matrix, runner and all, from the
+    # attempt that ran it. On 2026-11-18 the pool writer's release valve held linux_16 at 2 vCPU for hours;
+    # every run planned then kept that label, and its re-runs (cmux-tui-artifacts-retry, rerun-deferred-commits)
+    # OOMed in the fat-LTO link for days after the pool came back (run 44293740637: attempts 1-3 on 2 vCPU;
+    # 2026-11-19: 72 failed re-run legs, 1,544 runner-min, 63 of them on 2 vCPU). A re-run leg whose stored
+    # label is a 2 or 4 vCPU Blacksmith Linux runner reads the pool again; linux_16 never goes under 8 vCPU (#46366).
+    # A fork's plan never holds such a label (it takes a fixed 8 or 16 vCPU one); its legs keep matrix.runner.
+    runs-on: ${{ github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && !matrix.darwin_on_linux && inputs.macos_retry_runner || github.run_attempt > 1 && github.repository_owner == 'manaflow-ai' && startsWith(matrix.runner, 'blacksmith-') && contains(matrix.runner, '-ubuntu-') && (contains(matrix.runner, '-2vcpu-') || contains(matrix.runner, '-4vcpu-')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON(vars.RUNNER_POOLS).linux_16 || matrix.runner }}
     # 60 fit the 16 vCPU Blacksmith legs with a warm sticky disk; a 4 vCPU
     # GitHub-hosted runner builds every fat-LTO cargo group cold (see "Make
     # room on a GitHub-hosted Linux runner").
