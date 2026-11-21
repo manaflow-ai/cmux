@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-21 (lane/sidebar-pin-archive): Sidebar-Look: Leo, 2026-11-21: "the pin button does not make sense. you
+  expect this to be the pinned thing. but it isn't. when you pin it, the pin goes to teh left of the bar as an empty
+  looking pin symbol." A hover control says what a press does, never what the row is: Pin on an unpinned row is the
+  outline pin (`action.pin`); Unpin on a pinned row, a pinned tile and a pinned group header is the struck-through pin
+  (`browser.toolbar.unpin`, pin.slash). The pinned state alone draws the filled pin (`state.pinned`, solid): a Pinned
+  row's leading pin, a pinned group's pin and the Pinned header's glyph. Replaces the a-sidebar-pin-hover entry's
+  outline-pin/filled-pin pair (last good 58deafaa036), where the filled hover Unpin and the outline leading mark read
+  the wrong way round.
 - 2026-11-20 (nx-48416-chief-onboarding): Sidebar-Look: user, 2026-11-20 (https://github.com/manaflow-ai/cmux/issues/48416):
   "rename Home to Chief in the UI". Only names change: the Home item reads Chief (`sidebar.builtin.home`), and the
   item that was already called Chief (its conversation, status and subagents, `LayoutItem.chief`) reads Chief
@@ -2574,3 +2582,11 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   densities. The shared trailing column still reserves the local Share Screen action. Regression coverage:
   `SidebarSearchButtonTests`, `SidebarEvenRowInsetsTests`, `NowPlayingCardTests`.
   Sidebar-Look: every density is Default scaled by one factor.
+
+- 2026-11-21 (Leo: "i dont think it works very well, especially with clicking and dragging"; 2026-11-07: "it's
+  super weird how when you drag ANY workspace, it shifts imediately due to that"): a workspace dragged from the
+  list into Pinned pins (the drop is the document move the palette and the API make; the reducer remembers where
+  it came from, so Unpin returns it there), and a pinned workspace dragged out unpins. `SidebarDocRecords.keepingPinned`
+  (Pinned refused a workspace from the list, #22263) is gone. The lift moves no row: Pinned's zone still opens only
+  where the drag goes (`SidebarEmptyZones`). Regression: `SidebarDocPinnedDropTests`.
+  Sidebar-Look: i dont think it works very well, especially with clicking and dragging.

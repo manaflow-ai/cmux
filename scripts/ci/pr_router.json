@@ -29,6 +29,24 @@
    ],
    "affects_why": "bundle-size-pr.py check measures three inputs (scripts/cmux-next/bundle-size-budget.json pull_request): files under tree_paths (Resources, Packages/macOS/*/Sources/*/Resources, Assets.xcassets), the web bundles (inputs: web-bundle-key.py --routed, a superset here by directory), and the crates of shipped Rust binaries (Cargo manifests and lockfiles); plus the tool itself under scripts/cmux-next. A change touching none of them adds nothing to the app.",
    "skip_docs_only": true
+  },
+  "classic-api-guard.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "edited",
+    "ready_for_review"
+   ],
+   "affects": [
+    "web/**",
+    "config/iroh/**",
+    "workers/presence/**",
+    "scripts/ci/classic_api_guard.py",
+    "scripts/ci/classic-auto-deploy.json",
+    ".github/workflows/classic-api-guard.yml"
+   ],
+   "affects_why": "classic_api_guard.py warns into feat-cmux-next only when a changed path is under a guarded deploy of scripts/ci/classic-auto-deploy.json (every guarded path, 2026-11-21, is under web/, config/iroh/ or workers/presence/; by directory here so a path added there stays covered); otherwise it prints a notice and passes. The guard and its list run from the base, so their own change is listed only to exercise the workflow. A routed edit (the `Classic API change:` line, the base) reaches it through pr-router.yml's route `if:`. Last 300 merges: the old trigger started it on 300, this on 14."
   }
  }
 }
