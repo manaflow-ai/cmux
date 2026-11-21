@@ -1388,6 +1388,17 @@ def _check_matcher(job_id: str, job: dict, where: str) -> dict:
         elif (isinstance(matrix, dict) and set(matrix) == {"include"} and isinstance(matrix["include"], list)
               and all(isinstance(row, dict) and key in row for row in matrix["include"])):
             values = [row[key] for row in matrix["include"]]
+        computed = None
+        if isinstance(matrix, dict) and set(matrix) == {key}:
+            computed = matrix[key]
+        elif isinstance(matrix, dict) and set(matrix) == {"include"}:
+            computed = matrix["include"]
+        if (isinstance(computed, str) and "uses" not in job
+                and re.fullmatch(r"\$\{\{[^$]*\}\}", computed.strip())):
+            # A matrix an earlier job computes ('include: ${{ fromJSON(needs.x.outputs.y) }}', ci-web.yml's
+            # react-apps-check-shard since cmux#48561): its values are known only at run time, so its jobs are
+            # every '<name> (...)'.
+            return {"exact": [], "prefixes": [f"{one.group(1)} ("]}
         if (not values or "uses" in job
                 or not all(isinstance(v, (str, int)) and not isinstance(v, bool) and str(v) for v in values)):
             raise Refused(f"{where}: job {job_id}'s name {name!r} is not one matrix key over fixed values")
