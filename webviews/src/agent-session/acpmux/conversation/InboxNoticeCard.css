@@ -60,7 +60,7 @@
   min-width: 0;
   margin: 2px 0;
   padding-inline: var(--ds-space-1);
-  border: 1px solid var(--cv-card-ring);
+  border: 1px solid var(--ds-surface-card-line);
   border-radius: var(--ds-radius-card, 12px);
 }
 /* Two or more threads, folded (InboxNoticeCard.tsx, the `group` look): a tool-row head

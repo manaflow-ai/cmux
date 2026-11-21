@@ -340,6 +340,11 @@ path = "tests/test_language_boundaries.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_launch_tti_check.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_launch_tti_check.py"
+
+[[test]]
 path = "tests/test_layout_grid.py"
 lane = "linux-guard"
 
@@ -400,6 +405,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_localize_changes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_mac_live_delivery.py"
 lane = "linux-guard"
 
 [[test]]
@@ -692,6 +701,11 @@ lane = "manual"
 reason = "Run by the lane that changes rust-live.py (no new CI tests): python3 tests/test_rust_live_app_handoff.py; needs only python3 and sleep."
 
 [[test]]
+path = "tests/test_same_tree_reuse.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23, AGENTS.md:214). Checks that every pull-request job in scripts/ci/same_tree_reuse.json reuses a same-tree pass or is denied with a reason, and that scripts/ci/same_tree_reuse.py keys, decides and writes receipts as the workflows call it; run python3 tests/test_same_tree_reuse.py yourself after changing same_tree_reuse.py, its map or a workflow it covers (a few seconds, no build)."
+
+[[test]]
 path = "tests/test_script_module_loads.py"
 lane = "manual"
 reason = "No new CI tests: run python3 tests/test_script_module_loads.py after a test loads a scripts/ module by path or imports a new one by name (static scan plus two subprocess import orders; needs pytest for the route pair)."
@@ -946,3 +960,8 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_zsh_git_head_watch_no_fork.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_files_host_dev_only.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Proves cmux Files (dev) never reaches a shipped build (docs/cmux-files-host.md, Production): runs the real embed-files-host-dev.sh for every Release configuration and shipped bundle id against a stub asset, and checks FilesHost's #if DEBUG gate. Run python3 tests/test_files_host_dev_only.py on a fleet Mac after changing the embed phase, FilesHost or the pin (seconds; macOS ditto and codesign, no build)."
