@@ -41,6 +41,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use cmux_message_preview::{MessagePreview, Words as PreviewWords};
 use cmux_mobile_link::api::{ApiClient, NotifyEvent};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -348,8 +349,13 @@ impl Classifier {
                 }
                 if kind == "chief" {
                     event.conversation_id = known.chief_home.as_deref().map(label_id_text);
-                    event.body =
-                        self.previews.get(session_id).map(|p| text_label(p, 400)).filter(|t| !t.is_empty());
+                    // The preview is the reply's Markdown; the banner says its words (a table by
+                    // its titles, a link by its label), in English like the push titles.
+                    event.body = self
+                        .previews
+                        .get(session_id)
+                        .map(|p| text_label(&MessagePreview::new(p).text(&PreviewWords::english()), 400))
+                        .filter(|t| !t.is_empty());
                 }
                 self.gate((self.scope(session_id), kind == "failed"), event, now)
             }
