@@ -138,6 +138,9 @@ public final class WindowMaterialView: NSView {
         artView.wantsLayer = true
         artView.frame = bounds
         artView.autoresizingMask = [.width, .height]
+        // AppKit sets a backing layer's gravity from its placement: both say fill (a custom picture showed bottom-left).
+        artView.layerContentsRedrawPolicy = .never
+        artView.layerContentsPlacement = .scaleProportionallyToFill
         artView.layer?.contentsGravity = .resizeAspectFill
         artView.layer?.masksToBounds = true
         artView.isHidden = true

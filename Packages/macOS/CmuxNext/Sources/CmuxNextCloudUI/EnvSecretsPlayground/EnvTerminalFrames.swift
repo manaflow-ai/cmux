@@ -37,11 +37,16 @@ struct EnvTerminalFrames {
     ]
 
     /// The two frames under their title, in a scroll view.
-    func make() -> NSView {
-        let column = envV([envLabel("Terminal: the same operations, and no way to read a value back", size: TypeScale.title, weight: .semibold),
-                           frame(title: "cmux secrets set", lines: set), frame(title: "cmux secrets list", lines: list)],
+    func make() -> NSView { envScroll(content()) }
+
+    /// The two frames under their title, with no vertical scroll view: for a page that scrolls as a whole. A
+    /// terminal line never wraps and is never cut off; a frame narrower than its longest line scrolls sideways.
+    func content() -> NSView {
+        let title = envLabel("Terminal: the same operations, and no way to read a value back", size: TypeScale.title, weight: .semibold)
+        title.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let column = envV([title, frame(title: "cmux secrets set", lines: set), frame(title: "cmux secrets list", lines: list)],
                           spacing: 18, fill: true)
-        return envScroll(EnvBox(column, padding: envPad(22)))
+        return EnvBox(column, padding: envPad(22))
     }
 
     private func frame(title: String, lines: [(String, NSColor?)]) -> NSView {
@@ -54,10 +59,15 @@ struct EnvTerminalFrames {
         left.widthAnchor.constraint(equalTo: right.widthAnchor).isActive = true
         let bar = EnvBox(barRow,
                          padding: envPad(h: 10, v: 7), fill: NSColor(white: 0.17, alpha: 1))  // colour-allow: a static terminal frame draws fixed terminal colours in both looks
+        // As in a terminal, a line never wraps and is never cut: a frame narrower than its longest line scrolls
+        // sideways, so the list's columns stay lined up.
         let text: [NSView] = lines.map { line in  // visible-only: a fixed sample of at most 13 lines
-            envLabel(line.0.isEmpty ? " " : line.0, color: line.1 ?? NSColor(white: 0.92, alpha: 1), mono: true)  // colour-allow: a static terminal frame draws fixed terminal colours in both looks
+            let label = envLabel(line.0.isEmpty ? " " : line.0, color: line.1 ?? NSColor(white: 0.92, alpha: 1), mono: true)  // colour-allow: a static terminal frame draws fixed terminal colours in both looks
+            label.setContentCompressionResistancePriority(.required, for: .horizontal)
+            return label
         }
-        let body = EnvBox(envV(text, spacing: 3), padding: envPad(12), fill: NSColor(white: 0.09, alpha: 1))  // colour-allow: a static terminal frame draws fixed terminal colours in both looks
+        let lineStack = EnvBox(envV(text, spacing: 3), padding: envPad(12))
+        let body = EnvBox(envHScroll(lineStack), fill: NSColor(white: 0.09, alpha: 1))  // colour-allow: a static terminal frame draws fixed terminal colours in both looks
         let frame = EnvBox(envV([bar, body], spacing: 0, fill: true), border: EnvInk.line, corner: .radius(8))
         frame.wantsLayer = true
         frame.layer?.cornerRadius = 8
