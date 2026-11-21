@@ -664,8 +664,8 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.movingWindow + 0.02) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                restCheckScheduled = false
-                if isScrolling(now: CACurrentMediaTime()) { scheduleRestCheck() } else { applyDeferredOrder() }
+                self.restCheckScheduled = false
+                if self.isScrolling(now: CACurrentMediaTime()) { self.scheduleRestCheck() } else { self.applyDeferredOrder() }
             }
         }
         #endif
