@@ -712,7 +712,7 @@ cmux puts a monochrome cmux icon in the macOS menu bar. Its menu, top to bottom:
 
 - Your cmux account: your name, email and team (the team row opens the team picker), or Sign In to cmux… when you are signed out.
 - Agents working: N, and Needs input: N (it jumps to the newest unread), when agents run or wait.
-- Open cmux (shows the Show/Hide All Windows key when `app.globalHotKey` is on), New Workspace, Go to Home, Message the Chief, Start Agent…
+- Open cmux (shows the Show/Hide All Windows key when `app.globalHotKey` is on), New Workspace, Go to Chief, Message the Chief, Start Agent…
 - Send Feedback, cmux Documentation…, Troubleshooting and Support.
 - Join the cmux Discord, Follow @cmux on X, cmux on GitHub, What's New in cmux.
 - About cmux, Check for Updates… (Restart to Update instead when an update is downloaded; cmux restarts only when you choose it), Settings….
