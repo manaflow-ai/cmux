@@ -265,7 +265,40 @@ describe("1. the model and effort shown are the session's", () => {
     const set = summaryOf("s1");
     set.configOptions![0]!.currentValue = "low";
     expect(effortOf(await drawn(snapshotOf(set), harnessSwitch))).toBe("low");
-    expect(harnessSwitch.view().config).toBeUndefined();
+    expect(harnessSwitch.view().configs).toBeUndefined();
+  });
+
+  // #48444: "it doesn't actually update the selection". The model, the level and Fast are independent
+  // picks: one picked while another is in flight never wipes it, so the chip never falls back to the
+  // old value until the agent answers.
+  test("a level during a model pick, then Fast, all draw at once and none wipes another", async () => {
+    const { harnessSwitch, answer } = await liveSwitch(() => ({ sessionId: "s1", harness: "claude" }));
+    const withFast = () => {
+      const summary = summaryOf("s1");
+      summary.configOptions = [
+        ...summary.configOptions!,
+        { id: "fast-mode", name: "Fast", currentValue: "off", options: [{ value: "off" }, { value: "on" }] },
+      ];
+      return summary;
+    };
+    void harnessSwitch.pickModel("claude-sonnet-5-5", { sessionId: "s1", model: "claude-opus-5-5" });
+    harnessSwitch.pickConfig("effort", "high", { sessionId: "s1", current: "medium" });
+    harnessSwitch.pickConfig("fast-mode", "on", { sessionId: "s1", current: "off" });
+    const now = await drawn(snapshotOf(withFast()), harnessSwitch);
+    expect(now.summary?.model).toBe("claude-sonnet-5-5");
+    expect(effortOf(now)).toBe("high");
+    expect(now.summary?.configOptions?.find((option) => option.id === "fast-mode")?.currentValue).toBe("on");
+    // The agent answers all three, and the session reports them: nothing is left drawn over it.
+    await answer();
+    const reported = withFast();
+    reported.model = "claude-sonnet-5-5";
+    reported.configOptions![0]!.currentValue = "high";
+    reported.configOptions![1]!.currentValue = "on";
+    const settled = await drawn(snapshotOf(reported), harnessSwitch);
+    expect(settled.summary?.model).toBe("claude-sonnet-5-5");
+    expect(effortOf(settled)).toBe("high");
+    expect(harnessSwitch.view().model).toBeUndefined();
+    expect(harnessSwitch.view().configs).toBeUndefined();
   });
 
   test("an effort pick in one chat never draws on another, nor on the first again", async () => {
