@@ -9,6 +9,7 @@
 //! only; encoding and transport plug in through lane 17's `cmux-encode` and
 //! `cmux-rd-engine` (remote-tab-r2.md section 5).
 
+pub mod cdp;
 pub mod file_policy;
 pub mod handshake;
 pub mod launch;
@@ -28,3 +29,9 @@ pub mod smoke;
 
 #[cfg(target_os = "macos")]
 pub mod serve;
+
+#[cfg(all(unix, not(target_os = "macos")))]
+pub mod chromium;
+
+#[cfg(all(unix, not(target_os = "macos")))]
+pub mod cdp_serve;
