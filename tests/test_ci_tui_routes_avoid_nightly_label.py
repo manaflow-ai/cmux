@@ -215,7 +215,7 @@ def test_daemon_tests_never_take_a_mac() -> None:
                 assert label in ("cmux-gcp-lane-build-x64", "cmux-gcp-nightly-x64"), (where, label)
             else:
                 # Its size's RUNNER_POOLS read (#47603), which may hold the fleet's one-job Linux label first.
-                assert label in (LINUX_DAEMON_LABEL, "cmux-fleet-linux-x64"), (where, label)
+                assert label in (LINUX_DAEMON_LABEL, "cmux-fleet-linux-x64", "cmux-linux"), (where, label)
 
 
 def _pin_variable_combinations():

@@ -51,8 +51,12 @@ LIST_OPEN = re.compile(r"fromJSON\('\[[^\]']*$")
 COMPARED = re.compile(r"(?:[!=]=|,|\w\()\s*$")  # a comparison or a function argument, never a bare group
 # The text before a literal that keeps it on purpose -> why. Nothing else may.
 EXCEPTIONS: dict[re.Pattern[str], str] = {
-    # Empty since 2026-11-20: no trusted-token job keeps a literal after its CI_TRUSTED_RUNNER allowlist any more
-    # (they read the pool or the one Linux label). A new entry names the text before its literal and why.
+    re.compile(r"vars\.CI_TRUSTED_RUNNER\) && vars\.CI_TRUSTED_RUNNER \|\|\s*$"): (
+        "runner trust policy: a trusted-token job (pull_request_target, comment events, CLA) takes CI_TRUSTED_RUNNER "
+        "only from the allowlist written into its own expression, else one fixed ephemeral label. A RUNNER_POOLS "
+        "read would let whoever writes that variable route the token; scripts/ci/validate-cla-policy.rb allows the "
+        "CLA job's runs-on as one exact string"
+    ),
 }
 # Whole selections that keep their literal on purpose -> why.
 SELECTIONS_KEPT_LITERAL = {
@@ -184,7 +188,7 @@ class NoSingleSizePins(unittest.TestCase):
                            "steps": [{"run": "echo blacksmith-4vcpu-ubuntu-2404"}]}}
         self.assertEqual([path for path, _ in selections(jobs, ("jobs",))], [("jobs", "runner", "runs-on")])
 
-    def test_every_exception_is_still_used(self) -> None:  # passes vacuously while EXCEPTIONS is empty
+    def test_every_exception_is_still_used(self) -> None:
         text = "\n".join(path.read_text(encoding="utf-8") for path in sorted(WORKFLOWS.glob("*.y*ml")))
         for allowed in EXCEPTIONS:
             with self.subTest(exception=allowed.pattern):
@@ -207,11 +211,11 @@ class NoSingleSizePins(unittest.TestCase):
         for cell in cells:
             self.assertNotIn("RUNNER_POOLS", cell)
 
-    def test_a_trusted_selector_literal_is_a_pin_now_that_nothing_keeps_one(self) -> None:
+    def test_the_trusted_selector_keeps_its_literal_and_nothing_else_does(self) -> None:
         trusted = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\","
                    "\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || "
                    "'blacksmith-4vcpu-ubuntu-2404' }}")
-        self.assertEqual(pins_in(trusted), ["blacksmith-4vcpu-ubuntu-2404"])
+        self.assertEqual(pins_in(trusted), [])
         self.assertTrue(pins_in("${{ vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"))
 
     def test_the_one_label_fork_operand_reads_as_its_hosted_default(self) -> None:
