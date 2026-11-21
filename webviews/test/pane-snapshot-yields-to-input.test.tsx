@@ -329,3 +329,25 @@ test("a turn that starts or ends, or a link that drops, draws at once; a streame
   const grown = chat(10, [row("reply", "assistant", "Done. More")], { isWorking: true });
   expect(drawsAtOnce(working, grown), "a reply that grows mid-turn is a transition").toBe(false);
 });
+
+test("a pick coming back from the daemon (model, effort, access) draws at once; usage does not", async () => {
+  const { drawsAtOnce } = await import("../src/agent-session/acpmux/paneSnapshotLane");
+  const summary = {
+    sessionId: "s",
+    harness: "codex",
+    model: "gpt-6.1-sol",
+    modes: { availableModes: [{ id: "ask" }, { id: "full" }], currentModeId: "ask" },
+    configOptions: [{ id: "reasoning_effort", currentValue: "default", options: [] }],
+  };
+  const base = chat(10, [row("reply", "assistant", "Done.")], { summary } as Partial<AcpmuxSnapshot>);
+  const withSummary = (next: object) => ({ ...base, summary: { ...summary, ...next } }) as AcpmuxSnapshot;
+  expect(drawsAtOnce(base, withSummary({ model: "gpt-6.1" })), "a model pick").toBe(true);
+  expect(
+    drawsAtOnce(base, withSummary({ configOptions: [{ id: "reasoning_effort", currentValue: "high", options: [] }] })),
+    "an effort pick",
+  ).toBe(true);
+  expect(drawsAtOnce(base, withSummary({ modes: { ...summary.modes, currentModeId: "full" } })), "an access pick").toBe(
+    true,
+  );
+  expect(drawsAtOnce(base, withSummary({ usage: { used: 10, size: 100 } })), "a usage update").toBe(false);
+});

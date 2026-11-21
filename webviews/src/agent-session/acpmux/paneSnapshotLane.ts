@@ -63,7 +63,28 @@ export function drawsAtOnce(drawn: AcpmuxSnapshot | undefined, next: AcpmuxSnaps
   // line above it follow the turn's phase, and a deferred phase lets the composer's own state move
   // its buttons a frame before the snapshot that matches them (agentStart.gallery.ts slow-start).
   if (turnPhase(drawn) !== turnPhase(next)) return true;
+  // A pick the person made (harness, model, effort and the other config options, access mode)
+  // coming back from the daemon: its chip shows the pick until the call settles, then reads the
+  // snapshot, so a deferred echo would flash the old value (agent-pane-picks-hold.test.ts).
+  if (!samePicks(drawn.summary, next.summary)) return true;
   return false;
+}
+
+type Summary = AcpmuxSnapshot["summary"];
+
+function samePicks(a: Summary, b: Summary): boolean {
+  if (a === b) return true;
+  if (a?.harness !== b?.harness || a?.model !== b?.model) return false;
+  if (a?.modes?.currentModeId !== b?.modes?.currentModeId) return false;
+  const left = a?.configOptions;
+  const right = b?.configOptions;
+  if (left === right) return true;
+  if ((left?.length ?? 0) !== (right?.length ?? 0)) return false;
+  for (let index = 0; index < (left?.length ?? 0); index += 1) {
+    if (left![index]!.id !== right![index]!.id || left![index]!.currentValue !== right![index]!.currentValue)
+      return false;
+  }
+  return true;
 }
 
 /// Whether the pane has a transition draw it has not committed yet. While it has, a running
