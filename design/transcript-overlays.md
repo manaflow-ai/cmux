@@ -76,7 +76,7 @@ seems like very good. Because it's like, okay, you get jump to bottom, but then 
 thread."
 
 - **Jump to latest**: a glass control over the composer card's end edge while the reader is scrolled up,
-  its arrow over the send button's column, so the tucked hat's count pill has the middle to itself (Leo,
+  its arrow over the card's last button (the mic or Send), so the tucked hat's count pill has the middle to itself (Leo,
   2026-11-21, of the arrow on the pill: "didn't we say we wanted to move these to the side"). It takes the
   start edge when the hat's handle stands at the end (`agentPane.display.trayHandle`).
 - **Jump up** is the same disc with its arrow turned up in place (`jumpPair.css`, One control below): the

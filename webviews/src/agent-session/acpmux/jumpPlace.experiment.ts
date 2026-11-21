@@ -22,7 +22,7 @@ export const jumpLatestPlace = defineExperiment({
     end: {
       label: "End edge",
       description:
-        "The stack at the composer card's end edge, over the send button's column: the arrow's center on the send button's center line, the hat's pill alone in the middle.",
+        "The stack at the composer card's end edge, edge-aligned: the arrow's center over the card's last button, the hat's pill alone in the middle.",
     },
     start: {
       label: "Start edge",
