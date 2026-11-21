@@ -16,6 +16,19 @@ here="$root/scripts/measure/dev-loop"
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"
 cd "$root"
+# A fleet step checks out no submodules (only their empty gitlink directories), and every loop builds the app:
+# reload.sh needs Ghostty's headers and the ghostty-next tree, and GhosttyKit.xcframework (a prebuilt download).
+# 2026-11-21 step 8c4a9182f450ab59d9b0a93c: "ghostty/include/ghostty.h is missing. Run ./scripts/setup.sh".
+for sub in ghostty ghostty-next; do
+  [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub" || { echo "dev-loop-ceiling: submodule $sub failed" >&2; exit 1; }
+done
+if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
+  rm -rf GhosttyKit.xcframework
+  if [ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" ] && [ -n "${CI_SHARED_CACHE_DIR:-}" ]; then
+    export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
+  fi
+  ./scripts/download-prebuilt-ghosttykit.sh || { echo "dev-loop-ceiling: GhosttyKit download failed" >&2; exit 1; }
+fi
 IFS=, read -ra list <<<"$loops"
 for loop in "${list[@]}"; do
   script="$here/$loop.sh"

@@ -31,16 +31,19 @@ export function WhoElseCard({ item, call }: { item: AcpmuxActivity; call: WhoEls
     () => setOpen(true),
   );
   const answer = call.answer;
+  // whole-list-ok: this tool call's own answer (the sessions acpmux named for it), not the app's session list
   const sessions = answer?.sessions ?? [];
   // Sessions acpmux left out of its answer (past its row cap) count in the line, but no row can
   // show them: "N more" opens only the rows the answer holds, and a note names the rest.
   const omitted = answer?.more ?? 0;
   const total = sessions.length + omitted;
+  // whole-list-ok: the answer's own few sessions (at most its row cap), read once per answer
+  const allTopicOnly = sessions.every(topicOnly);
   const line = call.pending
     ? t("whoElse.looking")
     : total === 0
       ? t("whoElse.none")
-      : omitted === 0 && sessions.every(topicOnly)
+      : omitted === 0 && allTopicOnly
         ? t(total === 1 ? "whoElse.oneSimilar" : "whoElse.manySimilar", { count: String(total) })
         : t(total === 1 ? "whoElse.one" : "whoElse.many", { count: String(total) });
   const shown = open ? sessions : sessions.slice(0, ROWS_SHOWN);
