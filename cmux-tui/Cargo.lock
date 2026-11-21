@@ -22,6 +22,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "clap",
+ "cmux-agent-customize",
  "cmux-agent-pane-policy",
  "cmux-build-space",
  "cmux-chat-index",
@@ -1286,11 +1287,13 @@ dependencies = [
  "cmux-tui-hooks",
  "cmux-tui-platform",
  "indexmap",
+ "libc",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
  "toml_edit 0.22.27",
+ "yaml-rust",
 ]
 
 [[package]]
@@ -1673,6 +1676,7 @@ dependencies = [
 name = "cmux-conversation"
 version = "0.1.0"
 dependencies = [
+ "cmux-message-preview",
  "pulldown-cmark",
  "serde",
  "serde_json",
@@ -2048,6 +2052,14 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "url",
+]
+
+[[package]]
+name = "cmux-message-preview"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

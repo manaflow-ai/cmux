@@ -104,7 +104,7 @@ public final class CmuxDialogButtonView: ClickableButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     public override class var cellClass: AnyClass? {
-        get { TitleCell.self }
+        get { OwnInkButtonCell.self }
         set {}
     }
 
@@ -226,10 +226,14 @@ public final class CmuxDialogButtonView: ClickableButton {
             // A quiet button is a destructive one, or a stacked request's Deny (its cancel answer) in the same red text.
             let lift = ChromeTunables.opaqueOverlayLift.value
             // On a menu or popover's glass (the bookmark bubble) the page shows through unscrimmed: fit to any page.
-            let card = enclosingSurface?.tintLevel == .menu ? CmuxDialogButtonLook.menuCardSurfaces(tokens, lift: lift)
-                : CmuxDialogButtonLook.cardSurfaces(tokens, lift: lift)
+            // Outside any card the button sits on the window, see-through or not.
+            let card = switch enclosingSurface?.tintLevel {
+            case nil: CmuxDialogButtonLook.windowSurfaces(tokens)
+            case .menu?: CmuxDialogButtonLook.menuCardSurfaces(tokens, lift: lift)
+            default: CmuxDialogButtonLook.cardSurfaces(tokens, lift: lift)
+            }
             return CmuxDialogButtonLook(role: isQuiet ? .destructive : button.role, tokens: tokens, state: state, quiet: isQuiet,
-                                        card: card)
+                                        isEnabled: isEnabled, card: card)
         }
     }
 
@@ -248,7 +252,6 @@ public final class CmuxDialogButtonView: ClickableButton {
             let onOpaqueCard = enclosingSurface?.material == .opaque
             focusGap.borderColor = (onOpaqueCard ? look.opaqueCard : look.card).nsColor.cgColor
             CATransaction.commit()
-            alphaValue = isEnabled ? 1 : 0.45
             let font = button.role == .default ? Typography.bodyEmphasized : Typography.body
             if let keycapView {
                 keycapView.paint(ink: look.title.nsColor, glyph: look.keyHint.nsColor)
@@ -269,20 +272,6 @@ public final class CmuxDialogButtonView: ClickableButton {
 }
 
 extension CmuxDialogButtonView {
-    /// Draws a disabled button's title in its own ink: AppKit repaints it in the system's disabled ink, which on the
-    /// button's fill read as no title at all. The button dims as a whole instead (its `alphaValue`).
-    final class TitleCell: NSButtonCell {
-        override func drawTitle(_ title: NSAttributedString, withFrame frame: NSRect, in controlView: NSView) -> NSRect {
-            guard !isEnabled, title.length == attributedTitle.length else { return super.drawTitle(title, withFrame: frame, in: controlView) }
-            // The title as AppKit laid it out (centered), in the button's own inks.
-            let own = NSMutableAttributedString(attributedString: title)
-            attributedTitle.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: own.length)) { ink, range, _ in
-                if let ink { own.addAttribute(.foregroundColor, value: ink, range: range) }
-            }
-            return super.drawTitle(own, withFrame: frame, in: controlView)
-        }
-    }
-
     /// The room after the title for the gap and the keycap, less the leading inset: the title and this room,
     /// centered in the button, leave the leading inset before the title and the keycap's inset after the plate.
     fileprivate func keycapRoom(_ keycap: CmuxDialogKeycapView) -> CGFloat {

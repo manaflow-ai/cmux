@@ -108,7 +108,10 @@
 .acpmux-context{flex:none}
 .acpmux-context-ring{flex:none;display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
 .acpmux-context-ring svg{width:12px;height:12px}
-.acpmux-context-ring:disabled,.acpmux-context-ring[aria-disabled="true"]{background:none;color:var(--agent-muted);opacity:.5}
+/* Disabled ("Context window · Not reported"): the bare track, whole, in the tertiary tier at full opacity, as every page's disabled controls (pageBase.css), and in the secondary tier over art, where pageBase lifts the tertiary one. The muted ink at half opacity, its track at 30%, read 1.3:1 to 1.8:1 (control-contrast audit). */
+.acpmux-context-ring:disabled,.acpmux-context-ring[aria-disabled="true"]{background:none;color:var(--cmux-text-tertiary,var(--agent-muted));opacity:1}
+.acpmux-context-ring:is(:disabled,[aria-disabled="true"]) .acpmux-context-track{stroke-opacity:1}
+:root[data-cmux-see-through]:not([data-reduce-transparency]) .acpmux-context-ring:is(:disabled,[aria-disabled="true"]){color:var(--cmux-text-secondary,var(--agent-muted))}
 .acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* The `percent` look of the context ring (experiment context-ring-look, not shipped): the percent used as a caption beside the ring. */
 .acpmux-context:has(.acpmux-context-caption){display:inline-flex;align-items:center}
