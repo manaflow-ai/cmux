@@ -121,6 +121,16 @@ fn the_create_rules_answer() {
         &json!({"code": "cmux.cloud.indeterminate", "attempt": 1, "attempts": 3}),
     );
     assert_eq!(retries, json!({"retries": true}));
+    let (_, pending) = call(
+        c"cloud_power_pending",
+        &json!({"op": "cloud.machine.start", "code": "cmux.cloud.indeterminate"}),
+    );
+    assert_eq!(pending, json!({"pending": true}));
+    let (_, pause) = call(
+        c"cloud_power_pending",
+        &json!({"op": "cloud.machine.pause", "code": "cmux.cloud.indeterminate"}),
+    );
+    assert_eq!(pause, json!({"pending": false}));
 }
 
 #[test]

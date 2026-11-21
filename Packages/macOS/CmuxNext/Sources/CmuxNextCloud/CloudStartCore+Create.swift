@@ -1,7 +1,7 @@
 import Foundation
 
 /// The NEXT Cloud create's same-key retry rules and the power ops' retry, asked of Rust
-/// (cmux-cloud-start-core `machine_create`, with their tests; ops `cloud_create_*`, `cloud_power_retries`).
+/// (cmux-cloud-start-core `machine_create`, with their tests; ops `cloud_create_*`, `cloud_power_retries`, `cloud_power_pending`).
 extension CloudStartCore {
     /// Whether the server refused the create before making anything, an answer a same-key Retry would
     /// only replay (the Retry takes a new key). An FFI that does not answer keeps the key: a lost answer
@@ -30,6 +30,14 @@ extension CloudStartCore {
         struct Reply: Decodable { var retries: Bool }
         let request = Request(code: code, attempt: max(attempt, 0), attempts: max(attempts, 0))
         return call("cloud_power_retries", request, as: Reply.self)?.retries ?? false
+    }
+
+    /// Whether power op `op` whose last try still failed with `code` is on its way, not failed (a start still
+    /// indeterminate: its record says how it ends). An FFI that does not answer keeps it a failure.
+    public func powerPending(op: String, code: String) -> Bool {
+        struct Request: Encodable { var op: String, code: String }
+        struct Reply: Decodable { var pending: Bool }
+        return call("cloud_power_pending", Request(op: op, code: code), as: Reply.self)?.pending ?? false
     }
 
     /// The relay call of a create pinned to `team`: every call, the first and each same-key retry after an

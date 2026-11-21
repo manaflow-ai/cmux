@@ -1,6 +1,6 @@
 //! `cmux-cloud-start-core`'s machine bootstrap, `.cmux/machine.toml` applier and create retry
 //! rules over the JSON channel (`cloud_bootstrap_*`, `cloud_machine_config_*`,
-//! `cloud_machine_step_outcome`, `cloud_machine_repo_*`, `cloud_create_*`, `cloud_power_retries`). The app makes the file
+//! `cloud_machine_step_outcome`, `cloud_machine_repo_*`, `cloud_create_*`, `cloud_power_retries`, `cloud_power_pending`). The app makes the file
 //! writes and execs a plan lists, sends each exec's answer back and acts on what comes back.
 
 use cmux_cloud_start_core::{
@@ -114,6 +114,15 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             json!({ "retries": create::power_retries(&request.code, request.attempt, request.attempts) })
+        }
+        b"cloud_power_pending" => {
+            #[derive(Deserialize)]
+            struct Request {
+                op: String,
+                code: String,
+            }
+            let request: Request = read(request)?;
+            json!({ "pending": create::power_pending(&request.op, &request.code) })
         }
         _ => return Err(ERR_INVALID),
     };
