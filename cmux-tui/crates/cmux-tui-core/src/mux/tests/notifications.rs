@@ -115,7 +115,7 @@ fn agent_delivery_posts_a_badge_and_a_banner_and_skips_disabled_completion() {
     }}}"#,
     )
     .unwrap();
-    assert!(mux.start_settings_owner(crate::mux::settings::SettingsPaths {
+    assert!(mux.start_settings_owner(settings::SettingsPaths {
         config,
         seed: None,
         state_dir: None,
