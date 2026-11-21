@@ -1,5 +1,6 @@
 @testable import CmuxNextCloud
 import Foundation
+import os
 import Testing
 
 /// The warm spare made ready ahead of its claim (``CloudSpareReadiness``): keyed once per app run and scope, never
@@ -17,16 +18,32 @@ import Testing
         var links: [String] = []
         var up = true
         var fenced = false
+        /// Whether a link's dial ahead connects, and the links whose dial was asked.
+        var dialed = false
+        var dials: [String] { dialLog.withLock { $0 } }
+        private let dialLog = OSAllocatedUnfairLock<[String]>(initialState: [])
         /// Held shut, a link's coming up waits for it to open.
         var gate: AsyncStream<Void>?
+        /// Held shut, a link's dial ahead waits for it to open.
+        var dialGate: AsyncStream<Void>?
+        /// Held shut, a keyed start waits for it to open.
+        var keyGate: AsyncStream<Void>?
         let ended: AsyncStream<String>
         private let end: AsyncStream<String>.Continuation
         let made: AsyncStream<String>
         private let make: AsyncStream<String>.Continuation
+        /// Each link whose dial ahead began.
+        let dialsBegun: AsyncStream<String>
+        private let dialing: AsyncStream<String>.Continuation
+        /// Each machine whose keyed start began.
+        let keysBegun: AsyncStream<String>
+        private let keying: AsyncStream<String>.Continuation
 
         init() {
             (ended, end) = AsyncStream.makeStream(of: String.self)
             (made, make) = AsyncStream.makeStream(of: String.self)
+            (dialsBegun, dialing) = AsyncStream.makeStream(of: String.self)
+            (keysBegun, keying) = AsyncStream.makeStream(of: String.self)
         }
 
         /// No end comes after this: `ended` finishes.
@@ -35,16 +52,24 @@ import Testing
         func dependencies() -> CloudSpareReadiness.Dependencies {
             .init(scope: { [unowned self] in self.scope }, key: { [unowned self] machine, _ in
                 self.keys.append(machine)
+                self.keying.yield(machine)
+                if let gate = self.keyGate { for await _ in gate { break } }
                 self.during()
                 if let answer = self.answer { self.bound[machine] = answer }
                 return self.answer
             }, keyedInstance: { [unowned self] in self.bound[$0] }, link: { [unowned self] machine, _ in
                 self.links.append(machine)
                 let (isUp, isFenced, ends, gate) = (self.up, self.fenced, self.end, self.gate)
+                let (isDialed, dialGate, dialing, dialLog) = (self.dialed, self.dialGate, self.dialing, self.dialLog)
                 self.make.yield(machine)
                 return .init(serve: World.serve(machine), fenced: { isFenced }, up: {
                     if let gate { for await _ in gate { break } }
                     return isUp
+                }, dial: {
+                    dialLog.withLock { $0.append(machine) }
+                    dialing.yield(machine)
+                    if let dialGate { for await _ in dialGate { break } }
+                    return isDialed
                 }, end: { _ = ends.yield(machine) })
             })
         }
@@ -202,6 +227,106 @@ import Testing
         var ends: [String] = []
         for await machine in world.ended { ends.append(machine) }
         #expect(ends.isEmpty, "the prime ended the link its session took")
+    }
+
+    /// The warm's prime dials its machine on the link that is up, once: the session that takes it has only a stream
+    /// left to open.
+    @Test func theWarmsPrimeDialsItsLinkOnce() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        world.dialed = true
+        readiness.prime("vm_spare", team: "team_a", dials: true)
+        await readiness.settled("vm_spare")
+        readiness.prime("vm_spare", team: "team_a", dials: true)
+        await readiness.settled("vm_spare")
+        #expect(world.links == ["vm_spare"])
+        #expect(world.dials == ["vm_spare"])
+        #expect(readiness.link(for: "vm_spare", team: "team_a") != nil)
+    }
+
+    /// A dial that did not connect is not asked again, and leaves the link for its session, whose own connect dials.
+    @Test func aLinkWhoseDialDidNotConnectIsStillTakenAndNotDialedAgain() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        readiness.prime("vm_spare", team: "team_a", dials: true)
+        await readiness.settled("vm_spare")
+        readiness.prime("vm_spare", team: "team_a", dials: true)
+        await readiness.settled("vm_spare")
+        #expect(world.dials == ["vm_spare"])
+        #expect(readiness.link(for: "vm_spare", team: "team_a") != nil)
+    }
+
+    /// Any other prime (the service's "spare ready") links and keys, and dials nothing: only a warm says a chat is
+    /// about to start.
+    @Test func aPrimeThatDoesNotDialLinksOnly() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(world.links == ["vm_spare"])
+        #expect(world.dials.isEmpty)
+        // The warm's prime then dials the link already held.
+        readiness.prime("vm_spare", team: "team_a", dials: true)
+        await readiness.settled("vm_spare")
+        #expect(world.links == ["vm_spare"])
+        #expect(world.dials == ["vm_spare"])
+    }
+
+    @Test func aLinkThatDoesNotComeUpIsNotDialed() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        world.up = false
+        readiness.prime("vm_spare", team: "team_a", dials: true)
+        await readiness.settled("vm_spare")
+        #expect(world.dials.isEmpty)
+    }
+
+    @Test func aLinkTakenWhileItDialsIsNotEnded() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        let (gate, open) = AsyncStream.makeStream(of: Void.self)
+        (world.dialGate, world.dialed) = (gate, true)
+        readiness.prime("vm_spare", team: "team_a", dials: true)
+        _ = await firstValue(world.dialsBegun)
+        // The claim's session comes while the serve dials: it takes the serve and its connect joins that dial.
+        #expect(readiness.link(for: "vm_spare", team: "team_a") != nil)
+        open.yield()
+        await readiness.settled("vm_spare")
+        world.finish()
+        var ends: [String] = []
+        for await machine in world.ended { ends.append(machine) }
+        #expect(ends.isEmpty, "the prime ended the link its session took")
+        #expect(!readiness.holdsLink("vm_spare"))
+    }
+
+    /// The warm names the team the service gave for the spare, the one its session asks for: its prime replaces a
+    /// link made for another team, and a prime that does not dial keeps the warm's.
+    @Test func theWarmsTeamReplacesAnotherAndIsKept() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        world.dialed = true
+        readiness.prime("vm_spare", team: "team_app")
+        await readiness.settled("vm_spare")
+        readiness.prime("vm_spare", team: "team_service", dials: true)
+        await readiness.settled("vm_spare")
+        #expect(world.links == ["vm_spare", "vm_spare"], "the link made for another team was replaced")
+        #expect(await firstValue(world.ended) == "vm_spare")
+        readiness.prime("vm_spare", team: "team_app")
+        await readiness.settled("vm_spare")
+        #expect(world.links == ["vm_spare", "vm_spare"], "the warm's link is kept")
+        #expect(world.dials == ["vm_spare"])
+        #expect(readiness.link(for: "vm_spare", team: "team_service") != nil)
+    }
+
+    /// A warm's prime that comes while another prime still keys the spare (seconds) links and dials beside it.
+    @Test func aWarmsPrimeDuringAnotherPrimeDialsBesideIt() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        let (gate, open) = AsyncStream.makeStream(of: Void.self)
+        (world.keyGate, world.dialed) = (gate, true)
+        readiness.prime("vm_spare", team: "team_a")
+        _ = await firstValue(world.keysBegun)
+        readiness.prime("vm_spare", team: "team_a", dials: true)
+        #expect(await firstValue(world.dialsBegun) == "vm_spare", "dialed while the first prime still keys")
+        open.yield()
+        await readiness.settled("vm_spare")
+        #expect(world.links == ["vm_spare"], "one link for both primes")
+        #expect(world.dials == ["vm_spare"])
+        #expect(readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"))
+        #expect(readiness.link(for: "vm_spare", team: "team_a") != nil)
     }
 
     @Test func aLinkOfAnotherTeamIsEndedNotTaken() async {

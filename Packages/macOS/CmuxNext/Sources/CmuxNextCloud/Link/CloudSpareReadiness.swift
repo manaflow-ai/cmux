@@ -5,9 +5,11 @@ import os
 /// app run before any claim, so the start that claims it has little left to do but open its chat. On a warm's answer
 /// (``CloudSpareWarm``) or the platform's `cloud.spare.ready` (``CloudMachineWire/onSpareReady``), ``prime(_:team:)``
 /// keys the spare's acpmux for remote approvals (the start's own keyed restart, done ahead: an unclaimed spare's
-/// creator is the person, all the owner check asks) and starts its carrier link beside it. A start on a machine this
-/// app run keyed skips its approvals step (``isKeyed(_:scope:instance:)``), and the session made for the claimed
-/// machine takes the link that is already up (``link(for:team:)``).
+/// creator is the person, all the owner check asks) and starts its carrier link beside it. A prime from the warm
+/// (the person is about to start a chat, and the service keeps the spare running for it) also dials the machine on
+/// that link: the first dial of a machine took about 3 s on 2026-11-19, a stream on a session already dialed 0.05 to
+/// 0.2 s. A start on a machine this app run keyed skips its approvals step (``isKeyed(_:scope:instance:)``), and the
+/// session made for the claimed machine takes the link that is already up (``link(for:team:)``).
 ///
 /// Memory only, like the key itself: an app restart starts with nothing keyed. Every entry belongs to one scope, the
 /// user and team signed in when it was made: after a sign-out or an account or team switch it reads as absent (and is
@@ -42,17 +44,27 @@ public final class CloudSpareReadiness {
         public let serve: CloudCarrierServe
         let fenced: @Sendable () -> Bool
         let up: @Sendable () async -> Bool
+        /// Dials the machine once the link is up (``CloudCarrierServe/dialAhead(limit:keep:)``): whether it connected.
+        let dial: @Sendable () async -> Bool
         let end: @Sendable () async -> Void
+
+        /// How long a prime waits for its dial's answer; a dial that takes longer goes on in the serve.
+        public static let dialWait: Duration = .seconds(20)
+        /// How long the session a dial made is held for a claim: ``CloudSpareReadiness/linkKept`` (600 s) less the two
+        /// idle minutes the serve then keeps it itself, so it is closed about when its link is past its keep (the
+        /// service may have paused the spare by then, and a session to a paused machine only delays the next connect).
+        public static let dialKept: Duration = .seconds(480)
 
         /// The serve of `connector` (the session's own, as `CloudService.addSession` makes it), on its spare socket.
         public init(spare connector: CloudCarrierDial.Connector, paths: CloudPaths) {
             let serve = CloudCarrierServe(connector: connector, socket: paths.linkSocket(machineID: "spare:" + connector.dial.machine))
-            self.init(serve: serve, fenced: { connector.isFenced }, up: { (try? await serve.socketPath()) != nil }, end: { await serve.stop() })
+            self.init(serve: serve, fenced: { connector.isFenced }, up: { (try? await serve.socketPath()) != nil },
+                      dial: { await serve.dialAhead(limit: Self.dialWait, keep: Self.dialKept) }, end: { await serve.stop() })
         }
 
         init(serve: CloudCarrierServe, fenced: @escaping @Sendable () -> Bool, up: @escaping @Sendable () async -> Bool,
-             end: @escaping @Sendable () async -> Void) {
-            (self.serve, self.fenced, self.up, self.end) = (serve, fenced, up, end)
+             dial: @escaping @Sendable () async -> Bool, end: @escaping @Sendable () async -> Void) {
+            (self.serve, self.fenced, self.up, self.dial, self.end) = (serve, fenced, up, dial, end)
         }
     }
 
@@ -61,14 +73,24 @@ public final class CloudSpareReadiness {
     public static let linkKept: Duration = .seconds(600)
 
     private struct Keyed { let scope: Scope; let instance: String }
-    private struct Held { let scope: Scope; let team: String?; let until: ContinuousClock.Instant; let link: SpareLink }
+    /// Where a held link's dial ahead stands: one dial per link, never asked twice.
+    private enum Dial: String { case notAsked = "not dialed", running = "dialing", connected = "dialed", failed = "its dial did not connect" }
+    private struct Held {
+        let scope: Scope
+        let team: String?
+        let until: ContinuousClock.Instant
+        let link: SpareLink
+        var isUp = false
+        var dial = Dial.notAsked
+    }
 
     private let dependencies: Dependencies
     private var keyed: [String: Keyed] = [:]
     private var links: [String: Held] = [:]
     /// The prime running for each machine, with the ``resets`` it started under: one from before a reset writes
-    /// nothing, so a prime after that reset starts its own.
-    private var primes: [String: (resets: Int, task: Task<Void, Never>)] = [:]
+    /// nothing, so a prime after that reset starts its own. `dials`: it dials its link; `id` tells it from a later one.
+    private var primes: [String: (resets: Int, dials: Bool, id: Int, task: Task<Void, Never>)] = [:]
+    private var lastPrime = 0
     /// When a key ahead of `machine` last did not key it: not tried again for ``keyRetry``, so a spare whose daemon is
     /// busy or too old is not read (or restarted) on every app activation.
     private var keyMissed: [String: ContinuousClock.Instant] = [:]
@@ -93,16 +115,27 @@ public final class CloudSpareReadiness {
     }
 
     /// Makes `machine` ready for a claim in the scope signed in now: keyed and linked, each once. Never awaited by its
-    /// caller; a second prime of the same machine while one runs joins it.
-    public func prime(_ machine: String, team: String?) {
+    /// caller; a second prime of the same machine while one runs joins it. `dials`: the warm's prime, which names the
+    /// team the service gave for the spare and dials the machine on the link; one that joins a prime that does not
+    /// dial links and dials beside it.
+    public func prime(_ machine: String, team: String?, dials: Bool = false) {
         let scope = dependencies.scope()
         sweep()
         let resets = resets
-        guard Self.signedIn(scope), !machine.isEmpty, primes[machine]?.resets != resets else { return }
+        guard Self.signedIn(scope), !machine.isEmpty else { return }
+        let running = primes[machine].flatMap { $0.resets == resets ? $0 : nil }
+        if let running, running.dials || !dials { return }
+        lastPrime += 1
+        let id = lastPrime
         // task-owner: primes[machine]; one bounded prime (the keyed start's and the link's own deadlines end it), removed when it ends
-        primes[machine] = (resets, Task { [weak self] in
-            await self?.primed(machine, team: team, scope: scope, resets: resets)
-            if self?.primes[machine]?.resets == resets { self?.primes[machine] = nil }
+        primes[machine] = (resets, dials, id, Task { [weak self] in
+            if let running {
+                await self?.linkAhead(machine, team: team, scope: scope, resets: resets, dials: dials)
+                await running.task.value
+            } else {
+                await self?.primed(machine, team: team, scope: scope, resets: resets, dials: dials)
+            }
+            if self?.primes[machine]?.id == id { self?.primes[machine] = nil }
         })
     }
 
@@ -113,10 +146,17 @@ public final class CloudSpareReadiness {
     /// not past ``linkKept``; else nil, and a link that no longer fits is ended. Taken once.
     public func link(for machine: String, team: String?) -> CloudCarrierServe? {
         guard let held = links.removeValue(forKey: machine) else { return nil }
-        guard fits(held, scope: dependencies.scope()), held.team == team else {
+        let scope = dependencies.scope()
+        guard fits(held, scope: scope), held.team == team else {
+            let why = held.scope != scope ? "the account changed since"
+                : now() >= held.until ? "it is past its keep"
+                : held.link.fenced() ? "its account ended"
+                : "it was made for team \(held.team ?? "none") and the machine is in \(team ?? "none")"
+            Self.log.notice("cloud spare \(machine, privacy: .public): the link made ahead is ended, not taken: \(why, privacy: .public)")
             end(held.link)
             return nil
         }
+        Self.log.notice("cloud spare \(machine, privacy: .public): its session takes the link made ahead (\(held.dial.rawValue, privacy: .public))")
         return held.link.serve
     }
 
@@ -132,8 +172,8 @@ public final class CloudSpareReadiness {
         resets += 1
     }
 
-    private func primed(_ machine: String, team: String?, scope: Scope, resets: Int) async {
-        async let linked: Void = linkAhead(machine, team: team, scope: scope, resets: resets)
+    private func primed(_ machine: String, team: String?, scope: Scope, resets: Int, dials: Bool) async {
+        async let linked: Void = linkAhead(machine, team: team, scope: scope, resets: resets, dials: dials)
         await keyAhead(machine, scope: scope, resets: resets)
         await linked
     }
@@ -157,25 +197,49 @@ public final class CloudSpareReadiness {
 
     private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.spare")
 
-    private func linkAhead(_ machine: String, team: String?, scope: Scope, resets: Int) async {
+    private func linkAhead(_ machine: String, team: String?, scope: Scope, resets: Int, dials: Bool) async {
         // Forgotten since its prime (the scope may still be the same one: Cloud turned off): no link is made or held.
         guard resets == self.resets else { return }
-        if let held = links[machine], fits(held, scope: scope), held.team == team { return }
-        if let stale = links.removeValue(forKey: machine) { end(stale.link) }
-        guard let link = dependencies.link(machine, team) else { return }
-        links[machine] = Held(scope: scope, team: team, until: now().advanced(by: Self.linkKept), link: link)
-        let up = await link.up()
-        // No longer held here: a session took it while it came up (its own connect waits on the same serve), or a
-        // sweep, a take or a reset ended it. Either way it is not this prime's to end.
-        guard links[machine]?.link.serve === link.serve else { return }
-        // Down, or made for a scope no longer signed in: ended, and nothing waits for a session.
-        guard up, dependencies.scope() == scope else {
-            links[machine] = nil
-            end(link)
-            Self.log.info("cloud spare \(machine, privacy: .public): no link ahead (it did not come up, or the account changed); the start links it")
-            return
+        // Held and fit: kept. A prime that dials names the team the service gave for the spare, the one its session
+        // asks for, so it replaces a link made for another; any other prime keeps what is held.
+        let kept = links[machine].map { fits($0, scope: scope) && ($0.team == team || !dials) } ?? false
+        if !kept {
+            if let stale = links.removeValue(forKey: machine) { end(stale.link) }
+            guard let link = dependencies.link(machine, team) else { return }
+            links[machine] = Held(scope: scope, team: team, until: now().advanced(by: Self.linkKept), link: link)
         }
-        Self.log.info("cloud spare \(machine, privacy: .public): linked ahead")
+        guard let link = links[machine]?.link else { return }
+        if links[machine]?.isUp != true {
+            let up = await link.up()
+            // No longer held here: a session took it while it came up (its own connect waits on the same serve), or a
+            // sweep, a take or a reset ended it. Either way it is not this prime's to end.
+            guard links[machine]?.link.serve === link.serve else { return }
+            // Down, or made for a scope no longer signed in: ended, and nothing waits for a session.
+            guard up, dependencies.scope() == scope else {
+                links[machine] = nil
+                end(link)
+                Self.log.info("cloud spare \(machine, privacy: .public): no link ahead (it did not come up, or the account changed); the start links it")
+                return
+            }
+            // Two primes may wait for one link to come up: the first back records it.
+            if links[machine]?.isUp != true {
+                links[machine]?.isUp = true
+                Self.log.info("cloud spare \(machine, privacy: .public): linked ahead")
+            }
+        }
+        guard dials, links[machine]?.dial == .notAsked else { return }
+        links[machine]?.dial = .running
+        let began = now()
+        let dialed = await link.dial()
+        // Taken, swept or reset while it dialed: the session's own connect joins the dial or makes its own.
+        guard links[machine]?.link.serve === link.serve else { return }
+        links[machine]?.dial = dialed ? .connected : .failed
+        let ms = Int(began.duration(to: now()) / .milliseconds(1))
+        if dialed {
+            Self.log.notice("cloud spare \(machine, privacy: .public): dialed ahead in \(ms) ms")
+        } else {
+            Self.log.notice("cloud spare \(machine, privacy: .public): not dialed ahead after \(ms) ms (refused, or no answer yet); the start's connect dials")
+        }
     }
 
     private func fits(_ held: Held, scope: Scope) -> Bool { held.scope == scope && now() < held.until && !held.link.fenced() }
