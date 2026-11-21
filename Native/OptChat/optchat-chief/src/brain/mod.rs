@@ -1128,6 +1128,12 @@ pub struct Brain {
     /// The idempotency keys of this run's `send` calls (send.rs): a repeat
     /// of one in the same turn is a noop even after the owner took it.
     sent_keys: std::collections::HashSet<String>,
+    /// Messages the owner refused and the outbox dropped (outbox.rs) that the
+    /// Chief has not been told of yet: `send` reports them (send.rs).
+    refused: Vec<outbox::Refused>,
+    /// `send` keys the outbox merged into an earlier entry (pacing::coalesce):
+    /// absorbed key -> the key it went under, until that `send` answers.
+    merged_sends: HashMap<String, String>,
     /// The running turn was ended by the Chief's own `stop` or `sleep`
     /// (wakes.rs): its final text is not posted, and it is no failure.
     tool_stopped: bool,
@@ -1339,6 +1345,8 @@ impl Brain {
             newest_seq: 0,
             reacted: std::collections::HashSet::new(),
             sent_keys: std::collections::HashSet::new(),
+            refused: Vec::new(),
+            merged_sends: HashMap::new(),
             tool_stopped: false,
             denial_stopped: None,
             unanswered: Vec::new(),
