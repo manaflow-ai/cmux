@@ -6,8 +6,8 @@
 //! ([`PeerRow::listed`]); a reader that needs the whole row parses it then ([`PeerRow::value`]).
 //!
 //! The members a list writes itself (`stale`, `peerState`) or leaves out or cuts without tools
-//! (`tools`, `toolsMutable`, `title`), and `tags` (read on demand), are kept apart from the rest,
-//! so a list writes the row with no parse and no member twice.
+//! (`tools`, `toolsMutable`, `timeBreakdown`, `title`), and `tags` (read on demand), are kept apart
+//! from the rest, so a list writes the row with no parse and no member twice.
 
 use super::*;
 use serde_json::value::RawValue;
@@ -21,6 +21,11 @@ enum Apart {
     Title,
     Tools,
     ToolsMutable,
+    /// A chat's time breakdown (`time_breakdown.rs`): up to 512 spans, ~30 KB. A local census
+    /// row leaves it out (`views::summary_with_tools`); a peer's row a link read while attached
+    /// carried it into every `session_changed` a watch without tools heard: 80% of the watch
+    /// feed's bytes, to every pane socket (Leo's NIGHTLY, 2026-11-21).
+    TimeBreakdown,
 }
 
 impl Apart {
@@ -32,6 +37,7 @@ impl Apart {
             "title" => Self::Title,
             "tools" => Self::Tools,
             "toolsMutable" => Self::ToolsMutable,
+            "timeBreakdown" => Self::TimeBreakdown,
             _ => return None,
         })
     }
@@ -44,6 +50,7 @@ impl Apart {
             Self::Title => "title",
             Self::Tools => "tools",
             Self::ToolsMutable => "toolsMutable",
+            Self::TimeBreakdown => "timeBreakdown",
         }
     }
 }
@@ -193,8 +200,8 @@ impl PeerRow {
     }
 
     /// The row as JSON text: every member, `stale` as `stale` says (else as kept), `peerState`
-    /// as `peer_state` says (else as kept), and without tools (`tools`, `toolsMutable`, a long
-    /// title cut) unless `tools`.
+    /// as `peer_state` says (else as kept), and without tools (`tools`, `toolsMutable`,
+    /// `timeBreakdown`, a long title cut) unless `tools`.
     fn text_with(&self, stale: Option<bool>, peer_state: Option<&str>, tools: bool) -> String {
         if let Some(last_seen) = self.mark {
             let plain = Self { mark: None, ..self.clone() };
@@ -224,7 +231,7 @@ impl PeerRow {
             let value = match which {
                 Apart::Stale if stale.is_some() => continue,
                 Apart::PeerState if peer_state.is_some() => continue,
-                Apart::Tools | Apart::ToolsMutable if !tools => continue,
+                Apart::Tools | Apart::ToolsMutable | Apart::TimeBreakdown if !tools => continue,
                 Apart::Title if !tools => self.short_title.as_ref().unwrap_or(value),
                 _ => value,
             };
@@ -390,7 +397,7 @@ mod tests {
             "sessionId": "s1", "name": "hb/x", "status": "running", "peer": "hb",
             "stale": false, "peerState": "old", "tags": {"mux.parent": "p", "mux.handle": "h"},
             "title": "t".repeat(400), "tools": [{"name": "a"}], "toolsMutable": true,
-            "updatedAt": 5, "createdAt": 3, "pendingPermissions": 2,
+            "timeBreakdown": {"totalMs": 9, "spans": [{"turnSeq": 1}]}, "updatedAt": 5, "createdAt": 3, "pendingPermissions": 2,
         });
         let row = PeerRow::new(&summary);
         assert_eq!(row.value(), summary);
@@ -404,6 +411,12 @@ mod tests {
         let mut want = super::super::views::without_summary_tools(summary.clone());
         want.set("peerState", json!("connected"));
         assert_eq!(listed, want);
+        assert!(
+            listed.get("timeBreakdown").is_none(),
+            "a row without tools carries no time breakdown"
+        );
+        let changed: Value = serde_json::from_str(&row.changed_text(false)).unwrap();
+        assert!(changed.get("timeBreakdown").is_none() && changed.get("tools").is_none());
         let with: Value = serde_json::from_str(&row.listed(None, true)).unwrap();
         assert_eq!(with, summary);
         assert_eq!(row.listed(None, true).matches("\"stale\"").count(), 1);

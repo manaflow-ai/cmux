@@ -89,7 +89,9 @@ struct AgentPaneTransportSheddingTests {
         // A request to the page waits on its answer; an observed notification feeds a host observer.
         let request = #"{"jsonrpc":"2.0","id":"q1","method":"session/request_permission","params":{"sessionId":"s"}}"#
         let accepted = #"{"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{"promptId":"p1"}}"#
-        let permission = #"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":99,"record":{"sessionUpdate":"permission_request"}}}"#
+        // The record as acpmux sends it (server/pending.rs `event_value`): its `kind` is what the
+        // host's observers read (AgentPaneUserGestures, AcpmuxDecisionContexts).
+        let permission = #"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":99,"dir":"mux","kind":"permission_request","msg":{"permissionId":"p"}}}"#
         socket.receiveLocalReply(request)
         socket.receiveLocalReply(accepted)
         socket.receiveLocalReply(permission)

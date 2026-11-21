@@ -1,0 +1,27 @@
+id: no-frame-text-search
+language: swift
+severity: error
+message: "a substring search over a daemon frame's text: read the frame once (AcpmuxJSONKeys.facts: the check, the top-level method and id, params.kind) and route by what it found, or `// frame-search-allow: <reason>`"
+note: >
+  Foundation contains/range(of:) is Unicode- and locale-generic and walks the whole frame per marker;
+  15 marker searches per frame took 75% of every pane socket's inbound queue in Leo's NIGHTLY
+  (ten queues at 10-14% each, 2026-11-21). Flags only literals that hold a quote (a JSON marker),
+  `contains(where: text.contains)` and `range(of:)`, in the agent pane's transport files.
+files:
+  - "**/CmuxNextAgentPane/Acpmux*Socket*.swift"
+  - "**/CmuxNextAgentPane/AcpmuxRequestIds.swift"
+  - "**/CmuxNextAgentPane/AcpmuxPaneShedding.swift"
+  - "**/CmuxNextAgentPane/AcpmuxJSONKeys.swift"
+  - "**/CmuxNextAgentPane/AgentPaneTransport*.swift"
+rule:
+  any:
+    - pattern: '$LIST.contains(where: $TEXT.contains)'
+    - pattern: '$TEXT.range(of: $$$ARGS)'
+    - all:
+        - pattern: $TEXT.contains($MARKER)
+        - has:
+            stopBy: end
+            regex: '^(#+".*".*"#+|".*\\".*")$'
+            any:
+              - kind: line_string_literal
+              - kind: raw_string_literal
