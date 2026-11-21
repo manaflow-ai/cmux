@@ -288,5 +288,36 @@ class GuardTest(unittest.TestCase):
         self.assertTrue(pmb.TEAMMATE_HOLD.format(login="x").startswith("HOLD: "))
 
 
+class PushTest(unittest.TestCase):
+    """GitHub's workflow-scope check timing out is retried; any other refusal is not."""
+
+    def pusher(self, errors):
+        calls = []
+
+        def run(*argv):
+            calls.append(argv)
+            if errors:
+                raise RuntimeError(errors.pop(0))
+            return ""
+
+        return run, calls
+
+    def test_a_timed_out_workflow_check_is_retried(self) -> None:
+        run, calls = self.pusher(["! [remote rejected] HEAD -> x (Unable to determine if workflow can be created or updated due to timeout; `workflows` scope may be required.)"] * 2)
+        waits = []
+        pmb.push_branch("u", "HEAD:refs/heads/x", run=run, sleep=waits.append)
+        self.assertEqual((len(calls), waits), (3, [15, 45]))
+
+    def test_other_refusals_and_a_lasting_timeout_raise(self) -> None:
+        run, calls = self.pusher(["! [remote rejected] (protected branch)"])
+        with self.assertRaises(RuntimeError):
+            pmb.push_branch("u", "r", run=run, sleep=lambda s: None)
+        self.assertEqual(len(calls), 1)
+        run, calls = self.pusher(["due to timeout"] * 9)
+        with self.assertRaises(RuntimeError):
+            pmb.push_branch("u", "r", run=run, sleep=lambda s: None)
+        self.assertEqual(len(calls), 4)
+
+
 if __name__ == "__main__":
     unittest.main()

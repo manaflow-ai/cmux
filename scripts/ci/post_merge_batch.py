@@ -136,6 +136,21 @@ def git(*argv: str, cwd: Path | None = None) -> str:
     return out.stdout
 
 
+def push_branch(url: str, refspec: str, run=git, sleep=time.sleep, waits: tuple[int, ...] = (15, 45, 90)) -> None:
+    """Pushes refspec, retrying GitHub's own timeout. A token with no `workflows` scope makes GitHub check
+    whether the push changes a workflow file, and that check can time out on this repository ("Unable to
+    determine if workflow can be created or updated due to timeout"; drill-5's revert, run 44897813534).
+    Any other refusal raises at once."""
+    for wait in (*waits, None):
+        try:
+            run("push", "--quiet", url, refspec)
+            return
+        except RuntimeError as error:
+            if wait is None or "due to timeout" not in str(error):
+                raise
+            sleep(wait)
+
+
 def first_parent_range(good: str, bad: str, *, cwd: Path | None = None) -> list[str]:
     """The commits after good up to bad, oldest first, along the branch's first parents."""
     out = git("rev-list", "--first-parent", "--reverse", f"{good}..{bad}", cwd=cwd)
@@ -577,7 +592,7 @@ def cmd_revert(args: argparse.Namespace) -> int:
         summary(args.summary, f"Reverting `{culprit[:11]}` conflicts with the tip of {args.branch}; left to its owner.")
         return 0
     if not args.dry_run:
-        git("push", "--quiet", args.push_url, f"HEAD:refs/heads/{branch}")
+        push_branch(args.push_url, f"HEAD:refs/heads/{branch}")
     origin = f"{args.server_url}/{args.repo}/actions/runs/{args.origin}" if args.origin else "(unknown)"
     this = f"{args.server_url}/{args.repo}/actions/runs/{args.run_id}"
     who = f"#{pr}" if pr else f"`{culprit[:12]}`"
