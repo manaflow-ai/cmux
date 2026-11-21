@@ -1,0 +1,3 @@
+cmux-ci: controller HTTP 400: invalid ci-step: script scripts/measure/perf-idle-ab.sh is not on the measurement list: an unlisted scripts/measure script runs only at a commit on feat-cmux-next or main; land it, or submit at a commit there
+Repair: https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md#builds-from-a-host-outside-the-company-tailnet
+exit 1
