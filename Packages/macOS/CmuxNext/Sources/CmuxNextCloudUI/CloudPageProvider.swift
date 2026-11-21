@@ -1,7 +1,7 @@
-import CmuxNextCloud
-import CmuxNextDaemon
-import CmuxNextPages
-import CmuxNextSettings
+package import CmuxNextCloud
+package import CmuxNextDaemon
+package import CmuxNextPages
+package import CmuxNextSettings
 import Foundation
 import Observation
 

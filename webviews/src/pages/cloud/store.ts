@@ -484,7 +484,7 @@ export class CloudStore {
    * (`openWhenRunning`), the created machine opens in a workspace once it runs.
    */
   openCreate(memoryMb?: number, openWhenRunning = false): void {
-    if (!this.canChange() || this.state.create) return;
+    if (!this.canChange() || this.state.create || (this.state.surge && !this.state.surge.hidden)) return;
     const key = this.key();
     const allowed = memoryChoices(this.state.plan).some((choice) => choice.mb === memoryMb && choice.allowed);
     const size = allowed ? memoryMb : defaultMemory(this.state.plan);
@@ -551,7 +551,11 @@ export class CloudStore {
     this.set({ surge: request });
     try {
       const preview = await this.client!.call<SurgePreview>(CloudOps.surgePreview, draft.args);
-      if (this.state.surge === request) this.set({ surge: { ...draft, preview, error: undefined } });
+      if (this.state.surge !== request) return;
+      if (preview.count !== draft.args.count || preview.ttl_seconds !== draft.args.ttl_seconds) {
+        throw new Error("Cloud returned an estimate for a different request.");
+      }
+      this.set({ surge: { ...draft, preview, error: undefined } });
     } catch (error) {
       if (this.state.surge === request)
         this.set({ surge: { ...draft, preview: undefined, error: message(error), errorCode: codeOf(error) } });
@@ -592,7 +596,7 @@ export class CloudStore {
       const refused =
         code === "cmux.cloud.surge_unavailable" ||
         code === "cmux.cloud.surge_capacity" ||
-        code === "cmux.cloud.surge_stale_preview";
+        (code === "cmux.cloud.surge_stale_preview" && !draft.sent);
       this.set({
         surge: {
           ...request,

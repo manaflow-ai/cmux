@@ -408,6 +408,7 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   provider.snapshots = JSON.parse(JSON.stringify(state.snapshots));
   if (state.ports) provider.edge.forwards = JSON.parse(JSON.stringify(state.ports)) as PortForward[];
   if (state.maxActive !== undefined) provider.account.plan.max_active = state.maxActive;
+  if (state.surge) provider.surge = state.surge;
   if (state.snapshotsFail) provider.failNext = CloudOps.snapshotList;
   if (state.retention) provider.retention = JSON.parse(JSON.stringify(state.retention));
   if (state.machinesCap !== undefined) provider.machinesCap = state.machinesCap;
@@ -453,6 +454,12 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.action === "select-machine") clickLater(".cloud-machine");
   if (state.action === "create") clickLater(".cloud-create-button");
   if (state.action === "get") clickLater(".cloud-store-get");
+  if (state.action === "surge-preview" || state.action === "surge-result") {
+    clickLater(".cloud-surge-button");
+    setTimeout(() => document.querySelector<HTMLElement>(".cloud-surge-preview")?.click(), 220);
+    if (state.action === "surge-result")
+      setTimeout(() => document.querySelector<HTMLElement>(".cloud-surge-submit")?.click(), 360);
+  }
   if (state.action === "create-at-cap") {
     clickLater(".cloud-create-button");
     setTimeout(() => document.querySelector<HTMLElement>(".cloud-create-submit")?.click(), 320);

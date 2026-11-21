@@ -137,7 +137,7 @@ export interface SurgeArgs {
 export interface SurgePreview extends SurgeArgs {
   provider: string | null;
   available: boolean;
-  reason: string | null;
+  reason: string;
   estimated_cost_usd: number | null;
 }
 
@@ -147,7 +147,7 @@ export interface SurgeResult extends SurgeArgs {
     status: "created" | "queued" | "refused";
     machine_id: string | null;
     provider: string | null;
-    reason: string | null;
+    reason: string;
     retryable: boolean;
   }[];
 }
