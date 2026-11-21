@@ -22,6 +22,9 @@ import workflow_jobs  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 POOL = "fromJSON(vars.RUNNER_POOLS).linux"
+# Same-repository Linux jobs name the persistent pool (Leo: "the goal is ofc to have that 214x reduction in
+# minutes asap so we dont have to use so much stuff"); fork pull requests keep their Blacksmith literal first.
+PERSISTENT = "'cmux-linux'"
 TARGETS = {
     "app-platform.yml": {"check"},
     "cmux-next-terminal.yml": {"rust-terminal-linux", "swift-terminal-linux"},
@@ -67,13 +70,11 @@ class RunnerSetTests(unittest.TestCase):
 
         declared = json.loads((ROOT / ".github" / "runners.json").read_text())["hosted_light_jobs"]
         hosted = "github.run_attempt == 1 && 'ubuntu-24.04'"
-        # The job that holds a pull-requests write token, or runs the checked-out revision's
-        # scripts, retries only on ephemeral Blacksmith; the rest may take the reconciled pool.
-        ephemeral = "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"
+        # Past the fork branch, every same-repository attempt takes the persistent pool.
         cases = {
             ("pr-red-checks-comment.yml", "comment"): "|| 'cmux-linux' }}",
-            ("cmux-next.yml", "path_route"): ephemeral,
-            ("ci-guards.yml", "guard-status"): f"|| {POOL} }}}}",
+            ("cmux-next.yml", "path_route"): f"|| {PERSISTENT} }}}}",
+            ("ci-guards.yml", "guard-status"): f"|| {PERSISTENT} }}}}",
             ("pr-checks.yml", "size"): "|| 'cmux-linux' }}",
             ("pr-checks.yml", "ui-review"): "|| 'cmux-linux' }}",
         }
@@ -116,7 +117,7 @@ class RunnerSetTests(unittest.TestCase):
                         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", runs_on)
                         self.assertNotIn("needs.", runs_on)
                     else:
-                        self.assertIn(POOL, runs_on)
+                        self.assertTrue(runs_on.rstrip().endswith(f"|| {PERSISTENT} }}}}"), runs_on)
                     self.assertNotIn("vars.LINUX_RUNNER || 'blacksmith-", runs_on)
                     self.assertNotIn("CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-", runs_on)
                     self.assertNotIn("outputs.map", runs_on)
@@ -124,12 +125,12 @@ class RunnerSetTests(unittest.TestCase):
                     self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
                     self.assertNotRegex(runs_on, r"RUNNER_POOLS\)\.linux_\d")
 
-    def test_gallery_health_reads_the_live_16_vcpu_pool(self) -> None:
-        # A CPU-bound render (ask-378f0fa70e: 4 vCPU 30.5 s, 16 vCPU 13.4 s for the same cases): the 16 vCPU
-        # pool, never a fixed size, so a stalled 16 vCPU moves it to 32 like any pool.
+    def test_gallery_health_takes_the_persistent_pool(self) -> None:
+        # A CPU-bound render (ask-378f0fa70e: 4 vCPU 30.5 s, 16 vCPU 13.4 s for the same cases): the persistent
+        # pool, never a fixed Blacksmith size, once past the fork branch.
         job = yaml.safe_load((WORKFLOWS / "gallery-health.yml").read_text(encoding="utf-8"))["jobs"]["health"]
         runs_on = runs_on_text(job, "gallery-health.yml#health")
-        self.assertTrue(runs_on.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux_16 }}"), runs_on)
+        self.assertTrue(runs_on.rstrip().endswith(f"|| {PERSISTENT} }}}}"), runs_on)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
 
