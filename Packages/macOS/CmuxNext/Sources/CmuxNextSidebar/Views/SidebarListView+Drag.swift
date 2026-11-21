@@ -107,11 +107,15 @@ extension SidebarListViewComponents {
         // The source slot closes on the drag's spring; the list does not reload while the drag is held.
         showDragLayout()
         SidebarEmptyZones.begin(self, drag)
+        // The slot the lift shows (its own, or a group's) is where the drag starts: noted with no tap.
+        reorderHaptics.begin(at: drag.hapticSlot)
     }
     func updateDrag(windowPoint: NSPoint) {
         guard let drag else { return }
         let started = CACurrentMediaTime()
         defer { lastDragWorkMs = (CACurrentMediaTime() - started) * 1000 }
+        // Every way a move can change the drop slot returns through here: the slot change taps the trackpad.
+        defer { reorderHaptics.moved(to: drag.hapticSlot) }
         if SidebarListPinDrop.holds(self, drag, at: windowPoint) || offerHandoff(drag, windowPoint: windowPoint) || holdsDragOut(drag, windowPoint: windowPoint) { return }
         drag.lastWindowPoint = windowPoint
         let point = convert(windowPoint, from: nil)
@@ -184,6 +188,7 @@ extension SidebarListViewComponents {
             // The drop sent nothing (no intent, e.g. an adopt still on the way): nothing will end a settle, so the
             // rows and the card go back as for a refusal.
             if settling != nil, doc.document?.lastIntentKey == sentBefore { settling = nil }
+            if settling != nil { reorderHaptics.dropped() }
             suppressed = drag.hiddenKeys
             // The drop's look is what the drag shows: adopting it moves nothing (the card settles into its slot).
             reload(animated: true, adopt: true)
@@ -196,6 +201,8 @@ extension SidebarListViewComponents {
         // A drop moves rows, not the list: its reloads anchor on the first visible row (cx-fnfj, cx-8quut) and reveal only
         // a focused row the drop moved or pushed out of view (sidebar-focused-visible).
         revealedActive = selectionRevealKey
+        // Released where it started (its own slot): the order stays, so no drop tap.
+        var moved = drag.origin.map { target != .position($0) } ?? true
         switch (drag.payload, target) {
         case let (.workspaces(ids), .position(position)):
             model.send(.reorder(ids, to: position))
@@ -207,8 +214,9 @@ extension SidebarListViewComponents {
             SidebarGroupDrop.group(self, ids, onto: anchor, origin: drag.origin) // The target first, then the dragged rows (Arc/Dia).
             drag.renameOnLand = anchor
         case (.group, .intoGroup), (.group, .ontoWorkspace), (.item, _):
-            break
+            moved = false
         }
+        if moved { reorderHaptics.dropped() }
         suppressed = drag.hiddenKeys // Rows land under the lifted view, stay hidden until it arrives.
         reload(animated: true, adopt: true) // the optimistic order: rows already at their slots move nothing
         land(drag)

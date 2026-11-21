@@ -126,6 +126,8 @@ final class SidebarRegionView: NSView {
     /// What a right-click on empty space targets: the band's own target for the footer.
     var emptySpaceTarget: SidebarContextTarget = .background
     var reorderSections: [LayoutSection]?
+    /// The trackpad taps of this region's drags (`sidebar.reorderHaptics`).
+    var reorderHaptics = SidebarReorderHaptics()
     private var width: CGFloat = 0
     private var animatesFrames = false
     /// Frames go to their place on the drag's additive spring (`springShow`); a new view is placed at once.

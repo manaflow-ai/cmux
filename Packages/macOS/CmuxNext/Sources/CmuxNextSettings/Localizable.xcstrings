@@ -45354,6 +45354,36 @@
         }
       }
     },
+    "settings.sidebar.reorderHaptics": {
+      "comment": "Settings > Appearance > Sidebar: title of the toggle for the trackpad taps a drag reorder in the sidebar plays",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Haptic Feedback When Reordering"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Haptisches Feedback beim Neuordnen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Retour haptique lors de la réorganisation"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "ردود فعل لمسية عند إعادة الترتيب"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Respuesta háptica al reordenar"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "重新排序時提供觸覺回饋"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "重新排序时提供触觉反馈"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "순서 변경 시 햅틱 피드백"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "並べ替え時の触覚フィードバック"}}
+      }
+    },
+    "settings.sidebar.reorderHaptics.help": {
+      "comment": "Settings > Appearance > Sidebar: help under the reorder haptics toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A Force Touch trackpad taps as a dragged workspace, group or item moves to a new place in the sidebar, and once more as it drops."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Ein Force-Touch-Trackpad tippt, wenn ein gezogener Workspace, eine Gruppe oder ein Objekt in der Seitenleiste an eine neue Stelle rückt, und noch einmal beim Ablegen."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Un trackpad Force Touch émet un tapotement lorsqu’un espace de travail, un groupe ou un élément déplacé change de place dans la barre latérale, puis une fois encore au dépôt."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تنقر لوحة التتبع Force Touch عندما ينتقل مساحة عمل أو مجموعة أو عنصر مسحوب إلى مكان جديد في الشريط الجانبي، ومرة أخرى عند الإفلات."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Un trackpad Force Touch da un toque cuando un espacio de trabajo, grupo o elemento arrastrado pasa a otro lugar de la barra lateral, y otro más al soltarlo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "拖移的工作區、群組或項目在側邊欄移到新位置時，Force Touch 觸控式軌跡板會輕敲一下，放開時再敲一次。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "拖移的工作区、群组或项目在边栏中移到新位置时，Force Touch 触控板会轻敲一下，松开时再敲一次。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "드래그한 워크스페이스, 그룹 또는 항목이 사이드바에서 새 위치로 이동할 때 Force Touch 트랙패드가 톡 울리고, 놓을 때 한 번 더 울립니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ドラッグしたワークスペース、グループ、項目がサイドバーの新しい位置に移るたびに Force Touch トラックパッドが軽くタップし、ドロップ時にもう一度タップします。"}}
+      }
+    },
     "settings.sidebar.pinnedBandsScroll": {
       "extractionState": "manual",
       "localizations": {

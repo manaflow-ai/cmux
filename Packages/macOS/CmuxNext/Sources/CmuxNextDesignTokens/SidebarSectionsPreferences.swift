@@ -190,6 +190,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// workspace's agent lists under it on a thin line, rows carry their pull requests, and the
     /// first rows their Command-number keycaps. Off by default: it changes the list's look.
     public var sessionTree = false
+    /// `sidebar.reorderHaptics` (https://github.com/manaflow-ai/cmux/issues/48598): a drag reorder in the sidebar taps the
+    /// trackpad as its drop slot changes and as it drops. On by default.
+    public var reorderHaptics = true
     /// `sidebar.style`: the standard sidebar (default) or the thin rail.
     public var style: SidebarLayoutStyle = .standard
 

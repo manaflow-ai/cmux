@@ -75,6 +75,7 @@ extension SidebarRegionView {
         let both = SidebarRegionDrag.followsBothAxes(subject, sections: content.sections, look: content.look)
         reorder = SidebarRegionDrag(subject: subject, lift: lift, grab: CGPoint(x: point.x - frame.minX, y: point.y - frame.minY),
                                     followsBothAxes: both, hidden: hidden)
+        reorderHaptics.begin(at: AnyHashable(content.sections))
         reorderSections = content.sections
     }
 
@@ -110,6 +111,8 @@ extension SidebarRegionView {
         // Sideways, the card's middle decides too, so a tile makes way when the card covers half of it.
         let probe = CGPoint(x: drag.followsBothAxes ? card.midX : point.x, y: card.midY)
         guard let moved = SidebarRegionReorder.move(drag.subject, at: probe, display: layoutResult, sections: sections) else { return }
+        // A new place among the band's items taps the trackpad (`sidebar.reorderHaptics`).
+        if moved != sections { reorderHaptics.moved(to: AnyHashable(moved)) }
         reorderSections = moved
         relayout(animated: true)
     }
@@ -138,18 +141,23 @@ extension SidebarRegionView {
             drag.lift.removeFromSuperview()
             for view in drag.hidden { view.alphaValue = 1 }
             onSectionDrop?(sectionMove)
+            reorderHaptics.dropped()
             return
         }
         if drag.dropsToList, case let .item(id) = drag.subject {
             // The document moves the item into the list (no remove): the band shows it until the move lands.
             onDropToList?(id)
+            reorderHaptics.dropped()
             return land(drag)
         }
         if drag.removesOnDrop, case let .item(id) = drag.subject {
             onDragOutRemove?(id.rawValue)
             return land(drag)
         }
-        if let sections = reorderSections, sections != content?.sections { onReorder?(drag.subject, sections) }
+        if let sections = reorderSections, sections != content?.sections {
+            onReorder?(drag.subject, sections)
+            reorderHaptics.dropped()
+        }
         land(drag)
     }
 
