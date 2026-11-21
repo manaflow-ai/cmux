@@ -61,6 +61,14 @@ extension WindowOverlayHost {
     /// mouse monitor asks this for every window of the app; the window asks it in `sendEvent` too, for the events a
     /// divider catcher forwards (those pass no monitor).
     ///
+    /// A left press on an overlay's control (a dialog's Close, Cancel or check box) is held until its release, then both
+    /// go to the panel, the release first in the queue. The control runs AppKit's tracking loop on the press, and that
+    /// loop takes the release from the queue itself, unseen by this host and addressed to the window under the panel:
+    /// a press handed over at once had its release read in that window's coordinates (a divider catcher's, a page's),
+    /// off the control, and the click answered nothing (Aziz 2026-11-17: Close on "Close “Align GUI Bullet Points”?"
+    /// took click after click over the divider between a terminal and a page). The held press's drags go nowhere: the
+    /// control reads only where its release lands.
+    ///
     /// - Parameter event: A mouse or scroll event on its way to a window that is not the panel.
     /// - Returns: True when the panel got the event instead.
     public func takeEventFromBelow(_ event: NSEvent) -> Bool {
@@ -76,19 +84,50 @@ extension WindowOverlayHost {
         let screen = source.convertPoint(toScreen: event.locationInWindow)
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel:
-            guard acceptsMouse(at: panel.convertPoint(fromScreen: screen)) else {
+            guard HelperWindowStack(window: window).target(atScreen: screen) == .overlay else {
                 // A press elsewhere: a taken press whose release never came (a menu loop took it) is over.
-                if event.type != .scrollWheel { takenButton = nil }
+                if event.type != .scrollWheel {
+                    takenButton = nil
+                    heldPress = nil
+                }
                 return false
             }
             panel.ignoresMouseEvents = false
-            if event.type != .scrollWheel { takenButton = Self.button(of: event) }
+            if event.type != .scrollWheel {
+                takenButton = Self.button(of: event)
+                heldPress = nil
+                if event.type == .leftMouseDown, controlTracksPress(atScreen: screen) {
+                    heldPress = (event, screen)
+                    return true
+                }
+            }
         default:
             guard let takenButton, Self.button(of: event) == takenButton else { return false }
-            if [.leftMouseUp, .rightMouseUp, .otherMouseUp].contains(event.type) { self.takenButton = nil }
+            let released = [.leftMouseUp, .rightMouseUp, .otherMouseUp].contains(event.type)
+            if released { self.takenButton = nil }
+            if let held = heldPress {
+                guard released else { return true }
+                heldPress = nil
+                // The release waits at the head of the queue, addressed to the panel, for the control's tracking loop.
+                if let release = addressed(event, to: panel, screen: screen) { NSApp.postEvent(release, atStart: true) }
+                deliver(held.event, to: panel, screen: held.screen)
+                return true
+            }
         }
         deliver(event, to: panel, screen: screen)
         return true
+    }
+
+    /// Whether an enabled control of an overlay is under `screen`: a press there runs AppKit's tracking loop.
+    func controlTracksPress(atScreen screen: NSPoint) -> Bool {
+        guard let root = panel.contentView else { return false }
+        let point = panel.convertPoint(fromScreen: screen)
+        var view = root.hitTest(root.superview?.convert(point, from: nil) ?? point)
+        while let current = view {
+            if let control = current as? NSControl { return control.isEnabled }
+            view = current.superview
+        }
+        return false
     }
 
     /// ``takeEventFromBelow(_:)`` for the overlay host of `window`, asked by the window's `sendEvent` for every event:
@@ -174,6 +213,13 @@ extension WindowOverlayHost {
         case .mouseMoved, .mouseEntered, .mouseExited:
             routeMouse(at: NSEvent.mouseLocation)
             return false
+        case .scrollWheel:
+            // A scroll off every overlay (the panel had not let go yet) goes to what is under the overlays there; it
+            // went nowhere before.
+            let screen = HelperWindowStack.screenPoint(of: event)
+            guard !isAppHost, let window, !acceptsMouse(at: panel.convertPoint(fromScreen: screen)) else { return false }
+            HelperWindowStack(window: window).deliver(event, atScreen: screen, under: .overlay)
+            return true
         default:
             return false
         }
@@ -189,13 +235,13 @@ extension WindowOverlayHost {
         }
     }
 
-    /// The window under a click outside every interactive region: the
-    /// window itself over an occluder (the sidebar, where page frames run
-    /// under it), else the frontmost page window there, else the window.
+    /// The window under a click outside every interactive region: what is under the overlays there
+    /// (``HelperWindowStack``): a divider catcher, the window itself over an occluder (the sidebar, where page frames run
+    /// under it), the front page window, else the window. A divider catcher counts: a press there is the divider's, not
+    /// the page's under the catcher.
     func forwardingTarget(for screenPoint: NSPoint, in window: NSWindow) -> NSWindow {
-        let windowPoint = window.convertPoint(fromScreen: screenPoint)
-        if occluderRects.contains(where: { $0.contains(windowPoint) }) { return window }
-        return Self.frontPageWindow(at: screenPoint, in: window) ?? window
+        let stack = HelperWindowStack(window: window)
+        return stack.window(of: stack.target(atScreen: screenPoint, under: .overlay))
     }
 
     /// The frontmost visible page window (``isPageWindow(_:)``) of `window` under `screenPoint`, as the window
@@ -223,30 +269,12 @@ extension WindowOverlayHost {
 
     /// Sends `event` to `target` at `screen` (a screen point), as the window server would have.
     func deliver(_ event: NSEvent, to target: NSWindow, screen: NSPoint) {
-        // A copy of the real event keeps its drag deltas (pointer lock, page
-        // drags use them); only the window and location change.
-        if let copy = event.cgEvent?.copy() {
-            copy.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(target.windowNumber))
-            copy.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(target.windowNumber))
-            if let forwarded = NSEvent(cgEvent: copy) {
-                let addressed = Self.relocated(forwarded, to: target, screen: screen)
-                // A scroll the copy did not address to `target` goes nowhere rather than to the wrong window.
-                if addressed == nil, forwarded.type == .scrollWheel { return }
-                return target.sendEvent(addressed ?? forwarded)
-            }
-        }
-        if let forwarded = Self.relocated(event, to: target, screen: screen) { target.sendEvent(forwarded) }
+        if let forwarded = addressed(event, to: target, screen: screen) { target.sendEvent(forwarded) }
     }
 
-    /// `event` addressed to `target` at the screen point (deltas are lost: a fallback only). Nil for a scroll, which
-    /// has no such constructor: its copy above is the only way, and with no copy the scroll goes nowhere.
-    static func relocated(_ event: NSEvent, to target: NSWindow, screen: NSPoint) -> NSEvent? {
-        guard event.window !== target else { return event }
-        guard event.type != .scrollWheel else { return nil }
-        return NSEvent.mouseEvent(with: event.type, location: target.convertPoint(fromScreen: screen),
-                                  modifierFlags: event.modifierFlags, timestamp: event.timestamp,
-                                  windowNumber: target.windowNumber, context: nil, eventNumber: event.eventNumber,
-                                  clickCount: event.clickCount, pressure: event.pressure)
+    /// `event` as the window server would have sent it to `target` at `screen` (``HelperWindowStack/addressed(_:to:screen:)``).
+    func addressed(_ event: NSEvent, to target: NSWindow, screen: NSPoint) -> NSEvent? {
+        HelperWindowStack.addressed(event, to: target, screen: screen)
     }
 
     func removeMouseMonitor() {
