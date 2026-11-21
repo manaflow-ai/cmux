@@ -24,6 +24,21 @@ public struct RemoteTerminalPathResolver: Sendable {
         return scheme.lowercased() == "file"
     }
 
+    /// Reports whether any token resolves against the terminal's working directory.
+    ///
+    /// Callers use this to skip a live directory query when every token is absolute,
+    /// home-relative, or an explicit file URL.
+    /// - Parameter tokens: Candidate terminal tokens or file URLs.
+    /// - Returns: Whether some spelling is a relative path.
+    public func needsWorkingDirectory(tokens: [String]) -> Bool {
+        tokens.contains { raw in
+            isFileReference(raw) && raw.pathResolutionCandidates().contains {
+                if case .relative = reference($0, remoteHost: "") { return true }
+                return false
+            }
+        }
+    }
+
     /// Resolves candidate spellings using only remote directory metadata.
     ///
     /// Candidates retain `..` because collapsing it locally changes the meaning of remote
@@ -31,7 +46,7 @@ public struct RemoteTerminalPathResolver: Sendable {
     /// Named-user tildes are unsupported; `~` always means the authenticated remote user's home.
     /// - Parameters:
     ///   - tokens: Candidate terminal tokens or file URLs.
-    ///   - workingDirectory: The source terminal's reported remote directory, when known.
+    ///   - workingDirectory: The source terminal's remote directory, when known.
     ///   - homeDirectory: The home reported by the SSH connection, when known.
     ///   - remoteHost: The configured SSH host, used to validate explicit file URL authorities.
     /// - Returns: Absolute remote paths, with duplicates removed and no local filesystem probes.
@@ -44,27 +59,18 @@ public struct RemoteTerminalPathResolver: Sendable {
         var paths: [String] = []
         for raw in tokens where isFileReference(raw) {
             for spelling in raw.pathResolutionCandidates() {
-                let token: String
-                if let url = URL(string: spelling), let scheme = url.scheme {
-                    guard scheme.lowercased() == "file", url.user == nil, url.password == nil, url.port == nil,
-                          url.host == nil || url.host?.isEmpty == true ||
-                            url.host?.lowercased() == "localhost" ||
-                            url.host?.lowercased() == remoteHost.lowercased() else { continue }
-                    token = url.path
-                } else {
-                    token = spelling
-                }
-                guard !token.isEmpty else { continue }
                 let path: String
-                if token == "~" || token.hasPrefix("~/") {
-                    guard let homeDirectory, homeDirectory.hasPrefix("/") else { continue }
-                    path = token == "~" ? homeDirectory : homeDirectory
-                        + (homeDirectory.hasSuffix("/") ? "" : "/") + String(token.dropFirst(2))
-                } else if token.hasPrefix("~") {
+                switch reference(spelling, remoteHost: remoteHost) {
+                case nil:
                     continue
-                } else if token.hasPrefix("/") {
-                    path = token
-                } else {
+                case .absolute(let absolute):
+                    path = absolute
+                case .home(let suffix):
+                    guard let homeDirectory, homeDirectory.hasPrefix("/") else { continue }
+                    path = suffix.map {
+                        homeDirectory + (homeDirectory.hasSuffix("/") ? "" : "/") + $0
+                    } ?? homeDirectory
+                case .relative(let token):
                     guard let workingDirectory, workingDirectory.hasPrefix("/") else { continue }
                     path = workingDirectory + (workingDirectory.hasSuffix("/") ? "" : "/") + token
                 }
@@ -73,5 +79,32 @@ public struct RemoteTerminalPathResolver: Sendable {
             }
         }
         return paths
+    }
+
+    private enum Reference {
+        case absolute(String)
+        /// `~` alone has no suffix; `~/x` has suffix `x`.
+        case home(String?)
+        case relative(String)
+    }
+
+    /// Classifies one spelling; nil for unusable tokens such as named-user tildes or foreign file URLs.
+    private func reference(_ spelling: String, remoteHost: String) -> Reference? {
+        let token: String
+        if let url = URL(string: spelling), let scheme = url.scheme {
+            guard scheme.lowercased() == "file", url.user == nil, url.password == nil, url.port == nil,
+                  url.host == nil || url.host?.isEmpty == true ||
+                    url.host?.lowercased() == "localhost" ||
+                    url.host?.lowercased() == remoteHost.lowercased() else { return nil }
+            token = url.path
+        } else {
+            token = spelling
+        }
+        guard !token.isEmpty else { return nil }
+        if token == "~" { return .home(nil) }
+        if token.hasPrefix("~/") { return .home(String(token.dropFirst(2))) }
+        if token.hasPrefix("~") { return nil }
+        if token.hasPrefix("/") { return .absolute(token) }
+        return .relative(token)
     }
 }

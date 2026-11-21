@@ -6,6 +6,8 @@ the existing terminal Cmd-click harness enabled for `preview file.txt` in grid
 mode. CMUX_PREVIEW_HARNESS_STATE and CMUX_PREVIEW_HARNESS_COMMAND identify its
 state/command files. CMUXTERM_CLI must be the tagged app's bundled CLI.
 No raw-SSH or manually configured remote-workspace substitute is accepted.
+The workload changes directory without reporting OSC 7, so relative previews
+must use the live foreground process directory rather than the spawn directory.
 """
 
 import fcntl
@@ -24,7 +26,7 @@ from cmux import cmux
 
 
 WORKLOAD = r'''
-import os, pathlib, shutil, socket, sys, tempfile
+import os, pathlib, shutil, sys, tempfile
 token = sys.argv[1]
 directory = tempfile.mkdtemp(prefix='cmux-preview-' + token + '-')
 owners = []
@@ -37,7 +39,6 @@ try:
     os.chdir(directory)
     pathlib.Path('preview file.txt').write_text('REMOTE_PREVIEW_' + token + '\n')
     print('\033[2J\033[H', end='')
-    print('\033]7;file://' + socket.gethostname() + directory + '\033\\', end='')
     for _ in range(48):
         print('preview file.txt    OtherFile')
     print('@' + token + ':cwd=' + directory)

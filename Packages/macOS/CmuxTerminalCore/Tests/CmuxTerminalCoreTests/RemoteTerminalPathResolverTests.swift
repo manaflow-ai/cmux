@@ -60,4 +60,12 @@ import Testing
             workingDirectory: "/remote", homeDirectory: "/home/user", remoteHost: "host"
         ).isEmpty)
     }
+
+    @Test func onlyRelativeSpellingsNeedTheWorkingDirectory() {
+        #expect(resolver.needsWorkingDirectory(tokens: ["subdir/README.md"]))
+        #expect(resolver.needsWorkingDirectory(tokens: ["/abs/file.txt", "\"notes file.md\""]))
+        #expect(!resolver.needsWorkingDirectory(tokens: ["/abs/file.txt", "~/notes.md", "~"]))
+        #expect(!resolver.needsWorkingDirectory(tokens: ["file://host/remote/notes.txt", "https://host/notes.txt"]))
+        #expect(!resolver.needsWorkingDirectory(tokens: ["~other/file.txt", ""]))
+    }
 }

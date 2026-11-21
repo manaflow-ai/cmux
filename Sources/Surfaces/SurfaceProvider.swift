@@ -40,6 +40,9 @@ protocol SurfaceProvider: AnyObject {
     /// providers use this when a shortcut creates a sibling terminal; providers that
     /// cannot inspect a process return nil and preserve their normal daemon fallback.
     func currentWorkingDirectory(of resource: SurfaceResource) async -> String?
+    /// The same live directory, answered only over an already-connected link and within
+    /// a short deadline. Interactive lookups use it so a click never starts a login.
+    func connectedWorkingDirectory(of resource: SurfaceResource) async -> String?
     /// Called when a pane projecting one of this provider's resources goes away. Remote
     /// providers do nothing (the resource lives on); the local provider drops the resource.
     func projectionDidEnd(_ projection: SurfaceProjection)
@@ -110,6 +113,10 @@ extension SurfaceProvider {
     }
 
     func currentWorkingDirectory(of resource: SurfaceResource) async -> String? {
+        nil
+    }
+
+    func connectedWorkingDirectory(of resource: SurfaceResource) async -> String? {
         nil
     }
 

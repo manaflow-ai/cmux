@@ -28,6 +28,7 @@ final class RemoteTerminalFilePreviewCoordinator {
         self.timeout = timeout
     }
 
+    /// Starts a remote preview and presents its result only while the source terminal is current.
     @discardableResult
     func open(workspace: Workspace, sourcePanelID: UUID, tokens: [String]) -> Bool {
         let tokens = tokens.filter { RemoteTerminalPathResolver().isFileReference($0) }
@@ -42,6 +43,7 @@ final class RemoteTerminalFilePreviewCoordinator {
             return true
         }
         let directory = workspace.effectivePanelDirectory(panelId: sourcePanelID)
+        let liveDirectory = workspace.remoteTerminalLiveWorkingDirectoryLookup(for: sourcePanelID)
         let provider = SSHFileExplorerProvider(
             destination: configuration.destination,
             port: configuration.port,
@@ -68,7 +70,25 @@ final class RemoteTerminalFilePreviewCoordinator {
         let attemptID = workspace.remoteTerminalAttemptIDsBySurfaceId[sourcePanelID]
         let tuiAttemptID = workspace.sshTuiConnectionAttemptID
         let projectionResource = SurfaceCatalog.shared.projectionIncludingPendingRestore(forPanel: sourcePanelID)?.resource
-        let task = Task { [weak self, weak workspace, weak panel, weak sourceSurface] in
+        let isCurrent: @MainActor () -> Bool = { [weak self, weak workspace, weak panel, weak sourceSurface] in
+            guard self?.tasks[sourcePanelID]?.id == requestID,
+                  let workspace, let panel, let sourceSurface else { return false }
+            guard !ManagedFileTransferPolicy.isDisabled,
+                !workspace.isRetiredFromOwningTabManager,
+                workspace.remoteTerminalFilePreviewConfiguration(for: sourcePanelID) == configuration,
+                workspace.terminalPanel(for: sourcePanelID) === panel,
+                panel.surface === sourceSurface,
+                sourceSurface.terminalLifecycleId == lifecycleID,
+                workspace.remoteTerminalAttemptIDsBySurfaceId[sourcePanelID] == attemptID,
+                workspace.sshTuiConnectionAttemptID == tuiAttemptID,
+                SurfaceCatalog.shared.projectionIncludingPendingRestore(forPanel: sourcePanelID)?.resource == projectionResource,
+                sourceSurface.owningWorkspace() === workspace,
+                workspace.owningTabManager?.selectedTabId == workspace.id,
+                workspace.focusedPanelId == sourcePanelID,
+                panel.hostedView.window?.isKeyWindow == true else { return false }
+            return true
+        }
+        let task = Task { [weak self, weak workspace, weak panel] in
             defer {
                 if self?.tasks[sourcePanelID]?.id == requestID {
                     self?.tasks.removeValue(forKey: sourcePanelID)
@@ -76,7 +96,11 @@ final class RemoteTerminalFilePreviewCoordinator {
             }
             do {
                 let localURL = try await withThrowingTaskGroup(of: URL.self) { group in
-                    group.addTask { try await loader.load(tokens: tokens, workingDirectory: directory) }
+                    group.addTask {
+                        try await loader.load(
+                            tokens: tokens, workingDirectory: directory, liveWorkingDirectory: liveDirectory
+                        )
+                    }
                     group.addTask {
                         // A genuine transfer deadline, not a delay used to synchronize UI state.
                         try await clock.sleep(for: timeout)
@@ -86,20 +110,7 @@ final class RemoteTerminalFilePreviewCoordinator {
                     return try await group.next()!
                 }
                 try Task.checkCancellation()
-                guard let self, let workspace, let panel, let sourceSurface,
-                      !ManagedFileTransferPolicy.isDisabled,
-                      !workspace.isRetiredFromOwningTabManager,
-                      workspace.remoteTerminalFilePreviewConfiguration(for: sourcePanelID) == configuration,
-                      workspace.terminalPanel(for: sourcePanelID) === panel,
-                      panel.surface === sourceSurface,
-                      sourceSurface.terminalLifecycleId == lifecycleID,
-                      workspace.remoteTerminalAttemptIDsBySurfaceId[sourcePanelID] == attemptID,
-                      workspace.sshTuiConnectionAttemptID == tuiAttemptID,
-                      SurfaceCatalog.shared.projectionIncludingPendingRestore(forPanel: sourcePanelID)?.resource == projectionResource,
-                      sourceSurface.owningWorkspace() === workspace,
-                      workspace.owningTabManager?.selectedTabId == workspace.id,
-                      workspace.focusedPanelId == sourcePanelID,
-                      panel.hostedView.window?.isKeyWindow == true else {
+                guard let self, let workspace, isCurrent() else {
                     #if DEBUG
                     cmuxDebugLog("remotePreview.discarded request=\(requestID.uuidString)")
                     #endif
@@ -119,15 +130,8 @@ final class RemoteTerminalFilePreviewCoordinator {
                 #if DEBUG
                 cmuxDebugLog("remotePreview.failed request=\(requestID.uuidString)")
                 #endif
-                guard let workspace, let panel,
-                      workspace.remoteTerminalFilePreviewConfiguration(for: sourcePanelID) == configuration,
-                      workspace.sshTuiConnectionAttemptID == tuiAttemptID,
-                      workspace.terminalPanel(for: sourcePanelID) === panel,
-                      workspace.owningTabManager?.selectedTabId == workspace.id,
-                      workspace.focusedPanelId == sourcePanelID,
-                      panel.hostedView.window?.isKeyWindow == true else { return }
-                // Match the existing file-explorer preview failure affordance without exposing SSH diagnostics.
-                NSSound.beep()
+                guard let panel, isCurrent() else { return }
+                FileExplorerPreviewCoordinator.present(error, window: panel.hostedView.window)
             }
         }
         tasks[sourcePanelID] = (requestID, task)
