@@ -47,8 +47,13 @@ struct MacHomePreviewTests {
         ("| a | b |\n|---|---|\n| 1 | 2 |", "Table: a / b"),
         ("run `a | b` then -v --flag=1 +x", "run a | b then -v --flag=1 +x"),
         ("caf\u{00E9} -> na\u{00EF}ve! \u{2014} 3 * 4 = 12", "caf\u{00E9} -> na\u{00EF}ve! \u{2014} 3 * 4 = 12"),
-        ("e\u{0301}*x* and *\u{0301}y and \\\u{0301}z", "e\u{0301}*x* and *\u{0301}y and \\\u{0301}z"),
+        // A mark combined onto `*` or `\` makes another character, which is text; `é*x*` opens after a letter, so only
+        // its closing `*` goes.
+        ("e\u{0301}*x* and *\u{0301}y and \\\u{0301}z", "e\u{0301}*x and *\u{0301}y and \\\u{0301}z"),
         ("line one!\r\nline - two\rline = three", "line one! line - two line = three"),
+        // U+001C-U+001F are not white space to `Character.isWhitespace`, so they stay; U+000B and U+000C fold.
+        ("a\u{1C}b - c\u{0B}\u{0C}d", "a\u{1C}b - c d"),
+        ("  - spaced *list*  \t\n  ", "spaced list"),
         ("**Done (#7).** - fixed `code_3`\n[Details](https://cmux.com/d/9) ok. ", "Done (#7). - fixed code_3 Details ok."),
     ])
     func punctuationStays(_ text: String, _ expected: String) {
