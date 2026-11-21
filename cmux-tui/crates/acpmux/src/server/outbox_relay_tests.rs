@@ -18,6 +18,7 @@ const LANE: &str = "0190f2a4-7c1e-7d3a-9f00-0123456789ab";
 #[derive(Default)]
 struct FakeHub {
     sent: Mutex<Vec<OutMessage>>,
+    receipt_state: Mutex<Option<String>>,
     /// Every send is refused as a name the hub does not know.
     unknown: std::sync::atomic::AtomicBool,
     /// How many more sends the hub keeps but whose answer is lost on the way back.
@@ -58,7 +59,8 @@ impl MeshHub for FakeHub {
 
     fn receipt<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
         let to = self.sent.lock().unwrap().last().map(|m| m.to.clone()).unwrap_or_default();
-        Box::pin(async move { Ok(receipt("delivered", to)) })
+        let state = self.receipt_state.lock().unwrap().clone();
+        Box::pin(async move { Ok(receipt(state.as_deref().unwrap_or("delivered"), to)) })
     }
 }
 
@@ -195,6 +197,21 @@ async fn a_relayed_class_warning_survives_delivery_and_later_status() {
 
     let status = call(&hub, method::MUX_SEND_STATUS, json!({"deliveryId": id})).await.unwrap();
     assert_eq!(status["warning"], warning.unwrap());
+}
+
+#[tokio::test]
+async fn a_relayed_class_warning_survives_a_queued_later_status() {
+    let fake = FakeHub { receipt_state: Mutex::new(Some("queued".into())), ..FakeHub::default() };
+    let (hub, _) = setup(fake);
+    let mut classed = request("huge-blue/lane", "prompt-relay-class-warning-queued");
+    classed["request"]["_meta"]["acpmux"]["class"] = json!("block");
+    let id = queue(&hub, classed).await;
+    let delivered = after_attempt(&hub, &id, 1).await;
+    let warning = delivered.accepted.as_ref().and_then(|a| a.get("warning")).cloned().unwrap();
+
+    let status = call(&hub, method::MUX_SEND_STATUS, json!({"deliveryId": id})).await.unwrap();
+    assert!(status["accepted"].is_null(), "{status}");
+    assert_eq!(status["warning"], warning, "{status}");
 }
 
 #[tokio::test]
