@@ -2011,6 +2011,10 @@ CACHE_KEY_SCRIPT = ROOT / "scripts/cmux-next/fast-tier-cache-key.sh"
 SEED_DUE_SCRIPT = ROOT / "scripts/cmux-next/fast-tier-seed-due.py"
 FAST_TIER_SCRIPT = ROOT / "scripts/cmux-next/fast-tier.py"
 FAST_CACHE_DIRS = {"swift": "Packages/macOS/CmuxNext/.build", "home": "Packages/Shared/CmuxHomeRender/.build"}
+# The swift seed restores at the workspace path, or on an owned mini that leased its seed root at
+# that root (owned_spm_scratch.py lease writes it to steps.spm-root.outputs.root).
+SEED_SWIFT_PATHS = (FAST_CACHE_DIRS["swift"],
+                    "${{ format('{0}/Packages/macOS/CmuxNext/.build', steps.spm-root.outputs.root || github.workspace) }}")
 FAST_CACHE_MANIFEST = "Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json"
 # Owned minis that hold the seed root build there (owned_spm_scratch.py seed_lease), so a restore path names the
 # root, defaulting to the checkout.
@@ -2270,10 +2274,13 @@ class GuiJobsStartFromTheSeed(unittest.TestCase):
                 steps = self.steps(job)
                 names = [s.get("name") for s in steps]
                 key = index_of(steps, lambda s: "scripts/cmux-next/fast-tier-cache-key.sh" in s.get("run", ""))
-                restore = index_of(steps, lambda s: is_cache_restore(s) and s["with"]["path"] == FAST_CACHE_DIRS["swift"])
+                restore = index_of(steps, lambda s: is_cache_restore(s) and s["with"]["path"] in SEED_SWIFT_PATHS)
                 replay = index_of(steps, lambda s: "e2e_warm_derived_data.py replay" in s.get("run", ""))
                 build = index_of(steps, lambda s: s.get("name") == "Build package and tests")
-                link = index_of(steps, lambda s: "owned_spm_scratch.py link" in s.get("run", ""))
+                # An owned mini either keeps its own build (link) or leases its seed root (lease), where the
+                # seed restores at the path the base built it at (note-410).
+                link = index_of(steps, lambda s: any(f"owned_spm_scratch.py {mode} " in s.get("run", "")
+                                                     for mode in ("link", "lease")))
                 self.assertLess(link, key, names)
                 self.assertLess(key, restore, names)
                 self.assertLess(restore, replay, names)
@@ -2290,8 +2297,10 @@ class GuiJobsStartFromTheSeed(unittest.TestCase):
                 self.assertIn("steps.%s.outputs.cache-matched-key != ''" % restore_id, steps[replay]["if"])
                 self.assertIn(FAST_CACHE_MANIFEST, steps[replay]["run"])
                 run = steps[replay]["run"]
-                self.assertLess(run.index("owned_spm_scratch.py drop-bundles " + FAST_CACHE_DIRS["swift"]),
-                                run.index("e2e_warm_derived_data.py replay"), "a seed's stale catalogs go first")
+                drop = next(run.index(f"owned_spm_scratch.py drop-bundles {path}")
+                            for path in (FAST_CACHE_DIRS["swift"], '"$ROOT/' + FAST_CACHE_DIRS["swift"] + '"')
+                            if f"owned_spm_scratch.py drop-bundles {path}" in run)
+                self.assertLess(drop, run.index("e2e_warm_derived_data.py replay"), "a seed's stale catalogs go first")
                 for step in (steps[key], cache, steps[replay]):
                     self.assertIs(step.get("continue-on-error"), True, "a miss builds as before")
                 self.assertEqual([s.get("name") for s in steps if is_cache_save(s)], [], "a job never saves a build")
@@ -2879,12 +2888,13 @@ class PortablePlacementBootstrapAdmission(unittest.TestCase):
         bootstrap = one_runs_on(jobs["portable-placement"])
         for fleet in ("", "cmux-fleet-linux-x64", "stale-fleet-label"):
             # Never GitHub-hosted Ubuntu (it left the job queued for hours, cmux#45735). A same-repository pull
-            # request's first attempt takes the reserved PR control label (#48405); a re-run takes the
-            # one Linux label (scripts/ci/one_linux_label.py), overflow or not.
-            for attempt, overflow, expected in ((1, "", "cmux-gcp-pr-control-jit-x64"),
-                                                (1, "1", "cmux-gcp-pr-control-jit-x64"),
-                                                (2, "", "cmux-linux"),
-                                                (2, "1", "cmux-linux")):
+            # request's first attempt takes the persistent pool's cmux-linux (it took the reserved PR control
+            # label, #48405, until that label's one-job VMs queued 1,860 jobs); a re-run takes cmux-linux too
+            # (scripts/ci/one_linux_label.py), overflow or not.
+            for attempt, overflow, expected in ((1, "", "cmux-linux"),
+                                               (1, "1", "cmux-linux"),
+                                               (2, "", "cmux-linux"),
+                                               (2, "1", "cmux-linux")):
                 with self.subTest(fleet=fleet, attempt=attempt, overflow=overflow):
                     context = {"github.repository_owner": "manaflow-ai",
                                "github.event_name": "pull_request",

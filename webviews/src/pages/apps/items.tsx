@@ -177,16 +177,21 @@ export function ItemRow({ app, selected, store, strings }: ItemProps & { selecte
   );
 }
 
-/** All, then each category present in the catalog; the selected one is pressed. */
+/**
+ * All, then each category present on the shelf; the selected one is pressed. With `examples` (the
+ * owner offers the SDK examples), an Examples toggle ends the row, set apart from the categories.
+ */
 export function CategoryBar({
   categories,
   selected,
   onSelect,
+  examples,
   strings,
 }: {
   categories: readonly string[];
   selected?: string;
   onSelect: (category: string | undefined) => void;
+  examples?: { selected: boolean; onToggle: () => void };
   strings: Strings;
 }) {
   const { t } = strings;
@@ -205,6 +210,16 @@ export function CategoryBar({
     <div className="apps-chips">
       {chip(undefined, t("store.category.all"))}
       {categories.map((category) => chip(category, categoryLabel(category, t)))}
+      {examples && (
+        <button
+          type="button"
+          className={`apps-chip apps-chip-shelf${examples.selected ? " selected" : ""}`}
+          aria-pressed={examples.selected}
+          onClick={examples.onToggle}
+        >
+          {t("store.shelf.examples")}
+        </button>
+      )}
     </div>
   );
 }
