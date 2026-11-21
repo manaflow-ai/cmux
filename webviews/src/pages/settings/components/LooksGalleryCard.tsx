@@ -391,10 +391,10 @@ function ConsentSheet({
   }, [card]);
   const lines = consentLines(card);
   return (
-    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
     <div
       className="accounts-form looks-sheet"
       data-looks-consent={card.setup.id}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="group"
       aria-label={title}
       ref={sheet}
@@ -464,10 +464,10 @@ function RemoveSheet({
     );
   }, [layer]);
   return (
-    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
     <div
       className="accounts-form looks-sheet"
       data-looks-confirm={layer.id}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="group"
       aria-label={title}
       ref={sheet}
