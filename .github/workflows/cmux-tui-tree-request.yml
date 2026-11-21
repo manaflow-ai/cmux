@@ -103,6 +103,13 @@ jobs:
           SERVER_URL: ${{ github.server_url }}
         run: |
           set -euo pipefail
+          # The checkout is blobless and sparse (scripts/ci), and the key script
+          # never fetches lazily (GIT_NO_LAZY_FETCH). Its only blob read is the
+          # revision's own inputs list, so fetch that one blob first; trees and
+          # gitlinks are already local. A revision without the list falls back
+          # in the script.
+          prefetch_key_inputs() { git cat-file blob "$1:scripts/cmux-next/cmux-tui-tree-inputs.txt" >/dev/null 2>&1 || true; }
+          prefetch_key_inputs "$COMMIT"
           # The commit's own key definition, as its push run's tree-preflight uses.
           key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$COMMIT")"
           [[ "$key" =~ ^[0-9a-f]{40}$ ]]
@@ -160,7 +167,12 @@ jobs:
           while IFS=$'\t' read -r candidate url; do
             [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || continue
             if [[ "$candidate" != "$COMMIT" ]]; then
-              git fetch -q --no-tags --depth=1 "$SERVER_URL/$REPOSITORY.git" "$candidate" 2>/dev/null || continue
+              # Older pushes are already in the full blobless history; a newer
+              # one comes through origin with the same filter (no shallow file,
+              # no full blob download).
+              git cat-file -e "$candidate^{commit}" 2>/dev/null \
+                || git fetch -q --no-tags --filter=blob:none origin "$candidate" 2>/dev/null || continue
+              prefetch_key_inputs "$candidate"
               [[ "$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$candidate" 2>/dev/null)" == "$key" ]] || continue
             fi
             active_url="$url"
