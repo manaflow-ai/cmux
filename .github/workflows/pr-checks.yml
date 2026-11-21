@@ -18,6 +18,56 @@ on:
   pull_request:
     branches: [feat-cmux-next]
     types: [opened, synchronize, reopened, edited, ready_for_review]
+    # docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes this block; edit DOCS_ONLY_PATHS there)
+    paths:
+      - "**"
+      - "!**/*.md"
+      - "!docs/**/*.png"
+      - "!docs/**/*.jpg"
+      - "!docs/**/*.gif"
+      - "!docs/**/*.webp"
+      - "!plans/**/*.png"
+      - "!plans/**/*.jpg"
+      - "!plans/**/*.gif"
+      - "!plans/**/*.webp"
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+      - "**/SKILL.md"
+      - ".github/**"
+      - "**/skills/**"
+      - "**/references/**"
+      - "**/templates/**"
+      - "**/Resources/**"
+      - "**/fixtures/**"
+      - "**/testdata/**"
+      - "**/test/**"
+      - "**/tests/**"
+      - "CHANGELOG.md"
+      - "THIRD_PARTY_LICENSES.md"
+      - "release-notes/**"
+      - "docs/agent-hooks.md"
+      - "docs/chief-setup-prompts.md"
+      - "docs/configuration.md"
+      - "docs/ci/node-product-cache-maintenance.md"
+      - "plans/cmux-next/actions.md"
+      - "docs/mdm/managed-preferences.md"
+      - "docs/ci/health-report.md"
+      - "docs/privacy.md"
+      - "**/notices/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
+      - "cmux-tui/README.md"
+      - "docs/remote-agents-and-cloud.md"
+      - "docs/cmux-next/customize-recipes.md"
+      - "cmux-tui/crates/acpmux/README.md"
+      - "cmux-tui/crates/acpmux/docs/**"
+      - "cmux-tui/crates/cmux-browser-host/js/guide.md"
+      - "cmux-tui/crates/cmux-extension-sdk/README.md"
+      - "cmux-tui/vendor/terminput-crossterm/README.md"
+      - "mux/packages/brain/conformance/README.md"
+    # docs-only paths: END
+  # docs-only-fallback.yml calls this in a pull request's own context when the docs-only `paths:` above could
+  # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
+  workflow_call:
 
 # The base-only job reads the previous head's run by this title, which names the pull
 # request (two pull requests can share a head commit): an `edited` run
@@ -154,7 +204,8 @@ jobs:
     # (tests/test_ci_quota_hold_gate.py); the next push writes it.
     needs: base-only
     if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || fromJSON(vars.RUNNER_POOLS).linux }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: write
@@ -212,7 +263,7 @@ jobs:
     name: Swift logic report
     needs: base-only
     if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || fromJSON(vars.RUNNER_POOLS).linux }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 15
     permissions:
       contents: read
