@@ -2,17 +2,17 @@ import Foundation
 
 /// Home strings (Resources/Home.xcstrings).
 public nonisolated enum HomeStrings {
-    public static var title: String { String(localized: "home.title", defaultValue: "Home", table: "Home", bundle: .module) }
+    public static var title: String { String(localized: "home.title", defaultValue: "Chief", table: "Home", bundle: .module) }
     /// The chief's name (N1): the chief conversation's title and the mux's name.
     public static var chiefName: String { String(localized: "home.chief.name", defaultValue: "Chief", table: "Home", bundle: .module) }
     /// Chief's first message on a fresh install: its greeting (``ChiefWelcome``).
     static var chiefWelcomeHello: String {
         String(localized: "home.chief.welcomeHello", defaultValue: "Welcome to cmux! 👋 I'm Chief.", table: "Home", bundle: .module)
     }
-    /// Chief's second message on a fresh install: what it can do (``ChiefWelcome``).
+    /// Chief's second message on a fresh install: what it can do, as a short Markdown list (``ChiefWelcome``, cmux#48416).
     static var chiefWelcomeAbout: String {
         String(localized: "home.chief.welcomeAbout",
-               defaultValue: "I can make new workspaces, start agents for you, and set up or customize cmux however you like.\nJust tell me what you want done.",
+               defaultValue: "Here's what I can do for you:\n- **Start coding agents**: Claude Code, Codex and others, each in a workspace of its own\n- **Keep track of them**: what each one is working on, which are done and which need you\n- **Check web pages**: open a page in the browser and tell you what's broken\n- **Set up cmux your way**: workspaces, layouts, themes and settings\n\nJust tell me what you want done.",
                table: "Home", bundle: .module)
     }
     /// Chief's third message on a fresh install: the background offer, with the picker's `link`.

@@ -42,17 +42,33 @@ import Testing
         #expect(!ChiefWelcome.text(registry).contains(title))
     }
 
-    /// A leader chord (New Agent Chat's `⌘J` then `S`, since ⌘I went to Open Chief Dock) reads as two keys:
-    /// one code span `⌘J S` looked like a stray `S` after the shortcut.
-    @Test func aLeaderChordReadsAsTwoKeysNotOneSpan() throws {
+    /// A leader chord (`⌘J` then `S`) reads as two keys: one code span `⌘J S` looked like a stray `S`
+    /// after the shortcut.
+    @Test func aLeaderChordReadsAsTwoKeysNotOneSpan() {
+        let text = ChiefWelcome.text(goTo: nil, shortcuts: [.init(keys: "⌘J", then: "S", title: "New Agent Chat")])
+        #expect(!text.contains("`⌘J S`"))
+        #expect(text.contains("- " + HomeStrings.chiefWelcomeChord("⌘J", "S") + " New Agent Chat"))
+    }
+
+    /// The welcome lists the shortcuts people use every day, with the keys the real keymap gives them, in that
+    /// order (cmux#48416): not rarely used ones such as Show/Hide Chief or New Agent Chat.
+    @Test func listsTheDailyShortcutsFromTheRealKeymap() throws {
         let registry = ActionRegistry.standard()
-        let id: ActionID = "palette.newAgentChat"
-        #expect(registry.effectiveShortcut(for: id) == nil)
-        let chord = try #require(registry.effectiveChord(for: id))
-        let title = try #require(registry.descriptor(for: id)?.title)
-        let first = chord.first.displayString, second = registry.shortcutDisplay(chord.second, for: id)
         let text = ChiefWelcome.text(registry)
-        #expect(!text.contains("`\(first) \(second)`"))
-        #expect(text.contains("- `\(first)` then `\(second)` \(title)"))
+        let expected: [(ActionID, String)] = [("newTab", "⌘N"), ("newTab.default", "⌘T"), ("splitRight", "⌘D"), ("splitDown", "⇧⌘D"),
+                                               ("focusLocation", "⌘L"), ("openBrowser", "⇧⌘L"), ("commandPalette", "⇧⌘P")]
+        var last = text.startIndex
+        for (id, keys) in expected {
+            #expect(registry.shortcutDisplay(for: id) == keys, "\(id)")
+            let title = try #require(registry.descriptor(for: id)?.title)
+            let line = try #require(text.range(of: "- `\(keys)` \(title)\n"), "\(id)")
+            #expect(line.lowerBound > last, "\(id) is in order")
+            last = line.lowerBound
+        }
+        #expect(registry.shortcutDisplay(for: ChiefWelcome.goToAction) == "⌘P")
+        for rare: ActionID in ["home.openChiefDock", "palette.newAgentChat", "newSurface", "search.chats"] {
+            let title = try #require(registry.descriptor(for: rare)?.title)
+            #expect(!text.contains(title.hasSuffix("…") ? String(title.dropLast()) : title), "\(rare) is not listed")
+        }
     }
 }

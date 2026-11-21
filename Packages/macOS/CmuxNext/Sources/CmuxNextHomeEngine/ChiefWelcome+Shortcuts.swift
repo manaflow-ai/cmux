@@ -24,8 +24,10 @@ extension ChiefWelcome {
         }
     }
 
-    /// The shortcuts listed below the Go to Workspace call-out, in order.
-    static let shortcutActions: [ActionID] = ["commandPalette", "search.chats", "newTab.default", "newSurface", "palette.newAgentChat"]
+    /// The shortcuts listed below the Go to Workspace call-out, in order: the ones people use every day (cmux#48416),
+    /// New Workspace `⌘N`, New Tab `⌘T`, Split Right `⌘D`, Split Down `⇧⌘D`, Focus Location Bar `⌘L`, New Browser Tab
+    /// `⇧⌘L`, then the Command Palette `⇧⌘P` for everything else (default keys: cmux-action-catalog `catalog/`).
+    static let shortcutActions: [ActionID] = ["newTab", "newTab.default", "splitRight", "splitDown", "focusLocation", "openBrowser", "commandPalette"]
     /// Go to Workspace, normally ⌘P.
     static let goToAction: ActionID = "goToWorkspace"
     /// Start Agent from Any App, normally ⌃⌥⌘Space: the system-wide key, last in the list. Its setting

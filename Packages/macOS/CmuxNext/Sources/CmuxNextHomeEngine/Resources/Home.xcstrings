@@ -6457,127 +6457,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الرئيسية"
+            "value": "Chief"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Početna"
+            "value": "Chief"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem"
+            "value": "Chief"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inicio"
+            "value": "Chief"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Accueil"
+            "value": "Chief"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ホーム"
+            "value": "Chief"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទំព័រដើម"
+            "value": "Chief"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "홈"
+            "value": "Chief"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem"
+            "value": "Chief"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Start"
+            "value": "Chief"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Início"
+            "value": "Chief"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Главная"
+            "value": "Chief"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน้าหลัก"
+            "value": "Chief"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ana Sayfa"
+            "value": "Chief"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Головна"
+            "value": "Chief"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trang chủ"
+            "value": "Chief"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "主页"
+            "value": "Chief"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "主頁"
+            "value": "Chief"
           }
         }
       }
@@ -19887,133 +19887,133 @@
       }
     },
     "home.chief.welcomeAbout" : {
-      "comment" : "Chief's second message on a fresh install, right after its greeting: what Chief can do. Keep the line break.",
+      "comment" : "Chief's second message on a fresh install, right after its greeting: what Chief can do, as a Markdown list. Keep the line breaks, the blank line before the last sentence, the `- ` list markers and the `**bold**` lead-ins.",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "يمكنني إنشاء مساحات عمل جديدة، وتشغيل الوكلاء لك، وإعداد cmux أو تخصيصه كما تحب.\nأخبرني فقط بما تريد إنجازه."
+            "value" : "إليك ما يمكنني فعله لك:\n- **تشغيل وكلاء البرمجة**: Claude Code وCodex وغيرها، كل منها في مساحة عمل خاصة به\n- **متابعتهم**: ما يعمل عليه كل واحد، وما انتهى منها، وما يحتاج إليك\n- **فحص صفحات الويب**: فتح صفحة في المتصفح وإخبارك بما هو معطّل\n- **إعداد cmux بطريقتك**: مساحات العمل والتخطيطات والسمات والإعدادات\n\nأخبرني فقط بما تريد إنجازه."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mogu napraviti nove radne prostore, pokrenuti agente za vas i podesiti ili prilagoditi cmux kako želite.\nSamo mi recite šta želite uraditi."
+            "value" : "Evo šta mogu uraditi za vas:\n- **Pokrenuti agente za kodiranje**: Claude Code, Codex i druge, svaki u vlastitom radnom prostoru\n- **Pratiti ih**: na čemu svaki radi, koji su gotovi i kojima ste potrebni\n- **Provjeriti web stranice**: otvoriti stranicu u pregledniku i reći vam šta ne radi\n- **Podesiti cmux po vašem**: radni prostori, rasporedi, teme i postavke\n\nSamo mi recite šta želite uraditi."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Jeg kan oprette nye arbejdsområder, starte agenter for dig og sætte cmux op eller tilpasse det, som du vil.\nSig bare, hvad du vil have gjort."
+            "value" : "Det her kan jeg gøre for dig:\n- **Starte kodeagenter**: Claude Code, Codex og andre, hver i sit eget arbejdsområde\n- **Holde styr på dem**: hvad hver enkelt arbejder på, hvilke der er færdige, og hvilke der har brug for dig\n- **Tjekke websider**: åbne en side i browseren og fortælle dig, hvad der er i stykker\n- **Indrette cmux, som du vil have det**: arbejdsområder, layouts, temaer og indstillinger\n\nFortæl mig bare, hvad du vil have gjort."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ich kann neue Arbeitsbereiche anlegen, Agenten für dich starten und cmux ganz nach deinem Geschmack einrichten und anpassen.\nSag mir einfach, was erledigt werden soll."
+            "value" : "Das kann ich für dich tun:\n- **Coding-Agenten starten**: Claude Code, Codex und andere, jeder in einem eigenen Workspace\n- **Den Überblick behalten**: woran jeder arbeitet, welche fertig sind und welche dich brauchen\n- **Webseiten prüfen**: eine Seite im Browser öffnen und dir sagen, was kaputt ist\n- **cmux nach deinem Geschmack einrichten**: Workspaces, Layouts, Themes und Einstellungen\n\nSag mir einfach, was erledigt werden soll."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "I can make new workspaces, start agents for you, and set up or customize cmux however you like.\nJust tell me what you want done."
+            "value" : "Here's what I can do for you:\n- **Start coding agents**: Claude Code, Codex and others, each in a workspace of its own\n- **Keep track of them**: what each one is working on, which are done and which need you\n- **Check web pages**: open a page in the browser and tell you what's broken\n- **Set up cmux your way**: workspaces, layouts, themes and settings\n\nJust tell me what you want done."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Puedo crear espacios de trabajo, iniciar agentes por ti y configurar o personalizar cmux a tu gusto.\nSolo dime qué quieres hacer."
+            "value" : "Esto es lo que puedo hacer por ti:\n- **Iniciar agentes de programación**: Claude Code, Codex y otros, cada uno en su propio espacio de trabajo\n- **Seguirles la pista**: en qué trabaja cada uno, cuáles terminaron y cuáles te necesitan\n- **Revisar páginas web**: abrir una página en el navegador y decirte qué está roto\n- **Configurar cmux a tu manera**: espacios de trabajo, diseños, temas y ajustes\n\nSolo dime qué quieres hacer."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Je peux créer des espaces de travail, lancer des agents pour vous et configurer ou personnaliser cmux comme vous le souhaitez.\nDites-moi simplement ce que vous voulez faire."
+            "value" : "Voici ce que je peux faire pour vous :\n- **Lancer des agents de code** : Claude Code, Codex et d’autres, chacun dans son propre espace de travail\n- **Les suivre** : ce sur quoi chacun travaille, lesquels ont terminé et lesquels ont besoin de vous\n- **Vérifier des pages web** : ouvrir une page dans le navigateur et vous dire ce qui ne marche pas\n- **Configurer cmux à votre façon** : espaces de travail, dispositions, thèmes et réglages\n\nDites-moi simplement ce que vous voulez faire."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Posso creare nuovi spazi di lavoro, avviare agenti per te e configurare o personalizzare cmux come preferisci.\nDimmi solo cosa vuoi fare."
+            "value" : "Ecco cosa posso fare per te:\n- **Avviare agenti di programmazione**: Claude Code, Codex e altri, ognuno nel proprio spazio di lavoro\n- **Tenerli d’occhio**: su cosa lavora ciascuno, quali hanno finito e quali hanno bisogno di te\n- **Controllare pagine web**: aprire una pagina nel browser e dirti cosa non funziona\n- **Configurare cmux come preferisci**: spazi di lavoro, layout, temi e impostazioni\n\nDimmi solo cosa vuoi fare."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "新しいワークスペースを作ったり、エージェントを起動したり、cmux を好きなように設定・カスタマイズしたりできます。\nやりたいことを気軽に話しかけてください。"
+            "value" : "私にできること:\n- **コーディングエージェントを起動**：Claude Code、Codex など。それぞれ専用のワークスペースで\n- **進み具合を把握**：各エージェントの作業内容、完了したもの、あなたの対応が必要なもの\n- **Web ページを確認**：ブラウザでページを開き、どこが壊れているかお伝えします\n- **cmux をあなた好みに設定**：ワークスペース、レイアウト、テーマ、設定\n\nやりたいことを伝えてください。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ខ្ញុំអាចបង្កើតកន្លែងធ្វើការថ្មី ចាប់ផ្តើមភ្នាក់ងារឱ្យអ្នក និងរៀបចំ ឬប្ដូរ cmux តាមចិត្តអ្នក។\nគ្រាន់តែប្រាប់ខ្ញុំពីអ្វីដែលអ្នកចង់ធ្វើ។"
+            "value" : "នេះជាអ្វីដែលខ្ញុំអាចធ្វើបានសម្រាប់អ្នក៖\n- **ចាប់ផ្ដើមភ្នាក់ងារសរសេរកូដ**: Claude Code, Codex និងផ្សេងទៀត ម្នាក់ៗក្នុងកន្លែងធ្វើការផ្ទាល់ខ្លួន\n- **តាមដានពួកវា**: អ្វីដែលម្នាក់ៗកំពុងធ្វើ អ្វីដែលបានរួចរាល់ និងអ្វីដែលត្រូវការអ្នក\n- **ពិនិត្យទំព័របណ្ដាញ**: បើកទំព័រក្នុងកម្មវិធីរុករក ហើយប្រាប់អ្នកពីអ្វីដែលខូច\n- **រៀបចំ cmux តាមចិត្តអ្នក**: កន្លែងធ្វើការ ប្លង់ ស្បែក និងការកំណត់\n\nគ្រាន់តែប្រាប់ខ្ញុំពីអ្វីដែលអ្នកចង់ធ្វើ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "새 워크스페이스를 만들고, 에이전트를 시작하고, cmux를 원하는 대로 설정하거나 꾸며 드릴 수 있어요.\n하고 싶은 일을 말씀만 해 주세요."
+            "value" : "제가 도와드릴 수 있는 일:\n- **코딩 에이전트 시작**: Claude Code, Codex 등을 각자 전용 워크스페이스에서\n- **진행 상황 파악**: 각 에이전트가 하는 일, 끝난 것, 확인이 필요한 것\n- **웹 페이지 확인**: 브라우저에서 페이지를 열고 무엇이 고장 났는지 알려 드립니다\n- **cmux를 원하는 대로 설정**: 워크스페이스, 레이아웃, 테마, 설정\n\n원하는 일을 말씀만 해 주세요."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Jeg kan lage nye arbeidsområder, starte agenter for deg og sette opp eller tilpasse cmux slik du vil.\nBare si hva du vil ha gjort."
+            "value" : "Dette kan jeg gjøre for deg:\n- **Starte kodeagenter**: Claude Code, Codex og andre, hver i sitt eget arbeidsområde\n- **Holde oversikt over dem**: hva hver av dem jobber med, hvilke som er ferdige, og hvilke som trenger deg\n- **Sjekke nettsider**: åpne en side i nettleseren og fortelle deg hva som er galt\n- **Sette opp cmux slik du vil**: arbeidsområder, oppsett, temaer og innstillinger\n\nBare si hva du vil ha gjort."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mogę tworzyć nowe obszary robocze, uruchamiać dla Ciebie agentów oraz konfigurować i dostosowywać cmux tak, jak lubisz.\nPo prostu powiedz, co chcesz zrobić."
+            "value" : "Oto, co mogę dla Ciebie zrobić:\n- **Uruchamiać agentów do kodowania**: Claude Code, Codex i inne, każdy we własnym obszarze roboczym\n- **Śledzić ich pracę**: nad czym pracuje każdy z nich, którzy skończyli, a którzy Cię potrzebują\n- **Sprawdzać strony internetowe**: otworzyć stronę w przeglądarce i powiedzieć Ci, co nie działa\n- **Skonfigurować cmux po Twojemu**: obszary robocze, układy, motywy i ustawienia\n\nPo prostu powiedz mi, co chcesz zrobić."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Posso criar novos espaços de trabalho, iniciar agentes para você e configurar ou personalizar o cmux do seu jeito.\nÉ só me dizer o que você quer fazer."
+            "value" : "Veja o que posso fazer por você:\n- **Iniciar agentes de programação**: Claude Code, Codex e outros, cada um em seu próprio espaço de trabalho\n- **Acompanhar os agentes**: no que cada um está trabalhando, quais terminaram e quais precisam de você\n- **Verificar páginas da web**: abrir uma página no navegador e dizer o que está quebrado\n- **Configurar o cmux do seu jeito**: espaços de trabalho, layouts, temas e ajustes\n\nÉ só me dizer o que você quer fazer."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Я могу создавать новые рабочие пространства, запускать агентов и настраивать cmux так, как вам нравится.\nПросто скажите, что нужно сделать."
+            "value" : "Вот что я могу для вас сделать:\n- **Запускать агентов для кода**: Claude Code, Codex и другие, каждый в своём рабочем пространстве\n- **Следить за ними**: над чем работает каждый, кто уже закончил и кому нужна ваша помощь\n- **Проверять веб-страницы**: открыть страницу в браузере и рассказать, что сломано\n- **Настроить cmux под вас**: рабочие пространства, раскладки, темы и настройки\n\nПросто скажите, что нужно сделать."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ฉันสร้างเวิร์กสเปซใหม่ เริ่มเอเจนต์ให้คุณ และตั้งค่าหรือปรับแต่ง cmux ได้ตามที่คุณชอบ\nแค่บอกฉันว่าคุณอยากทำอะไร"
+            "value" : "สิ่งที่ฉันทำให้คุณได้:\n- **เริ่มเอเจนต์เขียนโค้ด**: Claude Code, Codex และอื่นๆ แต่ละตัวอยู่ในเวิร์กสเปซของตัวเอง\n- **ติดตามความคืบหน้า**: แต่ละตัวกำลังทำอะไร ตัวไหนเสร็จแล้ว และตัวไหนต้องการคุณ\n- **ตรวจสอบหน้าเว็บ**: เปิดหน้าเว็บในเบราว์เซอร์และบอกคุณว่าอะไรเสีย\n- **ตั้งค่า cmux ในแบบของคุณ**: เวิร์กสเปซ เลย์เอาต์ ธีม และการตั้งค่า\n\nแค่บอกฉันว่าคุณต้องการให้ทำอะไร"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Yeni çalışma alanları oluşturabilir, sizin için ajanlar başlatabilir ve cmux'u istediğiniz gibi ayarlayıp özelleştirebilirim.\nNe yapmak istediğinizi söylemeniz yeterli."
+            "value" : "Sizin için yapabileceklerim:\n- **Kodlama ajanları başlatmak**: Claude Code, Codex ve diğerleri, her biri kendi çalışma alanında\n- **Onları takip etmek**: her birinin ne üzerinde çalıştığı, hangilerinin bittiği ve hangilerinin size ihtiyaç duyduğu\n- **Web sayfalarını kontrol etmek**: tarayıcıda bir sayfa açıp neyin bozuk olduğunu söylemek\n- **cmux'u istediğiniz gibi ayarlamak**: çalışma alanları, düzenler, temalar ve ayarlar\n\nNe yapılmasını istediğinizi söylemeniz yeterli."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Я можу створювати нові робочі простори, запускати агентів і налаштовувати cmux так, як вам подобається.\nПросто скажіть, що потрібно зробити."
+            "value" : "Ось що я можу для вас зробити:\n- **Запускати агентів для коду**: Claude Code, Codex та інші, кожен у власному робочому просторі\n- **Стежити за ними**: над чим працює кожен, хто вже закінчив і кому потрібна ваша допомога\n- **Перевіряти вебсторінки**: відкрити сторінку в браузері й сказати, що зламано\n- **Налаштувати cmux під вас**: робочі простори, розкладки, теми та налаштування\n\nПросто скажіть, що потрібно зробити."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mình có thể tạo không gian làm việc mới, khởi chạy agent cho bạn và thiết lập hoặc tùy biến cmux theo ý bạn.\nCứ nói mình biết bạn muốn làm gì."
+            "value" : "Đây là những gì tôi có thể làm cho bạn:\n- **Khởi chạy agent lập trình**: Claude Code, Codex và các agent khác, mỗi agent trong một workspace riêng\n- **Theo dõi chúng**: mỗi agent đang làm gì, agent nào đã xong và agent nào cần bạn\n- **Kiểm tra trang web**: mở một trang trong trình duyệt và cho bạn biết chỗ nào bị lỗi\n- **Thiết lập cmux theo ý bạn**: workspace, bố cục, chủ đề và cài đặt\n\nChỉ cần cho tôi biết bạn muốn làm gì."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "我可以新建工作区、为你启动智能体，还能按你的喜好设置和自定义 cmux。\n告诉我你想做什么就好。"
+            "value" : "我能为你做这些：\n- **启动编程智能体**：Claude Code、Codex 等，每个都在自己的工作区中\n- **跟进它们**：每个智能体在做什么、哪些已完成、哪些需要你处理\n- **检查网页**：在浏览器中打开页面，告诉你哪里出了问题\n- **按你的喜好设置 cmux**：工作区、布局、主题和设置\n\n告诉我你想做什么就行。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "我可以建立新的工作區、幫你啟動代理，還能依你的喜好設定和自訂 cmux。\n告訴我你想做什麼就好。"
+            "value" : "我能為你做這些：\n- **啟動程式設計代理**：Claude Code、Codex 等，每個都在自己的工作區中\n- **追蹤它們**：每個代理在做什麼、哪些已完成、哪些需要你處理\n- **檢查網頁**：在瀏覽器中開啟頁面，告訴你哪裡出了問題\n- **依你的喜好設定 cmux**：工作區、版面配置、主題和設定\n\n告訴我你想做什麼就好。"
           }
         }
       }

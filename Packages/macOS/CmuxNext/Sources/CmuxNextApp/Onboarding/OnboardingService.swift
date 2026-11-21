@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextAgentIntegrations
 import CmuxNextAgentPane
 import CmuxNextBrowser
@@ -177,6 +178,37 @@ final class OnboardingService {
         // installation too: until it is answered, the person's agents get no cmux server.
         guard route == .windows else { return await presenter.askAgentToolsOnce(source: agentTools) }
         await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses, agentTools: agentTools) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
+    }
+
+    /// Set once a first run opened its new agent chat, so it opens once per install (cmux#48416).
+    static let firstChatOpenedKey = "home.firstRun.firstChatOpened"
+
+    /// Whether this launch opens the first-run chat: a first run, not a capture build or the showcase, not done before.
+    static func opensFirstChat(isFirstRun: Bool, steps: OnboardingWindowPresenter.LaunchSteps, defaults: UserDefaults) -> Bool {
+        isFirstRun && steps != .none && !defaults.bool(forKey: firstChatOpenedKey)
+    }
+
+    /// A new person's first launch opens a new agent chat on its start page, the composer ready to type, in a
+    /// workspace of its own in the front window (cmux#48416: "on first launch, show a new chat automatically").
+    /// Its own workspace, as New Agent Chat over a top page makes one: from Chief's workspace New Agent Chat
+    /// docks beside the Chief, and Chief keeps its welcome for when the person opens it. It comes after the
+    /// launch's steps (``showFirstRunSteps(isFirstRun:)``), so the chat is what shows once those close. Once per
+    /// install, and never for capture builds or the showcase (``AppEnvironment/launchSteps`` `.none`), whose
+    /// captures expect the fresh landing.
+    /// - Returns: The new workspace's id, or nil when none was due or this Mac cannot hold a chat yet.
+    @discardableResult
+    func openFirstChat(isFirstRun: Bool, defaults: UserDefaults = .standard) async -> String? {
+        guard Self.opensFirstChat(isFirstRun: isFirstRun, steps: services.environment.launchSteps, defaults: defaults),
+              services.agentTabs.canHost(on: services.daemon) else { return nil }
+        defaults.set(true, forKey: Self.firstChatOpenedKey)
+        var spawn = WorkspaceSpawn(cwd: nil)
+        spawn.firstChat = AgentPaneSeed()
+        do {
+            return try await services.windows.createWorkspace(spawn, into: services.windows.active?.state.id)
+        } catch {
+            services.daemon.logger.error("first-run agent chat failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
     }
 
     func historyImportFinished() {

@@ -2,7 +2,7 @@ import Foundation
 
 /// Localized strings of sidebar sections (Resources/Localizable.xcstrings).
 enum SectionStrings {
-    static var home: String { String(localized: "sidebar.builtin.home", defaultValue: "Home", bundle: .module) }
+    static var home: String { String(localized: "sidebar.builtin.home", defaultValue: "Chief", bundle: .module) }
     /// The Channels entry after Home (`SidebarTransientItem.channels`).
     static var channels: String { String(localized: "sidebar.builtin.channels", defaultValue: "Channels", bundle: .module) }
     static var settings: String { String(localized: "sidebar.builtin.settings", defaultValue: "Settings", bundle: .module) }

@@ -69,4 +69,32 @@ struct SkipOnboardingLaunchTests {
             #expect(!defaults.bool(forKey: key))
         }
     }
+
+    /// A new person's first launch opens a new agent chat once (cmux#48416): a plain launch and the onboarding
+    /// opt-in do, a capture build or the showcase never does, a relaunch (no first run) never does, and an
+    /// install that already opened it never opens it again.
+    @Test func theFirstRunChatOpensOncePerInstallButNeverForCaptureBuilds() async throws {
+        _ = NSApplication.shared
+        let suite = "SkipOnboardingLaunchTests.firstChat.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let plain = AppEnvironment.current([:], arguments: ["cmux"]).launchSteps
+        let optedIn = AppEnvironment.current(["CMUX_NEXT_ONBOARDING": "1"], arguments: ["cmux"]).launchSteps
+        let capture = AppEnvironment.current(["CMUX_NEXT_SKIP_ONBOARDING": "1"], arguments: ["cmux"]).launchSteps
+        let showcase = AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"], arguments: ["cmux"]).launchSteps
+
+        #expect(OnboardingService.opensFirstChat(isFirstRun: true, steps: plain, defaults: defaults))
+        #expect(OnboardingService.opensFirstChat(isFirstRun: true, steps: optedIn, defaults: defaults))
+        #expect(!OnboardingService.opensFirstChat(isFirstRun: true, steps: capture, defaults: defaults))
+        #expect(!OnboardingService.opensFirstChat(isFirstRun: true, steps: showcase, defaults: defaults))
+        #expect(!OnboardingService.opensFirstChat(isFirstRun: false, steps: plain, defaults: defaults))
+
+        // Under the capture flag the launch asks for nothing and leaves the install's first chat for later.
+        let skipping = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SKIP_ONBOARDING": "1"], arguments: ["cmux"]))
+        #expect(await skipping.onboarding.openFirstChat(isFirstRun: true, defaults: defaults) == nil)
+        #expect(!defaults.bool(forKey: OnboardingService.firstChatOpenedKey))
+
+        defaults.set(true, forKey: OnboardingService.firstChatOpenedKey)
+        #expect(!OnboardingService.opensFirstChat(isFirstRun: true, steps: plain, defaults: defaults))
+    }
 }
