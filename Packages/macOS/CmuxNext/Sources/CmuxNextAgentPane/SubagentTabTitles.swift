@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextCompat
 import CmuxNextDesign
 public import Observation
 
@@ -17,13 +18,17 @@ public final class SubagentTabTitles {
     @ObservationIgnored private var names: [String: String] = [:]
     @ObservationIgnored private var tones: [String: Int] = [:]
     @ObservationIgnored private var marks: [String: String] = [:]
+    // Keyed by tab, observed one tab at a time (`ObservedMap`): every agent chat tab's title and every sidebar chat
+    // row reads its own tab's entry, so a subagent pane's page sending `chat.subagentShown` re-runs that tab's
+    // readers only, and a write of the same value none. As plain dictionaries each such write woke every chat
+    // tab and sidebar row (Leo's NIGHTLY 2026-11-21, 214 agent chats: handbook row-mapping-reads-a-session-wide-value).
     /// The name of each subagent pane's tab, by tab id.
-    private var tabs: [String: String] = [:]
-    private var tabTones: [String: Int] = [:]
+    @ObservationIgnored private let tabs = ObservedMap<String, String>()
+    @ObservationIgnored private let tabTones = ObservedMap<String, Int>()
     /// The harness whose mark each subagent pane's tab draws, when its row draws one (by tab id).
-    private var tabMarks: [String: String] = [:]
+    @ObservationIgnored private let tabMarks = ObservedMap<String, String>()
     /// The state of the subagent each subagent pane's tab shows, by tab id (``showFacts(_:inTab:)``).
-    private var tabFacts: [String: SubagentTabFacts] = [:]
+    @ObservationIgnored private let tabFacts = ObservedMap<String, SubagentTabFacts>()
 
     public init() {}
 
@@ -43,10 +48,10 @@ public final class SubagentTabTitles {
     /// Gives tab `tab`, a new pane on subagent `agent` of `session`, that subagent's name, when one
     /// was recorded. `isOpen` drops the names of tabs that closed.
     public func bind(_ agent: String, of session: String, toTab tab: String, isOpen: (String) -> Bool = { _ in true }) {
-        tabs = tabs.filter { isOpen($0.key) }
-        tabTones = tabTones.filter { isOpen($0.key) }
-        tabFacts = tabFacts.filter { isOpen($0.key) }
-        tabMarks = tabMarks.filter { isOpen($0.key) }
+        tabs.compact(keeping: isOpen)
+        tabTones.compact(keeping: isOpen)
+        tabFacts.compact(keeping: isOpen)
+        tabMarks.compact(keeping: isOpen)
         tabs[tab] = names[Self.key(session, agent)]
         tabTones[tab] = tones[Self.key(session, agent)]
         tabMarks[tab] = marks[Self.key(session, agent)]
@@ -69,7 +74,7 @@ public final class SubagentTabTitles {
     /// finished subagent's tab that read "Working · 4m" like its chat: "is this your sub-agent, or is
     /// this literally just a duplicate of you?"
     public func showFacts(_ facts: SubagentTabFacts?, inTab tab: String) {
-        if tabFacts[tab] != facts { tabFacts[tab] = facts }
+        tabFacts[tab] = facts
     }
 
     /// The state of the subagent tab `tab` shows, nil for any other tab and while it shows its chat.

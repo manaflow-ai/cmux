@@ -4,7 +4,8 @@
 //! `ladder[min(n - 1, len - 1)]`, and after it the model waits
 //! `backoff[min(n - 1, len - 1)]` for the part's signal before the next step.
 //! At most [`MAX_REPAIRS`] attempts per part in [`REPAIR_WINDOW_MS`]; the
-//! next one due past the cap makes the part `failed` instead.
+//! next one due past the cap makes the part `failed` instead, until the
+//! window lets its oldest attempt go and the part tries again by itself.
 
 use crate::RepairAction;
 
