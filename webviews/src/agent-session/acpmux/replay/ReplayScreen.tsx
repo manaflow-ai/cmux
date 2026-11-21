@@ -116,7 +116,7 @@ export function ReplayScreen({
       else frame = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(frame);
-  }, [ready, playing, speed]);
+  }, [ready, playing, speed, shown]);
 
   const seek = (to: number) => {
     if (!ready) return;
