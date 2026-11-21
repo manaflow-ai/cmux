@@ -91,9 +91,12 @@ import Testing
         answer.currentDisplay = 1
         let parsed = try #require(MacScreenRdDocument(text: answer.text))
         #expect(parsed.displayIDs == [1, 69_734_208] && parsed.currentDisplay == 1)
+        #expect(!parsed.lacksDisplay(69_734_208) && parsed.lacksDisplay(7))
         // An older host's answer lists no ids.
         answer.displayIDs = []
         #expect(try #require(MacScreenRdDocument(text: answer.text)).displayIDs.isEmpty)
         #expect(!answer.text.contains("display-ids"))
+        // So an older host never says the run's display is gone: it shows its main display and no note.
+        #expect(!(try #require(MacScreenRdDocument(text: answer.text))).lacksDisplay(69_734_208))
     }
 }

@@ -90,7 +90,8 @@ public final class MacScreenSession {
     /// The display a run's screen link names (a CGDirectDisplayID): every session asks for it
     /// until the person picks a display.
     @ObservationIgnored public var linkedDisplay: UInt32?
-    /// Set when the host's answer does not list `linkedDisplay` (the run is over): the host shows its main display.
+    /// Set when the host's answer lists its display ids and `linkedDisplay` is not one (the run is over): the host
+    /// shows its main display. An older host lists no ids, so nothing is said.
     public private(set) var linkedDisplayGone = false
     /// This session's connect start, first frame and recent round trips (`mac_screen.state`;
     /// not observed: nothing on screen follows them).
@@ -214,7 +215,7 @@ public final class MacScreenSession {
                     reach(.link)
                     if !answer.displays.isEmpty { onStreamDisplays?(answer.displays, answer.currentDisplay ?? 0) }
                     if let linked = linkedDisplay {
-                        let gone = !answer.displayIDs.contains(linked)
+                        let gone = answer.lacksDisplay(linked)
                         if linkedDisplayGone != gone { linkedDisplayGone = gone }
                     }
                     answered(answer)

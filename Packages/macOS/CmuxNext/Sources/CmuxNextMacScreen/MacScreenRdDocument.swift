@@ -38,6 +38,10 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
     var displayIDs: [UInt32] = []
     var currentDisplay: Int?
 
+    /// Whether this answer says `id` is gone: it lists its display ids and `id` is not one. An older host lists
+    /// none, so it says nothing either way.
+    func lacksDisplay(_ id: UInt32) -> Bool { !displayIDs.isEmpty && !displayIDs.contains(id) }
+
     var text: String {
         var lines = [Self.header, "a=fingerprint:\(Self.keyPrefix)\(key)"]
         lines += candidates.map { "a=cmux-rd-candidate:\($0)" }
