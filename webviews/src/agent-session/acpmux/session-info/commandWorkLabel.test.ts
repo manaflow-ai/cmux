@@ -18,7 +18,7 @@ describe("commandWorkLabel", () => {
   test("more than three operations end in an ellipsis", () => {
     expect(
       commandWorkLabel('while [ -n "$(pgrep x)" ]; do sleep 5; done; git fetch origin; git status; finish-up now'),
-    ).toBe("pgrep · git fetch origin · git status …");
+    ).toBe("pgrep x · git fetch origin · git status …");
   });
 
   test("a note written to a file is still named", () => {
