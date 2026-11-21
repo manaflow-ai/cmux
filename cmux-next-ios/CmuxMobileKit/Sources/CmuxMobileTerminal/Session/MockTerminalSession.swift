@@ -383,17 +383,20 @@ public final class MockTerminalSession: TerminalSession {
             write("\u{1B}[2A\r\u{1B}[2C")
             return
         case "claudeinline":
-            // claudeinline [MS=80] [CLEAR_EVERY=0]: Claude Code CLI's inline
+            // claudeinline [MS=80] [CLEAR_EVERY=0] [ROWS=60]: Claude Code CLI's inline
             // screen (Leo, 2026-11-21: "this claude code cli is often slow to
             // scroll"). It draws on the primary screen: transcript rows go
             // into the scrollback, and every MS ms the spinner, input box and
             // status rows below them are redrawn in place (cursor up, erase
             // line). Every CLEAR_EVERY redraws it clears the screen and its
             // scrollback and prints everything again, as Claude Code does
-            // when its screen overflows. Runs until Ctrl-C.
+            // when its screen overflows. ROWS: the transcript's rows at the
+            // start (a long session's reprint is its whole transcript). Runs
+            // until Ctrl-C.
             let delay = max(8, parts.count > 1 ? Int(parts[1]) ?? 80 : 80)
             let clearEvery = parts.count > 2 ? Int(parts[2]) ?? 0 : 0
-            try await claudeInline(delay: delay, clearEvery: clearEvery)
+            let startRows = max(1, parts.count > 3 ? Int(parts[3]) ?? 60 : 60)
+            try await claudeInline(delay: delay, clearEvery: clearEvery, startRows: startRows)
         case "clear": write("\u{1B}[H\u{1B}[2J")
         case "echo": write(parts.dropFirst().joined(separator: " ") + "\r\n")
         case "cat": try await stream(MockOutput.file(named: parts.dropFirst().first ?? ""))
@@ -474,7 +477,7 @@ public final class MockTerminalSession: TerminalSession {
 
     /// `claudeinline`'s loop: a transcript row every few frames, the live
     /// region (7 rows) redrawn every `delay` ms.
-    private func claudeInline(delay: Int, clearEvery: Int) async throws {
+    private func claudeInline(delay: Int, clearEvery: Int, startRows: Int) async throws {
         let rule = String(repeating: "\u{2500}", count: max(10, min(80, columns - 2)))
         let spinner = ["\u{00B7}", "\u{2722}", "\u{2733}", "\u{2736}", "\u{273B}", "\u{273D}"]
         var transcript: [String] = []
@@ -492,7 +495,8 @@ public final class MockTerminalSession: TerminalSession {
         let liveRows = 7
         let erase = "\r\u{1B}[\(liveRows - 1)A\u{1B}[J"
         write("\u{1B}[33m\u{273B}\u{1B}[0m Welcome to Claude Code (mock)\r\n")
-        for index in 1...60 { transcript.append(row(index)); write(row(index) + "\r\n") }
+        for index in 1...startRows { transcript.append(row(index)) }
+        write(transcript.map { $0 + "\r\n" }.joined())
         write(live(0))
         var tick = 1
         while !Task.isCancelled {

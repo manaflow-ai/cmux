@@ -50,7 +50,7 @@ final class TerminalScrollBenchUITests: XCTestCase {
         // 1.5 frames at the simulator's rate: a case that misses frames the
         // bare shell does not is slower than it.
         let frame = 1000.0 / 120
-        for name in ["claude-inline", "claude-inline-reprint", "claude-full"] {
+        for name in ["claude-inline", "claude-inline-reprint", "claude-inline-long", "claude-full"] {
             let value = try XCTUnwrap(p95[name], demo)
             XCTAssertLessThanOrEqual(value, max(bare, frame) + frame * 0.5, "\(name): p95 \(value) ms against the bare shell's \(bare) ms")
         }

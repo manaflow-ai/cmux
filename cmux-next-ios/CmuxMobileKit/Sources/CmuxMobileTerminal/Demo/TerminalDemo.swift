@@ -229,6 +229,8 @@ final class TerminalDemoDriver {
             ("bare", nil),
             ("claude-inline", "claudeinline 50"),
             ("claude-inline-reprint", "claudeinline 50 20"),
+            // A long session: 3,000 transcript rows, all reprinted every 2 s.
+            ("claude-inline-long", "claudeinline 50 40 3000"),
             // Full screen: the drag is the wheel (T-SCROLL-12), not the page.
             ("claude-full", "claudefull 50"),
         ]
