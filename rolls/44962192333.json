@@ -1,0 +1,92 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44962192333",
+  "recorded_at": "2026-11-21T23:49:16Z",
+  "reason": "cmux-tui b97aeae7892e changes the image's cmux-tui (pinned 7d71bb2097f7)",
+  "dry_run": false,
+  "cmux_tui": "b97aeae7892e0f60d1ea2f8c605732703e617b3e",
+  "fixes": [
+    {
+      "sha": "b67975809ab82a252ce0c2e048b26d126e9e3408",
+      "mergedAt": "2026-11-21T14:27:37-08:00",
+      "subject": "cmux server logs: take -n N and -f, as the Rex docs write them"
+    },
+    {
+      "sha": "142550d36132fe6ed4cd869d183693a325b97b4e",
+      "mergedAt": "2026-11-21T14:27:37-08:00",
+      "subject": "cmux server uninstall: descriptor-checked removal, checked stops"
+    },
+    {
+      "sha": "8d443cf0f54768f63173b9ffed2b93fc9fa1c973",
+      "mergedAt": "2026-11-21T14:27:16-08:00",
+      "subject": "acpmux: CI-only chatgpt.import of a Codex auth.json (#49268)"
+    },
+    {
+      "sha": "3a5c23900e1a195456bd7e31c0c94534620b8f20",
+      "mergedAt": "2026-11-21T22:25:50+00:00",
+      "subject": "Require native compatibility before app-try live swaps (#47001)"
+    },
+    {
+      "sha": "d3da13ea1753e4833e939e671c96a2ef5780a835",
+      "mergedAt": "2026-11-21T22:07:53+00:00",
+      "subject": "cmux NEXT: the gooey corner is a public setting a theme or setup can pick (appearance.cornerFlush, default flush) (#46367)"
+    },
+    {
+      "sha": "fc402d139a9a7e1727170b610d8c7e13115dfeb5",
+      "mergedAt": "2026-11-21T22:06:11+00:00",
+      "subject": "customize: a look's New Tab page shows on the next New Tab (#49204)"
+    },
+    {
+      "sha": "679a8347cd45b96cd99f272001acc8cfd9392079",
+      "mergedAt": "2026-11-21T22:06:06+00:00",
+      "subject": "iOS: send typed input exactly once across a dropped link (#48964)"
+    },
+    {
+      "sha": "6320a6d3c6e50974b7e2978ddf5545616012b583",
+      "mergedAt": "2026-11-21T13:57:00-08:00",
+      "subject": "fix(rd-host): Computer Use's macOS worker is a feature only the Screen Sharing helper turns on"
+    },
+    {
+      "sha": "3f6114319f05c6695e44c925212edb0c71fa2091",
+      "mergedAt": "2026-11-21T13:56:59-08:00",
+      "subject": "test(cmux-tui): the macOS binary resolves Computer Use without its desktop feature (red)"
+    },
+    {
+      "sha": "0a4bf68871f565368d99b0a4e225bb77b81878a0",
+      "mergedAt": "2026-11-21T13:53:21-08:00",
+      "subject": "acpmux: an agent's host that an older daemon started moves onto this daemon at idle"
+    },
+    {
+      "sha": "39d43c4bdef5fb0108fefe660eecec5e757d0808",
+      "mergedAt": "2026-11-21T21:25:20+00:00",
+      "subject": "acpmux placement: never auto-place on a machine only the mesh hub reaches (#48244)"
+    },
+    {
+      "sha": "668be391914e447efd493e826d7a9a05be41dfa4",
+      "mergedAt": "2026-11-21T14:22:42-07:00",
+      "subject": "acpmux: an inbox digest never steers past the person's waiting prompt (#49177)"
+    },
+    {
+      "sha": "39b1d04c0994c2a18b263bac2562667c3e0ef71e",
+      "mergedAt": "2026-11-21T13:13:37-08:00",
+      "subject": "Agent chat font packs: font family settings, font files and community themes (takes over #46075) (#49194)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T23:49:16Z",
+    "snapshot_id": "sh-40e527142fb64547848090c5a3af3567",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44962192333): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "63f75af6953471508b27d5f66a37a49f267ea212",
+    "image": "cloud-native-auto-b97aeae7-44962192333-1",
+    "revision": "ci-44962192333-1",
+    "at": "2026-11-21T23:49:16Z"
+  },
+  "rolled_back": false
+}
