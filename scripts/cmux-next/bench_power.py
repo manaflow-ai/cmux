@@ -893,6 +893,10 @@ def run_loaded(args):
         time.sleep(args.settle)  # test script: let the app settle
         pages = (rpc(sock, "debug.cef_pages") or {}).get("pages")
         roles = renderer_roles(pages or [], bm.owned(pid, args.app))
+        if label == "many-chats" and args.window == "minimized":
+            # Every page hidden to its own document (the window minimized), then a settle for the change to apply.
+            reached["window"] = "minimized" if not refused(app.run("minimizeWindow")) else "minimize refused"
+            time.sleep(10)  # test script: the minimize and its page visibility changes settle
         pushes_before = page_pushes(sock) if label == "many-chats" else None
         pushes_at = time.monotonic()
         time.sleep(5)  # test script: the debug read's own work ends before the window
@@ -975,6 +979,8 @@ def main():
     parser.add_argument("--relaunch-rounds", type=int, help="relaunch-reconnect: rounds per mode (3)")
     parser.add_argument("--load-streaming", type=int, help="loaded: open chats streaming a reply (3; idle-chats 0)")
     parser.add_argument("--load-tabs", type=int, help="loaded: Chromium tabs (10; idle-chats 0)")
+    parser.add_argument("--window", choices=("shown", "minimized"), default="shown",
+                        help="many-chats: measure with the window shown (the New Tab page) or minimized")
     parser.add_argument("--load-seeded-open", type=int,
                         help="stored idle chats (no agent process) opened as tabs, one workspace each (many-chats 196; else 0)")
     parser.add_argument("--stream-rate", type=float, default=10, help="loaded: streamed chunks a second per chat")
