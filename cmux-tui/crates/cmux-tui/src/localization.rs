@@ -1294,6 +1294,31 @@ pub(crate) struct PaneCliMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct OpenMessages {
+    pub help: &'static str,
+    pub arguments: &'static str,
+    pub outside_terminal: &'static str,
+    pub read_current_directory: &'static str,
+    pub expects_local_path: &'static str,
+    pub line_too_large: &'static str,
+    pub line_must_be_positive: &'static str,
+    pub line_too_large_for_preview: &'static str,
+    pub closed_before_delivery: &'static str,
+    pub no_frontend: &'static str,
+    pub request_failed: &'static str,
+    /// `{socket}` is the session socket path; `{error}` the OS error.
+    pub connect_failed: &'static str,
+    pub encode_failed: &'static str,
+    pub send_failed: &'static str,
+    pub invalid_response: &'static str,
+    pub timed_out: &'static str,
+    /// `{path}` is the requested file; `{error}` the OS error.
+    pub cannot_open: &'static str,
+    pub not_regular_file: &'static str,
+    pub path_not_utf8: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
     pub startup: StartupMessages,
@@ -1322,6 +1347,7 @@ pub(crate) struct Catalog {
     pub agent_wrapper: AgentWrapperMessages,
     pub attention: AttentionMessages,
     pub pane_cli: PaneCliMessages,
+    pub open: OpenMessages,
 }
 
 impl Catalog {
@@ -1381,6 +1407,27 @@ rules, recipes, waits, errors, scopes and the terminal, pane and tab paths.
 Pass --json for {name, version, markdown}.
 ",
         no_plugins_installed: "No plugins are installed. {command} install <git-url> installs one.",
+    },
+    open: OpenMessages {
+        help: "USAGE\n  cmux open <path>[:line]\n\nRequest a preview of an existing regular file from a cmux guest terminal. Relative paths resolve against the calling process's current directory. The optional line is accepted for compatibility but is not yet applied by the preview. The command must run inside a terminal connected to cmux. It fails if no connected frontend claims within five seconds or delivers within 45 seconds after claiming. URLs and non-regular files are rejected.\n",
+        arguments: "usage: cmux open <path>[:line]",
+        outside_terminal: "cmux open must run inside a terminal connected to cmux",
+        read_current_directory: "cannot read the current directory: {error}",
+        expects_local_path: "open expects a local file path, not a URL",
+        line_too_large: "line number is too large",
+        line_must_be_positive: "line number must be at least 1",
+        line_too_large_for_preview: "line number must not exceed 4294967295",
+        closed_before_delivery: "cmux session closed before file preview delivery",
+        no_frontend: "no subscribed frontend delivered the file preview",
+        request_failed: "file preview request failed",
+        connect_failed: "cannot connect to cmux session socket {socket}: {error}",
+        encode_failed: "cannot encode file preview request: {error}",
+        send_failed: "cannot send file preview request: {error}",
+        invalid_response: "invalid file preview response: {error}",
+        timed_out: "file preview request timed out or failed: {error}",
+        cannot_open: "cannot open {path}: {error}",
+        not_regular_file: "cannot open {path}: it is not a regular file",
+        path_not_utf8: "cannot open {path}: its path is not valid UTF-8",
     },
     startup: StartupMessages {
         schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
@@ -2174,6 +2221,27 @@ cmux-tui ターミナルの外では caller.found が false になります。--
 --json で {name, version, markdown} を表示します。
 ",
         no_plugins_installed: "インストール済みのプラグインはありません。{command} install <git-url> でインストールできます。",
+    },
+    open: OpenMessages {
+        help: "使用方法\n  cmux open <パス>[:行]\n\ncmux ゲストターミナルから既存の通常ファイルのプレビューを要求します。相対パスは呼び出し元プロセスの現在のディレクトリから解決されます。任意の行番号は互換性のために受け付けますが、まだプレビューには適用されません。このコマンドは cmux に接続されたターミナル内で実行する必要があります。接続されたフロントエンドが 5 秒以内に要求を取得しないか、取得後 45 秒以内に配信しない場合は失敗します。URL と通常ファイル以外は拒否されます。\n",
+        arguments: "使用方法: cmux open <パス>[:行]",
+        outside_terminal: "cmux open は cmux に接続されたターミナル内で実行する必要があります",
+        read_current_directory: "現在のディレクトリを読み取れません: {error}",
+        expects_local_path: "open は URL ではなくローカルファイルパスを受け付けます",
+        line_too_large: "行番号が大きすぎます",
+        line_must_be_positive: "行番号は 1 以上にしてください",
+        line_too_large_for_preview: "行番号は 4294967295 以下にしてください",
+        closed_before_delivery: "ファイルプレビューの配信前に cmux セッションが閉じられました",
+        no_frontend: "ファイルプレビューを配信した登録済みフロントエンドはありません",
+        request_failed: "ファイルプレビュー要求に失敗しました",
+        connect_failed: "cmux セッションソケット {socket} に接続できません: {error}",
+        encode_failed: "ファイルプレビュー要求をエンコードできません: {error}",
+        send_failed: "ファイルプレビュー要求を送信できません: {error}",
+        invalid_response: "ファイルプレビューの応答が無効です: {error}",
+        timed_out: "ファイルプレビュー要求がタイムアウトしたか失敗しました: {error}",
+        cannot_open: "{path} を開けません: {error}",
+        not_regular_file: "{path} を開けません: 通常ファイルではありません",
+        path_not_utf8: "{path} を開けません: パスが有効な UTF-8 ではありません",
     },
     startup: StartupMessages {
         schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",

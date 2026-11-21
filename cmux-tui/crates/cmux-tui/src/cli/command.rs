@@ -40,6 +40,8 @@ pub(super) enum CommandPlan {
     /// `agent start|resume`, `terminal <t> resume` and `terminal <t> wait
     /// --until ready` (`cli/agent_start.rs`).
     Agent(Box<super::agent_start::Command>),
+    /// `open <path>[:line]` requests a transient remote file preview.
+    Open(super::open::Plan),
 }
 
 #[derive(Clone, Debug)]

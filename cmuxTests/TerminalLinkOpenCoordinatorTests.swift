@@ -264,6 +264,41 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(!workspace.panels.values.contains { $0 is FilePreviewPanel })
     }
 
+    @Test("File previews preserve focus only when requested")
+    @MainActor
+    func filePreviewFocusIsExplicit() throws {
+        _ = NSApplication.shared
+        let defaults = makeDefaults()
+        let textURL = try makeHTMLFixture(pathExtension: "txt")
+        defer { try? FileManager.default.removeItem(at: textURL.deletingLastPathComponent()) }
+
+        let backgroundWorkspace = Workspace()
+        defer { backgroundWorkspace.teardownAllPanels() }
+        let backgroundSource = try #require(backgroundWorkspace.focusedPanelId)
+        let backgroundPane = backgroundWorkspace.bonsplitController.focusedPaneId
+        #expect(CommandClickFileOpenRouter.openInCmux(
+            workspace: backgroundWorkspace,
+            sourcePanelId: backgroundSource,
+            filePath: textURL.path,
+            defaults: defaults,
+            focus: false
+        ))
+        #expect(backgroundWorkspace.focusedPanelId == backgroundSource)
+        #expect(backgroundWorkspace.bonsplitController.focusedPaneId == backgroundPane)
+        #expect(backgroundWorkspace.panels.values.contains { $0 is FilePreviewPanel })
+
+        let foregroundWorkspace = Workspace()
+        defer { foregroundWorkspace.teardownAllPanels() }
+        let foregroundSource = try #require(foregroundWorkspace.focusedPanelId)
+        #expect(CommandClickFileOpenRouter.openInCmux(
+            workspace: foregroundWorkspace,
+            sourcePanelId: foregroundSource,
+            filePath: textURL.path,
+            defaults: defaults
+        ))
+        #expect(foregroundWorkspace.focusedPanelId != foregroundSource)
+    }
+
     @Test("Dock HTML paths open in Browser instead of externally")
     @MainActor
     func dockHTMLPathOpensInBrowser() throws {

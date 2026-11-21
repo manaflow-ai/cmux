@@ -35,6 +35,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// `notification.ack` round trips out. Fed after every accepted state.
     var notificationSync: CloudNotificationSync?
     var guestURLService: CloudGuestURLService?
+    lazy var guestFilePreviewCoordinator = RemoteTerminalFilePreviewCoordinator(
+        defaults: .standard,
+        transport: ProcessSSHFileExplorerTransport.shared,
+        cacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent("cmux-remote-terminal-previews")
+    )
     var guestURLProjectionVersion: UInt64?
     var guestURLTerminalIDs: [String] = []
     /// A local placement (a pane opening, a workspace binding) is a catalog

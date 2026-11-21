@@ -30,11 +30,21 @@ actor RemoteTerminalFilePreviewLoader {
             homeDirectory: home,
             remoteHost: host
         )
+        return try await load(paths: candidates)
+    }
+
+    /// Downloads one already-validated absolute remote path without token normalization.
+    func load(path: String) async throws -> URL {
+        try Task.checkCancellation()
+        return try await load(paths: [path])
+    }
+
+    private func load(paths: [String]) async throws -> URL {
         let identity = [provider.destination, provider.port.map(String.init) ?? "", provider.identityFile ?? ""]
             + provider.sshOptions
         let identityData = try JSONSerialization.data(withJSONObject: identity)
         let namespace = SHA256.hash(data: identityData).map { String(format: "%02x", $0) }.joined()
-        for path in candidates {
+        for path in paths {
             try Task.checkCancellation()
             let digest = SHA256.hash(data: Data(path.utf8)).map { String(format: "%02x", $0) }.joined()
             let directory = cacheDirectory.appendingPathComponent(namespace).appendingPathComponent(digest)

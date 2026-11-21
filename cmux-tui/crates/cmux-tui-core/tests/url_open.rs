@@ -13,6 +13,85 @@ fn connect(path: &Path) -> BufReader<UnixStream> {
     BufReader::new(stream)
 }
 
+#[test]
+fn file_preview_open_socket_delivery_exclusive_claim_expiry_and_validation() {
+    let mux = Mux::new("file-preview-open-integration", SurfaceOptions::default());
+    let surface = mux.new_workspace(Some("preview".into()), Some((80, 24))).unwrap();
+    let terminal = surface.terminal_public_id().unwrap().to_string();
+    let socket = std::env::temp_dir()
+        .join(format!("cmux-file-preview-open-{}", std::process::id()))
+        .join("s.sock");
+    server::serve(mux.clone(), Some(socket.clone())).unwrap();
+    let open = || {
+        json!({
+            "id": 1,
+            "cmd": "file-preview-open",
+            "terminal_id": terminal,
+            "path": "/srv/notes.md",
+            "line": 12,
+        })
+    };
+
+    assert_eq!(rpc(&socket, open())["data"]["opened"], false);
+    let mut first = connect(&socket);
+    send(&mut first, json!({"id": 1, "cmd": "url-open-subscribe", "terminal_ids": [terminal]}));
+    assert_eq!(read(&mut first)["data"]["url_open_ready"], true);
+
+    let mut guest = connect(&socket);
+    send(&mut guest, open());
+    let event = read(&mut first);
+    assert_eq!(event["event"], "file-preview-open");
+    assert_eq!(event["kind"], "file-preview");
+    assert_eq!(event["terminal_id"], terminal);
+    assert_eq!(event["path"], "/srv/notes.md");
+    assert_eq!(event["line"], 12);
+    assert_eq!(
+        rpc(
+            &socket,
+            json!({"id": 1, "cmd": "file-preview-open-claim", "request_id": event["request_id"]})
+        )["data"]["claimed"],
+        true
+    );
+    assert_eq!(
+        rpc(
+            &socket,
+            json!({"id": 1, "cmd": "file-preview-open-result", "request_id": event["request_id"], "opened": true})
+        )["data"]["accepted"],
+        true
+    );
+    assert_eq!(read(&mut guest)["data"]["opened"], true);
+
+    // A buffered file event cannot be claimed after the guest's deadline.
+    send(&mut guest, open());
+    let stale = read(&mut first);
+    assert_eq!(read(&mut guest)["data"]["opened"], false);
+    assert_eq!(
+        rpc(
+            &socket,
+            json!({"id": 1, "cmd": "file-preview-open-claim", "request_id": stale["request_id"]})
+        )["data"]["claimed"],
+        false
+    );
+
+    for request in [
+        json!({"id": 1, "cmd": "file-preview-open", "terminal_id": terminal, "path": "notes.md"}),
+        json!({"id": 1, "cmd": "file-preview-open", "terminal_id": terminal, "path": "/srv/notes\n.md"}),
+        json!({"id": 1, "cmd": "file-preview-open", "terminal_id": terminal, "path": "/srv/notes.md", "line": 0}),
+    ] {
+        assert_eq!(rpc(&socket, request)["data"]["opened"], false);
+    }
+
+    // With two frontends subscribed, the broker refuses to pick one. Checked last, with
+    // `second` kept open: dropping it would race the server noticing the disconnect.
+    let mut second = connect(&socket);
+    send(&mut second, json!({"id": 1, "cmd": "url-open-subscribe", "terminal_ids": [terminal]}));
+    assert_eq!(read(&mut second)["data"]["url_open_ready"], true);
+    assert_eq!(rpc(&socket, open())["data"]["opened"], false);
+    assert!(mux.resource_notifications(256).is_empty());
+    mux.shutdown();
+    server::cleanup(&socket);
+}
+
 fn send(stream: &mut BufReader<UnixStream>, value: Value) {
     writeln!(stream.get_mut(), "{value}").unwrap();
 }
