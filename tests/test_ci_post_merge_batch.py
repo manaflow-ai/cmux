@@ -129,6 +129,23 @@ class RateLimitTest(unittest.TestCase):
         self.assertEqual(pmb.rate_limit_wait(0, None, 30), 30)
         self.assertEqual(pmb.rate_limit_wait(0, 1, 0), 0)
 
+    def test_a_spent_token_falls_to_the_next_before_waiting(self) -> None:
+        limited = "gh: API rate limit exceeded for installation ID 1. (HTTP 403)"
+        replies = [(1, limited), (0, '{"jobs": []}')]
+        used: list[str] = []
+
+        def fake_run(argv, env=None, **_):
+            used.append((env or {}).get("GH_TOKEN", ""))
+            code, text = replies.pop(0)
+            return subprocess.CompletedProcess(argv, code, stdout=text if not code else "", stderr=text if code else "")
+
+        slept: list[float] = []
+        got = pmb.gh_api("repos/x/y/actions/runs/1/jobs", run=fake_run, sleep=slept.append, clock=lambda: 1000.0,
+                         reset_at=lambda: 1100.0, tokens=["app", "job"])
+        self.assertEqual(got, {"jobs": []})
+        self.assertEqual(used, ["app", "job"])
+        self.assertEqual(slept, [])
+
 
     def test_plan_runs_every_suite_when_the_runs_are_unreadable(self) -> None:
         def refused(*_a, **_k):

@@ -87,20 +87,35 @@ def _core_reset() -> float | None:
         return None
 
 
-def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=subprocess.run, sleep=time.sleep, clock=time.time, reset_at=_core_reset) -> object:
-    """One GitHub API call through gh (GH_TOKEN). Fields go as JSON on stdin. A rate-limited
-    call waits for the reset and retries within API_WAIT_BUDGET."""
+def read_tokens() -> list[str]:
+    """Tokens a read may use, in order: the route App's (GH_READ_TOKEN, its own budget) first, then the job's
+    GH_TOKEN, whose budget every workflow in the repository shares and which is often spent."""
+    return [t for t in (os.environ.get("GH_READ_TOKEN", ""), os.environ.get("GH_TOKEN", "")) if t] or [""]
+
+
+def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=subprocess.run, sleep=time.sleep, clock=time.time, reset_at=_core_reset, tokens=None) -> object:
+    """One GitHub API call through gh. A read tries each of read_tokens() in turn when one is rate limited; a
+    write uses GH_TOKEN. Fields go as JSON on stdin. Once every token is rate limited it waits for the reset and
+    retries within API_WAIT_BUDGET."""
     argv = ["gh", "api", "-X", method, path]
     data = None
     if fields is not None:
         argv += ["--input", "-"]
         data = json.dumps(fields)
+    if tokens is None:
+        tokens = read_tokens() if method == "GET" else [os.environ.get("GH_TOKEN", "")]
     while True:
-        out = run(argv, input=data, capture_output=True, text=True)
-        if not out.returncode:
-            return json.loads(out.stdout) if out.stdout.strip() else None
-        text = (out.stderr or out.stdout).strip()
-        pause = rate_limit_wait(clock(), reset_at(), API_WAIT_BUDGET["seconds"]) if RATE_LIMITED.search(text) else 0.0
+        for i, token in enumerate(tokens):
+            env = {**os.environ, "GH_TOKEN": token} if token else None
+            out = run(argv, input=data, capture_output=True, text=True, env=env)
+            if not out.returncode:
+                return json.loads(out.stdout) if out.stdout.strip() else None
+            text = (out.stderr or out.stdout).strip()
+            if not RATE_LIMITED.search(text):
+                raise RuntimeError(f"gh api {method} {path}: {text[-400:]}")
+            if i + 1 < len(tokens):
+                print(f"gh api {method} {path}: rate limited; trying the next token", file=sys.stderr)
+        pause = rate_limit_wait(clock(), reset_at(), API_WAIT_BUDGET["seconds"])
         if pause <= 0:
             raise RuntimeError(f"gh api {method} {path}: {text[-400:]}")
         print(f"gh api {method} {path}: rate limited; retrying in {pause:.0f} s", file=sys.stderr)
