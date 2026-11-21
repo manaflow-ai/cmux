@@ -426,7 +426,7 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
                 if child_ns is not None:
                     child_start[pid] = child_ns(pid)
         if SAMPLE_GPU:
-            gpu = GpuSampler()
+            gpu = GpuSampler(GPU_INTERVAL_S)
             gpu.start()
         time.sleep(measure)  # test script: the measured idle window
     rows = []
@@ -486,6 +486,9 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
 IO_KEYS = ("disk_read_mb_per_h", "disk_write_mb_per_h", "logical_write_mb_per_h")
 # --gpu: each measured window also samples the GPU's own counters (GpuSampler).
 SAMPLE_GPU = False
+# ioreg's Device Utilization % is a whole number; sampled each second, a 30 s window's mean steps by 1/30 %, fine
+# enough to judge goal idle-gpu-disk's 0.5 % (a 5 s interval stepped by 1/6 %).
+GPU_INTERVAL_S = 1.0
 
 
 class _ThreadInfo(ctypes.Structure):
@@ -1943,6 +1946,15 @@ def main():
         child_check = cells.child_time_check()
         print(f"== child time check: {json.dumps(child_check)}", flush=True)
         child_ns = cells.read_child_ns if child_check.get("ok") else None
+    gpu_no_app = None
+    if SAMPLE_GPU and args.measure > 0 and not args.socket:
+        # The Mac's GPU with no app of this run open, over one window as long as the measured ones: ioreg's counters
+        # are whole-Mac, so the app's own share is a window's reading minus this one (memory-agents-cron.py).
+        sampler = GpuSampler(GPU_INTERVAL_S)
+        sampler.start()
+        time.sleep(args.measure)  # test script: the no-app GPU window, before the launch
+        gpu_no_app = sampler.finish()
+        print(f"== GPU with no app (whole Mac, ioreg, {args.measure:g} s): {json.dumps(gpu_no_app)}", flush=True)
     launched = scratch = None
     if args.socket:
         if not args.app_pid:
@@ -1980,6 +1992,8 @@ def main():
         report["env"] = args.env
     if args.relaunch_restored:
         report["relaunch"] = relaunch
+    if gpu_no_app is not None:
+        report["gpu_no_app"] = gpu_no_app
 
     def settle_and_sample(label, diff_tab=None):
         time.sleep(args.settle)  # test script: let the app and its helpers go idle
