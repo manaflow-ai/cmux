@@ -1560,6 +1560,8 @@ jobs:
       # scripts/cmux-next/cmux-tui-build-profiles.json shipped (a tree-key input).
       target_set: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/rc/')) && github.event_name != 'pull_request' && fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.target_set_main || fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.target_set }}
       lto: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.lto }}
+      # cmux-rd for the files.cmux.com channel, on the Linux legs (the join line installs it).
+      build_cmux_rd: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.build_cmux_rd }}
       # A pull request's cmux-tui-pin-<merge sha> push publishes the tree that
       # its same-tree checks wait for, so these macOS legs are on the PR critical
       # path and use the PR pool, never the background lane. See
@@ -2323,7 +2325,7 @@ jobs:
               binary, so infer libc from the build artifact set rather than
               the target name alone.
               """
-              target = filename.removeprefix(sys.argv[2]).removeprefix("hook-").removeprefix("acpmux-").removeprefix("app-host-").removeprefix("cloud-server-").removeprefix("browser-host-").removeprefix("holder-").removeprefix("host-").removeprefix("agent-screen-detection-").removesuffix(".exe")
+              target = filename.removeprefix(sys.argv[2]).removeprefix("rd-notices-").removeprefix("rd-").removeprefix("hook-").removeprefix("acpmux-").removeprefix("app-host-").removeprefix("cloud-server-").removeprefix("browser-host-").removeprefix("holder-").removeprefix("host-").removeprefix("agent-screen-detection-").removesuffix(".exe")
               if "apple-darwin" in target:
                   return {"os": "macos", "architecture": "arm64" if target.startswith("aarch64") else "x86_64", "libc": "none"}
               if "windows" in target:
@@ -2331,7 +2333,8 @@ jobs:
               return {
                   "os": "linux",
                   "architecture": "arm64" if target.startswith("aarch64") else "x86_64",
-                  "libc": "musl",
+                  # cmux-rd (build_cmux_rd: the gnu-named cmux-tui-rd-*) links glibc: it loads Cisco's OpenH264 with dlopen.
+                  "libc": "glibc" if filename.removeprefix(sys.argv[2]).startswith("rd-") else "musl",
               }
 
           server_url, repository, run_id, release_url = sys.argv[5:9]
