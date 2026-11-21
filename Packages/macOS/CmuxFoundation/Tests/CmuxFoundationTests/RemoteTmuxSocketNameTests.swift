@@ -26,6 +26,16 @@ struct RemoteTmuxSocketNameTests {
         #expect(!RemoteTmuxSocketName.isValid(name))
     }
 
+    /// A validated value keeps its spelling and selects its server with `-L`; an invalid
+    /// spelling yields no value at all.
+    @Test func validatingInitHoldsOnlyAcceptedNames() {
+        let name = RemoteTmuxSocketName(validating: "alpha")
+        #expect(name?.rawValue == "alpha")
+        #expect(name?.tmuxArguments == ["-L", "alpha"])
+        #expect(RemoteTmuxSocketName(validating: "a;b") == nil)
+        #expect(RemoteTmuxSocketName(validating: "-x") == nil)
+    }
+
     /// The default server takes no arguments; a named one takes `-L <name>`.
     @Test func argumentsAreEmptyWithoutAName() {
         #expect(RemoteTmuxSocketName.arguments(for: nil) == [])

@@ -7,7 +7,32 @@
 /// name the socket directory rather than a socket in it. tmux places the server's socket at
 /// `$TMUX_TMPDIR/tmux-<uid>/<name>`, so the length cap keeps that path well inside the
 /// AF_UNIX limit on any sane temp directory.
-public enum RemoteTmuxSocketName {
+public struct RemoteTmuxSocketName: Hashable, Sendable {
+    /// The validated spelling, as passed to `tmux -L`.
+    public let rawValue: String
+
+    /// A server name, or `nil` when `name` is not a spelling cmux will pass to `tmux -L`.
+    public init?(validating name: String) {
+        guard !name.isEmpty, name.utf8.count <= Self.maxLength, !name.hasPrefix("-"),
+              name != ".", name != ".." else { return nil }
+        let allowed = name.utf8.allSatisfy { byte in
+            switch byte {
+            case UInt8(ascii: "a")...UInt8(ascii: "z"),
+                 UInt8(ascii: "A")...UInt8(ascii: "Z"),
+                 UInt8(ascii: "0")...UInt8(ascii: "9"),
+                 UInt8(ascii: "."), UInt8(ascii: "_"), UInt8(ascii: "-"):
+                return true
+            default:
+                return false
+            }
+        }
+        guard allowed else { return nil }
+        rawValue = name
+    }
+
+    /// The tmux arguments that select this server: `-L <name>`.
+    public var tmuxArguments: [String] { ["-L", rawValue] }
+
     /// Longest accepted name, in characters (all ASCII, so also bytes).
     public static let maxLength = 64
 
@@ -26,19 +51,7 @@ public enum RemoteTmuxSocketName {
 
     /// Whether `name` is a spelling cmux will pass to `tmux -L`.
     public static func isValid(_ name: String) -> Bool {
-        guard !name.isEmpty, name.utf8.count <= maxLength, !name.hasPrefix("-"),
-              name != ".", name != ".." else { return false }
-        return name.utf8.allSatisfy { byte in
-            switch byte {
-            case UInt8(ascii: "a")...UInt8(ascii: "z"),
-                 UInt8(ascii: "A")...UInt8(ascii: "Z"),
-                 UInt8(ascii: "0")...UInt8(ascii: "9"),
-                 UInt8(ascii: "."), UInt8(ascii: "_"), UInt8(ascii: "-"):
-                return true
-            default:
-                return false
-            }
-        }
+        Self(validating: name) != nil
     }
 
     /// The tmux arguments that select the server: `-L <name>`, or nothing for the default.
