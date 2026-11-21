@@ -96,10 +96,26 @@ open class ComposerReturnTextView: UITextView {
         return height
     }
 
-    /// The text's own height at `width` (all of it, however tall).
+    /// The text's own height at `width` (all of it, however tall). SwiftUI asks for the
+    /// field's size several times in one update, each a full text layout; the last
+    /// answer stands while the text, width, font and insets are the same.
     public func contentHeight(width: CGFloat) -> CGFloat {
-        sizeThatFits(CGSize(width: max(width, 1), height: .greatestFiniteMagnitude)).height
+        let key = MeasureKey(text: text ?? "", width: max(width, 1), font: font, inset: textContainerInset,
+                             padding: textContainer.lineFragmentPadding)
+        if let measured, measured.key == key { return measured.height }
+        let height = sizeThatFits(CGSize(width: key.width, height: .greatestFiniteMagnitude)).height
+        measured = (key, height)
+        return height
     }
+
+    private struct MeasureKey: Equatable {
+        var text: String
+        var width: CGFloat
+        var font: UIFont?
+        var inset: UIEdgeInsets
+        var padding: CGFloat
+    }
+    private var measured: (key: MeasureKey, height: CGFloat)?
 
     /// The field's size for a proposed width (SwiftUI's `sizeThatFits`):
     /// as wide as offered, as tall as `fieldHeight` says for the text.
