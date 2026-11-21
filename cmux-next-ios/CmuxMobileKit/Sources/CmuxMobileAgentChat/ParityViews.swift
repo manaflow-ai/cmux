@@ -229,7 +229,7 @@ struct SubagentTranscriptScreen: View {
     var body: some View {
         if let agent = store.subagent(subagentID) {
             let (turn, rows) = memo.rows(for: agent)
-            let revision = memo.builds
+            let running = agent.state == .running
             // Offline, a running subagent's footer stops: no spinner while nothing can come.
             let offline = agent.state == .running && store.isOffline
             ScrollView {
@@ -272,15 +272,19 @@ struct SubagentTranscriptScreen: View {
             .defaultScrollAnchor(.top)
             .scrollPosition($position)
             .onScrollPhaseChange { _, new in phase = new }
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height + geometry.contentInsets.bottom - 24
-            } action: { _, atEnd in
-                // Growth alone (the reader idle at the end) does not stop following; the
-                // reader's own scroll decides.
-                if atEnd || phase == .interacting || phase == .decelerating { follows = atEnd }
-            }
-            .onChange(of: revision) {
-                if follows, agent.state == .running { position.scrollTo(edge: .bottom) }
+            .onScrollGeometryChange(for: TranscriptEnd.self) { geometry in
+                // In content coordinates: the bottom inset counts as seen, as at rest on the end.
+                TranscriptEnd(atEnd: geometry.visibleRect.maxY >= geometry.contentSize.height - 24, height: geometry.contentSize.height)
+            } action: { old, new in
+                if phase == .interacting || phase == .decelerating {
+                    // The reader's own scroll decides.
+                    follows = new.atEnd
+                } else if new.atEnd {
+                    follows = true
+                } else if follows, running, new.height > old.height {
+                    // Rows came in below a reader at rest on the end: keep the end in view.
+                    position.scrollTo(edge: .bottom)
+                }
             }
             .background(Color.cmuxMobileBackground)
             .chatDemoReceiver(store: store, surface: surface)
@@ -293,6 +297,12 @@ struct SubagentTranscriptScreen: View {
             ContentUnavailableView("Subagent not found", systemImage: "person.2.slash")
         }
     }
+}
+
+/// Where a subagent transcript's reader is: on its end or not, and how tall it is.
+private struct TranscriptEnd: Equatable {
+    var atEnd: Bool
+    var height: CGFloat
 }
 
 /// A transcript row inside a subagent (no permission or question cards: those reach the parent).
