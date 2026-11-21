@@ -796,5 +796,41 @@ class LocalGapTests(unittest.TestCase):
         self.assertIn("local_gap=git_oldest_after", SCRIPT.read_text(encoding="utf-8"))
 
 
+class GhApiReadFallback(unittest.TestCase):
+    """Ticks 44931403939, 44931656964 and 44931849241 (2026-11-21) failed the run listing with only
+    CalledProcessError(1, ...) logged and waited: about 12 min of a 23.7 min gap between builds."""
+
+    @staticmethod
+    def refused(cmd, **kwargs):
+        raise subprocess.CalledProcessError(1, cmd, output="", stderr="gh: HTTP 403: API rate limit exceeded for installation\n")
+
+    def test_a_failed_gh_read_is_read_from_the_public_api(self):
+        asked = []
+        got = rolling.gh_api("repos/o/r/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page=50",
+                             run=self.refused, public_get=lambda path: asked.append(path) or {"workflow_runs": []})
+        self.assertEqual(got, {"workflow_runs": []})
+        self.assertEqual(asked, ["repos/o/r/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page=50"])
+
+    def test_a_read_both_refuse_names_gh_stderr(self):
+        def refused_too(path):
+            raise OSError("HTTP Error 403")
+        with self.assertRaises(RuntimeError) as caught:
+            rolling.gh_api("repos/o/r/x", run=self.refused, public_get=refused_too)
+        self.assertIn("HTTP 403: API rate limit exceeded for installation", str(caught.exception))
+
+    def test_a_hung_gh_read_is_bounded_and_falls_back(self):
+        def hung(cmd, **kwargs):
+            self.assertEqual(kwargs.get("timeout"), rolling.GH_API_SECONDS)
+            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+        self.assertEqual(rolling.gh_api("repos/o/r/x", run=hung, public_get=lambda path: {"ok": 1}), {"ok": 1})
+
+    def test_a_good_gh_read_reads_nothing_more(self):
+        def answered(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 0, stdout='{"ok": 1}', stderr="")
+        def unexpected(path):
+            raise AssertionError("public API read after a good gh read")
+        self.assertEqual(rolling.gh_api("repos/o/r/x", run=answered, public_get=unexpected), {"ok": 1})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
