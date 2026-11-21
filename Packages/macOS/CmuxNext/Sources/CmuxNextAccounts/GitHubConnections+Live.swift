@@ -40,6 +40,7 @@ extension GitHubConnections {
             return value
         }, open: { url in LinkRouter.shared.open(url) })
         model.completionLink = CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme)
+        model.attempts = auth.gitHubAttempts
         // The app finished an install GitHub handed back to it: the card reads its connections again.
         model.changes = Task { [weak model] in
             for await _ in ObservationStream({ auth.gitHubChanges.count }).dropFirst() { await model?.perform("githubRefresh") }

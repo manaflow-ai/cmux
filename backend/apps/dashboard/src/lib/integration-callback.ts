@@ -75,17 +75,28 @@ const STATE_AUDIENCE = "cmux-integration-state"
  * to the development API: the issuer alone is a claim anyone can write into a link, and a genuine state made for
  * someone else is a link anyone can send. The API still verifies the state, its user and its team when it completes.
  */
-export const integrationStateSignedBy = async (state: string | undefined, jwks: unknown, expect: { readonly issuer: string; readonly user: string }, now: number = Date.now()): Promise<boolean> => {
-  if (typeof state !== "string" || state.length > 4096) return false
+export const integrationStateSignedBy = async (state: string | undefined, jwks: unknown, expect: { readonly issuer: string; readonly user: string }, now: number = Date.now()): Promise<boolean> =>
+  Boolean(expect.user) && (await verifiedIntegrationState(state, jwks, expect, now)) !== undefined
+
+/** Any API environment's state issuer (`https://cmux-api/<environment>`). */
+const STATE_ISSUER = /^https:\/\/cmux-api\/[a-z0-9-]{1,40}$/
+
+/**
+ * The claims of `state` when it is an unexpired integration state (ES256, the state audience) signed by one of the
+ * keys in `jwks`; undefined otherwise. `issuer` and `user`, when given, must match `iss` and `sub`; without `issuer`
+ * any API environment's issuer is accepted (the keys decide which API signed it).
+ */
+export const verifiedIntegrationState = async (state: string | undefined, jwks: unknown, expect: { readonly issuer?: string; readonly user?: string } = {}, now: number = Date.now()): Promise<Record<string, unknown> | undefined> => {
+  if (typeof state !== "string" || state.length > 4096) return undefined
   const parts = state.split(".")
-  if (parts.length !== 3) return false
+  if (parts.length !== 3) return undefined
   const claims = jsonPart(parts[1]!)
-  if (jsonPart(parts[0]!)?.alg !== "ES256" || !claims) return false
-  if (claims.iss !== expect.issuer || claims.aud !== STATE_AUDIENCE) return false
-  if (!expect.user || claims.sub !== expect.user) return false
-  if (typeof claims.exp !== "number" || claims.exp * 1000 <= now) return false
+  if (jsonPart(parts[0]!)?.alg !== "ES256" || !claims) return undefined
+  if (typeof claims.iss !== "string" || !(expect.issuer !== undefined ? claims.iss === expect.issuer : STATE_ISSUER.test(claims.iss)) || claims.aud !== STATE_AUDIENCE) return undefined
+  if (expect.user !== undefined && (!expect.user || claims.sub !== expect.user)) return undefined
+  if (typeof claims.exp !== "number" || claims.exp * 1000 <= now) return undefined
   const keys = (jwks as { keys?: unknown } | null | undefined)?.keys
-  if (!Array.isArray(keys)) return false
+  if (!Array.isArray(keys)) return undefined
   try {
     const signature = base64UrlBytes(parts[2]!)
     const signed = new TextEncoder().encode(`${parts[0]}.${parts[1]}`)
@@ -93,12 +104,12 @@ export const integrationStateSignedBy = async (state: string | undefined, jwks: 
       const { kty, crv, x, y } = (jwk ?? {}) as Record<string, unknown>
       if (kty !== "EC" || crv !== "P-256" || typeof x !== "string" || typeof y !== "string") continue
       const key = await crypto.subtle.importKey("jwk", { kty, crv, x, y }, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"])
-      if (await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, signature, signed)) return true
+      if (await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, signature, signed)) return claims
     }
   } catch {
-    return false
+    return undefined
   }
-  return false
+  return undefined
 }
 
 /**
@@ -132,34 +143,37 @@ export const developmentRefusal = (status: number): { readonly code: string; rea
     ? { code: "auth.development_refused", message: "The development Cloud did not accept this sign-in. Start the connection again from a development build signed in to this account." }
     : undefined
 
-/** The `ret` claim of an integration state's JWT, unverified (the API verifies the state when the app completes it). */
-const stateReturnHint = (state: string | undefined): string | undefined => {
-  const ret = unverifiedStateClaims(state)?.ret
-  return typeof ret === "string" ? ret : undefined
-}
+/** Is `ret` the app's own completion link (`<scheme>://integration/complete`)? */
+const isAppCompletionLink = (ret: unknown): ret is string => typeof ret === "string" && ret.length <= 512 && RETURN_TO_PATTERN.test(ret) && ret.endsWith("://integration/complete")
 
 /**
- * A connect the app started (#46018): the state's return link is the app's own `<scheme>://integration/complete`.
- * The provider's redirect goes straight on to it with `state`, `code`, `installation_id`, `setup_action` and `error`,
- * and the app finishes the connection with its own sign-in: no page here, no web session. Undefined for any other
- * connect (one started here, or from a chat), which this page finishes as before. The link is only a hint read from
- * the unverified state: the app sends the state back, and the API completes only a state signed for that person.
+ * Whether the state, unverified, says the cmux app started this connect (#46018): its return link is the app's
+ * `<scheme>://integration/complete` and it carries the app's attempt hash (`anh`). Only ever a reason to do less:
+ * this page then never finishes the connect with the console's session (the API would refuse it too) and asks
+ * `integrationAppHandoffLink` for the verified hand-off instead. It never chooses where the browser goes.
  */
-export const integrationAppHandoff = (search: {
-  state?: string
-  code?: string
-  installation_id?: string
-  setup_action?: string
-  error?: string
-}): string | undefined => {
-  const ret = stateReturnHint(search.state)
-  if (!ret || ret.length > 512 || !RETURN_TO_PATTERN.test(ret) || !ret.endsWith("://integration/complete")) return undefined
-  const query = new URLSearchParams()
-  for (const key of ["state", "code", "installation_id", "setup_action", "error"] as const) {
-    const value = search[key]
-    if (value) query.set(key, value)
-  }
-  return `${ret}?${query.toString()}`
+export const integrationAppAttemptHint = (state: string | undefined): boolean => {
+  const claims = unverifiedStateClaims(state)
+  return isAppCompletionLink(claims?.ret) && typeof claims?.anh === "string"
+}
+
+const HANDOFF_VALUE = /^[A-Za-z0-9_-]{43}$/
+const CONNECTION_ID = /^conn_[a-z0-9]{20}$/
+
+/**
+ * The app link the callback opens once the API took the provider's answer for an app-started connect:
+ * `<ret>?connection=<id>&handoff=<value>`. `claims` are the state's verified claims (`verifiedIntegrationState`),
+ * `value` the API's `/v1/integrations/handoff` answer; both must name the same link and connection. Never carries
+ * the provider's `code`, `installation_id` or the state: the app finishes with its own session and secret. A
+ * development build's link is refused for a production state. Undefined for anything else.
+ */
+export const integrationAppHandoffLink = (claims: Record<string, unknown> | undefined, value: unknown): string | undefined => {
+  if (!claims || !isAppCompletionLink(claims.ret) || typeof claims.anh !== "string") return undefined
+  if (claims.iss === "https://cmux-api/production" && claims.ret.startsWith("cmux-dev")) return undefined
+  const v = (value ?? {}) as { connection?: unknown; return_to?: unknown; handoff?: unknown }
+  if (v.return_to !== claims.ret || typeof v.connection !== "string" || v.connection !== claims.conn || !CONNECTION_ID.test(v.connection)) return undefined
+  if (typeof v.handoff !== "string" || !HANDOFF_VALUE.test(v.handoff)) return undefined
+  return `${claims.ret}?${new URLSearchParams({ connection: v.connection, handoff: v.handoff }).toString()}`
 }
 
 export const integrationCompletionRequest = (state: string, extra: { code?: string; installation_id?: string; setup_action?: string } = {}) => ({

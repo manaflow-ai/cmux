@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { accessTokenSubject, apiUserId, DEVELOPMENT_API_URL, DEVELOPMENT_STATE_ISSUER, developmentRefusal, integrationCompletionApi, integrationEnvironmentHint, integrationStateSignedBy, STAGING_API_URL, STAGING_CONSOLE_HOST } from "../src/lib/integration-callback"
+import { accessTokenSubject, apiUserId, DEVELOPMENT_API_URL, DEVELOPMENT_STATE_ISSUER, developmentRefusal, integrationAppAttemptHint, integrationAppHandoffLink, integrationCompletionApi, integrationEnvironmentHint, integrationStateSignedBy, STAGING_API_URL, STAGING_CONSOLE_HOST, verifiedIntegrationState } from "../src/lib/integration-callback"
 
 /**
  * The development Worker's Connect comes back to the staging console, which finishes development states on the
@@ -144,4 +144,52 @@ test("a 401 from the development API is not a signed-out console", () => {
   expect(developmentRefusal(401)?.code).toBe("auth.development_refused")
   expect(developmentRefusal(200)).toBeUndefined()
   expect(developmentRefusal(403)).toBeUndefined()
+})
+
+const HASH = "h".repeat(43)
+const HANDOFF = "k".repeat(43)
+const CONN = "conn_0123456789abcdefghij"
+
+test("an app-started connect is recognised only by its completion link and attempt hash", () => {
+  expect(integrationAppAttemptHint(token({ ret: "cmux://integration/complete", anh: HASH }))).toBe(true)
+  // No hash (an older connect), a chat link, another scheme or path: not the app's attempt.
+  for (const claims of [{ ret: "cmux://integration/complete" }, { ret: "cmux://session/ses-01", anh: HASH }, { ret: "https://evil.example/integration/complete", anh: HASH }, { ret: "cmux://integration/complete?x=1", anh: HASH }, {}])
+    expect(integrationAppAttemptHint(token(claims))).toBe(false)
+  expect(integrationAppAttemptHint(undefined)).toBe(false)
+  expect(integrationAppAttemptHint("not-a-jwt")).toBe(false)
+})
+
+test("the callback verifies a state from any API environment by its keys, and refuses an unverified one", async () => {
+  const api = await keyPair()
+  const other = await keyPair()
+  const now = Date.UTC(2026, 10, 18)
+  const claims = { iss: "https://cmux-api/production", aud: "cmux-integration-state", sub: "user_1", conn: CONN, ret: "cmux://integration/complete", anh: HASH, exp: now / 1000 + 600 }
+  const good = await signedState(api.key, claims)
+  expect(await verifiedIntegrationState(good, api.jwks, {}, now)).toMatchObject({ conn: CONN })
+  // An unsigned or hand-made state (what anyone can put in a link), another key, expired, another audience or issuer form.
+  expect(await verifiedIntegrationState(token(claims), api.jwks, {}, now)).toBeUndefined()
+  expect(await verifiedIntegrationState(await signedState(other.key, claims), api.jwks, {}, now)).toBeUndefined()
+  expect(await verifiedIntegrationState(good, api.jwks, {}, now + 601_000)).toBeUndefined()
+  expect(await verifiedIntegrationState(await signedState(api.key, { ...claims, aud: "api" }), api.jwks, {}, now)).toBeUndefined()
+  expect(await verifiedIntegrationState(await signedState(api.key, { ...claims, iss: "https://evil.example/production" }), api.jwks, {}, now)).toBeUndefined()
+  expect(await verifiedIntegrationState(good, undefined, {}, now)).toBeUndefined()
+})
+
+test("the app link carries only the connection and the handoff value, never the provider's code", () => {
+  const claims = { iss: "https://cmux-api/staging", conn: CONN, ret: "cmux-dev-x://integration/complete", anh: HASH }
+  const value = { connection: CONN, return_to: claims.ret, handoff: HANDOFF }
+  const link = integrationAppHandoffLink(claims, value)
+  expect(link).toBe(`cmux-dev-x://integration/complete?connection=${CONN}&handoff=${HANDOFF}`)
+  const query = new URL(link!).searchParams
+  for (const key of ["code", "state", "installation_id", "setup_action"]) expect(query.has(key)).toBe(false)
+  // An answer for another connection or link, a malformed handoff value, extra fields: no link, or none of them in it.
+  expect(integrationAppHandoffLink(claims, { ...value, connection: "conn_ffffffffffffffffffff" })).toBeUndefined()
+  expect(integrationAppHandoffLink(claims, { ...value, return_to: "cmux://integration/complete" })).toBeUndefined()
+  expect(integrationAppHandoffLink(claims, { ...value, handoff: "short" })).toBeUndefined()
+  expect(integrationAppHandoffLink(claims, { ...value, code: "secret" })).not.toContain("secret")
+  expect(integrationAppHandoffLink(undefined, value)).toBeUndefined()
+  expect(integrationAppHandoffLink({ ...claims, anh: undefined }, value)).toBeUndefined()
+  // A production state never opens a development build's link.
+  expect(integrationAppHandoffLink({ ...claims, iss: "https://cmux-api/production" }, value)).toBeUndefined()
+  expect(integrationAppHandoffLink({ ...claims, iss: "https://cmux-api/production", ret: "cmux://integration/complete" }, { ...value, return_to: "cmux://integration/complete" })).toBe(`cmux://integration/complete?connection=${CONN}&handoff=${HANDOFF}`)
 })
