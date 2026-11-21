@@ -13,6 +13,8 @@ public nonisolated struct ComputerUsePermissions: Sendable, Equatable {
     /// Computer Use is off, so no helper runs and the grants are unknown;
     /// Allow turns it on first.
     public var isOff: Bool
+    /// The helper did not start or stopped answering: no Allow can help until it runs again.
+    public var helperFailed: Bool
     /// The helper is starting and its grants are being read: they show as missing until it answers,
     /// and nothing is started on them (an entry's Allow waits for the answer).
     public var isReading: Bool
