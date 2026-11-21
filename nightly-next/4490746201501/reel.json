@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4490746201501",
+  "notes": "notes/4490746201501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 48925,
+      "title": "Cloud model connections: one sentence for where a token or key goes; setup's cloud_chat points at Settings > Cloud",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48946,
+      "title": "ci: risk tier fetches the base's recent history blobless and the blamed files' versions in one round trip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48992,
+      "title": "pane_drag.py: name what holds the frame in each drop (debug.hangs stacks)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47812,
+      "title": "fix(terminal beside chat): a terminal opened in an agent's workspace goes right of its chat",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48988,
+      "title": "acpmux run_wait: a bg task id with a timeout waits for the task to end",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46563,
+      "title": "acpmux: opt-in batched peer-list notice, so an attach on a god start no longer waits behind 10,400 row notices",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46509,
+      "title": "perf-budgets: a tab-switch row reads only its scenario's own kind",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48957,
+      "title": "CI guards: run the guard profile in its own clean worktree beside the other steps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48931,
+      "title": "ci-web: react-apps-check on a PR runs shard 1 plus one job of touched tests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48935,
+      "title": "ci(cmux-tui artifacts): a manifest re-run re-runs the adopt job, not the whole run",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
