@@ -1,6 +1,7 @@
 // One launch of a cmux NEXT app the way the Dock launches it (CMUX-629, CMUX-631), timed from outside the app.
 //
-//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [MODES...]]]   MODES: shell, keys, layout, movequit, type
+//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [MODES...]]]   MODES: shell, keys, layout, movequit, type,
+//                                                                      plain
 //                                                                      (separate or comma-separated)
 //
 // With `shell` (launch-ready.sh state=bare), once the app marks `window_usable` the probe opens a terminal the way a
@@ -29,6 +30,10 @@
 // other of two frames (`debug.window_frame`: one setFrame, as an Accessibility client resizes) and the sidebar to the
 // other of two widths (`debug.update_surfaces sidebar-width`), then quits at once, so the next launch starts from a
 // record the launch snapshot may not have caught up with; the row's `movequit` says what was set and the ms to the quit.
+//
+// With `plain` (launch-ready.sh other=, any app that is not cmux) the probe gives the app no cmux variables and reads
+// no front from a control socket at the quit: the row has the times read from outside (process start, finished
+// launching, the first on-screen window, active) and `plain: true`.
 //
 // Opens APP through LaunchServices (NSWorkspace.openApplication: a new instance, activated, as a Dock click does)
 // with a home under HOME_ROOT, and prints one `LR-RUN <json>` line. Times are ms from the app's process start
@@ -65,7 +70,7 @@ guard socketPath.utf8.count <= 103 else { // sun_path less its NUL: the app coul
 }
 let modes = Set(args.dropFirst(6).flatMap { $0.split(separator: ",").map(String.init) })
 let opensShell = modes.contains("shell"), typesKeys = modes.contains("keys"), samplesLayout = modes.contains("layout")
-let typesFirstKey = modes.contains("type"), movesBeforeQuit = modes.contains("movequit")
+let typesFirstKey = modes.contains("type"), movesBeforeQuit = modes.contains("movequit"), plainApp = modes.contains("plain")
 var shellRequested: Double?
 let home = homeRoot.appendingPathComponent("h"), tmp = homeRoot.appendingPathComponent("t")
 for sub in ["Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"] {
@@ -141,6 +146,8 @@ var environment: [String: String] = [
 ]
 // `type` (launch-ready.sh type=1): the app types one key at its first frame (LaunchTypeProbe) and marks its echo.
 if typesFirstKey { environment["CMUX_NEXT_LAUNCH_TYPE_PROBE"] = "1" }
+// `plain`: an app that is not cmux gets only the home, the temp folder and the shell basics.
+if plainApp { environment = environment.filter { !$0.key.hasPrefix("CMUX_") } }
 if let user = ProcessInfo.processInfo.environment["USER"] { environment["USER"] = user; environment["LOGNAME"] = user }
 // A side with its own settings (launch-ready.sh engines=): the app reads HOME_ROOT/cmux-next.json, not the account's.
 let sideConfig = homeRoot.appendingPathComponent("cmux-next.json").path
@@ -484,7 +491,7 @@ let timer = Timer(timeInterval: 0.001, repeats: true) { _ in
         }
     }
     if let seen = windowSeenAt, quitSent == nil, t - seen >= settle * 1000 {
-        frontAtQuit = front()
+        if !plainApp { frontAtQuit = front() }
         if typesKeys { keysRead = sentText(since: returnSent ?? seen, sent: Array(keySequence.prefix(keyPosts.count))) }
         if movesBeforeQuit { moveThenQuit(pid) } else { quitSent = now(); kill(pid, SIGTERM) }
     }
@@ -552,6 +559,7 @@ var row: [String: Any] = [
     "first_reveal": marks.filter { $0.key.hasPrefix("reveal.") }.min { $0.value < $1.value }.map { String($0.key.dropFirst("reveal.".count)) } ?? NSNull(),
 ]
 if let frontAtQuit { row["front"] = frontAtQuit }
+if plainApp { row["plain"] = true }
 if typesKeys {
     // first_key_ms: when the earliest sent key the sent message holds went out (step i: the window plus 100 i ms), ms
     // from process start as every time here; null when it holds none, or nothing was read back.

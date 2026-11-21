@@ -163,6 +163,13 @@ def summarize(rows, case="kept", seeded="", keys=False):
             med[name] = round(statistics.median(vals), 1) if vals else None
         # Which region each launch showed first, counted (a side that opens on a pane is not timed as Home).
         med["first_reveal"] = dict(sorted(Counter(r.get("first_reveal") or "none" for r in done).items()))
+        # other= (a plain app, not cmux): what it logged about its own launch, on its own clock (app_log) and when
+        # it logged it, ms from the process start (app_log_at).
+        for field, prefix in (("app_log", "log."), ("app_log_at", "log_at.")):
+            for name in dict.fromkeys(n for r in done for n in (r.get(field) or {})):
+                vals = [r[field][name] for r in done if (r.get(field) or {}).get(name) is not None]
+                if vals:
+                    med[prefix + name] = round(statistics.median(vals), 1)
         names = dict.fromkeys(name for r in done for name in r["marks"])
         for name in sorted(names, key=lambda n: statistics.median([r["marks"][n] for r in done if n in r["marks"]])):
             med[name] = round(statistics.median([r["marks"][name] for r in done if name in r["marks"]]), 1)
@@ -181,7 +188,8 @@ def summarize(rows, case="kept", seeded="", keys=False):
         # that changed it fails the arm even when a later one changes it back. With that front unreadable the arm is
         # not judged at all: comparing with the launch before instead is the same blind spot.
         anchored = not seeded and case in PRIME_ANCHORED
-        for r in own:
+        plain = bool(own) and all(r.get("plain") for r in own)
+        for r in ([] if plain else own):  # a plain app has no front to reopen: its restore is not judged
             # The stress3 seed sets the front every later launch must reopen, with front= too: it makes the session
             # and leaves its last workspace's tab (front=tab) in front, so the prime's front is no longer the anchor.
             if (anchored and r["label"] in ("prime", "seed")) or (seeded and r["label"] == "seed"):
@@ -224,6 +232,8 @@ def summarize(rows, case="kept", seeded="", keys=False):
             failed.extend(drifted)
         if not_judged:
             med["reopened"] = "not-judged: " + not_judged
+        if plain:
+            med["reopened"] = "n/a (plain app)"
         med["usable"] = f"{usable}/{measured}"
         surfaces = Counter(first_surface(r) for r in runs)
         first = surfaces.most_common(1)[0][0] if surfaces else "none"
@@ -252,9 +262,9 @@ def summarize(rows, case="kept", seeded="", keys=False):
                                 "median_changes": statistics.median(changes) if changes else None,
                                 "launches_that_moved": f"{sum(1 for m in moved if m > 0)}/{len(seen)}"}
             print("LR-FRAMES", side, json.dumps(frames), flush=True)
-        result[side] = {"failed": failed, "surface": first, "judged": not not_judged}
+        result[side] = {"failed": failed, "surface": first, "judged": not not_judged, "plain": plain}
     # An A/B whose arms first showed different surfaces times different work: not like for like.
-    firsts = {side: data["surface"] for side, data in result.items()}
+    firsts = {side: data["surface"] for side, data in result.items() if not data["plain"]}
     if len(set(firsts.values())) > 1:
         print("LR-SURFACE-DIFF", " ".join(f"{s} first={f}" for s, f in firsts.items()) + ": not like for like", flush=True)
     # Whether this run may be quoted as "every launch reopened the same front": every arm judged and none failed.
