@@ -398,3 +398,72 @@ fn shared_shim_of_a_gone_build_starts_claude_through_the_terminals_own_cmux() {
     drop(a);
     let _ = fs::remove_dir_all(&root);
 }
+
+/// What a shared shim a new daemon rewrote runs: the terminal's
+/// `CMUX_TUI_CLI`, else the app's bundled CLI when a `cmux-tui` sits beside
+/// it (a classic app's `cmux` has none), else the agent itself with the
+/// shared folder left out of its PATH.
+#[test]
+fn shared_shims_follow_the_terminals_own_cmux() {
+    let root = unique_root();
+    let home = root.join("home");
+    let data = root.join("data");
+    for dir in [&home, &data] {
+        fs::create_dir_all(dir).unwrap();
+    }
+    let shared = data.join("cmux-tui/shims");
+    fs::create_dir_all(&shared).unwrap();
+    for (name, marker, verb) in [
+        ("claude", "# cmux-tui-claude-shim", "claude-wrapper"),
+        ("codex", "# cmux-tui-codex-shim", "codex-wrapper"),
+    ] {
+        write_executable(
+            &shared.join(name),
+            &format!("#!/bin/sh\n{marker}\nexec /gone/cmux agent {verb} \"$@\"\n"),
+        );
+    }
+    let exe = install_build(&root.join("build-s"), "build-s", &root.join("hook.log"));
+    let daemon = Daemon::start(&root, &exe, "ob-shared", &home, &data, "/usr/bin:/bin");
+    drop(daemon);
+
+    let echo = |label: &str| format!("#!/bin/sh\nprintf '{label}|%s\\n' \"$*\"\n");
+    let tui_cli = root.join("tui/cmux");
+    let bundle_cli = root.join("bundle/cmux");
+    let classic_cli = root.join("classic/cmux");
+    for (path, label) in [
+        (&tui_cli, "tui"),
+        (&bundle_cli, "bundle"),
+        (&root.join("bundle/cmux-tui"), "bundle-tui"),
+        (&classic_cli, "classic"),
+    ] {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        write_executable(path, &echo(label));
+    }
+    let real = root.join("real");
+    fs::create_dir_all(&real).unwrap();
+    for name in ["claude", "codex"] {
+        write_executable(&real.join(name), "#!/bin/sh\nprintf 'real %s|%s\\n' \"$*\" \"$PATH\"\n");
+    }
+    let path = format!("{}:{}", shared.display(), real.display());
+    let run = |name: &str, env: &[(&str, &Path)]| {
+        let mut command = Command::new("/bin/sh");
+        command.arg(shared.join(name)).arg("hi").env_clear().env("PATH", &path);
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        String::from_utf8(command.output().unwrap().stdout).unwrap()
+    };
+    let gone = root.join("gone/cmux");
+    let both =
+        [("CMUX_TUI_CLI", tui_cli.as_path()), ("CMUX_BUNDLED_CLI_PATH", bundle_cli.as_path())];
+    assert_eq!(run("claude", &both), "tui|agent claude-wrapper hi\n");
+    assert_eq!(run("codex", &both), "tui|agent codex-wrapper hi\n");
+    let bundled =
+        [("CMUX_TUI_CLI", gone.as_path()), ("CMUX_BUNDLED_CLI_PATH", bundle_cli.as_path())];
+    assert_eq!(run("claude", &bundled), "bundle|agent claude-wrapper hi\n");
+    assert_eq!(run("codex", &bundled), "bundle|agent codex-wrapper hi\n");
+    let classic = [("CMUX_BUNDLED_CLI_PATH", classic_cli.as_path())];
+    assert_eq!(run("claude", &classic), format!("real hi|{}\n", real.display()));
+    assert_eq!(run("codex", &[]), format!("real hi|{}\n", real.display()));
+    let _ = fs::remove_dir_all(&root);
+}
