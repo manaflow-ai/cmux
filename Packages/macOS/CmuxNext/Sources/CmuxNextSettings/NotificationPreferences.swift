@@ -17,6 +17,12 @@ public nonisolated struct NotificationPreferences: Hashable, Sendable {
     /// `notifications.sounds`: per-event sounds, volume, timing, the burst cooldown, and the
     /// workspace, group and agent levels (``NotificationSoundPreferences``).
     public var sounds = NotificationSoundPreferences()
+    /// An absent event follows the current notification settings.
+    var delivery: [NotificationSoundEvent: NotificationDeliveryLevel] = [:]
+
+    public func permitsBanner(for event: NotificationSoundEvent) -> Bool { delivery[event] != .inApp }
+    public func permitsSound(for event: NotificationSoundEvent) -> Bool { (delivery[event] ?? .inherit) == .inherit }
+
     public var quietHours: QuietHours?
     /// A notification for a pane typed into within this many seconds is
     /// read at once (no ring, banner or sound). 0 turns it off.

@@ -187,6 +187,16 @@ pub const RECIPES: &[Recipe] = &[
         profile: include_str!("../recipes/claude-code-app.json"),
         includes: CLAUDE_CODE_APP,
     },
+    Recipe {
+        name: "claude-code-notification-levels",
+        title: "Claude Code notification levels",
+        group: Group::Apps,
+        ask: "keep finished turns in the app",
+        profile: include_str!(
+            "../../../../examples/looks/claude-code/notification-levels/cmux-setup.json"
+        ),
+        includes: &[],
+    },
 ];
 
 /// The recipe called `name`.

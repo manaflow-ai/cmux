@@ -147,6 +147,16 @@ cmux customize use ~/.local/state/cmux/customize/recipes/claude-code-app.json
 
 Or ask: "make cmux look and work like the Claude desktop app's Code tab"
 
+### Claude Code notification levels
+
+Keep finished turns in the app. Requests for input and errors follow your current notification settings.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/claude-code-notification-levels.json
+```
+
+Or ask: "keep finished turns in the app"
+
 ## For agents and scripts
 
 - `cmux customize recipes --json` lists every recipe: its name, title, group, wish, what it

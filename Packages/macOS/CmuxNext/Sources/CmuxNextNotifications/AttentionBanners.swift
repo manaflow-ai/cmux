@@ -122,7 +122,7 @@ package final class AttentionBanners {
     /// What the policy reads for `item`'s banner: whether its pane is viewed and its workspace
     /// muted, both for the tab on the machine its row key names.
     package func arrival(_ item: AgentPaneAttentionTabs.Item) -> NotificationPolicy.Arrival {
-        var arrival = NotificationPolicy.Arrival(source: .agent)
+        var arrival = NotificationPolicy.Arrival(source: .agent, at: Date())
         arrival.appActive = NSApp.isActive
         // The row key names the tab's machine (tabs on two machines can share an id).
         if let host, let (daemon, model) = live(item) {
@@ -138,8 +138,6 @@ package final class AttentionBanners {
             }
         }
         if arrival.soundEvent == nil { arrival.soundEvent = .needsInput }
-        let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
-        arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
         return arrival
     }
 

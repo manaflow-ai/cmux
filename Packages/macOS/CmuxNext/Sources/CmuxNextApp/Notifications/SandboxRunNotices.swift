@@ -89,13 +89,12 @@ final class SandboxRunNotices {
     /// whose tab the person is looking at posts none: its card shows the end.
     private func post(_ end: SandboxRunEnd) {
         guard let center = services?.notifications else { return }
-        var arrival = NotificationPolicy.Arrival(source: .agent)
+        var arrival = NotificationPolicy.Arrival(source: .agent, at: Date())
         arrival.appActive = services?.appActiveSource() ?? false
         // A tab whose page still shows the send's earlier answer doesn't show the end.
         arrival.paneIsViewed = !stale(end.record.key) && (tab(holding: end.record.key).map { center.isViewed($0) } ?? false)
         arrival.soundEvent = end.outcome == .succeeded ? .finished : end.outcome == .cancelled ? .message : .error
-        let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
-        arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+        if end.outcome == .needsYou { arrival.deliveryEvent = .needsInput }
         var decision = NotificationPolicy(prefs: center.preferences).decide(arrival)
         center.note("sandbox run \(end.record.id) \(end.outcome.rawValue) \(decision)")
         guard !decision.acknowledge, center.desktopPostingEnabled else { return }

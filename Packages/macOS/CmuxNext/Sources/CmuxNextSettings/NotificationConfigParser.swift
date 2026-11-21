@@ -24,6 +24,12 @@ enum NotificationConfigParser {
         prefs.quietHours = quietHours(root, diagnostics: &diagnostics)
         prefs.mutedWorkspaces = mutedWorkspaces(root, diagnostics: &diagnostics)
         prefs.sounds = sounds(root, diagnostics: &diagnostics)
+        if var entry = ConfigFieldReader(root, at: ["notifications", "delivery"], diagnostics: &diagnostics) {
+            for event in NotificationSoundEvent.allCases {
+                prefs.delivery[event] = entry.choice(event.rawValue, NotificationDeliveryLevel.self)
+            }
+            diagnostics += entry.diagnostics
+        }
         for source in NotificationSource.allCases {
             guard var entry = ConfigFieldReader(root, at: ["notifications", "sources", source.rawValue], diagnostics: &diagnostics) else { continue }
             var overrides = NotificationSourceOverrides()

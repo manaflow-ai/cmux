@@ -1,0 +1,11 @@
+{
+  "caption": "Keep finished turns in the app while requests for input use your usual alerts.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Open delivery settings", "rpc": {"method": "action.run", "params": {"action": "openSettings", "arguments": {"setting": "notifications.delivery.finished"}}}, "wait": 2, "clip": true},
+    {"title": "Keep finished turns in the app", "cmux": ["settings", "set", "notifications.delivery.finished", "inApp"], "wait": 2, "clip": true},
+    {"title": "Restore the default", "cmux": ["settings", "reset", "notifications.delivery.finished"], "wait": 0.5}
+  ],
+  "crop": [0.25, 0, 0.75, 0.8]
+}

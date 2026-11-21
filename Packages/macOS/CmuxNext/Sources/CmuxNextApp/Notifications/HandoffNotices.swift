@@ -151,11 +151,10 @@ final class HandoffNotices {
         guard let center = services?.notifications else { return }
         let tab = tab(showing: end.record.key)
         if let tab, center.isViewed(tab) { return center.note("handoff \(end.record.id) \(end.outcome.rawValue) viewed") }
-        var arrival = NotificationPolicy.Arrival(source: .agent)
+        var arrival = NotificationPolicy.Arrival(source: .agent, at: Date())
         arrival.appActive = services?.appActiveSource() ?? false
         arrival.soundEvent = end.outcome == .succeeded ? .finished : end.outcome == .needsYou ? .message : .error
-        let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
-        arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+        if end.outcome == .needsYou { arrival.deliveryEvent = .needsInput }
         var decision = NotificationPolicy(prefs: center.preferences).decide(arrival)
         center.note("handoff \(end.record.id) \(end.outcome.rawValue) \(decision)")
         guard !decision.acknowledge, center.desktopPostingEnabled else { return }
