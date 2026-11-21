@@ -2084,10 +2084,10 @@ class HotAwareWorkflows(unittest.TestCase):
         linux = [leg for leg in legs if "outputs.linux_runner" in leg]
         self.assertEqual(len(mini), 1, legs)
         self.assertTrue(mini[0].startswith("needs.portable-placement.outputs.hot_only != 'true' && "), mini[0])
-        # Fleet Linux and the Blacksmith fallbacks stay for a hot-only pull request.
+        # Fleet Linux and the one Linux label (scripts/ci/one_linux_label.py) stay for a hot-only pull request.
         self.assertEqual(len(linux), 1, legs)
         self.assertNotIn("hot_only", linux[0])
-        self.assertTrue(legs[-1].strip().startswith("fromJSON(vars.RUNNER_POOLS)"), legs[-1])
+        self.assertEqual(legs[-1].strip(), "'cmux-linux' }}", legs[-1])
         # The route is a step of portable-placement since 2026-11-21 (cmuxterm-hq#16094), not a job of its own.
         self.assertNotIn("hot-route", guards["jobs"])
         place = guards["jobs"]["portable-placement"]
