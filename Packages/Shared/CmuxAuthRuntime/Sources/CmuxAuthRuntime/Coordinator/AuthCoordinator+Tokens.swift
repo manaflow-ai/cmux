@@ -134,11 +134,11 @@ extension AuthCoordinator {
         teamID: String?
     ) {
         let sessionGeneration = self.sessionGeneration
-        let teamScopeGeneration = self.authenticatedTeamScopeGeneration
+        let teamScopeGeneration = self.authTeamScopeGeneration
         let teamID = self.resolvedTeamID
         let tokens = try await coherentTokenPair()
         guard self.sessionGeneration == sessionGeneration,
-              self.authenticatedTeamScopeGeneration == teamScopeGeneration,
+              self.authTeamScopeGeneration == teamScopeGeneration,
               self.resolvedTeamID == teamID,
               !self.sessionTokenTransitionIsActive else {
             throw AuthError.networkError
