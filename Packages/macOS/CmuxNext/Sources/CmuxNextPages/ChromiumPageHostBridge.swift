@@ -174,6 +174,17 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         forgetSenders()
     }
 
+    /// DevTools events after which a context number may name another document's context.
+    nonisolated static func endsContexts(_ method: String?) -> Bool {
+        method == "Page.frameNavigated" || method == "Runtime.executionContextsCleared" || method == "Runtime.executionContextDestroyed"
+    }
+
+    /// A document of the page was replaced or ended, whether or not it is one the page keeps (an
+    /// `about:` commit, one the navigation policy sends back): no kept sender outlives it.
+    public func documentReplaced() {
+        forgetSenders()
+    }
+
     /// The page's contexts went with their document or renderer: their senders are asked anew.
     private func forgetSenders() {
         senderEpoch += 1
@@ -266,6 +277,10 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     @discardableResult
     public func receive(devToolsMessage json: String) -> Bool {
         let head = DevToolsMessageHead(json: json)
+        // A frame's new document, or contexts cleared (a cross-process swap), in the same ordered stream
+        // as the binding calls: no call after it is answered with a sender kept from before it, whatever
+        // number its context reuses (a new renderer numbers its contexts again).
+        if Self.endsContexts(head.method) { documentReplaced() }
         guard head.method == "Runtime.bindingCalled", head.contains(Self.bindingName) else { return false }
         if inbox == nil { startReading() }
         if case .dropped = inbox?.yield(json) { logger.error("page host binding call dropped: \(Self.maximumWaitingCalls) wait for their parse") }
@@ -363,7 +378,8 @@ public final class ChromiumPageHostBridge: PageHostBridge {
                     "contextId": context, "returnByValue": true, "silent": true,
                 ])
                 if let sender = ChromiumPageHostWire.Sender(evaluation: json) { return sender }
-                failure = "unreadable answer \(json.prefix(300))"
+                // Not the answer itself: it can name the page's address.
+                failure = "an unreadable answer (\(json.utf8.count) bytes)"
             } catch {
                 failure = String(describing: error)
             }

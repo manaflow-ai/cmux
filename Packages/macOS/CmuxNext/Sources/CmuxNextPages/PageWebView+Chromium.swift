@@ -321,6 +321,8 @@ extension PageWebView {
             // The Runtime domain is off between navigations, so no context event tells the channel
             // its world went with the old document: the commit does.
             chromiumSession.questionKeys?.documentReplaced()
+            // Before the guards: an `about:` commit or one sent back is a new document too.
+            chromiumSession.bridge.documentReplaced()
             guard let url, url.scheme != "about" else { return }
             guard PageNavigation.policy(for: url, page: descriptor, userClicked: false, mainFrame: true, hook: onNavigate) == .allow else {
                 // A navigation the click script did not catch (a script set `location`): the page
@@ -342,6 +344,7 @@ extension PageWebView {
             lastTermination = PageTermination(reason: .crash)
             contentProcessTerminated()
         case .ended:
+            chromiumSession.bridge.documentReplaced()
             chromiumSession.questionKeys?.invalidate()
             fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended", ended: true)
         case .openRequested(let url):

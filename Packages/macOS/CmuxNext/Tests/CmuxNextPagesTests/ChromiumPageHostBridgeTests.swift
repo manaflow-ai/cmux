@@ -126,6 +126,25 @@ struct ChromiumPageHostBridgeTests {
         #expect(tops == [true, true, false], "a call after the commit kept the old document's answer: \(tops)")
     }
 
+    /// Review of cmux#48605: a new renderer numbers its contexts again, and some commits (an `about:` one, one
+    /// the navigation policy sends back) never reach `documentCommitted()`. A frame's navigation in the DevTools
+    /// stream, which is ordered with the binding calls, forgets every kept sender, so a reused number is asked anew.
+    @Test func aFrameNavigationInTheStreamForgetsTheKeptSenders() async {
+        let page = FakeChromiumPage()
+        let bridge = ChromiumPageHostBridge(page: page)
+        var tops: [Bool] = []
+        bridge.install { message in
+            tops.append(message.isMainFrame)
+            return ["ok": true]
+        }
+        #expect(await Self.answerAll(page, bridge, seqs: 1...1))
+        #expect(!bridge.receive(devToolsMessage: #"{"method":"Page.frameNavigated","params":{"frame":{"id":"F","url":"about:blank"}}}"#))
+        page.senderIsTop = false
+        #expect(await Self.answerAll(page, bridge, seqs: 2...2))
+        #expect(Self.senderAsks(page) == 2, "a context number reused after a navigation kept the old document's sender")
+        #expect(tops == [true, false])
+    }
+
     @Test func fireAndForgetMessagesComeOnlyFromTheMainFrame() async {
         let page = FakeChromiumPage()
         let bridge = ChromiumPageHostBridge(page: page, fireAndForget: ["cmuxPagePainted"])
@@ -142,7 +161,8 @@ struct ChromiumPageHostBridgeTests {
         let fromMain: String? = await PageTestWait.value("main") { done in
             bridge.onMessage = { name, body in done("\(name) \(body)") }
             page.onCall = nil
-            bridge.receive(devToolsMessage: FakeChromiumPage.bindingCall(["name": "cmuxPagePainted", "body": 12]))
+            // The main frame's own context: a context's sender is kept, so the child's answer stays the child's.
+            bridge.receive(devToolsMessage: FakeChromiumPage.bindingCall(["name": "cmuxPagePainted", "body": 12], context: 10))
         }
         #expect(fromMain == "cmuxPagePainted 12")
         #expect(reached == 1)
