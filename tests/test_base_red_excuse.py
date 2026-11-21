@@ -16293,6 +16293,15 @@ class SameNamedChecksTellApartByWorkflow(unittest.TestCase):
         # name differ. Asserting it here would demand a disclosure for a name that needed no interpreting.
         self.assertEqual(audit, [])
 
+    def test_a_named_workflow_that_is_none_of_the_only_groups_has_not_run(self):
+        """The one-group fallback must not answer a name whose workflow it can read and contradicts. With every
+        candidate in 'lane-gh-broker tests', a caller naming 'web / tests' is asking about a check that is not there;
+        handing back the broker's run would be this PR's own bug, committed by the code that fixes it. Refusing on
+        ambiguity needs more than one group, so this case can only be told by the prefix."""
+        runs = {self.BROKER: "lane-gh-broker tests", self.RECONCILERS: "lane-gh-broker tests"}
+        with self.assertRaisesRegex(excuse.Refused, "has not run on exact head"):
+            self.found("web / tests", runs=runs)
+
     def test_a_workflow_no_run_list_names_degrades_to_the_newest_rather_than_refusing(self):
         """When the run list cannot name the workflows, every candidate of one check name groups as one: the answer is
         the newest, exactly what this file did before. Refusing instead would break judging a plain rerun, which is
