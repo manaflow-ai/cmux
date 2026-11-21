@@ -1035,7 +1035,7 @@ jobs:
         run: |
           owned=""
           case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
-          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+          if [ "${RUNNER_OS:-}" = macOS ] && [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
           if [ -n "$owned" ]; then
             if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
               echo "::error title=Signing runner::This owned Mac did not give the job the whole mini, so this job fails; nightly signing runs only on a trusted signing runner, never on Blacksmith."
@@ -1050,7 +1050,7 @@ jobs:
         run: |
           # Before any checkout or secret: an earlier job's files (a DMG, a feed, notes) never reach this one.
           # The runner empties its temp dir itself; the workspace stays between jobs on an owned Mac.
-          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) ;; *) [ -d /Users/Shared/cmux-build-fleet ] || exit 0 ;; esac
+          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) ;; *) [ "${RUNNER_OS:-}" = macOS ] && [ -d /Users/Shared/cmux-build-fleet ] || exit 0 ;; esac
           ws="${GITHUB_WORKSPACE:-}"
           if [ -n "$ws" ] && [ -d "$ws" ] && [ "$ws" != / ] && [ "$ws" != "$HOME" ]; then
             find "$ws" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
@@ -1148,7 +1148,7 @@ jobs:
         run: |
           # Last, whatever failed: the next job on this mini finds none of this job's tokens or files. Tokens
           # live in env and in the runner temp dir (gh_app_token.sh's wrapper state); files in the workspace.
-          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) ;; *) [ -d /Users/Shared/cmux-build-fleet ] || exit 0 ;; esac
+          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) ;; *) [ "${RUNNER_OS:-}" = macOS ] && [ -d /Users/Shared/cmux-build-fleet ] || exit 0 ;; esac
           # The runner's own _-prefixed dirs (the event file, step file commands) stay until it ends the job.
           tmp="${RUNNER_TEMP:-}"
           if [ -n "$tmp" ] && [ -d "$tmp" ] && [ "$tmp" != / ] && [ "$tmp" != "$HOME" ]; then

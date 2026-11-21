@@ -124,7 +124,7 @@ CLAIM_GATE_ID = "claim-gate"
 # The first step of an owned-routed signing job, word for word: it needs no checkout.
 CLAIM_GATE = f"""owned=""
 case "${{RUNNER_NAME:-}}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
-if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+if [ "${{RUNNER_OS:-}}" = macOS ] && [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
 if [ -n "$owned" ]; then
   if [ "${{GLAEDA_JOB_CLAIM:-}}" != exclusive ]; then
     echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
