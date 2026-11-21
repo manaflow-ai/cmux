@@ -1245,6 +1245,12 @@
    "26.5.1": true,
    "26.6": true
   },
+  "NSTextView get:textContainerOrigin/0": {
+   "27.0.1": true
+  },
+  "NSTextView call:scrollRangeToVisible/1": {
+   "27.0.1": true
+  },
   "NSView call:accessibilityChildren/0": {
    "26.5.2": true,
    "26.7": true,
