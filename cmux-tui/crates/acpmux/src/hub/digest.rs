@@ -37,6 +37,9 @@
 //! "agent process closed" (2026-10-21): a chat whose agent died completes no turn, so they waited
 //! until someone pressed resume.
 //!
+//! - Agents that come close together go in together, busy or not: one that would start a turn
+//!   in an idle chat waits a moment for the ones right behind it (`agent_gather.rs`).
+//!
 //! Delivery inside a turn stays the steer's (`steer_end.rs`): an agent that steers reads a
 //! message at its next tool boundary. What waits here is what could not steer: an agent that
 //! does not steer, a steer its turn ended before reading, a `--no-steer` send, a send that waits
@@ -56,6 +59,11 @@ use std::sync::atomic::Ordering;
 // `acpmux session inbox NAME --digest`: the agent messages waiting go in as one digest.
 #[path = "inbox_digest.rs"]
 pub(super) mod inbox_digest;
+
+// An idle chat's agent message waits for the ones right behind it (`agent_gather.rs`).
+#[path = "agent_gather.rs"]
+mod agent_gather;
+pub(super) use agent_gather::{AGENT_GATHER_MS, end_gather, gather_until, gathers, open_gather};
 
 /// Text one turn of agent messages takes at most (the first message always goes in whole).
 pub(super) const DIGEST_MAX_BYTES: usize = 128 * 1024;
