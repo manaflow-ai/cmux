@@ -162,7 +162,8 @@ extension SidebarListViewComponents {
     /// How far left of its members' x `row` starts: a group header's reach over its rail (`SidebarStyle.groupLineX`)
     /// and the line layout's overhang past it (`groupHeaderOverhang`), never past the list's edge; 0 for other rows.
     func railReach(for row: SidebarRow) -> CGFloat {
-        guard case .group = row.key else { return 0 }
+        // A plain folder draws no rail: its header keeps the rows' own frame.
+        guard case .group = row.key, !indent.indentsTopLevel else { return 0 }
         let membersX = inset + indentOffset(for: row)
         return membersX - SidebarStyle.groupBarX(membersMinX: membersX)
     }
@@ -177,12 +178,18 @@ extension SidebarListViewComponents {
         return false
     }
     /// The indent rule every row, rail, lifted card and drop line of this list uses.
-    var indent: SidebarIndent { SidebarIndent(step: SidebarStyle.groupGutter) }
+    var indent: SidebarIndent {
+        SidebarIndent(step: SidebarStyle.groupGutter, indentsTopLevel: model.groupHeaderDetails.background.indentsMembers)
+    }
     /// The width a level-0 row has: the indent cap is computed from it.
     var indentWidth: CGFloat { max(0, bounds.width - inset * 2 - SidebarStyle.rowTrailingTrim) }
     /// How far `row` moves in from the list's inset.
     func indentOffset(for row: SidebarRow) -> CGFloat {
-        indent.offset(level: row.indentLevel, width: indentWidth)
+        let indent = indent
+        // A folder's header sits at its parent's members' x, one step left of its own members (a group header
+        // shares its members' level, `SidebarRow.indentLevel`).
+        let level = indent.indentsTopLevel && row.key.isGroupHeader ? row.indentLevel - 1 : row.indentLevel
+        return indent.offset(level: level, width: indentWidth)
     }
     func realizationRect() -> NSRect {
         // A space page never scrolls: the rows in its frame, no overscan.
