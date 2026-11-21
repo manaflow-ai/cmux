@@ -61,6 +61,7 @@ import { composerHatLook } from "../agent-session/acpmux/subagents/composerHat.e
 import { hatQuestionsLook } from "../agent-session/acpmux/question/hatQuestions.experiment";
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
 import { hatTuckLook } from "../agent-session/acpmux/subagents/hatTuck.experiment";
+import { hatOpenLook } from "../agent-session/acpmux/subagents/hatOpen.experiment";
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
@@ -78,6 +79,8 @@ import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLo
 import { cmuxLinkLook } from "../agent-session/acpmux/chips/cmuxLinkLook.experiment";
 import { sentPasteJoin } from "../agent-session/acpmux/conversation/sentPasteJoin.experiment";
 import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessageLook.experiment";
+import { readingLook } from "../agent-session/acpmux/readingLook.experiment";
+import { highContrastLook } from "../agent-session/acpmux/highContrastLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { glassToolbarLook } from "../agent-session/acpmux/header/glassToolbar.experiment";
 import { contextRingMotion } from "../agent-session/acpmux/contextRingMotion.experiment";
@@ -161,6 +164,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hatQuestionsLook,
   hatChevronLook,
   hatTuckLook,
+  hatOpenLook,
   goalHatPlace,
   hatDoneLook,
   hatDoneCheckPlace,
@@ -181,6 +185,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   cmuxLinkLook,
   sentPasteJoin,
   sentMessageLook,
+  readingLook,
+  highContrastLook,
   contextRingLook,
   contextRingMotion,
   planUsageLook,
