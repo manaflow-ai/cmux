@@ -55,3 +55,21 @@ let results = CodexSessionResumeVerifier().verifyBatch(
     fileManager: fixtureFileManager
 )
 ```
+
+## Testing Cursor Vault indexing
+
+Filesystem-backed indexes accept explicit roots so tests and downstream tools do
+not need a real agent installation. For example:
+
+```swift
+let index = CursorSessionIndex(
+    projectsRoot: fixture.appendingPathComponent("projects"),
+    hookStoreURL: fixture.appendingPathComponent("cursor-hook-sessions.json")
+)
+let result = await index.loadSessions(
+    needle: "regression",
+    workingDirectoryFilter: nil,
+    offset: 0,
+    limit: 20
+)
+```
