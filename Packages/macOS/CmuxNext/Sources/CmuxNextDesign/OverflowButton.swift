@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextIcons
+import CmuxNextDesignTokens
 
 /// The app's one more ("overflow") button: a vertical ellipsis (⋮, the pack's `action.more.vertical`),
 /// like Chrome's menu button (Leo 2026-10-20). Every more button uses it, so the glyph, its size and
@@ -103,7 +104,7 @@ public final class OverflowButton: ClickableButton {
         action = #selector(pressed)
         refusesFirstResponder = true
         focusRingType = .none
-        // A disabled ⋮ draws in the tertiary ink (updateLayer), not AppKit's dimmed glyph: dimmed over a see-through
+        // A disabled ⋮ draws in its own ink (``disabledInk``), not AppKit's dimmed glyph: dimmed over a see-through
         // window it read 1.45:1 (Nord Light, NativeControlContrastAuditTests).
         (cell as? NSButtonCell)?.imageDimsWhenDisabled = false
         renderGlyph()
@@ -172,11 +173,21 @@ public final class OverflowButton: ClickableButton {
         performWithTheme {
             // Without a fill, a press or an open menu shows in the glyph's own ink, as the tab bar's + does.
             let pressedInk = hoverStyle == .glyph ? Palette.litGlyph : Palette.textPrimary
-            contentTintColor = !isEnabled ? Palette.textTertiary
+            contentTintColor = !isEnabled ? disabledInk
                 : tintOverride ?? (hover.state.pressed ? pressedInk : hover.state.hovering ? Palette.textPrimary : Palette.textSecondary)
             if drawsPaneGlyph { paneGlyphView.contentTintColor = contentTintColor }
         }
         hover.refresh(animated: false)
+    }
+
+    /// The disabled glyph's ink: the tertiary text, moved toward its pole until it reads at the disabled minimum
+    /// (``CmuxDialogButtonLook/disabledMinimumContrast``) on what the button sits on (``NSView/buttonGround(_:)``).
+    /// The tertiary text alone read 2.22:1 on a dark theme's popup surface. Runs inside `performWithTheme`.
+    private var disabledInk: NSColor {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        let ground = buttonGround(tokens)
+        return CmuxDialogButtonLook.readable(tokens.textTertiary.composited(over: ground[0]), over: ground,
+                                             minimum: CmuxDialogButtonLook.disabledMinimumContrast).nsColor
     }
 
     private func changeHover(_ change: (inout ChromeHover.State) -> Void) {
