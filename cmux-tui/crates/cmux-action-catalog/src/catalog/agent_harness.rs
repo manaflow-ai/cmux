@@ -68,6 +68,22 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "agent check-harness",
         ..Action::DEFAULT
     },
+    // Disable Folder Harness: withdraws a folder profile's harness for chats inside that folder,
+    // as `cmux harness disable ID --folder DIR` (the CLI's own verb, which writes the folder
+    // gate's record). The App's step B handler runs it; the palette asks for the id and folder.
+    Action {
+        id: "agent.harness.disableFolder",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agent.harness.disableFolder", "Disable Folder Harness…"),
+        keywords: &["agent", "harness", "folder", "profile", "disable", "withdraw", "revoke", "turn off", "byo"],
+        category: "agents",
+        symbol: "xmark.shield",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::ID, args::PATH],
+        cli_name: "action agent-harness-disable-folder",
+        ..Action::DEFAULT
+    },
     Action {
         id: "agent.harness.setIcon",
         group: GROUP,
