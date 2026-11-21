@@ -4714,7 +4714,11 @@ def one_check(found: list[dict], name: str, sha: str, repo: str, github, seen: d
     had the highest id was a verdict about a check nobody asked about (hq#17005, 2026-11-21, 'not excused: tests is
     success' over a green sibling of the red that was named). The checks page's '<workflow> / <check>' form names one
     of them, by the workflow of each one's run; several runs of one workflow at one head are no ambiguity, since the
-    newest completed run of a name is its verdict everywhere else here. Where neither tells them apart, none is."""
+    newest completed run of a name is its verdict everywhere else here. Where neither tells them apart, none is.
+    The workflow here is the run's display name, not its path, because that is what the checks page shows and so what
+    a caller can type -- unlike superseding_run, which keys on path precisely because two workflows can share a
+    display name. Two such workflows are grouped as one here and the newest of them answers, the way an unreadable
+    workflow degrades below: the name the caller can give cannot tell them apart either, so neither can we."""
     if len(found) < 2:
         return next(iter(found), None)
     groups: dict[tuple, list[dict]] = {}
@@ -4843,7 +4847,7 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                     excused.append(f"read '{name}' as check run '{check['name']}' (job {check.get('id')}) on {sha}: "
                                    + (f"the check run of that name in workflow '{workflow}', which that name names"
                                       if workflow and name == f"{workflow} / {check['name']}" else
-                                      "the one check run at the head that name is a part of"))
+                                      "the newest check run at the head that name is a part of"))
                 name = check["name"]
             job = job_for(repo, check, sha, github)
             if is_aggregate(name, repo):
