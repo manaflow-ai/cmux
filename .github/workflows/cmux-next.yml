@@ -2877,17 +2877,30 @@ jobs:
       group: ${{ github.event_name == 'pull_request' && format('cmux-next-pr-{0}-swift-canary-fleet', github.event.pull_request.number) || github.event_name == 'push' && format('cmux-next-push-{0}-swift-canary-fleet', github.ref) || format('cmux-next-run-{0}-swift-canary-fleet', github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ${{ needs.macos-placement.outputs.gateway_runner }}
-    permissions: {}
-    timeout-minutes: 30
+    permissions:
+      contents: read  # the sparse checkout of the fleet compile reader
+    timeout-minutes: 45  # up to 16 min reading the tip check, then the compile it had before
     outputs:
       verdict: ${{ steps.check.outputs.verdict }}
     steps:
+      # Why: one compile per head. The tip check already compiles this head on the fleet; read its verdict
+      # (scripts/ci/fleet_compile_result.py) and compile here only when it has none. Trusted base copy.
+      - name: Check out the fleet compile reader
+        timeout-minutes: 1
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
       # Why: docs/ci/cmux-next-workflow-notes.md#note-34
       - name: Compile-check CmuxNext on the build fleet
         id: check
         env:
           REF: ${{ github.sha }}
           SWIFT_CANARY_TARGETS: ${{ needs.path_route.outputs.swift_canary_targets }}
+          PR: ${{ github.event.pull_request.number }}
         run: |
           set -uo pipefail
           # Production targets of Packages/macOS/CmuxNext that the app
@@ -2908,9 +2921,18 @@ jobs:
             echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # One compile per head: the tip check's verdict for this exact head, when it has one; "none" compiles here.
+          word=none
+          if [[ -f scripts/ci/fleet_compile_result.py ]] && command -v python3 >/dev/null; then
+            word="$(timeout 960 python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" ${PR:+--pr "$PR"} --wait 900 --no-record 300)" || word=none
+          fi
           status=0
-          "$client" compile-check --ref "$REF" --app \
-            --timeout 1200 --queue-timeout 300 2>"$RUNNER_TEMP/compile-check.stderr" || status=$?
+          case "$word" in
+            pass) echo "::notice title=Build fleet compile check::the tip check compiled this head (SwiftPM Release -Onone); not compiled again" ;;
+            fail) status=1 ;;
+            *) "$client" compile-check --ref "$REF" --app \
+                 --timeout 1200 --queue-timeout 300 2>"$RUNNER_TEMP/compile-check.stderr" || status=$? ;;
+          esac
           case "$status" in
             0) verdict=pass ;;
             1) verdict=fail; echo "::notice title=Build fleet compile check::CmuxNext did not compile on the build fleet; the Mac canary runs and shows the errors." ;;
@@ -2996,11 +3018,23 @@ jobs:
       group: cmux-next-pr-${{ github.event.pull_request.number }}-app-compile-fleet
       cancel-in-progress: true
     runs-on: ${{ needs.app-compile-placement.outputs.gateway_runner }}
-    permissions: {}
-    timeout-minutes: 30
+    permissions:
+      contents: read  # the sparse checkout of the fleet compile reader
+    timeout-minutes: 45  # up to 16 min reading the tip check, then the compile it had before
     outputs:
       verdict: ${{ steps.check.outputs.verdict }}
     steps:
+      # Why: one compile per head. The tip check already compiles this head on the fleet; read its verdict
+      # (scripts/ci/fleet_compile_result.py) and compile here only when it has none. Trusted base copy.
+      - name: Check out the fleet compile reader
+        timeout-minutes: 1
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
       # Why: docs/ci/cmux-next-workflow-notes.md#note-181
       - name: Compile-check the app at the pull request's head on the build fleet
         id: check
@@ -3025,11 +3059,20 @@ jobs:
             no_verdict "$client is not installed on runner $RUNNER_NAME"
             exit 1  # no_verdict exits already; this keeps the guard's shape visible
           fi
-          status=0
-          "$client" compile-check --ref "$REF" --app --timeout 1200 --queue-timeout 300 || status=$?
+          # One compile per head: the tip check's verdict for this exact head, when it has one; "none" compiles here.
+          word=none
+          if [[ -f scripts/ci/fleet_compile_result.py ]] && command -v python3 >/dev/null; then
+            word="$(timeout 960 python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" --pr "${{ github.event.pull_request.number }}" --wait 900 --no-record 300)" || word=none
+          fi
+          status=0 how="Debug, swift.org toolchain"
+          case "$word" in
+            pass) how="the tip check's SwiftPM Release (-Onone) compile of this head; not compiled again here" ;;
+            fail) status=1 ;;
+            *) "$client" compile-check --ref "$REF" --app --timeout 1200 --queue-timeout 300 || status=$? ;;
+          esac
           case "$status" in
-            0) verdict=pass; summary="The build fleet compiled and linked the cmux-next app at \`$REF\` (Debug, swift.org toolchain). The Release compile runs on the base push after the merge." ;;
-            1) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`; the errors are in this job's log above." ;;
+            0) verdict=pass; summary="The build fleet compiled and linked the cmux-next app at \`$REF\` ($how). The Release compile runs on the base push after the merge." ;;
+            1) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`; the errors are in this job's log above (or, read from the tip check, in cmux-next/compile's log)." ;;
             *) no_verdict "controller unreachable or timed out: cmux-ci exit $status" ;;
           esac
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
@@ -5426,10 +5469,21 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '' && needs.macos-placement.outputs.gateway_runner || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
     permissions:
       contents: read
-    timeout-minutes: 30
+    timeout-minutes: 45  # up to 16 min reading the tip check, then the compile it had before
     outputs:
       verdict: ${{ steps.compile.outputs.verdict }}
     steps:
+      # Why: one compile per head. The tip check already compiles this head on the fleet; read its verdict
+      # (scripts/ci/fleet_compile_result.py) and compile here only when it has none. Trusted base copy.
+      - name: Check out the fleet compile reader
+        timeout-minutes: 1
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
       # Why: docs/ci/cmux-next-workflow-notes.md#note-281
       - name: Run the fast fleet compile check
         id: compile
@@ -5506,9 +5560,18 @@ jobs:
             echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # One compile per head: the tip check's verdict for this exact head, when it has one; "none" compiles here.
+          word=none
+          if [[ -f scripts/ci/fleet_compile_result.py ]] && command -v python3 >/dev/null; then
+            word="$(timeout 960 python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" --wait 900 --no-record 300)" || word=none
+          fi
           status=0
-          "$client" compile-check --ref "$REF" --app --release \
-            --timeout 1200 --queue-timeout 300 || status=$?
+          case "$word" in
+            pass) echo "The tip check compiled and linked the app at $REF in Release (-Onone); not compiled again." ;;
+            fail) status=1 ;;
+            *) "$client" compile-check --ref "$REF" --app --release \
+                 --timeout 1200 --queue-timeout 300 || status=$? ;;
+          esac
           case "$status" in
             0) verdict=pass ;;
             69|75|124) verdict=unavailable; echo "::warning title=Fast fleet compile check::the fleet gave no verdict (exit $status); the Mac fallback will run." ;;
