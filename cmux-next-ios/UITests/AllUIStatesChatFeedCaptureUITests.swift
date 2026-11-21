@@ -126,10 +126,10 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
         ])
     }
 
-    /// The toolbar's Mark All as Read: it asks first, so this opens the confirmation alert.
+    /// The toolbar's Mark All as Read: it asks first, so this opens the confirmation sheet.
     @MainActor
     private static func markAllAlert(_ app: XCUIApplication) -> String? {
-        steps([{ tap(app.buttons["feed.markAllRead"].firstMatch, "Mark All as Read", timeout: 30) }, { wait(app.alerts.firstMatch, "Mark All as Read alert", timeout: 10) }])
+        steps([{ tap(app.buttons["feed.markAllRead"].firstMatch, "Mark All as Read", timeout: 30) }, { wait(app.buttons["feed.markAllRead.confirm"].firstMatch, "Mark All as Read confirmation", timeout: 10) }])
     }
 
     /// The toolbar's Filter button opens the Filter sheet.
@@ -173,11 +173,8 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "chip-finished", args: Self.feed) { app in C.tap(app.buttons["Finished"].firstMatch, "Finished chip") },
             Scene(group: g, id: "chip-errors", args: Self.feed) { app in C.tap(app.buttons["Errors"].firstMatch, "Errors chip") },
             Scene(group: g, id: "mark-all-alert", args: Self.feed) { app in Self.markAllAlert(app) },
-            Scene(group: g, id: "mark-all-confirmed", args: Self.feed) { app in
-                C.steps([{ Self.markAllAlert(app) }, { C.tap(app.alerts.buttons["feed.markAllRead.confirm"].firstMatch, "confirm Mark All as Read") }])
-            },
             Scene(group: g, id: "mark-all-cancelled", args: Self.feed) { app in
-                C.steps([{ Self.markAllAlert(app) }, { C.tap(app.alerts.buttons["feed.markAllRead.cancel"].firstMatch, "Cancel") }])
+                C.steps([{ Self.markAllAlert(app) }, { C.tap(app.buttons["feed.markAllRead.cancel"].firstMatch, "Cancel") }])
             },
             Scene(group: g, id: "workspaces-sheet", args: Self.feed) { app in Self.openWorkspaces(app) },
             Scene(group: g, id: "workspaces-sheet-one-hidden", args: Self.feed) { app in
@@ -229,6 +226,10 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
                 C.steps([{ C.tap(app.buttons["All"].firstMatch, "All chip") }, { C.scrollDown(app, times: 3) }, { C.wait(app.buttons["feed.newPill"], "new events pill", timeout: 15) }])
             },
             Scene(group: g, id: "stress-300", args: Self.feed, env: ["CMUX_MOBILE_FEED_STRESS": "300"], settle: 4),
+            // Last: confirming marks every event read, and read marks persist across launches.
+            Scene(group: g, id: "mark-all-confirmed", args: Self.feed) { app in
+                C.steps([{ Self.markAllAlert(app) }, { C.tap(app.buttons["feed.markAllRead.confirm"].firstMatch, "confirm Mark All as Read") }])
+            },
         ])
     }
 

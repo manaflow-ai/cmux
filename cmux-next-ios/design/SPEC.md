@@ -967,10 +967,12 @@ permission requests, errors, PR events.
 
 - Toolbar: leading drawer circle, principal "Feed", and two neighboring trailing buttons in one
   glass group, no More menu: Filter (`line.3.horizontal.decrease`; `.circle.fill` while a
-  workspace is hidden) opens the Filter sheet, and Mark All as Read (`checkmark.circle`) asks
-  first with an alert "Mark All as Read?" (message: every Feed event and every unread tab on the
-  Mac), buttons Mark All as Read (default), Clear All Notifications (destructive, only when a Mac
-  can clear) and Cancel. The chips are the only event-kind filter; the sheet does not repeat them.
+  workspace is hidden) opens the Filter sheet, and Mark All as Read (`envelope.open`, Mail's
+  mark-as-read) asks first in a short sheet (not a system alert, which draws its default button
+  black on blue in light): "Mark All as Read?", the message (every Feed event and every unread tab
+  on the Mac), then full-width capsules: Mark All as Read (white on #0064D1 in both modes), Clear
+  All Notifications (red, only when a Mac can clear) and Cancel. The chips are the only event-kind
+  filter; the sheet does not repeat them.
 - Filter sheet (title "Filter", medium and large detents, `Done`, leading `Show All`): a
   "Workspaces" section with one switch per workspace in the Mac's order, the Mac's name under it
   when more than one Mac is linked, searchable; footer "Events from hidden workspaces stay out of

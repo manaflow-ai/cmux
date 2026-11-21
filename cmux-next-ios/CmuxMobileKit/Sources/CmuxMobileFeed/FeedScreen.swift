@@ -342,10 +342,13 @@ private struct FeedFilterButton: View {
     }
 }
 
-/// The Feed's Mark All as Read button. It touches every linked Mac, so it asks first (HIG alerts:
-/// confirm an action people can't take back). The same alert offers the Mac's Clear All
-/// Notifications when a Mac can clear, as a destructive choice, so both Mac-wide actions are
-/// confirmed and the toolbar keeps two buttons.
+/// The Feed's Mark All as Read button (`envelope.open`, Mail's mark-as-read; the Feed rows' Read
+/// action draws the same glyph). It touches every linked Mac, so it asks first, in a short sheet
+/// rather than a system alert: the alert draws its default button with black text on blue in light
+/// mode and ignores button styling, and the confirm button here is white on blue in both modes
+/// (the user's call, 2026-11-20). The sheet also offers the Mac's Clear All Notifications when a
+/// Mac can clear, as a destructive choice, so both Mac-wide actions are confirmed and the toolbar
+/// keeps two buttons.
 private struct FeedMarkAllReadButton: View {
     let store: FeedStore
     /// Why Clear All Notifications failed (the screen's alert).
@@ -358,31 +361,22 @@ private struct FeedMarkAllReadButton: View {
         Button {
             confirming = true
         } label: {
-            Label("Mark All as Read", systemImage: "checkmark.circle")
+            Label("Mark All as Read", systemImage: "envelope.open")
         }
         .disabled(store.items.allSatisfy(\.isRead) && FeedRouting.shared.markAllNotificationsRead == nil)
         .accessibilityIdentifier("feed.markAllRead")
-        .alert("Mark All as Read?", isPresented: $confirming) {
-            // The Mac's Mark All Notifications as Read (NotificationActionCatalog): every Feed
-            // event here, and every tab each linked Mac shows unread (`ack-tab-notifications`).
-            Button("Mark All as Read") { markAllRead() }
-                .keyboardShortcut(.defaultAction)
-                .accessibilityIdentifier("feed.markAllRead.confirm")
-            if let clear = FeedRouting.shared.clearAllNotifications {
-                // The Mac's Clear All Notifications: its notification ledger, as its panel's Clear All.
-                Button("Clear All Notifications", role: .destructive) {
-                    Task {
-                        do { try await clear() } catch {
-                            clearFailure = UserFacingError.message(error)
+        .sheet(isPresented: $confirming) {
+            FeedMarkAllReadConfirmation(
+                markAllRead: markAllRead,
+                clearAll: FeedRouting.shared.clearAllNotifications.map { clear in
+                    {
+                        Task {
+                            do { try await clear() } catch {
+                                clearFailure = UserFacingError.message(error)
+                            }
                         }
                     }
-                }
-                .accessibilityIdentifier("feed.clearAllNotifications")
-            }
-            Button("Cancel", role: .cancel) {}
-                .accessibilityIdentifier("feed.markAllRead.cancel")
-        } message: {
-            Text("Every event in the Feed, and every unread tab on your Mac, will be marked as read.")
+                })
         }
     }
 
@@ -394,6 +388,62 @@ private struct FeedMarkAllReadButton: View {
                 markFailure = UserFacingError.message(error)
             }
         }
+    }
+}
+
+/// Mark All as Read's confirmation: a title, what it does, and full-width capsule buttons. The
+/// confirm button is white on blue in light and dark (CmuxMobileAccent's light blue, #0064D1, 5.6:1
+/// against white). Sized to its content and dismissed by a drag or Cancel.
+private struct FeedMarkAllReadConfirmation: View {
+    let markAllRead: () -> Void
+    /// The Mac's Clear All Notifications, when a linked Mac can clear.
+    let clearAll: (() -> Void)?
+    @Environment(\.dismiss) private var dismiss
+
+    private static let confirmFill = CmuxMobileColorToken(dark: CmuxMobileRGBA(hex: "#0064D1"), light: CmuxMobileRGBA(hex: "#0064D1"))
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Mark All as Read?").font(.headline)
+            // The Mac's Mark All Notifications as Read (NotificationActionCatalog): every Feed
+            // event here, and every tab each linked Mac shows unread (`ack-tab-notifications`).
+            Text("Every event in the Feed, and every unread tab on your Mac, will be marked as read.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            capsule("Mark All as Read", id: "feed.markAllRead.confirm", fill: Self.confirmFill.color, ink: .white) {
+                dismiss()
+                markAllRead()
+            }
+            .keyboardShortcut(.defaultAction)
+            if let clearAll {
+                // The Mac's Clear All Notifications: its notification ledger, as its panel's Clear All.
+                capsule("Clear All Notifications", id: "feed.clearAllNotifications", fill: Color(uiColor: .tertiarySystemFill), ink: .red) {
+                    dismiss()
+                    clearAll()
+                }
+            }
+            capsule("Cancel", id: "feed.markAllRead.cancel", fill: Color(uiColor: .tertiarySystemFill), ink: .primary) {
+                dismiss()
+            }
+            .keyboardShortcut(.cancelAction)
+        }
+        .padding(24)
+        .presentationDetents([.height(clearAll == nil ? 260 : 322)])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func capsule(_ title: LocalizedStringKey, id: String, fill: Color, ink: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(ink)
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .background(fill, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(id)
     }
 }
 
