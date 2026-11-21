@@ -127,11 +127,6 @@
       ".github/workflows/swift-linux-packages.yml": {
         "swift-linux-packages": "10 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 178 job-minutes"
       },
-      ".github/workflows/ios-reliability-matrix.yml": {
-        "protocol": "2 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 56 job-minutes",
-        "ios": "2 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 49 job-minutes",
-        "report": "2 runs on 52 merged pull requests, 2 with a red, 0 of them the pull request's own; 0 job-minutes; the summary of protocol and ios; skipped with them"
-      },
       ".github/workflows/cmux-next-ios-kit.yml": {
         "kit-tests": "4 runs on 52 merged pull requests, 3 with a red, 1 of them the pull request's own (#43289): Tier B, fixed forward on the push; 140 job-minutes"
       },
