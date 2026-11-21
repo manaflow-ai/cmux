@@ -34,8 +34,8 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         self.themeColors = themeColors
     }
 
-    /// What the rows are built from. The loaded settings change only in a load (`loadCount`), which
-    /// also reads the managed keys and theme files; the rest changes here or in the theme catalog.
+    /// What the rows are built from. The loaded settings, managed keys and theme files change only in a
+    /// load that applied something (`appliedCount`); the rest changes here or in the theme catalog.
     private struct RowsInputs: Equatable {
         let loads: Int
         let pending: Int
@@ -43,6 +43,8 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         let themes: Int?
         let recentFonts: [String]
         let developerTools: Bool
+        /// Numbers and durations are formatted for it.
+        let locale: String
     }
 
     /// The rows last built and their inputs: an open with the same inputs lists them again.
@@ -56,8 +58,9 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     var rows: [PaletteSettingRow] {
         let colors = themeColors()
         let developerTools = DevTools.isEnabled
-        let inputs = RowsInputs(loads: settings.loadCount, pending: pendingRevision, colors: colors, themes: themes?.revision,
-                                recentFonts: settings.recentFonts.families, developerTools: developerTools)
+        let inputs = RowsInputs(loads: settings.appliedCount, pending: pendingRevision, colors: colors, themes: themes?.revision,
+                                recentFonts: settings.recentFonts.families, developerTools: developerTools,
+                                locale: Locale.autoupdatingCurrent.identifier)
         if let built, built.inputs == inputs { return built.rows }
         let root = settings.snapshot.root
         let rows = SettingsSchema.all.filter { $0.isPaletteListed(developerTools: developerTools) }.map { descriptor in
