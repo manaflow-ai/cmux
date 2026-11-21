@@ -29,6 +29,7 @@ use tokio::sync::{Semaphore, broadcast, mpsc};
 pub use windows_socket::{UnixListener, bind_unix, router_admin, serve_unix};
 
 mod app_assets;
+pub(crate) mod browser_workspaces;
 pub(crate) mod dual_requests;
 mod ws_peek;
 mod ws_shutdown;

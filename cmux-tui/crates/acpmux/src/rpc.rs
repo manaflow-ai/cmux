@@ -594,6 +594,12 @@ pub mod method {
     /// The person's app: the folders of the workspaces its daemon lists now,
     /// which a remote (Web) connection may also start sessions in.
     pub const MUX_WORKSPACE_ROOTS_SET: &str = "_acpmux/workspace_roots_set";
+    /// The person's app: the cmux-tui daemon socket and agent tab host whose workspaces a
+    /// browser's NEXT sidebar groups its chats by (`server/browser_workspaces.rs`).
+    pub const MUX_BROWSER_WORKSPACE_SOURCE_SET: &str = "_acpmux/browser_workspace_source_set";
+    /// A browser that presented its enrolled device: the app's workspaces and their chats
+    /// (`server/browser_workspaces.rs`).
+    pub const MUX_BROWSER_WORKSPACES: &str = "_acpmux/browser_workspaces";
     /// The person's app: the agent and model its New Tab page picked last,
     /// anywhere and per folder (`newTab.lastPicks`), which `_acpmux/harnesses`
     /// shows a remote device so its New Agent Chat starts where the app's does.
