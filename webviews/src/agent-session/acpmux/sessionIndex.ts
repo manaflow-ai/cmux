@@ -33,6 +33,8 @@ const MARKS = {
   started: (entry: AcpmuxSessionEntry) => Boolean(entry.startedBy || entry.spawnedBy),
   /// A fork at a turn of another chat (conversation/branches.ts).
   forked: (entry: AcpmuxSessionEntry) => entry.parentId !== undefined && entry.forkSeq !== undefined,
+  /// A Chief home's turn session (managedBy.ts `chiefOf`).
+  chiefTurn: (entry: AcpmuxSessionEntry) => entry.chiefTurn !== undefined,
 } satisfies Record<string, (entry: AcpmuxSessionEntry) => boolean>;
 export type SessionMark = keyof typeof MARKS;
 const MARK_NAMES = Object.keys(MARKS) as SessionMark[];
