@@ -139,7 +139,6 @@ async fn agents_record_their_children_any_depth_within_the_depth_limit() {
     assert_eq!(coord["parent"], Value::Null, "{coord}");
     assert_eq!(coord["depth"], 0, "{coord}");
     assert_eq!(coord["root"], coord_id.as_str(), "{coord}");
-    assert_eq!(coord["spawnToolCallId"], Value::Null, "{coord}");
 
     // Its agent runs `acpmux new` (the proven caller): the child records it, with no tag.
     let mut c = Client::as_session(&hub, &coord_id).await;
@@ -148,7 +147,8 @@ async fn agents_record_their_children_any_depth_within_the_depth_limit() {
     assert_eq!(kid["parent"], coord_id.as_str(), "{kid}");
     assert_eq!(kid["root"], coord_id.as_str(), "{kid}");
     assert_eq!(kid["depth"], 1, "{kid}");
-    assert_eq!(kid["spawnToolCallId"], "toolu_kid", "{kid}");
+    // Its lineage keeps the tool call; the row no longer carries it, as no client read it.
+    assert!(kid.get("spawnToolCallId").is_none(), "{kid}");
     let listed = app.summary(&kid_id).await;
     assert_eq!(listed["spawnedBy"], coord_id.as_str(), "the alias names the parent: {listed}");
     assert!(listed["tags"].get("spawnedBy").is_none(), "no spawnedBy tag was set: {listed}");
@@ -235,7 +235,7 @@ async fn lineage_survives_a_daemon_restart() {
     let summary = |id: &str| hub.session_summary(&hub.resolve(id).unwrap());
     let k = summary(&kid);
     assert_eq!((k["parent"].clone(), k["root"].clone()), (json!(coord), json!(coord)), "{k}");
-    assert_eq!((k["depth"].clone(), k["spawnToolCallId"].clone()), (json!(1), json!("toolu_r")));
+    assert_eq!(k["depth"], json!(1), "{k}");
     let g = summary(&grandkid);
     assert_eq!((g["parent"].clone(), g["root"].clone()), (json!(kid), json!(coord)), "{g}");
     assert_eq!(g["depth"], 2, "{g}");
@@ -264,7 +264,7 @@ async fn lineage_survives_a_daemon_restart() {
     let summary = |id: &str| hub.session_summary(&hub.resolve(id).unwrap());
     let g = summary(&grandkid);
     assert_eq!((g["parent"].clone(), g["root"].clone()), (json!(kid), json!(coord)), "{g}");
-    assert_eq!((g["depth"].clone(), g["spawnToolCallId"].clone()), (json!(2), Value::Null));
+    assert_eq!(g["depth"], json!(2), "{g}");
     let k = summary(&kid);
     assert_eq!(
         (k["parent"].clone(), k["root"].clone(), k["depth"].clone()),

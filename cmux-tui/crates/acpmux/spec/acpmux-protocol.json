@@ -6130,7 +6130,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "description": "Who created it (`hub/created_by.rs`): `{kind: \"person\"|\"agent\"|\"script\", workspace?,\nsession?}`, decided by the daemon from the connection, never from a request value.\nNull for a fork, a moved-in session and one saved before it existed; absent from a\npeer on an older acpmux."
         },
         "currentModeId": {
@@ -6197,7 +6196,6 @@
           "type": "string"
         },
         "harnessSandboxFailed": {
-          "default": null,
           "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
           "format": "uint64",
           "minimum": 0,
@@ -6509,14 +6507,6 @@
           "description": "Some attached client shows the chat.",
           "type": "boolean"
         },
-        "spawnToolCallId": {
-          "default": null,
-          "description": "The parent's tool call that started it, when acpmux could tell.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "spawnedBy": {
           "description": "The session whose agent started this one, kept only while that parent\nis listed and is a root itself: one level, for lists that fold one level.\n`parent` without those rules, else an older client's `spawnedBy` tag.",
           "type": [
@@ -6555,7 +6545,6 @@
           "type": "boolean"
         },
         "stuckError": {
-          "default": null,
           "description": "Last classified error, redacted and bounded. Omitted for peers.",
           "type": [
             "string",
@@ -6570,11 +6559,9 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         },
         "stuckSince": {
-          "default": null,
           "description": "Unix milliseconds when the third failure established stuck. Omitted for peers.",
           "format": "uint64",
           "minimum": 0,
@@ -6620,7 +6607,6 @@
           ]
         },
         "titleSource": {
-          "default": null,
           "description": "Who supplied `title`: `prompt` is the first-prompt fallback, while\n`harness`, `generated` and `adopted` are real chat titles. Older peers\nmay omit this field.",
           "type": [
             "string",
@@ -6864,7 +6850,7 @@
       "type": "object"
     },
     "SessionSummary": {
-      "description": "One session as every list shows it (`Hub::session_summary`). A peer's\nsession arrives as the peer daemon's own summary plus `peer`, with\n`status` `unreachable` while the peer is gone; a peer on an older\nacpmux may lack newer fields, so nullable ones are optional here.",
+      "description": "One session as every list shows it (`Hub::session_summary`). A peer's\nsession arrives as the peer daemon's own summary plus `peer`, with\n`status` `unreachable` while the peer is gone; a peer on an older\nacpmux may lack newer fields, so nullable ones are optional here. A key that holds nothing is\nleft out only where every reader takes absent as empty; each key's readers, and whether it is\nsent empty, are in `server/summary_bytes_tests.rs` (`READERS`).",
       "properties": {
         "agentSessionId": {
           "type": [
@@ -6902,7 +6888,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "description": "Who created it (`hub/created_by.rs`): `{kind: \"person\"|\"agent\"|\"script\", workspace?,\nsession?}`, decided by the daemon from the connection, never from a request value.\nNull for a fork, a moved-in session and one saved before it existed; absent from a\npeer on an older acpmux."
         },
         "currentModeId": {
@@ -6969,7 +6954,6 @@
           "type": "string"
         },
         "harnessSandboxFailed": {
-          "default": null,
           "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
           "format": "uint64",
           "minimum": 0,
@@ -7269,14 +7253,6 @@
           "description": "Some attached client shows the chat.",
           "type": "boolean"
         },
-        "spawnToolCallId": {
-          "default": null,
-          "description": "The parent's tool call that started it, when acpmux could tell.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "spawnedBy": {
           "description": "The session whose agent started this one, kept only while that parent\nis listed and is a root itself: one level, for lists that fold one level.\n`parent` without those rules, else an older client's `spawnedBy` tag.",
           "type": [
@@ -7315,7 +7291,6 @@
           "type": "boolean"
         },
         "stuckError": {
-          "default": null,
           "description": "Last classified error, redacted and bounded. Omitted for peers.",
           "type": [
             "string",
@@ -7330,11 +7305,9 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         },
         "stuckSince": {
-          "default": null,
           "description": "Unix milliseconds when the third failure established stuck. Omitted for peers.",
           "format": "uint64",
           "minimum": 0,
@@ -7380,7 +7353,6 @@
           ]
         },
         "titleSource": {
-          "default": null,
           "description": "Who supplied `title`: `prompt` is the first-prompt fallback, while\n`harness`, `generated` and `adopted` are real chat titles. Older peers\nmay omit this field.",
           "type": [
             "string",
@@ -7579,6 +7551,13 @@
         },
         "usage": {
           "description": "`_acpmux/sessions` only: read each chat's usage from its harness's records first\n(`usageStats`; at most one read every 5 s, waited for at most 750 ms). Without it the\nrows carry what the last read found.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "usageOnly": {
+          "description": "`_acpmux/sessions` with `usage` only: start that read and answer no rows (the app's usage\ntrigger on each connect). The rows the read changed reach every watcher as\n`session_changed`; a watch's own list carries the rest. An older acpmux ignores it and\nanswers the list.",
           "type": [
             "boolean",
             "null"

@@ -45,6 +45,8 @@ struct HoverCardUsageReadTests {
         #expect(reads.count == 1, "one usage read per connection, never one per change")
         let params = try #require(reads.first?["params"] as? [String: Any])
         #expect(params["usage"] as? Bool == true)
+        // Only the read: acpmux answers no rows, and the chats it changed come over the watch.
+        #expect(params["usageOnly"] as? Bool == true)
         #expect((reads.first?["id"] as? NSNumber)?.intValue == 3)
         // The watch itself stays a plain list: its pushes never wait on a usage pass.
         let watch = try #require(Self.requests().first { $0["method"] as? String == "_acpmux/watch" })

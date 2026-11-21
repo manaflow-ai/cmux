@@ -177,3 +177,25 @@ async fn a_pass_before_the_order_is_sorted_sorts_it_once() {
     assert_eq!(hub.list_order_rebuilds_for_test(), 1, "a page read patched it");
     assert_eq!(hub.usage_passes_for_test(), (2, 4));
 }
+
+/// The app's usage trigger (`_acpmux/sessions {usage, usageOnly}`) lists no rows, so the rows its
+/// pass changed are told to the watchers when it ends, with no list read after it: a chat whose
+/// stats went reaches them as its own row's change.
+#[tokio::test]
+async fn a_read_that_lists_nothing_tells_the_watchers_the_rows_it_changed() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    let chat = meta("aging", "claude", Some("s1"), "closed", now - 3_600_000);
+    hub.store.save(&chat).unwrap();
+    let session = hub.insert_test_session(chat);
+    stats_found(&hub, "aging");
+    hub.refresh_usage_stats().await;
+    hub.edit_test_meta(&session, |m| m.updated_at = now - 2 * DAY_MS);
+    let _ = hub.events.list_head();
+    let mut watcher = hub.events.subscribe();
+    hub.usage_pass_due_for_test();
+    hub.read_usage_and_tell().await.unwrap();
+    assert!(!hub.usage_stats.stats.lock().unwrap().contains_key("aging"), "its stats went");
+    let told = std::iter::from_fn(|| watcher.try_recv().ok()).any(|ev| ev.session_id == "aging");
+    assert!(told, "the watchers heard its row");
+}
