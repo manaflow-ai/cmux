@@ -1,10 +1,18 @@
 """The merge receipt: which checks a pull request's head had passed when it merged."""
 
+import argparse
+import contextlib
+import http.server
 import importlib.util
+import io
 import json
+import os
 import pathlib
 import sys
+import threading
+import time
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -183,12 +191,133 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.job["permissions"], {
             "contents": "read", "pull-requests": "write", "checks": "read", "statuses": "read",
         })
-        checkout = self.job["steps"][0]["with"]
+        checkout = next(step for step in self.job["steps"] if step.get("uses", "").startswith("actions/checkout@"))["with"]
         self.assertEqual(checkout["ref"], "${{ github.workflow_sha }}")
         self.assertFalse(checkout["persist-credentials"])
         self.assertEqual(checkout["sparse-checkout"].split(), ["scripts/ci/merge_receipt.py", "scripts/ci/pr_status.py"])
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertNotIn("pull_request.head", text)
+
+    def test_writes_spend_the_cmux_bot_pool_and_fall_back_to_the_job_token(self):
+        mint = self.job["steps"][0]
+        self.assertEqual(mint["id"], "cmux-bot-token")
+        self.assertTrue(mint["uses"].startswith("actions/create-github-app-token@"))
+        self.assertIs(mint["continue-on-error"], True)
+        self.assertEqual(mint["if"], "vars.CMUX_BOT_APP_ID != ''")
+        self.assertEqual({k: v for k, v in mint["with"].items() if k.startswith("permission-")},
+                         {"permission-issues": "write", "permission-pull-requests": "write"})
+        post = next(step for step in self.job["steps"] if step.get("name") == "Post merge receipt")
+        self.assertEqual(post["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
+        self.assertEqual(post["env"]["CHECKS_TOKEN"], "${{ github.token }}")
+
+
+SPENT = b'{"message":"API rate limit exceeded for installation ID 1234567.","documentation_url":"https://docs.github.com/rest/overview/resources-in-the-rest-api#rate-limiting"}'
+
+
+class FakeGitHub(http.server.BaseHTTPRequestHandler):
+    """GitHub with the repository's REST pool spent, as at 09:33Z on 2026-11-16 (run 43840796214): every REST call
+    answers 403 with X-RateLimit-Remaining 0 and a reset an hour out; GraphQL, a separate pool, still answers."""
+
+    seen: list = []
+    posted: list = []
+    rest_spent = True
+
+    def log_message(self, *args):
+        pass
+
+    def answer(self, code, body, headers=()):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        for key, value in headers:
+            self.send_header(key, value)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def handle_any(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        payload = json.loads(self.rfile.read(length) or b"null") if length else None
+        self.seen.append((self.command, self.path))
+        if self.path == "/graphql":
+            self.answer(200, json.dumps({"data": {
+                "repository": {"issueOrPullRequest": {"comments": {
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    "nodes": [{"fullDatabaseId": str(i + 1), "body": body,
+                               "author": {"__typename": "Bot", "login": "github-actions"}}
+                              for i, body in enumerate(self.posted)]}}},
+                "rateLimit": {"limit": 5000, "cost": 1, "remaining": 4000, "used": 1000,
+                              "resetAt": "2026-11-16T10:00:00Z"}}}).encode())
+        elif self.rest_spent:
+            self.answer(403, SPENT, [("X-RateLimit-Limit", "1000"), ("X-RateLimit-Remaining", "0"),
+                                     ("X-RateLimit-Used", "1000"), ("X-RateLimit-Resource", "core"),
+                                     ("X-RateLimit-Reset", str(int(time.time()) + 3600))])
+        elif self.command == "POST":
+            self.posted.append((payload or {}).get("body"))
+            self.answer(201, json.dumps({"id": 1, "body": (payload or {}).get("body")}).encode())
+        else:
+            self.answer(200, b"[]")
+
+    do_GET = do_POST = do_PATCH = do_DELETE = handle_any
+
+
+class SpentQuotaTests(unittest.TestCase):
+    """Replays run 43840796214 (#40579): `merge_receipt.py post` failed on GET /repos/.../issues/40579/comments,
+    HTTP 403 Forbidden, both attempts, after its GraphQL reads had passed."""
+
+    def setUp(self):
+        FakeGitHub.seen = []
+        FakeGitHub.posted = []
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeGitHub)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        env = {"GITHUB_API_URL": f"http://127.0.0.1:{self.server.server_address[1]}", "GH_TOKEN": "t",
+               "PR_STATUS_SETTLE_SECONDS": "0"}
+        self.env = mock.patch.dict(os.environ, env)
+        self.env.start()
+        os.environ.pop("GITHUB_GRAPHQL_URL", None)
+        self.labels = []
+        self.patches = [
+            mock.patch.object(MODULE, "fetch", lambda repo, number: {
+                "number": number, "merged": True, "mergedAt": MERGED, "headRefOid": "b82e0c4cfc" + "0" * 30,
+                "labels": [], "contexts": [run("ci-status", required=True)]}),
+            mock.patch.object(MODULE, "gh", lambda args, token=None: self.labels.append(args) or ""),
+        ]
+        for patch in self.patches:
+            patch.start()
+
+    def tearDown(self):
+        for patch in self.patches:
+            patch.stop()
+        self.env.stop()
+        self.server.shutdown()
+        self.server.server_close()
+
+    def post(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            code = MODULE.command_post(argparse.Namespace(repo="o/r", pr=40579, dry_run=False, snapshot_output=None))
+        return code, out.getvalue()
+
+    def test_a_spent_rest_pool_reads_comments_over_graphql_and_warns_instead_of_failing(self):
+        code, out = self.post()
+        self.assertEqual(code, 0)
+        self.assertNotIn(("GET", "/repos/o/r/issues/40579/comments?per_page=100&page=1"), FakeGitHub.seen)
+        self.assertEqual(FakeGitHub.seen[0], ("POST", "/graphql"))
+        # the one REST write is refused once, not retried into the empty pool
+        self.assertEqual(FakeGitHub.seen[1:], [("POST", "/repos/o/r/issues/40579/comments")])
+        self.assertIn("::warning title=merge-receipt::#40579 receipt not written", out)
+        self.assertIn("API rate limit exceeded for installation", out)
+
+    def test_with_rest_answering_the_receipt_is_posted_with_no_rest_read(self):
+        FakeGitHub.rest_spent = False
+        try:
+            code, out = self.post()
+        finally:
+            FakeGitHub.rest_spent = True
+        self.assertEqual(code, 0)
+        self.assertNotIn("::warning", out)
+        # read, write, read back after the settle wait: only the write is REST
+        self.assertEqual(FakeGitHub.seen, [("POST", "/graphql"), ("POST", "/repos/o/r/issues/40579/comments"),
+                                           ("POST", "/graphql")])
+        self.assertIn("**Merge receipt** for `b82e0c4cfc`", FakeGitHub.posted[0])
 
 
 if __name__ == "__main__":

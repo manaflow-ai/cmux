@@ -1,3 +1,4 @@
+// CI: this package crashes with signal 11 on Blacksmith macOS 15 runners (cmux#44963 collects the backtrace).
 import Foundation
 import os
 
