@@ -1897,9 +1897,10 @@ class Excusing(unittest.TestCase):
                 self.judge()
 
     def test_a_failure_with_nothing_to_compare_blocks(self):
-        # No test names and no error lines: the same step name alone proves nothing.
+        # No test names and no error lines, while the base names its failure: the same step name alone proves
+        # nothing (step_only_verdict excuses only a base that names nothing either).
         self.gh.logs[1] = log(SWIFT, TEST_STEP, "##[error]Process completed with exit code 1.")
-        with self.assertRaisesRegex(excuse.Refused, "nothing to compare"):
+        with self.assertRaisesRegex(excuse.Refused, "names no failing test or error line"):
             self.judge()
 
     def test_a_red_run_with_no_failed_job_listed_blocks(self):
