@@ -50,7 +50,7 @@ harness's own subagent (Claude Code's Task/Agent tool), whose result comes back 
 When you mention another session (one you started, one that messaged you, one in a PR
 footer), write a reference cmux turns into a clickable chip, in inline code:
 
-- its `HOST/NAME`, as `list_sessions` or `acpmux ls` shows it (`huge-blue/tests`), or
+- its `HOST/NAME`, as `list_sessions` or `cmux agent ls` shows it (`huge-blue/tests`), or
 - its agent link: `cmux://agent/<harness>/<sessionId>` or the
   `https://cmux.com/deeplink/agent?...` link a PR footer carries.
 

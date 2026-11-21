@@ -407,7 +407,7 @@ extension AgentTabStore {
         launchImages.drop(launchImages.slot(key, machine: scoped.machine))
         seenLive.remove(scoped)
         forgetUnusedStores()
-        stopCustomizationWhenUnused()
+        stopCustomizationWhenUnused(); if !frontedChats.isEmpty, record(for: scoped) == nil { frontedChats.gone(scoped) } // a gone tab ends its Cloud chat shown in place, or its Mac tab shows its own page (CloudFrontedChats)
     }
 
     /// Lets go of the view state of tabs `store` listed and no longer lists, once it is connected
