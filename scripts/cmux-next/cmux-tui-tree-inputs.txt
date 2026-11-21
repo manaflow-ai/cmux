@@ -18,6 +18,7 @@ blob scripts/ci/acpmux-build-features.sh
 blob scripts/ci/tailnet-go.sh
 blob scripts/cmux-next/build-acpmux.sh
 blob scripts/ci/cargo-groups.sh
+blob scripts/ci/cmux-tui-mac-cargo-builds.sh
 blob scripts/ci/cmux-tui-darwin-builder
 blob scripts/ci/macos-cross.sh
 blob scripts/ci/macos_stubs.py
@@ -73,6 +74,10 @@ blob Resources/theme-files/classic-desktop.json
 blob Resources/theme-files/claude-desktop.json
 blob Resources/theme-files/harbor.json
 blob Resources/theme-files/phosphor.json
+# cmux-config embeds the shipped sidebar looks (sidebar_look::shipped).
+blob Resources/sidebar-looks/claude.json
+blob Resources/sidebar-looks/codex.json
+blob Resources/sidebar-looks/studio.json
 blob schemas/chief-home/vectors.json
 blob schemas/agent-url-policy/vectors.json
 blob schemas/chief-cmux-target/vectors.json
@@ -102,8 +107,12 @@ blob schemas/settings/source/mcp-servers.json
 blob schemas/settings/source/subsessions.json
 blob schemas/settings/source/trust.json
 blob schemas/settings/settings-schema.json
+# cmux-action-catalog's customize_elements test embeds the shipped settings defaults.
+blob schemas/defaults/cmux-next.json
 blob schemas/settings/source/subsessions.json
 blob scripts/cmux-next/cmux-tui.pin
+# `cmux server install` over ssh sends the installer cmux.com serves (cmux-tui's cli/server_remote.rs embeds it).
+blob web/public/tui/install-static.sh
 # acpmux's v2 gate registry tests read the nightly's gate script and its lines: a
 # marked row needs a line in them. A home test runs the script through its stand-in test.
 blob scripts/cmux-next/run-v2-gates.sh
