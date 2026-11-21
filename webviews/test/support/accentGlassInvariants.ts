@@ -100,13 +100,21 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
     let vite: Awaited<ReturnType<typeof createServer>> | undefined;
     // One Chromium for the whole part, relaunched when it dies mid-file (test/support/stageBrowser.ts).
     let shared: StageBrowser<Browser, Page> | undefined;
+    const T = (msg: string) => process.env.AGI_TRACE && fs.appendFileSync(process.env.AGI_TRACE, msg + "\n");
     beforeAll(async () => {
+      const b0 = performance.now();
       vite = await createServer({
         configFile: path.join(webviews, viteConfig),
         server: { port: 0, host: "127.0.0.1", strictPort: false },
         logLevel: "error",
       });
       await vite.listen();
+      T(`viteListen ${Math.round(performance.now() - b0)}`);
+      {
+        const hot = vite.environments.client.hot; const send = hot.send;
+        hot.send = ((...a: unknown[]) => { T(`hot ${Math.round(performance.now())} ${JSON.stringify(a[0]).slice(0, 200)}`); return (send as (...x: unknown[]) => void).apply(hot, a); }) as typeof send;
+        const opt = vite.environments.client.depsOptimizer; T(`optimizer ${Boolean(opt)} discovered=${Object.keys(opt?.metadata.discovered ?? {}).length} optimized=${Object.keys(opt?.metadata.optimized ?? {}).length}`);
+      }
       shared = await launchStageBrowser<Browser, Page>({
         launch: () => chromium.launch({ headless: true }),
         open: (browser) => browser.newPage({ viewport: { width: 760, height: 900 } }),
@@ -117,6 +125,7 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
           browser: shared.browser,
           params: { variant: first.variant, theme: first.theme, frame: "component" },
         });
+      T(`beforeAll ${Math.round(performance.now() - b0)}`);
     });
     afterAll(async () => {
       await shared?.close();
@@ -169,7 +178,10 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
         );
       });
       try {
-        return await Promise.race([scan(page, stage), late]);
+        const s0 = performance.now();
+        const r = await Promise.race([scan(page, stage), late]);
+        T(`stage ${Math.round(performance.now() - s0)} ${Math.round(s0)} ${"error" in r ? "ERR" : "ok"} ${stageName(stage)} ${"error" in r ? r.error : ""}`);
+        return r;
       } finally {
         clearTimeout(timer);
       }
