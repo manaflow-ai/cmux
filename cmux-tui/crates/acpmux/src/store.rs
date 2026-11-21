@@ -191,6 +191,11 @@ pub struct SessionMeta {
     /// default (`hub/new_request.rs` `unique_name_among`). False in a log from before it was kept.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub name_given: bool,
+    /// The names it had before its renames, oldest first (`hub/former_names.rs`): each still
+    /// names it wherever no session has it as its current name, so a message sent to an old
+    /// name still arrives. At most `former_names::KEPT`; no other session keeps the same one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub former_names: Vec<String>,
     /// `agent` in a chat stored before the agent-to-harness rename (e857185a58).
     #[serde(alias = "agent")]
     pub harness: String,

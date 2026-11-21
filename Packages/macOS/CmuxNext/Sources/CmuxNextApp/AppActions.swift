@@ -136,6 +136,7 @@ enum AppActions {
         CatalogRequestHandlers(host: services).bind(into: registry)
         HandlerPlaceholders.bind(into: registry)
         IconMenuVisibility.install(registry, context: context)
+        SpacesMenuVisibility { [weak services] in services.map { SidebarSpaceBar.profiles($0.machines.local, window: $0.windows.active?.state.id ?? "", windows: $0.windows).count } ?? 0 }.install(in: registry)
         TabSelectionTitles(context: context).install(in: registry)
         TopPages.installActionRules(services)
         ActionTargetReasons.refuseHeadlessNameEditors(in: registry) { RefusalStrings.nameArgumentRequired }
