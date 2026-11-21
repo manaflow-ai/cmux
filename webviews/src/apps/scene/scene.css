@@ -429,6 +429,21 @@
   }
 }
 
+.cmux-app-scene-move-row {
+  position: relative;
+}
+.cmux-app-scene-move-row[data-drop-edge]::after {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: var(--cmux-hairline);
+  background: var(--cmux-accent, currentColor);
+  pointer-events: none;
+  content: "";
+}
+.cmux-app-scene-move-row[data-drop-edge="before"]::after { top: 0; }
+.cmux-app-scene-move-row[data-drop-edge="after"]::after { bottom: 0; }
+
 /* Text `fontDesign`: the system font's designs, at the type scale's sizes (sceneStyle.ts DESIGNS).
    Heavy and rounded is the Lock Screen's time. */
 .cmux-app-scene-root {
