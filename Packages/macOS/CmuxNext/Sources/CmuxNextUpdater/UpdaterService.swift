@@ -51,6 +51,13 @@ public final class UpdaterService {
     public var debugIndicatorPhase: UpdateIndicatorPhase? {
         didSet { syncFlowPhase() }
     }
+    /// A newer build already installed in this app's bundle on disk (``checkInstalledBuild()``).
+    public internal(set) var installedNewerBuild: InstalledBuild?
+    /// Relaunches into the installed build: quits (keeping every session) and opens the bundle again
+    /// (``InstalledBuildRelaunch``); tests replace it.
+    @ObservationIgnored var relaunchInstalledBuild: (() -> Void)? = { _ = InstalledBuildRelaunch.relaunch(bundle: Bundle.main.bundleURL) }
+    /// Reads the build in this app's bundle on disk (replaced by tests).
+    @ObservationIgnored var readInstalledBuild: () -> InstalledBuild? = { InstalledBuildWatch.read(bundleURL: Bundle.main.bundleURL) }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
     /// How many times the gate's phase moved (``syncFlowPhase()``): a caller that follows one
@@ -257,6 +264,15 @@ public final class UpdaterService {
     @ObservationIgnored let relaunchMomentHold: UpdateRelaunchMomentHold
     /// How long input must be quiet before a nightly installs by itself (`updates.idleInstallQuietSeconds`).
     @ObservationIgnored public internal(set) var idleInstallQuiet: Duration = UpdateRelaunchBlockers.quietInputPeriod
+    /// Update When Idle's idle time (`updates.installWhenIdleMinutes`), nil while `updates.installWhenIdle` is off.
+    @ObservationIgnored public internal(set) var installWhenIdle: Duration?
+    /// Why Update When Idle holds a staged install now, nil when nothing does (set by the App: it reads the
+    /// input time, agent turns and drafts and asks cmux-window-rules `update_idle`). Without it the
+    /// setting installs nothing by itself.
+    @ObservationIgnored public var idleInstallGate: (@MainActor () -> UpdateRelaunchMoment.Interruption?)?
+    /// Stands in for the Mac's last input for Update When Idle (`debug.updater {action: "input"}` in DEV and bench
+    /// builds; the update-idle harness: a fleet Mac has no person). Nil reads the real input time.
+    @ObservationIgnored public var debugLastInput: Date?
     /// The install in flight started by itself (the idle policy): a failure opens nothing.
     @ObservationIgnored var automaticInstallInFlight = false
     /// The build Sparkle said it installs (`updaterWillInstallUpdate`): the relaunch's focus record names it.
@@ -329,7 +345,7 @@ public final class UpdaterService {
         // person's app: with the lines before the quit, the file says what relaunched cmux.
         log.append("launch \(identity.shortVersion) build \(identity.build) (\(identity.track)), pid \(ProcessInfo.processInfo.processIdentifier)"
             + (CommandLine.arguments.contains(UpdateRelaunchFocus.reopenArgument) ? ", reopened behind by an automatic install" : ""))
-        relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, log: { [log] in log.append($0) })
+        relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, now: now, log: { [log] in log.append($0) })
         releasePush = ReleasePushListener(runningBuild: identity.build, clock: clock, log: { [log] in log.append($0) })
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
@@ -417,7 +433,11 @@ public final class UpdaterService {
         refreshUpdateSnooze()
         tipCheck.refresh(self)
         refreshReleasePush()
-        pulledWatch.onRefresh = { [weak self] in self?.followPulled() }
+        pulledWatch.onRefresh = { [weak self] in
+            self?.followPulled()
+            // After every update cycle: Sparkle may have swapped the bundle under this running build.
+            self?.checkInstalledBuild()
+        }
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return
@@ -557,6 +577,7 @@ public final class UpdaterService {
     /// notice card; a found update downloads and waits as the staged update
     /// card (Restart to Update).
     public func installAvailableUpdate() throws {
+        if relaunchIntoInstalledBuild() { return }
         guard let controller, disabledReason == nil else { throw UpdaterUnavailable(reason: disabledReason) }
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_clicked")
@@ -646,7 +667,8 @@ public final class UpdaterService {
             ring: ring,
             card: card,
             cardPresentation: cardPresentation,
-            badge: footerPill?.title
+            badge: footerPill?.title,
+            relaunchHold: relaunchHold
         )
     }
 

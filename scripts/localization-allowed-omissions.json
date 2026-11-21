@@ -3807,35 +3807,6 @@
       "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
   },
-  "update.error.details.code": {
-    "source": "Code",
-    "identityLocales": {
-      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
-      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
-    }
-  },
-  "update.error.details.domain": {
-    "source": "Domain",
-    "identityLocales": {
-      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
-    }
-  },
-  "update.error.details.feed": {
-    "source": "Feed",
-    "identityLocales": {
-      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
-    }
-  },
-  "update.error.details.message": {
-    "source": "Message",
-    "identityLocales": {
-      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
-    }
-  },
-  "update.error.details.url": {
-    "class": "technical",
-    "source": "URL"
-  },
   "workspaceTodoPane.title": {
     "source": "Todos",
     "identityLocales": {
@@ -5655,6 +5626,89 @@
       }
     }
   },
+  "backdrop.shader.aero": {
+    "source": "Aero",
+    "identityLocales": {
+      "bs": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "da": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "de": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "es": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "fr": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "it": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "nb": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "pl": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "tr": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "vi": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Aero is the name of the style (Frutiger Aero), kept in Latin letters.",
+        "values": [
+          "Aero"
+        ]
+      }
+    }
+  },
   "backdrop.martin-pandemonium.title": {
     "source": "Pandemonium",
     "identityLocales": {
@@ -7385,21 +7439,6 @@
         "reason": "Agents is the standard French plural noun for AI agents (the Agents onboarding window's title).",
         "values": [
           "Agents"
-        ]
-      }
-    }
-  },
-  "settingsPage.personalization.chief": {
-    "class": "brand",
-    "source": "Chief"
-  },
-  "settingsPage.personalization.theme": {
-    "source": "Theme",
-    "identityLocales": {
-      "de": {
-        "reason": "Theme is the standard German noun for an app's color theme.",
-        "values": [
-          "Theme"
         ]
       }
     }
