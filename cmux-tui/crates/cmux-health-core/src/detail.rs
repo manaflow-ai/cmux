@@ -18,6 +18,10 @@ pub enum Cause {
     PageInput {
         ms: u64,
     },
+    /// Silent together with other visible pages (a shared renderer or the Mac is busy).
+    PagesStalled {
+        ms: u64,
+    },
     PageCrashed,
     RendererUnresponsive {
         ms: u64,
@@ -90,6 +94,11 @@ pub fn cause(cause: Cause) -> String {
         Cause::PageInput { ms } => {
             format!("Has not handled your clicks or typing for {}.", duration(ms))
         }
+        Cause::PagesStalled { ms } => format!(
+            "Not answering for {}, along with other open pages: the Mac or their shared renderer \
+             is busy.",
+            duration(ms)
+        ),
         Cause::PageCrashed | Cause::RendererCrashed => "Stopped unexpectedly.".into(),
         Cause::RendererUnresponsive { ms } => format!("Not responding for {}.", duration(ms)),
         Cause::AcpmuxDisconnected => "Agent sessions are disconnected.".into(),
