@@ -52,7 +52,8 @@ import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
-import { turnCopyParts } from "./turnCopy";
+import { turnCallParts, turnCopyParts } from "./turnCopy";
+import { turnEndActions } from "./turnEndActions.experiment";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { hidesEveryCall } from "./mcpPresentation";
@@ -61,6 +62,7 @@ import { SILENT_MS } from "./thinkingModel";
 import {
   BACKGROUND_TURN,
   backgroundTurnRowId,
+  endsDrawingRows,
   foldBackgroundTurns,
   foldedBackgroundIds,
   foldsBackground,
@@ -2280,12 +2282,13 @@ function withWork(rows: readonly AcpmuxRow[]): Pick<AcpmuxRow, "turnWork"> {
 /// The id prefix of the footer `backgroundFooters` adds under a turn the agent ran on its own.
 export const BACKGROUND_END = "backgroundEnd";
 
-/// The ids of the turns the agent ran on its own in `rows` that ended with something to say, so
-/// draw their rows (backgroundTurns.ts `foldsBackground`): a running or quiet one is its line.
+/// The ids of the turns the agent ran on its own in `rows` that ended and draw their rows: one that
+/// ended with something to say (backgroundTurns.ts `foldsBackground`), and inline one acpmux called
+/// quiet, whose calls draw where they ran (`hiddenInBackground`) though its reply does not. A running
+/// one, and a quiet one folded to its line, draw none of their own.
 function endedBackgroundTurns(rows: readonly AcpmuxRow[]): ReadonlySet<string> {
   const ended = new Set<string>();
-  for (const row of rows)
-    if (row.kind === BACKGROUND_TURN && row.background && !foldsBackground(row)) ended.add(row.background.id);
+  for (const row of rows) if (endsDrawingRows(row)) ended.add(row.background!.id);
   return ended;
 }
 
@@ -2298,6 +2301,13 @@ function endedBackgroundTurns(rows: readonly AcpmuxRow[]): ReadonlySet<string> {
 /// none. Its Copy copies that turn's rows (turnCopy.ts); its Fork goes through the last turn acpmux
 /// ended before it (`seq`, or a later one in `tail`), as acpmux forks only there (fork_through.rs),
 /// which keeps everything up to the next prompt. One a summary already ends gets none more.
+///
+/// A turn that ran calls and said nothing after them (acpmux calls it quiet: no reply to tell, its
+/// calls draw where they ran) ends on its row too, with its calls to copy (`turnCallParts`): it drew
+/// its calls and then nothing, so the chat's last rows had no buttons under them while every reply
+/// above did (Leo, 2026-11-21: "there's no buttons at the bottom even thuogh you have visibly stopped
+/// doing things"). Its row has no text, so Read aloud reads nothing it did not draw.
+/// turnEndActions.experiment.ts holds the arms: every such turn (default), only the chat's last, none.
 function backgroundFooters(tail: AcpmuxRow[], endedBackground: ReadonlySet<string>, seq?: number): AcpmuxRow[] {
   if (endedBackground.size === 0) return tail;
   const bodies = new Map<string, { rows: AcpmuxRow[]; last: number }>();
@@ -2310,6 +2320,10 @@ function backgroundFooters(tail: AcpmuxRow[], endedBackground: ReadonlySet<strin
     bodies.set(id, body);
   });
   if (bodies.size === 0) return tail;
+  const callsArm = experimentArm(turnEndActions);
+  // The turn ending on calls alone that may end on its row in the `last` arm: the tail's last one.
+  let lastBody: { rows: AcpmuxRow[]; last: number } | undefined;
+  for (const body of bodies.values()) if (!lastBody || body.last > lastBody.last) lastBody = body;
   const out: AcpmuxRow[] = [];
   let through = seq;
   tail.forEach((row, at) => {
@@ -2320,8 +2334,10 @@ function backgroundFooters(tail: AcpmuxRow[], endedBackground: ReadonlySet<strin
     if (!body || body.last !== at || tail[at + 1]?.kind === "turnSummary") return;
     if (body.rows.some((each) => each.kind === "turnSummary")) return;
     const answer = body.rows[answerAt(body.rows)];
-    const parts = answer && !answer.streaming ? turnCopyParts(body.rows) : undefined;
-    if (!answer || !parts) return;
+    if (answer?.streaming) return;
+    const callsAlone = !answer && (callsArm === "every" || (callsArm === "last" && body === lastBody));
+    const parts = answer ? turnCopyParts(body.rows) : callsAlone ? turnCallParts(body.rows) : undefined;
+    if (!parts) return;
     out.push({
       id: `${BACKGROUND_END}-${id}`,
       kind: "turnSummary",
@@ -2330,8 +2346,7 @@ function backgroundFooters(tail: AcpmuxRow[], endedBackground: ReadonlySet<strin
       at: row.at,
       status: "completed",
       durationMs: Math.max(0, row.at - body.rows[0]!.at),
-      text: answer.text,
-      answerId: answer.id,
+      ...(answer && { text: answer.text, answerId: answer.id }),
       turnCopy: parts,
       ...withWork(body.rows),
       ...(through !== undefined && { seq: through }),
