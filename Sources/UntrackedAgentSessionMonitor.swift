@@ -42,6 +42,7 @@ final class UntrackedAgentSessionMonitor {
 
     /// Repeating background check timer (nil when not started).
     private var pollTimer: Timer?
+    private var refreshTask: Task<Void, Never>?
 
     init(
         detector: UntrackedAgentSessionDetector = UntrackedAgentSessionDetector(),
@@ -118,8 +119,10 @@ final class UntrackedAgentSessionMonitor {
     /// the main thread), find cmux-scoped Claude/Codex processes by executable
     /// name, then evaluate on main using the cached, non-blocking hook lookup.
     func refresh() {
-        Task.detached(priority: .utility) {
+        refreshTask?.cancel()
+        refreshTask = Task.detached(priority: .utility) {
             let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+            guard !Task.isCancelled else { return }
             // One agent process per pane (lowest pid is the stable identity).
             var byPane: [PanelKey: (kind: RestorableAgentKind, pid: Int)] = [:]
             for process in snapshot.cmuxScopedProcesses() {
@@ -136,6 +139,7 @@ final class UntrackedAgentSessionMonitor {
                 DetectedAgent(kind: $0.kind, identity: String($0.pid))
             }
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 self.evaluate(
                     detectedAgents: agents,
                     hasHookSession: { key in
@@ -193,5 +197,7 @@ extension UntrackedAgentSessionMonitor {
     func stop() {
         pollTimer?.invalidate()
         pollTimer = nil
+        refreshTask?.cancel()
+        refreshTask = nil
     }
 }
