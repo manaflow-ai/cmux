@@ -77,6 +77,14 @@
   (cmux#48416). Regression: `ChiefReplacesHomeTests` (CmuxNextAppTests).
 
 - 2026-11-20 (a1301 groups-as-folders): Sidebar-Look: David Beyer, Nov 20 call (launch Mon Nov 23): sidebar groups should be plain folders, with all threads in one place. `sidebar.groupHeader.background` gains Folders (`folder`), now the default: a group header is a plain row, the icon pack's folder glyph on the rows' icon column (in the group's color where it has one, held to 3:1 on the sidebar), its name in the primary ink on the rows' text column, the chevron as before, no band, rim, dot, block or members' line; hover and a drop take a workspace row's fills. With no line to mark them, a folder's members sit one indent step (`SidebarStyle.groupGutter`) in under a header flush with the loose rows (`SidebarIndent.indentsTopLevel`, the one rule rows, lifted cards, drop gaps and the outliner's drag-out share). Automatic, Glass, Solid and Sections keep their looks and the no-indent rule (#23975). Folding, double-click rename, drag in and out and the + and more on hover are unchanged. Spaces (a1283) are separate. Regression: `SidebarGroupsAsFoldersTests`. Capture tour: `sidebar-groups-as-folders`.
+- 2026-11-20 (a-rolling-summaries): Sidebar-Look: user, 2026-11-20, from David Beyer's notes: "rolling summaries of every chat
+  with a next action for each"; "each rolling chat summary should also show a next action for that chat". Compact rows
+  are unchanged (one line). The hover card names the chat's rolling summary (`Fact.summaryKind`, chat-list icon, up to
+  3 lines) and, under it, "Next: …" (`Fact.nextActionKind`, `.actionGo`, up to 2 lines) right after the task fact, in
+  place of the raw last reply; the minimal, log and timeline layouts keep both (`keptOverHistory`). An Expanded row's
+  detail line reads "summary → next" after an unread notification and the description, before the last reply
+  (`WorkspaceRowContent.summaryLine`). Source: acpmux `rollingSummary` on the chat's row. Tests:
+  `SidebarRollingSummaryTests`.
 - 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
   them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with
   `notifications.attention.mark` `glow` (default `badge`, no change), a workspace row that waits for the person (an
