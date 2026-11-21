@@ -349,9 +349,9 @@ fn net_client_list(conn: &impl x11rb::connection::Connection, root: u32) -> Opti
     if reply.type_ == 0 {
         return None;
     }
-    // A let, not a tail expression: in edition 2021 the tail's temporary iterator outlives
-    // `reply` (E0597).
-    let clients = reply.value32()?.collect();
+    // Collected into a local first: as the tail expression, the iterator's temporary outlives
+    // `reply` and the release build fails to compile (E0597).
+    let clients: Vec<u32> = reply.value32()?.collect();
     Some(clients)
 }
 
@@ -471,7 +471,9 @@ pub fn stop_host() -> Res<()> {
         Ok(()) => Ok(()),
         Err(pid) => Err(format!(
             "the screen host is still running ({}{}); stop it with: {}",
-            pid.map_or("its pid is unknown".into(), |pid| format!("pid {pid}")),
+            pid.map_or("its pid is unknown: a host of an older build records none".into(), |pid| {
+                format!("pid {pid}")
+            }),
             stopped.err().map(|e| format!("; {e}")).unwrap_or_default(),
             pid.map_or(format!("systemctl --user kill --signal=KILL {HOST_UNIT}"), |pid| {
                 format!("kill -KILL {pid}")

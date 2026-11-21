@@ -33,6 +33,11 @@ pub trait FrameSource: Send {
     fn set_changed_pixels(&mut self, _pixels: u64) {}
     fn kbps(&self) -> u32;
     fn encoder_name(&self) -> String;
+    /// Why the last [`FrameSource::encode`] made an IDR it was not asked for (the encoder's
+    /// [`cmux_encode::VideoEncoder::idr_cause`]).
+    fn idr_cause(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 /// Both halves of one opened desktop.
