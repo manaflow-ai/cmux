@@ -3,7 +3,7 @@
 
   scripts/cmux-next/new-tab-typing-live.py --app "<path>/cmux DEV <tag>.app" --out <dir>
       [--overlay DIR] [--drafts 0,60,180] [--keys 60] [--key-gap 0.09] [--label NAME]
-      [--workspaces N] [--title-churn N] [--new-tabs N] [--chats N] [--unthrottled]
+      [--workspaces N] [--placeholder-workspaces N] [--title-churn N] [--new-tabs N] [--chats N] [--unthrottled]
       [--config JSON] [--cdp-port PORT [--probe]]
 
 Lawrence 2026-11-19 (a video): "typing here is very laggy", a 180-character draft in the New Tab field, with 974
@@ -12,7 +12,8 @@ person's Mac.
 
 - `--overlay DIR`: the web bundles of another tree (an `web-overlay.sh install` folder) served into this app
   through web-dev.json next to the bench's config, so one app build measures a before and an after.
-- The load, made before the measured page opens: `--workspaces` new workspaces (the person had 974),
+- The load, made before the measured page opens: `--workspaces` new workspaces, each with a terminal (macOS
+  allows 511 PTYs, so at most 510), `--placeholder-workspaces` more with no terminal (the person had 974 in all),
   `--title-churn` of their terminals renaming themselves every 100 ms (an agent's spinner title), `--new-tabs`
   more New Tab pages and `--chats` agent chats, each in a workspace of its own; `--unthrottled` keeps hidden
   pages' timers at full rate; `--config` is merged into the bench's cmux.json (the person's appearance).
@@ -50,6 +51,10 @@ parser.add_argument("--chats", type=int, default=0, help="agent chat tabs opened
                     "(every chat page shares the New Tab page's renderer: cmux-process-per-site-schemes)")
 parser.add_argument("--workspaces", type=int, default=0, help="extra workspaces (each with its terminal) opened first; "
                     "the person had 974")
+parser.add_argument("--placeholder-workspaces", type=int, default=0,
+                    help="extra empty workspaces (`workspace create --empty`: no tab, no terminal), opened after "
+                         "--workspaces: macOS allows 511 PTYs (kern.tty.ptmx_max), so --workspaces stops at 510 and a "
+                         "974-workspace session needs these for the rest")
 parser.add_argument("--unthrottled", action="store_true", help="hidden chat pages' timers at full rate, so each page's "
                     "mock daemon changes chats as often as the real daemon's notices reach every page (Chromium slows "
                     "hidden pages' timers to 1 Hz, never socket messages)")
@@ -147,11 +152,12 @@ def open_chats(count):
     return opened
 
 
-def field_text():
-    """The New Tab field's text (`.nt-field`), as the page shows it."""
+def field_length():
+    """The New Tab field's whole text length: the query's `length` past 120 characters, else its text's."""
     field = page("query", selector=".nt-field [contenteditable='true']")
     elements = field.get("elements") or [] if isinstance(field, dict) else []
-    return "".join(str(e.get("text", "")) for e in elements if isinstance(e, dict))
+    return sum(int(e["length"]) if isinstance(e.get("length"), (int, float)) else len(str(e.get("text", "")))
+               for e in elements if isinstance(e, dict))
 
 
 def type_text(text, gap):
@@ -175,6 +181,26 @@ try:
         results["workspaces"] = len(wait(lambda: (lambda w: w if len(w) >= have + opts.workspaces else None)(workspaces()), 120) or workspaces())
         print(f"workspaces: {results['workspaces']} in {time.monotonic() - start:.0f} s", flush=True)
         time.sleep(3.0)  # the new workspaces' terminals start (harness, not app code)
+    if opts.placeholder_workspaces:
+        start = time.monotonic()
+        have = len(workspaces())
+        cli_env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
+        cli_env["CMUX_NEXT_CONFIG_FILE"] = os.path.join(app.scratch, "cmux.json")
+        failures = 0
+        for index in range(opts.placeholder_workspaces):
+            # An empty workspace (the daemon's create-workspace with no first tab): no terminal, so no PTY.
+            done = subprocess.run([app.cli, "--app-socket", app.socket, "workspace", "create", "--empty", "--name", f"bench {index}"],
+                                  env=cli_env, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+            if done.returncode != 0:
+                failures += 1
+                if failures <= 3:
+                    print(f"placeholder workspace {index}: {(done.stdout + done.stderr).strip()[-300:]}", flush=True)
+        listed = wait(lambda: (lambda w: w if len(w) >= have + opts.placeholder_workspaces else None)(workspaces()), 180) or workspaces()
+        results["placeholder_workspaces"] = len(listed) - have
+        results["placeholder_failures"] = failures
+        results["workspaces_total"] = len(listed)
+        print(f"placeholder workspaces: {len(listed) - have} in {time.monotonic() - start:.0f} s, {len(listed)} in all, "
+              f"{failures} failed", flush=True)
     if opts.title_churn:
         spinner = "while :; do for c in 1 2 3 4 5 6 7 8 9 10; do printf '\\033]0;%s Working on the task\\007' $c; sleep 0.1; done; done\n"
         started = 0
@@ -194,7 +220,7 @@ try:
         made = 0
         for _ in range(opts.new_tabs):
             before = {w["id"] for w in workspaces()}
-            rpc("action.run", {"action": "workspace.newAtBottom", "args": {}, "focus": True, "origin": "script"})
+            rpc("action.run", {"action": "workspace.newAtBottom", "args": {}, "focus": False, "origin": "script"})
             ws = wait(lambda: next((w for w in workspaces() if w["id"] not in before and panes(w)), None), 30)
             if not ws:
                 continue
@@ -242,11 +268,11 @@ try:
         # `composer_focused` reads the chat composer (`.acpmux-composer`), which a New Tab page does not have: the
         # check is whether a typed probe key lands in the New Tab field (`.nt-field`), then is deleted.
         def caret():
-            before = field_text()
+            before = field_length()
             key("z")
-            landed = wait(lambda: field_text() != before, 2, step=0.1)
+            landed = wait(lambda: field_length() != before, 2, step=0.1)
             key("delete")
-            wait(lambda: field_text() == before, 2, step=0.1)
+            wait(lambda: field_length() == before, 2, step=0.1)
             if landed:
                 return True
             page("click", selector=".nt-field [contenteditable='true']")
@@ -261,7 +287,7 @@ try:
         if not opts.no_marks:
             page("reset_typing")
         rpc("debug.hangs", {"clear": True})
-        before_keys = field_text()
+        before_keys = field_length()
         profiler = None
         if opts.cdp_port and opts.trace:
             node = os.environ.get("NODE") or shutil.which("node") or "node"
@@ -294,8 +320,9 @@ try:
             print(text, flush=True)
         stats = {} if opts.no_marks else page("typing_stats")
         # The measured keys typed into the field (else to_paint is not a key's text paint).
-        after_keys = field_text()
-        stats["typed_chars"] = len(after_keys) - len(before_keys)
+        # The page's query cuts an element's text at 120 characters and answers the whole `length` past that
+        # (PageWebView+DebugProbe.swift), so a long draft's growth is read too: a lost key reads short.
+        stats["typed_chars"] = field_length() - before_keys
         hangs = rpc("debug.hangs", {"limit": 20}) or {}
         stats["hangs"] = {k: hangs.get(k) for k in ("count", "max_ms", "total_ms", "max_gap_ms")}
         stats["long_hangs"] = [r for r in (hangs.get("records") or []) if isinstance(r, dict) and (r.get("duration_ms") or 0) >= 250]

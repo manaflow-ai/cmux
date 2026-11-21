@@ -87,9 +87,20 @@ filter = '''
 | (binary_id(cmux-tui-core) & test(=state::group_update_latency_tests::ordinary_registry_writers_progress_while_personal_writes_stay_queued))
 | (binary_id(cmux-remote::interactive_latency_e2e) & test(=interactive_echo_stays_responsive_during_bidirectional_bulk_transfer))
 | (binary_id(acpmux::start_mode) & test(=the_policy_gate_round_trip_under_approve_all_is_measured))
+| binary_id(acpmux::stop_watchdog)
 '''
 test-group = 'timing-alone'
 threads-required = 'num-test-threads'
+
+# The stop watchdog's test (acpmux tests/stop_watchdog.rs) prints its STOP-WATCHDOG lines (each
+# home's held stops with and without `start`, and stops not held) on stderr; a fleet step shows
+# them only when a passing test's output is kept. It starts and stops a daemon twelve times over
+# each of two homes, the god one written first: 300 s is the margin under load; a hang still
+# fails.
+[[profile.default.overrides]]
+filter = 'binary_id(acpmux::stop_watchdog)'
+slow-timeout = { period = "60s", terminate-after = 5, grace-period = "5s" }
+success-output = "final"
 
 # The shell-integration fork counts on Linux: a count is the gap in the
 # system PID counter, so a process any other test starts in the window
