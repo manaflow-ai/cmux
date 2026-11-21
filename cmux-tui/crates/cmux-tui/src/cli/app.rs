@@ -38,6 +38,7 @@ mod chat_perf;
 mod classic;
 mod events;
 mod group_create;
+mod health;
 mod join;
 mod keybinding;
 mod launch_times;
@@ -210,6 +211,8 @@ pub(super) enum AppCommand {
     Try(try_cmd::Command), // `cmux app try <PR|branch|sha>|undo|status` (app/try_cmd.rs)
     /// `cmux app launch-times`: the app's recorded launches, read from its file (app/launch_times.rs).
     LaunchTimes(launch_times::Command),
+    /// `cmux app health`: chat, model picker and terminal checks (cli/app/health.rs).
+    Health(health::Command),
 }
 
 /// Whether `args` (after the global options) is the classic `cmux identify`,
@@ -315,6 +318,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
         ("app", Some("renderers")) => renderers::parse(rest)?,
         ("app", Some("launch-times")) => launch_times::parse(rest)?,
+        ("app", Some("health")) => health::parse(rest)?,
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
             chat_perf::parse(rest)?
         }
@@ -874,6 +878,7 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         AppCommand::Live(command) => return Ran::Done(live::run(command)),
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, command)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, command)),
+        AppCommand::Health(command) => return Ran::Done(health::run(global, command)),
         _ => {}
     }
     let mut stream = match connect_command(global) {
@@ -1015,6 +1020,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Live(command) => return Ran::Done(live::run(&command)),
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, &command)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
+        AppCommand::Health(command) => return Ran::Done(health::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
