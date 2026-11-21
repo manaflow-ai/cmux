@@ -515,3 +515,36 @@ fn system_uninstall_stops_only_the_app_instances_it_checked() {
     assert!(stops.iter().any(|l| l.ends_with("stop cmux-app-server@notes.service")), "{stops:?}");
     assert!(!stops.iter().any(|l| l.contains('*')), "stopped by pattern: {stops:?}");
 }
+
+/// An app server instance the supervisor starts while uninstall stops it
+/// must be stopped too: uninstall lists the instances again after the
+/// supervisor is down, not only before.
+#[test]
+fn system_uninstall_stops_an_app_instance_started_while_the_supervisor_stopped() {
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = system_layout(tmp.path(), &tmp.path().join("state").display().to_string());
+    let template = tmp.path().join("units/cmux-app-server@.service");
+    let runner = std::sync::Arc::new(RecordingRunner::new());
+    runner.answer_always(
+        "--property=FragmentPath --value",
+        shows(&format!("{}\n", template.display())),
+    );
+    runner.answer_always("--property=LoadState", not_found());
+    // No instance until the supervisor stops; then one appears.
+    let late = std::sync::Arc::downgrade(&runner);
+    runner.on_run("disable --now cmux-server.service", move || {
+        if let Some(runner) = late.upgrade() {
+            runner.answer_always(
+                "list-units",
+                shows("cmux-app-server@late.service loaded active running cmux app server late\n"),
+            );
+        }
+    });
+    let svc = system_services(&layout, &runner);
+    svc.uninstall().unwrap();
+    let stops: Vec<String> = runner.lines().into_iter().filter(|l| l.contains(" stop ")).collect();
+    assert!(stops.iter().any(|l| l.ends_with("stop cmux-app-server@late.service")), "{stops:?}");
+}
