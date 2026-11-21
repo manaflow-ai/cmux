@@ -19,10 +19,7 @@ import { createPortal } from "react-dom";
 import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind, OffloadReasons } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
-import { useEscapingList } from "../../ui/popupHost";
-import { Listbox } from "../../ui/Listbox";
 import { ComposerListLayer } from "./backdropLayer";
-import { useComposerListBox } from "./backdropLayerModel";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
   bindMarks,
@@ -88,7 +85,6 @@ import { customizeMessage } from "./customizeCommand";
 import {
   applyCommand,
   fastModeState,
-  isFastCommand,
   returnPicks,
   shownName,
   slashMatches,
@@ -98,12 +94,11 @@ import {
   withSkillDollars,
   withoutSkillDollars,
   type SlashCommand,
-  type SlashMatch,
   type SlashTrigger,
 } from "./slashCommands";
 import { commandWaitsForTurn } from "./cliOnlyCommands";
 import { localCommand, type LocalCommand } from "./localCommands";
-import { BoltIcon } from "./BoltIcon";
+import { SlashMenu } from "./SlashMenu";
 import {
   cachePersistedDraft,
   draftHistory,
@@ -162,13 +157,6 @@ import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
-import {
-  SLASH_MAX_VIEWPORT_PX,
-  SLASH_ROW_PX,
-  slashActiveAfterScroll,
-  slashScrollForActive,
-  slashViewport,
-} from "./slashViewport";
 import { compactingUsage } from "./usageStats";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
@@ -3122,174 +3110,3 @@ function ComposerFrame({
 }
 
 const MemoComposer = React.memo(ComposerFrame);
-
-/// One attachment above the prompt. An image draws a thumbnail in its own shape and opens in the chat's image
-/// viewer on a click; one the pane cannot draw falls back to its name, never an empty square.
-function SlashMenu({
-  matches,
-  active,
-  empty,
-  fast,
-  onHover,
-  onPick,
-}: {
-  matches: SlashMatch[];
-  active: number;
-  empty: string;
-  /// The chat's fast mode, which the /fast row's sentence follows (undefined: not reported).
-  fast?: "on" | "off";
-  onHover(index: number): void;
-  onPick(command: SlashCommand): void;
-}) {
-  const t = useT();
-  const list = useRef<HTMLDivElement>(null);
-  // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
-  // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
-  const box = useComposerListBox();
-  // The full match list owns keyboard ranking. Only a bounded viewport gets DOM nodes.
-  const virtual = matches.length > 40;
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportPx, setViewportPx] = useState(SLASH_MAX_VIEWPORT_PX);
-  const [rowPx, setRowPx] = useState(SLASH_ROW_PX);
-  const wantedTop = virtual ? slashScrollForActive(active, matches.length, scrollTop, viewportPx, rowPx) : 0;
-  const view = slashViewport(matches.length, wantedTop, viewportPx, rowPx);
-
-  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
-  // The escape follows the glass shell; the rows' viewport (list) is what scrolls and fades.
-  const escape = useEscapingList("top", 6, undefined, box);
-  // The menu may be squeezed below its CSS 296px cap in a short pane.
-  useLayoutEffect(() => {
-    const node = list.current;
-    if (!node || !virtual) return;
-    const measure = () => {
-      if (node.clientHeight <= 0) return;
-      const css = node.ownerDocument.defaultView?.getComputedStyle(node);
-      const padding = (parseFloat(css?.paddingTop ?? "0") || 0) + (parseFloat(css?.paddingBottom ?? "0") || 0);
-      const height = Math.max(1, node.clientHeight - padding);
-      setViewportPx((old) => (old === height ? old : height));
-      const row = node.querySelector<HTMLElement>(".acpmux-slash-row");
-      const measuredRow = row?.getBoundingClientRect().height ?? 0;
-      if (measuredRow > 0 && Number.isFinite(measuredRow)) {
-        setRowPx((old) => (Math.abs(old - measuredRow) < 0.5 ? old : measuredRow));
-      }
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    const row = node.querySelector<HTMLElement>(".acpmux-slash-row");
-    if (row) observer.observe(row);
-    return () => observer.disconnect();
-  }, [virtual, matches.length]);
-
-  useLayoutEffect(() => {
-    const node = list.current;
-    if (!node) return;
-    if (virtual) {
-      if (Math.abs(node.scrollTop - view.scrollTop) > 0.5) node.scrollTop = view.scrollTop;
-      return;
-    }
-  }, [virtual, view.scrollTop]);
-
-  // A native select or datalist cannot hold the matched-name bolding and descriptions.
-  return (
-    <Listbox
-      listRef={list}
-      shellRef={escape}
-      items={matches}
-      getKey={(match) => `${match.command.source ?? "agent"}:${match.command.name}`}
-      textValue={(match) => shownName(match.command)}
-      label={t(COMPOSER_LABELS.commands)}
-      autoFocus={false}
-      activeIndex={active}
-      onActiveIndexChange={onHover}
-      onOpen={(match) => onPick(match.command)}
-      getItemId={(_, index) => `acpmux-slash-${index}`}
-      shellClassName="ui-popup ui-glass acpmux-slash-menu"
-      id="acpmux-slash-menu"
-      rowClassName="acpmux-slash-row"
-      empty={<div className="acpmux-slash-empty">{empty}</div>}
-      window={virtual ? view : undefined}
-      itemAttributes={(_, index) => ({
-        "aria-posinset": String(index + 1),
-        "aria-setsize": String(matches.length),
-      })}
-      onScroll={
-        virtual
-          ? (event) => {
-              const top = event.currentTarget.scrollTop;
-              setScrollTop(top);
-              const next = slashViewport(matches.length, top, viewportPx, rowPx);
-              const selected = slashActiveAfterScroll(active, matches.length, next);
-              if (selected !== active) onHover(selected);
-            }
-          : undefined
-      }
-      renderItem={(match) => {
-        // The harness's /fast reads as ChatGPT's Fast row: bolt, name, current mode.
-        const fastRow = isFastCommand(match.command);
-        const fastName = t("picker.tierFast");
-        return (
-          <>
-            {fastRow && (
-              <span className="acpmux-slash-icon">
-                <BoltIcon size={14} />
-              </span>
-            )}
-            <span className="acpmux-slash-name">
-              {fastRow ? (
-                // The typed letters stay bold where the shown name spells the command (English).
-                fastName.toLowerCase() === match.command.name.toLowerCase() ? (
-                  <Highlighted name={fastName} ranges={match.ranges} />
-                ) : (
-                  fastName
-                )
-              ) : (
-                <>
-                  /<Highlighted name={shownName(match.command)} ranges={match.ranges} />
-                </>
-              )}
-            </span>
-            {!fastRow && match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
-            {match.command.source && match.command.source !== "agent" && (
-              <span className="acpmux-slash-source">
-                {match.command.source === "skill"
-                  ? t("composer.slashSkill")
-                  : match.command.source === "prompt"
-                    ? t("composer.slashPrompt")
-                    : match.command.source === "extension"
-                      ? (match.command.extension ?? "cmux")
-                      : "cmux"}
-              </span>
-            )}
-            <span className="acpmux-slash-description">
-              {fastRow
-                ? t(
-                    fast === "on"
-                      ? "composer.slashFastOff"
-                      : fast === "off"
-                        ? "composer.slashFastOn"
-                        : "composer.slashFastToggle",
-                  )
-                : match.command.descriptionKey
-                  ? t(match.command.descriptionKey)
-                  : match.command.description}
-            </span>
-          </>
-        );
-      }}
-    />
-  );
-}
-
-function Highlighted({ name, ranges }: { name: string; ranges: [number, number][] }) {
-  const parts: React.ReactNode[] = [];
-  let at = 0;
-  for (const [start, end] of ranges) {
-    if (start > at) parts.push(name.slice(at, start));
-    parts.push(<mark key={start}>{name.slice(start, end)}</mark>);
-    at = end;
-  }
-  if (at < name.length) parts.push(name.slice(at));
-  return <>{parts}</>;
-}
