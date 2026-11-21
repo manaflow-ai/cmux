@@ -64,13 +64,19 @@ extension PageRegistry {
     /// an alpha-0 view (the New Tab spare's off-screen parking, a pane holding its paint) or
     /// outside the window's content is not shown.
     public static func shownChromiumPages(in window: NSWindow) -> [(page: PageWebView, rect: NSRect)] {
-        let content = window.contentView.map { $0.convert($0.bounds, to: nil) } ?? .zero
-        return pages().compactMap { page in
-            guard page.chromiumSession != nil, page.window === window, !page.isParkedSpare,
-                  !page.isHiddenOrHasHiddenAncestor, !isTransparent(page) else { return nil }
-            let rect = page.chromiumPageArea
-            return rect.width > 0 && rect.height > 0 && rect.intersects(content) ? (page, rect) : nil
+        pages().compactMap { page in
+            page.chromiumSession != nil && page.window === window && !page.isParkedSpare && isShown(page)
+                ? (page, page.chromiumPageArea) : nil
         }
+    }
+
+    /// Whether `page` shows in its window: in one, not hidden, under no alpha-0 view, its area inside the
+    /// window's content. A probe's default target is a shown page (``probeTarget(id:parked:instance:)``):
+    /// a page under an alpha-0 view is not hidden, and probes drove one nobody saw (widget-demo tour6).
+    static func isShown(_ page: PageWebView) -> Bool {
+        guard let window = page.window, !page.isHiddenOrHasHiddenAncestor, !isTransparent(page) else { return false }
+        let content = window.contentView.map { $0.convert($0.bounds, to: nil) } ?? .zero, rect = page.chromiumPageArea
+        return rect.width > 0 && rect.height > 0 && rect.intersects(content)
     }
 
     private static func isTransparent(_ view: NSView) -> Bool {

@@ -240,9 +240,12 @@ extension PageWebView {
 
     /// A left click at `x`,`y` in CSS pixels. Chromium receives trusted DevTools
     /// input; WebKit receives native AppKit mouse events in its own view, including
-    /// in a non-key capture window. No router gesture is granted directly.
+    /// in a non-key capture window. No router gesture is granted directly, unless `gesture`: then a
+    /// Chromium release counts as the person's input, as ``debugDrag(from:to:steps:)``'s release does,
+    /// so a gesture-gated call the click makes goes through (a capture slot's window never activates,
+    /// and a native press there does not reach the page).
     /// `beforeRelease` runs right before the release goes in (the instant the page's click fires: a bench's input time).
-    public func debugPress(x: Double, y: Double, native: Bool = false, beforeRelease: (() -> Void)? = nil) async -> Bool {
+    public func debugPress(x: Double, y: Double, native: Bool = false, gesture: Bool = false, beforeRelease: (() -> Void)? = nil) async -> Bool {
         if native, let page = chromiumSession?.page {
             guard x.isFinite, y.isFinite else { return false }
             let zoom = max(pageZoom, 0.01)
@@ -266,7 +269,10 @@ extension PageWebView {
             return true
         }
         for type in ["mousePressed", "mouseReleased"] {
-            if type == "mouseReleased" { beforeRelease?() }
+            if type == "mouseReleased" {
+                beforeRelease?()
+                if gesture { chromiumUserInput(at: ProcessInfo.processInfo.systemUptime) }
+            }
             guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
                 "type": type, "x": x, "y": y, "button": "left", "buttons": type == "mousePressed" ? 1 : 0,
                 "clickCount": 1, "modifiers": 0,
@@ -372,6 +378,120 @@ extension PageWebView {
         return await send("mouseReleased", to, buttons: 0)
     }
 
+    /// A trusted key press (Enter or Return, Tab, Escape) on a Chromium page through DevTools, to the
+    /// element that has focus: a field's submit in a window that is never key. With `gesture` the key
+    /// counts as the person's input, as ``debugPress(x:y:native:gesture:beforeRelease:)`` does.
+    /// `{key, gesture}`, or an error for WebKit, another key, or a refused event. DEBUG verb only.
+    public func debugKey(_ name: String, gesture: Bool = false) async -> JSONValue {
+        guard let page = chromiumSession?.page else { return ["error": "not a Chromium page"] }
+        let keys: [String: (key: String, code: Int, text: String)] = [
+            "Enter": ("Enter", 13, "\r"), "Return": ("Enter", 13, "\r"), "Tab": ("Tab", 9, "\t"), "Escape": ("Escape", 27, ""),
+        ]
+        guard let key = keys[name] else { return ["error": "key is one of Enter, Return, Tab, Escape"] }
+        if gesture { chromiumUserInput(at: ProcessInfo.processInfo.systemUptime) }
+        var down: [String: any Sendable] = ["type": key.text.isEmpty ? "rawKeyDown" : "keyDown", "key": key.key, "code": key.key,
+                                            "windowsVirtualKeyCode": key.code, "nativeVirtualKeyCode": key.code, "modifiers": 0]
+        if !key.text.isEmpty { down["text"] = key.text; down["unmodifiedText"] = key.text }
+        guard (try? await page.devTools("Input.dispatchKeyEvent", params: down)) != nil,
+              (try? await page.devTools("Input.dispatchKeyEvent", params: down.filter { !$0.key.hasSuffix("ext") }.merging(["type": "keyUp"]) { $1 })) != nil
+        else { return ["error": "the key did not reach the page"] }
+        return ["key": .string(key.key), "gesture": .bool(gesture)]
+    }
+
+    /// The point (CSS pixels) a `press` or `drag` names: the numbers under `xKey` and `yKey`, else the
+    /// center of the first element matching the selector under `selectorKey`, scrolled into view and
+    /// hovered (``debugHover(_:)``). A capture step can then press or drag an element by selector, with
+    /// no coordinates read off an earlier run. Empty when neither gives a point. DEBUG verb only.
+    public func debugPoint(_ params: [String: JSONValue], x xKey: String, y yKey: String, selector selectorKey: String) async -> [Double] {
+        let numbers = [xKey, yKey].compactMap { params[$0]?.doubleValue }
+        if numbers.count == 2 { return numbers }
+        guard let selector = params[selectorKey]?.stringValue, case .object(let hover) = await debugHover(selector),
+              case .number(let x)? = hover["x"], case .number(let y)? = hover["y"] else { return [] }
+        return [x, y]
+    }
+
+    /// An HTML5 drag and drop from `from` to `to` (CSS pixels) on a Chromium page, run the way a
+    /// person's drag runs: a trusted press, then `steps` moves with the button held, so the page's own
+    /// `dragstart` fills the drag data. DevTools takes over the drag before macOS starts a drag
+    /// session (`Input.setInterceptDrags`), because a capture window's synthetic pointer never
+    /// moves a real session. Then `dragenter`, the `dragover`s and the `drop` go in at `to` with the
+    /// data the page wrote (`Input.dispatchDragEvent`). The button comes up at `to`, so `dragend`
+    /// fires. The drop counts as the person's input, as the release in ``debugDrag(from:to:steps:)``
+    /// does. The answer names the types the page put on the drag. It is an error when the page is
+    /// WebKit, no `dragstart` ran at `from`, or DevTools refused an event. DEBUG verb only.
+    public func debugDragAndDrop(from: CGPoint, to: CGPoint, steps: Int = 16) async -> JSONValue {
+        guard let page = chromiumSession?.page else { return ["error": "not a Chromium page"] }
+        // The page's dragstart handlers run first (React listens at its root); this one reads what they wrote.
+        let record = """
+        window.__cmuxDebugDrag = null;
+        window.addEventListener('dragstart', (event) => {
+          const transfer = event.dataTransfer;
+          if (!transfer) return;
+          window.__cmuxDebugDrag = { effect: transfer.effectAllowed,
+            items: [...transfer.types].map((type) => ({ mimeType: type, data: transfer.getData(type) })) };
+        }, { once: true });
+        return true;
+        """
+        guard await callPageFunction(record) as? Bool == true else { return ["error": "the page did not answer"] }
+        guard (try? await page.devTools("Input.setInterceptDrags", params: ["enabled": true])) != nil else {
+            return ["error": "DevTools refused Input.setInterceptDrags"]
+        }
+        let answer = await dragIntercepted(page, from: from, to: to, steps: steps)
+        _ = try? await page.devTools("Input.setInterceptDrags", params: ["enabled": false])
+        return answer
+    }
+
+    /// The drag of ``debugDragAndDrop(from:to:steps:)`` while DevTools holds it.
+    private func dragIntercepted(_ page: any PageChromiumPage, from: CGPoint, to: CGPoint, steps: Int) async -> JSONValue {
+        func mouse(_ type: String, _ point: CGPoint, buttons: Int) async -> Bool {
+            (try? await page.devTools("Input.dispatchMouseEvent", params: [
+                "type": type, "x": point.x, "y": point.y, "button": "left", "buttons": buttons, "clickCount": 1, "modifiers": 0,
+            ])) != nil
+        }
+        guard await mouse("mousePressed", from, buttons: 1) else { return ["error": "the press did not reach the page"] }
+        let count = max(2, steps)
+        for step in 1...count {
+            let t = Double(step) / Double(count)
+            let point = CGPoint(x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t)
+            guard await mouse("mouseMoved", point, buttons: 1) else { return ["error": "a move did not reach the page"] }
+        }
+        guard let drag = await callPageFunction("return window.__cmuxDebugDrag ?? null") as? [String: Any],
+              let rows = drag["items"] as? [[String: Any]] else {
+            _ = await mouse("mouseReleased", to, buttons: 0)
+            return ["error": "no dragstart ran at the press: nothing there is draggable"]
+        }
+        let types = rows.compactMap { $0["mimeType"] as? String }
+        let items: [[String: String]] = rows.compactMap { row in
+            guard let type = row["mimeType"] as? String else { return nil }
+            return ["mimeType": type, "data": (row["data"] as? String) ?? ""]
+        }
+        // Blink's DragOperationsMask: copy 1, link 2, move 16, from the page's effectAllowed.
+        let mask = switch (drag["effect"] as? String) ?? "all" {
+        case "move": 16
+        case "copy": 1
+        case "link": 2
+        case "copyMove": 17
+        default: 19
+        }
+        func dragEvent(_ type: String, _ point: CGPoint) async -> Bool {
+            (try? await page.devTools("Input.dispatchDragEvent", params: [
+                "type": type, "x": point.x, "y": point.y, "modifiers": 0,
+                "data": ["items": items, "dragOperationsMask": mask] as [String: any Sendable],
+            ])) != nil
+        }
+        guard await dragEvent("dragEnter", to), await dragEvent("dragOver", to), await dragEvent("dragOver", to) else {
+            _ = await mouse("mouseReleased", to, buttons: 0)
+            return ["error": "DevTools refused a drag event"]
+        }
+        // The drop is the person's gesture, as a real release is (`CEFLinkClickTracker`).
+        chromiumUserInput(at: ProcessInfo.processInfo.systemUptime)
+        guard await dragEvent("drop", to) else {
+            _ = await mouse("mouseReleased", to, buttons: 0)
+            return ["error": "DevTools refused the drop"]
+        }
+        _ = await mouse("mouseReleased", to, buttons: 0)
+        return ["dropped": .bool(true), "types": .array(types.map(JSONValue.string))]
+    }
     /// A trusted Cmd-V on a Chromium page through DevTools, with Chromium's own Paste command: the
     /// page reads the system pasteboard as a person's Cmd-V does (Blink's paste, the browser's
     /// clipboard read), in a window that is never key. As a person's Cmd-V into a cmux page does,

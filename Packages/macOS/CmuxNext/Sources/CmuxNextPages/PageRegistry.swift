@@ -31,14 +31,14 @@ public struct PageRegistry {
     }
 
     /// The page a probe means: `instance` when given; else a page that is not the parked spare (the
-    /// spare when `parked`), the newest shown one in the key window first (``choose(_:inKeyWindow:hidden:)``). The parked spare runs
+    /// spare when `parked`), the newest shown one (``isShown(_:)``) in the key window first (``choose(_:inKeyWindow:hidden:)``). The parked spare runs
     /// its document with no routes, so a probe that read it reported state no visible page showed.
     public static func probeTarget(id: String?, parked: Bool = false, instance: UInt64? = nil) -> PageWebView? {
         let live = pages(id: id, probing: true)
         if let instance { return live.first { Self.instance(of: $0) == instance } }
         let candidates = live.filter { $0.isParkedSpare == parked }
         return choose(candidates, inKeyWindow: { $0.window?.isKeyWindow == true },
-                      hidden: { $0.isHiddenOrHasHiddenAncestor })
+                      hidden: { !isShown($0) })
     }
 
     /// Which of `candidates` (oldest first) a probe reads: the newest shown page in the key window, else
