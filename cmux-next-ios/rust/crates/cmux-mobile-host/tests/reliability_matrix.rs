@@ -81,6 +81,9 @@ struct Toxics {
 #[derive(Clone)]
 struct ToxicControl {
     offline: watch::Sender<bool>,
+    /// Mac to phone only: the phone's downlink stalls, its uplink works (a slow or
+    /// starved download with a free upload).
+    downstream_stalled: watch::Sender<bool>,
 }
 
 impl ToxicControl {
@@ -91,6 +94,14 @@ impl ToxicControl {
     fn come_back(&self) {
         let _ = self.offline.send(false);
     }
+
+    fn stall_downstream(&self) {
+        let _ = self.downstream_stalled.send(true);
+    }
+
+    fn resume_downstream(&self) {
+        let _ = self.downstream_stalled.send(false);
+    }
 }
 
 /// Two stream ends (phone, Mac) joined through the toxics.
@@ -100,13 +111,27 @@ fn toxic_pipe(toxics: Toxics, seed: u64) -> (DuplexStream, DuplexStream, ToxicCo
     let (offline, offline_rx) = watch::channel(false);
     let (phone_read, phone_write) = tokio::io::split(phone_inner);
     let (mac_read, mac_write) = tokio::io::split(mac_inner);
-    tokio::spawn(pump(phone_read, mac_write, toxics, offline_rx.clone(), seed));
-    tokio::spawn(pump(mac_read, phone_write, toxics, offline_rx, seed.wrapping_mul(31).wrapping_add(7)));
-    (phone, mac, ToxicControl { offline })
+    let (downstream_stalled, downstream_rx) = watch::channel(false);
+    tokio::spawn(pump(phone_read, mac_write, toxics, offline_rx.clone(), None, seed));
+    tokio::spawn(pump(
+        mac_read,
+        phone_write,
+        toxics,
+        offline_rx,
+        Some(downstream_rx),
+        seed.wrapping_mul(31).wrapping_add(7),
+    ));
+    (phone, mac, ToxicControl { offline, downstream_stalled })
 }
 
-async fn pump<R, W>(mut read: R, mut write: W, toxics: Toxics, mut offline: watch::Receiver<bool>, seed: u64)
-where
+async fn pump<R, W>(
+    mut read: R,
+    mut write: W,
+    toxics: Toxics,
+    mut offline: watch::Receiver<bool>,
+    mut stalled: Option<watch::Receiver<bool>>,
+    seed: u64,
+) where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
     W: tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
@@ -145,6 +170,13 @@ where
         while *offline.borrow() {
             if offline.changed().await.is_err() {
                 break;
+            }
+        }
+        if let Some(stalled) = stalled.as_mut() {
+            while *stalled.borrow() {
+                if stalled.changed().await.is_err() {
+                    break;
+                }
             }
         }
         if write.write_all(&chunk).await.is_err() {
@@ -787,7 +819,7 @@ async fn fake_acpmux(
 }
 
 /// Chat, phone to Mac while the Mac pushes bulk to the phone: 16 MB of event frames flood
-/// down while the phone reads nothing (a slow link or a stalled app), then the phone sends
+/// down while the phone's downlink is stalled (the uplink works), then the phone sends
 /// `session/prompt`. Measures prompt-sent to the fake acpmux receiving it. One relay loop
 /// that waits for room to push a frame to the phone stops reading the phone's prompt
 /// until the phone drains; two independent halves do not. The flood still arrives whole.
@@ -800,6 +832,8 @@ async fn cell_chat_prompt_behind_bulk_downstream() {
     let (url, acpmux) = fake_acpmux(frames, size, seen_tx).await;
     let rig = Rig::start_acpmux(1, toxics, url).await;
     let mut channel = rig.phone.open_on("acpmux", json!({}), Lane::Bulk).await.expect("open acpmux channel");
+    // The phone's downlink is starved (a weak cell, a stalled app) while its uplink works.
+    rig.toxic.stall_downstream();
     channel
         .send(Bytes::from(json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/status"}).to_string()))
         .await
