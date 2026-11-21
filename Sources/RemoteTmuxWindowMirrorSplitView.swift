@@ -14,7 +14,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
     @State private var containerSize: CGSize = .zero
 
     var body: some View {
-        // The base color is the region, and it answers every proposal with
+        // The base view is the region, and it answers every proposal with
         // the proposal; the split tree renders in the overlay at its exact
         // grid-plus-chrome size. The two are separated because they disagree
         // under churn: the tree's frame is derived from the BANKED container
@@ -28,7 +28,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
         // view marching wider than the display-pinned window a step per
         // layout pass), and the geometry callback below then read the
         // mirror's own imposed width back as its "container".
-        Color(nsColor: appearance.backgroundColor)
+        Color.clear
             .overlay(alignment: .topLeading) {
                 splitTree
             }
@@ -39,6 +39,14 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                 containerSize = newSize
                 pushClientSize(pointSize: newSize)
             }
+            // terminal.sessionContentMaxWidth caps the mirror the way it caps
+            // a local terminal. The cap sits outside the geometry callback, so
+            // the slot measured above, and the claim tmux hears, is the
+            // capped column the panes draw in, not the full pane (#36699).
+            // The background is painted once, behind the column and the
+            // gutters alike, so a translucent terminal background stays even.
+            .sessionContentWidth()
+            .background(Color(nsColor: appearance.backgroundColor))
             .onAppear {
                 mirror.isVisibleForSizing = isVisibleInUI
                 if !isVisibleInUI {
