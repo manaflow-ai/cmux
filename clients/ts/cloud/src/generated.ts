@@ -55,6 +55,17 @@ export type AutomationAuditEntry = {
 /** An automation definition, owned by its team's SchedulerDO. */
 export type AutomationId = string
 
+/** An environment variable name: capital letters, digits and _, starting with a letter (at most 64). */
+export type AutomationSecretName = string
+
+export type AutomationSecretState = {
+  readonly name: AutomationSecretName
+  readonly hint: string | null
+  readonly generation: number
+  readonly updated_at: number
+  readonly updated_by: UserId
+}
+
 export type AutomationSettings = {
   readonly agent_run_default_seconds: number | null
 }
@@ -463,6 +474,7 @@ export type Connection = {
   readonly sharing: "private" | "team"
   readonly resources?: {
     readonly repos: ReadonlyArray<string> | null
+    readonly linked_by_github_id?: number
   }
   readonly created_at: number
   readonly updated_at: number
@@ -1784,6 +1796,37 @@ export interface CloudOps {
       readonly runs: ReadonlyArray<Run>
       readonly revision: string
     }
+  }
+  /** The names of an automation's secrets (who may edit it). Never returns a value. */
+  readonly "automation.secret.list": {
+    readonly params: {
+      readonly automation: AutomationId
+    }
+    readonly result: {
+      readonly automation: AutomationId
+      readonly secrets: ReadonlyArray<AutomationSecretState>
+    }
+  }
+  /** Remove one secret of an automation (its creator, editors and team admins). */
+  readonly "automation.secret.remove": {
+    readonly params: {
+      readonly automation: AutomationId
+      readonly name: AutomationSecretName
+    }
+    readonly result: {
+      readonly automation: AutomationId
+      readonly name: AutomationSecretName
+      readonly removed: boolean
+    }
+  }
+  /** Add or replace one secret of an automation (its creator, editors and team admins, in a person's session). Its machine steps get it as the environment variable NAME. The value is never returned. */
+  readonly "automation.secret.set": {
+    readonly params: {
+      readonly automation: AutomationId
+      readonly name: AutomationSecretName
+      readonly value: string
+    }
+    readonly result: AutomationSecretState
   }
   /** Read the team's automation settings (default limit of agent runs). */
   readonly "automation.settings.get": {
@@ -3205,6 +3248,7 @@ export interface CloudOps {
       readonly sharing: "private" | "team"
       readonly resources?: {
         readonly repos: ReadonlyArray<string> | null
+        readonly linked_by_github_id?: number
       }
       readonly created_at: number
       readonly updated_at: number
@@ -4429,6 +4473,9 @@ export const cloudOpMeta = {
   "automation.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.run": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "execute" },
   "automation.runs.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
+  "automation.secret.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
+  "automation.secret.remove": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "destructive" },
+  "automation.secret.set": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.settings.get": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.settings.set": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.teleport.abort": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },

@@ -132,7 +132,6 @@
   "synchronous file write or file-system change": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudPresenter.swift": {
-  "JSON / property-list decode": 1,
   "line split of a whole input": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudUploads.swift": {
@@ -331,14 +330,8 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryInspectorModel.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/Import/MemorySource.swift": {
-  "JSON / property-list decode": 2
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextChiefPetWiring/ChiefPetNotice+Daemon.swift": {
   "line split of a whole input": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Broker/CloudCodexHolder.swift": {
-  "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/CloudCLICall.swift": {
   "JSON / property-list decode": 2
@@ -354,9 +347,6 @@
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudEnvironmentsSettings.swift": {
-  "JSON / property-list decode": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseConsentHost.swift": {
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/AgentPaneGitLink.swift": {

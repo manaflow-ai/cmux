@@ -8,6 +8,11 @@
   "keep": [
     {
       "surface": "menu",
+      "name": "remoteBrowserPage",
+      "reason": "keep: Debug builds only; its rows are a remote page's own right-click menu and <select> options, sent by that page and answered back to it (RemoteBrowserNativeUI, RT5), which the palette cannot name"
+    },
+    {
+      "surface": "menu",
       "name": "terminalPaste",
       "reason": "keep: every row runs a palette-offered action: terminalCopy, terminalPaste, terminal.selectAll"
     },
@@ -826,7 +831,8 @@
       "palette": "openSettings"
     },
     {
-      "verb": "customize library reset"
+      "verb": "customize library reset",
+      "palette": "customize.library.reset"
     },
     {
       "verb": "customize library status",
@@ -1492,7 +1498,8 @@
       "palette": "space.delete"
     },
     {
-      "verb": "room follow"
+      "verb": "room follow",
+      "palette": "space.followSession"
     },
     {
       "verb": "room list",
@@ -2065,7 +2072,8 @@
       "reason": "keep: blocks a script until the process exits; a wait has no palette form"
     },
     {
-      "verb": "terminal project"
+      "verb": "terminal project",
+      "palette": "terminal.project"
     },
     {
       "verb": "terminal resume",
@@ -2188,7 +2196,8 @@
       "reason": "keep: a read for scripts and agents (VM secrets); the app shows the same state on screen"
     },
     {
-      "verb": "vm secret rm"
+      "verb": "vm secret rm",
+      "palette": "cloud.secret.remove"
     },
     {
       "verb": "vm secret set",

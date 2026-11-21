@@ -3,50 +3,29 @@ public import CmuxNextPages
 public import CmuxNextSettings
 import Foundation
 
-/// The Mac server's surfaces on the server card page (webviews/src/pages/server-cards/server): the
-/// menu bar panel (`#/server-panel`), Health (`#/server-health`) and the server's pairing code
-/// (`#/server-pairing`) in the menu bar item's popover, and the Add Server card (`#/add-server`) in
-/// the floating card panel. One ``ServerModel`` owns the state (the owner's snapshot, the intents in
-/// flight, the Add Server draft); the page draws it and derives every layout, button and key.
+/// The Mac server's surfaces on the server page (webviews/src/pages/server-cards/server): the menu
+/// bar panel (`#/server-panel`), Health (`#/server-health`) and the server's pairing code
+/// (`#/server-pairing`) in the menu bar item's popover. One ``ServerModel`` owns the state (the
+/// owner's snapshot, the intents in flight); the page draws it. Add Server is a native card on the
+/// same model (``AddServerDialog``), and no page op adds a server.
 ///
-/// - `status` → `{connection, snapshot?, chief?, lastReject?, pending, approver}`;
+/// - `status` → `{connection, snapshot?, chief?, lastReject?, pending}`;
 /// - `send {kind, ...}` → null: SECURITY: turn the server on or off, Show Pairing Code, Fix and
 ///   Revoke go only with the person's own click or key in the page (the host's record, never the
 ///   page's word);
-/// - `approver.setCode|setName|setTeam {...}` → null: the Add Server draft (a complete code is
-///   looked up, which changes nothing; the Name field is read when Approve goes);
-/// - `approver.setRunChief {on}` → null: the person's own click or key;
-/// - SECURITY: Approve and Try Again are not page ops. They are the card panel's native control
-///   (``PersonControl``, named here from the model's step) over the slot the page leaves for it,
-///   and only the person's own click on it adds the found server to their team
-///   (``personPressed()``): no key, script, MCP call or page reaches it;
-/// - `approver.cancel` → null: Cancel or Deny: the draft and the last answer go;
 /// - stream `changes` → one empty event whenever `status` may have changed.
 @MainActor
-public final class ServerPageProvider: WebCard {
-    public static let route = "add-server"
+public final class ServerPageProvider: PageProvider {
     static let statusOp = "cmux.server.status"
     static let sendOp = "cmux.server.send"
-    static let setCodeOp = "cmux.server.approver.setCode"
-    static let setNameOp = "cmux.server.approver.setName"
-    static let setTeamOp = "cmux.server.approver.setTeam"
-    static let setRunChiefOp = "cmux.server.approver.setRunChief"
-    static let cancelOp = "cmux.server.approver.cancel"
     static let changesStream = "cmux.server.changes"
 
-    public var card: String { Self.route }
     public var prefix: String { "cmux.server." }
-    /// The panel names the native control from the model's state as it attaches, not at the next change.
-    public weak var host: WebCardPanel? {
-        didSet { host?.setPersonControl(personControl, card: card) }
-    }
 
     public let model: ServerModel
     private let qr: (String) -> String?
     /// The refusal of a person-only change asked without the person's own click or key.
     private let personOnlyMessage: String
-    /// Counts the Add Server card's openings: the page starts its own field state per opening.
-    private(set) var session = 0
     private var listeners: [Int: @MainActor (JSONValue) -> Void] = [:]
     private var nextListener = 0
     private var watch: Task<Void, Never>?
@@ -65,20 +44,6 @@ public final class ServerPageProvider: WebCard {
         watch?.cancel()
     }
 
-    // MARK: - WebCard
-
-    /// The Add Server card opens: a new opening starts clean in the page (the model already began).
-    public func opened(again: Bool) {
-        if !again { session += 1 }
-        changed()
-    }
-
-    /// The card closed any way but its Cancel: the typed code stays, and the found server goes, so a
-    /// reopening looks the code up again (``ServerModel/closeApproval()``).
-    public func closed() {
-        model.closeApproval()
-    }
-
     // MARK: - Page ops
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -88,23 +53,6 @@ public final class ServerPageProvider: WebCard {
         case Self.sendOp:
             try requireGesture(context)
             model.send(try Self.intent(params))
-        case Self.setCodeOp:
-            guard let code = params["code"]?.stringValue else { throw PageError.invalidParams("code is required") }
-            model.setApprovalCode(code)
-        case Self.setNameOp:
-            guard let name = params["name"]?.stringValue else { throw PageError.invalidParams("name is required") }
-            model.approval.name = name
-        case Self.setTeamOp:
-            guard let team = params["team"]?.stringValue, model.candidate?.teams.contains(where: { $0.id == team }) == true else {
-                throw PageError.invalidParams("team is one of the found server's teams")
-            }
-            model.approval.team = team
-        case Self.setRunChiefOp:
-            try requireGesture(context)
-            guard let on = params["on"]?.boolValue else { throw PageError.invalidParams("on is required") }
-            model.approval.runChief = on
-        case Self.cancelOp:
-            model.dismissApproval()
         default:
             throw PageError.unknownOp(op)
         }
@@ -118,9 +66,6 @@ public final class ServerPageProvider: WebCard {
         nextListener += 1
         listeners[id] = onEvent
         startWatch()
-        // The watch reports only later changes: a server found before the page listened (no watch
-        // ran) still shows its native control now.
-        host?.setPersonControl(personControl, card: card)
         return PageSubscription { [weak self] in
             guard let self else { return }
             self.listeners[id] = nil
@@ -146,46 +91,15 @@ public final class ServerPageProvider: WebCard {
         }
     }
 
-    /// The state changed: the pages read `status` again, the card panel shows the control for the
-    /// new step, and a click begun before the card redrew does not count as aimed at its Approve
-    /// (``WebCardPanel/rearm(at:)``).
+    /// The state changed: the pages read `status` again.
     private func changed() {
-        host?.rearm()
-        host?.setPersonControl(personControl, card: card)
         for listener in listeners.values { listener(.object([:])) }
     }
 
     /// Everything `status` reads.
     private static func fingerprint(_ model: ServerModel) -> String {
         "\(model.connection)|\(String(describing: model.snapshot))|\(String(describing: model.chief))|\(model.pending.map(\.key))"
-            + "|\(model.lastReject ?? "")|\(model.lastApproved ?? "")|\(String(describing: model.candidate))|\(model.approval)"
-    }
-
-    /// SECURITY: the person clicked the native Approve or Try Again (the panel checked the click).
-    public func personPressed() {
-        approve(name: model.approval.name)
-    }
-
-    /// The native click-only control for the model's step: Approve while the found server shows,
-    /// Try Again after a refusal, none otherwise.
-    var personControl: PersonControl? {
-        switch model.addServerStep {
-        case .review: PersonControl(title: ServerStrings.approve, isEnabled: model.canApprove)
-        case .approving: PersonControl(title: ServerStrings.adding, isEnabled: false)
-        case .approveFailed: PersonControl(title: ServerStrings.tryAgain, isEnabled: model.canApprove)
-        default: nil
-        }
-    }
-
-    /// SECURITY: adds the found server once the model can; `name` is the card's Name field (empty
-    /// keeps the draft's).
-    func approve(name: String?) {
-        switch model.addServerStep {
-        case .review, .approveFailed: guard model.canApprove else { return }
-        default: return
-        }
-        if let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty { model.approval.name = trimmed }
-        model.approve()
+            + "|\(model.lastReject ?? "")"
     }
 
     private func requireGesture(_ context: PageCallContext) throws {
@@ -228,7 +142,6 @@ public final class ServerPageProvider: WebCard {
         var reply: [String: JSONValue] = [
             "connection": ServerWire.connection(model.connection),
             "pending": pendingJSON(),
-            "approver": approverJSON(),
         ]
         if let snapshot = model.snapshot { reply["snapshot"] = ServerWire.snapshot(snapshot, qr: qr) }
         if let chief = model.chief { reply["chief"] = ServerWire.chief(chief) }
@@ -250,27 +163,5 @@ public final class ServerPageProvider: WebCard {
             }
         }
         return ["switching": .bool(switching), "pairing": .bool(pairing), "fixing": .array(fixing), "revoking": .array(revoking)]
-    }
-
-    private func approverJSON() -> JSONValue {
-        var draft: [String: JSONValue] = [
-            "code": .string(model.approval.code), "name": .string(model.approval.name), "runChief": .bool(model.approval.runChief),
-        ]
-        if let team = model.approval.team { draft["team"] = .string(team) }
-        var out: [String: JSONValue] = [
-            "session": JSONValue(session), "canApprove": .bool(model.canApprove), "draft": .object(draft),
-        ]
-        var candidate: PairingCandidate?
-        switch model.addServerStep {
-        case .enterCode: out["step"] = "enterCode"
-        case .lookingUp: out["step"] = "lookingUp"
-        case let .codeRefused(text): (out["step"], out["reject"]) = ("codeRefused", .string(text))
-        case let .review(found): (out["step"], candidate) = ("review", found)
-        case let .approving(found): (out["step"], candidate) = ("approving", found)
-        case let .approveFailed(found, text): (out["step"], candidate, out["reject"]) = ("approveFailed", found, .string(text))
-        case let .added(name): (out["step"], out["added"]) = ("added", .string(name))
-        }
-        if let candidate { out["candidate"] = ServerWire.candidate(candidate) }
-        return .object(out)
     }
 }
