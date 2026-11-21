@@ -1795,6 +1795,8 @@ async fn serve_connection_from(
         };
         match msg {
             Message::Request { id, method: m, mut params } => {
+                // An open of a chat's view is timed from here to its reply (`gauges.attach`).
+                let attach_from = crate::gauges::opens_a_chat(&m).then(std::time::Instant::now);
                 // Once a local connection has been admitted as a trigger
                 // principal it is a single-purpose channel. In particular,
                 // the local socket must not keep granting ordinary person
@@ -1946,6 +1948,9 @@ async fn serve_connection_from(
                         conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
                     } else {
                         dual_requests::finish(first, None);
+                    }
+                    if let Some(from) = attach_from {
+                        crate::gauges::attach_latency().record(from.elapsed());
                     }
                     // A Mac that lends GitHub counts from here: its watch answer is queued, so
                     // no action reaches it before the answer that opens its side.
@@ -2321,7 +2326,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // Built once per record, by the first watcher that sends it, and shared by the others
         // (`HubEvent::row`): with many watchers, each built the whole row again.
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
-        let [list_row, full_row] = &*ev.row;
+        let [list_row, full_row] = &ev.row.cells;
         let row = if full { full_row } else { list_row };
         let summary = match row.get() {
             Some(summary) => Some(summary),
@@ -2378,6 +2383,9 @@ mod computer_use_relay;
 mod connection_token_tests;
 pub(crate) mod controls;
 mod in_flight;
+#[cfg(test)]
+#[path = "latency_gauges_tests.rs"]
+mod latency_gauges_tests;
 pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
 mod change_kind;
@@ -2429,6 +2437,7 @@ mod review_queue;
 mod run_elsewhere;
 mod sign_in_follow;
 mod ssh_carry;
+mod task_list;
 pub use pairing::serve_connection_device;
 pub(crate) mod host_power;
 pub mod peer_auth;

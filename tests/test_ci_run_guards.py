@@ -41,6 +41,23 @@ _guard_child_spec.loader.exec_module(guard_child_env)
 FAST_WORKFLOW = ROOT / ".github/workflows/ci-fast-guards.yml"
 
 
+class AffectedSelectionFailsOpen(unittest.TestCase):
+    def test_a_selection_that_raises_runs_every_step(self):
+        import guard_step_inputs  # noqa: PLC0415
+
+        units = run_ci_guards.plan(run_ci_guards.load_yaml(run_ci_guards.WORKFLOW), "base", "head")
+        original = guard_step_inputs.changed_paths
+
+        def broken(*_args, **_kwargs):
+            raise ValueError("broken selection")
+
+        guard_step_inputs.changed_paths = broken
+        try:
+            self.assertIs(run_ci_guards.affected_units(units, "base"), units)
+        finally:
+            guard_step_inputs.changed_paths = original
+
+
 class PlanFollowsTheWorkflow(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
