@@ -839,6 +839,84 @@ def git_remote(repo: str) -> str:
     return f"https://github.com/{repo}.git"
 
 
+# The source cache's bound. Every object a fetch brings lands in a promisor pack, which `git gc` keeps whatever is
+# reachable, and the refs git_commit fetches into are deleted after: so the one-commit fetches, the blobs `git show`
+# fetches lazily, ws_check_squash_tree's whole-history fetch and its merge-tree objects piled up for good (2.3 GB on
+# the land host on 2026-11-21, nothing removing any of it). A repo whose objects pass SOURCE_CACHE_MAX_BYTES
+# (BASE_RED_EXCUSE_SOURCE_CACHE_MAX_BYTES) is made again from nothing by the next run that finds no other run using
+# it, which is cheap: every fetch is blob-less and git_commit's one commit deep. A repo made less than
+# SOURCE_CACHE_MIN_AGE_SECONDS ago is kept whatever its size, so a working set above the cap is rebuilt once a day at
+# most, never once a run. Each run holds a shared flock on the repo's lock file (beside it) from its first git_cache
+# call to its exit; the rebuild takes it exclusive without waiting, so a repo another run is reading is never moved.
+SOURCE_CACHE_MAX_BYTES_ENV = "BASE_RED_EXCUSE_SOURCE_CACHE_MAX_BYTES"
+SOURCE_CACHE_MAX_BYTES = 512 * 1024 * 1024
+SOURCE_CACHE_MIN_AGE_SECONDS = 24 * 3600
+SOURCE_CACHE_STAMP = "base-red-excuse-made"
+_SOURCE_CACHE_LOCKS: dict[str, int] = {}
+
+
+def source_cache_max_bytes() -> int:
+    raw = os.environ.get(SOURCE_CACHE_MAX_BYTES_ENV, "")
+    try:
+        value = int(raw) if raw else SOURCE_CACHE_MAX_BYTES
+    except ValueError:
+        return SOURCE_CACHE_MAX_BYTES
+    return value if value > 0 else SOURCE_CACHE_MAX_BYTES
+
+
+def source_cache_bytes(where: Path) -> int:
+    """Bytes under WHERE's objects directory (loose objects, packs and their indexes), files only."""
+    total = 0
+    for root, _, files in os.walk(where / "objects"):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(root, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def source_cache_hold(where: Path) -> bool:
+    """Hold this run's shared lock on the bare repo WHERE (once per process), rebuilding WHERE first when no other run
+    holds it and it is past its bound (SOURCE_CACHE_MAX_BYTES and SOURCE_CACHE_MIN_AGE_SECONDS). True when WHERE was
+    moved aside for a fresh one. Without flock (no fcntl) nothing is locked and nothing rebuilt."""
+    key = str(where)
+    if key in _SOURCE_CACHE_LOCKS:
+        return False
+    try:
+        import fcntl
+    except ImportError:
+        return False
+    where.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(where.with_name(where.name + ".lock"), os.O_RDWR | os.O_CREAT, 0o644)
+    rebuilt, retired = False, []
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fcntl.flock(fd, fcntl.LOCK_SH)  # another run reads WHERE: share it, rebuild nothing
+    else:
+        # No other run holds WHERE, nor any copy an earlier rebuild moved aside.
+        retired = sorted(where.parent.glob(where.name + ".retired-*"))
+        try:
+            made = (where / SOURCE_CACHE_STAMP).stat().st_mtime
+        except OSError:
+            made = 0.0  # a repo from before the stamp: as old as can be
+        if ((where / "HEAD").is_file() and time.time() - made > SOURCE_CACHE_MIN_AGE_SECONDS
+                and source_cache_bytes(where) > source_cache_max_bytes()):
+            aside = where.with_name(f"{where.name}.retired-{os.getpid()}-{int(time.time())}")
+            try:
+                os.rename(where, aside)
+                retired.append(aside)
+                rebuilt = True
+            except OSError:
+                pass
+        fcntl.flock(fd, fcntl.LOCK_SH)
+    _SOURCE_CACHE_LOCKS[key] = fd  # held until this process exits
+    for old in retired:  # nothing reads a moved-aside copy: removed outside the exclusive hold
+        shutil.rmtree(old, ignore_errors=True)
+    return rebuilt
+
+
 def git_cache(repo: str) -> Callable[..., subprocess.CompletedProcess] | None:
     """`git` in REPO's bare repo under source_cache(), made and pointed at REPO's remote (blob-less) on first use; None
     when it cannot be."""
@@ -851,11 +929,19 @@ def git_cache(repo: str) -> Callable[..., subprocess.CompletedProcess] | None:
         return subprocess.run(["git", "--git-dir", str(where), *args], capture_output=True, env=env,
                               timeout=GIT_SECONDS, stdin=subprocess.DEVNULL)
 
+    try:
+        source_cache_hold(where)
+    except OSError:
+        pass  # an unlockable cache is still read, only never rebuilt
     if not (where / "HEAD").is_file():
         where.mkdir(parents=True, exist_ok=True)
         if subprocess.run(["git", "init", "-q", "--bare", str(where)], capture_output=True,
                           timeout=GIT_SECONDS).returncode:
             return None
+        try:
+            (where / SOURCE_CACHE_STAMP).touch()
+        except OSError:
+            pass
     for key, value in (("remote.origin.url", git_remote(repo)), ("remote.origin.promisor", "true"),
                        ("remote.origin.partialclonefilter", "blob:none")):
         if git("config", key, value).returncode:
