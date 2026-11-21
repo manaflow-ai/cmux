@@ -42,13 +42,17 @@ export const authenticationLayer = Layer.effect(
     ): Effect.Effect<Principal, Unauthorized | Forbidden, HttpServerRequest.HttpServerRequest> =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
-        const tenant = decodeTenantId(request.headers[TEAM_HEADER]);
+        // A team key (src/auth/team-keys.ts) acts for its one team, so it need not name it.
+        const own = key.budget !== undefined && key.teams?.size === 1 ? [...key.teams][0] : undefined;
+        const named = request.headers[TEAM_HEADER];
+        const tenant = named === undefined && own !== undefined ? Option.some(own) : decodeTenantId(named);
         if (Option.isNone(tenant)) return yield* Effect.fail(unauthorized("Service keys must name a team in the X-Cmux-Team-Id header"));
         return yield* name(key, tenant.value, (service, team) => {
           const proof = serviceMayActFor(service, team);
-          return proof === null
-            ? Effect.fail(new Forbidden({ message: "This service key may not act for this team" }))
-            : Effect.succeed(servicePrincipal(service, team, proof));
+          if (proof === null) return Effect.fail(new Forbidden({ message: `This ${service.value.budget === undefined ? "service" : "team"} key may not act for this team` }));
+          const principal = servicePrincipal(service, team, proof);
+          // A team key's creates are held to its machine count and $/h budget (handlers/agent-sandboxes.ts).
+          return Effect.succeed(service.value.budget === undefined ? principal : { ...principal, agent: service.value.budget });
         });
       });
 
