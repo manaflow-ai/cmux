@@ -97,7 +97,7 @@
      var rowOffset: CGFloat { cell.map { $0.layer.sublayerTransform.m41 } ?? 0 }
  
      init(controller: ChatController) {
-@@ -66,117 +87,164 @@
+@@ -66,117 +87,168 @@
      func uninstall() { if let m = monitor { NSEvent.removeMonitor(m); monitor = nil } }
  
      func install() {
@@ -213,10 +213,14 @@
 +    }
 +
 +    /// cmux: a new gesture starts over: a swipe still claimed (its release never came) ends
-+    /// cancelled, held events go back, the last swipe's momentum is no longer awaited.
++    /// cancelled, held events go back, the last swipe's momentum is no longer awaited, and the
++    /// direction is decided on this gesture's motion alone (a claim keeps the sums it decided on).
 +    private func reset() {
 +        if claimed { end(cancelled: true, at: nil) }
 +        if deciding { handBack() }
++        held = []
++        heldDX = 0
++        heldDY = 0
 +        deciding = false
 +        swallowMomentum = false
 +    }
@@ -333,7 +337,7 @@
          arrow.transform = CATransform3DMakeScale(scale, scale, 1)
          CATransaction.commit()
          let nowArmed = travel >= Tuning.threshold
-@@ -184,13 +252,31 @@
+@@ -184,13 +256,31 @@
          armed = nowArmed
      }
  
@@ -372,7 +376,7 @@
          let back = CAKeyframeAnimation(keyPath: "sublayerTransform")
          let n = 24
          back.values = (0...n).map { i -> NSValue in
-@@ -199,23 +285,44 @@
+@@ -199,23 +289,44 @@
          }
          back.duration = Tuning.returnDuration
          back.calculationMode = .linear
@@ -429,7 +433,7 @@
      }
  
      private static var arrowCache: [CGFloat: CGImage] = [:]
-@@ -224,9 +331,9 @@
+@@ -224,9 +335,9 @@
          let cfg = NSImage.SymbolConfiguration(pointSize: Tuning.arrowSize * 0.7, weight: .semibold)
              .applying(.init(paletteColors: [NSColor(white: 0.6, alpha: 1)]))
          guard let sym = NSImage(systemSymbolName: "arrowshape.turn.up.left.fill", accessibilityDescription: nil)?.withSymbolConfiguration(cfg) else { return nil }
@@ -441,7 +445,7 @@
          NSGraphicsContext.saveGraphicsState()
          NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
          let sz = sym.size, r = CGFloat(px)
-@@ -247,43 +354,48 @@
+@@ -247,43 +358,48 @@
      static func fromArguments() -> String? {
          let a = ProcessInfo.processInfo.arguments
          guard let i = a.firstIndex(of: "--swipe-check") else { return nil }

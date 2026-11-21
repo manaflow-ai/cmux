@@ -71,3 +71,13 @@ fn only_a_verified_document_is_cached() {
     std::fs::write(root.path().join(CACHE_NAME), br#"{"version":1}"#).unwrap();
     assert!(cached(root.path(), &key).is_none());
 }
+
+#[test]
+fn tmux_control_mode_stays_off_unless_requested() {
+    let none = |_: &str| -> Option<String> { None };
+    let on = |name: &str| (name == TMUX_CONTROL_MODE_ENV).then(|| "1".to_string());
+    let off = |name: &str| (name == TMUX_CONTROL_MODE_ENV).then(|| "0".to_string());
+    assert!(!tmux_control_mode_enabled(&none));
+    assert!(!tmux_control_mode_enabled(&off));
+    assert_eq!(tmux_control_mode_enabled(&on), !disables(TMUX_CONTROL_MODE));
+}

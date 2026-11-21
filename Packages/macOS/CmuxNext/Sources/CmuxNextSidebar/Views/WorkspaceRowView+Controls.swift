@@ -25,15 +25,19 @@ extension WorkspaceRowView {
     }
 
     func makePinButton() -> SidebarIconButton {
-        let button = SidebarIconButton(icon: .statePinned, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.pinWorkspace)
+        let button = SidebarIconButton(icon: .actionPin, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.pinWorkspace)
         button.onPress = { [weak self] in self?.onPin?() }
         identify(button, as: "pin")
         return button
     }
 
-    /// The hover pin says what a press does: an outline pin pins an unpinned row, a filled one unpins a pinned row.
+    /// The hover pin says what a press does, never what the row is: Pin (an outline pin) on an unpinned row, Unpin
+    /// (a struck-through pin) on a pinned one. The filled pin is only ever the pinned state (the Pinned section's rows
+    /// and header), so a hover control never looks like the mark of a pinned row. Leo, 2026-11-21: "the pin button
+    /// does not make sense. you expect this to be the pinned thing. but it isn't."
     func applyPin(_ button: SidebarIconButton, pinned: Bool) {
-        button.iconStyle = pinned ? .solid : .line
+        button.icon = pinned ? .browserToolbarUnpin : .actionPin
+        button.iconStyle = .line
         button.label = pinned ? Strings.unpinWorkspace : Strings.pinWorkspace
     }
 
