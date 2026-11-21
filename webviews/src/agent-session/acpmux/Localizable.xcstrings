@@ -133380,127 +133380,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "اسأل أي شيء، أو اكتب أمرًا أو URL"
+            "value": "اسأل أي شيء، شغّل أوامر، افتح URL"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pitaj bilo šta, ili upiši naredbu ili URL"
+            "value": "Pitaj bilo šta, pokreni naredbe, otvori URL"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Spørg om hvad som helst, eller skriv en kommando eller URL"
+            "value": "Spørg om alt, kør kommandoer, åbn URL'er"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Frag etwas oder gib einen Befehl oder eine URL ein"
+            "value": "Frag etwas, führe Befehle aus, öffne URLs"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ask anything, or type a command or URL"
+            "value": "Ask anything, run commands, open URLs"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pregunta lo que quieras o escribe un comando o una URL"
+            "value": "Pregunta lo que quieras, ejecuta comandos, abre URL"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Posez une question, ou saisissez une commande ou une URL"
+            "value": "Posez une question, lancez une commande, ouvrez une URL"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiedi qualsiasi cosa o digita un comando o un URL"
+            "value": "Chiedi qualsiasi cosa, esegui comandi, apri URL"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "何でも質問するか、コマンドやURLを入力"
+            "value": "何でも質問、コマンド実行、URLを開く"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សួរអ្វីក៏បាន ឬវាយពាក្យបញ្ជា ឬ URL"
+            "value": "សួរអ្វីក៏បាន ដំណើរការពាក្យបញ្ជា បើក URL"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "무엇이든 묻거나 명령어 또는 URL 입력"
+            "value": "무엇이든 묻기, 명령 실행, URL 열기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Spør om hva som helst, eller skriv en kommando eller URL"
+            "value": "Spør om hva som helst, kjør kommandoer, åpne URL-er"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zapytaj o cokolwiek lub wpisz polecenie albo URL"
+            "value": "Zapytaj o cokolwiek, uruchom polecenie, otwórz URL"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pergunte qualquer coisa ou digite um comando ou uma URL"
+            "value": "Pergunte qualquer coisa, execute comandos, abra URLs"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Спросите что угодно или введите команду или URL"
+            "value": "Спросите что угодно, выполните команду, откройте URL"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ถามอะไรก็ได้ หรือพิมพ์คำสั่งหรือ URL"
+            "value": "ถามอะไรก็ได้ รันคำสั่ง เปิด URL"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bir şey sor ya da bir komut veya URL yaz"
+            "value": "Bir şey sor, komut çalıştır, URL aç"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запитайте будь-що або введіть команду чи URL"
+            "value": "Запитайте будь-що, виконайте команду, відкрийте URL"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hỏi bất cứ điều gì, hoặc nhập lệnh hay URL"
+            "value": "Hỏi bất cứ điều gì, chạy lệnh, mở URL"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "问任何问题，或输入命令或 URL"
+            "value": "问任何问题、运行命令、打开 URL"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "問任何問題，或輸入指令或 URL"
+            "value": "問任何問題、執行指令、開啟 URL"
           }
         }
       }
