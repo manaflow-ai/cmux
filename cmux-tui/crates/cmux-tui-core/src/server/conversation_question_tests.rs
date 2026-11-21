@@ -2,17 +2,17 @@ use super::*;
 use crate::conversation_store::{ConversationStore, LOCAL_USER};
 use cmux_conversation::{Op, Part, Participant};
 
-fn question() -> Question {
+pub(super) fn question() -> Question {
     serde_json::from_value(
         json!({"harness":"claude","session":"session1","permission":"permission1",
         "items":[{"id":"q0","prompt":"Pick a color","options":[{"id":"o0","label":"Blue"}]}]}),
     )
     .unwrap()
 }
-fn answer() -> QuestionAnswer {
+pub(super) fn answer() -> QuestionAnswer {
     serde_json::from_value(json!({"selections":{"q0":{"option_ids":["o0"]}}})).unwrap()
 }
-fn decision(question: &Question) -> Value {
+pub(super) fn decision(question: &Question) -> Value {
     let request = json!({"sessionId":question.session,
     "options":[{"optionId":"allow","kind":"allow_once"}],
     "toolCall":{"_meta":{"acpmux":{"question":{
@@ -23,7 +23,7 @@ fn decision(question: &Question) -> Value {
         "instance":"instance1","option_id":"allow","decision_nonce":"a".repeat(64),
         "person_decision":"b".repeat(64)})
 }
-fn pending(decision: &Value) -> Value {
+pub(super) fn pending(decision: &Value) -> Value {
     json!({"pending":[{"permissionId":"permission1","personInstance":"instance1",
         "decisionNonce":decision["decision_nonce"],"request":decision["request"]}]})
 }
@@ -225,7 +225,9 @@ fn original_request_context_has_no_extra_envelope_size_cap() {
 #[test]
 fn unsupported_platform_refuses_without_an_agent_transport() {
     let mux = Mux::new_for_test("question-unsupported-platform", crate::SurfaceOptions::default());
-    let error = super::deliver(&mux, &question(), &answer(), None).unwrap_err();
+    let (_, conversation, op) = store();
+    let error = super::answer(&mux, 0, &conversation, "unsupported", LOCAL_USER, &op, None, &None)
+        .unwrap_err();
     assert_eq!(error.to_string(), "question.unsupported_platform");
     assert_eq!(super::super::error_code(&error).as_deref(), Some("conversation_rejected"));
 }

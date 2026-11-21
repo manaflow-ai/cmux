@@ -24,6 +24,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+#[path = "conversation_deliveries.rs"]
+pub(crate) mod deliveries;
 #[path = "conversation_import.rs"]
 mod import;
 #[path = "conversation_inbox.rs"]
@@ -256,6 +258,7 @@ impl ConversationStore {
         transaction.execute_batch(threads::SCHEMA)?;
         transaction.execute_batch(inbox::SCHEMA)?;
         transaction.execute_batch(runs::SCHEMA)?;
+        transaction.execute_batch(deliveries::SCHEMA)?;
         crate::conversation_search::drop_search_index(&transaction)?;
         transaction.execute(
             "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
@@ -458,6 +461,7 @@ impl ConversationStore {
         let op = spilled.as_ref().unwrap_or(op);
         let transaction =
             self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        deliveries::check_pending(&transaction, op)?;
         let outcome = apply_op_in(&transaction, conversation, idempotency_key, actor, op)?;
         transaction.commit()?;
         Ok(outcome)
@@ -478,6 +482,7 @@ impl ConversationStore {
         self.check_question_delivery(op)?;
         let transaction =
             self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        deliveries::check_pending(&transaction, op)?;
         let target = load_message_by_id(&transaction, message_id)?;
         let outcome = apply_op_in(&transaction, conversation, key, actor, op)?;
         transaction.rollback()?;
@@ -498,7 +503,10 @@ impl ConversationStore {
     }
 
     fn check_question_delivery(&self, op: &Op) -> anyhow::Result<()> {
-        if op.target_message_id().is_some_and(|id| self.question_deliveries.contains(id)) {
+        let Some(id) = op.target_message_id() else { return Ok(()) };
+        if self.question_deliveries.contains(id)
+            || deliveries::message_pending(&self.connection, id)?
+        {
             return Err(QuestionDeliveryBusy.into());
         }
         Ok(())
@@ -517,6 +525,7 @@ impl ConversationStore {
             self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut outcomes = Vec::with_capacity(ops.len());
         for (conversation, idempotency_key, actor, op) in ops {
+            deliveries::check_pending(&transaction, op)?;
             outcomes.push(apply_op_in(&transaction, conversation, idempotency_key, actor, op)?);
         }
         transaction.commit()?;

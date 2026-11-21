@@ -341,6 +341,8 @@ mod chief_control;
 mod chief_engine_mirror;
 mod chief_inspect;
 mod chief_manage;
+#[cfg(unix)]
+mod chief_question_routes;
 mod chief_registry_resource;
 #[cfg(unix)]
 mod chief_work;

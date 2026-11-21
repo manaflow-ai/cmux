@@ -250,6 +250,7 @@ pub(super) fn error_reason(error: &anyhow::Error) -> Option<String> {
         })
         .or_else(|| error.downcast_ref::<AttachmentRejected>().map(|r| r.0.to_string()))
         .or_else(|| error.downcast_ref::<RunRejected>().map(|r| r.0.to_string()))
+        .or_else(|| error.downcast_ref::<question::Refusal>().map(|r| r.0.clone()))
 }
 
 /// The `error_details` of a conversation reject that has them: the keyed
@@ -262,6 +263,10 @@ pub(super) fn error_details(error: &anyhow::Error) -> Option<Value> {
 
 /// The `error_code` of a conversation reject.
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
+    if error.downcast_ref::<question::Refusal>().is_some_and(|r| r.0 == "question.delivery_unknown")
+    {
+        return Some("conversation_indeterminate".to_owned());
+    }
     let rejected =
         error.downcast_ref::<crate::conversation_store::QuestionDeliveryBusy>().is_some()
             || error.downcast_ref::<question::Refusal>().is_some()
@@ -608,36 +613,17 @@ pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Val
         return Err(device_id_refused());
     }
     let transaction: Option<Arc<str>> = transaction.map(Arc::from);
-    let outcome = if let Op::QuestionAnswer { message_id, answer, .. } = &op {
-        match mux.with_conversations(|store| {
-            store.prepare_question_answer(&conversation, &idempotency_key, &actor, &op)
-        })? {
-            Err(replayed) => replayed,
-            Ok(asked) => {
-                let mut reservation =
-                    question::Reservation { mux, message: message_id, armed: true };
-                question::deliver(mux, &asked, answer, decision.as_ref())?;
-                // Release and commit under the same store lock. A competing edit/answer cannot
-                // replace the reserved question between delivery and persistence.
-                let outcome = mux.conversation_write(
-                    |store| {
-                        reservation.armed = false;
-                        store.release_question_answer(message_id);
-                        store.apply_op(&conversation, &idempotency_key, &actor, &op)
-                    },
-                    |outcome| {
-                        Some(MuxEvent::Conversation(Arc::new(ConversationEvent::Changed {
-                            conversation: conversation.clone(),
-                            rev: outcome.result.rev,
-                            transaction: transaction.clone(),
-                            change: outcome.result.change.clone(),
-                        })))
-                    },
-                )?;
-                drop(reservation);
-                outcome
-            }
-        }
+    let outcome = if matches!(&op, Op::QuestionAnswer { .. }) {
+        question::answer(
+            mux,
+            client,
+            &conversation,
+            &idempotency_key,
+            &actor,
+            &op,
+            decision.as_ref(),
+            &transaction,
+        )?
     } else {
         commit_op(mux, &conversation, &idempotency_key, &actor, &op, &transaction)?
     };

@@ -23,23 +23,11 @@ use crate::mux::Mux;
 #[cfg(unix)]
 const TIMEOUT: Duration = Duration::from_secs(3);
 
-/// Releases a per-message reservation on success, refusal or unwind. No background task.
-pub(super) struct Reservation<'a> {
-    pub mux: &'a Mux,
-    pub message: &'a str,
-    pub armed: bool,
-}
-impl Drop for Reservation<'_> {
-    fn drop(&mut self) {
-        if !self.armed {
-            return;
-        }
-        let _ = self.mux.with_conversations(|store| {
-            store.release_question_answer(self.message);
-            Ok(())
-        });
-    }
-}
+#[cfg(unix)]
+#[path = "conversation_question_delivery.rs"]
+mod delivery;
+#[cfg(unix)]
+pub(super) use delivery::answer;
 
 /// Ephemeral only: never part of the persisted answer or idempotency fingerprint.
 #[cfg(any(unix, test))]
@@ -55,16 +43,16 @@ struct Decision {
 }
 
 #[derive(Debug)]
-pub(super) struct Refusal(pub(super) &'static str);
+pub(super) struct Refusal(pub(super) String);
 impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0)
+        f.write_str(&self.0)
     }
 }
 impl std::error::Error for Refusal {}
 
-fn refuse(reason: &'static str) -> anyhow::Error {
-    Refusal(reason).into()
+fn refuse(reason: &str) -> anyhow::Error {
+    Refusal(reason.to_owned()).into()
 }
 
 // Recursively sort keys, even in serde_json builds with preserve_order enabled.
@@ -88,45 +76,18 @@ fn hex64(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
 }
 
-#[cfg(unix)]
-pub(super) fn deliver(
-    mux: &Mux,
-    question: &Question,
-    answer: &QuestionAnswer,
-    decision: Option<&Value>,
-) -> anyhow::Result<()> {
-    let decision = decode(question, decision)?;
-    let socket =
-        mux.control_clients.agent_sessions.socket().ok_or_else(|| refuse("question.agent_gone"))?;
-    let link = AcpmuxLink::connect(&socket, |_| {}).map_err(|_| refuse("question.agent_gone"))?;
-    let result = deliver_with(question, answer, &decision, |method, params| {
-        link.call(method, params, TIMEOUT).map_err(|error| {
-            #[cfg(unix)]
-            use super::super::agent_session_attach::agent_session_link::LinkError;
-            refuse(match error {
-                LinkError::Timeout => "question.delivery_unknown",
-                LinkError::Closed => "question.agent_gone",
-                LinkError::Rpc(_, data)
-                    if data.get("reason").and_then(Value::as_str) == Some("agent_gone") =>
-                {
-                    "question.agent_gone"
-                }
-                _ => "question.refused",
-            })
-        })
-    });
-    link.close();
-    result
-}
-
 /// ACP delivery uses a Unix socket. Other daemon builds refuse without recording an answer.
 #[cfg(not(unix))]
-pub(super) fn deliver(
+pub(super) fn answer(
     _mux: &Mux,
-    _question: &Question,
-    _answer: &QuestionAnswer,
+    _client: u64,
+    _conversation: &str,
+    _key: &str,
+    _actor: &str,
+    _op: &cmux_conversation::Op,
     _decision: Option<&Value>,
-) -> anyhow::Result<()> {
+    _transaction: &Option<std::sync::Arc<str>>,
+) -> anyhow::Result<crate::conversation_store::OpOutcome> {
     Err(refuse("question.unsupported_platform"))
 }
 
