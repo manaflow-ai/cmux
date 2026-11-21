@@ -4,7 +4,7 @@
 use serde_json::{Value, json};
 
 use super::super::*;
-use super::{decide_from, error_code};
+use super::{decide_from, error_code, request_digest};
 use cmux_conversation::{Question, QuestionAnswer};
 
 fn question(permission: Option<&str>) -> Question {
@@ -107,4 +107,21 @@ fn the_digest_sorts_keys_at_every_depth_and_an_approval_card_is_refused() {
     .unwrap();
     let info = json!({"pending": [entry("perm_1")]});
     assert_eq!(code(decide_from(&card, &answer(), &info)), "question.native_approval");
+}
+
+/// The request digest is the golden sha256, the bytes acpmux hashes and the app checks.
+#[cfg(unix)]
+#[test]
+fn request_digest_matches_the_golden_fixture_and_acpmux() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../cmux-conversation/tests/fixtures/canonical_json.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        assert_eq!(request_digest(&case["value"]), case["sha256"].as_str().unwrap(), "{name}");
+        let mut acpmux = String::new();
+        acpmux::hub::approvers::canonical_json(&case["value"], &mut acpmux);
+        assert_eq!(acpmux, case["canonical"].as_str().unwrap(), "{name}");
+    }
 }

@@ -198,6 +198,68 @@ pub fn unsigned_decision(
     })
 }
 
+/// `value` as the bytes every party hashes (acpmux `approvers::canonical_json`, the app's
+/// `AcpmuxSecretKey.canonicalJSON`): object keys in UTF-8 byte order, no whitespace, and only `"`,
+/// `\` and control characters escaped (`\b \f \n \r \t`, else `\u00xx`). The request
+/// digest the app checks before it signs is the sha256 of these bytes; golden cases in
+/// `tests/fixtures/canonical_json.json` are checked here and in the app.
+pub fn canonical_json(value: &Value) -> String {
+    let mut out = String::new();
+    write_canonical(value, &mut out);
+    out
+}
+
+fn write_canonical(value: &Value, out: &mut String) {
+    match value {
+        Value::Null => out.push_str("null"),
+        Value::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
+        Value::Number(number) => out.push_str(&number.to_string()),
+        Value::String(text) => write_string(text, out),
+        Value::Array(items) => {
+            out.push('[');
+            for (index, item) in items.iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                write_canonical(item, out);
+            }
+            out.push(']');
+        }
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+            out.push('{');
+            for (index, key) in keys.into_iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                write_string(key, out);
+                out.push(':');
+                write_canonical(&map[key], out);
+            }
+            out.push('}');
+        }
+    }
+}
+
+fn write_string(text: &str, out: &mut String) {
+    out.push('"');
+    for ch in text.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if (ch as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            ch => out.push(ch),
+        }
+    }
+    out.push('"');
+}
+
 #[cfg(test)]
 #[path = "question_wire_tests.rs"]
 mod tests;

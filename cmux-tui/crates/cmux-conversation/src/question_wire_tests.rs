@@ -159,3 +159,16 @@ fn a_native_approval_card_is_told_from_a_question() {
     codex.harness = crate::QuestionHarness::Codex;
     assert!(!is_native_approval(&codex));
 }
+
+/// The golden bytes the app checks too (CmuxNextAgentPaneTests, CanonicalJSONFixtureTests).
+#[test]
+fn canonical_json_matches_the_golden_fixture() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("../tests/fixtures/canonical_json.json")).unwrap();
+    let cases = fixture["cases"].as_array().unwrap();
+    assert!(cases.len() >= 5);
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        assert_eq!(canonical_json(&case["value"]), case["canonical"].as_str().unwrap(), "{name}");
+    }
+}

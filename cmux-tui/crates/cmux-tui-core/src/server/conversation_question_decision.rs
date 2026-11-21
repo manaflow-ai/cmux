@@ -66,7 +66,7 @@ fn stored_question(mux: &Mux, params: &DecisionParams) -> anyhow::Result<Questio
 }
 
 /// The reply: the unsigned decision, the stored question, and the live request it was read from
-/// with its digest (sha256 of its JSON with keys sorted), which the app compares with its own read
+/// with its digest (sha256 of its canonical JSON), which the app compares with its own read
 /// of the prompt. With the person's proof added, the reply's `question`, `request`, `digest`,
 /// `instance`, `option_id` and `decision_nonce` are the `question.answer` op's `decision`.
 fn reply(
@@ -81,20 +81,11 @@ fn reply(
     Ok(value)
 }
 
-/// Lowercase hex sha256 of `request` as compact JSON with every object's keys sorted.
+/// Lowercase hex sha256 of `request`'s canonical JSON ([`question_wire::canonical_json`]), the
+/// digest the app computes over its own read of the prompt.
 pub(in crate::server) fn request_digest(request: &Value) -> String {
     use sha2::{Digest, Sha256};
-    fn sorted(value: &Value) -> Value {
-        match value {
-            Value::Object(map) => {
-                let keys: std::collections::BTreeMap<_, _> = map.iter().collect();
-                Value::Object(keys.into_iter().map(|(k, v)| (k.clone(), sorted(v))).collect())
-            }
-            Value::Array(items) => Value::Array(items.iter().map(sorted).collect()),
-            other => other.clone(),
-        }
-    }
-    format!("{:x}", Sha256::digest(sorted(request).to_string().as_bytes()))
+    format!("{:x}", Sha256::digest(question_wire::canonical_json(request).as_bytes()))
 }
 
 /// The unsigned decision from `pending`, the prompt's live `_acpmux/info` pending entries.
