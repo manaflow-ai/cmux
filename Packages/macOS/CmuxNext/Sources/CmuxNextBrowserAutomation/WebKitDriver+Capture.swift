@@ -45,6 +45,7 @@ extension WebKitDriver {
             configuration.snapshotWidth = NSNumber(value: Double(tab.webView.bounds.width / scale))
         }
         let image: NSImage
+        guard tab.resumeIfSuspended() else { throw DriverError(.closed, "tab.screenshot: the page's web process ended while it was frozen") }
         do {
             image = try await tab.webView.takeSnapshot(configuration: configuration)
         } catch {
@@ -81,6 +82,7 @@ extension WebKitDriver {
     /// per paginated rect is UNVERIFIED (WebKit renders one tall page).
     func tabPDF(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
         let (tab, _) = try target(params)
+        guard tab.resumeIfSuspended() else { throw DriverError(.closed, "tab.pdf: the page's web process ended while it was frozen") }
         do {
             let data = try await tab.webView.pdf(configuration: WKPDFConfiguration())
             return .object(["base64": .string(data.base64EncodedString())])

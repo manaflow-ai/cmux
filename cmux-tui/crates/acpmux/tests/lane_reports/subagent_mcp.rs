@@ -84,6 +84,7 @@ async fn mcp_in(
     command
         .arg("acpmux-mcp")
         .env("ACPMUX_HOME", home)
+        .env("ACPMUX_SEND_CLASS", "stale-inherited-class")
         .env("ACPMUX_SOCKET", sock)
         .env("ACPMUX_SESSION_ID", session)
         .env(acpmux::hub::person::CALLER_TOKEN_ENV, acpmux::hub::person::caller_token(session))
@@ -212,6 +213,48 @@ async fn lane_report_subagent_mcp_bg_start_runs_as_the_subagent_that_called_it()
     assert_eq!(written(&dir.join("after.txt")).await.trim(), "");
 }
 
+/// `run_wait` given a background task and a bound (`{"id": "bg-...", "timeoutSeconds": 900}`,
+/// the call an agent made 2026-11-21 that came back at once with the task "running") blocks
+/// until the task ends; with a bound shorter than the task it says plainly that it timed out.
+#[tokio::test]
+async fn run_wait_given_a_bg_task_and_a_timeout_waits_for_it_to_end() {
+    let hub = hub();
+    hub.set_bg_runner(daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let sock = socket(&hub, "run-wait").await;
+    let mut person = Client::new(&hub);
+    let parent = person.new_session("run-wait", json!({})).await;
+    let start = |command: &str| json!({"command": command, "notify": false});
+    let task = mcp(&sock, &parent, "bg_start", start("sleep 1; echo slept"), json!({})).await;
+    let id = task["structuredContent"]["id"].as_str().unwrap().to_owned();
+    let asked = Instant::now();
+    let r =
+        mcp(&sock, &parent, "run_wait", json!({"id": id, "timeoutSeconds": 900}), json!({})).await;
+    let took = asked.elapsed();
+    let s = &r["structuredContent"];
+    assert_eq!((s["state"].as_str(), s["exitCode"].as_i64()), (Some("exited"), Some(0)), "{r}");
+    assert!(s["text"].as_str().unwrap().contains("slept"), "{r}");
+    assert_eq!(
+        (s["wait"]["timedOut"].as_bool(), s["wait"]["clamped"].as_bool()),
+        (Some(false), Some(false)),
+        "{r}"
+    );
+    assert!(took < Duration::from_secs(60), "waited {took:?} for a 1 s task");
+    // A bound shorter than the task: it waits the bound, then says it timed out, still running.
+    let task = mcp(&sock, &parent, "bg_start", start("sleep 30"), json!({})).await;
+    let id = task["structuredContent"]["id"].as_str().unwrap().to_owned();
+    let asked = Instant::now();
+    let r = mcp(&sock, &parent, "run_wait", json!({"id": id, "timeout": 1}), json!({})).await;
+    assert!(asked.elapsed() >= Duration::from_secs(1), "{r}");
+    assert!(text_of(&r).contains("timed out after waiting 1 s and it is still running"), "{r}");
+    assert_eq!(r["structuredContent"]["wait"]["timedOut"], true, "{r}");
+    let stop = mcp(&sock, &parent, "bg_stop", json!({"id": id}), json!({})).await;
+    assert_eq!(stop["isError"], false, "{stop}");
+}
+
+fn text_of(result: &Value) -> String {
+    result["content"][0]["text"].as_str().unwrap_or_default().to_owned()
+}
+
 /// The texts of the background task end messages session `parent` got, queued or run
 /// (`hub/bg_notify.rs`: provenance with `bgTaskId`), once per task.
 async fn bg_ends(person: &mut Client, parent: &str) -> Vec<String> {
@@ -333,6 +376,71 @@ async fn lane_report_subagent_mcp_a_bg_task_end_the_subagent_never_took_goes_to_
     assert!(t.contains("general-purpose subagent a0a68e7a") && t.contains("has ended"), "{t}");
 }
 
+/// Review of #39667: a cmux workflow runner a subagent started runs with that subagent's mark
+/// (`ACPMUX_CALLER_SUBAGENT`, set by the daemon), and so does the acpmux MCP server it starts for
+/// the script's tool calls, which carry no tool use id: its `send` names the subagent.
+#[tokio::test]
+async fn w5s_lane_report_subagent_mcp_a_marked_server_sends_as_the_subagent() {
+    let hub = hub();
+    let sock = socket(&hub, "marked").await;
+    let mut person = Client::new(&hub);
+    let parent = person.new_session("parent", json!({})).await;
+    let lane = Client::as_session(&hub, &parent).await.new_session("wf-lane", json!({})).await;
+    let scratch = std::env::temp_dir().join(format!("w5s-mcp-marked-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).unwrap();
+    let mut command = daemon_env::acpmux(&scratch);
+    command
+        .arg("acpmux-mcp")
+        .env("ACPMUX_HOME", acpmux::config::home())
+        .env("ACPMUX_SOCKET", &sock)
+        .env("ACPMUX_SESSION_ID", &parent)
+        .env(acpmux::hub::person::CALLER_TOKEN_ENV, acpmux::hub::person::caller_token(&parent))
+        .env(acpmux::hub::person::CALLER_SOCKET_ENV, &sock)
+        .env("ACPMUX_CALLER_SUBAGENT", MARK)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped());
+    let requests = [
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion":
+            "2025-06-18", "capabilities": {}, "clientInfo": {"name": "cmux", "version": "2"}}}),
+        json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+        // A workflow script's call: no `_meta`, so no tool use id.
+        json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "send",
+            "arguments": {"to": "wf-lane", "text": "workflow finding"}}}),
+    ];
+    let sent = tokio::task::spawn_blocking(move || {
+        let mut child = command.spawn().unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        for request in requests {
+            writeln!(stdin, "{request}").unwrap();
+        }
+        let mut lines = std::io::BufReader::new(child.stdout.take().unwrap()).lines();
+        let result = loop {
+            let line = lines.next().expect("an MCP reply").unwrap();
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v["id"] == 2 {
+                break v["result"].clone();
+            }
+        };
+        drop(stdin);
+        let _ = child.kill();
+        let _ = child.wait();
+        result
+    })
+    .await
+    .unwrap();
+    assert_eq!(sent["isError"], false, "{sent}");
+    super::subagents::turn_ended(&hub, &lane, 1).await;
+    let page = person.ok("_acpmux/events", json!({"sessionId": lane, "limit": 5000})).await;
+    let prompts: String = page["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["dir"] == "out" && e["kind"] == "session/prompt")
+        .map(|e| e["msg"]["params"]["prompt"].to_string())
+        .collect();
+    assert!(prompts.contains("parent's general-purpose subagent a0a68e7a"), "{prompts}");
+}
+
 /// W5-M (b): a subagent's MCP `send` that goes to the send relay (no session here or on a peer)
 /// names the subagent to the relay as a label (`ACPMUX_FROM_SUBAGENT`, `ACPMUX_FROM_LABEL`), as
 /// the CLI's does (`cli/send_relay.rs`); the lead's own relayed send names none.
@@ -380,4 +488,63 @@ async fn w5s_lane_report_subagent_mcp_relayed_send_names_the_subagent_as_a_label
         ],
         "the relay is told which subagent sent it, and the lead's own send names none"
     );
+}
+
+#[tokio::test]
+async fn relay_mcp_preserves_explicit_message_class_and_clears_inherited_class() {
+    use std::os::unix::fs::PermissionsExt;
+    let hub = hub();
+    let sock = socket(&hub, "class").await;
+    let mut person = Client::new(&hub);
+    let parent = person.new_session("parent", json!({})).await;
+    let home = cmux_unix_socket::short_test_dir("relay-class");
+    let home = home.path();
+    let classes = home.join("classes");
+    let relay = home.join("relay");
+    std::fs::write(&relay, format!(
+        "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' \"${{ACPMUX_SEND_CLASS-unset}}\" >> '{}'\necho delivery-class\n", classes.display()
+    )).unwrap();
+    std::fs::set_permissions(&relay, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(
+        home.join("config.json"),
+        json!({"sendRelay": {"argv": [relay, "send"]}}).to_string(),
+    )
+    .unwrap();
+    for value in ["block", "question", "result", "fyi", "blocker", "action"] {
+        let r = mcp_in(
+            home,
+            &sock,
+            &parent,
+            "send",
+            json!({"to": "far-coordinator", "text": "classed", "class": value}),
+            json!({}),
+        )
+        .await;
+        assert_eq!(r["isError"], false, "{r}");
+    }
+    let r = mcp_in(
+        home,
+        &sock,
+        &parent,
+        "send",
+        json!({"to": "far-coordinator", "text": "unclassed"}),
+        json!({}),
+    )
+    .await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert_eq!(
+        std::fs::read_to_string(&classes).unwrap(),
+        "block\nquestion\nresult\nfyi\nblock\nresult\nunset\n"
+    );
+    let r = mcp_in(
+        home,
+        &sock,
+        &parent,
+        "send",
+        json!({"to": "far-coordinator", "text": "invalid", "class": "urgent"}),
+        json!({}),
+    )
+    .await;
+    assert_eq!(r["isError"], true, "{r}");
+    assert_eq!(std::fs::read_to_string(classes).unwrap().lines().count(), 7);
 }

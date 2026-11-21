@@ -10,11 +10,20 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxBackgroundCause, AcpmuxBackgroundReaction, AcpmuxRow } from "../model";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
+import { drawsBackgroundTurnLines } from "./backgroundTurnLook.experiment";
 import { backgroundReactionLook } from "./backgroundReaction.experiment";
 
-/// A background turn's line as acpmux's records leave it: weighed by `cause`, its reply on the call
-/// when `attached`.
-const turn = (id: string, minutes: number, cause: AcpmuxBackgroundCause, quiet = true, attached = true): AcpmuxRow =>
+/// A background turn's line as acpmux's records leave it: weighed by `cause`, its mark on the call
+/// when `attached`; one that said something there is the agent's own turn (`ownTurn`, direct.ts
+/// `settleReaction`), its reply a message of its own.
+const turn = (
+  id: string,
+  minutes: number,
+  cause: AcpmuxBackgroundCause,
+  quiet = true,
+  attached = true,
+  said = false,
+): AcpmuxRow =>
   row(BACKGROUND_TURN, minutes, {
     id: backgroundTurnRowId(id),
     background: {
@@ -26,15 +35,15 @@ const turn = (id: string, minutes: number, cause: AcpmuxBackgroundCause, quiet =
       hasRows: true,
       cause,
       ...(attached && { attached: true as const }),
+      ...(said && { ownTurn: true as const }),
     },
   });
 const reply = (id: string, text: string, minutes: number) =>
   assistant(text, minutes, { id: `${id}-reply`, inBackground: id });
 
-const reaction = (turnId: string, weight: AcpmuxBackgroundReaction["weight"], text: string, fresh = false) => ({
+const reaction = (turnId: string, weight: AcpmuxBackgroundReaction["weight"], fresh = false) => ({
   turn: turnId,
   weight,
-  text,
   ...(fresh && { fresh: true as const }),
 });
 
@@ -44,7 +53,7 @@ const suite = tool("cargo test --workspace", "execute", "completed", {
   description: "Run the workspace tests in the background",
   output: "test result: ok. 412 passed; 0 failed",
   background: { state: "completed" },
-  reaction: reaction("gallery-react-done", "result", "All 412 tests passed.", true),
+  reaction: reaction("gallery-react-done", "result", true),
 });
 const bench = tool("cargo bench -p orders", "execute", "failed", {
   id: "gallery-react-bench",
@@ -84,20 +93,29 @@ const weighedChat: AcpmuxRow[] = [
   ...opening,
   ...step("gallery-react-step-a", 12),
   ...step("gallery-react-step-b", 11),
-  turn("gallery-react-wait", 10, {
-    kind: "shell",
-    status: "interim",
-    weight: "silent",
-    origin: "gallery-react-suite",
-  }),
+  turn(
+    "gallery-react-wait",
+    10,
+    { kind: "shell", status: "interim", weight: "silent", origin: "gallery-react-suite" },
+    true,
+    true,
+    true,
+  ),
   reply("gallery-react-wait", "Still waiting on the suite.", 9.95),
-  turn("gallery-react-done", 9, {
-    kind: "shell",
-    status: "completed",
-    weight: "result",
-    origin: "gallery-react-suite",
-    summary: 'Background command "Run the workspace tests" completed (exit code 0)',
-  }),
+  turn(
+    "gallery-react-done",
+    9,
+    {
+      kind: "shell",
+      status: "completed",
+      weight: "result",
+      origin: "gallery-react-suite",
+      summary: 'Background command "Run the workspace tests" completed (exit code 0)',
+    },
+    true,
+    true,
+    true,
+  ),
   reply("gallery-react-done", "All 412 tests passed.", 8.95),
   turn(
     "gallery-react-bench",
@@ -152,16 +170,20 @@ export default agentPaneEntry({
   ],
   variants: {
     weighed: {
-      note: "Two subagent steps and an interim stop (silent), the suite's final result, the bench's failure. On the call: no row for the silent ones, the suite's call marked new, the failure's line in sight.",
+      note: "Two subagent steps and an interim stop (silent), the suite's final result, the bench's failure. On the call: no row for the silent ones, the suite's call marked new, the agent's replies to the suite as its own messages, the failure's line in sight.",
       snapshot: chat(weighedChat),
     },
     "weighed-hover": {
       note: "The background turn's line under the pointer: its words light all the way through, as a tool row's do (Leo, 2026-11-09).",
       snapshot: chat(weighedChat),
-      play: async (ctx) => ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" }),
+      play: async (ctx) => {
+        // The line look's line (backgroundTurnLook.experiment.ts); the inline look draws none.
+        if (!drawsBackgroundTurnLines()) return;
+        await ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" });
+      },
     },
     "call-opened": {
-      note: "The suite's call opened: its output, then the agent's reply to its end.",
+      note: "The suite's call opened: its output alone; the agent's replies to its end stay its own messages under it (Leo, 2026-11-09).",
       snapshot: chat(weighedChat),
       checks: {
         layoutShiftMax: { value: 0.5, reason: "Opening the call intentionally reveals its output below it." },

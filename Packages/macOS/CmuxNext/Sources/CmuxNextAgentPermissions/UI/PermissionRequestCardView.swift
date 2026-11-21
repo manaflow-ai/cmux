@@ -12,6 +12,11 @@ import CmuxNextDesign
 public final class PermissionRequestCardView: NSView {
     /// The card's width (points).
     public static let width: CGFloat = 420
+    /// Points from the card's edge to its content and buttons, the same on every side.
+    static let padding: CGFloat = 16
+    /// The card's corner, concentric with its buttons ``padding`` in (Lawrence 2026-11-15: "all dialogs needs
+    /// concentric padding with buttons inside").
+    static var cardCornerRadius: CGFloat { Metrics.buttonContainer(padding: padding).outerRadius }
 
     /// Deny, Continue and Close presses.
     public struct Actions {
@@ -43,7 +48,9 @@ public final class PermissionRequestCardView: NSView {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 14, right: 16)
+        // One padding on every side, the panel's corner rounded from it (``PermissionRequestPanel``).
+        let padding = Self.padding
+        stack.edgeInsets = NSEdgeInsets(top: padding, left: padding, bottom: padding, right: padding)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
@@ -94,9 +101,9 @@ public final class PermissionRequestCardView: NSView {
         if request.reasonCheck == .unclear {
             add(label("⚠︎ " + strings.unclear, size: TypeScale.detail, weight: TypeScale.emphasis, color: Palette.textPrimary, lines: 3))
         }
-        let deny = CmuxDialogButtonView(CmuxDialogButton(id: "deny", title: strings.deny, role: .cancel), hint: .escape,
+        let deny = CmuxDialogButtonView(CmuxDialogButton(id: "deny", title: strings.deny, role: .cancel), hint: .escape, keycap: true,
                                         target: self, action: #selector(denyPressed))
-        let proceed = CmuxDialogButtonView(CmuxDialogButton(id: "continue", title: strings.proceed, role: .default), hint: .return,
+        let proceed = CmuxDialogButtonView(CmuxDialogButton(id: "continue", title: strings.proceed, role: .default), hint: .return, keycap: true,
                                            target: self, action: #selector(continuePressed))
         var row: [NSView] = []
         if waiting > 0 { row.append(label(strings.more(waiting), size: TypeScale.caption, color: Palette.textTertiary)) }
@@ -114,7 +121,7 @@ public final class PermissionRequestCardView: NSView {
         } else {
             add(label(strings.promptGuide, size: TypeScale.detail, color: Palette.textPrimary, lines: 2))
         }
-        let close = CmuxDialogButtonView(CmuxDialogButton(id: "close", title: strings.close, role: .cancel), hint: .escape,
+        let close = CmuxDialogButtonView(CmuxDialogButton(id: "close", title: strings.close, role: .cancel), hint: .escape, keycap: true,
                                          target: self, action: #selector(closePressed))
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)

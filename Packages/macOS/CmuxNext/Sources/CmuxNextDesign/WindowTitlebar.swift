@@ -111,9 +111,12 @@ public struct WindowTitlebar {
     ///   - indicatorWidth: The indicator's width supplied by its owner.
     ///   - midY: The traffic lights' center in the accessories' parent coordinates.
     ///   - scale: The window's current backing scale factor.
+    ///   - extensionStatus: The extensions' status items (`AppStatusStripView`), laid out only while
+    ///     visible, `extensionStatusWidth` wide.
     ///   - trailing: A quiet mark after them, shown only while `showsTrailing` (hidden otherwise).
     public static func layoutAccessories(after band: CGRect, badge: NSView?, indicator: NSView?,
                                          indicatorWidth: CGFloat, centeredOn midY: CGFloat, scale: CGFloat,
+                                         extensionStatus: NSView? = nil, extensionStatusWidth: CGFloat = 0,
                                          trailing: NSView? = nil, showsTrailing: Bool = true) {
         var x = band.maxX + Metrics.space2
         if let badge {
@@ -125,6 +128,11 @@ public struct WindowTitlebar {
             let side = TitlebarBandButton.side
             indicator.frame = alignedFrame(CGRect(x: x, y: midY - side / 2, width: indicatorWidth, height: side), scale: scale)
             x = indicator.frame.maxX + Metrics.space2
+        }
+        if let extensionStatus, !extensionStatus.isHidden, extensionStatusWidth > 0 {
+            let side = TitlebarBandButton.side
+            extensionStatus.frame = alignedFrame(CGRect(x: x, y: midY - side / 2, width: extensionStatusWidth, height: side), scale: scale)
+            x = extensionStatus.frame.maxX + Metrics.space2
         }
         // Last, a quiet text mark such as Swift live mode's (LiveModeBadgeView).
         trailing?.isHidden = !showsTrailing
@@ -151,14 +159,17 @@ public struct WindowTitlebar {
         guard let lights = trafficLightsFrame(in: window) else { return Metrics.windowEdgeInset(gutter, in: window) }
         let local = root.convert(lights, from: nil)
         if clearsTrafficLights {
-            let row = max(local.height, TitlebarBandButton.side)
+            let row = max(local.height, TopRowSpacing.buttonSide)
             return max(gutter, root.bounds.maxY - local.midY + row / 2 + gutter).rounded(.up)
         }
         // Floating panes keep the one even gap at the top too.
         guard !Metrics.floatingPanes else { return gutter }
         // The top row's shared line (`TopRowLine`): the lights' center unless Debug picks another variant.
-        // Concentric (the default line): the gutter on top as at the sides, with or without a top-row strip.
-        if TopRowLineLook.tunable.value == .concentric { return Metrics.windowEdgeInset(gutter, in: window) }
+        // Concentric (the default line): a top-row strip starts under the window's rim, with its one strip padding inside
+        // (``topRowStripCardTop(in:)``); with the tab bars at the bottom the card keeps the gutter on top as at the sides.
+        if TopRowLineLook.tunable.value == .concentric {
+            return targetTopRowLine(in: window) != nil ? topRowStripCardTop(in: window) : Metrics.windowEdgeInset(gutter, in: window)
+        }
         guard let target = targetTopRowLine(in: window) else {
             // No top-row strip (tab bars at the bottom): the card keeps its place from before #38054.
             let card = PaneChromeMetrics.current.cardTopKeepingStripCentering(centeringPillOn: root.bounds.maxY - local.midY,

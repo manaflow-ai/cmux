@@ -1,12 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { receiveTransportEvent } from "../src/agent-session/acpmux/bridgeSocket";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 const scope = globalThis as Record<string, unknown>;
 let savedWindow: unknown;
 
-afterEach(() => {
+afterEach(async () => {
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   if (savedWindow === undefined) delete scope.window;

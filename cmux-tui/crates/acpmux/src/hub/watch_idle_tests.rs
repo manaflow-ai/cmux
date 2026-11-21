@@ -181,3 +181,75 @@ async fn a_watch_started_during_a_slow_wait_shows_lines_within_400_ms() {
     let _ = std::fs::remove_dir_all(home);
     assert!(took <= Duration::from_millis(400), "a new watch's line took {took:?}, over 400 ms");
 }
+
+/// Holds tokio's paused clock still while real time passes: a running `spawn_blocking` keeps the
+/// runtime from advancing it, so no timed check runs. True once `shown` holds, within `real`.
+async fn without_timed_checks(real: Duration, shown: impl Fn() -> bool) -> bool {
+    let until = std::time::Instant::now() + real;
+    while std::time::Instant::now() < until {
+        if shown() {
+            return true;
+        }
+        tokio::task::spawn_blocking(|| std::thread::sleep(Duration::from_millis(5))).await.unwrap();
+    }
+    shown()
+}
+
+/// Leo 2026-11-12: terminal and chat are two live views of one session, a toggle under 100 ms.
+/// A line the other app writes shows from its file event, before any timed check: mid-turn (the
+/// check's 400 ms wait) and after a quiet spell (its 2 s wait). The paused clock does not move
+/// while the line is awaited, so a line that waits for a timed check is never shown, however
+/// loaded the host is. Before file events, every line here waited for one.
+#[tokio::test(start_paused = true)]
+async fn a_written_line_shows_from_its_file_event_before_any_timed_check() {
+    let home = home("events");
+    let hub = hub(&home, 1);
+    let line = "{\"type\":\"event_msg\",\"payload\":{\"type\":\"noop\"}}\n";
+    let file = home.join("rollout-0.jsonl");
+    std::fs::write(&file, line).unwrap();
+    let session = hub.resolve("w0").unwrap();
+    session.meta.lock().unwrap().watching = Some(Watching {
+        family: "codex".to_owned(),
+        file: file.clone(),
+        offset: 0,
+        codex_items: false,
+        open: None,
+    });
+    hub.start_watch(&session);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while offset(&hub, "w0") < line.len() as u64 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the watch reads its transcript");
+    // Let the check settle into its fast pace with the folder watched.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let write = |quiet: bool, i: usize| {
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&file)
+            .unwrap()
+            .write_all(line.as_bytes())
+            .unwrap();
+        let len = std::fs::metadata(&file).unwrap().len();
+        (len, format!("{} line {i}", if quiet { "after a quiet spell," } else { "mid-turn," }))
+    };
+    for (quiet, i) in [(false, 0), (false, 1), (false, 2), (true, 3), (true, 4)] {
+        if quiet {
+            // Past the check's fast window: it waits 2 s between timed checks.
+            tokio::time::sleep(Duration::from_secs(45)).await;
+        } else {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let (len, what) = write(quiet, i);
+        let at = tokio::time::Instant::now();
+        let shown =
+            without_timed_checks(Duration::from_secs(10), || offset(&hub, "w0") >= len).await;
+        assert!(shown, "{what}: not shown without a timed check (no file event woke the watch)");
+        assert_eq!(at, tokio::time::Instant::now(), "{what}: the paused clock moved");
+    }
+    session.meta.lock().unwrap().watching = None;
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let _ = std::fs::remove_dir_all(home);
+}

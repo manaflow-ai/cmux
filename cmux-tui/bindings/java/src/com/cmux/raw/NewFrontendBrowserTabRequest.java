@@ -20,12 +20,18 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
     private final Field<String> idempotencyKey;
     private final Field<String> owner;
     private final Field<UInt64> pane;
+    /** Where the tab goes in the strip of pane; it wins over after. Needs pane; refused with workspace or split. */
+    private final Field<TabPlace> place;
     private final Field<String> profileId;
     private final Field<Integer> rows;
     /** With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after. */
     private final Field<ConversationTabSplit> split;
     private final Field<String> title;
+    /** Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation. Refused with workspace or split. */
+    private final Field<String> transaction;
     private final String url;
+    /** Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split. */
+    private final Field<UInt64> workspace;
 
     private NewFrontendBrowserTabRequest(Builder builder) {
         this.activate = builder.activate;
@@ -37,12 +43,15 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         this.idempotencyKey = builder.idempotencyKey;
         this.owner = builder.owner;
         this.pane = builder.pane;
+        this.place = builder.place;
         this.profileId = builder.profileId;
         this.rows = builder.rows;
         this.split = builder.split;
         this.title = builder.title;
+        this.transaction = builder.transaction;
         if (!builder.urlSet) throw new IllegalArgumentException("url is required");
         this.url = Wire.nonNull(builder.url, "url");
+        this.workspace = builder.workspace;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -55,11 +64,14 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
     public Field<String> idempotencyKey() { return idempotencyKey; }
     public Field<String> owner() { return owner; }
     public Field<UInt64> pane() { return pane; }
+    public Field<TabPlace> place() { return place; }
     public Field<String> profileId() { return profileId; }
     public Field<Integer> rows() { return rows; }
     public Field<ConversationTabSplit> split() { return split; }
     public Field<String> title() { return title; }
+    public Field<String> transaction() { return transaction; }
     public String url() { return url; }
+    public Field<UInt64> workspace() { return workspace; }
 
     public static NewFrontendBrowserTabRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "NewFrontendBrowserTabRequest");
@@ -94,6 +106,10 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         if (!Wire.isMissing(rawPane)) {
             builder.pane(rawPane == null ? null : Wire.uint64(rawPane, "NewFrontendBrowserTabRequest.pane"));
         }
+        Object rawPlace = Wire.optional(object, "place");
+        if (!Wire.isMissing(rawPlace)) {
+            builder.place(rawPlace == null ? null : TabPlace.fromWire(rawPlace));
+        }
         Object rawProfileId = Wire.optional(object, "profile_id");
         if (!Wire.isMissing(rawProfileId)) {
             builder.profileId(rawProfileId == null ? null : Wire.string(rawProfileId, "NewFrontendBrowserTabRequest.profile_id"));
@@ -110,8 +126,16 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         if (!Wire.isMissing(rawTitle)) {
             builder.title(rawTitle == null ? null : Wire.string(rawTitle, "NewFrontendBrowserTabRequest.title"));
         }
+        Object rawTransaction = Wire.optional(object, "transaction");
+        if (!Wire.isMissing(rawTransaction)) {
+            builder.transaction(rawTransaction == null ? null : Wire.string(rawTransaction, "NewFrontendBrowserTabRequest.transaction"));
+        }
         Object rawUrl = Wire.required(object, "url");
         builder.url(Wire.string(rawUrl, "NewFrontendBrowserTabRequest.url"));
+        Object rawWorkspace = Wire.optional(object, "workspace");
+        if (!Wire.isMissing(rawWorkspace)) {
+            builder.workspace(rawWorkspace == null ? null : Wire.uint64(rawWorkspace, "NewFrontendBrowserTabRequest.workspace"));
+        }
         return builder.build();
     }
 
@@ -126,22 +150,25 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         Wire.put(object, "idempotency_key", idempotencyKey);
         Wire.put(object, "owner", owner);
         Wire.put(object, "pane", pane);
+        Wire.put(object, "place", place);
         Wire.put(object, "profile_id", profileId);
         Wire.put(object, "rows", rows);
         Wire.put(object, "split", split);
         Wire.put(object, "title", title);
+        Wire.put(object, "transaction", transaction);
         Wire.put(object, "url", url);
+        Wire.put(object, "workspace", workspace);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewFrontendBrowserTabRequest that)) return false;
-        return Objects.equals(activate, that.activate) && Objects.equals(after, that.after) && Objects.equals(cols, that.cols) && Objects.equals(engine, that.engine) && Objects.equals(faviconUrl, that.faviconUrl) && Objects.equals(idempotencyKey, that.idempotencyKey) && Objects.equals(owner, that.owner) && Objects.equals(pane, that.pane) && Objects.equals(profileId, that.profileId) && Objects.equals(rows, that.rows) && Objects.equals(split, that.split) && Objects.equals(title, that.title) && Objects.equals(url, that.url);
+        return Objects.equals(activate, that.activate) && Objects.equals(after, that.after) && Objects.equals(cols, that.cols) && Objects.equals(engine, that.engine) && Objects.equals(faviconUrl, that.faviconUrl) && Objects.equals(idempotencyKey, that.idempotencyKey) && Objects.equals(owner, that.owner) && Objects.equals(pane, that.pane) && Objects.equals(place, that.place) && Objects.equals(profileId, that.profileId) && Objects.equals(rows, that.rows) && Objects.equals(split, that.split) && Objects.equals(title, that.title) && Objects.equals(transaction, that.transaction) && Objects.equals(url, that.url) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(activate, after, cols, engine, faviconUrl, idempotencyKey, owner, pane, profileId, rows, split, title, url); }
+    public int hashCode() { return Objects.hash(activate, after, cols, engine, faviconUrl, idempotencyKey, owner, pane, place, profileId, rows, split, title, transaction, url, workspace); }
 
     @Override
     public String toString() { return "NewFrontendBrowserTabRequest" + toWire(); }
@@ -156,12 +183,15 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         private Field<String> idempotencyKey = Field.omitted();
         private Field<String> owner = Field.omitted();
         private Field<UInt64> pane = Field.omitted();
+        private Field<TabPlace> place = Field.omitted();
         private Field<String> profileId = Field.omitted();
         private Field<Integer> rows = Field.omitted();
         private Field<ConversationTabSplit> split = Field.omitted();
         private Field<String> title = Field.omitted();
+        private Field<String> transaction = Field.omitted();
         private String url;
         private boolean urlSet;
+        private Field<UInt64> workspace = Field.omitted();
 
         public Builder activate(Boolean value) {
             this.activate = Field.of(value);
@@ -196,6 +226,10 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
             this.pane = Field.ofNullable(value);
             return this;
         }
+        public Builder place(TabPlace value) {
+            this.place = Field.ofNullable(value);
+            return this;
+        }
         public Builder profileId(String value) {
             this.profileId = Field.ofNullable(value);
             return this;
@@ -212,9 +246,17 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
             this.title = Field.ofNullable(value);
             return this;
         }
+        public Builder transaction(String value) {
+            this.transaction = Field.ofNullable(value);
+            return this;
+        }
         public Builder url(String value) {
             this.url = value;
             this.urlSet = true;
+            return this;
+        }
+        public Builder workspace(UInt64 value) {
+            this.workspace = Field.ofNullable(value);
             return this;
         }
         public NewFrontendBrowserTabRequest build() { return new NewFrontendBrowserTabRequest(this); }

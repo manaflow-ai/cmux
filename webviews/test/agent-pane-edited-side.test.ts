@@ -148,14 +148,32 @@ await requireBrowserLane("agent-pane-edited-side.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  test("the card's header shows the turn's totals beside one View changes", async () => {
+  test("the card header keeps one review action and makes its totals a second review target", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(CHAT));
     await page.getByText("Retry added to the uploader.").waitFor();
     const card = page.locator(".acpmux-edited");
-    expect(await card.locator(".acpmux-edited-head").getByRole("button", { name: "View changes" }).count()).toBe(1);
+    expect(
+      await card.locator(".acpmux-edited-actions").getByRole("button", { name: "View changes", exact: true }).count(),
+    ).toBe(1);
     expect(await card.locator(".acpmux-edited-sub .acpmux-diff-add").textContent()).toBe("+2");
     expect(await card.locator(".acpmux-edited-sub .acpmux-diff-del").textContent()).toBe("-1");
+    const counts = card.locator(".acpmux-edited-summary");
+    expect(await counts.getAttribute("aria-label")).toBe("View changes +2 -1");
+    expect(await counts.locator(".acpmux-edited-summary-link").evaluate((node) => getComputedStyle(node).opacity)).toBe(
+      "0",
+    );
+    await counts.hover();
+    await page.waitForFunction(() => {
+      const link = document.querySelector(".acpmux-edited-summary-link");
+      return link && getComputedStyle(link).opacity === "1";
+    });
+    expect(await counts.locator(".acpmux-edited-summary-link").evaluate((node) => getComputedStyle(node).opacity)).toBe(
+      "1",
+    );
+    expect(
+      await counts.locator(".acpmux-edited-summary-counts").evaluate((node) => getComputedStyle(node).opacity),
+    ).toBe("0");
     await page.close();
   });
 });

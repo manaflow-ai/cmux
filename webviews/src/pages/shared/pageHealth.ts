@@ -7,6 +7,12 @@
 //   part, so the cost stays the same however many pages are open). `handled` counts the key and
 //   pointer presses the page's script received; the host counts the ones it sent, so a page that
 //   takes input but never runs its handlers reads as stuck. A host without the op stops the beats.
+// - Rest (CMUX-571, idle wakeups): after `REST_AFTER_BEATS` beats with no key, press, wheel, scroll
+//   or input, and no unsaved edits, the page sends one `{handled, rest: true}` and stops its timer,
+//   but only when the host's last beat answered `{rest: true}` (its health model then stops timing the
+//   page's silence; a host that answers anything else keeps the 2 s beat). The next activity beats at
+//   once and starts the timer again; input the host sends a resting page is still timed by the host,
+//   so a page that hangs while resting reads as stuck as soon as someone types or clicks in it.
 // - Kept state: the scroll position of the scroller that moved last (scrollers.ts), and the draft in
 //   a focused field that opted in (`[data-cmux-restore-draft]`: a textarea or plain contenteditable),
 //   go to sessionStorage, keyed by the page's URL, with each beat (the autosave a hung page's reload
@@ -16,20 +22,41 @@
 //   over a newer file. Editors that keep their own draft (the agent chat composer, composerDraft.ts)
 //   never opt in; a scroller whose page follows its rows itself (the agent transcript,
 //   `SHOWN_SCROLLER_ATTRIBUTE`) is left alone too.
+// - Unsaved edits: an editor whose text nothing has saved yet marks itself (or an ancestor) with
+//   `[data-cmux-unsaved-edits]`. While one is in the document each beat says `edits: true`, and an
+//   input that marks or clears one beats at once, so a page that hangs right after the edit is still
+//   held: the host never reloads or restarts such a page by itself.
 // - Fault injection: `window.__cmuxHealthInject({fault: "hang"})` busy-loops the page for real, for
 //   the host's fault-injection tests. It exists only when the host set `__cmuxHealthInjectAllowed`
 //   before page code ran; no other page gets the function.
 import { installScrollingMarks, lastScrolledElement, SHOWN_SCROLLER_ATTRIBUTE } from "../../scrollers";
 
-/** Page to host, `{handled}` → null: the page is alive; `handled` is its input count so far. */
+/** Page to host, `{handled, edits?, rest?}` → `{rest}`: the page is alive; `handled` is its input
+ * count so far; `rest` (sent) says it stops beating until something happens in it, and (answered)
+ * whether the host takes such rests. An older host answers null: the page never rests there. */
 export const PAGE_HEARTBEAT_OP = "cmux.page.heartbeat";
 /** Host to page, `{}` → `{saved}`: save scroll and draft now, the host reloads the page next. */
 export const PAGE_SAVE_STATE_OP = "cmux.page.save_state";
 /** The beat period while visible (the health contract's page policy). */
 export const HEARTBEAT_MS = 2000;
+/** Quiet beats before the page rests (10 s: cmux-health-core `PAGE_REST_AFTER_MS`). */
+export const REST_AFTER_BEATS = 5;
 /** The fault-injection push, and the flag the host sets at document start to allow it. */
 export const HEALTH_INJECT_NAME = "__cmuxHealthInject";
 export const HEALTH_INJECT_ALLOWED_NAME = "__cmuxHealthInjectAllowed";
+/** Marks an editor (or an ancestor) holding text nothing has saved yet; the host keeps the page. */
+export const UNSAVED_EDITS_ATTRIBUTE = "data-cmux-unsaved-edits";
+/** Marks (or clears) the whole document as holding unsaved edits: a file page whose text is not on disk
+ * yet (edited, saving, or its save failed). Synchronous, so the beat after the input sees it. */
+export function markUnsavedEdits(unsaved: boolean, doc: Document | undefined = globalThis.document): void {
+  const root = doc?.documentElement;
+  if (!doc || !root || root.hasAttribute(UNSAVED_EDITS_ATTRIBUTE) === unsaved) return;
+  root.toggleAttribute(UNSAVED_EDITS_ATTRIBUTE, unsaved);
+  // An edit with no `input` event (a keymap command: undo, a moved line) still beats at once.
+  doc.dispatchEvent(new (doc.defaultView ?? globalThis).Event(UNSAVED_EDITS_EVENT));
+}
+/** Sent on the document when ``markUnsavedEdits`` flips the mark. */
+export const UNSAVED_EDITS_EVENT = "cmux-unsaved-edits";
 /** sessionStorage key prefix; the page's URL follows. */
 export const KEPT_STATE_PREFIX = "cmux.page.kept:";
 /** How many frames a restore waits for its scroller and field to appear (about 2 s). */
@@ -45,7 +72,9 @@ interface HealthClient {
 
 export interface KeptState {
   scroll?: { path: string; top: number; left: number };
-  draft?: { path: string; text: string; start?: number; end?: number };
+  /** `base`: a textarea's text as the page loaded it (its default value), so a prefilled field the
+   * person edited still gets its edit back. */
+  draft?: { path: string; text: string; start?: number; end?: number; base?: string };
 }
 
 const installed = new WeakSet<Document>();
@@ -55,11 +84,36 @@ export function installPageHealth(client: HealthClient, doc: Document = document
   if (!view || installed.has(doc)) return;
   installed.add(doc);
   installScrollingMarks(doc);
+  // A field's text right before the person's first edit (a page's own prefill fires no beforeinput,
+  // so it stays the base however late it comes).
+  doc.addEventListener(
+    "beforeinput",
+    (event) => {
+      const field = draftField(event.target as Element | null);
+      if (field && isTextArea(field) && !loadedText.has(field)) loadedText.set(field, field.value);
+    },
+    { capture: true },
+  );
 
   let handled = 0;
-  const count = () => void handled++;
+  // Beats since the last activity; the page rests at `REST_AFTER_BEATS` when the host takes rests.
+  let quiet = 0;
+  let resting = false;
+  let hostTakesRest = false;
+  // Set below, once the timer exists: wakes a resting page.
+  let wake = () => {};
+  const active = () => {
+    quiet = 0;
+    if (resting) wake();
+  };
+  const count = () => {
+    handled++;
+    active();
+  };
   view.addEventListener("keydown", count, { capture: true, passive: true });
   view.addEventListener("pointerdown", count, { capture: true, passive: true });
+  view.addEventListener("wheel", active, { capture: true, passive: true });
+  doc.addEventListener("scroll", active, { capture: true, passive: true });
 
   const key = () => KEPT_STATE_PREFIX + view.location.href;
   let lastSaved = "";
@@ -67,12 +121,14 @@ export function installPageHealth(client: HealthClient, doc: Document = document
   let restoring = true;
   const save = () => {
     if (restoring) return;
+    // Keyed by URL too: a route change at the same place still saves the new route.
+    const at = key();
     const state = JSON.stringify(captureState(doc));
-    if (state === lastSaved) return;
-    lastSaved = state;
+    if (at + "\n" + state === lastSaved) return;
+    lastSaved = at + "\n" + state;
     try {
-      if (state === "{}") view.sessionStorage.removeItem(key());
-      else view.sessionStorage.setItem(key(), state);
+      if (state === "{}") view.sessionStorage.removeItem(at);
+      else view.sessionStorage.setItem(at, state);
     } catch {
       // Storage may be full or off; the page keeps working, only the reload loses its place.
     }
@@ -84,27 +140,59 @@ export function installPageHealth(client: HealthClient, doc: Document = document
     if (timer !== undefined) view.clearInterval(timer);
     timer = undefined;
   };
-  const beat = () => {
+  let edits = false;
+  const holdsEdits = () => doc.querySelector(`[${UNSAVED_EDITS_ATTRIBUTE}]`) !== null;
+  const beat = (rest = false) => {
     save();
     if (client.holding) return;
-    client.call(PAGE_HEARTBEAT_OP, { handled }).catch((error: unknown) => {
-      // An app without the op will never take one: stop for this document (stop condition).
-      if ((error as { code?: unknown } | null)?.code !== "cmux.protocol.unknown_op") return;
-      refused = true;
-      stop();
-    });
+    edits = holdsEdits();
+    const params = edits ? { handled, edits } : rest ? { handled, rest } : { handled };
+    client.call<{ rest?: unknown } | null>(PAGE_HEARTBEAT_OP, params).then(
+      (reply) => {
+        hostTakesRest = reply?.rest === true;
+      },
+      (error: unknown) => {
+        // An app without the op will never take one: stop for this document (stop condition).
+        if ((error as { code?: unknown } | null)?.code !== "cmux.protocol.unknown_op") return;
+        refused = true;
+        stop();
+      },
+    );
+  };
+  const tick = () => {
+    quiet++;
+    if (quiet < REST_AFTER_BEATS || !hostTakesRest || client.holding || holdsEdits()) return beat();
+    // Nothing happened for a while: the last beat says so, then no timer runs until something does.
+    beat(true);
+    stop();
+    resting = true;
+  };
+  const start = () => {
+    quiet = 0;
+    resting = false;
+    beat();
+    timer = view.setInterval(tick, HEARTBEAT_MS);
+  };
+  wake = () => {
+    if (!refused && doc.visibilityState === "visible" && timer === undefined) start();
   };
   const follow = () => {
-    if (refused) return;
+    // A hidden page saves its place even on an app that refused the beat.
     if (doc.visibilityState !== "visible") {
       stop();
       save();
       return;
     }
-    if (timer !== undefined) return;
-    beat();
-    timer = view.setInterval(beat, HEARTBEAT_MS);
+    if (refused || timer !== undefined) return;
+    start();
   };
+  // After the input's render (its mark is set or cleared by then), not at the next beat.
+  const editChanged = () => {
+    active();
+    if (!refused && doc.visibilityState === "visible" && holdsEdits() !== edits) beat();
+  };
+  view.addEventListener("input", () => view.setTimeout(editChanged, 0), { capture: true, passive: true });
+  doc.addEventListener(UNSAVED_EDITS_EVENT, editChanged);
   doc.addEventListener("visibilitychange", follow);
   view.addEventListener("pagehide", () => {
     stop();
@@ -158,16 +246,23 @@ export function captureState(doc: Document): KeptState {
   if (field) {
     const path = elementPath(field);
     const text = isTextArea(field) ? field.value : (field.textContent ?? "");
-    if (path && text.trim()) {
+    const base = isTextArea(field) ? (loadedText.get(field) ?? field.defaultValue) : "";
+    // A cleared prefilled field is an edit too: kept when it differs from what the page loaded.
+    if (path && (text.trim() || (base && text !== base))) {
       state.draft = { path, text };
       if (isTextArea(field)) {
         state.draft.start = field.selectionStart;
         state.draft.end = field.selectionEnd;
+        if (base) state.draft.base = base;
       }
     }
   }
   return state;
 }
+
+/** Each draft field's text as the page loaded it, kept apart from `defaultValue`, which a React
+ * controlled textarea keeps equal to its current value. */
+const loadedText = new WeakMap<HTMLTextAreaElement, string>();
 
 // Element checks by name, not `instanceof`: the page's constructors belong to its own window.
 const isTextArea = (element: Element): element is HTMLTextAreaElement => element.localName === "textarea";
@@ -187,21 +282,35 @@ function draftField(element: Element | null): HTMLElement | null {
   return element.isContentEditable || element.getAttribute("contenteditable") === "true" ? element : null;
 }
 
-/** Puts the kept scroll and draft back once their elements exist, giving up after `RESTORE_FRAMES`;
- * then calls `done`. */
+/** Puts the kept scroll and draft back once their elements exist, giving up after `RESTORE_FRAMES`
+ * or when the page navigates (the state is the old route's); then calls `done`. A person who
+ * scrolls first keeps their own place. */
 export function restoreState(doc: Document, state: KeptState | null, done: () => void = () => {}): void {
   const view = doc.defaultView;
   if (!view || !state || (!state.scroll && !state.draft)) return done();
   let scroll = state.scroll;
   let draft = state.draft;
   let frames = 0;
+  const href = view.location.href;
+  const userScrolled = () => (scroll = undefined);
+  const userScrolls = ["wheel", "touchmove", "keydown", "pointerdown"] as const;
+  for (const type of userScrolls) doc.addEventListener(type, userScrolled, { capture: true, passive: true });
+  const finish = () => {
+    for (const type of userScrolls) doc.removeEventListener(type, userScrolled, { capture: true });
+    done();
+  };
   const step = () => {
+    if (view.location.href !== href) return finish();
     frames += 1;
     const last = frames >= RESTORE_FRAMES;
     if (scroll) {
       const element = find(doc, scroll.path);
-      // Wait for the content to be tall enough, unless this is the last try.
-      if (element && (last || element.scrollHeight - element.clientHeight >= scroll.top)) {
+      // Wait for the content to be tall and wide enough, unless this is the last try.
+      const fits =
+        element &&
+        element.scrollHeight - element.clientHeight >= scroll.top &&
+        element.scrollWidth - element.clientWidth >= scroll.left;
+      if (element && (last || fits)) {
         element.scrollTop = scroll.top;
         element.scrollLeft = scroll.left;
         scroll = undefined;
@@ -215,17 +324,20 @@ export function restoreState(doc: Document, state: KeptState | null, done: () =>
       }
     }
     if ((scroll || draft) && !last) view.requestAnimationFrame(step);
-    else done();
+    else finish();
   };
   step();
 }
 
 /** Writes a draft through the field's own input path, so a React-controlled field takes it too;
- * text the person already typed since the load is never replaced. */
+ * text the person already typed since the load is never replaced. A field that still shows what the
+ * page loaded into it (its kept `base`) takes the edit back. */
 function putDraft(field: HTMLElement, draft: NonNullable<KeptState["draft"]>): void {
   const view = field.ownerDocument.defaultView;
   if (isTextArea(field)) {
-    if (field.value || !view) return;
+    if (!view || (field.value && field.value !== draft.base) || field.value === draft.text) return;
+    // The page's own text stays the field's base after the edit comes back.
+    if (!loadedText.has(field)) loadedText.set(field, field.value);
     // The prototype's setter, not the property: React tracks the property and would drop the event.
     Object.getOwnPropertyDescriptor(view.HTMLTextAreaElement.prototype, "value")?.set?.call(field, draft.text);
     field.dispatchEvent(new view.Event("input", { bubbles: true }));

@@ -30,6 +30,22 @@ impl Hub {
         true
     }
 
+    /// What `session`'s hold for a person is (`SessionSummary::person_hold`): its folder and why
+    /// it waits, or `None` when nothing waits for a person there. The folder is read only while
+    /// the hold is on.
+    pub(crate) fn person_hold(
+        &self,
+        session: &Session,
+    ) -> Option<crate::protocol::session::PersonHold> {
+        if !session.protected_hold.load(Ordering::SeqCst) {
+            return None;
+        }
+        let cwd = session.meta().cwd.clone();
+        let reason = crate::protected_folders::restored_work_refusal(&cwd)
+            .unwrap_or_else(|| format!("{} is a guarded folder", cwd.display()));
+        Some(crate::protocol::session::PersonHold { folder: cwd.display().to_string(), reason })
+    }
+
     /// The person asked for `session` (showed it, typed into it, prompted it): what a daemon
     /// start held there (`hold_in_protected_folder`) goes on now. Nothing when nothing was held.
     pub(crate) fn release_protected_hold(self: &Arc<Self>, session: &Arc<Session>) {

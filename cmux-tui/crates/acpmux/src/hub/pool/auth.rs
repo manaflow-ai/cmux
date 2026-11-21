@@ -31,6 +31,11 @@ const AUTH_ENV: &[&str] = &[
     "CODEX_HOME",
     "XDG_DATA_HOME",
     "OPENCODE_CONFIG",
+    "GEMINI_API_KEY",
+    "GEMINI_CLI_HOME",
+    "GOOGLE_API_KEY",
+    "XAI_API_KEY",
+    "GROK_HOME",
 ];
 
 /// Where one family keeps its login, and how to read the account from it.
@@ -42,6 +47,11 @@ enum Reader {
     CodexAuth,
     /// OpenCode `auth.json`: each provider's type, account and key.
     OpencodeAuth,
+    /// Gemini CLI `google_accounts.json`: the signed-in Google account (`active`).
+    GeminiAccounts,
+    /// grok's `auth.json`: the account fields it carries (never its tokens), so a token refresh keeps
+    /// the session and another account does not.
+    GrokAuth,
     /// No account field (token files): present or not.
     Stat,
 }
@@ -79,6 +89,26 @@ fn files(
                 .filter(|path| path.is_absolute())
                 .unwrap_or_else(|| home.join(".local/share"));
             vec![(data.join("opencode/auth.json"), Reader::OpencodeAuth)]
+        }
+        "gemini" => {
+            // Gemini CLI reads `GEMINI_CLI_HOME` as its home: the login is under its `.gemini`.
+            let dir = env("GEMINI_CLI_HOME")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.clone())
+                .join(".gemini");
+            vec![
+                (dir.join("google_accounts.json"), Reader::GeminiAccounts),
+                (dir.join("oauth_creds.json"), Reader::Stat),
+            ]
+        }
+        "grok" => {
+            // xAI's grok CLI: `GROK_HOME` is its `~/.grok`; `grok login` writes `auth.json`.
+            let dir = env("GROK_HOME")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join(".grok"));
+            vec![(dir.join("auth.json"), Reader::GrokAuth)]
         }
         _ => vec![],
     }
@@ -198,6 +228,37 @@ fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
                         .hash(&mut h);
                 }
             }
+        }
+        Reader::GeminiAccounts => s(&v, "/active").hash(&mut h),
+        Reader::GrokAuth => {
+            // Its schema is grok's own: every account-shaped field it has, at the top or one level down.
+            const IDS: [&str; 8] = [
+                "user_id",
+                "userId",
+                "account_id",
+                "accountId",
+                "email",
+                "sub",
+                "team_id",
+                "teamId",
+            ];
+            let mut ids = Vec::new();
+            let mut scan = |o: &serde_json::Map<String, serde_json::Value>, at: &str| {
+                for id in IDS {
+                    if let Some(x) = o.get(id) {
+                        ids.push((at.to_owned(), id, x.to_string()));
+                    }
+                }
+            };
+            if let Some(top) = v.as_object() {
+                scan(top, "");
+                for (k, x) in top {
+                    if let Some(inner) = x.as_object() {
+                        scan(inner, k);
+                    }
+                }
+            }
+            ids.hash(&mut h);
         }
         // Never parsed (`file_part` counts presence only).
         Reader::Stat => {}

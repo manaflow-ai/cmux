@@ -12,7 +12,7 @@ use cmux_host::proc_roles::{RolePaths, Supervisor, load_roles};
 use cmux_server::cli::{Context, dispatch, parse};
 use cmux_server::exec::RecordingExec;
 use cmux_server::host;
-use cmux_server::process::RecordingRunner;
+use cmux_server::process::{Output, RecordingRunner};
 use cmux_server_core::InstallMode;
 use cmux_server_core::layout::Layout;
 use cmux_server_core::role_proc::RoleState;
@@ -39,10 +39,22 @@ impl Fixture {
         );
         let home = tempfile::Builder::new().prefix("srvboot").tempdir_in("/tmp").unwrap();
         let layout = host::layout_for(InstallMode::User, &env_for(home.path())).unwrap();
+        let runner = RecordingRunner::new();
+        // systemd knows no cmux-server.service here.
+        runner.answer_always(
+            "--property=LoadState",
+            Output {
+                code: Some(0),
+                stdout: b"LoadState=not-found\nFragmentPath=\nTransient=no\n".to_vec(),
+                ..Output::default()
+            },
+        );
+        // launchd has no com.cmux.server loaded here.
+        runner.answer_always("launchctl print", Output { code: Some(113), ..Output::default() });
         Self {
             home,
             layout,
-            runner: RecordingRunner::new(),
+            runner,
             fetcher: MapFetcher::default(),
             signer: Signer::new(3),
             exec: RecordingExec::default(),
@@ -61,6 +73,7 @@ impl Fixture {
             reexec_guard: None,
             env: env_for(self.home.path()),
             now_ms: NOW_MS,
+            self_exe: None,
         };
         dispatch(&context, &parse(&args)?).map(|output| output.json)
     }
@@ -103,6 +116,13 @@ for line in connection.makefile('r'):
         if corrupt {
             self.fetcher.put(&package.url(), b"incomplete archive".to_vec());
         }
+    }
+
+    /// The service-manager commands that change something: install asks
+    /// systemd where it loads the unit from (`systemctl show`) before it
+    /// verifies a package, and that query changes nothing.
+    fn service_changes(&self) -> Vec<String> {
+        self.runner.lines().into_iter().filter(|line| !line.contains(" show ")).collect()
     }
 
     fn config(&self) -> std::path::PathBuf {
@@ -153,7 +173,7 @@ async fn signed_server_install_bootstrap_rejected_first_install_does_not_persist
     assert!(fixture.run("install").is_err());
     assert!(!fixture.config().exists(), "a rejected package cannot commit a new install identity");
     assert!(!std::path::Path::new(fixture.layout.current.as_str()).exists());
-    assert!(fixture.runner.commands().is_empty(), "no service command before verification");
+    assert!(fixture.service_changes().is_empty(), "no service command before verification");
 }
 
 #[tokio::test]
@@ -168,12 +188,12 @@ async fn signed_server_install_bootstrap_rejected_reinstall_preserves_config_and
     let supervisor = fixture.supervisor();
     let mut running = worker(&listener, "1.0.0").await;
     let before = std::fs::read(fixture.config()).unwrap();
-    let service_commands = fixture.runner.commands().len();
+    let service_commands = fixture.service_changes().len();
     fixture.publish("beta", 2, "2.0.0", true);
     assert!(fixture.run("install --channel beta").is_err());
     assert_eq!(std::fs::read(fixture.config()).unwrap(), before, "keep the last successful config");
     assert_eq!(
-        fixture.runner.commands().len(),
+        fixture.service_changes().len(),
         service_commands,
         "no restart after a rejected package"
     );

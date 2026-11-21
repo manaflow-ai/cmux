@@ -31,8 +31,12 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARD = ROOT / "scripts" / "ci" / "promote-nightly-next.mjs"
@@ -922,7 +926,7 @@ def test_only_the_wait_for_the_approval_is_cancellable() -> None:
     assert "scan_failed == 'true' && format('-wait-{0}', github.run_id)" in wait["concurrency"]["group"]
     assert "'release-surface-ack'" in wait["environment"] and "action == 'needs-ack'" in wait["environment"]
     assert wait["permissions"] == {}
-    assert "secrets." not in json.dumps(wait)
+    assert not workflow_jobs.secret_names(wait)
     # The writers are never in a cancelling group.
     assert move["concurrency"]["cancel-in-progress"] is False and "github.run_id" in move["concurrency"]["group"]
     assert decide_job["concurrency"] == {"group": "nightly-next-promote", "cancel-in-progress": False}

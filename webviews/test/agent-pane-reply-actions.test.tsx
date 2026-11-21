@@ -124,7 +124,8 @@ test("a turn of tool calls alone has no Copy and no Read aloud", () => {
   expect(footer.turnCopy).toBeUndefined();
   const html = renderToStaticMarkup(<TurnFooter row={footer} />);
   expect(html).not.toContain('aria-label="Copy"');
-  expect(html).toContain('class="cv-turn-time"');
+  // No time at the footer's end either (Lawrence and Lucas, 2026-11-11 standup: no time on hover).
+  expect(html).not.toContain("cv-turn-time");
 });
 
 test("a steer that waits for the agent offers Copy beside Send now", () => {

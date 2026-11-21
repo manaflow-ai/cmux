@@ -40,7 +40,7 @@ public final class BrowserMediaRowView: NSView {
         artwork.image = image ?? NSImage.icon(.browserToolbarMedia, size: 40)
         artwork.imageScaling = .scaleProportionallyUpOrDown
         artwork.wantsLayer = true
-        artwork.layer?.cornerRadius = Metrics.controlCornerRadius
+        artwork.layer?.cornerRadius = Metrics.controlCornerRadius // radius-allow: album artwork, an image
         artwork.layer?.masksToBounds = true
         style(titleLabel, title, font: Typography.system(size: TypeScale.body, weight: TypeScale.emphasis), color: .labelColor)
         style(subtitleLabel, subtitle, font: Typography.system(size: TypeScale.caption, weight: TypeScale.regular), color: .secondaryLabelColor)

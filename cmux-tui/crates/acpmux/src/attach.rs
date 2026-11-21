@@ -317,18 +317,41 @@ impl Sent {
     /// The block that names the upload (`prompt_uploads.rs`), marked as this prompt's own: the
     /// daemon deletes it if the prompt is refused before the chat takes it (`Saved`).
     fn block(&self) -> Value {
-        let (id, name) = (&self.id, &self.name);
-        let mut upload = json!({"uploadId": id, "fileName": name});
-        if let Some(token) = &self.owner {
-            upload.set("owned", json!(token));
-        }
-        let meta = json!({"acpmux": {"upload": upload}});
-        match image_type(&self.head) {
-            Some(mime) => json!({"type": "image", "mimeType": mime, "_meta": meta}),
-            None => json!({"type": "resource_link", "name": name,
-                "uri": format!("{}{id}", crate::prompt_uploads::URI_SCHEME), "_meta": meta}),
-        }
+        upload_block(&self.id, &self.name, self.owner.as_deref(), &self.head)
     }
+}
+
+/// The block that names upload `id` of file `name`, whose first bytes are `head`; `owner`: the
+/// token that marks it as this prompt's own ([`Sent::block`]).
+fn upload_block(id: &str, name: &str, owner: Option<&str>, head: &[u8]) -> Value {
+    let mut upload = json!({"uploadId": id, "fileName": name});
+    if let Some(token) = owner {
+        upload.set("owned", json!(token));
+    }
+    let meta = json!({"acpmux": {"upload": upload}});
+    match image_type(head) {
+        Some(mime) => json!({"type": "image", "mimeType": mime, "_meta": meta}),
+        None => json!({"type": "resource_link", "name": name,
+            "uri": format!("{}{id}", crate::prompt_uploads::URI_SCHEME), "_meta": meta}),
+    }
+}
+
+/// Tests only: one block of each kind [`blocks_for`] (and [`reference_for`]) can put in a
+/// prompt, made by the same constructors: an inline image and an inline file, each marked as an
+/// attachment ([`block`]), and an upload named by reference, an image or any other file
+/// ([`upload_block`]), with or without its owner token. A new kind of block those functions
+/// make goes here, and `open_delivery`'s coverage test then says what a move needs of it.
+#[cfg(test)]
+pub(crate) fn every_block_kind() -> Vec<Value> {
+    const PNG: &[u8] =
+        b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89";
+    let id = "019a0000-0000-7000-8000-000000000001";
+    vec![
+        block("shot.png", PNG),
+        block("notes.txt", b"the notes"),
+        upload_block(id, "big.png", Some("owner-token"), PNG),
+        upload_block(id, "big.log", None, b"a log"),
+    ]
 }
 
 fn mark(block: &Value) -> Option<&Value> {
@@ -343,6 +366,49 @@ pub fn any(blocks: &[Value]) -> bool {
 /// Whether every one of `blocks` is an attachment.
 pub fn all(blocks: &[Value]) -> bool {
     blocks.iter().all(|b| mark(b).is_some())
+}
+
+/// The name [`receive`] saves each attachment of `blocks` under, by its index: its own name,
+/// made safe; two of one message under one name, the later ones with a number.
+pub fn saved_names(blocks: &[Value]) -> Vec<(usize, String)> {
+    let mut names = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for (index, b) in blocks.iter().enumerate() {
+        let Some(m) = mark(b) else { continue };
+        let base = safe_name(m.get("name").and_then(Value::as_str).unwrap_or("attachment"));
+        let (mut name, mut n) = (base.clone(), 1);
+        while !names.insert(name.clone()) {
+            n += 1;
+            name = safe_name(&format!("{n}-{base}"));
+        }
+        out.push((index, name));
+    }
+    out
+}
+
+/// An attachment block's bytes, decoded.
+pub fn bytes_of(block: &Value) -> Option<Vec<u8>> {
+    base64::engine::general_purpose::STANDARD.decode(data_of(block)?).ok()
+}
+
+/// The files a `queued` record's prompt names that [`receive`] saved on its machine
+/// (`resource_link` blocks with a `file://` URI): each one's path and name.
+pub fn saved_links(blocks: &[Value]) -> Vec<(std::path::PathBuf, String)> {
+    blocks
+        .iter()
+        .filter(|b| b.get("type").and_then(Value::as_str) == Some("resource_link"))
+        .filter_map(|b| {
+            let uri = reqwest::Url::parse(b.get("uri")?.as_str()?).ok()?;
+            let path = uri.to_file_path().ok()?;
+            Some((path, b.get("name")?.as_str()?.to_owned()))
+        })
+        .collect()
+}
+
+/// The hex SHA-256 of `bytes`: how an owner and its machine compare a saved file.
+pub fn sha256(bytes: &[u8]) -> String {
+    use sha2::Digest as _;
+    sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// An attachment block's base64 bytes.
@@ -415,9 +481,9 @@ pub fn receive(
         ));
     }
     let mut files = Vec::new();
-    let mut names = std::collections::HashSet::new();
-    for (index, b) in blocks.iter().enumerate() {
-        let Some(m) = mark(b) else { continue };
+    let names = saved_names(blocks);
+    for (index, name) in names {
+        let Some(b) = blocks.get(index) else { continue };
         let data = data_of(b).ok_or_else(|| {
             refused(
                 "attach.invalid",
@@ -427,13 +493,6 @@ pub fn receive(
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(data)
             .map_err(|e| refused("attach.invalid", format!("an attachment is not base64: {e}")))?;
-        let base = safe_name(m.get("name").and_then(Value::as_str).unwrap_or("attachment"));
-        // Two files of one message under one name: the later ones get a number.
-        let (mut name, mut n) = (base.clone(), 1);
-        while !names.insert(name.clone()) {
-            n += 1;
-            name = safe_name(&format!("{n}-{base}"));
-        }
         files.push((index, name, bytes));
     }
     let uploads = crate::hub::file_uploads::session_dir(session)
@@ -584,7 +643,7 @@ impl Saved {
                 remove_uploads(&owned);
             }
             if let Some(dir) = dir.filter(|_| !keep) {
-                let _ = std::fs::remove_dir_all(dir);
+                let _ = crate::home_fs::remove_dir_all(dir);
             }
         })
         .await;
@@ -602,7 +661,7 @@ impl Held {
     fn remove(self) {
         remove_uploads(&self.owned);
         if let Some(dir) = self.dir {
-            let _ = std::fs::remove_dir_all(dir);
+            let _ = crate::home_fs::remove_dir_all(dir);
         }
     }
 }
@@ -646,7 +705,7 @@ fn off_runtime(f: impl FnOnce() + Send + 'static) {
 
 /// Deletes folder `dir` off the runtime when there is one.
 fn remove_soon(dir: PathBuf) {
-    off_runtime(move || drop(std::fs::remove_dir_all(dir)));
+    off_runtime(move || drop(crate::home_fs::remove_dir_all(dir)));
 }
 
 impl Drop for Saved {

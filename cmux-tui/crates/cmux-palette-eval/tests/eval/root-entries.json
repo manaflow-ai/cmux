@@ -7557,44 +7557,6 @@
     },
     {
       "entry": {
-        "actionID": "toggleRightSidebar",
-        "demoted": false,
-        "entersScope": false,
-        "frecencyKey": "action:toggleRightSidebar",
-        "hasShortcut": true,
-        "hidesWhenTyping": false,
-        "isEnabled": false,
-        "isVisibleWhenQueryEmpty": true,
-        "keywords": ["files", "explorer", "panel"],
-        "rankBias": 0,
-        "sectionIndex": 7,
-        "subtitle": "Not available in this version of cmux yet.",
-        "title": "Toggle Right Sidebar",
-        "typingSectionIndex": 16
-      },
-      "id": "action:toggleRightSidebar"
-    },
-    {
-      "entry": {
-        "actionID": "focusRightSidebar",
-        "demoted": false,
-        "entersScope": false,
-        "frecencyKey": "action:focusRightSidebar",
-        "hasShortcut": true,
-        "hidesWhenTyping": false,
-        "isEnabled": false,
-        "isVisibleWhenQueryEmpty": true,
-        "keywords": ["files", "explorer", "panel"],
-        "rankBias": 0,
-        "sectionIndex": 7,
-        "subtitle": "Not available in this version of cmux yet.",
-        "title": "Focus Right Sidebar",
-        "typingSectionIndex": 16
-      },
-      "id": "action:focusRightSidebar"
-    },
-    {
-      "entry": {
         "actionID": "vaultFocusSession",
         "demoted": false,
         "entersScope": false,
