@@ -415,6 +415,42 @@ class ReactPortTests(unittest.TestCase):
                 lb.parse(area + bad)
 
 
+class TeammateTests(unittest.TestCase):
+    """A teammate's own pull request passes without a label (Leo, 2026-11-21: "and the whole label ceremony we need
+    to make sure that doesnt block teammates and whatnot"); agents act as teamleaderleo or a bot and stay held."""
+
+    def test_teammate_passes_a_port_and_a_boundary_loss_without_labels(self) -> None:
+        for text in (FIXTURE.read_text(), SWIFT_TO_TSX):
+            code, lines = lb.check(AREAS, records(text), [], [], [], port=PORT, author="lawrencecchen",
+                                   author_type="User")
+            self.assertEqual(code, 0, lines)
+            self.assertIn("lawrencecchen's own pull request", lines[0])
+            self.assertFalse(any(line.startswith("::error::") for line in lines), lines)
+            self.assertFalse(any(line.startswith("next:") for line in lines), lines)
+
+    def test_agents_and_unknown_authors_stay_held(self) -> None:
+        for author, kind in (("teamleaderleo", "User"), ("TeamLeaderLeo", "User"), ("cmux-agent[bot]", "Bot"),
+                             ("someone", "Bot"), ("someone[bot]", "User"), ("", "User"), (None, None),
+                             ("lawrencecchen", None)):
+            code, _ = lb.check(AREAS, records(FIXTURE.read_text()), [], [], [], port=PORT, author=author,
+                               author_type=kind)
+            self.assertEqual(code, 1, (author, kind))
+
+    def test_cli_takes_the_author(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            files = Path(tmp) / "f.tsv"
+            files.write_text(SWIFT_TO_TSX)
+            args = ["--files", str(files), "--manifest", str(MANIFEST)]
+            self.assertEqual(cli(args + ["--author", "teamleaderleo", "--author-type", "User"]), 1)
+            self.assertEqual(cli(args + ["--author", "austinywang", "--author-type", "User"]), 0)
+
+    def test_workflow_passes_the_author(self) -> None:
+        text = WORKFLOW.read_text()
+        self.assertIn("AUTHOR: ${{ github.event.pull_request.user.login }}", text)
+        self.assertIn("AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}", text)
+        self.assertIn('--author "$AUTHOR" --author-type "$AUTHOR_TYPE"', text)
+
+
 class CliAndWorkflowTests(unittest.TestCase):
     def test_cli_reads_files_events_and_notes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

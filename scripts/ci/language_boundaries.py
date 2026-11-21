@@ -36,6 +36,11 @@ moving from Swift to React. It passes only when the `react-port-ok` label is on 
 actor is one of the table's `approvers` (Lawrence or Leo), a User account acting without a GitHub App. Swift to Rust
 passes. The same limit as above holds for teamleaderleo, whose token agents share.
 
+A teammate's own pull request passes without any label: one whose author is a User account other than teamleaderleo
+(not a bot, not a `[bot]` login), so not an agent's. The labels exist to stop agents, who act as teamleaderleo; they
+never block a teammate (Leo, 2026-11-21: "and the whole label ceremony we need to make sure that doesnt block
+teammates and whatnot"). What the check found is still printed, as notices.
+
 Changed files arrive as REST's JSON lines (`--format json`) or `git diff -z --name-status -M` (`--format git-z`):
 both carry any path byte for byte. The TSV form (`--format tsv`) refuses a git-quoted path, since git quotes a path
 with a quote, tab, newline or backslash in it, and the quoted form would match no area.
@@ -465,13 +470,41 @@ def read_jsonl(path: Path | None) -> list[dict]:
     return out
 
 
+TEAMMATE_RULE = ('Leo, 2026-11-21: "and the whole label ceremony we need to make sure that doesnt block teammates and '
+                 'whatnot"')
+
+
+def teammate(author: str | None, author_type: str | None) -> bool:
+    """Whether a pull request is a teammate's own: its author is a User account other than teamleaderleo (whose token
+    the agents share) and no bot. Unknown author or type is not a teammate's: the labels still apply."""
+    login = str(author or "").strip()
+    return bool(login) and author_type == "User" and not login.lower().endswith("[bot]") and login.lower() != LEO
+
+
+def teammate_pass(author: str, lines: list[str]) -> tuple[int, list[str]]:
+    """A teammate's PR passes: every finding becomes a notice, and the first line says why."""
+    notes = [line.replace("::error::", "::notice::", 1) for line in lines if not line.startswith("next:")]
+    return 0, [f"::notice::{author}'s own pull request: no label needed, the labels only hold agents' pull requests "
+               f"({TEAMMATE_RULE})."] + notes
+
+
 REACT_RULE = ("Lawrence, relayed by Leo (2026-11-11): \"also let's not move stuff to react anymore unless we talk "
               "about it / swift->rust is usually fine though\"")
 
 
 def check(areas: list[Area], records: list[Record], labels: list[str], events: list[dict], notes: list[dict],
-          expected_files: int | None = None, port: ReactPort | None = None) -> tuple[int, list[str]]:
-    """(exit code, annotation lines). PORT is the manifest's `[[react_port]]` table (None: no React-port rule)."""
+          expected_files: int | None = None, port: ReactPort | None = None, author: str | None = None,
+          author_type: str | None = None) -> tuple[int, list[str]]:
+    """(exit code, annotation lines). PORT is the manifest's `[[react_port]]` table (None: no React-port rule). A
+    teammate's own pull request (AUTHOR, AUTHOR_TYPE: teammate()) always passes, its findings shown as notices."""
+    code, lines = _check(areas, records, labels, events, notes, expected_files, port)
+    if code and teammate(author, author_type):
+        return teammate_pass(str(author), lines)
+    return code, lines
+
+
+def _check(areas: list[Area], records: list[Record], labels: list[str], events: list[dict], notes: list[dict],
+           expected_files: int | None = None, port: ReactPort | None = None) -> tuple[int, list[str]]:
     approved, why = leo_approval(labels, events, notes)
     paths = {r.path for r in records}
     if expected_files is not None and len(records) < expected_files and not approved:
@@ -520,6 +553,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--notes", type=Path, default=None, help="comments and reviews, JSON lines {user,type,body,app,source}")
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--expected-files", type=int, default=None, help="the pull request's changed_files")
+    parser.add_argument("--author", default=None, help="the pull request author's login")
+    parser.add_argument("--author-type", default=None, help="the author's account type (User, Bot)")
     args = parser.parse_args(argv)
     try:
         areas = load(args.manifest)
@@ -537,7 +572,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"::error::Could not read the pull request's files, labels or history: {exc}")
         print("next: re-run this check; nothing was decided")
         return 3
-    code, lines = check(areas, records, labels, events, notes, args.expected_files, port)
+    code, lines = check(areas, records, labels, events, notes, args.expected_files, port, args.author,
+                        args.author_type)
     for line in lines:
         print(line)
     return code
