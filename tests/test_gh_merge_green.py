@@ -198,6 +198,32 @@ class MainFixEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(module.Refused, "Build package and tests"):
             self.validate()
 
+    def test_a_red_check_hidden_behind_a_newer_green_sibling_of_its_name_still_refuses(self):
+        """hq#17005's class in the reader that grants the exception. GitHub names a check run by its job name, so two
+        workflows each with a job of one name are two check runs of that name at one head. While this sweep read only
+        the newest of each name, a red whose same-named sibling in another workflow finished later and green was
+        invisible to it -- and this sweep exists so that no failed check goes unexplained."""
+        for conclusion in ("failure", "timed_out", "cancelled", "startup_failure"):
+            with self.subTest(conclusion=conclusion):
+                self.gh = FakeGitHub()
+                shared = "lane tests"  # one job name, two workflows: two check runs, red first, green newer
+                self.gh.head_checks.append({"id": 90, "name": shared, "status": "completed", "app": {"slug": "github-actions"},
+                                            "check_suite": {"id": 9000}, "conclusion": conclusion,
+                                            "details_url": "https://github.com/manaflow-ai/cmux/actions/runs/90/job/90"})
+                self.gh.head_checks.append({"id": 91, "name": shared, "status": "completed", "app": {"slug": "github-actions"},
+                                            "check_suite": {"id": 9001}, "conclusion": "success",
+                                            "details_url": "https://github.com/manaflow-ai/cmux/actions/runs/91/job/91"})
+                with self.assertRaisesRegex(module.Refused, f"{shared}: failed check has no same-base test match"):
+                    self.validate()
+
+    def test_two_check_runs_of_one_name_that_are_both_green_still_pass(self):
+        """The other half: keeping every candidate must not invent a refusal where nothing is red."""
+        for suite, ident in ((9000, 90), (9001, 91)):
+            self.gh.head_checks.append({"id": ident, "name": "lane tests", "status": "completed", "conclusion": "success",
+                                        "app": {"slug": "github-actions"}, "check_suite": {"id": suite},
+                                        "details_url": f"https://github.com/manaflow-ai/cmux/actions/runs/{ident}/job/{ident}"})
+        self.assertIn(HEAD, self.validate())
+
     def test_same_base_failure_is_named_in_audit(self):
         self.gh.fail_test()
         evidence = self.validate()
