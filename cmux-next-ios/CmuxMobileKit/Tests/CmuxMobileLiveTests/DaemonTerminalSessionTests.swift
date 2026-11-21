@@ -65,12 +65,23 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var pasteSubmit = false
     /// `send` with `submit` is answered with an error (a daemon refusing the paste).
     var refusesPasteSubmit = false
+    /// `identify` advertises attach-terminal-id-v1: `attach-surface` takes `terminal_id`, resolves
+    /// it as `resolve-terminal` does (the `terminals`, `exited` tables) and names the surface.
+    var attachTerminalID = false
     private var declaredHybrid = false
+    private var writeLog: [[String]] = []
+
+    /// The commands of each write the daemon received (a batch is one write).
+    var writes: [[String]] { lock.withLock { writeLog } }
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
 
     func respond(_ service: String, _ data: Data) -> [Data] {
         // A batch (`DaemonClient.requests`) is several lines in one write.
+        let cmds = data.split(separator: 0x0A).compactMap {
+            (try? JSONSerialization.jsonObject(with: Data($0)) as? [String: Any])?["cmd"] as? String
+        }
+        if !cmds.isEmpty { lock.withLock { writeLog.append(cmds) } }
         data.split(separator: 0x0A).flatMap { respondLine(service, Data($0)) }
     }
 
@@ -92,7 +103,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             return [Self.line(["id": id, "ok": false, "error": "send refused"])]
         case "resize-surface" where lock.withLock({ unansweredResizes }):
             return []
-        case "identify" where initialSize || sizeLease || shortSizeLease || sharedSizing || tailReplay || pasteSubmit || lock.withLock({ advertisesHybrid }):
+        case "identify" where attachTerminalID || initialSize || sizeLease || shortSizeLease || sharedSizing || tailReplay || pasteSubmit || lock.withLock({ advertisesHybrid }):
             // Built in steps: one long `+` chain is too slow for the type checker.
             var capabilities: [String] = []
             if initialSize { capabilities.append("attach-initial-size") }
@@ -101,6 +112,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             if lock.withLock({ advertisesHybrid }) { capabilities += ["agent-cli-hybrid-v1", "agent-cli-hybrid-v2"] }
             if sharedSizing { capabilities += ["shared-sizing-v1", "host-size-policy-v1"] }
             if tailReplay { capabilities.append("attach-replay-history-rows-v1") }
+            if attachTerminalID { capabilities.append("attach-terminal-id-v1") }
             if pasteSubmit { capabilities.append("send-expect-agent-v1") }
             return [reply(["capabilities": capabilities])]
         case "attach-surface" where object["replay_history_rows"] != nil && lock.withLock({ laneRefusesHistoryRows }):
@@ -140,6 +152,17 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             }
             return [reply(["surface": surface, "terminal_id": id2])]
         case "attach-surface":
+            var object = object
+            let byTerminal = attachTerminalID && object["terminal_id"] is String
+            if byTerminal, let terminal = object["terminal_id"] as? String {
+                if lock.withLock({ exited.contains(terminal) }) {
+                    return [Self.line(["id": id, "ok": false, "error": "terminal_exited exit_code=3"])]
+                }
+                guard let surface = lock.withLock({ self.terminals?[terminal] }) else {
+                    return [Self.line(["id": id, "ok": false, "error": "terminal_not_found"])]
+                }
+                object["surface"] = surface
+            }
             let fail: Bool = lock.withLock {
                 guard failNextAttaches > 0 else { return false }
                 failNextAttaches -= 1
@@ -171,7 +194,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             }
             let lines: [Data] = [
                 Self.line(state),
-                reply(shared ? ["lease": "l1", "participant": "c2", "size_state": sizeState(1)] as [String: Any] : ["lease": "l1"]),
+                reply((shared ? ["lease": "l1", "participant": "c2", "size_state": sizeState(1)] as [String: Any] : ["lease": "l1"])
+                    .merging(byTerminal ? ["surface": live] : [:]) { $1 }),
             ] + (shared ? [Self.line(["event": "size-state", "surface": live, "self_participant": "c2", "state": sizeState(2)])] : [])
             let hybrid: [[String: Any]] = lock.withLock { declaredHybrid ? hybridEvents : [] }
             if !hybrid.isEmpty {
@@ -1482,6 +1506,84 @@ final class ChannelLog: @unchecked Sendable {
         session.reconnect()
         try await waitUntil(attempts: 400) { session.isAttached }
         #expect(!events.contains(.exited(code: 0)))
+    }
+
+    /// `attach-terminal-id-v1`: a reattach is one write (client info, identify, the attach that
+    /// resolves the terminal), not a resolve, then identify, then an attach.
+    @Test func aReattachToACapableDaemonIsOneWrite() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.attachTerminalID = true
+        daemon.initialSize = true
+        daemon.tailReplay = true
+        daemon.terminals = ["term_a": 7]
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        session.resize(columns: 60, rows: 20)
+        await channels.last?.close(code: "link_closed", reason: "background")
+        try await waitUntil { !session.isAttached }
+        let firstAttachWrites = daemon.writes.count
+        session.reconnect()
+        try await waitUntil(attempts: 400) { session.isAttached }
+        let reattach = Array(daemon.writes[firstAttachWrites...])
+        #expect(reattach == [["set-client-info", "identify", "attach-surface"]], "\(reattach)")
+        #expect(!daemon.recorded.contains { $0["cmd"] as? String == "resolve-terminal" })
+        let attach = daemon.recorded.last { $0["cmd"] as? String == "attach-surface" }
+        #expect(attach?["terminal_id"] as? String == "term_a")
+        #expect(attach?["surface"] as? Int == 7)
+    }
+
+    @Test func aReattachToACapableDaemonFollowsAMovedTerminal() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.attachTerminalID = true
+        daemon.terminals = ["term_a": 7]
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "Mac app restarted")
+        try await waitUntil { !session.isAttached }
+        daemon.liveSurface = 15
+        daemon.terminals = ["term_a": 15]
+        session.reconnect()
+        try await waitUntil(attempts: 400) { session.isAttached && session.surface == 15 }
+        #expect(!daemon.recorded.contains { $0["cmd"] as? String == "resolve-terminal" })
+        #expect(daemon.recorded.last { $0["cmd"] as? String == "attach-surface" }?["surface"] as? Int == 15)
+    }
+
+    @Test func aCapableDaemonsExitAndMissingAnswersEndTheSessionAsResolveWould() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.attachTerminalID = true
+        daemon.terminals = ["term_a": 7]
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "link dropped")
+        try await waitUntil { !session.isAttached }
+        daemon.exited = ["term_a"]
+        session.reconnect()
+        try await waitUntil { events.contains(.exited(code: 3)) }
+        #expect(!daemon.recorded.contains { $0["cmd"] as? String == "resolve-terminal" })
+    }
+
+    @Test func aDaemonWithoutAttachTerminalIDKeepsTheSerialReattach() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.terminals = ["term_a": 7]
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "background")
+        try await waitUntil { !session.isAttached }
+        let firstAttachWrites = daemon.writes.count
+        session.reconnect()
+        try await waitUntil(attempts: 400) { session.isAttached }
+        let reattach = Array(daemon.writes[firstAttachWrites...])
+        #expect(reattach == [["resolve-terminal"], ["set-client-info", "identify"], ["attach-surface"]], "\(reattach)")
+        #expect(daemon.recorded.last { $0["cmd"] as? String == "attach-surface" }?["terminal_id"] == nil)
     }
 
     @Test func aDaemonWithoutResolveStillReattachesByNumber() async throws {

@@ -177,6 +177,38 @@ pub(super) fn detach_attached_view(
     Ok(json!({"outcome": "applied"}))
 }
 
+/// The surface an `attach-surface` with `terminal_id` attaches, resolved as
+/// `resolve-terminal` does. The three refusals are the phone's `.exited`,
+/// `.gone` and `.notYet` (`DaemonTerminalSession.resolved`).
+pub(super) fn resolve_attach_terminal(
+    mux: &Arc<Mux>,
+    terminal_id: &str,
+) -> anyhow::Result<SurfaceId> {
+    let Some(resolution) = mux.resolve_terminal(terminal_id)? else {
+        anyhow::bail!("terminal_not_found");
+    };
+    if let Some(surface) = resolution.surface {
+        return Ok(surface);
+    }
+    use crate::workspace_registry::TerminalLifecycle;
+    if matches!(
+        resolution.terminal.lifecycle,
+        TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
+    ) {
+        let code = resolution
+            .terminal
+            .exit
+            .as_ref()
+            .and_then(|exit| exit.get("code"))
+            .and_then(Value::as_i64);
+        match code {
+            Some(code) => anyhow::bail!("terminal_exited exit_code={code}"),
+            None => anyhow::bail!("terminal_exited"),
+        }
+    }
+    anyhow::bail!("terminal_not_on_surface")
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn attach_surface(
     mux: &Arc<Mux>,

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226'
+IR_SHA256 = '2fe0ceb34f934671810d62f054bfc825902a333fc7c065a3d25260c2c3738832'
 
 
 @dataclass(frozen=True)
@@ -113,6 +113,7 @@ COMMANDS = {
             'snapshot_local_history': CommandFieldMetadata(None, 'terminal-snapshot-local-history-v1'),
             'snapshot_version': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
             'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, 'attach-terminal-id-v1'),
             'viewer_backlog_bytes': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
         },
     ),

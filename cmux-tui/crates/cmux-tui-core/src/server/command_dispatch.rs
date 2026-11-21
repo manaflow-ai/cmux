@@ -1007,6 +1007,7 @@ fn dispatch_command(
             rows,
             expected_generation,
             expected_terminal_id,
+            terminal_id,
             replay_history_rows,
             output_coalesce_ms,
             replay_history_start,
@@ -1014,12 +1015,17 @@ fn dispatch_command(
             hybrid_frame,
             snapshot,
         } => {
+            // `attach-terminal-id-v1`: the durable terminal decides the surface.
+            let surface_id = match terminal_id.as_deref() {
+                Some(terminal_id) => Some(cmd_attach::resolve_attach_terminal(mux, terminal_id)?),
+                None => surface_id,
+            };
             // A sized attach is a size report: it starts (or renews) the
             // lease before the size applies.
             if let Some(surface) = surface_id.filter(|_| cols.is_some() && rows.is_some()) {
                 size_lease::renew_size_lease(mux, client, surface);
             }
-            cmd_attach::attach_surface(
+            let mut reply = cmd_attach::attach_surface(
                 mux,
                 client,
                 writer,
@@ -1034,7 +1040,13 @@ fn dispatch_command(
                 replay_history_start,
                 (hybrid_stream, hybrid_frame),
                 snapshot,
-            )
+            )?;
+            if terminal_id.is_some()
+                && let (Some(object), Some(surface)) = (reply.as_object_mut(), surface_id)
+            {
+                object.insert("surface".to_string(), json!(surface));
+            }
+            Ok(reply)
         }
     }
 }

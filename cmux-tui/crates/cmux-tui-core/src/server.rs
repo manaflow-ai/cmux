@@ -439,6 +439,13 @@ pub const TERMINAL_PENDING_SEQUENCE_CAPABILITY: &str = "terminal-pending-sequenc
 /// keeps only that many of the newest history rows above the active area
 /// and says how many older ones it left out (`history_rows_omitted`).
 pub const ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY: &str = "attach-replay-history-rows-v1";
+/// `terminal_id` on `attach-surface`: the daemon resolves the durable terminal
+/// itself (as `resolve-terminal` does) and attaches the surface it is on now, so
+/// a reattach is one round trip instead of resolve, identify, attach. The reply
+/// carries the resolved `surface`; a terminal that exited, is unknown or is on
+/// no surface answers `terminal_exited [exit_code=N]`, `terminal_not_found` or
+/// `terminal_not_on_surface` instead of an attach.
+pub const ATTACH_TERMINAL_ID_CAPABILITY: &str = "attach-terminal-id-v1";
 /// `replay_history_start` with `replay_history_rows` on a bytes
 /// `attach-surface`: the `vt-state` replay holds that many history rows from
 /// that row (0: the oldest kept), then the screen, and says how many rows it
@@ -2482,6 +2489,10 @@ enum Command {
         expected_generation: Option<String>,
         #[serde(default)]
         expected_terminal_id: Option<String>,
+        /// `attach-terminal-id-v1`: the durable terminal to attach; `surface`
+        /// is only a hint, the terminal's current surface wins.
+        #[serde(default)]
+        terminal_id: Option<String>,
         #[serde(default)]
         mode: Option<String>,
         /// Optional initial viewer size. Supplying this pair makes the attach

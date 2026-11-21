@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226";
+pub const ir_sha256 = "2fe0ceb34f934671810d62f054bfc825902a333fc7c065a3d25260c2c3738832";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3807,6 +3807,7 @@ pub const AttachSurfaceRequest = struct {
     snapshot_local_history: ?bool = null,
     snapshot_version: wire.Field(u16) = .absent,
     surface: wire.Field(Id) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
     viewer_backlog_bytes: wire.Field(u64) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -3839,6 +3840,7 @@ pub fn attachSurface(client: anytype, request: AttachSurfaceRequest) !client_run
                 .{ .name = "snapshot_images", .since = null, .capability = "terminal-snapshot-images-v1" },
                 .{ .name = "snapshot_local_history", .since = null, .capability = "terminal-snapshot-local-history-v1" },
                 .{ .name = "snapshot_version", .since = null, .capability = "terminal-snapshot-v1" },
+                .{ .name = "terminal_id", .since = null, .capability = "attach-terminal-id-v1" },
                 .{ .name = "viewer_backlog_bytes", .since = null, .capability = "terminal-snapshot-v1" },
             },
         },

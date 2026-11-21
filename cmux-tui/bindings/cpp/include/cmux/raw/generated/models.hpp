@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226";
+inline constexpr std::string_view kProtocolIrSha256 = "2fe0ceb34f934671810d62f054bfc825902a333fc7c065a3d25260c2c3738832";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -1002,6 +1002,7 @@ struct AttachSurfaceRequest {
     std::optional<bool> snapshot_local_history{};
     Field<std::uint16_t> snapshot_version{};
     Field<Id> surface{};
+    Field<std::string> terminal_id{};
     Field<std::uint64_t> viewer_backlog_bytes{};
     friend bool operator==(const AttachSurfaceRequest&, const AttachSurfaceRequest&) = default;
 };

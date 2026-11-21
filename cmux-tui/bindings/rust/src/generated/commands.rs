@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226.
+// cmux-tui mux protocol 12, IR 2fe0ceb34f934671810d62f054bfc825902a333fc7c065a3d25260c2c3738832.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -98,6 +98,8 @@ pub struct AttachSurfaceRequest {
     pub snapshot_version: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub viewer_backlog_bytes: Optional<u64>,
 }
@@ -4510,6 +4512,9 @@ impl CmuxClient {
         }
         if !request.snapshot_version.is_missing() {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_capability_field("attach-surface", "attach-terminal-id-v1")?;
         }
         if !request.viewer_backlog_bytes.is_missing() {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;

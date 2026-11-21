@@ -19,10 +19,24 @@ fn attached(mux: &Mux, client: u64, surface: SurfaceId) -> bool {
 pub(super) fn allows(mux: &Mux, client: u64, command: &Command) -> bool {
     match command {
         Command::AttachSurface {
-            surface, expected_generation, expected_terminal_id, mode, ..
+            surface,
+            expected_generation,
+            expected_terminal_id,
+            terminal_id,
+            mode,
+            ..
         } => {
             if mode.as_deref().is_some_and(|mode| mode != "bytes") {
                 return false;
+            }
+            // `attach-terminal-id-v1`: the terminal's current surface is the one attached.
+            if let Some(terminal_id) = terminal_id {
+                return match mux.resolve_terminal(terminal_id) {
+                    Ok(Some(resolution)) => {
+                        resolution.surface.is_none_or(|surface| pty(mux, surface))
+                    }
+                    _ => true,
+                };
             }
             // The ordinary attach handler rechecks the generation/terminal pair;
             // resolve here only to keep browser/render surfaces out of this carrier.

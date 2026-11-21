@@ -18667,6 +18667,16 @@
       "default": null,
       "capability": "attach-identity-v1"
      },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "attach-terminal-id-v1"
+     },
      "replay_history_rows": {
       "type": {
        "kind": "scalar",
