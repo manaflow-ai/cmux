@@ -15,6 +15,10 @@
 //! `--probe` also drives the interactive elements and times each: tab and workspace switch
 //! (there and back), the sidebar (hide and show), the command palette (open and close) and
 //! typing into a terminal `cmux perf sim` made (it types into no terminal of the person's).
+//! It takes `--probe-samples` (default 30) timed samples per action, spread over the window,
+//! after one warmup round (two samples per action) it drops; when the rounds need longer than
+//! `--seconds`, the profile runs on until they are done and says so. Each action reports p50
+//! and p95; a p95 from fewer than 20 samples is marked low-n and judged by no budget.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::os::unix::net::UnixStream;
@@ -60,6 +64,19 @@ pub(super) struct Interaction {
     pub element: &'static str,
     pub ms: f64,
     pub ok: bool,
+    /// The first round's: timed, kept in the details, left out of the metrics.
+    pub warmup: bool,
+}
+
+/// The `--probe` rounds for `samples` timed samples per action: one warmup round, then two
+/// samples per action a round (there and back; two terminals typed into).
+pub(super) fn probe_rounds(samples: usize) -> usize {
+    1 + samples.div_ceil(2)
+}
+
+/// When round `index` of `rounds` is due: spread evenly from the window's start.
+pub(super) fn round_due(index: usize, rounds: usize, window: Duration) -> Duration {
+    if rounds == 0 { Duration::ZERO } else { window.mul_f64(index as f64 / rounds as f64) }
 }
 
 pub(super) fn call(stream: &mut UnixStream, method: &str, params: Value) -> Option<Value> {
@@ -387,32 +404,73 @@ pub(super) fn responsiveness_metrics(
     workspace_switch: Option<&Value>,
 ) -> Vec<Metric> {
     let rtt = |element: &str| -> Option<stats::Summary> {
-        let values: Vec<f64> =
-            interactions.iter().filter(|i| i.element == element && i.ok).map(|i| i.ms).collect();
+        let values: Vec<f64> = interactions
+            .iter()
+            .filter(|i| i.element == element && i.ok && !i.warmup)
+            .map(|i| i.ms)
+            .collect();
         stats::summarize(&values, RESPONSE_BUDGET_MS)
-    };
-    let m = |key: &str, label: &str, source: &str| {
-        Metric::new(key, "responsiveness", label, "ms", source).budget(RESPONSE_BUDGET_MS)
     };
     let tab = stats::summarize(&switch_times(tab_switch), RESPONSE_BUDGET_MS);
     let workspace = stats::summarize(&switch_times(workspace_switch), RESPONSE_BUDGET_MS);
-    vec![
-        m("resp.terminal_typing_ms", "terminal typing (send to answer) p95", "action.run")
-            .value(rtt("terminal").map(|s| s.p95)),
-        m("resp.composer_typing_ms", "composer typing p95", "composer").value(None),
-        m("resp.tab_switch_rtt_ms", "tab switch (action) p95", "action.run")
-            .value(rtt("tab").map(|s| s.p95)),
-        m("resp.tab_switch_ms", "tab switch to frame p95", "debug.tab_switch")
-            .value(tab.map(|s| s.p95)),
-        m("resp.workspace_switch_rtt_ms", "workspace switch (action) p95", "action.run")
-            .value(rtt("workspace").map(|s| s.p95)),
-        m("resp.workspace_switch_ms", "workspace switch to frame p95", "debug.workspace_switch")
-            .value(workspace.map(|s| s.p95)),
-        m("resp.sidebar_ms", "sidebar toggle (action) p95", "action.run")
-            .value(rtt("sidebar").map(|s| s.p95)),
-        m("resp.palette_ms", "command palette (action) p95", "action.run")
-            .value(rtt("palette").map(|s| s.p95)),
-    ]
+    // Each element: its p50 (no budget: the typical case) and then its p95 (against the budget,
+    // with the sample count so a p95 of a few samples reads as low-n).
+    let pair = |key: &str, label: &str, source: &str, summary: Option<stats::Summary>| {
+        let p50_key = format!("{}_p50_ms", key.trim_end_matches("_ms"));
+        [
+            Metric::new(&p50_key, "responsiveness", &format!("{label} p50"), "ms", source)
+                .value(summary.map(|s| s.p50))
+                .samples(summary.map(|s| s.count)),
+            Metric::new(key, "responsiveness", &format!("{label} p95"), "ms", source)
+                .budget(RESPONSE_BUDGET_MS)
+                .value(summary.map(|s| s.p95))
+                .samples(summary.map(|s| s.count)),
+        ]
+    };
+    let mut metrics = Vec::new();
+    metrics.extend(pair(
+        "resp.terminal_typing_ms",
+        "terminal typing (send to answer)",
+        "action.run",
+        rtt("terminal"),
+    ));
+    metrics.push(
+        Metric::new(
+            "resp.composer_typing_ms",
+            "responsiveness",
+            "composer typing p95",
+            "ms",
+            "composer",
+        )
+        .budget(RESPONSE_BUDGET_MS),
+    );
+    metrics.extend(pair("resp.tab_switch_rtt_ms", "tab switch (action)", "action.run", rtt("tab")));
+    metrics.extend(pair("resp.tab_switch_ms", "tab switch to frame", "debug.tab_switch", tab));
+    metrics.extend(pair(
+        "resp.workspace_switch_rtt_ms",
+        "workspace switch (action)",
+        "action.run",
+        rtt("workspace"),
+    ));
+    metrics.extend(pair(
+        "resp.workspace_switch_ms",
+        "workspace switch to frame",
+        "debug.workspace_switch",
+        workspace,
+    ));
+    metrics.extend(pair(
+        "resp.sidebar_ms",
+        "sidebar toggle (action)",
+        "action.run",
+        rtt("sidebar"),
+    ));
+    metrics.extend(pair(
+        "resp.palette_ms",
+        "command palette (action)",
+        "action.run",
+        rtt("palette"),
+    ));
+    metrics
 }
 
 pub(super) fn host_metrics(summary: &host::HostSummary) -> Vec<Metric> {
@@ -439,12 +497,12 @@ const ROUNDS: &[(&str, &str, &str)] = &[
     ("palette", "commandPalette", "commandPalette"),
 ];
 
-fn drive(stream: &mut UnixStream, terminals: &[String], out: &mut Vec<Interaction>) {
+fn drive(stream: &mut UnixStream, terminals: &[String], warmup: bool, out: &mut Vec<Interaction>) {
     for (element, there, back) in ROUNDS {
         for action in [there, back] {
             let (ms, value) =
                 timed(stream, "action.run", json!({ "action": action, "origin": "script" }));
-            out.push(Interaction { element, ms, ok: value.is_some() });
+            out.push(Interaction { element, ms, ok: value.is_some(), warmup });
             std::thread::sleep(Duration::from_millis(150));
         }
     }
@@ -454,7 +512,7 @@ fn drive(stream: &mut UnixStream, terminals: &[String], out: &mut Vec<Interactio
             "action.run",
             json!({ "action": "terminal.sendText", "args": { "text": " " }, "target": format!("tab:{tab}"), "focus": false, "origin": "script" }),
         );
-        out.push(Interaction { element: "terminal", ms, ok: value.is_some() });
+        out.push(Interaction { element: "terminal", ms, ok: value.is_some(), warmup });
     }
 }
 
@@ -551,8 +609,11 @@ fn collect_in<'scope, 'env>(
     let has_main_probe = has("agent.acpmux");
     let mut probes = Vec::new();
     let mut interactions = Vec::new();
-    let mut next_round = args.probe.then(|| Duration::from_secs(seconds) / 4);
-    while Instant::now() < deadline {
+    let window = Duration::from_secs(seconds);
+    let rounds = if args.probe { probe_rounds(args.probe_samples) } else { 0 };
+    let mut rounds_done = 0;
+    // The window, and past it the probe rounds still to take.
+    while Instant::now() < deadline || rounds_done < rounds {
         if crate::shutdown_requested() {
             break;
         }
@@ -564,17 +625,16 @@ fn collect_in<'scope, 'env>(
             let main_ms = has_main_probe.then(|| timed(&mut stream, "agent.acpmux", json!({})).0);
             probes.push(Probe { ping_ms, main_ms });
         }
-        if let Some(at) = next_round
-            && start.elapsed() >= at
-        {
-            drive(&mut stream, &terminals, &mut interactions);
-            next_round = Some(at + Duration::from_secs(seconds) / 4)
-                .filter(|next| *next < Duration::from_secs(seconds));
+        if rounds_done < rounds && start.elapsed() >= round_due(rounds_done, rounds, window) {
+            drive(&mut stream, &terminals, rounds_done == 0, &mut interactions);
+            rounds_done += 1;
         }
         if let Some(rest) = PROBE_EVERY.checked_sub(tick.elapsed()) {
             std::thread::sleep(rest);
         }
     }
+
+    let elapsed = start.elapsed();
 
     let frames = frames_on
         .then(|| call(&mut stream, "debug.frames", json!({ "action": "stop", "raw": true })))
@@ -674,6 +734,16 @@ fn collect_in<'scope, 'env>(
     if args.probe && terminals.is_empty() {
         notes.push(messages.note_no_sim_terminal.to_owned());
     }
+    if args.probe && elapsed > window + Duration::from_secs(1) {
+        notes.push(super::fill(
+            messages.note_probe_extended,
+            &[
+                ("rounds", rounds_done.to_string()),
+                ("elapsed", format!("{:.0}", elapsed.as_secs_f64())),
+                ("seconds", seconds.to_string()),
+            ],
+        ));
+    }
     let mut app = identify.clone();
     if let Some(object) = app.as_object_mut() {
         object.remove("methods");
@@ -688,13 +758,16 @@ fn collect_in<'scope, 'env>(
         metrics,
         details: json!({
             "probes": probes.len(),
+            "elapsed_s": stats::round(elapsed.as_secs_f64(), 1),
+            "probe_rounds": rounds_done,
+            "probe_samples": args.probe.then_some(args.probe_samples),
             "chats": chat_reports.iter().map(|c| json!({ "tab": c["tab"], "frames": c["frames"], "long_tasks": c["long_tasks"], "layout_shift": c["layout_shift"], "unmeasured_reason": c["unmeasured_reason"] })).collect::<Vec<_>>(),
             "stalls": hangs.as_ref().map(stall_attributions),
             "hang_files": hang_files.as_ref().map(|files| files.iter().map(|f| json!({ "duration_ms": f.duration_ms, "ongoing": f.ongoing, "frames": f.frames })).collect::<Vec<_>>()),
             "layout_counters": layout_delta,
             "tab_switches": tab_switch.as_ref().map(|t| t["switches"].clone()),
             "workspace_switches": workspace_switch.as_ref().map(|t| t["switches"].clone()),
-            "interactions": interactions.iter().map(|i| json!({ "element": i.element, "ms": stats::round(i.ms, 2), "ok": i.ok })).collect::<Vec<_>>(),
+            "interactions": interactions.iter().map(|i| json!({ "element": i.element, "ms": stats::round(i.ms, 2), "ok": i.ok, "warmup": i.warmup })).collect::<Vec<_>>(),
             "frame_layouts": frames.as_ref().map(|f| { let mut f = f.clone(); if let Some(o) = f.as_object_mut() { o.remove("intervals_ms"); o.remove("main_ms"); } f }),
         }),
         notes,

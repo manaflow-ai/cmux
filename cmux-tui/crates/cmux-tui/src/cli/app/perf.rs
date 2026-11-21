@@ -30,6 +30,9 @@ pub(super) const DEFAULT_PROFILE_SECONDS: u64 = 10;
 pub(super) const MAX_PROFILE_SECONDS: u64 = 600;
 pub(super) const DEFAULT_SIM_SECONDS: u64 = 60;
 pub(super) const DEFAULT_SIM_EVENTS: u64 = 10_000;
+/// Timed samples `--probe` takes per action (after its warmup), unless `--probe-samples`.
+pub(super) const DEFAULT_PROBE_SAMPLES: usize = 30;
+pub(super) const MAX_PROBE_SAMPLES: usize = 500;
 /// The longest a sim's build may take before it is cut short and the run starts.
 pub(super) const DEFAULT_SIM_BUILD_SECONDS: u64 = 180;
 
@@ -49,6 +52,8 @@ pub(super) struct ProfileArgs {
     pub label: Option<String>,
     /// Also drive the interactive elements (tab, sidebar, palette, typing) and time them.
     pub probe: bool,
+    /// Timed samples per action `--probe` keeps (its warmup round is taken on top).
+    pub probe_samples: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,12 +62,18 @@ pub(super) struct AbArgs {
     pub rollback: bool,
     pub seconds: u64,
     pub probe: bool,
+    pub probe_samples: usize,
     /// Where the reports go (default: a new directory under the temp dir).
     pub out_dir: Option<PathBuf>,
     /// The cmux checkout that has scripts/cmux-next/hot-apply.py.
     pub repo: Option<PathBuf>,
     /// Passed to hot-apply.py `--parts`.
     pub parts: Option<String>,
+    /// Passed to hot-apply.py `plan` and `apply`: take a daemon not signed as the app is (a
+    /// Team-signed app then fails Cloud until rollback).
+    pub unsigned_daemon: bool,
+    /// Apply even when the plan leaves some of the patch out.
+    pub allow_partial: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,6 +89,18 @@ pub(super) struct SimArgs {
     pub shape: Option<PathBuf>,
     /// Every count of the shape times this (1 to 100).
     pub scale: usize,
+}
+
+fn probe_samples(value: Option<&str>) -> Result<usize, UsageError> {
+    let messages = &crate::localization::catalog().app_control.perf;
+    match value {
+        None => Ok(DEFAULT_PROBE_SAMPLES),
+        Some(text) => text
+            .parse::<usize>()
+            .ok()
+            .filter(|n| (1..=MAX_PROBE_SAMPLES).contains(n))
+            .ok_or_else(|| UsageError::new(messages.probe_samples)),
+    }
 }
 
 fn seconds(value: Option<&str>, default: u64, max: u64) -> Result<u64, UsageError> {
@@ -100,7 +123,8 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
     let rest = &args[1..];
     match verb.as_str() {
         "profile" => {
-            let options = Options::parse(rest, &["seconds", "out", "label"], &["probe"])?;
+            let options =
+                Options::parse(rest, &["seconds", "out", "label", "probe-samples"], &["probe"])?;
             Ok(Command::Profile(ProfileArgs {
                 seconds: seconds(
                     options.value("seconds"),
@@ -110,6 +134,7 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
                 out: options.value("out").map(PathBuf::from),
                 label: options.value("label").map(str::to_owned),
                 probe: options.flag("probe"),
+                probe_samples: probe_samples(options.value("probe-samples"))?,
             }))
         }
         "compare" => {
@@ -122,8 +147,8 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
         "ab" => {
             let options = Options::parse(
                 rest,
-                &["patch", "seconds", "out-dir", "repo", "parts"],
-                &["rollback", "probe"],
+                &["patch", "seconds", "out-dir", "repo", "parts", "probe-samples"],
+                &["rollback", "probe", "unsigned-daemon", "allow-partial"],
             )?;
             let Some(patch) = options.value("patch").filter(|patch| !patch.is_empty()) else {
                 return Err(usage());
@@ -137,9 +162,12 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
                     MAX_PROFILE_SECONDS,
                 )?,
                 probe: options.flag("probe"),
+                probe_samples: probe_samples(options.value("probe-samples"))?,
                 out_dir: options.value("out-dir").map(PathBuf::from),
                 repo: options.value("repo").map(PathBuf::from),
                 parts: options.value("parts").map(str::to_owned),
+                unsigned_daemon: options.flag("unsigned-daemon"),
+                allow_partial: options.flag("allow-partial"),
             }))
         }
         "sim" => {

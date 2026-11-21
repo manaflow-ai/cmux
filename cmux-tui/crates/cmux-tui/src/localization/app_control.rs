@@ -114,6 +114,12 @@ pub(crate) struct PerfMessages {
     pub status_ok: &'static str,
     /// A value over its budget.
     pub status_over: &'static str,
+    /// A p95 from too few samples to judge: `{n}`.
+    pub status_low_n: &'static str,
+    /// `--probe-samples` out of range.
+    pub probe_samples: &'static str,
+    /// The probe rounds ran past the window: `{rounds}`, `{elapsed}`, `{seconds}`.
+    pub note_probe_extended: &'static str,
     /// Above the list of sources that gave nothing.
     pub unmeasured_header: &'static str,
     /// A `debug.*` source: Debug builds only.
@@ -154,6 +160,10 @@ pub(crate) struct PerfMessages {
     pub verdict_same: &'static str,
     /// Compare verdict.
     pub verdict_unmeasured: &'static str,
+    /// Compare verdict: a side's p95 came from too few samples.
+    pub verdict_low_n: &'static str,
+    /// The low-n verdict with its counts: `{before}`, `{after}`.
+    pub verdict_low_n_detail: &'static str,
     /// `{before}`, `{after}`.
     pub compare_header: &'static str,
     /// `{fixed}`, `{broke}`, `{better}`, `{worse}`, `{over}`.
@@ -184,6 +194,12 @@ pub(crate) struct PerfMessages {
     pub ab_applying: &'static str,
     /// hot-apply failed.
     pub ab_apply_failed: &'static str,
+    /// The plan leaves part of the patch out: `{sha}`, `{parts}`, `{files}`.
+    pub ab_partial: &'static str,
+    /// `--unsigned-daemon` breaks Cloud until rollback.
+    pub ab_unsigned: &'static str,
+    /// `--unsigned-daemon` without `--rollback`.
+    pub ab_unsigned_rollback: &'static str,
 }
 
 /// `cmux app launch-times`: the app's recorded launches. The JSON keys and the table's column
@@ -384,7 +400,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         unreadable: "cannot read {path}: {error}",
     },
     perf: PerfMessages {
-        usage: "usage: cmux perf profile [--seconds N] [--out FILE.json] [--label L] [--probe]\n       cmux perf compare BEFORE.json AFTER.json\n       cmux perf ab --patch SHA [--rollback] [--seconds N] [--probe] [--out-dir DIR] [--repo DIR] [--parts web,rust,ffi]\n       cmux perf sim [--profile cosmic-gray|unreasonable] [--scale N] [--seconds N] [--build-seconds N] [--events N] [--shape FILE.json]\n  profile  samples the app for N seconds (default 10) against a 120 Hz frame (8.33 ms): frames, main-thread\n           stalls, layout shifts, responsiveness (--probe drives tab, workspace, sidebar, palette and typing),\n           CPU, RAM, GPU and disk; each row names its source and whether a Release build has it\n  compare  two reports side by side with the change and a verdict per row\n  ab       profile, hot-apply SHA (scripts/cmux-next/hot-apply.py), profile, compare; --rollback undoes it\n  sim      drives load on the app behind --app-socket or --socket (required) and closes what it made on exit\nSee docs/cmux-next/perf-loop.md.",
+        usage: "usage: cmux perf profile [--seconds N] [--out FILE.json] [--label L] [--probe] [--probe-samples N]\n       cmux perf compare BEFORE.json AFTER.json\n       cmux perf ab --patch SHA [--rollback] [--seconds N] [--probe] [--probe-samples N] [--out-dir DIR] [--repo DIR] [--parts web,rust,ffi] [--unsigned-daemon] [--allow-partial]\n       cmux perf sim [--profile cosmic-gray|unreasonable] [--scale N] [--seconds N] [--build-seconds N] [--events N] [--shape FILE.json]\n  profile  samples the app for N seconds (default 10) against a 120 Hz frame (8.33 ms): frames, main-thread\n           stalls, layout shifts, responsiveness (--probe drives tab, workspace, sidebar, palette and typing),\n           CPU, RAM, GPU and disk; each row names its source and whether a Release build has it\n  compare  two reports side by side with the change and a verdict per row\n  ab       profile, hot-apply SHA (scripts/cmux-next/hot-apply.py), profile, compare; --rollback undoes it\n  sim      drives load on the app behind --app-socket or --socket (required) and closes what it made on exit\nSee docs/cmux-next/perf-loop.md.",
         seconds: "--seconds takes a whole number from 1 to {max}",
         events: "--events takes a whole number from 1 to 1000000",
         scale: "--scale takes a whole number from 1 to 100",
@@ -397,6 +413,9 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         profile_header: "cmux perf profile {label}: {seconds} s of {bundle} {version} (pid {pid}), budget 8.33 ms a frame (120 Hz)",
         status_ok: "ok",
         status_over: "OVER",
+        status_low_n: "low-n {n}",
+        probe_samples: "--probe-samples takes a whole number from 1 to 500",
+        note_probe_extended: "--probe took {rounds} rounds and ran {elapsed} s, past the {seconds} s asked, to get its samples",
         unmeasured_header: "Not measured:",
         debug_only: "registered only in Debug and bench-hook builds; a Release app does not answer it",
         src_probe: "system.ping and agent.acpmux round trips: main-thread wait = main-actor reply minus off-main reply",
@@ -417,6 +436,8 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         verdict_worse: "worse",
         verdict_same: "same",
         verdict_unmeasured: "unmeasured",
+        verdict_low_n: "low-n",
+        verdict_low_n_detail: "low-n (n {before} -> {after}), no verdict",
         compare_header: "cmux perf compare: {before} -> {after}",
         compare_summary: "{fixed} fixed, {broke} broke, {better} better, {worse} worse, {over} over budget after",
         sim_needs_socket: "cmux perf sim needs the app named: pass --app-socket PATH (or --socket PATH); it never picks an app for you",
@@ -432,6 +453,9 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         ab_nothing_live: "Nothing of this patch can go into the running app; build it and profile that build instead. No after profile was taken.",
         ab_applying: "applying {sha} ({parts})",
         ab_apply_failed: "hot-apply.py apply failed; no after profile was taken (see steps in the JSON)",
+        ab_partial: "hot-apply.py plan puts only {parts} of {sha} into the running app and leaves this out, so the A/B would measure part of the patch:\n{files}\nBuild it and profile that build, or pass --allow-partial to A/B the live part alone.",
+        ab_unsigned: "--unsigned-daemon: this app is Team-signed and the published daemon is ad hoc, so the app verifies no connection to it: Cloud machines, Cloud starts and every user-origin call fail until `scripts/cmux-next/hot-apply.py rollback`.",
+        ab_unsigned_rollback: "Pass --rollback to put the signed daemon back when the A/B is done.",
     },
     version: VersionLabels {
         cli: "CLI",
@@ -606,7 +630,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         unreadable: "{path} を読み取れません: {error}",
     },
     perf: PerfMessages {
-        usage: "使い方: cmux perf profile [--seconds N] [--out FILE.json] [--label L] [--probe]\n        cmux perf compare BEFORE.json AFTER.json\n        cmux perf ab --patch SHA [--rollback] [--seconds N] [--probe] [--out-dir DIR] [--repo DIR] [--parts web,rust,ffi]\n        cmux perf sim [--profile cosmic-gray|unreasonable] [--scale N] [--seconds N] [--build-seconds N] [--events N] [--shape FILE.json]\n  profile  アプリを N 秒 (既定 10) 計測し、120 Hz のフレーム (8.33 ms) と比べます: フレーム、メインスレッドの停止、\n           レイアウトシフト、応答性 (--probe でタブ、ワークスペース、サイドバー、パレット、入力を操作)、\n           CPU、RAM、GPU、ディスク。各行に取得元と Release ビルドで取れるかを示します\n  compare  2 つのレポートを並べ、変化と行ごとの判定を表示します\n  ab       計測、SHA のホット適用 (scripts/cmux-next/hot-apply.py)、再計測、比較。--rollback で元に戻します\n  sim      --app-socket または --socket (必須) のアプリに負荷をかけ、終了時に作ったものだけを閉じます\n詳細は docs/cmux-next/perf-loop.md を参照してください。",
+        usage: "使い方: cmux perf profile [--seconds N] [--out FILE.json] [--label L] [--probe] [--probe-samples N]\n        cmux perf compare BEFORE.json AFTER.json\n        cmux perf ab --patch SHA [--rollback] [--seconds N] [--probe] [--probe-samples N] [--out-dir DIR] [--repo DIR] [--parts web,rust,ffi] [--unsigned-daemon] [--allow-partial]\n        cmux perf sim [--profile cosmic-gray|unreasonable] [--scale N] [--seconds N] [--build-seconds N] [--events N] [--shape FILE.json]\n  profile  アプリを N 秒 (既定 10) 計測し、120 Hz のフレーム (8.33 ms) と比べます: フレーム、メインスレッドの停止、\n           レイアウトシフト、応答性 (--probe でタブ、ワークスペース、サイドバー、パレット、入力を操作)、\n           CPU、RAM、GPU、ディスク。各行に取得元と Release ビルドで取れるかを示します\n  compare  2 つのレポートを並べ、変化と行ごとの判定を表示します\n  ab       計測、SHA のホット適用 (scripts/cmux-next/hot-apply.py)、再計測、比較。--rollback で元に戻します\n  sim      --app-socket または --socket (必須) のアプリに負荷をかけ、終了時に作ったものだけを閉じます\n詳細は docs/cmux-next/perf-loop.md を参照してください。",
         seconds: "--seconds には 1 から {max} までの整数を指定してください",
         events: "--events には 1 から 1000000 までの整数を指定してください",
         scale: "--scale には 1 から 100 までの整数を指定してください",
@@ -619,6 +643,9 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         profile_header: "cmux perf profile {label}: {bundle} {version} (pid {pid}) を {seconds} 秒、1 フレームの予算 8.33 ms (120 Hz)",
         status_ok: "ok",
         status_over: "超過",
+        status_low_n: "標本少 {n}",
+        probe_samples: "--probe-samples には 1 から 500 までの整数を指定してください",
+        note_probe_extended: "--probe は標本を集めるために {rounds} 回操作し、指定の {seconds} 秒を超えて {elapsed} 秒かかりました",
         unmeasured_header: "計測できなかったもの:",
         debug_only: "Debug ビルドとベンチフックビルドでのみ登録されます。Release のアプリは応答しません",
         src_probe: "system.ping と agent.acpmux の往復: メインスレッドの待ち = メインアクターの応答 - メイン外の応答",
@@ -639,6 +666,8 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         verdict_worse: "悪化",
         verdict_same: "変化なし",
         verdict_unmeasured: "未計測",
+        verdict_low_n: "標本少",
+        verdict_low_n_detail: "標本少 (n {before} -> {after})、判定なし",
         compare_header: "cmux perf compare: {before} -> {after}",
         compare_summary: "修正 {fixed}、予算超過に悪化 {broke}、改善 {better}、悪化 {worse}、変更後に予算超過 {over}",
         sim_needs_socket: "cmux perf sim には対象アプリの指定が必要です: --app-socket PATH (または --socket PATH) を渡してください。アプリを自動では選びません",
@@ -654,6 +683,9 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         ab_nothing_live: "このパッチは実行中のアプリに適用できる部分がありません。ビルドしてそのビルドを計測してください。変更後の計測は行っていません。",
         ab_applying: "{sha} を適用しています ({parts})",
         ab_apply_failed: "hot-apply.py apply に失敗しました。変更後の計測は行っていません (JSON の steps を参照)",
+        ab_partial: "hot-apply.py plan は {sha} のうち {parts} だけを実行中のアプリに適用し、次の部分を除外します。この A/B はパッチの一部しか計測しません:\n{files}\nビルドしてそのビルドを計測するか、--allow-partial を付けて適用できる部分だけを A/B してください。",
+        ab_unsigned: "--unsigned-daemon: このアプリはチーム署名で、公開デーモンはアドホック署名のため、アプリはデーモンへの接続を検証できません。`scripts/cmux-next/hot-apply.py rollback` まで Cloud マシン、Cloud の起動、ユーザー起点の呼び出しはすべて失敗します。",
+        ab_unsigned_rollback: "--rollback を付けると、A/B の後に署名済みのデーモンに戻します。",
     },
     version: VersionLabels {
         cli: "CLI",

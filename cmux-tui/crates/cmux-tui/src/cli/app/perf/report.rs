@@ -39,6 +39,9 @@ pub(super) struct Metric {
     pub budget: Option<f64>,
     /// A key of [`Report::sources`].
     pub source: String,
+    /// How many samples a percentile came from; under [`super::stats::LOW_N`] it is low-n.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub samples: Option<usize>,
 }
 
 impl Metric {
@@ -52,7 +55,19 @@ impl Metric {
             better: Better::Lower,
             budget: None,
             source: source.into(),
+            samples: None,
         }
+    }
+
+    /// The percentile came from this many samples.
+    pub fn samples(mut self, samples: Option<usize>) -> Self {
+        self.samples = samples;
+        self
+    }
+
+    /// Too few samples for the percentile to say much (see [`super::stats::LOW_N`]).
+    pub fn low_n(&self) -> bool {
+        self.samples.is_some_and(super::stats::low_n)
     }
 
     pub fn value(mut self, value: Option<f64>) -> Self {
@@ -170,7 +185,15 @@ pub(super) fn human(report: &Report) -> String {
                 format!("{sign} {} {}", show(Some(budget)), metric.unit)
             }
         };
+        let low_n;
         let status = match metric.within(metric.value) {
+            _ if metric.low_n() && metric.value.is_some() => {
+                low_n = super::fill(
+                    messages.status_low_n,
+                    &[("n", metric.samples.unwrap_or(0).to_string())],
+                );
+                low_n.as_str()
+            }
             Some(true) => messages.status_ok,
             Some(false) => messages.status_over,
             None => "",
@@ -183,7 +206,7 @@ pub(super) fn human(report: &Report) -> String {
             pad(&metric.label, width),
             pad(&value, 14),
             pad(&budget, 16),
-            pad(status, 5),
+            pad(status, 9),
             source
         );
     }

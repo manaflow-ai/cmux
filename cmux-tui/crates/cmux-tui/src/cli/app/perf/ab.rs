@@ -1,11 +1,16 @@
-//! `cmux perf ab --patch SHA [--rollback]`: profile, hot-apply SHA with
-//! `scripts/cmux-next/hot-apply.py`, profile again, compare, and roll back when asked.
+//! `cmux perf ab --patch SHA [--rollback] [--unsigned-daemon] [--allow-partial]`: hot-apply's
+//! plan for SHA first, then profile, hot-apply SHA with `scripts/cmux-next/hot-apply.py`,
+//! profile again, compare, and roll back when asked.
 //!
 //! hot-apply swaps only what can go into a running app (web bundle, daemon Rust, the FFI
 //! dylib); its `plan` says what of SHA needs a build instead (Swift signatures, resources).
-//! This command prints that list and, when nothing of SHA can go in live, stops before the
-//! second profile rather than compare an unchanged app with itself. Over ssh the steps that
-//! need the person's GUI session (`--restart-sessions` on macOS) are skipped and said so.
+//! When the plan leaves any of SHA out, the A/B would credit the whole patch with part of it,
+//! so this command refuses with the list unless `--allow-partial`; when nothing of SHA can go
+//! in live, it stops before the second profile rather than compare an unchanged app with
+//! itself. `--unsigned-daemon` goes to hot-apply's `plan` and `apply`: a Team-signed NIGHTLY
+//! refuses the ad-hoc-signed published daemon without it, and with it Cloud fails until
+//! rollback, so it warns and suggests `--rollback`. Over ssh the steps that need the person's
+//! GUI session (`--restart-sessions` on macOS) are skipped and said so.
 
 use std::path::{Path, PathBuf};
 
@@ -27,6 +32,15 @@ pub(super) fn find_repo(start: &Path) -> Option<PathBuf> {
 pub(super) struct Plan {
     pub parts: Vec<String>,
     pub left: Vec<(String, String)>,
+    /// Everything the plan leaves out, one `kind: file or reason` per entry.
+    pub excluded: Vec<String>,
+}
+
+/// What of the patch the A/B would leave out: `Some` when part goes in live and part does not
+/// (the after profile would measure part of the patch), unless that is allowed.
+pub(super) fn partial_refusal(plan: &Plan, allow_partial: bool) -> Option<&[String]> {
+    (!allow_partial && !plan.parts.is_empty() && !plan.excluded.is_empty())
+        .then_some(plan.excluded.as_slice())
 }
 
 pub(super) fn parse_plan(text: &str) -> Option<Plan> {
@@ -36,19 +50,21 @@ pub(super) fn parse_plan(text: &str) -> Option<Plan> {
     let parts =
         value["parts"].as_array()?.iter().filter_map(|p| p.as_str().map(str::to_owned)).collect();
     let mut left = Vec::new();
+    let mut excluded = Vec::new();
     if let Some(map) = value["left"].as_object() {
         for (kind, why) in map {
-            let why = match why {
+            let items: Vec<String> = match why {
                 Value::Array(items) => {
-                    items.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("; ")
+                    items.iter().filter_map(Value::as_str).map(str::to_owned).collect()
                 }
-                Value::String(text) => text.clone(),
-                other => other.to_string(),
+                Value::String(text) => vec![text.clone()],
+                other => vec![other.to_string()],
             };
-            left.push((kind.clone(), why));
+            excluded.extend(items.iter().map(|item| format!("{kind}: {item}")));
+            left.push((kind.clone(), items.join("; ")));
         }
     }
-    Some(Plan { parts, left })
+    Some(Plan { parts, left, excluded })
 }
 
 fn hot_apply(repo: &Path, args: &[String]) -> Result<(i32, String, String), String> {
@@ -116,36 +132,40 @@ pub(super) fn run(global: &GlobalArgs, args: &AbArgs) -> i32 {
         notes.push(messages.ab_ssh.to_owned());
     }
     let progress = |text: String| eprintln!("cmux perf ab: {text}");
+    if args.unsigned_daemon {
+        let mut warning = messages.ab_unsigned.to_owned();
+        if !args.rollback {
+            warning = format!("{warning} {}", messages.ab_unsigned_rollback);
+        }
+        progress(warning.clone());
+        notes.push(warning);
+    }
 
     let profile = |label: &str| ProfileArgs {
         seconds: args.seconds,
         out: Some(dir.join(format!("{label}.json"))),
         label: Some(format!("{label} {}", args.patch)),
         probe: args.probe,
+        probe_samples: args.probe_samples,
     };
-    progress(super::fill(
-        messages.ab_profiling,
-        &[("label", "before".into()), ("seconds", args.seconds.to_string())],
-    ));
-    let before_args = profile("before");
-    let before = match super::profile::collect(global, &before_args) {
-        Ok(report) => report,
-        Err(error) => return super::super::super::wire::print_local_error(&error, output, 3),
-    };
-    let before_path = before_args.out.clone().unwrap_or_default();
-    if let Err(error) = super::profile::write(&before, &before_path) {
-        return super::super::super::wire::print_local_error(&error, output, 1);
-    }
-    steps.push(step("profile before", true, json!(before_path)));
 
-    let app = before.app["app_bundle_path"].as_str().map(str::to_owned);
+    // The plan comes first: a patch that cannot go in whole is refused before any profiling.
+    let identify = super::super::connect_command(global)
+        .ok()
+        .and_then(|mut stream| super::profile::call(&mut stream, "system.identify", json!({})));
+    let app = identify.as_ref().and_then(|i| i["app_bundle_path"].as_str()).map(str::to_owned);
     let mut app_args = Vec::new();
     if let Some(app) = &app {
         app_args = vec!["--app".to_owned(), app.clone()];
     }
+    let mut daemon_args = Vec::new();
+    if args.unsigned_daemon {
+        daemon_args.push("--unsigned-daemon".to_owned());
+    }
     let mut plan_args =
         vec!["plan".to_owned(), args.patch.clone(), "--repo".into(), repo.display().to_string()];
     plan_args.extend(app_args.clone());
+    plan_args.extend(daemon_args.clone());
     let plan = match hot_apply(&repo, &plan_args) {
         Ok((_, stdout, stderr)) => match parse_plan(&stdout) {
             Some(plan) => plan,
@@ -165,10 +185,41 @@ pub(super) fn run(global: &GlobalArgs, args: &AbArgs) -> i32 {
             );
         }
     };
+    if let Some(excluded) = partial_refusal(&plan, args.allow_partial) {
+        return fail(
+            "perf.ab_partial",
+            super::fill(
+                messages.ab_partial,
+                &[
+                    ("sha", args.patch.clone()),
+                    ("parts", plan.parts.join(",")),
+                    (
+                        "files",
+                        excluded.iter().map(|f| format!("  {f}")).collect::<Vec<_>>().join("\n"),
+                    ),
+                ],
+            ),
+            2,
+        );
+    }
     for (kind, why) in &plan.left {
         notes.push(super::fill(messages.ab_left, &[("kind", kind.clone()), ("why", why.clone())]));
     }
+    progress(super::fill(
+        messages.ab_profiling,
+        &[("label", "before".into()), ("seconds", args.seconds.to_string())],
+    ));
+    let before_args = profile("before");
+    let before = match super::profile::collect(global, &before_args) {
+        Ok(report) => report,
+        Err(error) => return super::super::super::wire::print_local_error(&error, output, 3),
+    };
+    let before_path = before_args.out.clone().unwrap_or_default();
+    if let Err(error) = super::profile::write(&before, &before_path) {
+        return super::super::super::wire::print_local_error(&error, output, 1);
+    }
     steps.push(step("plan", true, json!({ "parts": plan.parts, "left": plan.left })));
+    steps.push(step("profile before", true, json!(before_path)));
 
     let mut after_path = None;
     let mut applied = false;
@@ -185,6 +236,7 @@ pub(super) fn run(global: &GlobalArgs, args: &AbArgs) -> i32 {
             socket.display().to_string(),
         ];
         apply_args.extend(app_args.clone());
+        apply_args.extend(daemon_args.clone());
         if let Some(parts) = &args.parts {
             apply_args.extend(["--parts".to_owned(), parts.clone()]);
         }

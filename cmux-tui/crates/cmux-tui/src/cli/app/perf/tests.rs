@@ -270,8 +270,9 @@ fn counter_delta_and_switch_times() {
 #[test]
 fn responsiveness_composer_is_always_unmeasured() {
     let interactions = vec![
-        profile::Interaction { element: "tab", ms: 5.0, ok: true },
-        profile::Interaction { element: "tab", ms: 500.0, ok: false },
+        profile::Interaction { element: "tab", ms: 5.0, ok: true, warmup: false },
+        profile::Interaction { element: "tab", ms: 500.0, ok: false, warmup: false },
+        profile::Interaction { element: "tab", ms: 900.0, ok: true, warmup: true },
     ];
     let metrics = profile::responsiveness_metrics(&interactions, None, None);
     let get = |key: &str| metrics.iter().find(|m| m.key == key).unwrap().value;
@@ -288,7 +289,8 @@ fn perf_parse_accepts_each_verb() {
             seconds: 5,
             out: Some(PathBuf::from("a.json")),
             label: None,
-            probe: true
+            probe: true,
+            probe_samples: super::DEFAULT_PROBE_SAMPLES,
         })
     );
     assert_eq!(
@@ -302,6 +304,21 @@ fn perf_parse_accepts_each_verb() {
     assert_eq!(ab.patch, "abc123");
     assert!(ab.rollback);
     assert_eq!(ab.seconds, super::DEFAULT_PROFILE_SECONDS);
+    assert!(!ab.unsigned_daemon && !ab.allow_partial);
+    let Command::Ab(ab) = super::parse(&words(&[
+        "ab",
+        "--patch",
+        "abc",
+        "--unsigned-daemon",
+        "--allow-partial",
+        "--probe-samples",
+        "40",
+    ]))
+    .unwrap() else {
+        panic!()
+    };
+    assert!(ab.unsigned_daemon && ab.allow_partial);
+    assert_eq!(ab.probe_samples, 40);
     assert_eq!(
         super::parse(&words(&["sim", "--profile", "unreasonable", "--events", "10000"])).unwrap(),
         Command::Sim(SimArgs {
@@ -321,6 +338,9 @@ fn perf_parse_refuses_bad_input() {
         &["profile", "--seconds", "0"][..],
         &["profile", "--seconds", "601"],
         &["profile", "extra"],
+        &["profile", "--probe-samples", "0"],
+        &["profile", "--probe-samples", "501"],
+        &["ab", "--patch", "x", "--probe-samples", "x"],
         &["compare", "a.json"],
         &["compare", "a", "b", "c"],
         &["ab"],
@@ -412,6 +432,7 @@ fn ab_plan_and_repo() {
     let plan = ab::parse_plan("progress\n{\"sha\":\"x\",\"parts\":[\"web\",\"rust\"],\"left\":{\"swift\":[\"Foo.swift signature\"]}}\n").unwrap();
     assert_eq!(plan.parts, vec!["web", "rust"]);
     assert_eq!(plan.left, vec![("swift".to_owned(), "Foo.swift signature".to_owned())]);
+    assert_eq!(plan.excluded, vec!["swift: Foo.swift signature"]);
     assert!(ab::parse_plan("no json").is_none());
     let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let repo = ab::find_repo(&here).expect("this crate lives in a cmux checkout");
@@ -547,4 +568,121 @@ fn sim_shape_is_trimmed_to_the_terminal_cap() {
     .unwrap();
     let capped = sim::cap_terminals(unreasonable, 447);
     assert!(sim::terminals_in(&capped) <= 447);
+}
+
+#[test]
+fn ab_refuses_a_plan_that_leaves_files_out() {
+    let plan = ab::parse_plan(
+        r#"{"parts":["rust"],"left":{"Swift, resources and manifests":["Sources/A.swift","Sources/B.swift"],"web ABI":"needs ABI 7"}}"#,
+    )
+    .unwrap();
+    let refused = ab::partial_refusal(&plan, false).expect("part of the patch is left out");
+    assert_eq!(
+        refused,
+        [
+            "Swift, resources and manifests: Sources/A.swift",
+            "Swift, resources and manifests: Sources/B.swift",
+            "web ABI: needs ABI 7",
+        ]
+    );
+    assert!(ab::partial_refusal(&plan, true).is_none(), "--allow-partial takes the live part");
+    // All of it live: nothing to refuse.
+    let whole = ab::parse_plan(r#"{"parts":["web","rust"],"left":{}}"#).unwrap();
+    assert!(ab::partial_refusal(&whole, false).is_none());
+    // Nothing live is the nothing-live stop, not a partial refusal.
+    let none = ab::parse_plan(r#"{"parts":[],"left":{"swift":["A.swift"]}}"#).unwrap();
+    assert!(ab::partial_refusal(&none, false).is_none());
+}
+
+#[test]
+fn probe_takes_its_samples_after_a_warmup_round() {
+    use std::time::Duration;
+    assert_eq!(super::DEFAULT_PROBE_SAMPLES, 30);
+    // 30 samples: one warmup round, then 15 rounds of two.
+    assert_eq!(profile::probe_rounds(30), 16);
+    assert_eq!(profile::probe_rounds(1), 2);
+    let window = Duration::from_secs(16);
+    assert_eq!(profile::round_due(0, 16, window), Duration::ZERO);
+    assert_eq!(profile::round_due(8, 16, window), Duration::from_secs(8));
+    assert!(profile::round_due(15, 16, window) < window);
+}
+
+#[test]
+fn probe_metrics_drop_warmup_and_give_p50_beside_p95() {
+    // The live run's sidebar: one 31.71 ms outlier among five ~2.6 ms samples.
+    let sidebar = [31.71, 2.35, 2.84, 2.81, 2.45, 2.75];
+    let mut interactions: Vec<profile::Interaction> = sidebar
+        .iter()
+        .map(|&ms| profile::Interaction { element: "sidebar", ms, ok: true, warmup: false })
+        .collect();
+    interactions.push(profile::Interaction {
+        element: "sidebar",
+        ms: 400.0,
+        ok: true,
+        warmup: true,
+    });
+    let metrics = profile::responsiveness_metrics(&interactions, None, None);
+    let get = |key: &str| metrics.iter().find(|m| m.key == key).unwrap();
+    let p95 = get("resp.sidebar_ms");
+    let p50 = get("resp.sidebar_p50_ms");
+    // Six samples: the "p95" is the max, and it is marked low-n.
+    assert_eq!(p95.value, Some(31.71));
+    assert_eq!(p95.samples, Some(6));
+    assert!(p95.low_n());
+    assert_eq!(p50.value, Some(2.75));
+    assert_eq!(p50.budget, None);
+    // p50 comes right before its p95.
+    let at = |key: &str| metrics.iter().position(|m| m.key == key).unwrap();
+    assert_eq!(at("resp.sidebar_p50_ms") + 1, at("resp.sidebar_ms"));
+    // Thirty samples are enough.
+    let many: Vec<_> = (0..30)
+        .map(|i| profile::Interaction {
+            element: "sidebar",
+            ms: if i == 0 { 31.71 } else { 2.5 },
+            ok: true,
+            warmup: false,
+        })
+        .collect();
+    let metrics = profile::responsiveness_metrics(&many, None, None);
+    let p95 = metrics.iter().find(|m| m.key == "resp.sidebar_ms").unwrap();
+    assert!(!p95.low_n());
+    assert_eq!(p95.value, Some(2.5), "one outlier in 30 no longer decides the p95");
+    assert!(stats::low_n(19) && !stats::low_n(20));
+}
+
+#[test]
+fn compare_gives_low_n_rows_no_fixed_or_broke() {
+    let m = |value: f64, samples: usize| {
+        metric("resp.sidebar_ms", Some(value), Some(16.67), Better::Lower).samples(Some(samples))
+    };
+    // The false BROKE: 2.6 ms before, one 31.71 ms outlier after, six samples each.
+    let row = compare::row(Some(&m(2.6, 6)), Some(&m(31.71, 6))).unwrap();
+    assert_eq!(row.verdict, Verdict::LowN);
+    assert!(row.low_n);
+    assert_eq!(row.samples, (Some(6), Some(6)));
+    let row = compare::row(Some(&m(31.71, 30)), Some(&m(2.6, 6))).unwrap();
+    assert_eq!(row.verdict, Verdict::LowN, "one low-n side is enough");
+    let row = compare::row(Some(&m(2.6, 30)), Some(&m(31.71, 30))).unwrap();
+    assert_eq!(row.verdict, Verdict::Broke);
+    // A report without counts (older ones) is judged as before.
+    let row = compare::row(
+        Some(&metric("k", Some(2.6), Some(16.67), Better::Lower)),
+        Some(&metric("k", Some(31.71), Some(16.67), Better::Lower)),
+    )
+    .unwrap();
+    assert_eq!(row.verdict, Verdict::Broke);
+    let before = report("a", vec![m(2.6, 6)]);
+    let after = report("b", vec![m(31.71, 6)]);
+    let messages = &crate::localization::catalog().app_control.perf;
+    let rows = compare::compare(&before, &after);
+    assert!(rows.iter().all(|row| row.verdict == Verdict::LowN));
+    let text = compare::human(&before, &after, &rows);
+    let detail = super::fill(
+        messages.verdict_low_n_detail,
+        &[("before", "6".to_owned()), ("after", "6".to_owned())],
+    );
+    assert!(text.contains(&detail), "{text}");
+    let profile_text = super::report::human(&after);
+    let status = super::fill(messages.status_low_n, &[("n", "6".to_owned())]);
+    assert!(profile_text.contains(&status), "{profile_text}");
 }

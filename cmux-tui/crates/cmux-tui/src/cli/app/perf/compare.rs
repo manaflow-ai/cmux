@@ -38,6 +38,8 @@ pub(super) enum Verdict {
     Same,
     /// One side has no value.
     Unmeasured,
+    /// A side's percentile came from too few samples to judge (`stats::LOW_N`).
+    LowN,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -54,6 +56,10 @@ pub(super) struct Row {
     pub better: Better,
     pub trend: Option<Trend>,
     pub verdict: Verdict,
+    /// Either side's percentile came from too few samples; the verdict is then [`Verdict::LowN`].
+    pub low_n: bool,
+    /// The samples behind each side's value, when the report says.
+    pub samples: (Option<usize>, Option<usize>),
 }
 
 pub(super) fn trend(better: Better, before: f64, after: f64) -> Trend {
@@ -78,12 +84,14 @@ pub(super) fn row(before: Option<&Metric>, after: Option<&Metric>) -> Option<Row
         ),
         _ => (None, None, None),
     };
+    let low_n = before.is_some_and(Metric::low_n) || after.is_some_and(Metric::low_n);
     let verdict = match (
         report::within(shape.better, budget, b),
         report::within(shape.better, budget, a),
         trend,
     ) {
         (_, _, None) => Verdict::Unmeasured,
+        _ if low_n => Verdict::LowN,
         (Some(false), Some(true), _) => Verdict::Fixed,
         (Some(true), Some(false), _) => Verdict::Broke,
         (Some(true), Some(true), _) => Verdict::Within,
@@ -105,6 +113,8 @@ pub(super) fn row(before: Option<&Metric>, after: Option<&Metric>) -> Option<Row
         better: shape.better,
         trend,
         verdict,
+        low_n,
+        samples: (before.and_then(|m| m.samples), after.and_then(|m| m.samples)),
     })
 }
 
@@ -155,6 +165,7 @@ fn verdict_word(verdict: Verdict) -> &'static str {
         Verdict::Worse => messages.verdict_worse,
         Verdict::Same => messages.verdict_same,
         Verdict::Unmeasured => messages.verdict_unmeasured,
+        Verdict::LowN => messages.verdict_low_n,
     }
 }
 
@@ -200,6 +211,17 @@ pub(super) fn human(before: &Report, after: &Report, rows: &[Row]) -> String {
         };
         let budget = row.budget.map(|b| report::show(Some(b))).unwrap_or_default();
         let mut verdict = verdict_word(row.verdict).to_owned();
+        if row.verdict == Verdict::LowN {
+            let n = |n: Option<usize>| n.map_or_else(|| "?".to_owned(), |n| n.to_string());
+            verdict = super::fill(
+                messages.verdict_low_n_detail,
+                &[("before", n(row.samples.0)), ("after", n(row.samples.1))],
+            );
+            let trend = trend_word(row.trend);
+            if !trend.is_empty() {
+                verdict = format!("{verdict}, {trend}");
+            }
+        }
         if matches!(row.verdict, Verdict::Within | Verdict::Over) {
             let trend = trend_word(row.trend);
             if !trend.is_empty() {
@@ -238,9 +260,8 @@ pub(super) fn human(before: &Report, after: &Report, rows: &[Row]) -> String {
                 (
                     "over",
                     rows.iter()
-                        .filter(
-                            |row| report::within(row.better, row.budget, row.after) == Some(false)
-                        )
+                        .filter(|row| !row.low_n
+                            && report::within(row.better, row.budget, row.after) == Some(false))
                         .count()
                         .to_string()
                 ),

@@ -1,5 +1,14 @@
 //! Percentiles and summaries over samples (milliseconds, percent, bytes).
 
+/// Below this many samples a p95 is the top value or next to it: one outlier decides it. Such a
+/// p95 is marked low-n and gets no budget verdict.
+pub(super) const LOW_N: usize = 20;
+
+/// `count` samples are too few for a p95.
+pub(super) fn low_n(count: usize) -> bool {
+    count < LOW_N
+}
+
 /// The nearest-rank percentile `p` (0 to 100) of `sorted` (ascending); `None` when empty.
 pub(super) fn percentile(sorted: &[f64], p: f64) -> Option<f64> {
     if sorted.is_empty() {
