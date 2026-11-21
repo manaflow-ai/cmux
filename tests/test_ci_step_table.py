@@ -372,6 +372,34 @@ class PipelineTest(unittest.TestCase):
                      "cmux-skill-contract.yml", "ci-cache-receipts.yml"):
             self.assertFalse((ROOT / ".github/workflows" / name).exists(), f"{name}: the step table runs it")
 
+    def test_the_moved_pull_request_triggers_are_gone(self) -> None:
+        # These keep their push, dispatch or post-merge runs; a pull request runs them as steps of the table.
+        moved = {"cmux-next-crash-class.yml": "crash-class", "labels-sync.yml": "labels-manifest",
+                 "cmux-next-shim-cpp.yml": "shim-cpp", "cmux-next-chromium-currency.yml": "chromium-currency",
+                 "swift-acpmux-protocol.yml": "swift-acpmux-protocol"}
+        steps = ci_steps.load().steps
+        for name, step in moved.items():
+            with self.subTest(workflow=name):
+                wf = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
+                self.assertNotIn("pull_request", wf.get("on", wf.get(True)), "the step table runs it")
+                self.assertEqual(steps[step].job, "linux")
+        self.assertNotIn("validate", yaml.safe_load((ROOT / ".github/workflows/labels-sync.yml").read_text())["jobs"])
+
+    def test_the_shim_step_runs_every_cpp_script(self) -> None:
+        run = ci_steps.load().steps["shim-cpp"].run
+        scripts = sorted((ROOT / "scripts" / "cmux-next").glob("test-*-cpp.sh"))
+        self.assertGreaterEqual(len(scripts), 10)
+        for script in scripts:
+            with self.subTest(script=script.name):
+                self.assertIn(f"./scripts/cmux-next/{script.name}", run)
+
+    def test_the_job_timeout_covers_setup_and_every_wave(self) -> None:
+        # Setup, then the linux steps two at once (a 2 vCPU runner), each wave as long as the longest step.
+        linux = [s for s in ci_steps.load().steps.values() if s.job == "linux"]
+        need = ci_steps.SETUP_TIMEOUT + -(-len(linux) // 2) * max(s.timeout for s in linux)
+        wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        self.assertGreaterEqual(wf["jobs"]["linux"]["timeout-minutes"] * 60, need)
+
 
 class RepositoryAdvisoryStepsTest(unittest.TestCase):
     """The table's own advisory steps, run as the workflow runs them, against this checkout."""
