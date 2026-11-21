@@ -6092,6 +6092,9 @@ export class AcpmuxDirectClient {
     this.goalSeq = Math.min(this.goalSeq, end);
     // `rebuild` takes lastSeq from the records kept.
     this.rebuild();
+    // Drawn now: the read on from `end` may wait behind a lag's read already out
+    // (`readMissedAfterLag` runs one at a time), and the lost rows must not stay until it lands.
+    this.emit("resyncing");
     return true;
   }
 
