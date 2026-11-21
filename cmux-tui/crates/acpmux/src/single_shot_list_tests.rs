@@ -149,6 +149,7 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     ("cli/run/ls.rs", "method::MUX_SESSIONS", 1, "`ls`'s fallback (`V1_PAGES`)"),
     ("cli/run/standard.rs", "method::MUX_SESSIONS", 1, "`pending`'s fallback"),
     ("cli/run/fanout.rs", "method::MUX_SESSIONS", 1, "`send --tag`'s fallback"),
+    ("cli/search_all.rs", "method::MUX_SESSIONS", 1, "search's fallback for the whole view"),
     ("acpmux_mcp.rs", "method::MUX_SESSIONS", 1, "MCP `ls`'s fallback"),
     // v1 read kept: `ls --cursor C` reads one v1 page.
     (

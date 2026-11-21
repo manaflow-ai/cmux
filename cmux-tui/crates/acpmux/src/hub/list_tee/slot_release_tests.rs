@@ -178,8 +178,12 @@ async fn one_change_on_a_refused_machine_after_a_slot_frees_brings_every_chat() 
     book(&live.v1, &listed);
     until("the 257th whole", || live.rows_of(LAST).len() == 3).await;
     until("its record", || origin(&live.index(), LAST) == Some(OriginState::Connected)).await;
-    let changed = live.index().get_row(&RowKey::new(LAST, "machine-256-2")).unwrap();
-    assert_eq!(changed.state, "waiting");
+    until("the changed row", || {
+        live.index()
+            .get_row(&RowKey::new(LAST, "machine-256-2"))
+            .is_some_and(|r| r.state == "waiting")
+    })
+    .await;
     assert_eq!(v2_keys(&live.index()), v1_keys(&live.v1));
     live.stop().await;
 }
