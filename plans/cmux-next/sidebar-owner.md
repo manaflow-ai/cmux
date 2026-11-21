@@ -2614,3 +2614,7 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   (Pinned refused a workspace from the list, #22263) is gone. The lift moves no row: Pinned's zone still opens only
   where the drag goes (`SidebarEmptyZones`). Regression: `SidebarDocPinnedDropTests`.
   Sidebar-Look: i dont think it works very well, especially with clicking and dragging.
+
+- 2026-11-21 (a-chat-task-list): the Chief's subagent rows under the top Chief row show a subagent's task count ("1/3",
+  `SidebarItemInfo.taskProgress`) left of their trailing marks, as a chat row does; `SidebarItemRowView.taskCount`,
+  row looks only (not icon, chip or tile). Test: ChiefSubagentTaskCountTests.
