@@ -22,7 +22,7 @@ extension ComputerUseSettings {
     public nonisolated static let cursorTagDefault: ComputerUseCursorTag = .hover
     /// `computerUse.settle`: What the engine waits for after an action before its screenshot (PolicyConfig settle).
     public nonisolated static let settlePath = ["computerUse", "settle"]
-    public nonisolated static let settleDefault: ComputerUseSettle = .adaptive
+    public nonisolated static let settleDefault: ComputerUseSettle = .openai
     /// `computerUse.livePreview`.
     public nonisolated static let livePreviewPath = ["computerUse", "livePreview"]
     public nonisolated static let livePreviewDefault = true
