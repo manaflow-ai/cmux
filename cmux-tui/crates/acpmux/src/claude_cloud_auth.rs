@@ -50,9 +50,57 @@ where
     F: FnOnce(String) -> Fut,
     Fut: std::future::Future<Output = bool>,
 {
-    if !inputs.owner_cloud_image() {
+    if !inputs.owner_cloud_image() || !chooses_team(inputs, env, flag, cwd, true) {
         return None;
     }
+    let origin = inputs.team_origin()?;
+    let host = origin.trim_start_matches("https://").split(['/', '?', '#']).next()?.to_owned();
+    if host.is_empty() || !resolves(host).await {
+        return None;
+    }
+    let base = inputs.model_plane_var("ANTHROPIC_BASE_URL").unwrap_or_else(|| origin.clone());
+    let key =
+        inputs.model_plane_var("ANTHROPIC_API_KEY").unwrap_or_else(|| PLACEHOLDER_KEY.to_owned());
+    Some([("ANTHROPIC_BASE_URL".to_owned(), base), ("ANTHROPIC_API_KEY".to_owned(), key)])
+}
+
+/// Claude team mode on a machine joined to the cmux hub that is not a Cloud image
+/// (`joined_model_plane.rs`): [`team_pair`]'s rules, but with no pin or `cr use` choice it stays
+/// own. `join` is the machine's join now (`joined_model_plane::now`); `resolves` answers whether
+/// the hub's host resolves. The pair is the hub origin and the public placeholder key; the
+/// machine credential goes in a header the egress proxy fills (`joined_model_plane::claude_headers`).
+pub async fn joined_pair<F, Fut>(
+    inputs: &Inputs<'_>,
+    env: &BTreeMap<String, String>,
+    flag: Option<&Map<String, Value>>,
+    cwd: &Path,
+    join: Option<&crate::joined_model_plane::Join>,
+    resolves: F,
+) -> Option<[(String, String); 2]>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let join = join.filter(|_| !inputs.owner_cloud_image())?;
+    if !chooses_team(inputs, env, flag, cwd, false) || !resolves(join.host().to_owned()).await {
+        return None;
+    }
+    Some([
+        ("ANTHROPIC_BASE_URL".to_owned(), join.origin().to_owned()),
+        ("ANTHROPIC_API_KEY".to_owned(), PLACEHOLDER_KEY.to_owned()),
+    ])
+}
+
+/// Whether a Claude launch takes a team plane (module docs; [`team_pair`] and [`joined_pair`]):
+/// never over a pair the launch sets or a managed credential; then `CMUX_CLAUDE_AUTH=own|team`,
+/// then `cr use`'s choice; with neither, `unchosen_team` and no sign-in of its own.
+fn chooses_team(
+    inputs: &Inputs<'_>,
+    env: &BTreeMap<String, String>,
+    flag: Option<&Map<String, Value>>,
+    cwd: &Path,
+    unchosen_team: bool,
+) -> bool {
     let var = |k: &str| (inputs.var)(k).filter(|v| !v.is_empty());
     // The flag settings' env, which Claude applies over the process env. A JSON `true` or number
     // (`"CLAUDE_CODE_USE_BEDROCK": true`) is the value Claude reads, as the launcher's check
@@ -77,22 +125,23 @@ where
     let set = |k: &str| var(k).is_some() || flag_env.get(k).is_some_and(|v| !v.is_empty());
     // A pair in the launch already (the person's, or a route's) wins, as in the launcher.
     if set("ANTHROPIC_BASE_URL") || set("ANTHROPIC_API_KEY") {
-        return None;
+        return false;
     }
     // Managed settings outrank every `--settings`, so team mode cannot empty a credential there:
     // keep own mode, whatever was chosen, rather than send it to the team endpoint.
     if managed_credential(&inputs.root.join(MANAGED_SETTINGS)) {
-        return None;
+        return false;
     }
     let pinned = match var("CMUX_CLAUDE_AUTH").as_deref().map(str::trim) {
-        Some("own") => return None,
+        Some("own") => return false,
         Some("team") => true,
         _ => false,
     };
     if !pinned {
         match inputs.choice_for("claude") {
-            Some("own") => return None,
+            Some("own") => return false,
             Some(_) => {}
+            None if !unchosen_team => return false,
             None => {
                 let mut env = env.clone();
                 env.entry("HOME".to_owned())
@@ -105,20 +154,12 @@ where
                 // is the person's too, as one in the env or the flag is above.
                 let found = crate::claude_auth::find_in(&env, cwd);
                 if flag_helper || found.signed_in() || found.endpoint.is_some() {
-                    return None;
+                    return false;
                 }
             }
         }
     }
-    let origin = inputs.team_origin()?;
-    let host = origin.trim_start_matches("https://").split(['/', '?', '#']).next()?.to_owned();
-    if host.is_empty() || !resolves(host).await {
-        return None;
-    }
-    let base = inputs.model_plane_var("ANTHROPIC_BASE_URL").unwrap_or_else(|| origin.clone());
-    let key =
-        inputs.model_plane_var("ANTHROPIC_API_KEY").unwrap_or_else(|| PLACEHOLDER_KEY.to_owned());
-    Some([("ANTHROPIC_BASE_URL".to_owned(), base), ("ANTHROPIC_API_KEY".to_owned(), key)])
+    true
 }
 
 /// The env Claude's sign-in check reads for one launch with the resolved profile env `profile`,

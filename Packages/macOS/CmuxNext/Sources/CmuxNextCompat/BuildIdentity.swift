@@ -118,10 +118,47 @@ public nonisolated struct BuildIdentity: Sendable, Equatable {
     }
 
     /// The running app: its bundle id and the `CMUX_TAG` its Info.plist
-    /// ships in `LSEnvironment` (never the process environment).
+    /// ships in `LSEnvironment` (never the process environment). A copy named
+    /// `cmux DEV <tag>.app` whose Info.plist lost `LSEnvironment` ships its
+    /// name's tag, as `LaunchIdentity` and the `cmux` CLI (cmux-tui
+    /// app_identity.rs) read it, so its state never collapses onto the
+    /// untagged DEV build's.
     public init(bundle: Bundle) {
         let environment = bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: Any]
-        self.init(bundleID: bundle.bundleIdentifier, bundledTag: environment?["CMUX_TAG"] as? String)
+        let shipped = (environment?["CMUX_TAG"] as? String).flatMap(Self.tagSlug(of:))
+            ?? Self.appNameTag(bundle.bundleURL.deletingPathExtension().lastPathComponent)
+        self.init(bundleID: bundle.bundleIdentifier, bundledTag: shipped)
+    }
+
+    /// The tag in a `cmux DEV <tag>.app` name (the name without `.app`), sanitized; nil for any other name.
+    public static func appNameTag(_ name: String?) -> String? {
+        guard let name, name.hasPrefix("cmux DEV ") else { return nil }
+        return tagSlug(of: String(name.dropFirst("cmux DEV ".count)))
+    }
+
+    /// The tag of a tagged dev build (`com.cmuxterm.app.debug.<tag>`, `com.cmuxterm.app.staging.<tag>`, or a DEV
+    /// bundle that ships `CMUX_TAG`): the cloud build space its requests carry (`X-Cmux-Build-Space`). Nil for
+    /// NIGHTLY (also cmux NEXT's `.cmux-next`), RC, release, an untagged DEV build and a standalone process, which
+    /// share the cloud's default space.
+    public var devTag: String? {
+        switch kind {
+        case .dev, .staging: tag
+        case .nightly, .release, .rc, .unbundled: nil
+        }
+    }
+
+    /// Whether this build must have a cloud build space of its own: every DEV build (`com.cmuxterm.app.debug`,
+    /// tagged or not) and a tagged staging build (`com.cmuxterm.app.staging.<tag>`). Without a usable ``devTag``
+    /// such a build refuses cloud calls instead of sharing nightly's data (`CMUXBuildSpaceState`).
+    public var needsBuildSpace: Bool {
+        guard let bundleID else { return false }
+        let bytes = Array(bundleID.utf8)
+        func within(_ prefix: String, bare: Bool) -> Bool {
+            let head = Array(prefix.utf8)
+            if bytes == head { return bare }
+            return bytes.count > head.count && bytes.starts(with: head) && bytes[head.count] == UInt8(ascii: ".")
+        }
+        return within("com.cmuxterm.app.debug", bare: true) || within("com.cmuxterm.app.staging", bare: false)
     }
 
     /// FNV-1a 32 of the key, 8 hex digits: for names that must stay short
