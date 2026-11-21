@@ -586,6 +586,10 @@ def measure(label, name):
         for key, group, field in CEF_DELTAS:
             result[key] = change(counter(cef_before, group, field), counter(cef_after, group, field))
         result["page_frames"] = change(page_before, page_eval("window.__frames"))
+        # Which fork ran the page, and whether the page was layer-hosted: a fence joins only on fork API 34 and up,
+        # with the page hosted (CEFLayerHosting.pageViewResized).
+        result["cef_fork_api"] = counter(cef_after, "windows", "fork_api")
+        result["cef_hosted_pages"] = counter(cef_after, "tracker", "hosted_pages")
         layers_after = first_window(rpc("debug.layers"))
         for key, field in LAYER_DELTAS:
             result[key] = change(layers_before.get(field), layers_after.get(field))
