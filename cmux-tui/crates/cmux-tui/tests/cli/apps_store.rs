@@ -930,10 +930,10 @@ fn the_app_store_answers_v2_namespace_requests_for_the_apps_page() {
     let refused = history.v2("apps.catalog.list", json!({}), page);
     assert_eq!(v2_reason(&refused), "page_not_allowed");
 
-    // An install from the Apps page needs the person's confirmation.
+    // An install from the Apps page needs the person's gesture (their click on Install).
     let install = json!({"app": "acme/tool"});
     let refused = relay.v2("apps.install", install.clone(), json!({"idempotency_key": "g1"}));
-    assert_eq!(v2_reason(&refused), "confirmation_required");
+    assert_eq!(v2_reason(&refused), "gesture_required");
     let digest =
         sha2::Sha256::digest(br#"{"app":"acme/tool","machine":"current","session":"current"}"#);
     let digest: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();

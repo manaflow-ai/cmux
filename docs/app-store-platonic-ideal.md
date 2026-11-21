@@ -58,7 +58,8 @@ repeat them:
    deploy, pin or share path needs cmux Cloud (section 8a).
 8. **Users and agents are equal operators.** Every op an app declares is a palette entry, a CLI
    verb and an MCP tool, generated from one catalog fragment. Agents may call granted ops; only a
-   user gesture in a native sheet may install, widen grants or spend money.
+   user gesture may install (the App Store's own Install click, or a native sheet from the CLI, palette
+   or MCP); only a native sheet may widen grants or spend money.
 9. **Untrusted code runs in a VM, not on the Mac.** Unverified apps with servers deploy to a
    Cloud VM by default. The Mac runs only sandboxed scene JS and sandboxed web content.
 10. **Smallest first slice** (section 15): a third-party web app from a git repo, deployed to the

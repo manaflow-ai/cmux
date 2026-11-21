@@ -77,7 +77,7 @@ final class PageRelayChannel {
               context: PageCallContext) async throws -> CmuxNextDaemon.JSONValue {
         guard let service else { throw DaemonError.notConnected }
         let claims = DaemonClientRole.originClaimCapability
-        guard service.supports(claims) || PageOperations.allowsUnnarrowed(identity.page, operation, confirmed: context.isConfirmedUser, gesture: { spendGesture(context) }) else { throw DaemonError.missingCapabilities([claims]) }
+        guard service.supports(claims) || PageOperations.allowsUnnarrowed(identity.page, operation, params: params, confirmed: context.isConfirmedUser, gesture: { spendGesture(context) }) else { throw DaemonError.missingCapabilities([claims]) }
         guard let main = service.connection else { throw DaemonError.notConnected }
         guard service.supports(claims) else {
             if !warned {
@@ -91,7 +91,7 @@ final class PageRelayChannel {
         // A native sheet, or the person's own key or pointer event on a call the page's list
         // marks `gesture` (a History delete): the daemon then takes it as the user's. One event
         // backs one such call; a `confirm` call (an app change) needs the sheet.
-        let gesture = identity.gestureOperations.contains(operation) && spendGesture(context)
+        let gesture = identity.gestureOperations.contains(operation) && !PageOperations.needsSheet(operation, params: params) && spendGesture(context)
         if context.isConfirmedUser || gesture {
             let token = try await confirmationToken(main: main, relay: relay, operation: operation, params: params)
             origin = .object(["claim": .string("user"), "confirmation": .string(token)])
