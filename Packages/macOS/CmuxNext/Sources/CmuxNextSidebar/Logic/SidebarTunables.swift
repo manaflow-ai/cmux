@@ -168,6 +168,14 @@ public nonisolated enum SidebarTunables {
         help: "While an agent chat in a workspace works, the row's second line reads \"Now:\" and what the agent is doing. A one-line row stays one line.",
         default: false, code: "SidebarTunables.nowLine")
 
+    /// A row whose agent chat has steps left in its task list (acpmux `taskList`: the harness's
+    /// plan, else the one its Chief keeps) shows how many are done ("3/7") on the name's line, and
+    /// its hover card says what runs now and what is next. On by default (David Beyer, Nov 20 call).
+    public static let taskProgress = Tunable<Bool>.toggle(
+        "sidebar.taskProgress", .sidebar, "Rows show their agent's task progress",
+        help: "While an agent chat in a workspace has steps left in its task list, the row shows how many are done (3/7) and the hover card says what runs now and what is next.",
+        default: true, code: "SidebarTunables.taskProgress")
+
     /// Sample agent lanes on every row (`SidebarLaneFixture`), for captures on a slot with no agents.
     public static let laneFixture = Tunable<Bool>.toggle(
         "sidebar.laneFixture", .sidebar, "Sample agent states on rows",
@@ -274,6 +282,7 @@ public nonisolated enum SidebarTunables {
             laneFixture.descriptor,
             remoteMachineResources.descriptor,
             nowLine.descriptor,
+            taskProgress.descriptor,
             multiView.descriptor,
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
