@@ -7,6 +7,12 @@ public final class AppSceneHostingView: NSView {
     public let model: AppSceneModel
     /// Runs when the content's height may have changed (a new scene, a status change).
     public var onContentSizeChange: (() -> Void)?
+    /// The scene's root fills the host's bounds (a widget tile has a fixed size; its frame's spacers
+    /// take the room left) instead of taking its own height (a sidebar section).
+    public var fillsBounds: Bool {
+        get { native.fillsBounds }
+        set { native.fillsBounds = newValue }
+    }
     private let native: AppSceneNativeView
 
     /// - Parameters:
@@ -42,6 +48,10 @@ public final class AppSceneHostingView: NSView {
 
     /// The scene's height when laid out `width` points wide.
     public func preferredHeight(width: CGFloat) -> CGFloat { native.preferredHeight(width: width) }
+
+    /// The scene's natural width, nil before it draws, while it shows a failure, or when it fills
+    /// the width it gets (a titlebar status item sizes to it).
+    public var preferredWidth: CGFloat? { native.preferredWidth }
 
     public override func layout() {
         super.layout()

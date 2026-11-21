@@ -77,6 +77,28 @@ impl Supervisor {
             if self.config.host_binary.is_none() {
                 return Err(ApiError::new("apps.unavailable", "this daemon has no app host"));
             }
+            // A widget's context is built here from its spec and the layout (`widgets.rs`).
+            let widget_spec = (interface == super::widgets::INTERFACE).then(|| {
+                package
+                    .manifest
+                    .pointer("/implements")
+                    .and_then(|i| i.get(super::widgets::INTERFACE))
+                    .map(super::widgets::Spec::from_entry)
+            });
+            let (context, widget) = match widget_spec {
+                Some(spec) => {
+                    let spec = spec.ok_or_else(|| {
+                        ApiError::new("apps.interface", format!("{app} has no widget"))
+                    })?;
+                    let layout = self.widget_layout_locked(&mut inner);
+                    let (context, mut widget) =
+                        super::widgets::mount_context(app, &spec, &context, layout)?;
+                    inner.widgets.next_epoch = inner.widgets.next_epoch.wrapping_add(1);
+                    widget.epoch = inner.widgets.next_epoch;
+                    (context, Some(widget))
+                }
+                None => (context, None),
+            };
             let key = MountKey { client, mount_id: mount_id.to_string() };
             // A view mounted again under its id (Reload) keeps its old scene
             // on screen until this one: its first scene replaces it.
@@ -86,6 +108,15 @@ impl Supervisor {
             if !preview {
                 self.note_launch_mount_locked(&mut inner, app);
             }
+            let mut budget = super::budget::MountBudget::default();
+            if widget.is_some() {
+                budget.quiet_after(
+                    super::widgets::QUIET_INTERVAL,
+                    Instant::now(),
+                    super::widgets::SETTLE,
+                );
+            }
+            let ticks = widget.is_some();
             inner.mounts.insert(
                 key.clone(),
                 Mount {
@@ -94,9 +125,13 @@ impl Supervisor {
                     export: export.clone(),
                     context: context.clone(),
                     reset: replacing,
-                    budget: Default::default(),
+                    budget,
+                    widget,
                 },
             );
+            if ticks {
+                self.schedule_tick_locked(&mut inner, &key);
+            }
             outs.extend(self.revive_host_locked(&mut inner, &host_key, |process| {
                 process.send(&ToHost::Mount { mount: key.wire(), export, ctx: context });
             }));
@@ -148,6 +183,7 @@ impl Supervisor {
 
     pub(super) fn unmount_locked(&self, inner: &mut Inner, key: &MountKey) -> Vec<Out> {
         let Some(mount) = inner.mounts.remove(key) else { return vec![] };
+        self.cancel_widget_timers(mount.widget.as_ref());
         if let Some(process) = inner.hosts.get(&mount.host).and_then(|h| h.process.clone()) {
             process.send(&ToHost::Unmount { mount: key.wire() });
         }
@@ -169,8 +205,12 @@ impl Supervisor {
         let key = MountKey { client, mount_id: mount_id.to_string() };
         let mount = inner
             .mounts
-            .get(&key)
+            .get_mut(&key)
             .ok_or_else(|| ApiError::new("apps.mount.unknown", "no such mount"))?;
+        // A tap on a widget redraws at frame rate for a moment (`widgets.rs` SETTLE).
+        if user && mount.widget.is_some() {
+            mount.budget.settle(Instant::now(), super::widgets::SETTLE);
+        }
         let host_key = mount.host.clone();
         if !payload.is_object() {
             payload = json!({});
@@ -239,7 +279,10 @@ impl Supervisor {
             },
             move |exit| {
                 if let Some(me) = me_exit.upgrade() {
-                    me.on_host_exit(&key_exit, generation, exit);
+                    match exit {
+                        Ok(exit) => me.on_host_exit(&key_exit, generation, exit),
+                        Err(error) => me.on_host_start_failed(&key_exit, generation, &error),
+                    }
                 }
             },
         );
@@ -261,6 +304,7 @@ impl Supervisor {
         let mut failed = Vec::new();
         for mount in gone {
             if let Some(record) = inner.mounts.remove(&mount) {
+                self.cancel_widget_timers(record.widget.as_ref());
                 let reason = format!(
                     "{} does not implement {} with a scene export",
                     key.app, record.interface
@@ -329,7 +373,9 @@ impl Supervisor {
         let failed: Vec<MountKey> =
             inner.mounts.iter().filter(|(_, m)| m.host == *key).map(|(k, _)| k.clone()).collect();
         for mount in failed {
-            inner.mounts.remove(&mount);
+            if let Some(gone) = inner.mounts.remove(&mount) {
+                self.cancel_widget_timers(gone.widget.as_ref());
+            }
             outs.push(Out::Client(
                 mount.client,
                 json!({ "event": "apps-mount-failed", "mount_id": mount.mount_id, "reason": reason }),
@@ -353,10 +399,12 @@ impl Supervisor {
         outs
     }
 
-    /// Arms the idle stop once a live host has no mounts and no runs. A
-    /// preview host stops at once.
+    /// Arms the idle stop once a live host has no mounts and no runs, unless
+    /// its `activation` keeps it up (`activation.rs`). A preview host stops
+    /// at once.
     pub(super) fn idle_check_locked(&self, inner: &mut Inner, key: &HostKey) -> Vec<Out> {
-        let busy = inner.mounts.values().any(|m| m.host == *key);
+        let busy =
+            inner.mounts.values().any(|m| m.host == *key) || self.resident_locked(inner, key);
         let Some(host) = inner.hosts.get_mut(key) else { return vec![] };
         let live = matches!(host.state, HostState::Starting | HostState::Running);
         if busy
@@ -384,7 +432,10 @@ impl Supervisor {
 
     fn idle_fired(&self, key: &HostKey, generation: u64) {
         let mut inner = self.inner.lock().unwrap();
-        let busy = inner.mounts.values().any(|m| m.host == *key);
+        // A host that became resident after its timer was armed (an
+        // `onEvent` app that subscribed) is kept: the timer only ends.
+        let busy =
+            inner.mounts.values().any(|m| m.host == *key) || self.resident_locked(&inner, key);
         if let Some(host) = inner.hosts.get_mut(key)
             && host.generation == generation
             && host.idle.take().is_some()
@@ -399,7 +450,7 @@ impl Supervisor {
         self.emit(outs);
     }
 
-    fn stop_host_locked(&self, inner: &mut Inner, key: &HostKey) -> Vec<Out> {
+    pub(super) fn stop_host_locked(&self, inner: &mut Inner, key: &HostKey) -> Vec<Out> {
         let Some(host) = inner.hosts.get_mut(key) else { return vec![] };
         if let Some(timer) = host.idle.take() {
             self.timers.cancel(timer);
@@ -427,7 +478,9 @@ impl Supervisor {
             .map(|(k, _)| k.clone())
             .collect();
         for mount in doomed {
-            inner.mounts.remove(&mount);
+            if let Some(gone) = inner.mounts.remove(&mount) {
+                self.cancel_widget_timers(gone.widget.as_ref());
+            }
             outs.push(Out::Client(
                 mount.client,
                 json!({ "event": "apps-mount-failed", "mount_id": mount.mount_id, "reason": reason }),
@@ -435,6 +488,8 @@ impl Supervisor {
         }
         let key = HostKey { app: app.to_string(), preview: false };
         outs.extend(self.cancel_provider_calls_locked(inner, &key, "revoked"));
+        // Its web panes' calls end too (page_calls.rs).
+        outs.extend(self.cancel_page_calls_locked(inner, Some(app), reason));
         if let Some(host) = inner.hosts.get_mut(&key) {
             host.grant = Grant { revoked: true, ..Grant::default() };
             outs.extend(host.queued_runs.drain(..).map(|run| run.refuse("apps.disabled", reason)));
@@ -451,7 +506,10 @@ impl Supervisor {
     pub(super) fn regrant_locked(&self, inner: &mut Inner, app: &str) -> Vec<Out> {
         let key = HostKey { app: app.to_string(), preview: false };
         let grant = Self::grant_for(inner, &key);
-        let Some(host) = inner.hosts.get_mut(&key) else { return vec![] };
+        // A web pane's calls made under the old grant do not outlive it,
+        // whether or not the app has a host.
+        let mut outs = self.cancel_page_calls_locked(inner, Some(app), "grants_changed");
+        let Some(host) = inner.hosts.get_mut(&key) else { return outs };
         host.grant = grant;
         if let Some(timer) = host.idle.take() {
             self.timers.cancel(timer);
@@ -464,9 +522,9 @@ impl Supervisor {
             host.state = HostState::Restarting;
             process.shutdown();
             // Calls made under the old grant do not outlive it.
-            return self.cancel_provider_calls_locked(inner, &key, "revoked");
+            outs.extend(self.cancel_provider_calls_locked(inner, &key, "revoked"));
         }
-        vec![]
+        outs
     }
 
     pub(super) fn on_host_message(&self, key: &HostKey, generation: u64, message: FromHost) {
@@ -503,7 +561,16 @@ impl Supervisor {
             }
             FromHost::Mounted { mount, error } => {
                 let Some(mount_key) = find_mount(inner, key, &mount) else { return vec![] };
-                let Some(reason) = error else { return self.good_mount_locked(inner, key) };
+                let Some(reason) = error else {
+                    let mut outs = self.widget_mount_good_locked(inner, &mount_key);
+                    outs.extend(self.good_mount_locked(inner, key));
+                    return outs;
+                };
+                // Let it crash: a widget whose render threw keeps its last good scene, marked
+                // stale, and mounts again after a bounded backoff (widgets.rs).
+                if inner.mounts.get(&mount_key).is_some_and(|m| m.widget.is_some()) {
+                    return self.widget_mount_failed_locked(inner, &mount_key, reason);
+                }
                 inner.mounts.remove(&mount_key);
                 let mut outs = vec![Out::Client(
                     mount_key.client,
@@ -524,7 +591,8 @@ impl Supervisor {
             }
             FromHost::Unsubscribe { sub } => {
                 inner.hosts.get_mut(key).expect("host").subs.remove(&sub);
-                vec![]
+                // An `onEvent` host with no subscription left may idle out.
+                self.idle_check_locked(inner, key)
             }
             FromHost::Log { level, message } => self.log_locked(inner, &key.app, &level, message),
             FromHost::Done { cb, ok, body } => {
@@ -575,12 +643,39 @@ impl Supervisor {
         }
         let host = inner.hosts.get_mut(key).expect("host");
         let inventory = stream == super::subscriptions::INVENTORY_STREAM;
+        let liveness = Out::StreamLiveness { key: key.clone(), sub, stream: stream.clone() };
         host.subs.insert(sub, stream);
-        if inventory || inner.events_started {
+        if inventory {
             return vec![];
         }
+        if inner.events_started {
+            return vec![liveness];
+        }
         inner.events_started = true;
-        vec![Out::StartEvents]
+        vec![Out::StartEvents, liveness]
+    }
+
+    /// The host's process did not start (`HostProcess::spawn` starts it on
+    /// the host's own thread, off this lock): the host fails, its mounts
+    /// with it, as an app that cannot run.
+    pub(super) fn on_host_start_failed(
+        &self,
+        key: &HostKey,
+        generation: u64,
+        error: &std::io::Error,
+    ) {
+        let outs = {
+            let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if inner.hosts.get(key).is_none_or(|h| h.generation != generation) {
+                return;
+            }
+            let reason = format!("spawn: {error}");
+            let mut outs = self.cancel_provider_calls_locked(&mut inner, key, "host_exited");
+            outs.extend(self.fail_host_locked(&mut inner, key, &reason));
+            outs.extend(Self::inventory_demand_locked(&mut inner));
+            outs
+        };
+        self.emit(outs);
     }
 
     pub(super) fn on_host_exit(&self, key: &HostKey, generation: u64, exit: Exit) {
@@ -601,7 +696,11 @@ impl Supervisor {
                 .map(|r| Out::Respond(r, Err(ApiError::new("apps.host", exit.describe()))))
                 .collect();
             outs.extend(self.cancel_provider_calls_locked(&mut inner, key, "host_exited"));
-            let has_work = queued || inner.mounts.values().any(|m| m.host == *key);
+            // A background app (`activation.rs`) has work with no view: its
+            // crash goes through the backoff and the crash limit.
+            let has_work = queued
+                || inner.mounts.values().any(|m| m.host == *key)
+                || (!key.preview && self.background_wanted(&inner, &key.app, false));
             match state {
                 HostState::Restarting => {
                     mark_reset(&mut inner, key);
@@ -666,8 +765,9 @@ impl Supervisor {
             if host.generation != generation || host.state != HostState::Waiting {
                 return;
             }
-            let has_work =
-                !host.queued_runs.is_empty() || inner.mounts.values().any(|m| m.host == *key);
+            let has_work = !host.queued_runs.is_empty()
+                || inner.mounts.values().any(|m| m.host == *key)
+                || (!key.preview && self.background_wanted(&inner, &key.app, false));
             if !has_work {
                 inner.hosts.remove(key);
                 return;
@@ -695,6 +795,20 @@ impl Supervisor {
         };
         inner.good_tried.insert(key.app.clone(), print);
         vec![out]
+    }
+
+    /// The answer to `OpRouter::stream_live` for one new subscription, if it is still current.
+    pub(super) fn send_liveness(&self, key: &HostKey, sub: u64, stream: &str, live: bool) {
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(host) = inner.hosts.get(key) else { return };
+        if host.subs.get(&sub).map(String::as_str) != Some(stream)
+            || !Self::stream_readable(&inner, key, host, stream)
+        {
+            return;
+        }
+        if let Some(process) = &host.process {
+            process.send(&ToHost::Event { sub, body: json!({ "live": live }) });
+        }
     }
 
     /// Delivers a daemon change event to every subscribed host.
@@ -725,6 +839,7 @@ pub(super) fn new_host() -> Host {
         ready_at: None,
         inflight: 0,
         print: None,
+        background: false,
     }
 }
 
@@ -737,5 +852,9 @@ fn mark_reset(inner: &mut Inner, key: &HostKey) {
         mount.reset = true;
         // Held ops of the old process would land on the new tree.
         mount.budget.clear_pending();
+        // A widget's fresh mount draws at frame rate, as any mount does.
+        if mount.widget.is_some() {
+            mount.budget.settle(Instant::now(), super::widgets::SETTLE);
+        }
     }
 }

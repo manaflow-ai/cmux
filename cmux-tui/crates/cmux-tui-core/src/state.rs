@@ -88,6 +88,8 @@ pub(crate) mod kept_tab_store;
 pub(crate) mod kept_tabs;
 #[cfg(test)]
 mod last_tab_closes_workspace_tests;
+#[cfg(test)]
+mod last_workspace_closes_space_tests;
 pub(crate) mod layout_bulk;
 #[cfg(test)]
 mod layout_bulk_tests;
@@ -127,11 +129,13 @@ pub(crate) mod room_delete;
 mod room_delete_amendment_tests;
 #[cfg(test)]
 mod room_delete_tests;
+pub(crate) mod room_emptied;
 pub(crate) mod router;
 #[cfg(test)]
 mod screen_group_icon_tests;
 pub(crate) mod screen_state_store;
 pub(crate) mod screens;
+pub(crate) mod sidebar_doc_create;
 pub(crate) mod sidebar_doc_legacy;
 pub(crate) mod sidebar_doc_ops;
 pub(crate) mod sidebar_doc_order;

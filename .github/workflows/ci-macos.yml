@@ -1026,7 +1026,7 @@ jobs:
         with:
           name: xcode-build-metrics-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/xcode-build-metrics.json
-          retention-days: 14
+          retention-days: 7
           if-no-files-found: ignore
 
       - name: Validate Swift warning budget
@@ -1224,7 +1224,7 @@ jobs:
           name: macos-compile-admission-metrics-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.admission-metrics.outputs.path }}
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
           compression-level: 0
 
       # One line per owned admission in the mini's admissions.jsonl: its start
@@ -2749,7 +2749,7 @@ jobs:
           name: release-product-reuse-receipt-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/release-product-reuse-receipt.json
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7
           compression-level: 0
 
   macos-status:

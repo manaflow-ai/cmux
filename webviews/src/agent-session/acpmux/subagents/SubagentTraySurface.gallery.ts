@@ -12,6 +12,7 @@ import { recentRun } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 import { traySurfaceLook } from "./traySurface.experiment";
+import { RUNNING_TRAY_LIST_LINE } from "./subagentSelectors";
 
 const ended = (name: string, minutes: number, ran: number): Subagent => ({
   id: `agent-${name.toLowerCase().replaceAll(" ", "-")}`,
@@ -47,7 +48,7 @@ const open = async (ctx: PlayContext) => {
   const head = () => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
   await ctx.waitFor(head);
   if (head()!.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray__list .acpmux-agent-line").length >= 4);
+  await ctx.waitFor(() => ctx.document.querySelectorAll(RUNNING_TRAY_LIST_LINE).length >= 4);
   if (ctx.document.querySelector(".acpmux-running-tray__finished")) throw new Error("the tray has no View all");
   const mark = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head .acpmux-lineage__icon");
   if (mark && getComputedStyle(mark).visibility !== "hidden") throw new Error("the header shows no mark");
