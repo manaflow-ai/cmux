@@ -10,7 +10,9 @@
 // for the CLI's own login and lists every account routing may use under it (ProviderAccounts).
 import { useCallback, useEffect, useId } from "react";
 import { Button } from "../../../ui/Button";
+import { Switch } from "../../../ui/Switch";
 import { agentDisplayName } from "../../../agent-session/acpmux/agents";
+import { installName, oneRowPerInstall } from "../../../agent-session/acpmux/harnessInstalls";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { useSettingsState, useStore } from "../context";
 import {
@@ -44,9 +46,13 @@ function jobText(job: NonNullable<HarnessesState["jobs"]>[number]): string {
   return t("settingsWindow.harnesses.jobUnknown");
 }
 
+/** Whether a row has an update card: outdated, both versions known, and a way to update it. */
+const hasUpdate = (row: HarnessRow): boolean => !!row.outdated && !!row.version && !!row.latest && !!row.update;
+
 function HarnessUpdateCard({ row, harnesses }: { row: HarnessRow; harnesses: HarnessesState | null }) {
   const store = useStore();
-  const name = row.name ?? agentDisplayName(row.id);
+  // A profile that runs another agent's binary (acpmux's `cmux` runs `claude`) is named for it.
+  const name = installName(row, (id) => row.name ?? agentDisplayName(id));
   const safeUpdate = offersUpdate(row);
   const titleId = useId();
   const unsettled = updateUnsettled(harnesses, row.id);
@@ -136,16 +142,14 @@ function Row({ row, family }: { row: HarnessRow; family: string | null }) {
           )}
           {row.update && !row.update.elevated && (
             <label className="row-help harness-auto">
-              <input
-                type="checkbox"
+              <Switch
+                size="sm"
                 data-harness-auto=""
                 aria-label={t("settingsWindow.harnesses.autoUpdate")}
                 checked={row.autoUpdate ?? false}
                 aria-describedby={titleId}
-                onChange={(event) =>
-                  void store.runHarnesses({ action: "autoUpdate", id: row.id, on: event.currentTarget.checked })
-                }
-              />{" "}
+                onCheckedChange={(on) => void store.runHarnesses({ action: "autoUpdate", id: row.id, on })}
+              />
               {t("settingsWindow.harnesses.autoUpdate")}
             </label>
           )}
@@ -273,7 +277,8 @@ export function HarnessesCard() {
       </div>
       {harnesses && !harnesses.problem && (
         <div className="harness-update-cards" data-harness-update-cards="">
-          {harnesses.harnesses.map((row) => (
+          {/* One card per installed binary: two profiles that run one are one update (msg 42278). */}
+          {oneRowPerInstall(harnesses.harnesses.filter(hasUpdate)).map((row) => (
             <HarnessUpdateCard key={row.id} row={row} harnesses={harnesses} />
           ))}
         </div>

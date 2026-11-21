@@ -10,7 +10,7 @@
 //     Fails closed (exits non-zero) on a shallow checkout or a pinned commit the checkout lacks: the guard that
 //     never rolls an older build needs the pin's history.
 //   bun images/cmux-vm/auto-roll.ts approve --candidate <channel-dev.json> --revision <ci-RUN-ATTEMPT>
-//       --run <roll run id> --attempt <roll run attempt> [--wrangler <path>] [--lock <path>]
+//       --run <roll run id> --attempt <roll run attempt> [--wrangler <path>] [--lock <path>] [--platform-wrangler <path>]
 //     Puts the baked, gated image first in production's VM_BOOT_IMAGES and last in staging's, trims the
 //     oldest auto-rolled entries, and refuses when the lock no longer hashes to what was baked. The entry carries
 //     the candidate's large image (`large`) only when auto-roll.json says large_image: true and the Worker beside
@@ -23,11 +23,14 @@
 //   bun images/cmux-vm/auto-roll.ts notes --candidate <channel-dev.json> [--approve <approve.json>] --result <r>
 //     The lines the promote job puts in its summary: rolls the byte trim dropped, and a large snapshot that
 //     was baked and kept but is not published (rollNotes).
+//     --platform-wrangler (cmux-platform's root wrangler.jsonc) names its CLOUD_VM_API_IMAGE pins, which are never
+//     trimmed, by count or by bytes.
 //   bun images/cmux-vm/auto-roll.ts behind --pin <40-hex> [--lock <path>] [--repo <checkout>]
 //     Exits 3 when the pin is older than the cmux-tui the lock pins (a newer roll landed while this one baked),
 //     0 when it may roll; fails closed on a shallow checkout or a commit it lacks. image-roll-push.sh asks before
 //     it writes the pin onto the tip.
-//   bun images/cmux-vm/auto-roll.ts rollback --image <id> [--wrangler <path>]
+//   bun images/cmux-vm/auto-roll.ts rollback --image <id> [--wrangler <path>] [--platform-wrangler <path>]
+//     (refuses an image cmux-platform pins)
 //     Removes an auto-rolled image from both lists wherever it is, so it can never be first again (when it was
 //     first, the entry before it boots again). Prints what it did; never removes a hand-approved image.
 //   bun images/cmux-vm/auto-roll.ts settle --kind roll|rollback --image <id> --deploy <result> --product <outcome>
@@ -261,10 +264,11 @@ function largeProblem(large: unknown, ownSnapshotId: string): string {
 }
 
 /** Drops the oldest auto-rolled entries past KEEP_AUTO; `newestFirst` says which end of the list is newest. */
-export function trimAuto(images: BootImage[], newestFirst: boolean): BootImage[] {
+export function trimAuto(images: BootImage[], newestFirst: boolean, keep: readonly string[] = []): BootImage[] {
   const ordered = newestFirst ? images : [...images].reverse();
   let seen = 0;
-  const kept = ordered.filter((i) => !i.id.startsWith(AUTO_PREFIX) || ++seen <= KEEP_AUTO);
+  // An image cmux-platform pins (platformPins) is never trimmed and does not count toward KEEP_AUTO.
+  const kept = ordered.filter((i) => !i.id.startsWith(AUTO_PREFIX) || keep.includes(i.id) || ++seen <= KEEP_AUTO);
   return newestFirst ? kept : kept.reverse();
 }
 
@@ -278,13 +282,14 @@ export function trimAuto(images: BootImage[], newestFirst: boolean): BootImage[]
  * reason, for approve to print: nothing leaves a list unnamed. Only approve with the large switch on calls it; with
  * the switch off a list over the limit is the refused roll it always was.
  */
-export function trimToFit(images: BootImage[], newestFirst: boolean): { images: BootImage[]; dropped: { image: BootImage; why: string }[] } {
+export function trimToFit(images: BootImage[], newestFirst: boolean, keep: readonly string[] = []): { images: BootImage[]; dropped: { image: BootImage; why: string }[] } {
   let kept = images;
   const dropped: { image: BootImage; why: string }[] = [];
   for (;;) {
     const bytes = Buffer.byteLength(JSON.stringify(kept), "utf8");
     if (bytes <= MAX_BYTES) break;
-    const autoAt = kept.flatMap((i, at) => (i.id.startsWith(AUTO_PREFIX) ? [at] : []));
+    // An image cmux-platform pins (platformPins) is never dropped and does not count toward MIN_AUTO.
+    const autoAt = kept.flatMap((i, at) => (i.id.startsWith(AUTO_PREFIX) && !keep.includes(i.id) ? [at] : []));
     if (autoAt.length <= MIN_AUTO) break;
     const oldest = newestFirst ? autoAt[autoAt.length - 1]! : autoAt[0]!;
     dropped.push({ image: kept[oldest]!, why: `the list was ${bytes} bytes with it, over the ${MAX_BYTES}-byte binding limit, and it was the oldest of ${autoAt.length} rolls` });
@@ -359,10 +364,23 @@ export function withFallback(images: BootImage[], env: Env, fallback = fallbackI
   return [...images.slice(0, at), { ...fallback, services: [...SERVICES[env]] }, ...images.slice(at)];
 }
 
+/**
+ * cmux-platform's CLOUD_VM_API_IMAGE pins, from its wrangler.jsonc text (every environment, each id once): the image a
+ * create boots before its isolate reads a list, and the one a create that recorded the pin boots after. A pin a list no
+ * longer names fails as cloud.provider.image_withdrawn (production, 2026-11-20: cloud-native-auto-9d5f6bd6-44156090531-1,
+ * trimmed by KEEP_AUTO), so approve and rollback keep every pin listed.
+ */
+export function platformPins(text: string): string[] {
+  const pins = [...text.matchAll(/"CLOUD_VM_API_IMAGE"\s*:\s*"([^"]+)"/gu)].map((m) => m[1]!);
+  return [...new Set(pins)];
+}
+
 /** The approved entry for a baked candidate: production first, staging last (its order is append-only). */
 export type ApproveOptions = WriteOptions & {
   /** The roll's large switch is on (largeImageOn): a list over the binding limit drops its oldest rolls (trimToFit). */
   trimToFit?: boolean;
+  /** cmux-platform's pinned image ids (platformPins): never trimmed, by count (trimAuto) or by bytes (trimToFit). */
+  keep?: readonly string[];
 };
 
 export function approve(text: string, entry: BootImage, options: ApproveOptions = {}): { text: string; previousFirst: string; dropped: Dropped[] } {
@@ -371,15 +389,21 @@ export function approve(text: string, entry: BootImage, options: ApproveOptions 
   if (prod.some((i) => i.id === entry.id) || staging.some((i) => i.id === entry.id)) throw new Error(`${entry.id} is already approved`);
   const fallback = fallbackImage();
   const dropped: Dropped[] = [];
+  const keep = options.keep ?? [];
   const fit = (images: BootImage[], env: Env): BootImage[] => {
     if (options.trimToFit !== true) return images;
-    const trimmed = trimToFit(images, BOOT_ENTRY[env] === "first");
+    const trimmed = trimToFit(images, BOOT_ENTRY[env] === "first", keep);
     dropped.push(...trimmed.dropped.map((d) => ({ env, id: d.image.id, revision: d.image.revision, why: d.why })));
     return trimmed.images;
   };
   // Both lists are one file, deployed with one Worker source, so the entry is the same in both: its large image too.
-  const nextProd = fit(withFallback(trimAuto([{ ...entry, services: [...SERVICES.production] }, ...prod], true), "production", fallback), "production");
-  const nextStaging = fit(withFallback(trimAuto([...staging, { ...entry, services: [...SERVICES.staging] }], false), "staging", fallback), "staging");
+  const nextProd = fit(withFallback(trimAuto([{ ...entry, services: [...SERVICES.production] }, ...prod], true, keep), "production", fallback), "production");
+  const nextStaging = fit(withFallback(trimAuto([...staging, { ...entry, services: [...SERVICES.staging] }], false, keep), "staging", fallback), "staging");
+  for (const [before, after, env] of [[prod, nextProd, "production"], [staging, nextStaging, "staging"]] as const) {
+    for (const id of keep) {
+      if (before.some((i) => i.id === id) && !after.some((i) => i.id === id)) throw new Error(`approve would take cmux-platform's pinned ${id} out of ${env}'s list`);
+    }
+  }
   let out = replaceList(text, "production", nextProd, options);
   out = replaceList(out, "staging", nextStaging, options);
   return { text: out, previousFirst: prod[0]?.id ?? "", dropped };
@@ -412,10 +436,11 @@ export function rollNotes(candidate: Candidate, approved: { image?: { id?: strin
  * second only until that newer roll is rolled back, and would then boot again with no check; removing it wherever
  * it is means it can never come back.
  */
-export function rollback(text: string, id: string): { text: string; rolledBack: boolean; reason: string; nowFirst: string } {
+export function rollback(text: string, id: string, keep: readonly string[] = []): { text: string; rolledBack: boolean; reason: string; nowFirst: string } {
   const prod = locate(text, "production").images;
   const first = prod[0]?.id ?? "";
   if (!id.startsWith(AUTO_PREFIX)) return { text, rolledBack: false, reason: `${id} is not an auto-rolled image`, nowFirst: first };
+  if (keep.includes(id)) return { text, rolledBack: false, reason: `cmux-platform pins ${id} (CLOUD_VM_API_IMAGE); move its pin first`, nowFirst: first };
   const staging = locate(text, "staging").images;
   const inProd = prod.some((i) => i.id === id);
   if (!inProd && !staging.some((i) => i.id === id)) return { text, rolledBack: false, reason: `${id} is in neither list`, nowFirst: first };
@@ -707,6 +732,15 @@ function arg(argv: string[], name: string, fallback?: string): string {
   return value;
 }
 
+/** --platform-wrangler PATH: cmux-platform's root wrangler.jsonc, whose CLOUD_VM_API_IMAGE pins approve and rollback keep. */
+function pinsFrom(rest: string[]): string[] {
+  const file = rest.includes("--platform-wrangler") ? arg(rest, "--platform-wrangler") : "";
+  if (!file) return [];
+  const pins = platformPins(readFileSync(file, "utf8"));
+  if (pins.length === 0) throw new Error(`${file} names no CLOUD_VM_API_IMAGE: not cmux-platform's wrangler.jsonc`);
+  return pins;
+}
+
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   const wrangler = arg(rest, "--wrangler", DEFAULT_WRANGLER);
@@ -774,7 +808,7 @@ async function main(argv: string[]): Promise<number> {
       console.error(`approve: ${entry.id} is published without the candidate's large image: ${why}`);
     }
     const before = readFileSync(wrangler, "utf8");
-    const { text, previousFirst, dropped } = approve(before, entry, { workerReadsLarge: reads, trimToFit: switchOn });
+    const { text, previousFirst, dropped } = approve(before, entry, { workerReadsLarge: reads, trimToFit: switchOn, keep: pinsFrom(rest) });
     for (const d of dropped) console.error(`approve: ${d.env} VM_BOOT_IMAGES: dropped ${d.id} (revision ${d.revision}): ${d.why}`);
     writeFileSync(wrangler, text);
     console.log(JSON.stringify({ image: { id: entry.id, revision: entry.revision, snapshotId: entry.snapshotId, large: entry.large ?? null }, previousFirst, dropped }, null, 2));
@@ -805,7 +839,7 @@ async function main(argv: string[]): Promise<number> {
   }
   if (command === "rollback") {
     const before = readFileSync(wrangler, "utf8");
-    const result = rollback(before, arg(rest, "--image"));
+    const result = rollback(before, arg(rest, "--image"), pinsFrom(rest));
     if (result.rolledBack) writeFileSync(wrangler, result.text);
     console.log(JSON.stringify({ rolledBack: result.rolledBack, reason: result.reason, nowFirst: result.nowFirst }, null, 2));
     return 0;
