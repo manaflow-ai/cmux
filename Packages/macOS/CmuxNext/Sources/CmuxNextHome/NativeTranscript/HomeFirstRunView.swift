@@ -108,7 +108,7 @@ final class HomeFirstRunView: NSView {
         intro.isHidden = true
         introHeight.isActive = true
         introWidth.isActive = true
-        agentsHeader.font = Typography.system(size: TypeScale.Base.detail, weight: .medium)
+        agentsHeader.font = Typography.system(size: TypeScale.Base.detail, weight: TypeScale.emphasis)
         agentsHeader.isSelectable = false
         agentsHeader.lineBreakMode = .byTruncatingTail
         agentsHeader.setAccessibilityRole(.staticText)
@@ -259,7 +259,7 @@ final class HomeFirstRunView: NSView {
         hero.applyScale(scale)
         intro.applyScale(scale)
         starters.applyScale(scale)
-        agentsHeader.font = Typography.system(size: TypeScale.Base.detail * scale, weight: .medium)
+        agentsHeader.font = Typography.system(size: TypeScale.Base.detail * scale, weight: TypeScale.emphasis)
         applySpacing()
         for row in rows { row.applyScale(scale) }
         invalidateIntrinsicContentSize()
