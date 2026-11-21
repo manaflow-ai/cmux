@@ -20,3 +20,11 @@ cmux customize check
 ![Source window with a plus at the trailing end of the tab strip](screenshots/source-window.webp)
 
 The source image shows the resting control. The shipped app contains the labels “New Tab in Session”, “New Local Session” and “New Session on Host”. The order and grouping here are choices for this profile. The native strip menu and its exact pressed appearance are distinct from this New Tab view. The private map records the source build and observations. [Feature map](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/research/competitor-maps/rex.md)
+
+Enable **Run actions** in Settings → Apps for the launch buttons. The custom view appears on the standard web New Tab page (`tabs.nativeNewTabPage` is false by default).
+
+| Light source toolbar | Dark source toolbar |
+| --- | --- |
+| ![Light tab strip with command and plus glyphs](screenshots/source-toolbar-light.png) | ![Dark tab strip with command and plus glyphs](screenshots/source-toolbar-dark.png) |
+
+Both crops show the closed control. In the full-size images the + glyph occupies 21 × 21 pixels at (2057, 35). The source does not give its click target. [Original light image](https://www.superlogical.com/rex-screenshot@2x.webp) · [Original dark image](https://www.superlogical.com/rex-screenshot-dark@2x.webp)
