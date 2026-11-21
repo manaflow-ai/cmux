@@ -432,4 +432,15 @@ check '[[ $status == 0 ]] && grep -qx "commit=$app" "$TMP/bundle-out" && grep -q
 bundle TREE_PENDING=false CMUX_TUI_CLIENT_COMMIT="$own"
 check '[[ $status == 0 ]] && grep -qx "commit=$own" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && ! grep -q "^await" "$TMP/bundle-log"' "a resolved tree installs without any wait"
 
+# A fallback stops only the pending client prefetch; other background helpers (webview-checks) live on.
+state="$TMP/rt/nightly-helper-builds"; rm -rf "$state"
+python3 "$ROOT/scripts/ci/background_build.py" start --state "$state" cmux-tui-client -- sleep 300 >/dev/null
+python3 "$ROOT/scripts/ci/background_build.py" start --state "$state" webview-checks -- sleep 300 >/dev/null
+cp "$ROOT/scripts/ci/background_build.py" "$B/scripts/ci/"
+bundle
+other=$(cat "$state/webview-checks.pid")
+check '[[ $status == 0 ]] && grep -qx "tree=fallback" "$TMP/bundle-out" && kill -0 "$other" 2>/dev/null && grep -q "cmux-tui-client" "$TMP/bundle-stdout" && ! grep -q "to webview-checks" "$TMP/bundle-stdout"' \
+  "a fallback stops only the client prefetch, not other helpers"
+python3 "$ROOT/scripts/ci/background_build.py" stop --state "$state" >/dev/null
+
 (( fail == 0 )) && echo "PASS: nightly tree at install" || { echo "FAIL: nightly tree at install"; exit 1; }

@@ -49,8 +49,9 @@ state="$RUNNER_TEMP/nightly-helper-builds"
 join_timeout=120
 [[ "$TREE_PENDING" == true ]] && join_timeout=180
 if [[ "$tree_used" == fallback && -f "$state/cmux-tui-client.pid" ]]; then
-  # The pending prefetch waits for the tip's tree, which this build no longer installs.
-  python3 scripts/ci/background_build.py stop --state "$state"
+  # The pending prefetch waits for the tip's tree, which this build no longer installs. Only it:
+  # other helpers (webview-checks) are joined later.
+  python3 scripts/ci/background_build.py stop --state "$state" cmux-tui-client
   rm -rf "${CMUX_TUI_CLIENT_CACHE:?}"
 elif [[ -f "$state/cmux-tui-client.pid" ]]; then
   set +e
