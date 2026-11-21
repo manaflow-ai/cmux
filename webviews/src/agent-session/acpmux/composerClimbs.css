@@ -77,6 +77,8 @@
    squaring under the hat. The lens bends each as its own glass (--glass-join: none). */
 :root:root:root .acpmux-composer.acpmux-composer[data-shell-look="stacked-glass"] {
   --climb-stack-gap: var(--ds-space-1, 4px);
+  /* The hat's corner: the shipped queue's (composerLocation.css). */
+  --climb-stack-radius: var(--acpmux-strip-radius, 18px);
   --climb-stack-edge: var(--acpmux-composer-edge);
   --climb-stack-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
 }
@@ -108,8 +110,8 @@
 }
 :root:root:root .acpmux-composer.acpmux-composer[data-shell-look="stacked-glass"] > :is(.acpmux-composer-queue, .acpmux-queue-foldbar):has(+ .acpmux-composer-box) {
   margin-bottom: var(--climb-stack-gap);
-  border-bottom-left-radius: var(--acpmux-strip-radius, 18px);
-  border-bottom-right-radius: var(--acpmux-strip-radius, 18px);
+  border-bottom-left-radius: var(--climb-stack-radius);
+  border-bottom-right-radius: var(--climb-stack-radius);
 }
 /* The card under the hat keeps its four corners and its whole ring (on its ::before layer, as under
    the shipped queue, with no seam cut out of its top). */
@@ -126,8 +128,8 @@
    light. */
 :root:root:root .acpmux-dock.acpmux-dock > .acpmux-running-tray.acpmux-running-tray[data-card]:has(+ .acpmux-composer[data-shell-look="stacked-glass"]) {
   margin-bottom: var(--ds-space-1, 4px);
-  border-bottom-left-radius: var(--acpmux-stack-radius, 10px);
-  border-bottom-right-radius: var(--acpmux-stack-radius, 10px);
+  border-bottom-left-radius: var(--acpmux-stack-radius);
+  border-bottom-right-radius: var(--acpmux-stack-radius);
   box-shadow:
     inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge, transparent),
     inset 1px 1.5px 1px -1px var(--acpmux-tray-specular, transparent),
@@ -135,12 +137,12 @@
     var(--acpmux-composer-shadow, var(--elevation-1));
 }
 :root:root:root .acpmux-dock.acpmux-dock > .acpmux-running-tray[data-card] + .acpmux-composer.acpmux-composer[data-shell-look="stacked-glass"] > .acpmux-composer-queue {
-  border-top-left-radius: var(--acpmux-strip-radius, 18px);
-  border-top-right-radius: var(--acpmux-strip-radius, 18px);
+  border-top-left-radius: var(--climb-stack-radius);
+  border-top-right-radius: var(--climb-stack-radius);
 }
 :root:root:root .acpmux-dock.acpmux-dock > .acpmux-running-tray[data-card] + .acpmux-composer.acpmux-composer[data-shell-look="stacked-glass"] > .acpmux-composer-box:not(.acpmux-composer-queue ~ *) {
-  border-top-left-radius: var(--acpmux-composer-radius, 18px);
-  border-top-right-radius: var(--acpmux-composer-radius, 18px);
+  border-top-left-radius: var(--acpmux-composer-radius);
+  border-top-right-radius: var(--acpmux-composer-radius);
 }
 :root:root:root .acpmux-dock.acpmux-dock > .acpmux-running-tray[data-card] + .acpmux-composer.acpmux-composer[data-shell-look="stacked-glass"] > .acpmux-composer-box.ui-glass-material:not(.acpmux-composer-queue ~ *) {
   --acpmux-composer-rim: var(--glass-material-rim);
