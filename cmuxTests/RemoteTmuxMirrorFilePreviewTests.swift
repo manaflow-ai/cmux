@@ -1,5 +1,6 @@
 import CmuxCore
 import CmuxRemoteSession
+import CmuxTerminalCore
 import Foundation
 import Testing
 
@@ -102,6 +103,23 @@ struct RemoteTmuxMirrorFilePreviewTests {
             == harness.windowMirror.panelId)
     }
 
+    /// A plain path like `README.md` gets no `OPEN_URL` from Ghostty, so the
+    /// Cmd+click release reads it from the pane's visible line instead.
+    @Test func plainRelativePathClickReadsFromThePaneAndItsCwd() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        harness.windowMirror.cwdByPaneId[4] = "/home/me/project"
+
+        // The release handler finds the workspace by the surface's tab id.
+        #expect(harness.pane.surface.tabId == harness.workspace.id)
+        #expect(harness.workspace.remoteFilePreviewClickPanel(for: harness.pane.id) === harness.pane)
+        let tokens = RemoteTerminalPathResolver().tokens(in: "see README.md", column: 6)
+        #expect(tokens.contains("README.md"))
+        #expect(RemoteTerminalPathResolver().isFileReference("README.md"))
+        // The preview resolves the relative path against the pane's tmux cwd.
+        #expect(harness.workspace.effectivePanelDirectory(panelId: harness.pane.id) == "/home/me/project")
+    }
+
     @Test func windowContainerIsNotAPreviewSource() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
@@ -109,6 +127,7 @@ struct RemoteTmuxMirrorFilePreviewTests {
         // The container names the window, not a pane, so it has no working
         // directory to resolve a path against.
         #expect(harness.workspace.remoteTerminalFilePreviewRoute(for: harness.windowMirror.panelId) == nil)
+        #expect(harness.workspace.remoteFilePreviewClickPanel(for: harness.windowMirror.panelId) == nil)
     }
 
     @Test func endedMirrorHasNoRoute() throws {
@@ -138,6 +157,7 @@ struct RemoteTmuxMirrorFilePreviewTests {
         let panelID = try #require(workspace.focusedPanelId)
 
         #expect(workspace.remoteTerminalFilePreviewRoute(for: panelID) == nil)
+        #expect(workspace.remoteFilePreviewClickPanel(for: panelID) == nil)
         #expect(workspace.remoteFilePreviewAnchorPanelID(for: panelID) == panelID)
     }
 }

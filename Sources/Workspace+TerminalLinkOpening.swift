@@ -79,12 +79,18 @@ extension Workspace: TerminalLinkOpenContainer {
         remoteTmuxControlPane(surfaceID: surfaceID)?.containerPanelID ?? surfaceID
     }
 
+    /// The panel a remote Cmd+click reads and previews from, for a managed SSH
+    /// terminal or a mirrored tmux pane. Nil when the surface has no remote file route.
+    func remoteFilePreviewClickPanel(for surfaceID: UUID) -> TerminalPanel? {
+        guard terminalLinkIsRemoteTerminal(surfaceID),
+              remoteConfiguration?.transport == .ssh
+                || remoteTmuxFilePreviewRoute(for: surfaceID) != nil else { return nil }
+        return remoteFilePreviewSourcePanel(for: surfaceID)
+    }
+
     func deferRemoteTerminalFileLinkOpen(sourcePanelId: UUID, rawValue: String) -> Bool {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId),
-              terminalLinkIsRemoteTerminal(target.surfaceID),
-              remoteConfiguration?.transport == .ssh
-                || remoteTmuxFilePreviewRoute(for: target.surfaceID) != nil,
-              let panel = remoteFilePreviewSourcePanel(for: target.surfaceID) else { return false }
+              let panel = remoteFilePreviewClickPanel(for: target.surfaceID) else { return false }
         _ = panel.hostedView.openRemoteFilePreview(tokens: [rawValue])
         return true
     }
