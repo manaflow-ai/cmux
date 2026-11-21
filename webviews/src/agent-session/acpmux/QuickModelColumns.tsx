@@ -644,9 +644,7 @@ function Columns({
     if (!choices.length) return undefined;
     const now = held?.effort ?? effort?.current;
     if (now === "ultracode" && choices.some((choice) => choice.id === "xhigh")) return "xhigh";
-    return (
-      nearestLevel(now, choices) ?? model.defaultEffort ?? choices.find((choice) => choice.recommended)?.id
-    );
+    return nearestLevel(now, choices) ?? model.defaultEffort ?? choices.find((choice) => choice.recommended)?.id;
   };
   /// Fast as another model lands it: its own (a search's "fast"), else the chat's where that model runs
   /// Fast (#48444: a model pick never turns Fast off).
