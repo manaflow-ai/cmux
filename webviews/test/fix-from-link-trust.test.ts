@@ -4,6 +4,7 @@ import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { setNativeHost } from "../src/agent-session/acpmux/native";
 import { PERMISSION_GROUP_OPS } from "../src/agent-session/acpmux/permissions/protocol";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -12,8 +13,9 @@ beforeAll(() => {
   Object.assign(scope, { window: dom.window, document: dom.window.document });
   setNativeHost(async (method) => (method === "transport.gesture" ? { ticket: "fix-ticket" } : undefined));
 });
-afterAll(() => {
+afterAll(async () => {
   setNativeHost(undefined);
+  await settleReact();
   for (const [key, had, value] of saved)
     if (had) scope[key] = value;
     else delete scope[key];

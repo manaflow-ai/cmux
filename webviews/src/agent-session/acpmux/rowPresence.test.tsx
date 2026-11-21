@@ -6,6 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { mergeLeavingRows, useRowPresence, type RowMotion } from "./rowPresence";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM;
 let root: Root | undefined;
@@ -25,9 +26,10 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom.window.close();
   for (const key of keys) {
     const value = saved.get(key);

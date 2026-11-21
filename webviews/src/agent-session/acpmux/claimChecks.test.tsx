@@ -2,6 +2,7 @@
 // A turn's `claim_checks` (acpmux hub/claim_check.rs) mark its last reply's phrases: green when a run
 // backs the claim, red when it failed or none ran, and nothing for a claim the reply does not hold.
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "../../../test/support/domTeardown";
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Markdown } from "./conversation/Markdown";
@@ -17,7 +18,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, value] of Object.entries(saved)) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

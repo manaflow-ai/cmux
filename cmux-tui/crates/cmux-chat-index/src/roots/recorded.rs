@@ -74,6 +74,16 @@ impl RecordedRoots {
 
     /// Adds a root and saves the file. Returns true when the root is new.
     pub fn record(&mut self, spec: RootSpec) -> io::Result<bool> {
+        self.record_with(spec, &store_file::write_private)
+    }
+
+    /// [`Self::record`] through `write` ([`crate::write_private`]'s shape): the caller's own way
+    /// to write the file.
+    pub fn record_with(
+        &mut self,
+        spec: RootSpec,
+        write: &dyn Fn(&Path, &[u8]) -> io::Result<()>,
+    ) -> io::Result<bool> {
         if !spec.path.is_absolute() || self.roots.contains(&spec) {
             return Ok(false);
         }
@@ -89,10 +99,9 @@ impl RecordedRoots {
         if self.foreign {
             return Ok(true);
         }
-        store_file::write_json_private(
-            &self.path,
-            &File { version: VERSION, roots: self.stored.clone() },
-        )?;
+        let bytes = serde_json::to_vec(&File { version: VERSION, roots: self.stored.clone() })
+            .map_err(io::Error::other)?;
+        write(&self.path, &bytes)?;
         Ok(true)
     }
 }

@@ -20,7 +20,7 @@ const SOURCE = /\.(?:[cm]?[jt]sx?)$/;
 export type PerfLintFinding = { file: string; line: number; rule: string; message: string };
 
 type Report = {
-  diagnostics?: { filename: string; code: string; message: string; labels?: { span?: { line?: number } }[] }[];
+  diagnostics?: { filename: string; code?: string; message: string; labels?: { span?: { line?: number } }[] }[];
 };
 
 /** The findings in `vp lint --format json` output, with paths relative to webviews/. */
@@ -37,7 +37,7 @@ export function perfLintFindings(output: string): PerfLintFinding[] {
     file: path.relative(ROOT, path.resolve(ROOT, d.filename)),
     line: d.labels?.[0]?.span?.line ?? 0,
     // `cmux-perf(layout-thrash-in-loop)` is the rule `cmux-perf/layout-thrash-in-loop`.
-    rule: d.code.replace(/^([\w-]+)\(([^)]+)\)$/, "$1/$2"),
+    rule: d.code?.replace(/^([\w-]+)\(([^)]+)\)$/, "$1/$2") ?? "parse",
     message: d.message,
   }));
 }

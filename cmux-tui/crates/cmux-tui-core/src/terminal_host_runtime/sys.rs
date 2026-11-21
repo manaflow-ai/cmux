@@ -56,7 +56,8 @@ pub(crate) use unix::*;
 
 #[cfg(windows)]
 pub(crate) use windows::host_runtime::{
-    HostChild, adopt_launch, pty_poll_handle, wait_for_pty_readable_or_forced_drain,
+    HostChild, PtyPollHandle, adopt_launch, nonblocking_pty_writer, pty_poll_handle,
+    pty_readable_now, pty_reads_without_waiting, wait_for_pty_readable_or_forced_drain,
 };
 #[cfg(windows)]
 pub(crate) use windows::lease::*;

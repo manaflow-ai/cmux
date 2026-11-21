@@ -20,8 +20,9 @@ export const stoppedTurnLook = defineExperiment({
     },
     none: {
       label: "Continue only",
-      description: "No word: the footer's buttons and Continue, as a stop drew before; Stopped is in the tooltip.",
+      description: "No word: the footer's buttons and Continue, as Codex draws a stopped turn.",
     },
   },
-  defaultArm: "word",
+  // Codex says nothing on a stopped turn's footer (Lawrence, 2026-11-11 standup: "I see a random stop here").
+  defaultArm: "none",
 });

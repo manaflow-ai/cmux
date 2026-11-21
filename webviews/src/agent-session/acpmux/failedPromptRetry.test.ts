@@ -5,6 +5,7 @@
 // "Not sent. Press Retry to send it." with no reason, so Retry, refused the same way, looked dead.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
 import { resetKeptTailsForTests } from "./tailCache";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -19,7 +20,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   // Closing each pane kept its chat's tail for the next client; a later file's chat would open
   // from it instead of reading the mock daemon.
   resetKeptTailsForTests();
@@ -155,7 +157,7 @@ test("a failed send says one plain sentence by its cause, and keeps the raw erro
     expect(trust?.delivery?.reason).toBe("trust.pending");
     expect(trust?.delivery?.error).toBe("trust.pending: answer the trust question for the folder first");
     const bug = shown("and the tests");
-    expect(bug?.error).toBe("Not sent because of an error in the agent pane.");
+    expect(bug?.error).toBe("Not sent. Try again.");
     expect(bug?.delivery?.code).toBe("transport.intent_invalid");
     // No code in the words the bubble shows.
     for (const row of [trust, bug]) expect(row?.error).not.toMatch(/trust\.pending|transport\.|:\s*The /);

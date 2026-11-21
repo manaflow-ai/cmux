@@ -6,6 +6,7 @@
 // the browser was chosen or once joined, the step is skipped.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "https://share.cmux.dev/g/c2hhcmUtMDAwMDAwMDAwMDAx",
@@ -35,12 +36,8 @@ type AppOpenWindow = import("../src/agent-session/guest/appLink").AppOpenWindow;
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 const { memoryStorage } = await import("../src/agent-session/guest/fixtures/liveChat");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const SHARE = "c2hhcmUtMDAwMDAwMDAwMDAx";

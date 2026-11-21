@@ -10,7 +10,11 @@ The payload names, per Linux target, each binary's immutable URL, sha256 and siz
 sha256 comes from the commit's published manifest (--manifest), or, before the manifest is
 published, from this run's own build of the binary (--binaries-dir: point-machine-channel-early
 uploads the Linux binaries ahead of publish). Either way it is checked again here against a
-download of every binary from its URL, which also gives its size:
+download of every binary from its URL, which also gives its size. With --machine-path the URLs are
+the commit's machine copy, cmux-tui/<commit>/machine/<name>-<target>: the Cloud machine channel's
+thin-LTO build, which the early job uploads there (scripts/ci/cmux-machine-linux-bytes.sh) so it
+never stands in for the shipped fat cmux-tui/<commit>/<name>-<target>. The updater accepts exactly
+these two URLs for the payload's commit (cmux-tui/crates/cmux-host/src/updater/channel.rs):
 
   {"schema": 1, "purpose": "cmux-cloud-machine-update", "channel": "cloud-machine",
    "key": "<sha256 over the binaries>", "commit": "<sha>", "committed_at": T,
@@ -34,12 +38,25 @@ and the glibc-named copies of the same binaries) and a version that sorts by com
    "targets": {"x86_64-unknown-linux-gnu": {"cmux-tui": {"url", "sha256", "size"},
                                              "cmux-tui-hook": {...}}, ...}}
 
+With --purpose mac-live it makes the Mac live update file instead (cmuxterm-hq
+docs/design/nightly-live-updates.md): cmux-tui/<commit>/mac-live.json, written once, which `cmux app try`
+reads, and cmux-tui/channels/mac-live.json, forward only. It names the commit's aarch64-apple-darwin daemon
+binaries the app's bin/ holds (cmux-tui and its companions, from the commit's manifest, each downloaded and
+checked like the Cloud machine channel's) and `live_from`, every app commit that can take them live
+(`hot-apply.py live-from`, --live-from):
+
+  {"schema": 1, "purpose": "cmux-mac-live-update", "channel": "nightly-live", "commit": "<sha>",
+   "committed_at": T, "published_at": T, "expires_at": T, "live_from": ["<sha>", "<parent>", ...],
+   "targets": {"aarch64-apple-darwin": {"cmux-tui": {"url", "sha256", "size"},
+                                        "cmux-tui-app-host": {...}, ...}}}
+
 An installer holds the channel pointer to expires_at; the per-commit file carries the same field,
 but an installer that asks for a version by name does not enforce it.
 
 Usage:
-  cmux-machine-channel.py payload (--manifest M | --binaries-dir B) --commit SHA --committed-at T
-      --download-dir D --out P [--purpose linux-release --channel C [--cargo-version V]]
+  cmux-machine-channel.py payload (--manifest M | --binaries-dir B [--machine-path]) --commit SHA
+      --committed-at T --download-dir D --out P [--purpose linux-release --channel C [--cargo-version V]]
+      [--purpose mac-live --live-from F]
 """
 import argparse
 import hashlib
@@ -70,6 +87,16 @@ LINUX_RELEASE_CHANNELS = ("stable", "nightly", "feat-cmux-next")
 # (compatibility_target in .github/workflows/cmux-tui-build-package.yml).
 LINUX_RELEASE_TARGETS = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu",
                          "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")
+
+
+MAC_LIVE_PURPOSE = "cmux-mac-live-update"
+MAC_LIVE_CHANNEL = "nightly-live"
+MAC_LIVE_TARGET = "aarch64-apple-darwin"
+# The names `cmux app try` places in the app's bin/ (cmux-tui/crates/cmux-tui/src/cli/app/try_cmd/live.rs FILES);
+# it refuses a file naming any other. cmux-tui is required, the rest go in when the build has them.
+MAC_LIVE_NAMES = ("cmux-tui", "cmux-tui-app-host", "cmux-tui-cloud-server", "cmux-tui-browser-host",
+                  "cmux-tui-host", "cmux-tui-holder", "cmux-tui-agent-screen-detection")
+MAC_LIVE_FROM_MAX = 400
 
 
 def fail(message):
@@ -109,9 +136,58 @@ def release_version(cargo_version, commit, committed_at):
     return f"{cargo_version}+{time.strftime('%Y%m%d%H%M%S', time.gmtime(committed_at))}.{commit[:12]}"
 
 
+def live_from(args):
+    """--live-from's list (hot-apply.py live-from's JSON): the commit first, every entry a full sha."""
+    value = json.load(open(args.live_from))
+    commits = value.get("live_from") if isinstance(value, dict) else None
+    if not isinstance(commits, list) or not commits or commits[0] != args.commit:
+        fail(f"{args.live_from} does not start at {args.commit}")
+    if len(commits) > MAC_LIVE_FROM_MAX or len(set(commits)) != len(commits):
+        fail(f"{args.live_from} names {len(commits)} commits (at most {MAC_LIVE_FROM_MAX}, each once)")
+    if not all(isinstance(c, str) and re.fullmatch(r"[0-9a-f]{40}", c) for c in commits):
+        fail(f"{args.live_from} names something that is not a full commit sha")
+    return commits
+
+
+def mac_live(args):
+    """The Mac live update payload of a commit manifest (--manifest only: the darwin build is not this job's)."""
+    if not args.manifest or not args.live_from or args.machine_path or args.channel or args.cargo_version:
+        fail("--purpose mac-live takes --manifest and --live-from only")
+    binaries = expected_sha256(args)
+    commits = live_from(args)
+    os.makedirs(args.download_dir, exist_ok=True)
+    files = {}
+    for name in MAC_LIVE_NAMES:
+        published = f"{name}-{MAC_LIVE_TARGET}"
+        sha = binaries.get(published)
+        if sha is None and name != "cmux-tui":
+            continue  # a companion this build does not have: `app try` removes the app's, as hot-apply does
+        if not re.fullmatch(r"[0-9a-f]{64}", str(sha or "")):
+            fail(f"no sha256 for {published} ({args.manifest})")
+        url = f"{FILES}/{args.commit}/{published}"
+        path = os.path.join(args.download_dir, published)
+        subprocess.run(["curl", "-fsS", "--retry", "3", "--max-time", "600", "-o", path, f"{url}?channel=1"],
+                       check=True)
+        if sha256_file(path) != sha:
+            fail(f"{url} does not have the expected sha256 {sha}")
+        files[name] = {"url": url, "sha256": sha, "size": os.path.getsize(path)}
+        os.remove(path)
+    now = int(time.time())
+    return {"schema": SCHEMA, "purpose": MAC_LIVE_PURPOSE, "channel": MAC_LIVE_CHANNEL, "commit": args.commit,
+            "committed_at": int(args.committed_at), "published_at": now, "expires_at": now + LIFETIME,
+            "live_from": commits, "targets": {MAC_LIVE_TARGET: files}}
+
+
 def payload(args):
     if not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         fail(f"bad commit {args.commit!r}")
+    if args.purpose == "mac-live":
+        value = mac_live(args)
+        with open(args.out, "wb") as out:
+            out.write(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        return
+    if args.live_from:
+        fail("--live-from is for --purpose mac-live")
     release = args.purpose == "linux-release"
     if release and args.channel not in LINUX_RELEASE_CHANNELS:
         fail(f"--purpose linux-release needs --channel, one of {', '.join(LINUX_RELEASE_CHANNELS)}")
@@ -123,6 +199,10 @@ def payload(args):
         # artifacts are outside the bucket: sign only bytes equal to them.
         fail("--purpose linux-release needs --binaries-dir, this run's own build of the binaries; "
              "a checksum from the bucket proves nothing about who built the bytes")
+    if args.machine_path and (release or not args.binaries_dir):
+        # The machine copy is the Cloud machine channel's own build: never a Linux release, and only
+        # this run's build of it names its checksums.
+        fail("--machine-path is for the cloud-machine payload of --binaries-dir")
     args.targets = LINUX_RELEASE_TARGETS if release else TARGETS
     binaries = expected_sha256(args)
     os.makedirs(args.download_dir, exist_ok=True)
@@ -134,7 +214,7 @@ def payload(args):
             sha = binaries.get(published)
             if not re.fullmatch(r"[0-9a-f]{64}", str(sha or "")):
                 fail(f"no sha256 for {published} ({args.manifest or args.binaries_dir})")
-            url = f"{FILES}/{args.commit}/{published}"
+            url = f"{FILES}/{args.commit}/{'machine/' if args.machine_path else ''}{published}"
             path = os.path.join(args.download_dir, published)
             subprocess.run(["curl", "-fsS", "--retry", "3", "--max-time", "600", "-o", path, f"{url}?channel=1"],
                            check=True)
@@ -176,9 +256,12 @@ def main(argv):
     source.add_argument("--binaries-dir")
     for name in ("--commit", "--committed-at", "--download-dir", "--out"):
         p.add_argument(name, required=True)
-    p.add_argument("--purpose", choices=("cloud-machine", "linux-release"), default="cloud-machine")
+    p.add_argument("--purpose", choices=("cloud-machine", "linux-release", "mac-live"), default="cloud-machine")
+    p.add_argument("--live-from", help="--purpose mac-live: `hot-apply.py live-from SHA`'s JSON")
     p.add_argument("--channel", help="--purpose linux-release: the channel this build publishes to")
     p.add_argument("--cargo-version", help="--purpose linux-release: default cmux-tui/Cargo.toml's version")
+    p.add_argument("--machine-path", action="store_true",
+                   help="name the commit's machine copy, cmux-tui/<commit>/machine/<name>-<target>")
     args = parser.parse_args(argv[1:])
     payload(args)
     return 0

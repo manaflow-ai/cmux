@@ -34,6 +34,7 @@ Every op the VM calls, and every ActionRef the palette runs, is recorded in `h.o
 | the op's scope is not granted | `scope.missing` (`details.scope`) |
 | fixture | its value |
 | `app.storage.*`, `clipboard.write` | in memory (`h.storage`, `h.clipboard`); storage writes emit `app.storage.changed {key}` |
+| `cmux.time.zone` | answered from `Intl` (the native host uses chrono-tz; Intl's short names can differ, `GMT+9` for `JST`) |
 | catalog op without a fixture | `fixture.missing` |
 
 The scope of an op comes from `generated/scopes.json`; for an op outside the catalog (an app server op) it is `<family>:read` for `list|get|search|query|read|count|counts|find|show|info|status` verbs, else `<family>:write`. `net.fetch` needs `net:<host>` (or `net:*.<domain>`); `integration.request` needs `integration:<provider>`, or `integration:<provider>:read` for GET.

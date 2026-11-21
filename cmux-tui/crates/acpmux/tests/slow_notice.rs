@@ -3,6 +3,11 @@
 //! 2 h 41 min on a daemon that had stopped answering, and said nothing.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent; the acpmux it starts is a one-shot client.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use std::io::Read as _;
 use std::time::{Duration, Instant};
 
@@ -19,13 +24,12 @@ fn a_status_the_daemon_does_not_answer_says_so_on_stderr_and_keeps_waiting() {
         let mut sink = [0u8; 4096];
         while conn.read(&mut sink).unwrap_or(0) > 0 {}
     });
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    // The hermetic environment clears this test's own ACPMUX_SESSION_ID and caller token.
+    let mut child = daemon_env::acpmux(&dir)
         .args(["status"])
         .env("ACPMUX_HOME", dir.join("home"))
         .env("ACPMUX_SOCKET", &socket)
         .env("ACPMUX_TEST_SLOW_NOTICE_MS", "300")
-        .env_remove("ACPMUX_SESSION_ID")
-        .env_remove("ACPMUX_CALLER_TOKEN")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

@@ -4,6 +4,7 @@
 // through one loader (the host's `fileContents`), asked once per file per session.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -32,12 +33,8 @@ const { previewKindOf, previewEncodingOf, imageDataURL, markdownText } = await i
 const { MarkdownPreview } = await import("../src/diff-viewer/MarkdownPreview");
 const { InlinePreview, isPreviewAnnotation, previewItemFor } = await import("../src/diff-viewer/InlinePreview");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const label = createDiffViewerLabelResolver(undefined, { language: "en" });

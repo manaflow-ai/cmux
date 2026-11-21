@@ -113,20 +113,32 @@ public nonisolated final class CloseSelection<ID: Hashable> {
     }
 
     /// The tab a pane selects after `selected` closed. `old` is the strip before the close,
-    /// `surviving` the tabs left, `shown` the surviving tabs that are not hidden. No group map is
-    /// passed (decision 2026-11-10, Chrome 156 as observed: the next tab, whatever its group).
-    /// Call it before `left` for the closed tabs.
-    public func tab(selected: ID?, old: [ID], surviving: [ID], shown: Set<ID>) -> ID? {
+    /// `surviving` the tabs left, `shown` the surviving tabs that are not hidden, `groups` each grouped
+    /// tab's group (the closed tab's too). Call it before `left` for the closed tabs.
+    public func tab(selected: ID?, old: [ID], surviving: [ID], shown: Set<ID>, groups: [ID: String] = [:]) -> ID? {
         var map = CallNumbers(known: numbers, next: next)
         let selected = selected.map { map.number($0) } ?? UInt32.max
         let old = old.map { map.number($0) }
         let surviving = surviving.map { map.number($0) }
         let shown = shown.map { map.number($0) }
+        // Each group gets a number for this call only: the rule compares them, it does not keep them.
+        var groupNumbers: [String: UInt32] = [:]
+        var groupTabs: [UInt32] = [], groupIDs: [UInt32] = []
+        for (tab, group) in groups {
+            let number = groupNumbers[group] ?? UInt32(groupNumbers.count)
+            groupNumbers[group] = number
+            groupTabs.append(map.number(tab))
+            groupIDs.append(number)
+        }
         let pick = old.withUnsafeBufferPointer { old in
             surviving.withUnsafeBufferPointer { surviving in
                 shown.withUnsafeBufferPointer { shown in
-                    cmux_close_selection_tab(handle, selected, old.baseAddress, old.count, surviving.baseAddress, surviving.count,
-                                             shown.baseAddress, shown.count, nil, nil, 0)
+                    groupTabs.withUnsafeBufferPointer { groupTabs in
+                        groupIDs.withUnsafeBufferPointer { groupIDs in
+                            cmux_close_selection_tab(handle, selected, old.baseAddress, old.count, surviving.baseAddress, surviving.count,
+                                                     shown.baseAddress, shown.count, groupTabs.baseAddress, groupIDs.baseAddress, groupTabs.count)
+                        }
+                    }
                 }
             }
         }

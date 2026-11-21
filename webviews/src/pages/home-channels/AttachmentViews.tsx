@@ -10,6 +10,7 @@ import "../../agent-session/acpmux/chips/chips.css";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton, keyedIconProps } from "../../ui/DialogButton";
 import { KeyboardScope } from "../../ui/KeyboardScope";
+import { useScrimClose } from "../../ui/scrimClose";
 import type { Strings } from "../shared/i18n";
 import { AttachmentService, attachmentClass, formatBytes, type UploadProgress } from "./attachmentService";
 import { HomeIcon } from "./icons";
@@ -357,6 +358,8 @@ function Lightbox({
   const step = (by: number) => onIndex((index + by + items.length) % items.length);
   const canStep = items.length > 1;
   const closeButton = useRef<HTMLButtonElement | null>(null);
+  // A click beside the image or video closes, as in the agent chat's viewers (ui/scrimClose.ts).
+  const scrim = useScrimClose(onClose);
   return (
     <Dialog
       open
@@ -385,7 +388,8 @@ function Lightbox({
             {strings.t("lightbox.close")}
           </DialogButton>
         </header>
-        <div className="hc-lightbox-stage">
+        {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+        <div className="hc-lightbox-stage" {...scrim.props}>
           {canStep && (
             <button
               type="button"

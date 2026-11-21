@@ -1,37 +1,48 @@
-// The shimmer of a running row or Thinking line takes the shared clock's phase (ui/spinnerClock.ts
-// `setLoopPhase`) without asking an element for its animations in React's commit: `getAnimations`
-// flushes style, and doing it in every running row's mount was about 8% of a streaming chat's main
-// thread on Leo's Mac (2026-11-11, "not sure what's up with 100% cpu still :("). The exact start comes
-// in the next animation frame, once for all of that frame's rows. Loads the real stylesheets, the
-// page's clock and the real components in Chromium.
+// Loads real CSS and components to verify the visible sweep separately from its idle cadence.
 import { readFileSync } from "node:fs";
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("shimmer-mount-phase.test.ts", async () => {
   setDefaultTimeout(60_000);
-  try {
-    await (await chromium.launch({ headless: true })).close();
-  } catch {
-    console.warn("shimmer-mount-phase: skipping (run `bunx playwright install chromium`)");
-    describe.skip("shimmer mount phase", () => test("chromium", () => {}));
-    return;
-  }
-
   const src = path.resolve(import.meta.dir, "../src");
   const css = (file: string) => readFileSync(path.join(src, file), "utf8");
   const style = css("pages/shared/desktop.css") + css("agent-session/acpmux/conversation/conversation.css");
   const bundle = await Bun.build({
-    entrypoints: [path.join(import.meta.dir, "support/shimmerMount.entry.tsx")],
+    entrypoints: ["shimmer-cadence-fixture"],
     target: "browser",
     define: { "process.env.NODE_ENV": '"production"' },
+    plugins: [
+      {
+        name: "shimmer-fixture",
+        setup(build) {
+          build.onResolve({ filter: /^shimmer-cadence-fixture$/ }, () => ({ path: "fixture", namespace: "shimmer" }));
+          build.onLoad({ filter: /.*/, namespace: "shimmer" }, () => ({
+            loader: "tsx",
+            resolveDir: path.resolve(import.meta.dir, ".."),
+            contents: `
+            import { flushSync } from "react-dom";
+            import { createRoot } from "react-dom/client";
+            import { RowShimmer, ShimmerText, ShimmerEnabledContext } from "./src/agent-session/acpmux/conversation/ShimmerText";
+            window.mountShimmers = (count, row, id, enabled = true) => {
+              const host = document.createElement("div"); host.id = id; document.body.append(host);
+              flushSync(() => createRoot(host).render(<ShimmerEnabledContext value={enabled}>
+                {Array.from({length: count}, (_, at) => row ?
+                  <div key={at} className="cv-tool is-live"><span className="cv-tool__text">Read file {at}<RowShimmer>Read file {at}</RowShimmer></span></div> :
+                  <output key={at} className="cv-thinking is-shimmer"><ShimmerText text="Thinking" /></output>)}
+              </ShimmerEnabledContext>));
+            };
+          `,
+          }));
+        },
+      },
+    ],
   });
   if (!bundle.success) throw new Error(bundle.logs.join("\n"));
   const script = await bundle.outputs[0].text();
-
-  let browser: Browser | undefined;
+  let browser: Browser;
   beforeAll(async () => {
     browser = await chromium.launch({ headless: true });
   });
@@ -39,127 +50,170 @@ await requireBrowserLane("shimmer-mount-phase.test.ts", async () => {
     await browser?.close();
   });
 
-  const frames = (p: Page) =>
-    p.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-
   async function open(): Promise<Page> {
-    const p = await browser!.newPage();
-    await p.emulateMedia({ reducedMotion: "no-preference" });
-    await p.setContent(`<style>${style}</style>`);
-    await p.addScriptTag({ content: script });
-    // Counts every ask for an element's or the page's animations from here on.
-    await p.evaluate(() => {
-      const scope = window as unknown as { asks: number };
-      scope.asks = 0;
-      const element = Element.prototype.getAnimations;
-      Element.prototype.getAnimations = function (this: Element, options?: GetAnimationsOptions) {
-        scope.asks += 1;
-        return element.call(this, options);
-      };
-    });
-    return p;
+    const page = await browser.newPage();
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.setContent(`<style>${style}</style>`);
+    await page.addScriptTag({ content: script });
+    return page;
   }
 
-  /** Each shimmer loop's phase (ms into its period, its delay counted) and the clock's, at one moment. */
-  function phases(p: Page) {
-    return p.evaluate(() => {
-      const loops: { name: string; host: string; phase: number }[] = [];
-      let period = 0;
-      for (const animation of document.getAnimations()) {
-        const name = (animation as CSSAnimation).animationName;
-        if (name !== "cmux-shimmer-band" && name !== "cmux-shimmer-lit") continue;
-        const timing = animation.effect!.getComputedTiming();
-        period = Number(timing.duration);
-        const target = (animation.effect as KeyframeEffect).target as Element;
-        loops.push({ name, host: target.closest("div[id]")?.id ?? "?", phase: Number(timing.progress) * period });
-      }
-      const clock = (performance.timeOrigin + Number(document.timeline.currentTime)) % period;
-      return { loops, clock, period };
-    });
+  async function mount(page: Page, row: boolean, enabled = true) {
+    await page.evaluate(
+      ([isRow, isEnabled]) => {
+        const scope = window as unknown as {
+          mountShimmers: (count: number, row: boolean, id: string, enabled: boolean) => void;
+        };
+        scope.mountShimmers(1, isRow, "fixture", isEnabled);
+      },
+      [row, enabled],
+    );
   }
 
-  /// The loops take their start exactly (Animation.startTime), as the spinners do (spinner-phase.test.ts).
-  const TOLERANCE_MS = 4;
-  const apart = (a: number, b: number, period: number) => {
-    const d = Math.abs(a - b) % period;
-    return Math.min(d, period - d);
-  };
+  const active = (page: Page) => page.locator("#fixture .is-shimmer-active");
+  async function expectIdle(page: Page) {
+    expect(await active(page).count()).toBe(0);
+    expect(
+      await page.evaluate(
+        () =>
+          document
+            .getAnimations()
+            .filter((animation) => (animation as CSSAnimation).animationName.startsWith("cmux-cadenced-shimmer-"))
+            .length,
+      ),
+    ).toBe(0);
+  }
 
   for (const row of [true, false]) {
-    const what = row ? "running rows" : "Thinking lines";
-    test(`${what} mount on the clock's phase without asking for animations`, async () => {
-      const p = await open();
+    test(`${row ? "tool rows" : "Thinking labels"} use one stepped one-second sweep and no idle animation`, async () => {
+      const page = await open();
       try {
-        expect(await p.evaluate((isRow) => (window as any).mountShimmers(20, isRow, "first"), row)).toBe(0);
-        await frames(p);
-        // fixed-wait: real time must pass between the two mounts; that gap is what the test is about.
-        await p.waitForTimeout(337);
-        expect(await p.evaluate((isRow) => (window as any).mountShimmers(20, isRow, "second"), row)).toBe(0);
-        await frames(p);
-        const { loops, clock, period } = await phases(p);
-        expect(loops.filter((loop) => loop.host === "second").length).toBe(40);
-        for (const loop of loops)
-          expect(apart(loop.phase, clock, period), `${loop.host} ${loop.name}`).toBeLessThan(TOLERANCE_MS);
+        await mount(page, row);
+        await expectIdle(page);
+        await active(page).waitFor();
+        const sweep = await page.evaluate(() => {
+          const animations = document
+            .getAnimations()
+            .filter((animation) => (animation as CSSAnimation).animationName.startsWith("cmux-cadenced-shimmer-"));
+          const timings = animations.map((animation) => ({
+            name: (animation as CSSAnimation).animationName,
+            duration: animation.effect!.getTiming().duration,
+            iterations: animation.effect!.getTiming().iterations,
+            easing: getComputedStyle((animation.effect as KeyframeEffect).target as Element).animationTimingFunction,
+          }));
+          for (const animation of animations) {
+            animation.pause();
+            animation.effect!.updateTiming({ delay: 0 });
+          }
+          const band = animations.find(
+            (animation) => (animation as CSSAnimation).animationName === "cmux-cadenced-shimmer-band",
+          )!;
+          const lit = animations.find(
+            (animation) => (animation as CSSAnimation).animationName === "cmux-cadenced-shimmer-lit",
+          )!;
+          const target = (band.effect as KeyframeEffect).target as HTMLElement;
+          const copy = (lit.effect as KeyframeEffect).target as HTMLElement;
+          const positions = [0.125, 0.375, 0.625, 0.875].map((progress) => {
+            band.currentTime = lit.currentTime = progress * 1000;
+            const bandX = new DOMMatrixReadOnly(getComputedStyle(target).transform).m41;
+            const litX = new DOMMatrixReadOnly(getComputedStyle(copy).transform).m41;
+            return { fraction: bandX / target.offsetWidth, copyOffset: bandX + litX };
+          });
+          return { timings, positions };
+        });
+        expect(sweep.timings).toHaveLength(2);
+        for (const timing of sweep.timings) {
+          expect(timing.duration).toBe(1000);
+          expect(timing.iterations).toBe(1);
+          expect(timing.easing).toMatch(/^steps\(48(?:, end)?\)$/);
+        }
+        for (const [index, position] of sweep.positions.entries()) {
+          expect(position.fraction).toBeCloseTo(-0.5 + 1.75 * [0.125, 0.375, 0.625, 0.875][index]!, 2);
+          expect(Math.abs(position.copyOffset)).toBeLessThan(0.5);
+        }
+        await active(page).waitFor({ state: "detached" });
+        await expectIdle(page);
+        await active(page).waitFor();
       } finally {
-        await p.close();
+        await page.close();
       }
     });
   }
 
-  for (const restart of ["an ancestor shown again", "the static status look turned off"] as const)
-    test(`shimmers mounted apart restart on the clock's phase: ${restart}`, async () => {
-      const p = await open();
+  test("a disabled nested activity scope retains text without shimmer animations", async () => {
+    const page = await open();
+    try {
+      await mount(page, true, false);
+      await page.clock.install();
+      await page.clock.fastForward(10000);
+      expect(await page.locator(".cv-tool__text").textContent()).toContain("Read file 0");
+      await expectIdle(page);
+    } finally {
+      await page.close();
+    }
+  });
+
+  for (const [attribute, value] of [
+    ["data-status-indicators", "static"],
+    ["data-cmux-motion", "off"],
+    ["data-cmux-motion", "reduced"],
+    ["data-agent-motion", "off"],
+    ["data-agent-motion", "reduced"],
+    ["data-cmux-page-hidden", ""],
+  ] as const) {
+    test(`${attribute}=${value} stops and restarts the cadence`, async () => {
+      const page = await open();
       try {
-        await p.evaluate(() => (window as any).mountShimmers(3, false, "first"));
-        await frames(p);
-        // fixed-wait: real time must pass between the mounts and while the loops are off; that gap is the test.
-        await p.waitForTimeout(337);
-        await p.evaluate(() => (window as any).mountShimmers(3, false, "second"));
-        await frames(p);
-        const off = (on: boolean) =>
-          p.evaluate(
-            ([value, how]) => {
-              if (how === "an ancestor shown again")
-                for (const host of document.querySelectorAll<HTMLElement>("body > div"))
-                  host.style.display = value ? "none" : "";
-              else if (value) document.documentElement.setAttribute("data-status-indicators", "static");
-              else document.documentElement.removeAttribute("data-status-indicators");
-            },
-            [on, restart] as const,
-          );
-        await off(true);
-        await frames(p);
-        // fixed-wait: the loops must stay off for real time, so a restart at its mount-time delay would show.
-        await p.waitForTimeout(523);
-        await off(false);
-        await frames(p);
-        await frames(p);
-        const { loops, clock, period } = await phases(p);
-        expect(loops.length).toBe(12);
-        for (const loop of loops)
-          expect(apart(loop.phase, clock, period), `${loop.host} ${loop.name}`).toBeLessThan(TOLERANCE_MS);
+        await mount(page, false);
+        await active(page).waitFor();
+        await page.evaluate(
+          ([name, setting]) => document.documentElement.setAttribute(name, setting),
+          [attribute, value],
+        );
+        await active(page).waitFor({ state: "detached" });
+        await expectIdle(page);
+        await page.evaluate((name) => document.documentElement.removeAttribute(name), attribute);
+        await expectIdle(page);
+        await active(page).waitFor();
       } finally {
-        await p.close();
+        await page.close();
       }
     });
+  }
 
-  test("a hidden page's paused shimmer comes back on the clock's phase", async () => {
-    const p = await open();
+  test("an offscreen label cancels its sweep and resumes when visible", async () => {
+    const page = await open();
     try {
-      await p.evaluate(() => (window as any).mountShimmers(3, true, "before"));
-      await frames(p);
-      await p.evaluate(() => document.documentElement.setAttribute("data-cmux-page-hidden", ""));
-      await frames(p);
-      // fixed-wait: the page must stay hidden for real time, so its paused loops fall behind the clock.
-      await p.waitForTimeout(411);
-      await p.evaluate(() => document.documentElement.removeAttribute("data-cmux-page-hidden"));
-      await frames(p);
-      const { loops, clock, period } = await phases(p);
-      expect(loops.length).toBe(6);
-      for (const loop of loops)
-        expect(apart(loop.phase, clock, period), `${loop.host} ${loop.name}`).toBeLessThan(TOLERANCE_MS);
+      await mount(page, true);
+      await active(page).waitFor();
+      await page.locator("#fixture").evaluate((element) => {
+        element.style.display = "none";
+      });
+      await active(page).waitFor({ state: "detached" });
+      await expectIdle(page);
+      await page.locator("#fixture").evaluate((element) => {
+        element.style.display = "";
+      });
+      await expectIdle(page);
+      await active(page).waitFor();
     } finally {
-      await p.close();
+      await page.close();
+    }
+  });
+
+  test("system reduced motion stops an active sweep and allows a fresh visible sweep", async () => {
+    const page = await open();
+    try {
+      await mount(page, false);
+      await active(page).waitFor();
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await active(page).waitFor({ state: "detached" });
+      await expectIdle(page);
+      await page.emulateMedia({ reducedMotion: "no-preference" });
+      await expectIdle(page);
+      await active(page).waitFor();
+    } finally {
+      await page.close();
     }
   });
 });

@@ -10,6 +10,7 @@
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { assistant, chat, summary, user } from "../../gallery/fixtures/acpmux";
+import { JUMP_LATEST, JUMP_LATEST_SHOWN } from "./transcriptSelectors";
 
 const snapshot = chat(
   Array.from({ length: 24 }, (_, index) => [
@@ -52,11 +53,8 @@ const park =
     if (computerUse) ctx.document.querySelector(".acpmux-main")?.setAttribute("data-cu-preview", "");
     await ctx.waitFor(() => (ctx.document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollHeight ?? 0) > 1_000);
     await ctx.scroll({ selector: ".acpmux-scroll" }, 1_200);
-    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
-    if (anchor)
-      ctx.document
-        .querySelector<HTMLElement>(".acpmux-jump-latest:not(.acpmux-jump-up)")
-        ?.style.setProperty("left", ANCHORS[anchor]);
+    await ctx.waitFor(() => ctx.document.querySelector(JUMP_LATEST_SHOWN));
+    if (anchor) ctx.document.querySelector<HTMLElement>(JUMP_LATEST)?.style.setProperty("left", ANCHORS[anchor]);
   };
 
 export default agentPaneEntry({

@@ -342,11 +342,11 @@ impl ArtifactsSync {
             return Ok(());
         }
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+            crate::home_fs::create_dirs(parent)?;
         }
         let temporary = path.with_extension("json.tmp");
-        fs::write(&temporary, &bytes)?;
-        fs::rename(&temporary, path)?;
+        crate::home_fs::write(&temporary, &bytes)?;
+        crate::home_fs::rename(&temporary, path)?;
         self.saved_state = bytes;
         Ok(())
     }
@@ -781,7 +781,11 @@ impl std::error::Error for HttpStatusError {}
 /// client does) so a client built before the mesh's never panics.
 fn http_client() -> Result<Client> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    Ok(Client::builder().connect_timeout(CONNECT_TIMEOUT).read_timeout(READ_TIMEOUT).build()?)
+    Ok(Client::builder()
+        .default_headers(cmux_build_space::headers()?)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(READ_TIMEOUT)
+        .build()?)
 }
 
 /// The query string encoded by `url` (reqwest's own `query` needs a feature this workspace leaves off).

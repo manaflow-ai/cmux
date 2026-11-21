@@ -10,11 +10,10 @@ public struct CloudPaths: Sendable {
 
     public init(root: URL) { self.root = root }
 
+    /// `cloud-next` in the bundle's own folder under `cmux-next` (``NextSupport/bundleFolder(bundleID:)``);
+    /// builds before kept it in classic cmux's `cmux/<bundle id>`, and the app moves it at launch.
     public static func standard(bundleID: String?) -> CloudPaths {
-        CloudPaths(root: FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
-            .appendingPathComponent(bundleID ?? "cmux", isDirectory: true)
-            .appendingPathComponent("cloud-next", isDirectory: true))
+        CloudPaths(root: NextSupport().bundleFolder(bundleID: bundleID).appendingPathComponent("cloud-next", isDirectory: true))
     }
 
     /// Where builds before the per-launch key kept this Mac's WireGuard private key.
@@ -26,7 +25,8 @@ public struct CloudPaths: Sendable {
 
     /// The link's local v12 socket, short enough for `sun_path`.
     func linkSocket(machineID: String) -> String {
-        let hash = SHA256.hash(data: Data((root.path + machineID).utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
+        // Hashed by its name from before the move to `cmux-next`, so a link an older launch started keeps its socket.
+        let hash = SHA256.hash(data: Data((NextSupport.pathIdentity(root.path) + machineID).utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
         return (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-link-\(hash).sock")
     }
 

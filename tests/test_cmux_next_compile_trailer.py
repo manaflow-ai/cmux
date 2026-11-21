@@ -679,6 +679,89 @@ class CompileTrailerTests(unittest.TestCase):
                                             "    switch s {\n    case \"one\": return 1\n    default: return 2\n    }\n}\nlet one = 1\n"})
         self.assertFalse(refused, lines)
 
+    # 2026-11-12: a push that deleted BrowserSwipeGesture.swift (enum `BrowserSwipeDirection { case back, forward }`,
+    # a gesture with phases `.ready`, `.cancel`) was refused three times in a row: each removed member counted by its
+    # bare name, so upstream's new `let back = ...` in an unrelated test, then a `ready` and a `cancel`, met it. A member
+    # of a type the push removed whole can be reached only through that type's name or through an API that returns it,
+    # and both are removals of their own; the member's name alone meets nothing.
+    SWIPE = f"{PKG}/Sources/Kit/Swipe.swift"
+    SWIPE_TEXT = ("public enum SwipeDirection {\n    case back\n    case forward\n}\n"
+                  "public struct SwipeGesture {\n    public enum Phase {\n        case ready\n        case cancel\n    }\n"
+                  "    public var phase: Phase\n    public func cancel() {}\n}\n")
+
+    def swipe_kit(self):
+        self.kit_app()
+        self.write(self.SWIPE, self.SWIPE_TEXT)
+        self.base = self.commit("swipe")
+
+    def test_deleted_type_members_of_a_type_the_push_deletes_pass_upstream_code_that_shares_their_names(self):
+        self.swipe_kit()
+        self.git("checkout", "-q", "-b", "topic")
+        (self.repo / self.SWIPE).unlink()
+        job = self.job(self.commit("own change"))
+        self.git("checkout", "-q", "feat-cmux-next")
+        self.write(f"{PKG}/Sources/App/Resize.swift",
+                   "import Kit\nstruct Rig {\n    var ready = true\n    func cancel() {}\n}\n"
+                   "func check(_ r: Rig) -> Bool {\n    let back = r.ready\n    r.cancel()\n    return back\n}\n")
+        self.commit("upstream")
+        self.git("checkout", "-q", "topic")
+        self.git("rebase", "-q", "feat-cmux-next")
+        self.git("commit", "-q", "--amend", "-m", f"own change\n\nCompiled: {job}")
+        refused, lines = self.check(self.git("rev-parse", "HEAD"), base=self.git("rev-parse", "feat-cmux-next"))
+        self.assertFalse(refused, lines)
+
+    def test_deleted_type_upstream_code_naming_a_type_the_push_deletes_is_refused(self):
+        self.swipe_kit()
+        self.git("checkout", "-q", "-b", "topic")
+        (self.repo / self.SWIPE).unlink()
+        job = self.job(self.commit("own change"))
+        self.git("checkout", "-q", "feat-cmux-next")
+        self.write(f"{PKG}/Sources/App/Resize.swift", "import Kit\nlet way = SwipeDirection.back\n")
+        self.commit("upstream")
+        self.git("checkout", "-q", "topic")
+        self.git("rebase", "-q", "feat-cmux-next")
+        self.git("commit", "-q", "--amend", "-m", f"own change\n\nCompiled: {job}")
+        refused, lines = self.check(self.git("rev-parse", "HEAD"), base=self.git("rev-parse", "feat-cmux-next"))
+        self.assertTrue(refused, lines)
+        self.assertIn("SwipeDirection", lines[0])
+
+    def test_deleted_type_a_member_removed_from_a_type_that_stays_still_meets_its_name(self):
+        self.swipe_kit()
+        refused, lines = self.rebased_push(
+            {self.SWIPE: self.SWIPE_TEXT.replace("    public func cancel() {}\n", "")},
+            {f"{PKG}/Sources/App/Resize.swift": "import Kit\nfunc stop(_ g: SwipeGesture) { g.cancel() }\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("cancel", lines[0])
+
+    # 2026-11-18: a push that trimmed `ServerPageProvider` (its `closed()`, `opened(again:)` and `card` went with
+    # the web card it no longer is) was refused on four rebases in a row: each removed member met a file by its bare
+    # name, `restoreClosed.closed(front)` in WindowManager, then a test's `card`, then CloudStartChat's `opened`, none
+    # of which name ServerPageProvider. A removed member, like a changed one, meets a file that names a type it sits in.
+    def test_removed_member_passes_upstream_code_that_calls_the_name_on_another_type(self):
+        self.server_hub()
+        refused, lines = self.rebased_push(
+            {self.SERVER: self.read(self.SERVER).replace("    public func close() {}\n", "")},
+            {self.HUB: "import Server\nstruct Tracker {\n    func close() {}\n}\nfunc hub(_ t: Tracker) { t.close() }\n"})
+        self.assertFalse(refused, lines)
+
+    def test_removed_member_is_refused_where_upstream_names_its_type(self):
+        self.server_hub()
+        refused, lines = self.rebased_push(
+            {self.SERVER: self.read(self.SERVER).replace("    public func close() {}\n", "")},
+            {self.HUB: "import Server\nfunc hub(_ i: Invite) { i.close() }\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("close", lines[0])
+
+    def test_removed_top_level_function_still_meets_its_name_alone(self):
+        self.server_hub()
+        self.write(self.SERVER, self.read(self.SERVER) + "public func shutDown() {}\n")
+        self.base = self.commit("top-level")
+        refused, lines = self.rebased_push(
+            {self.SERVER: self.read(self.SERVER).replace("public func shutDown() {}\n", "")},
+            {self.HUB: "import Server\nfunc hub() { shutDown() }\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("shutDown", lines[0])
+
     # 2026-11-08: four of five landq trains refused after a re-pick were refused over a name a file could not reach:
     # upstream removed `PairInviteModel.close()` (CmuxNextServer) and the train's test in CmuxNextAgentPaneTests, which
     # does not depend on CmuxNextServer, called `window.close()`. The reach was the whole train's modules, not the

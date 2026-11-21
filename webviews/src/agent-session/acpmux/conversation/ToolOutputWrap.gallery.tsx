@@ -3,8 +3,8 @@
 // opened Shell card whose output line ran past the card: "shouldn't this be... not horizontally
 // scrolled? as in, it goes down instead of to the right?" Each look shows his line (a background
 // command's notice with a long path), a 300-character unbroken token, a `ps` table and a non-shell
-// call's output with a long path, in one pane-wide column, and one 10,000-character line, cut to
-// eight rows with Show all like any long output:
+// call's output with a long path, in one pane-wide column, and one 10,000-character line, scrolling
+// in an eight-row box like any long output:
 // - by-shape (shipped, blockWrap.ts `outputWraps`): every output wraps, its long lines hanging under
 //   their start, but a table keeps its rows whole and aligned (Leo, 2026-11-04, on a folded `ps`
 //   table: "why isn't this just prettified by default?").
@@ -25,7 +25,7 @@ export const LEO_LINE =
   "Command running in background with ID: baimgy381. Output is being written to: /private/tmp/claude-501/-Users-leoli-Projects/01a18a35-b23b-7b61-9798-dba14474a974/tasks/baimgy381.output";
 /// 300 characters with no break opportunity: a hash, a token or a path with no separators.
 export const UNBROKEN = "a1b2c3d4e5".repeat(30);
-/// One printed line of 10,000 characters: wrapped, it is cut to eight rows with Show all.
+/// One printed line of 10,000 characters: wrapped, it scrolls in an eight-row box.
 export const HUGE = "f0e1d2c3b4 ".repeat(909) + "end";
 const PS = [
   "  PID TTY           TIME CMD",

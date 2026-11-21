@@ -307,7 +307,8 @@ impl Hub {
     /// `child_label` among the rows peers list (a cloud subagent), whose rows carry their live tags.
     fn peer_child_label(&self, pair: &(String, String)) -> Option<String> {
         let label = |r: &RemoteSession| {
-            let tags = r.summary.get("tags")?;
+            // Only its tags are parsed, of the few rows with the pair.
+            let tags = r.summary.tags()?;
             let tag = |key: &str| tags.get(key).and_then(text);
             let mine = tag(PARENT_TAG).as_deref() == Some(pair.0.as_str())
                 && tag(HANDLE_TAG).as_deref() == Some(pair.1.as_str());
@@ -357,7 +358,7 @@ mod tests {
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
         let peer = crate::peer::Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
         hub.peers.lock().unwrap().insert(name.to_owned(), peer.clone());
-        hub.apply_peer_notice(name, peer.generation, PeerNotice::Sessions(sessions));
+        hub.apply_peer_notice(name, peer.generation, PeerNotice::sessions_from_values(sessions));
         (hub, dir)
     }
 
@@ -390,7 +391,7 @@ mod tests {
         hub.apply_peer_notice(
             "cloud-vm",
             generation,
-            PeerNotice::Sessions(vec![row(
+            PeerNotice::sessions_from_values(vec![row(
                 "m3",
                 json!({"mux.parent": "optchat-chief:h0me", "mux.handle": "a12", "mux.label": "Moved"}),
             )]),
@@ -622,7 +623,11 @@ mod tests {
         assert_eq!(hub.child_label("optchat-chief:h0me", "a12").as_deref(), Some("m1"));
         // A new list moves m1 to a14 and drops m2.
         let generation = hub.peer("cloud-vm").unwrap().generation;
-        hub.apply_peer_notice("cloud-vm", generation, PeerNotice::Sessions(vec![row("m1", "a14")]));
+        hub.apply_peer_notice(
+            "cloud-vm",
+            generation,
+            PeerNotice::sessions_from_values(vec![row("m1", "a14")]),
+        );
         assert!(names("a12").is_empty() && names("a13").is_empty());
         assert_eq!(names("a14"), ["m1"]);
         // Marking the peer's rows stale goes through the index too.
