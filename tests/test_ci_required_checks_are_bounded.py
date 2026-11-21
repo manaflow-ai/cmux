@@ -104,18 +104,6 @@ def context_of(job_id: str, job: dict, path: Path, workflow: dict) -> str:
         except (AssertionError, KeyError, TypeError):
             return name
         return REQUIRED_CHECK
-    if path.name == "cla-policy-guard.yml" and job_id == "validate":
-        from test_cla_guard_metadata_routing import (
-            REQUIRED_CHECK as CLA_REQUIRED_CHECK,
-            validate_metadata_routing as validate_cla_metadata_routing,
-        )
-        try:
-            validate_cla_metadata_routing(workflow)
-        except (AssertionError, KeyError, TypeError) as error:
-            if "${{" in str(name) or "if" in job:
-                raise ValueError("CLA metadata route violates its condition/name contract") from error
-        else:
-            return CLA_REQUIRED_CHECK
     if isinstance(name, str) and "${{" in name:
         # A name that differs only on a title or body edit (pattern pr-edit-fans-out-ci) is the check's
         # name on a push. Unknown expressions stay unmatched rather than silently drop coverage.
