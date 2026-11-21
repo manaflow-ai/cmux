@@ -346,6 +346,13 @@
   color: var(--agent-text);
   transform-origin: var(--transform-origin);
 }
+/* An agent reports as many modes as it has: a list taller than this scrolls inside, as the + menu's
+   does (styles.css), and only its rows near view draw (menuWindow.tsx). --popup-scroll-cap is the
+   bound for popupHost.ts. Claude Code's and Codex's few modes never reach it. */
+.ui-popup.acpmux-access-menu {
+  --popup-scroll-cap: 420px;
+  max-height: min(420px, var(--available-height, 420px));
+}
 .ui-menu-item.acpmux-access-item {
   display: grid;
   /* Claude Code's mode menu (Leo 2026-10-19): the mode's shield, its name and description, then a
