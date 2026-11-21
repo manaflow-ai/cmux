@@ -30,6 +30,7 @@ import {
   type DroppedKind,
   type LinkItem,
 } from "./attachments";
+import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
 import { canResumeFromComposer } from "./composer/resumeControl";
 import { useTranscriptReadOnly } from "./conversation/readOnly";
@@ -161,6 +162,11 @@ import { compactingUsage } from "./usageStats";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { cloudStartComposerLook } from "./cloudStartComposer.experiment";
+import { composerShellLook } from "./composer/shellLook.experiment";
+import { composerFooterControls } from "./composer/footerControls.experiment";
+import { composerEmptyHeight } from "./composer/emptyHeight.experiment";
+// The composer look climbs' arms (composer/*.experiment.ts): gallery-only; the default arms add nothing.
+import "./composerClimbs.css";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
 import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
@@ -847,6 +853,8 @@ function ComposerFrame({
     },
   });
   const attachmentsRef = useRef(attachments);
+  // Browser picks that leave (their × or a send) leave the page too: its pins match the chips.
+  useReleasedPicks(attachments);
   const pendingRef = useRef(pending);
   // The latest of each, written as the render commits (every reader is a handler, an effect or the
   // handle): a write during render keeps the composer out of the React Compiler, and each key then
@@ -1466,7 +1474,12 @@ function ComposerFrame({
     requestEmoji();
     setText(value);
     setCaret(at);
+    // Esc closes a list for the text it was pressed on; an edit ends that, even one that comes back to
+    // the same text (Backspace and the letter again, or the prompt cleared and typed again), so the @
+    // and emoji lists come back as the / list does.
     setDismissed(undefined);
+    setMentionDismissed(undefined);
+    setEmojiDismissed(undefined);
     // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types, and the
     // next draft picks its own skills.
     if (!value.trim()) pickedSkills.current.clear();
@@ -2092,6 +2105,11 @@ function ComposerFrame({
   // Cloud chat (cloudStartComposer.experiment.ts). Each look stays inside the field and Send, so
   // nothing moves when the start ends.
   const startLook = experimentArm(cloudStartComposerLook);
+  // The look climbs (composerClimbs.css): an attribute only off the shipped arm, so it ships as before.
+  const climbArm = (arm: string) => (arm === "shipped" ? undefined : arm);
+  const shellLook = climbArm(experimentArm(composerShellLook));
+  const controlsLook = climbArm(experimentArm(composerFooterControls));
+  const emptyHeight = climbArm(experimentArm(composerEmptyHeight));
   const startingPlaceholder =
     !cloudStarting || startLook === "dimmed"
       ? undefined
@@ -2772,6 +2790,9 @@ function ComposerFrame({
       data-composer-look={look === "codex" ? "codex" : undefined}
       // The box inside draws the compact grid in both looks (ComposerBox.tsx, composerLocation.css).
       data-composer-grid=""
+      data-shell-look={shellLook}
+      data-footer-controls={controlsLook}
+      data-empty-height={emptyHeight}
       onSubmit={(event) => {
         if (!shell) return submit(event);
         event.preventDefault();

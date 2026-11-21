@@ -187,18 +187,6 @@ TSW_SEEDER_MAX=${TSW_SEEDER_MAX:-1800}
 TSW_BUILD_MAX=${TSW_BUILD_MAX:-5400}
 TSW_RUN_MAX=${TSW_RUN_MAX:-7200}
 
-# The app build in SRC with scratch folder TMP and reload tag TAG; the rest goes to reload.sh. Run by tsw_step, in
-# its own subshell, so the cd stays there.
-tsw_build_app() { # SRC TMP TAG RELOAD-ARGS...
-  local src="$1" tmp="$2" tag="$3"
-  shift 3
-  cd "$src" && prepare_build "$tmp" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links "$@"
-}
-# The settle matrix's scale seeder, from this checkout's cmux-tui (its target folder stays warm between steps).
-tsw_build_seeder() {
-  cd cmux-tui && cargo build --release --quiet -p acpmux --example scale_home
-}
-
 # Submodules, GhosttyKit and the pinned bun a tagged build needs (a fleet step checks out no submodules).
 prepare_build() {
   local tmp
@@ -224,6 +212,18 @@ prepare_build() {
   RUNNER_TEMP="$tmp" GITHUB_PATH="$tmp/bun-path" ./scripts/cmux-next/private-bun.sh
   PATH="$(tail -n 1 "$tmp/bun-path"):$PATH"
   export PATH
+}
+
+# The app build in SRC with scratch folder TMP and reload tag TAG; the rest goes to reload.sh. Run by tsw_step, in
+# its own subshell, so the cd stays there.
+tsw_build_app() { # SRC TMP TAG RELOAD-ARGS...
+  local src="$1" tmp="$2" tag="$3"
+  shift 3
+  cd "$src" && prepare_build "$tmp" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links "$@"
+}
+# The settle matrix's scale seeder, from this checkout's cmux-tui (its target folder stays warm between steps).
+tsw_build_seeder() {
+  cd cmux-tui && cargo build --release --quiet -p acpmux --example scale_home
 }
 
 # The app a key=value run measures (launch-capture-probe.sh sources this file for it): build=nightly downloads DMG,
