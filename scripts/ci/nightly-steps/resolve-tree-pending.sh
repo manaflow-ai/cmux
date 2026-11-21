@@ -41,7 +41,7 @@ fi
 fallback_out="$(mktemp)"
 set -m
 CMUX_TUI_TREE_TIP_WAIT_SECONDS=0 CMUX_TUI_TREE_SAME_PATHS="" CMUX_TUI_TREE_DISPATCH="" GITHUB_STEP_SUMMARY="" \
-  bash scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published >"$fallback_out" 2>/dev/null &
+  bash scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published </dev/null >"$fallback_out" 2>/dev/null &
 fallback_pid=$!
 set +m
 fallback_began=$SECONDS
