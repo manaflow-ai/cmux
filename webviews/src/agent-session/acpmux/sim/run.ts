@@ -211,7 +211,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       },
       last,
     );
-    shaped = view === last ? 0 : view.rows.length - view.reusedRows;
+    shaped = view === last ? 0 : view.rows.length - (view.reusedRows ?? 0);
     last = view;
     const rows = view.rows;
     const layout = layoutConversation(rows, width, cache, LINE, undefined, previous);

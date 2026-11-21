@@ -8,6 +8,7 @@
 import { Spinner } from "../../../../agent-session/acpmux/conversation/icons";
 import { Button } from "../../../../ui/Button";
 import { StatusGlyph } from "../../../../ui/StatusGlyph";
+import { TextSizePicker, type TextSizePickerLabels } from "../../../../ui/TextSizePicker";
 import type { Strings } from "../strings";
 import {
   nextStep,
@@ -82,7 +83,7 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
       <ul className="hm-setup__rows">
         {steps.map((step) => (
           <li key={step.id} className="hm-setup__row" data-step={step.id} data-done={step.done ? "" : undefined}>
-            {look === "checklist" && (
+            {look === "checklist" && !step.optional && (
               <span className="hm-setup__check">
                 <StatusGlyph name={step.done ? "done" : "idle"} size={12} />
               </span>
@@ -90,8 +91,20 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
             <span className="hm-setup__row-text">
               <span className="hm-setup__row-title">{step.title}</span>
               <span className="hm-setup__row-detail">{step.detail}</span>
+              {step.id === "look" && state.look && (
+                <TextSizePicker
+                  className="hm-setup__look"
+                  name="setup-look"
+                  labels={lookLabels(strings)}
+                  value={state.look.textSize}
+                  density={state.look.density}
+                  body={state.look.body}
+                  onSize={(points) => onAction({ kind: "setTextSize", points })}
+                  onDensity={(id) => onAction({ kind: "setDensity", id })}
+                />
+              )}
             </span>
-            <Trailing step={step} onAction={onAction} marksDone={look !== "checklist"} />
+            {!step.optional && <Trailing step={step} onAction={onAction} marksDone={look !== "checklist"} />}
           </li>
         ))}
       </ul>
@@ -108,6 +121,26 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
       )}
     </section>
   );
+}
+
+/** The Text Size and Density row's words, from the card's catalog. */
+function lookLabels({ t }: Strings): TextSizePickerLabels {
+  return {
+    size: t("home.setup.look.size"),
+    density: t("home.setup.look.density"),
+    steps: {
+      smaller: t("home.setup.look.smaller"),
+      default: t("home.setup.look.default"),
+      large: t("home.setup.look.large"),
+      larger: t("home.setup.look.larger"),
+      largest: t("home.setup.look.largest"),
+    },
+    densities: {
+      compact: t("home.setup.look.compact"),
+      cozy: t("home.setup.look.default"),
+      comfortable: t("home.setup.look.comfortable"),
+    },
+  };
 }
 
 /** The row's one slot: its buttons, the spinner while it runs, or the done mark (`marksDone`: the
