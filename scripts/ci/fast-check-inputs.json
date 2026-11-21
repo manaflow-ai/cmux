@@ -85,12 +85,7 @@
           "scripts/ci/generated_files_guard.py",
           "scripts/ci/generated-files.json",
           "scripts/ci/generated-files-baseline.txt",
-          "tests/test_generated_files_guard.py",
-          "tests/test_generated_merge.py",
-          "tests/git_fixture_env.py",
-          "scripts/ci/ci_process_tree.py",
-          "scripts/merge-insertions.py",
-          ".gitattributes"
+          "scripts/ci/ci_process_tree.py"
         ],
         "not_inputs": {
           "plans/cmux-next/code-quality.md": "check-app-size.sh names it in its message",
@@ -104,6 +99,44 @@
           "workers/cmux-vm/cli/scripts/regenerate.sh": "generated_merge.py REGENERATE: a command, not run by the audit",
           "workers/iroh-v2/": "generated_merge.py REGENERATE: a command's working directory, not read by the audit"
         }
+      },
+      "generated-merge-audit": {
+        "why": "the generated files guard's own tests and the generated merge audit: the audit judges the set of tracked paths (each generated path's family and its .gitattributes merge driver), so a pull request that only edits files it does not name skips it",
+        "inputs": [
+          "scripts/ci/generated_files_guard.py",
+          "scripts/ci/generated-files.json",
+          "scripts/ci/generated-files-baseline.txt",
+          "scripts/cmux-next/generated_merge.py",
+          "scripts/merge-insertions.py",
+          "tests/test_generated_files_guard.py",
+          "tests/test_generated_merge.py",
+          "tests/git_fixture_env.py",
+          "scripts/cmux-next/generated_outputs.py",
+          "scripts/cmux-next/generated_catch_up.py",
+          "scripts/cmux-next/settings-exports.txt",
+          "scripts/ci/ci_process_tree.py",
+          "scripts/cmux-next/ci-target-graph.py",
+          "scripts/cmux-next/generate-coordination-index.py",
+          "scripts/cmux-next/regenerate-web-bundles.sh",
+          "scripts/cmux-next/art/generate_backdrop_art.py",
+          "cmux-tui/crates/cmux-pane-protocol/spec/pane-protocol.json",
+          "cmux-tui/crates/acpmux/docs/acpmux-schema.json",
+          "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+          "cmux-tui/crates/cmux-app-host/",
+          "**/.gitattributes",
+          "**/.cmux-sdk-manifest.json"
+        ],
+        "not_inputs": {
+          "backend/packages/protocol/": "generated_outputs.py: a regex of a generator's inputs (generated: true covers its paths)",
+          "cmux-tui/bindings/go-pane/examples/hello/hellopane/": "generated_merge.py REGENERATE: a command's --out, run by regenerate, never by the audit the job runs",
+          "cmux-tui/bindings/go-pane/internal/richpane/": "generated_merge.py REGENERATE: a command's --out, not read by the audit",
+          "cmux-tui/bindings/go-pane/testdata/pane-protocol.rich.json": "generated_merge.py REGENERATE: a command's --ir, not read by the audit",
+          "scripts/generate-claude-launch-environment-policy.py": "generated_merge.py REGENERATE: a command, not run by the audit",
+          "web/scripts/export-next-docs.ts": "generated_merge.py REGENERATE: a command, not run by the audit",
+          "workers/cmux-vm/cli/scripts/regenerate.sh": "generated_merge.py REGENERATE: a command, not run by the audit",
+          "workers/iroh-v2/": "generated_merge.py REGENERATE: a command's working directory, not read by the audit"
+        },
+        "tree_changes": true
       }
     },
     ".github/workflows/cmux-next-react-doctor.yml": {

@@ -5176,7 +5176,8 @@ def wrapped_rule_reads(path: str, name: str, output: list[str]) -> tuple[str, ..
 # on pull requests, is neither declared here nor excluded with its reason. A declared job only qualifies the red for
 # the rules below: every failed step must still be a declared guard test's or check's (guard_tests).
 GUARD_JOB_IDS = (("cmux-next.yml", "checks"), ("cmux-next-guards.yml", "own-change-checks"),
-                 ("cmux-next-guards.yml", "static-checks"), ("cmux-next-guards.yml", "tooling-tests"))
+                 ("cmux-next-guards.yml", "static-checks"), ("cmux-next-guards.yml", "tooling-tests"),
+                 ("cmux-next-guards.yml", "generated-merge-audit"))
 _PRODUCT = "builds, tests or generates from product code (Swift, Rust, web), so its red is never a guard's"
 _PLACE = "places, routes or waits for runners and runs: no verdict of its own on the tree"
 _PUBLISH = "requests, publishes, attributes or comments: no test verdict of its own"

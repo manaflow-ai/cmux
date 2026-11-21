@@ -10,6 +10,8 @@ ending in "/" is a folder, one with * or ? a GitHub `paths:` glob (`**` crosses 
 workflow file itself is an input of every one of its checks. A check may also take:
 
   "added_files": true   any file the pull request adds (a guard that reads every new file's header);
+  "tree_changes": true  any file the pull request adds, deletes, renames, copies or changes the type of: a check that
+                        judges the set of tracked paths (each path's rules and attributes), not what a file holds;
   "generated": true     any path the generated files guard treats as generated (scripts/ci/generated-files.json
                         outputs, a "generated" path segment or name);
   "router": "guard_groups"  the paths the cmux-next CI guard group routes (detect_linux_guard_changes.classify_feat
@@ -173,6 +175,8 @@ def decide(workflow: str, job_id: str, spec: dict, changed: list[tuple[str, str]
                 return True, f"{path} is an input ({entry})"
         if spec.get("added_files") and status.startswith("A"):
             return True, f"adds {path}"
+        if spec.get("tree_changes") and not status.startswith("M"):
+            return True, f"{path} changes the set of tracked paths ({status})"
         if spec.get("generated") and generated_path(path, root):
             return True, f"{path} may be a generated output"
     if spec.get("router") == "guard_groups":
@@ -406,7 +410,9 @@ def check(root: Path = ROOT, files: list[str] | None = None) -> list[str]:
         else:
             reads = reads_of(block, root, tree, not_inputs)
         for path, by in sorted(reads.items()):
-            if path in not_inputs or (spec.get("generated") and generated_path(path, root)):
+            # A tree_changes check judges a path the generated rules name by its name and attributes (the rules and
+            # .gitattributes are its inputs), never by what it holds; adding, deleting or renaming one runs it.
+            if path in not_inputs or ((spec.get("generated") or spec.get("tree_changes")) and generated_path(path, root)):
                 continue
             if not any(covered(path, entry) or (path.endswith("/") and covered(path.rstrip("/"), entry))
                        for entry in inputs):

@@ -4,6 +4,10 @@
       "job": "checks",
       "workflow": "cmux-next.yml"
     },
+    "cmux-next generated files merge without a person": {
+      "job": "generated-merge-audit",
+      "workflow": "cmux-next-guards.yml"
+    },
     "cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files": {
       "job": "own-change-checks",
       "workflow": "cmux-next-guards.yml"
