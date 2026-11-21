@@ -61,11 +61,14 @@ jobs:
   build:
     name: build live code overlay
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next'
-    # No environment and no secrets. An owned fleet Mac, never the nightly's signing Mac.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # No environment and no secrets. The macOS 26 pool, never the nightly's signing Mac.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 120
     permissions:
       contents: read
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Check the inputs
         env:
@@ -84,6 +87,9 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
           path: tools
+
+      - name: Select Xcode
+        run: ./tools/scripts/select-ci-xcode.sh
 
       - name: Build the commit's live code overlay
         env:
@@ -113,6 +119,9 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Checkout this workflow's signing tools
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -125,6 +134,9 @@ jobs:
 
       - name: Claim the whole Mac for signing
         run: ./scripts/ci/signing-runner-claim.sh
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Download the overlay
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
