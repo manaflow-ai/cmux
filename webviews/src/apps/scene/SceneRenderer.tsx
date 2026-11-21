@@ -21,7 +21,7 @@ import {
   useSceneChildren,
   useSceneEntering,
 } from "./sceneMotion";
-import { sceneColor, sceneGradient, sceneNumber, sceneStyle, sceneText, textStyle } from "./sceneStyle";
+import { sceneColor, sceneGlass, sceneGradient, sceneNumber, sceneStyle, sceneText, textStyle } from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import "./scene.css";
 
@@ -418,7 +418,9 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     "data-entering": entering && !leaving ? "" : undefined,
     "data-leaving": own === true ? "" : undefined,
     "data-animation": props.animation === "smooth" || props.animation === "snappy" ? props.animation : undefined,
-    className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}`,
+    // `glass`: the page's glass at that level (ui/glass/glass.css), the web twin of the App's material.
+    "data-glass-level": sceneGlass(props.glass),
+    className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}${sceneGlass(props.glass) ? " ui-glass" : ""}`,
     style,
     title: sceneText(props.help) || undefined,
   };
