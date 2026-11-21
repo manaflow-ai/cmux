@@ -547,12 +547,12 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
         let began = traced ? CACurrentMediaTime() : 0
         defer { if traced { DebugWindowTransition.shared.noteLayoutPass(self, seconds: CACurrentMediaTime() - began) } }
         #endif
+        let layouts = LayoutPassGuard.shared.viewLayoutCalls // AppKit runs this pass before every display (each key): one that laid out no view moved no traffic light
         overlayLayer.windowWillLayout()
         super.layoutIfNeeded()
-        // The outermost pass only, and before the overlay layer's own
-        // after-pass work, so an occluder change it causes joins that work.
+        // The outermost pass only, and before the overlay layer's own after-pass work, so an occluder change it causes joins that work.
         if overlayLayer.layoutDepth == 1 {
-            (contentView as? WindowRootView)?.windowDidLayout()
+            (contentView as? WindowRootView)?.windowDidLayout(placesTrafficLights: !LayoutPassGuard.shared.isInstalled || LayoutPassGuard.shared.viewLayoutCalls != layouts)
             let blocks = pendingAfterLayout
             pendingAfterLayout.removeAll()
             for block in blocks { block() }

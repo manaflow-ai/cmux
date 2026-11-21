@@ -645,7 +645,7 @@ pub fn logs(ctx: &Context<'_>, args: &Args) -> Result<Output> {
                     Err(e) => return Err(Error::io(log.display(), e)),
                 };
                 let all: Vec<&str> = text.lines().collect();
-                let tail = &all[all.len().saturating_sub(lines as usize)..];
+                let tail = all.get(all.len().saturating_sub(lines as usize)..).unwrap_or_default();
                 let mut human = tail.join("\n");
                 if !human.is_empty() {
                     human.push('\n');

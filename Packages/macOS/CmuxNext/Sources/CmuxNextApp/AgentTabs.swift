@@ -191,7 +191,7 @@ final class AgentTabStore {
     /// "This chat runs on <machine>" for tabs whose session another Mac's acpmux runs.
     var notices: AgentTabMap<AgentTabElsewhereView> = .init()
     /// A provisional tab's id -> the store's id once the creation answered (``AgentTabStore/rekey(_:to:)``): one page.
-    var aliases: AgentTabMap<String> = .init()
+    var aliases: AgentTabMap<String> = .init(); let frontedChats = CloudFrontedChats() // and the Cloud chats Mac tabs show in place (cmux#47677)
     /// Tabs a live tree has listed: only those can be gone from it.
     var seenLive: Set<AgentTabKey> = []
     /// The tree each opened or shown tab belongs to, so a tab closed out of sight (by the CLI,
@@ -516,7 +516,7 @@ final class AgentTabStore {
     /// pane then shows the "runs on" notice).
     func view(for key: String, machine: String? = nil, known: (record: AgentSessionRef, store: DaemonStore)? = nil) -> AgentPaneView? { // known: a tab no store lists (a reserved Cmd-N page)
         let tabKey = tabKey(key, machine: machine)
-        if let view = views[tabKey] { return view }
+        if let view = views[tabKey] { return view }; if let front = frontedChats.front(of: tabKey) { return CloudFrontedChats.view(of: tabKey, front, in: self) } // a Mac tab that shows a Cloud chat draws its page (CloudFrontedChats)
         let key = tabKey.key
         guard let (record, store) = known ?? record(for: tabKey) else { return nil }
         let kind = hostKind(record, listedHere: daemon(for: tabKey)?.isLocal != false)
@@ -766,7 +766,7 @@ final class AgentTabStore {
         return view
     }
 
-    func existingView(_ key: String, machine: String? = nil) -> AgentPaneView? { machine == nil && !views.hasKey(answering: key, aliases: aliases) ? nil : views[tabKey(key, machine: machine)] }
+    func existingView(_ key: String, machine: String? = nil) -> AgentPaneView? { if !frontedChats.isEmpty, let front = frontedChats.front(of: tabKey(key, machine: machine)) { return views[front.tab] }; return machine == nil && !views.hasKey(answering: key, aliases: aliases) ? nil : views[tabKey(key, machine: machine)] }
 
     func newTabPage(_ key: String, machine: String? = nil) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? {
         let scoped = tabKey(key, machine: machine)
