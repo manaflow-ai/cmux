@@ -19,6 +19,13 @@ N Chromium tabs in the launch workspace's focused pane, one URL each from --urls
 page each, so a run is deterministic; `real`: 20 well-known public sites; or a
 comma list). Each count is sampled after --settle seconds.
 
+--axis page-hidden|page-visible (perf-10x-idle.sh axes=) opens Chromium pages that ask for every animation
+frame, each on its own site (a renderer each), hidden (a workspace each, the launch workspace shown) or visible
+(a pane each). Each sample then has `page_frames` (the frames per second the pages got, by visibility: a hidden
+page should get none) and each renderer its base priority (`priority`; per kind `priorities`: Chromium's own
+process priority lowers a renderer whose pages are all hidden). page-hidden ends with `show_latency`: a few
+hidden pages shown again one at a time, from the request to their first frame.
+
 --purge-hidden also measures, after each count's sample, what Chromium's own
 memory purge gives back with nothing reloaded: every hidden cmux page's renderer
 gets a critical memory-pressure notice (DevTools Memory.simulatePressureNotification
@@ -153,6 +160,29 @@ def usage(pid: int):
     # phys_footprint (9), ... ri_lifetime_max_phys_footprint (30).
     cpu_ns = (buf[2] + buf[3]) * _timebase.numer // _timebase.denom
     return buf[8], buf[9], buf[30], cpu_ns, buf[4] + buf[5]
+
+
+class _TaskInfo(ctypes.Structure):
+    # struct proc_taskinfo (sys/proc_info.h, PROC_PIDTASKINFO).
+    _fields_ = [("virtual_size", ctypes.c_uint64), ("resident_size", ctypes.c_uint64), ("total_user", ctypes.c_uint64),
+                ("total_system", ctypes.c_uint64), ("threads_user", ctypes.c_uint64), ("threads_system", ctypes.c_uint64),
+                ("policy", ctypes.c_int32), ("faults", ctypes.c_int32), ("pageins", ctypes.c_int32),
+                ("cow_faults", ctypes.c_int32), ("messages_sent", ctypes.c_int32), ("messages_received", ctypes.c_int32),
+                ("syscalls_mach", ctypes.c_int32), ("syscalls_unix", ctypes.c_int32), ("csw", ctypes.c_int32),
+                ("threadnum", ctypes.c_int32), ("numrunning", ctypes.c_int32), ("priority", ctypes.c_int32)]
+
+
+def task_priority(pid: int) -> int | None:
+    """The process's base scheduling priority (`pti_priority`), or None once it is gone. It tells the CPU band
+    Chromium's own process priority put a renderer in (`base::Process::SetPriority`, process_mac.cc: a task
+    role and the App Nap suppression policy): about 47 for a foreground renderer, lower for a renderer Chromium
+    backgrounded, 4 for the darwin background band (PRIO_DARWIN_BG), which ARCHITECTURE 6.4 rules out for work
+    that must answer."""
+    info = _TaskInfo()
+    if _libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(4), ctypes.c_uint64(0), ctypes.byref(info),
+                             ctypes.sizeof(info)) != ctypes.sizeof(info):
+        return None
+    return info.priority
 
 
 def disk_io(pid: int):
@@ -414,6 +444,8 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
                 row["disk_read_mb_per_h"] = round((io_end[0] - io_start[pid][0]) * per_hour, 2)
                 row["disk_write_mb_per_h"] = round((io_end[1] - io_start[pid][1]) * per_hour, 2)
                 row["logical_write_mb_per_h"] = round((io_end[2] - io_start[pid][2]) * per_hour, 2)
+        if kind == "cef-renderer":
+            row["priority"] = task_priority(pid)
         rows.append(row)
     rows.sort(key=lambda row: -row["footprint_mb"])
     kinds = {}
@@ -430,6 +462,11 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
         for key in IO_KEYS:
             if key in row:
                 entry[key] = round(entry.get(key, 0.0) + row[key], 2)
+        if row.get("priority") is not None:
+            # Renderers per base priority, with their CPU: which band the hidden pages' renderers run in.
+            band = entry.setdefault("priorities", {}).setdefault(str(row["priority"]), {"n": 0, "cpu_pct": 0.0})
+            band["n"] += 1
+            band["cpu_pct"] = round(band["cpu_pct"] + row.get("cpu_pct", 0.0), 3)
     result = {"measure_s": measure, "label": label, "workspaces": workspaces, "time": round(time.time()),
               "total_rss_mb": round(sum(r["rss_mb"] for r in rows), 1),
               "total_footprint_mb": round(sum(r["footprint_mb"] for r in rows), 1),
@@ -740,7 +777,9 @@ def workspace_ids(app: App) -> set[str]:
 
 # --axis: one kind of item, all hidden (each in a workspace of its own, the launch workspace shown) or all
 # visible (each in a pane of the launch workspace).
-AXES = ("chat-hidden", "chat-visible", "terminal-hidden", "terminal-visible")
+AXES = ("chat-hidden", "chat-visible", "terminal-hidden", "terminal-visible", "page-hidden", "page-visible")
+# --axis page-*: the pages' frame reports (PageFrames), made at the launch.
+PAGES: "PageFrames | None" = None
 
 
 def add_axis_item(app: App, chats: "FakeChats | None", axis: str, index: int, opened: list) -> bool:
@@ -758,6 +797,9 @@ def add_axis_item(app: App, chats: "FakeChats | None", axis: str, index: int, op
             app.action("goToWorkspace", workspace=workspace, focus=True)
     elif axis == "terminal-hidden":
         workspace = open_workspace(app, "terminal", "", index)
+    elif axis == "page-hidden":
+        # Shown once (open_workspace selects it), so the page loads and draws; hidden again by the next item.
+        workspace = open_workspace(app, "browser", PAGES.url(index), index)
     else:
         workspace = None
         if index > 0:
@@ -769,6 +811,9 @@ def add_axis_item(app: App, chats: "FakeChats | None", axis: str, index: int, op
                 return True
         if axis == "terminal-visible":
             made = app.run("newSurface")
+        elif axis == "page-visible":
+            made = app.run("openBrowser.chromium", url=PAGES.url(index))
+            PAGES.note_open(index, made)
         else:
             session = chats.new_session(index)
             if session is None:
@@ -1122,6 +1167,8 @@ def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats
             response = app.run("newSurface")
         elif kind == "browser":
             response = app.run("openBrowser.chromium", url=url)
+            if PAGES:
+                PAGES.note_open(index, response)
         elif kind == "chat":
             # A prompt opens an agent chat tab. It waits in the composer for a
             # Send (fleet minis carry no agent credentials either): --fake-agent
@@ -1429,6 +1476,138 @@ def local_sites(count: int) -> list[str]:
     return [f"http://site{i}.localhost:{port}/" for i in range(count)]
 
 
+_FRAMES_PAGE = """<!doctype html><html><head><meta charset=utf-8><title>frames %(n)d</title>
+<style>body{font:15px -apple-system,sans-serif;max-width:760px;margin:40px auto}</style></head><body>
+<h1>Frames bench page %(n)d</h1><p id=c>0</p>
+<script>
+// Asks for every frame (a page that animates): rAF runs only on a begin-frame, so its count is the frames
+// Chromium gave the page. A hidden page should get none (ARCHITECTURE 5.5: "Hidden tabs get no begin-frames").
+let raf = 0, shownAt = 0, firstFrame = 0;
+const c = document.getElementById('c');
+function beat() {
+  fetch('/beat?n=%(n)d&raf=' + raf + '&vis=' + document.visibilityState + '&shown=' + shownAt + '&frame=' + firstFrame +
+        '&t=' + Date.now(), {cache: 'no-store', keepalive: true}).catch(() => {});
+}
+(function loop() {
+  raf++;
+  if (raf %% 16 === 0) c.textContent = raf;
+  if (shownAt && !firstFrame) { firstFrame = Date.now(); beat(); }
+  requestAnimationFrame(loop);
+})();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') { shownAt = Date.now(); firstFrame = 0; }
+  beat();
+});
+setInterval(beat, 1000);
+</script></body></html>"""
+
+
+class PageFrames:
+    """--axis page-*: Chromium pages (siteN.localhost, a renderer each under site isolation) that ask for every
+    animation frame and report their rAF count to this script once a second. The count over a measured window is
+    the frames each page got: the begin-frame rate of a visible producer, and of a hidden one (0 is the goal).
+    A frozen page sends nothing; it got no frames either. Also times a hidden page's show: from the request to
+    its first frame after it turned visible (`show_latency`)."""
+
+    def __init__(self):
+        import http.server
+        import threading
+        from urllib.parse import parse_qs, urlparse
+
+        self.beats: dict[int, dict] = {}
+        self.loads: dict[str, int] = {}
+        self.opens: list = []
+        self.lock = threading.Lock()
+        owner = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                url = urlparse(self.path)
+                if url.path == "/beat":
+                    q = {k: v[0] for k, v in parse_qs(url.query).items()}
+                    try:
+                        n = int(q.get("n", "-1"))
+                        beat = {"raf": int(q.get("raf", 0)), "vis": q.get("vis", ""), "shown": int(q.get("shown", 0)),
+                                "frame": int(q.get("frame", 0)), "t": int(q.get("t", 0)), "at": time.time()}
+                    except ValueError:
+                        beat = None
+                    if beat is not None:
+                        with owner.lock:
+                            owner.beats[n] = beat
+                    body = b""
+                    self.send_response(204)
+                else:
+                    host = (self.headers.get("Host") or "site0").split(".")[0]
+                    with owner.lock:
+                        owner.loads[host] = owner.loads.get(host, 0) + 1
+                    body = (_FRAMES_PAGE % {"n": int(re.sub(r"\D", "", host) or 0)}).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.port = self.server.server_address[1]
+
+    def url(self, index: int) -> str:
+        return f"http://site{index}.localhost:{self.port}/"
+
+    def note_open(self, index: int, reply: dict) -> None:
+        """The app's reply to a page open (the first few, for the report's `page_debug`)."""
+        if len(self.opens) < 3:
+            self.opens.append({"index": index, "reply": json.dumps(reply)[:400]})
+
+    def debug(self) -> dict:
+        with self.lock:
+            return {"port": self.port, "loads": dict(self.loads), "beating": sorted(self.beats), "opens": self.opens}
+
+    def snapshot(self) -> dict[int, dict]:
+        with self.lock:
+            return {n: dict(b) for n, b in self.beats.items()}
+
+    @staticmethod
+    def window(before: dict, after: dict, seconds: float) -> dict:
+        """Frames per second of each page over the window, summed by its visibility at the window's end."""
+        out: dict[str, dict] = {}
+        for n, end in after.items():
+            start = before.get(n)
+            if start is None or seconds <= 0:
+                continue
+            fps = round((end["raf"] - start["raf"]) / seconds, 2)
+            entry = out.setdefault(end["vis"] or "?", {"pages": 0, "frames_per_s": 0.0, "max_page_frames_per_s": 0.0,
+                                                       "reporting": 0})
+            entry["pages"] += 1
+            entry["frames_per_s"] = round(entry["frames_per_s"] + fps, 2)
+            entry["max_page_frames_per_s"] = max(entry["max_page_frames_per_s"], fps)
+            entry["reporting"] += 1 if end["at"] > start["at"] else 0
+        return out
+
+    def time_show(self, app: "App", index: int, workspace: str, back_to: str, deadline_s: float = 10) -> dict:
+        """Shows `workspace` (page `index`, hidden now) and waits for its first frame after it turned visible;
+        then shows `back_to` again. Times are ms from the request (wall clocks of one Mac)."""
+        asked = time.time()
+        app.action("goToWorkspace", workspace=workspace, focus=True)
+        got = None
+        end = time.monotonic() + deadline_s
+        while time.monotonic() < end:
+            beat = self.snapshot().get(index)
+            if beat and beat["shown"] >= asked * 1000 - 5 and beat["frame"]:
+                got = beat
+                break
+            time.sleep(0.02)  # test script: the page's beat arrives on its own
+        app.action("goToWorkspace", workspace=back_to, focus=True)
+        if got is None:
+            return {"page": index, "first_frame_ms": None, "timeout_s": deadline_s}
+        return {"page": index, "visible_ms": round(got["shown"] - asked * 1000, 1),
+                "first_frame_ms": round(got["frame"] - asked * 1000, 1)}
+
+
 def tab_urls(spec: str, count: int) -> list[str]:
     if spec == "local":
         return local_sites(count)
@@ -1585,6 +1764,9 @@ def main():
     parser.add_argument("--settled-wait", type=float, default=0, metavar="SECONDS",
                         help="--axis: after each count's sample, wait this long more (past the hidden pages' freeze "
                              "and release timers, 30 s and 60 s) and sample again as settled-N")
+    parser.add_argument("--show-pages", type=int, default=5,
+                        help="--axis page-hidden: after the last sample, show this many hidden pages one at a time and "
+                             "time each to its first frame (show_latency)")
     parser.add_argument("--gpu", action="store_true",
                         help="each measured window also samples the GPU's counters (ioreg IOAccelerator)")
     parser.add_argument("--out")
@@ -1662,8 +1844,14 @@ def main():
         attribution = Attribution(app, app_pid, bundle, kinds, args.attribute_trace) if args.attribute and args.measure > 0 else None
         if attribution:
             attribution.start()
+        if PAGES:
+            report["page_debug"] = PAGES.debug()
+        frames_before = PAGES.snapshot() if PAGES else None
         try:
             result = sample(app_pid, bundle, label, len(opened) + 1, measure, child_ns)
+            if frames_before is not None:
+                result["page_frames"] = PageFrames.window(frames_before, PAGES.snapshot(), measure)
+                print(f"   page frames: {json.dumps(result['page_frames'])}", flush=True)
         finally:
             if scroller:
                 diff_tab["scroll"] = scroller.stop()
@@ -1708,6 +1896,9 @@ def main():
         print_vmmap(result, args.vmmap_kinds)
         return result
 
+    global PAGES
+    if args.axis and args.axis.startswith("page-"):
+        PAGES = PageFrames()
     try:
         if args.fake_agent:
             chats = FakeChats(app, bundle, args.fake_agent)
@@ -1717,6 +1908,18 @@ def main():
             report["axis"] = args.axis
             report["axis_made"] = run_axis(app, chats, args.axis, sorted(int(n) for n in args.items.split(",") if n),
                                            launch_workspaces, opened, settle_and_sample, args.settled_wait)
+            if PAGES:
+                try:  # which pages the app holds, for a run whose pages never report
+                    pages = (app.call("debug.page", {"action": "list"}, timeout=30) or {}).get("pages")
+                except Exception as e:  # noqa: BLE001 - a build without the debug op
+                    pages = {"error": str(e)[:300]}
+                report["page_debug"] = {**PAGES.debug(), "app_pages": json.dumps(pages)[:1200]}
+            if args.axis == "page-hidden" and launch_workspaces:
+                # What the hidden tier costs on the way back: a hidden (by now frozen) page shown again, timed to
+                # its first frame. A few pages, each hidden again after its show.
+                report["show_latency"] = [PAGES.time_show(app, index, workspace, launch_workspaces[0])
+                                          for index, workspace in enumerate(opened[:args.show_pages])]
+                print(f"== show latency: {json.dumps(report['show_latency'])}", flush=True)
             counts = []
         if args.tabs:
             tab_counts = sorted(int(n) for n in args.tabs.split(",") if n)

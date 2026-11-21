@@ -62,6 +62,7 @@
         "sidebar.textSize",
         "sidebar.detailedStatusIcons",
         "sidebar.showTimestamps",
+        "sidebar.settleFinished",
         "sidebar.showColors",
         "sidebar.showLocalMachine",
         "workspaceColors.indicatorStyle"
@@ -224,7 +225,8 @@
       "agent": "settable",
       "why": "The theme file whose look applies (looks only)",
       "keys": [
-        "appearance.themeFile"
+        "appearance.themeFile",
+        "appearance.themeFileExceptions"
       ]
     },
     {
@@ -256,7 +258,8 @@
         "appearance.backgroundDark",
         "appearance.backgroundSchedule",
         "appearance.backgroundDynamic",
-        "appearance.backgroundLocation"
+        "appearance.backgroundLocation",
+        "appearance.backgroundMemory"
       ]
     },
     {
@@ -272,6 +275,7 @@
       "keys": [
         "appearance.paneBackgrounds",
         "ui.reducedBackgrounds",
+        "appearance.agentGlow",
         "appearance.experimentalControls",
         "app.uiScale",
         "appearance.glassTransparency",
@@ -436,6 +440,7 @@
         "notifications.attention.flashOnTyping",
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
+        "notifications.attention.mark",
         "notifications.attention.moveToTop",
         "notifications.attention.moveToTopOnAgentFinish"
       ]
@@ -451,6 +456,13 @@
       "agent": "settable",
       "keys": [
         "labs.previewFeatures"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "The live-tree preview changes how the person's shared editing workflow is presented; only the person turns it on.",
+      "keys": [
+        "labs.liveTree"
       ]
     },
     {
@@ -475,13 +487,6 @@
         "home.chiefDock.edge",
         "home.chiefPanel.style",
         "home.chiefDock.openBeside"
-      ]
-    },
-    {
-      "agent": "userOnly",
-      "why": "On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.",
-      "keys": [
-        "home.chiefPanel.seesScreen"
       ]
     },
     {
@@ -1267,6 +1272,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "On, Settings edits the MCP servers in Claude Code's and Codex's own config files: only the person turns that on.",
+      "keys": [
+        "labs.agentCustomization"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Whether cmux's own pages open developer tools, which read and change their live content: the person's call.",
       "keys": [
         "developerTools.appPages"
@@ -1325,6 +1337,14 @@
       "keys": [
         "updates.idleInstallMaxWaitSeconds",
         "updates.idleInstallQuietSeconds"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, cmux restarts into a downloaded update by itself once idle: the person's call.",
+      "keys": [
+        "updates.installWhenIdle",
+        "updates.installWhenIdleMinutes"
       ]
     },
     {
@@ -1535,6 +1555,13 @@
       "why": "On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Remote: the person's call.",
       "keys": [
         "macScreen.systemShortcuts"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "It is the person's standing yes to Share This Mac; an agent that could set it would approve its own share request. cmux Remote: the person's call.",
+      "keys": [
+        "macScreen.shareWithoutAsking"
       ]
     },
     {

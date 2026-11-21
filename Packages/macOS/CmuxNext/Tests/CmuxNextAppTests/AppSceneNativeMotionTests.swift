@@ -20,11 +20,13 @@ import Testing
     }
 
     /// A window with the scene; `shown` orders it on screen (Motion snaps a window with no screen).
-    private static func host(_ model: AppSceneModel, shown: Bool = false, width: CGFloat = 260) -> (NSWindow, AppSceneHostingView) {
+    private static func host(_ model: AppSceneModel, shown: Bool = false, width: CGFloat = 260, tile: Bool = false) -> (NSWindow, AppSceneHostingView) {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: width, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         if shown { window.orderFrontRegardless() }
         let hosting = AppSceneHostingView(model: model, bundleDirectory: nil)
+        // A widget tile: only there does a node's `transition` run (AppSceneDefaultUnchangedTests).
+        hosting.fillsBounds = tile
         hosting.frame = NSRect(x: 0, y: 0, width: width, height: 400)
         window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
@@ -341,7 +343,7 @@ import Testing
                 .children(id: "list", children: ["first", "plain"]),
                 .root(id: "list"),
             ])
-            let (window, root) = Self.host(model, shown: true)
+            let (window, root) = Self.host(model, shown: true, tile: true)
             defer { window.contentView = nil; window.close() }
             try #require(window.screen != nil)
             let first = try #require(Self.node("first", in: root))

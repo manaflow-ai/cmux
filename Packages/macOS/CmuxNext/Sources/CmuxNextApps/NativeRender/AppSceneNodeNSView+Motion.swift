@@ -14,7 +14,8 @@ import CoreImage.CIFilterBuiltins
 ///   value.
 /// - `loop`: a repeating animation on the layer, additive on its model value (``SceneLoop``).
 /// - `transition`: an enter animation the first time the node is laid out in a window, and an
-///   exit animation when it is removed; the view stays in its parent until the exit ends.
+///   exit animation when it is removed; the view stays in its parent until the exit ends. In a
+///   widget tile only, and only `pop` (``playsSDKTransition``): the widget host plays the others.
 /// - `blur`, `glow`, `gradient`: a Gaussian content filter, a zero-offset colored shadow and a
 ///   gradient layer.
 ///
@@ -302,7 +303,7 @@ extension AppSceneNodeNSView {
     /// Reduce Motion, not in a window that shows it). `completion` runs when every animation ends.
     @discardableResult
     func playTransition(entering: Bool, completion: (@MainActor () -> Void)? = nil) -> Bool {
-        guard let transition = node.transition, let layer, window != nil, Motion.canAnimate(in: self) else { return false }
+        guard playsSDKTransition, let transition = node.transition, let layer, window != nil, Motion.canAnimate(in: self) else { return false }
         let animations = Motion.appScenes.sceneTransition(transition, entering: entering, opacity: layer.opacity,
                                                           in: SceneTransformSpace(layer: layer), window: window)
         guard !animations.isEmpty else { return false }
@@ -317,10 +318,15 @@ extension AppSceneNodeNSView {
         return true
     }
 
+    /// Whether this plays the node's `transition`: only in a widget tile (every other app scene draws
+    /// as it did before widgets, AppSceneDefaultUnchangedTests), and only one the widget transitions
+    /// (AppSceneNodeNSView+Transition: `opacity`, `slide`, `scale`, `move`) leave alone, `pop`.
+    var playsSDKTransition: Bool { node.transition != nil && sceneTransition == nil && drawsInWidgetTile }
+
     /// Starts the exit of a node the scene removed from `host`: true when it plays (the view leaves
     /// `host` when it ends), false when the caller removes it now.
     func beginExit(from host: NSView) -> Bool {
-        guard node.transition != nil else { return false }
+        guard playsSDKTransition else { return false }
         exitToken &+= 1
         let token = exitToken
         exitHost = host
