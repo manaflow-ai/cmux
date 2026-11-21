@@ -1,15 +1,16 @@
-"""cmux-next Mac pull request jobs on a label the CI controller grants (CI v2 step 9, cmuxterm-hq#16502).
+"""cmux-next Mac pull request jobs on a label the CI controller grants (CI v2 step 9).
 
 Leo: "i thought we were only gonna label things cmux-linux and therefore likewise cmux-mac?" A Mac's asker
 sees free capacity, asks the controller, and gets a one-job JIT runner carrying the job's labels, sized by
 the scheduler, so the controller decides both its own ci-steps work and GitHub's Mac jobs on the same Macs
 instead of the two queues starving each other.
 
-The switch is SWITCH_FILE, read from the trusted base by cmux-next.yml's macos-placement:
+The switch is SWITCH_FILE, read from the trusted base by cmux-next.yml's macos-placement (and by
+cmux-next-pr-autofix.yml's action-areas, for action-exports):
 
     {"jobs": ["generated-files"], "per_run": false}
 
-`jobs` names the cmux-next.yml job ids that take a grant; empty (or the file missing or malformed) is off,
+`jobs` names the job ids that take a grant; empty (or the file missing or malformed) is off,
 and every route is what it was. A job id moves one job at a time, the heaviest first. `per_run` false gives
 plain `cmux-mac` (the CI v2 lead's ruling, 2026-11-21); true gives the opt-in per-run label
 `cmux-<run_id>-<run_attempt>-mac`, which no standing runner carries. Either rides with `xcode-<version>`

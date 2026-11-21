@@ -56,21 +56,33 @@ class MacGrantsTest(unittest.TestCase):
         out = mac_grants.outputs(PR, self.switch({"jobs": ["generated-files", "x y", 3, "' || true"]}))
         self.assertEqual(out["grant_jobs"], " generated-files ")
 
+    WORKFLOWS = {".github/workflows/cmux-next.yml": "macos-placement",
+                 ".github/workflows/cmux-next-pr-autofix.yml": "action-areas"}
+
+    def grant_readers(self) -> dict[str, str]:
+        """{job id: workflow} for every job whose runs-on reads the grant."""
+        readers = {}
+        for rel, need in self.WORKFLOWS.items():
+            text = (ROOT / rel).read_text(encoding="utf-8")
+            pattern = rf"contains\(needs\.{re.escape(need)}\.outputs\.grant_jobs, ' ([a-z0-9_-]+) '\) && fromJSON\(needs\.{re.escape(need)}\.outputs\.grant_runner\)"
+            for job in re.findall(pattern, text):
+                self.assertRegex(text, rf"(?m)^  {re.escape(job)}:$")
+                readers[job] = rel
+            self.assertIn("grant_runner: ${{ steps.grant.outputs.grant_runner }}", text)
+            self.assertIn("grant_jobs: ${{ steps.grant.outputs.grant_jobs }}", text)
+        return readers
+
     def test_committed_switch_names_real_jobs(self):
-        switch = mac_grants.read_switch()
-        workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
-        for job in switch["jobs"]:
-            self.assertRegex(workflow, rf"(?m)^  {re.escape(job)}:$")
-            # The job's runs-on reads the grant first, or the switch moves nothing.
-            self.assertIn(f"contains(needs.macos-placement.outputs.grant_jobs, ' {job} ')", workflow)
+        # Every switched job's runs-on reads the grant first, or the switch moves nothing.
+        readers = self.grant_readers()
+        for job in mac_grants.read_switch()["jobs"]:
+            self.assertIn(job, readers)
 
-    def test_workflow_jobs_reading_the_grant_need_placement(self):
-        workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
-        jobs = set(re.findall(r"contains\(needs\.macos-placement\.outputs\.grant_jobs, ' ([a-z0-9_-]+) '\)", workflow))
-        self.assertIn("generated-files", jobs)
-        self.assertIn("grant_runner: ${{ steps.grant.outputs.grant_runner }}", workflow)
-        self.assertIn("grant_jobs: ${{ steps.grant.outputs.grant_jobs }}", workflow)
-
+    def test_routed_jobs_read_the_grant(self):
+        self.assertEqual(self.grant_readers(), {
+            "generated-files": ".github/workflows/cmux-next.yml",
+            "daemon-test": ".github/workflows/cmux-next.yml",
+            "action-exports": ".github/workflows/cmux-next-pr-autofix.yml"})
 
 if __name__ == "__main__":
     unittest.main()
