@@ -373,6 +373,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/inbox_relay",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/offer_session",
       "params": true,
       "result": true
@@ -5998,6 +6004,13 @@
             "null"
           ]
         },
+        "formerNames": {
+          "description": "The names it had before its renames, oldest first: each still names it where no session\nhas it as its current name. Absent when it was never renamed, and from an older acpmux.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "handle": {
           "description": "The session's spoken handle, independent of its task name and ids. Older peers omit it.",
           "type": [
@@ -6739,6 +6752,13 @@
             "integer",
             "null"
           ]
+        },
+        "formerNames": {
+          "description": "The names it had before its renames, oldest first: each still names it where no session\nhas it as its current name. Absent when it was never renamed, and from an older acpmux.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "handle": {
           "description": "The session's spoken handle, independent of its task name and ids. Older peers omit it.",
