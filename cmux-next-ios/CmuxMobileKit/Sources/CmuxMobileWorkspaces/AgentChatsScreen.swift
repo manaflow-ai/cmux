@@ -140,7 +140,8 @@ public final class AgentChatsModel {
             phase = .failed(Self.message(error))
             return
         }
-        reconnecting = true
+        // Nothing shows for a blip shorter than the shared notice bound; the rows stay as they were.
+        reconnecting = since.duration(to: at) >= ConnectionPatience.quietFor
         stale = !patient
         let delay = ConnectionPatience.delay(attempt: retryAttempt)
         retryAttempt += 1

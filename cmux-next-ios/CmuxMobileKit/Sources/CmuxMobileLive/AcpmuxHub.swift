@@ -1399,7 +1399,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// One request to this chat's acpmux, its refusal as the Mac's own words.
     private func call(_ method: String, _ params: [String: JSONValue]) async throws -> JSONValue {
-        guard let hub, hub.isReady || (await hub.waitUntilReady(timeout: hub.readyGrace, clock: ContinuousClock())) else {
+        let ready: Bool
+        if let hub { ready = hub.isReady ? true : await hub.waitUntilReady(timeout: hub.readyGrace, clock: ContinuousClock()) } else { ready = false }
+        guard let hub, ready else {
             throw AgentFeatureUnavailable(String(localized: "Agents on \(summary.macName) aren't connected. Try again in a moment."))
         }
         do {

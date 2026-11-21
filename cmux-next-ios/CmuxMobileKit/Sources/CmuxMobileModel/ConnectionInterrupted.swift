@@ -20,6 +20,9 @@ public enum ConnectionPatience {
     /// A reconnect after the app was in the background, or a channel replaced after a stall,
     /// is back well within this.
     public static let giveUpAfter: Duration = .seconds(45)
+    /// A blip the person can do nothing about shows nothing until it has lasted this long
+    /// (handbook connection-state-with-no-action-or-bound: the shared notice bound, 10 s).
+    public static let quietFor: Duration = .seconds(10)
     /// The waits between quiet retries: quick first, then steady.
     public static let retryDelays: [Duration] = [.milliseconds(500), .seconds(1), .seconds(2), .seconds(4), .seconds(8)]
 
