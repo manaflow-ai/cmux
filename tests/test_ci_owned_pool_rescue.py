@@ -8914,8 +8914,15 @@ class OpenHeadPlacementRerun(unittest.TestCase):
         self.assertLessEqual(offers, target.watch_limit // rescue.FAILOVER_LOOK_SECONDS + 2)
 
 
+# The one portable light workflow still deployed with a placement graph (pr-checks.yml left the list).
+PORTABLE_PATH = ".github/workflows/cmux-next-fast-gates.yml"
+
+
 class OpenHeadPortablePlacementRerun(unittest.TestCase):
     """Portable placement moves paid light jobs on any current attempt."""
+
+    def test_the_fixture_path_is_a_portable_workflow(self):
+        self.assertIn(PORTABLE_PATH, rescue.PORTABLE_LIGHT_WORKFLOW_PATHS)
 
     PLACEMENT_ID = 77
 
@@ -8941,7 +8948,7 @@ class OpenHeadPortablePlacementRerun(unittest.TestCase):
                                                     "oldest_queued_minutes": 42}}})
         api.attempt = 2
         target = rescue.Target(run_id=RUN_ID, attempt=2, head_sha=HEAD, pr_number=27800,
-                               path=".github/workflows/pr-checks.yml", side=True,
+                               path=PORTABLE_PATH, side=True,
                                event="pull_request", full_rerun=full_rerun,
                                attempt_started_at=START)
         return clock, api, target
@@ -9034,7 +9041,7 @@ class OpenHeadPortablePlacementRerun(unittest.TestCase):
     def test_sweeper_adopts_first_attempt_for_paid_placement_failover(self):
         run = {
             "id": RUN_ID,
-            "path": ".github/workflows/pr-checks.yml",
+            "path": PORTABLE_PATH,
             "event": "pull_request",
             "run_attempt": 1,
             "head_sha": HEAD,
@@ -9047,14 +9054,14 @@ class OpenHeadPortablePlacementRerun(unittest.TestCase):
 
     def test_sweeper_keeps_following_portable_bot_attempts_past_attempt_two(self):
         for attempt in (2, 3, 4):
-            run = {"path": ".github/workflows/pr-checks.yml", "event": "pull_request",
+            run = {"path": PORTABLE_PATH, "event": "pull_request",
                    "run_attempt": attempt, "triggering_actor": {"login": CMUX_BOT}}
             self.assertTrue(rescue.owned_rerun(run))
 
     def test_portable_listing_includes_first_attempts_and_later_pages(self):
         api = rescue.GitHub("bot", "o/r")
         def run(run_id, **extra):
-            return {"id": run_id, "path": ".github/workflows/pr-checks.yml", "run_attempt": 1,
+            return {"id": run_id, "path": PORTABLE_PATH, "run_attempt": 1,
                     "event": "pull_request", "created_at": stamp(0), **extra}
         answers = [
             {"workflow_runs": [run(1)]},
