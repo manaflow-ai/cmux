@@ -485,6 +485,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var agentCommandShimDeadlineTask: Task<Void, Never>?
     var agentCommandShimInstallCompleted = false
     var agentCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
+    /// The in-flight off-main open of the runtime working directory (#21260).
+    var runtimeWorkingDirectoryPreflightTask: Task<Void, Never>?
+    /// The working directory whose off-main open completed for the next
+    /// native creation, and whether it opened. Cleared once consumed.
+    var preparedRuntimeWorkingDirectory: TerminalSurfacePreparedWorkingDirectory?
+    var runtimeWorkingDirectoryPreflightPendingCreationSource: RuntimeSurfaceCreationSource?
     /// The retained byte-tee lease for the libghostty PTY tee callback (cmux
     /// fork extension). Installed in `createSurface` after
     /// `ghostty_surface_new` succeeds. The Mac sync server reads the tee'd
