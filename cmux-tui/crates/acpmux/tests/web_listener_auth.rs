@@ -369,3 +369,19 @@ async fn a_partial_websocket_upgrade_is_closed_within_the_handshake_deadline() {
         .expect("the server closes the stalled handshake");
     assert_eq!(closed, 0, "a partial upgrade must not receive a protocol response");
 }
+
+/// The pane uses exactly the dashboard's listener policy, including its static assets.
+#[tokio::test]
+async fn app_assets_keep_the_listener_host_and_origin_policy() {
+    let port = listener().await;
+    let host = format!("127.0.0.1:{port}");
+    for path in ["app/", "app/index.html", "app/pane.js", "app/locales/en.js"] {
+        assert_eq!(status(port, page(path, &host, Some("https://evil.example"))).await, 403);
+        assert_eq!(status(port, page(path, "evil.example", None)).await, 403);
+    }
+    for path in ["app/../config.json", "app/%2e%2e/config.json", "app/chunks/../../secret.js"] {
+        assert_eq!(status(port, page(path, &host, None)).await, 404);
+    }
+    assert_eq!(status(port, page("app/__snapshot/chat.js", &host, None)).await, 200);
+    assert_eq!(status(port, page("health", &host, None)).await, 200);
+}
