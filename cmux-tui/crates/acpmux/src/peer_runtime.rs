@@ -69,6 +69,7 @@ impl Peer {
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
             vm_boundary: AtomicBool::new(false),
+            wake_hook: std::sync::OnceLock::new(),
             github_broker: AtomicBool::new(false),
             github_slots: crate::github_broker::owner_slots(name),
             github_link: AtomicU64::new(0),
