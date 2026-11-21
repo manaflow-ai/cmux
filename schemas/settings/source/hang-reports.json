@@ -2,6 +2,47 @@
   "$comment": "HAND-EDITED source of the Hang Reports row (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the row format); schemas/settings/settings-schema.json is still exported from Swift and must not change when rows move here.",
   "lists": [
     {
+      "name": "anonymousTelemetry",
+      "section": "home",
+      "group": {
+        "key": "settings.group.anonymousTelemetry",
+        "text": "Anonymous Telemetry"
+      },
+      "note": "Settings > Privacy and Security > Anonymous Telemetry. Leo 2026-11-05 (ask-9b912a9f8b): \"just an option in settings, like, Hey, you can do this to improve CMux and whatever.\" No prompt, no new opt-in: on until the person turns it off, as before.",
+      "rows": [
+        {
+          "key": "app.sendAnonymousTelemetry",
+          "note": "Whether this Mac sends crash reports and anonymous performance timing (CrashReportingPolicy). The app's own `sendAnonymousTelemetry` preference stays the consent the crash reporter reads at launch; SettingsController mirrors this row into it (AnonymousTelemetrySetting), and the launch migration brings an explicit off from that preference into the file. cmux-tui's crash forwarding and the Chief's analytics read this file key too. The managed DisableTelemetry policy forces it off and locks the row. A change applies from the next launch. Agents may not change it (privacy).",
+          "title": {
+            "key": "settings.diagnostics.anonymousTelemetry",
+            "text": "Send Anonymous Telemetry"
+          },
+          "help": {
+            "key": "settings.diagnostics.anonymousTelemetry.help",
+            "text": "Crash reports and anonymous performance timing, such as how long launch takes. Never your files, URLs or text. Applies from the next launch."
+          },
+          "summary": {
+            "key": "settings.diagnostics.anonymousTelemetry.summary",
+            "text": "Crash reports and launch timing. No content."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "telemetry",
+            "crash",
+            "reports",
+            "performance",
+            "timing",
+            "launch",
+            "privacy",
+            "diagnostics",
+            "anonymous"
+          ],
+          "swift_owner": "AnonymousTelemetrySetting"
+        }
+      ]
+    },
+    {
       "name": "hangReports",
       "section": "home",
       "group": {

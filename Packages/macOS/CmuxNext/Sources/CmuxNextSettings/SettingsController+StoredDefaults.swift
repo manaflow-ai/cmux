@@ -50,6 +50,7 @@ extension SettingsController {
         // Shortcuts and settings classic cmux's Settings kept in its preferences (`ClassicShortcutImport`, `ClassicPreferenceImport`).
         _ = try? await importClassicShortcuts(marker: marker)
         _ = try? await importClassicPreferences(marker: marker)
+        _ = try? await importTelemetryConsent() // an explicit off in the app's defaults shows on the row
         // Last, so a value the steps above moved counts too.
         _ = try? await forgetStoredDefaults(marker: marker)
         _ = try? await restoreWronglyForgottenDefaults()

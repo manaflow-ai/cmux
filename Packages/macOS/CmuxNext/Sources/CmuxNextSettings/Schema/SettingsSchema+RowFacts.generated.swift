@@ -12,6 +12,7 @@ extension SettingsSchema {
     /// (the app theme and the terminal font), which each row still resets.
     public static let keptOnResetAll: Set<[String]> = [
         ["appearance", "theme"], ["appearance", "appTheme"], ["terminal", "fontFamily"], ["terminal", "fontSize"],
+        ["app", "sendAnonymousTelemetry"],
     ]
 
     /// How another validator checks a row's value (the export's `validation`): by key first, then

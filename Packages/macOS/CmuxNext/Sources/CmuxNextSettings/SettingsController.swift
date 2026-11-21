@@ -81,6 +81,8 @@ public final class SettingsController {
     @ObservationIgnored let managedWatchFiles: [URL]
     /// Fill keys no layer sets (``SettingsBuildDefaults``); the launch read's unless given.
     @ObservationIgnored let buildDefaults: SettingsBuildDefaults
+    /// The app's defaults that hold the telemetry consent the crash reporter reads (``AnonymousTelemetrySetting``).
+    @ObservationIgnored let telemetryDefaults: UserDefaults
     @ObservationIgnored var managedWatchers: [ConfigFileWatcher] = []
     @ObservationIgnored var statusTarget: (url: URL, context: ManagedStatusReport.Context)?
     @ObservationIgnored var lastStatusBody: JSONValue?
@@ -124,8 +126,10 @@ public final class SettingsController {
         managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
         managedWatchFiles: [URL] = ManagedPreferenceLocation.watchedFiles(),
         launch: LaunchRead? = nil,
-        buildDefaults: SettingsBuildDefaults? = nil
+        buildDefaults: SettingsBuildDefaults? = nil,
+        telemetryDefaults: UserDefaults = .standard
     ) {
+        self.telemetryDefaults = telemetryDefaults
         self.file = CmuxConfigFile(url: fileURL, writer: writer)
         self.launchRead = launch
         self.appliesFontSmoothing = launch?.appliesFontSmoothing ?? false

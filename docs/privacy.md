@@ -7,7 +7,8 @@ when code names a host that has no row here, and when a row's host is gone from 
 ## Telemetry
 
 Crash and error reports go to the crash reporting host below, only while anonymous telemetry is on. It is on until
-you turn it off, and the `DisableTelemetry` managed policy turns it off for everyone on a managed Mac.
+you turn it off (Settings > Privacy and Security > Send Anonymous Telemetry, `app.sendAnonymousTelemetry`), and the
+`DisableTelemetry` managed policy turns it off for everyone on a managed Mac and locks that row.
 
 - The Mac and iPhone apps keep the choice in their own preferences (`sendAnonymousTelemetry`). Before a report
   leaves the device, the scrubber (`Packages/Shared/CmuxSentryTelemetry`, `SentryScrubber` and
