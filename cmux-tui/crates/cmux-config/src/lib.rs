@@ -20,6 +20,7 @@ pub mod cache;
 pub mod diagnostics;
 pub mod domains;
 pub mod effective;
+pub mod font_faces;
 pub mod fsio;
 pub mod guard;
 pub mod jsonc;

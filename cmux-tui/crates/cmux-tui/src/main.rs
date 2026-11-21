@@ -53,6 +53,8 @@ mod codex_wrapper;
 mod computer_use_worker;
 mod config;
 mod daemon_build;
+#[cfg(unix)]
+mod files_lister;
 mod headless;
 mod heap_profile;
 #[cfg(unix)]
