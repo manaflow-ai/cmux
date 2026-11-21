@@ -209,23 +209,13 @@ async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfter
   };
 }
 
-/**
- * The "Signed in to cmux" page with a button that hands `href` to the app.
- * `autoOpen` (a verified handoff only) also opens it without a click. The
- * page stays either way, so a browser that refuses or quietly takes the
- * launch never leaves the person on a spinner with nothing to click.
- */
 function nativeReturnResponse(
   href: string,
   localized: LocalizedAfterSignInMessages,
-  switchAccountHref: string | null,
-  { autoOpen = false }: { autoOpen?: boolean } = {}
+  switchAccountHref: string | null
 ): NextResponse {
   const { locale, messages } = localized;
   const escapedHref = escapeHtml(href);
-  const autoOpenTag = autoOpen
-    ? `  <meta http-equiv="refresh" content="0;url=${escapedHref}">\n`
-    : "";
   const switchAccountAction = switchAccountHref
     ? `      <a class="secondary" href="${escapeHtml(switchAccountHref)}">${escapeHtml(messages.switchAccountButton)}</a>\n`
     : "";
@@ -239,7 +229,7 @@ function nativeReturnResponse(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapedTitle}</title>
-${autoOpenTag}  <style>
+  <style>
     body {
       align-items: center;
       background: #fff;
@@ -308,20 +298,9 @@ ${switchAccountAction}    </div>
   return response;
 }
 
-/**
- * A verified handoff: the page that opens the app at once. Not a bare
- * redirect to the app's scheme: the browser stays on the page that started a
- * redirect like that, so the sign-in page kept spinning when the launch was
- * refused (Chrome refuses one with no fresh user gesture, as after an OAuth
- * return) or went to the app quietly
- * (https://github.com/manaflow-ai/cmux/issues/49412).
- */
-function verifiedNativeReturnResponse(
-  request: NextRequest,
-  href: string,
-  localizedMessages: LocalizedAfterSignInMessages,
-): NextResponse {
-  const response = nativeReturnResponse(href, localizedMessages, switchAccountHref(request), { autoOpen: true });
+function nativeRedirectResponse(request: NextRequest, href: string): NextResponse {
+  const response = NextResponse.redirect(href);
+  response.headers.set("Cache-Control", "no-store");
   clearNativeHandoffCookie(response, request);
   return response;
 }
@@ -544,7 +523,7 @@ function nativeReturnFlow(
     const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
     if (href) {
       if (verifiedNativeHandoff(request, stackCookies, nativeReturnTo)) {
-        return verifiedNativeReturnResponse(request, href, localizedMessages);
+        return nativeRedirectResponse(request, href);
       }
       return nativeReturnResponse(href, localizedMessages, switchAccountHref(request));
     }
