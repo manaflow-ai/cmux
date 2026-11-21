@@ -434,7 +434,7 @@ mod tests {
         list_with_agent_id(hub, peer, id, name, status, None);
     }
 
-    fn list_with_agent_id(
+    pub(super) fn list_with_agent_id(
         hub: &Hub,
         peer: &str,
         id: &str,

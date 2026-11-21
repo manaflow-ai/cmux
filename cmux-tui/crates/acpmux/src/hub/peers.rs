@@ -1510,7 +1510,25 @@ impl Hub {
         if map.get(key).is_some() {
             return 1;
         }
-        map.named(key).into_iter().filter(|(id, r)| names_remote(id, r, key)).count()
+        let strict = map.named(key).into_iter().filter(|(id, r)| names_remote(id, r, key)).count();
+        if strict > 0 {
+            return strict;
+        }
+        let (requested_peer, agent_key) = match key.split_once('/') {
+            Some((peer, rest)) => (Some(peer), rest),
+            None => (None, key),
+        };
+        map.named(agent_key)
+            .into_iter()
+            .filter(|(_, r)| {
+                requested_peer.is_none_or(|peer| r.peer == peer)
+                    && crate::session_identity::match_agent_session_id(
+                        r.summary.agent_session_id(),
+                        agent_key,
+                    )
+                    .is_some()
+            })
+            .count()
     }
 
     /// The names (with their ids) of the peer sessions whose short name is `key`

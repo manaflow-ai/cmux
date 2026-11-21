@@ -2,7 +2,7 @@
 //! session it names, here, on a peer and as `HOST/NAME`; several are refused with each one
 //! (Leo, 2026-11-05: "stuff like that should work better yes").
 
-use super::tests::{list, named, test_hub};
+use super::tests::{list, list_with_agent_id, named, test_hub};
 use super::*;
 
 fn uses(e: &RpcError) -> Vec<String> {
@@ -227,6 +227,28 @@ async fn resolve_takes_a_qualified_id_before_a_whole_name_like_it() {
     // as the local name like it.
     let found = hub.locate("WORKER", false, true).unwrap();
     assert_eq!(found["session"]["qualifiedSessionId"], "hb/0199eeee-5555", "{found}");
+}
+
+/// A peer's agent session id is a strict route, so it must keep a local
+/// sub-session's short name from intercepting the lookup.
+#[tokio::test]
+async fn a_peer_agent_id_beats_a_local_short_name() {
+    let hub = test_hub();
+    named(&hub, "parent/6e0bad7d-1100-4000-8000-000000000001").await;
+    list_with_agent_id(
+        &hub,
+        "lanevm-7",
+        "0199aaaa-1111",
+        "worker",
+        "idle",
+        Some("6e0bad7d-1100-4000-8000-000000000001"),
+    );
+    assert_eq!(hub.remote_strict_matches("6e0bad7d-1100-4000-8000-000000000001"), 1);
+    assert!(hub.resolve("6e0bad7d-1100-4000-8000-000000000001").is_err());
+    assert_eq!(
+        hub.key_route("6e0bad7d-1100-4000-8000-000000000001").unwrap().as_deref(),
+        Some("lanevm-7/0199aaaa-1111")
+    );
 }
 
 /// Peer `peer`'s session `id` named `name`, with the summary a peer's list gives it
