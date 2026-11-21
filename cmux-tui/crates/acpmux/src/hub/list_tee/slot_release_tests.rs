@@ -57,14 +57,14 @@ impl Live {
                 row.extra = extra.clone();
                 self.v2.hub.submit(row).unwrap();
             }
-            let last = format!("pad-{}", chunk * 100 + 99);
-            until("the padding rows", || self.index().get(&last).is_some()).await;
+            // The writer may publish the rows in a different order from their submission.
+            until("the padding rows", || self.rows_of("local").len() == (chunk + 1) * 100).await;
         }
         for n in 0..1000 {
             self.v2.hub.remove("local", &format!("pad-{n}")).unwrap();
         }
         until("a compaction", || self.v2.hub.compaction_stats().completed > done).await;
-        until("the padding gone", || self.index().get("pad-999").is_none()).await;
+        until("the padding gone", || self.rows_of("local").is_empty()).await;
     }
 
     async fn stop(self) {
