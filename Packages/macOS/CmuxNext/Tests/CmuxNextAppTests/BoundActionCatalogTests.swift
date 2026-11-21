@@ -21,6 +21,9 @@ struct BoundActionCatalogTests {
         // which adds these rows to the Rust catalog: until it lands and re-pins, they do nothing.
         "macScreen.viewOnly", "macScreen.fullControl", "macScreen.fullScreen", "macScreen.sendSwitchApp",
         "macScreen.sendSpotlight", "macScreen.reconnect", "macScreen.stopAllViewing",
+        // Move Chat to Machine… (#49141) landed its Rust row (cloud.rs) with the Swift handler; the pinned app FFI
+        // 6b8c79ba predates it and gains it on the next re-pin.
+        "agent.moveToMachine",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {
