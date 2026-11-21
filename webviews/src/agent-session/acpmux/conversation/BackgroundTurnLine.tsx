@@ -81,6 +81,10 @@ export function BackgroundTurnLine({
   // Until a row of its own draws, there is nothing to open: a plain line, no chevron, no button.
   // A failure that said something heads its rows, which already show (headsBackground).
   // Inline its rows already draw where they ran (backgroundTurnLook.experiment.ts): the line names its task, opens nothing.
+  // A turn a finished task started says so in its words ("Background task finished"): its mark is the
+  // clock though the agent is still answering (the shimmering words say that), never a spinner on a
+  // finished task (Leo, 2026-11-21: "this spinner is incredibly ugly").
+  const taskEnded = turn.cause !== undefined && turn.cause.status !== "running";
   const opens =
     turn.hasRows === true && foldsBackground(row) && !backgroundTurnsInline(experimentArm(backgroundTurnLook));
   // A line with no rows to fold still names a task that ran and ended: it opens to that task, as a
@@ -90,7 +94,7 @@ export function BackgroundTurnLine({
     return <BackgroundTurnTaskLine turn={turn} label={label} cited={cited} />;
   return (
     <TranscriptActivityRow
-      icon={turn.running ? <Spinner /> : <Clock />}
+      icon={turn.running && !taskEnded ? <Spinner look="track" /> : <Clock />}
       before={<span className="cv-background-turn__label">{label}</span>}
       after={turn.running ? <RowShimmer>{label}</RowShimmer> : undefined}
       className={`cv-background-turn${turn.running ? " is-live" : ""}`}

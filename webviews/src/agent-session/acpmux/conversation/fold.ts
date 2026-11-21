@@ -11,6 +11,7 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { MOTION_MS, MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { isAgentMotionOff } from "../../shared/motion";
+import { exitLeadMs, exitThenClose } from "./exitLead";
 
 /// The fold's duration token. conversation.css sets it from the settle (`--cmux-motion-settle`, the
 /// one fold length every web fold shares, schemas/motion-scale), and the chevron reads the same token.
@@ -289,23 +290,6 @@ export function foldOffScreen(node: HTMLElement): boolean {
   return node.getBoundingClientRect().top > scroller.getBoundingClientRect().bottom;
 }
 
-/// How many pixels of a closing body's height its fade plays over (px): the band's last few.
-export const CLOSE_FADE_PX = 28;
-
-/// A close's keyframes, from the drawn `height` and `opacity` to shut. The body keeps its opacity
-/// until only the last `CLOSE_FADE_PX` of its height is left, then fades out with it ("Fade out,
-/// yes", Leo, 2026-10-24). On one curve with the height, the fade tracked the share of height left: a
-/// 300 px card was at 10% opacity with 30 px still to close, and the settle curve's long tail held
-/// that near-blank band under the closed row for most of the fold (the "ghost band", Leo's 05:30Z
-/// video at 0:42; test/command-close-no-ghost-band.test.ts). The effect's easing maps time to the
-/// keyframes' offsets, so an offset here is a share of the height's travel.
-export function closeKeyframes(height: number, opacity: number): Keyframe[] {
-  const fadeFrom = height > CLOSE_FADE_PX ? 1 - CLOSE_FADE_PX / height : 0;
-  const shut = { height: "0px", opacity: 0 };
-  if (fadeFrom <= 0) return [{ height: `${height}px`, opacity }, shut];
-  return [{ height: `${height}px`, opacity }, { opacity, offset: fadeFrom }, shut];
-}
-
 export type Fold = {
   /// Draw the body: while open, and while it closes.
   present: boolean;
@@ -409,7 +393,12 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     if (open) extent.current = toHeight;
     else if (!turning) extent.current = fromHeight;
     // A fold that turns back midway retargets: it plays only the share of the travel left.
-    const ms = turning && foldLook(node) !== "stack" ? turnMs(full, fromHeight, toHeight, extent.current) : full;
+    const move = turning && foldLook(node) !== "stack" ? turnMs(full, fromHeight, toHeight, extent.current) : full;
+    // A close takes its text away before its height moves (exitLead.ts): the body fades out over a
+    // short lead while it holds its height, then shuts, so no text is drawn while the rows under it
+    // travel (Leo, 2026-11-21: "we must hide text faster and sooner"). An open plays no lead.
+    const lead = open ? 0 : exitLeadMs(move, fromOpacity, node);
+    const ms = lead + move;
     markHeightFold(node, ms);
     clipFold(node, true);
     // The box holds its start height under the motion: a new animation is pending until a frame
@@ -423,10 +412,16 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
             { height: `${fromHeight}px`, opacity: fromOpacity },
             { height: `${toHeight}px`, opacity: 1 },
           ]
-        : closeKeyframes(fromHeight, fromOpacity),
+        : exitThenClose(
+            { height: fromHeight, opacity: fromOpacity },
+            { height: toHeight },
+            lead,
+            move,
+            foldMotion.easing(node),
+          ),
       // It holds its end until it lets go (`settled`), so the frame it ends on never draws the held
-      // start height.
-      { duration: ms, easing: foldMotion.easing(node), fill: "forwards" },
+      // start height. A close carries its curves on its keyframes (the exit's, then the fold's).
+      { duration: ms, easing: open ? foldMotion.easing(node) : "linear", fill: "forwards" },
     );
     running.current = animation;
     watchMotion(node, open);

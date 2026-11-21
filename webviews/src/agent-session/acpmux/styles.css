@@ -246,7 +246,8 @@
 .acpmux-slash-hint{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
 /* Where a row comes from (cmux, Skill, Prompt, an extension) closes the row, quiet, in plain case. */
 .acpmux-slash-source{flex:none;order:1;margin-left:auto;padding-left:var(--ds-space-2,8px);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing,normal)}
-.acpmux-slash-description{flex:0 1000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
+/* No base width: what a command does takes only the room its name and arguments leave, so it is cut first. */
+.acpmux-slash-description{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
 /* The @ picker's rows (MentionMenu.tsx): the kind's icon, then a long chat title gives way to its place last. */
 .acpmux-mention-row{width:100%;box-sizing:border-box;margin:0;border:0;background:none;color:inherit;font:inherit;text-align:left;-webkit-appearance:none;appearance:none}
 .acpmux-mention-row.acpmux-slash-active{background:var(--acpmux-menu-hover)}
