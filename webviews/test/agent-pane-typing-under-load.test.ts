@@ -25,11 +25,10 @@ import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-const CPU_SLOWDOWN = 6;
-const KEYS = "the quick brown fox jumps over a lazy dog";
-const KEY_GAP_MS = 60;
-
 await requireBrowserLane("agent-pane-typing-under-load.test.ts", async () => {
+  const CPU_SLOWDOWN = 6;
+  const KEYS = "the quick brown fox jumps over a lazy dog";
+  const KEY_GAP_MS = 60;
   setDefaultTimeout(280_000);
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
@@ -57,7 +56,9 @@ await requireBrowserLane("agent-pane-typing-under-load.test.ts", async () => {
     await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
     const seeded = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug.loadSeed(120))) as Record<string, any>;
     expect(seeded.error).toBeUndefined();
-    const prompt = page.locator('.acpmux-composer-prompt[contenteditable="true"], .acpmux-composer-prompt [contenteditable="true"]').first();
+    const prompt = page
+      .locator('.acpmux-composer-prompt[contenteditable="true"], .acpmux-composer-prompt [contenteditable="true"]')
+      .first();
     await prompt.waitFor({ timeout: 30_000 });
     await prompt.click();
 
@@ -122,7 +123,8 @@ await requireBrowserLane("agent-pane-typing-under-load.test.ts", async () => {
 
     const keys = KEYS.length;
     const outside = Object.entries(renders).filter(
-      ([name]) => name === "pane" || name.startsWith("row:") || name.startsWith("content:") || name.startsWith("frame:"),
+      ([name]) =>
+        name === "pane" || name.startsWith("row:") || name.startsWith("content:") || name.startsWith("frame:"),
     );
     const streamedRows = new Set(
       outside.map(([name]) => name.replace(/^(row|content|frame):/, "")).filter((id) => id !== "pane"),

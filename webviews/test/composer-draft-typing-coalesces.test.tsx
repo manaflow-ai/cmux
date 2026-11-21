@@ -10,11 +10,7 @@ import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import {
-  draftWriteLimits,
-  notifyDraftActionsChanged,
-  settlePendingDraftWrites,
-} from "../src/agent-session/acpmux/composerDraft";
+import { notifyDraftActionsChanged, settlePendingDraftWrites } from "../src/agent-session/acpmux/composerDraft";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -169,18 +165,6 @@ async function type(text: string) {
   await act(async () => markdownField()!.insertTyped(text));
 }
 
-
-const IDLE_MS = 120;
-const typedIdle = draftWriteLimits.typedIdleMs;
-beforeAll(() => {
-  draftWriteLimits.typedIdleMs = IDLE_MS;
-});
-afterAll(() => {
-  draftWriteLimits.typedIdleMs = typedIdle;
-});
-
-const pause = (ms: number) => act(async () => void (await new Promise((resolve) => setTimeout(resolve, ms))));
-
 test("a burst of typed keys is one draft write, after typing pauses", async () => {
   const acpmux = daemon();
   await acpmux.connect();
@@ -192,7 +176,9 @@ test("a burst of typed keys is one draft write, after typing pauses", async () =
   // Mid-burst: the keys are the page's (the remount cache has them), acpmux not asked yet.
   expect(acpmux.writes.length - before).toBe(0);
   expect(dom.window.localStorage.getItem("cmux.acpmux.composer-draft.typing-a")).toBe("buy bread");
-  await pause(IDLE_MS * 3);
+  // Typing pauses: the one write goes (draftWriteLimits.typedIdleMs).
+  await until(() => acpmux.writes.length > before, "the write once typing pauses");
+  await settle();
   const written = acpmux.writes.slice(before);
   expect(written).toEqual([{ sessionId: "typing-a", text: "buy bread" }]);
   expect(acpmux.held.get("typing-a")).toBe("buy bread");

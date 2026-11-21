@@ -52,6 +52,9 @@ ALLOWED_LISTENERS = {
     "next launch as the page hides (`chat.snapshot.put`, a write, not a read)",
     (f"{ACPMUX}/snapshotCache.ts", "visibilitychange"): "writes the reload copy as the page hides "
     "(sessionStorage, a write, not a read)",
+    (f"{ACPMUX}/composerDraft.ts", "visibilitychange"): "sends a typed draft still waiting for the "
+    "typing pause to acpmux as the page hides, before a hidden page is frozen (`chat.writeDraft`, a "
+    "write, not a read; cmux#48612)",
     (f"{ACPMUX}/VirtualTranscript.tsx", "visibilitychange"): "forgets the rows still entering when "
     "the page hides, so they don't replay on return; reads no data",
     (f"{ACPMUX}/conversation/sendTuck.ts", "visibilitychange"): "ends a send's tuck animation and "
