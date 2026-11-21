@@ -42,7 +42,7 @@
 # (cloud-dev-stack/router.mjs), which counts each request as activity. After 2 h with no request and no
 # up/touch (--idle-min, or CMUX_WDEV_IDLE_SECS on the VM) the stack's workerd stops, keeping its files, Durable
 # Object data, credentials and ports; its next request wakes it (the router holds that request until the stack
-# answers, about 10-20 s). The VM keeps at most 16 running: a start or wake that does not fit stops the least
+# answers, about 6 s measured). The VM keeps at most 16 running: a start or wake that does not fit stops the least
 # recently used running stack. A stack is released 7 days after its last `up` (CMUX_WDEV_RETAIN_SECS), or
 # earlier when the VM keeps more than 48 stopped ones or runs short of disk (least recently used first); a
 # released stack keeps only its registry entry, and the next up/down/gc from any Mac deletes its credentials and
@@ -288,7 +288,7 @@ case "$cmd" in
     echo "Hub:     $hub_url   (workers/device-hub)"
     if [ -n "$platform" ]; then echo "Platform: in the same workerd session, as the API's PLATFORM binding"; fi
     echo "Journey: scripts/cmux-next/cloud-dev-stack.sh journey --tag $tag"
-    echo "Lifetime: idle $(( idle_min > 0 ? idle_min : 120 )) min stops it, its next request wakes it; released 7 d after this up"
+    echo "Lifetime: idle $(( idle_min > 0 ? idle_min : 120 )) min stops it, its next request wakes it; released $(json "print(d.get('retain_days') or 7)" <<<"$out") d after this up"
     echo "Delete:  scripts/cmux-next/cloud-dev-stack.sh down --tag $tag"
     if [ "$journey" = 1 ]; then run_journey "$url" "${journey_args[@]+"${journey_args[@]}"}"; fi
     ;;

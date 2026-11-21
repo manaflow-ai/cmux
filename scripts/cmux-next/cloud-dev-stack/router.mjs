@@ -14,12 +14,16 @@
 import { spawn } from "node:child_process"
 import { readFileSync, statSync, utimesSync, closeSync, openSync } from "node:fs"
 import http from "node:http"
+import { pipeline } from "node:stream"
 import net from "node:net"
 import { join } from "node:path"
 
 const BASE = process.env.CMUX_WDEV_BASE ?? "/srv/cmux-dev/wrangler"
 const LISTEN_PORT = Number(process.env.CMUX_WDEV_ROUTER_PORT ?? 3790)
-const WAKE_TIMEOUT_MS = Number(process.env.CMUX_WDEV_WAKE_TIMEOUT_MS ?? 180_000)
+// The wake's own wait for health (vm_stack.py wake --wait), and the router's kill after it: admission may stop
+// other stacks first, and a killed wake puts the stack back to stopped (its SIGTERM handler).
+export const WAKE_WAIT_S = Number(process.env.CMUX_WDEV_WAKE_WAIT_S ?? 150)
+export const WAKE_TIMEOUT_MS = Math.max(Number(process.env.CMUX_WDEV_WAKE_TIMEOUT_MS ?? 0), (WAKE_WAIT_S + 90) * 1000)
 const HEARTBEAT_EVERY_MS = 30_000
 const VM_STACK = join(BASE, "bin/vm_stack.py")
 
@@ -58,9 +62,9 @@ function stackState(base, tag) {
 }
 
 const lastBeat = new Map()
-function heartbeat(base, tag) {
+function heartbeat(base, tag, every = HEARTBEAT_EVERY_MS) {
   const now = Date.now()
-  if (now - (lastBeat.get(tag) ?? 0) < HEARTBEAT_EVERY_MS) return
+  if (now - (lastBeat.get(tag) ?? 0) < every / 2) return
   lastBeat.set(tag, now)
   const file = join(base, "stacks", tag, "heartbeat")
   try {
@@ -83,9 +87,12 @@ export function wake(tag, run = runWake) {
   return pending
 }
 
+/** The wake's command: its own wait for health is under the router's kill (WAKE_TIMEOUT_MS). */
+export const wakeArgs = (tag) => [VM_STACK, "wake", "--tag", tag, "--wait", String(WAKE_WAIT_S)]
+
 function runWake(tag) {
   return new Promise((resolve, reject) => {
-    const child = spawn("python3", [VM_STACK, "wake", "--tag", tag], { stdio: ["ignore", "ignore", "pipe"] })
+    const child = spawn("python3", wakeArgs(tag), { stdio: ["ignore", "ignore", "pipe"] })
     let err = ""
     child.stderr.on("data", (d) => (err = (err + d).slice(-2000)))
     const timer = setTimeout(() => child.kill("SIGTERM"), WAKE_TIMEOUT_MS)
@@ -109,7 +116,7 @@ async function ready(opts, route) {
 }
 
 function refuse(res, status, message) {
-  if (res.headersSent) return res.destroy()
+  if (res.headersSent || res.destroyed) return res.destroy()
   res.writeHead(status, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" })
   res.end(`${message}\n`)
 }
@@ -125,9 +132,19 @@ function proxy(opts, req, res, route, retried = false) {
     { host: "127.0.0.1", port: route.port, method: req.method, path: req.url, headers: req.headers, agent },
     (up) => {
       res.writeHead(up.statusCode ?? 502, up.statusMessage, up.headers)
-      up.pipe(res)
+      // Either side going away ends the other: a client that left mid-stream frees the upstream socket, and an
+      // upstream that died mid-response (a stop, a reload) ends the client's response instead of hanging it.
+      pipeline(up, res, (e) => {
+        if (e) {
+          up.destroy()
+          res.destroy()
+        }
+      })
     },
   )
+  res.on("close", () => {
+    if (!res.writableFinished) upstream.destroy()
+  })
   upstream.on("error", async (e) => {
     if (!retried && e.code === "ECONNREFUSED" && !res.headersSent) {
       // A stack whose workerd is gone though its entry says running (it crashed, the VM rebooted): wake it,
@@ -149,6 +166,15 @@ function proxy(opts, req, res, route, retried = false) {
   else req.pipe(upstream)
 }
 
+/** An upgraded socket keeps its stack in use: a heartbeat every opts.heartbeatMs (30 s) while it is open, so a
+ * device that only holds a WebSocket (the team hub, signaling) is never stopped as idle under it. */
+function holdOpen(opts, tag, socket) {
+  const every = opts.heartbeatMs ?? HEARTBEAT_EVERY_MS
+  const beat = setInterval(() => heartbeat(opts.base, tag, every), every)
+  beat.unref()
+  socket.once("close", () => clearInterval(beat))
+}
+
 function proxyUpgrade(opts, req, socket, head, route, retried = false) {
   let connected = false
   const upstream = net.connect(route.port, "127.0.0.1", () => {
@@ -159,6 +185,7 @@ function proxyUpgrade(opts, req, socket, head, route, retried = false) {
     if (head?.length) upstream.write(head)
     upstream.pipe(socket)
     socket.pipe(upstream)
+    holdOpen(opts, route.tag, socket)
   })
   const close = () => {
     upstream.destroy()
@@ -189,6 +216,9 @@ export function createRouter(opts = {}) {
     const route = routeFor(table(), req.headers.host)
     if (!route) return refuse(res, 421, `no tag stack answers on ${req.headers.host ?? "(no host)"}`)
     heartbeat(opts.base, route.tag)
+    // A client that leaves while its stack wakes is not sent on: its request never reaches the stack.
+    let gone = false
+    res.once("close", () => (gone = true))
     try {
       req.pause()
       await ready(opts, route)
@@ -196,9 +226,13 @@ export function createRouter(opts = {}) {
     } catch (e) {
       return refuse(res, e.status ?? 503, e.message)
     }
+    if (gone) return
     proxy(opts, req, res, route)
   })
   server.on("upgrade", async (req, socket, head) => {
+    // node drops its own error listener from an upgraded socket: a client reset while the stack wakes must not
+    // throw out of the router (proxyUpgrade adds the real one).
+    socket.on("error", () => {})
     const route = routeFor(table(), req.headers.host)
     if (!route) return socket.end("HTTP/1.1 421 Misdirected Request\r\nconnection: close\r\n\r\n")
     heartbeat(opts.base, route.tag)
@@ -207,6 +241,7 @@ export function createRouter(opts = {}) {
     } catch (e) {
       return socket.end(`HTTP/1.1 ${e.status ?? 503} Unavailable\r\nconnection: close\r\n\r\n`)
     }
+    if (socket.destroyed) return // the client left while its stack woke
     proxyUpgrade(opts, req, socket, head, route)
   })
   // Long-lived sockets (the mobile Worker's team hub, the hub's signaling) must not be cut by node's defaults.

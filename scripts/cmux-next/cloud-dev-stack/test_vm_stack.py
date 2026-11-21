@@ -178,13 +178,20 @@ class StackWorkersTests(unittest.TestCase):
         self.assertIn("CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_PS_MYSQL=", body)
 
 
+def router_serve():
+    """Serve as publish leaves it: every port of every registered stack goes to the router."""
+    return {"TCP": {}, "Web": {f"vm.ts.net:{p}": {"Handlers": {"/": {"Proxy": v.ROUTER_TARGET}}}
+                               for e in v.all_entries() for p in v.entry_ports(e)}}
+
+
 class RegistryTests(unittest.TestCase):
     """reap_one and ports_held against a temporary registry; systemd and Serve are stubbed."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.saved = (v.BASE, v.CLASSIC_BASE, v.unit_active, v.stop_stack, v.systemctl)
+        self.saved = (v.BASE, v.CLASSIC_BASE, v.unit_active, v.stop_stack, v.systemctl, v.serve_config)
         v.BASE = v.CLASSIC_BASE = Path(self.tmp.name)
+        v.serve_config = router_serve
         self.stopped = []
         self.units_stopped = []
         self.active = True
@@ -193,7 +200,7 @@ class RegistryTests(unittest.TestCase):
         v.systemctl = lambda *a, check=True: self.units_stopped.append(a) or types.SimpleNamespace(returncode=0, stdout="")
 
     def tearDown(self):
-        v.BASE, v.CLASSIC_BASE, v.unit_active, v.stop_stack, v.systemctl = self.saved
+        v.BASE, v.CLASSIC_BASE, v.unit_active, v.stop_stack, v.systemctl, v.serve_config = self.saved
         self.tmp.cleanup()
 
     def test_ports_held_counts_starting_and_failed_stacks(self):
@@ -293,8 +300,9 @@ class ReviewFixTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         names = ("BASE", "CLASSIC_BASE", "unit_active", "stop_stack", "mem_available_gib", "disk_free_gib", "serve_lock",
-                 "registry_lock", "serve_config", "classic_ports", "systemctl")
+                 "registry_lock", "serve_config", "classic_ports", "systemctl", "unit_memory_mib")
         self.saved = {n: getattr(v, n) for n in names}
+        v.unit_memory_mib = lambda tag: 3072
         v.BASE = v.CLASSIC_BASE = Path(self.tmp.name)
         self.stopped = []
         self.active = True
@@ -488,9 +496,13 @@ class LifetimeTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         names = ("BASE", "CLASSIC_BASE", "unit_active", "stop_stack", "systemctl", "mem_available_gib", "disk_free_gib",
-                 "wait_healthy", "MAX_STACKS", "MAX_KEPT")
+                 "wait_healthy", "MAX_STACKS", "MAX_KEPT", "serve_config", "classic_ports", "unit_memory_mib", "dir_gib")
         self.saved = {n: getattr(v, n) for n in names}
         v.BASE = v.CLASSIC_BASE = Path(self.tmp.name)
+        v.serve_config = router_serve
+        v.classic_ports = lambda: set()
+        v.unit_memory_mib = lambda tag: 3072  # what stopping one running stack frees (systemctl below adds it back)
+        v.dir_gib = lambda path: 10.0  # what releasing one stopped stack frees
         self.mem, self.disk, self.active = 60.0, 300.0, {}
         self.released, self.calls = [], []
         v.mem_available_gib = lambda: self.mem
@@ -545,6 +557,20 @@ class LifetimeTests(unittest.TestCase):
         with mock_sleep(), self.assertRaises(v.Refused):
             v.admit("x", now=1000)
 
+    def test_a_shortfall_stopping_every_stack_cannot_cover_stops_none(self):
+        self.mem = v.MIN_MEM_GIB - 20  # short by more than the two running stacks hold (3 GiB each)
+        self.stack("a", "running", 100)
+        self.stack("b", "running", 200)
+        with mock_sleep(), self.assertRaises(v.Refused) as r:
+            v.admit("x", now=1000)
+        self.assertIn("frees only", str(r.exception))
+        self.assertEqual([v.read_entry(t)["state"] for t in ("a", "b")], ["running", "running"])
+        self.disk, self.mem = v.MIN_DISK_GIB - 50, 60.0  # short by more than the one stopped stack holds (10 GiB)
+        self.stack("s", "stopped", 50)
+        with mock_sleep(), self.assertRaises(v.Refused):
+            v.admit("x", now=1000)
+        self.assertEqual(v.read_entry("s")["state"], "stopped")
+
     def test_disk_short_releases_lru_stopped_stacks(self):
         self.disk = v.MIN_DISK_GIB  # under floor + pending reservation
         self.stack("s1", "stopped", 100)
@@ -591,6 +617,92 @@ class LifetimeTests(unittest.TestCase):
         with self.assertRaises(v.Refused) as r:
             v.cmd_wake(types.SimpleNamespace(tag="gone", wait=1))
         self.assertIn("up --tag gone", str(r.exception))
+
+    # A re-up whose start fails keeps a stopped stack's data and Serve
+    def test_a_failed_reup_of_a_stopped_stack_keeps_its_data_ports_and_serve(self):
+        self.stack("r", "stopped", 100, port=4710, ports=[4710, 4711, 4712], local_port=23800)
+        data = v.stack_dir("r") / "state/v3/do/feed.sqlite"
+        data.parent.mkdir(parents=True)
+        data.write_text("rows")
+        token = v.cmd_prepare(types.SimpleNamespace(tag="r"))["token"]
+        e = v.read_entry("r")
+        self.assertEqual(e["state"], "stopped", "a re-up leaves a stopped stack stopped (and wakeable) until start")
+        self.assertIn("reup_at", e)
+        e["state"] = "starting"  # start took it and restarted the unit, whose Workers never answered
+        v.write_entry(e)
+        self.assertEqual(v.settle_failed_start(v.read_entry("r")), "stopped")
+        e = v.read_entry("r")
+        self.assertEqual((e["state"], e["port"], e["ports"], e["local_port"]), ("stopped", 4710, [4710, 4711, 4712], 23800))
+        self.assertEqual(self.released, [], "no stop_stack: its Serve entries and files stay")
+        self.assertIn(("stop", v.unit("r")), self.calls)
+        self.assertEqual(data.read_text(), "rows")
+        self.assertNotIn("reup_at", e)
+        self.assertEqual(v.routes_table(v.all_entries())["vm.ts.net:4711"], {"tag": "r", "port": 23800}, "still routed: a request wakes it")
+        self.assertEqual(v.cmd_up_done(types.SimpleNamespace(tag="r", token=token, failed=True))["state"], "stopped")
+
+    def test_a_failed_first_start_still_fails(self):
+        self.stack("n", "preparing", 100)
+        e = v.read_entry("n")
+        e["state"] = "starting"
+        self.assertEqual(v.settle_failed_start(e), "failed")
+        self.assertEqual(self.released, ["n"])
+
+    def test_up_done_after_a_reup_died_mid_start_keeps_the_stack(self):
+        for tag, unit_up, want in (("down", False, "stopped"), ("up", True, "running")):
+            self.stack(tag, "stopped", 100, port=4720 if tag == "down" else 4730)
+            token = v.cmd_prepare(types.SimpleNamespace(tag=tag))["token"]
+            e = v.read_entry(tag)
+            e["state"] = "starting"  # start took the stack, then the Mac's ssh died before start settled it
+            v.write_entry(e)
+            self.active[tag] = unit_up
+            self.assertEqual(v.cmd_up_done(types.SimpleNamespace(tag=tag, token=token, failed=True))["state"], want, tag)
+            self.assertEqual(self.released, [])
+        # A first up that died mid-start is not a re-up: it is not kept as a stopped stack.
+        token = v.cmd_prepare(types.SimpleNamespace(tag="fresh2"))["token"]
+        e = v.read_entry("fresh2")
+        e["state"] = "starting"
+        v.write_entry(e)
+        self.assertEqual(v.cmd_up_done(types.SimpleNamespace(tag="fresh2", token=token, failed=True))["state"], "starting")
+
+    # The router kills a wake after the wake's own wait; a live wake is waited for, a dead one restarted
+    def test_a_wake_records_its_deadline_and_only_a_dead_one_is_stopped(self):
+        self.stack("w", "stopped", 100)
+        seen = {}
+
+        def healthy(tag, port, host, timeout):
+            seen.update(v.read_entry(tag))
+            return True, ""
+        v.wait_healthy = healthy
+        before = int(time.time())
+        v.cmd_wake(types.SimpleNamespace(tag="w", wait=150))
+        self.assertGreaterEqual(seen["wake_deadline"], before + 150 + 90, "past the router's kill (its wait + 90 s)")
+        self.assertFalse({"wake_deadline", "wake_token", "wake_started_at"} & set(v.read_entry("w")), "a settled wake clears its marks")
+        now = int(time.time())
+        e = v.read_entry("w")
+        e.update({"state": "starting", "wake_started_at": now - 300, "wake_deadline": now + 60, "wake_token": "x"})
+        v.write_entry(e)
+        self.assertIsNone(v.reap_one("w", now), "a slow wake still inside its deadline is left alone")
+        self.assertEqual(v.read_entry("w")["state"], "starting")
+        self.assertIsNotNone(v.reap_one("w", now + 61))
+        e = v.read_entry("w")
+        self.assertEqual(e["state"], "stopped")
+        self.assertFalse({"wake_deadline", "wake_token", "wake_started_at"} & set(e))
+
+    def test_a_wake_that_lost_the_stack_to_an_up_leaves_its_unit_alone(self):
+        self.stack("l", "stopped", 100)
+
+        def taken_by_start(tag, port, host, timeout):
+            e = v.read_entry(tag)  # cmd_start takes the stack and restarts its unit while the wake waits
+            for k in v.WAKE_KEYS:
+                e.pop(k, None)
+            e["state"] = "starting"
+            v.write_entry(e)
+            return False, "its unit stopped"
+        v.wait_healthy = taken_by_start
+        with self.assertRaises(v.Refused):
+            v.cmd_wake(types.SimpleNamespace(tag="l", wait=5))
+        self.assertNotIn(("stop", v.unit("l")), self.calls, "the start that owns it now is not stopped under it")
+        self.assertEqual(v.read_entry("l")["state"], "starting")
 
     def test_serve_points_every_stack_port_at_the_router(self):
         saved = (v.serve_lock, v.serve_config, v.classic_ports, subprocess.run)

@@ -2,13 +2,13 @@
 // A fake stack (an HTTP and WebSocket echo server) stands in for a tag's wrangler.
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
-import { mkdirSync, mkdtempSync, writeFileSync, statSync } from "node:fs"
+import { mkdirSync, mkdtempSync, writeFileSync, statSync, utimesSync } from "node:fs"
 import http from "node:http"
 import net from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
-import { createRouter, routeFor, wake } from "./router.mjs"
+import { createRouter, routeFor, wake, wakeArgs, WAKE_TIMEOUT_MS, WAKE_WAIT_S } from "./router.mjs"
 
 /** Close servers and their kept-alive sockets (the router's upstream agent keeps them open). */
 const done = (...servers) => servers.forEach((s) => { s.closeAllConnections?.(); s.close() })
@@ -160,4 +160,86 @@ test("wake() shares one run per tag and starts a new one after it settles", asyn
   assert.equal(runs, 1)
   await wake("t", run)
   assert.equal(runs, 2)
+})
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+test("a client that leaves mid-response frees the stack's side of the request", async () => {
+  let upstreamClosed
+  const closed = new Promise((r) => (upstreamClosed = r))
+  const stack = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream" })
+    res.write("data: first\n\n") // a stream that never ends on its own (an SSE feed, a long poll)
+    res.on("close", () => upstreamClosed(res.writableFinished))
+  })
+  const sport = await listen(stack)
+  const dir = base([{ tag: "ab", state: "running", port: sport, authorities: ["vm.tail.ts.net:4760"] }])
+  const router = createRouter({ base: dir, wakeRun: async () => {} })
+  const rport = await listen(router)
+  await new Promise((resolve, reject) => {
+    const req = http.request({ host: "127.0.0.1", port: rport, path: "/v1/stream", headers: { host: "vm.tail.ts.net:4760" } }, (res) => {
+      res.once("data", () => { req.destroy(); resolve() })
+    })
+    req.on("error", () => {})
+    req.on("close", resolve)
+    req.end()
+  })
+  const finished = await Promise.race([closed, sleep(2000).then(() => "still open")])
+  assert.equal(finished, false, "the stack's response was cut when the client left, not left streaming")
+  done(router, stack)
+})
+
+test("a client that leaves while its stack wakes is never sent on to the stack", async () => {
+  const seen = []
+  const stack = http.createServer((req, res) => { seen.push(req.url); res.end("ok") })
+  const sport = await listen(stack)
+  const dir = base([{ tag: "aw", state: "stopped", port: sport, authorities: ["vm.tail.ts.net:4770"] }])
+  const wakeRun = async (tag) => {
+    await sleep(300)
+    writeFileSync(join(dir, "registry", `${tag}.json`), JSON.stringify({ tag, state: "running" }))
+  }
+  const router = createRouter({ base: dir, wakeRun })
+  const rport = await listen(router)
+  const req = http.request({ host: "127.0.0.1", port: rport, path: "/v1/left", headers: { host: "vm.tail.ts.net:4770" } })
+  req.on("error", () => {})
+  req.end()
+  await sleep(100)
+  req.destroy()
+  await sleep(500) // the wake settled; a request still waiting would have been proxied by now
+  assert.deepEqual(seen, [])
+  assert.equal((await get(rport, "vm.tail.ts.net:4770", "/v1/after")).status, 200)
+  assert.deepEqual(seen, ["/v1/after"])
+  done(router, stack)
+})
+
+test("an open WebSocket keeps its stack in use with heartbeats until it closes", async () => {
+  const stack = fakeStack()
+  const sport = await listen(stack)
+  const dir = base([{ tag: "hb", state: "running", port: sport, authorities: ["vm.tail.ts.net:4780"] }])
+  const beatFile = join(dir, "stacks/hb/heartbeat")
+  const router = createRouter({ base: dir, wakeRun: async () => {}, heartbeatMs: 60 })
+  const rport = await listen(router)
+  const sock = await new Promise((resolve, reject) => {
+    const s = net.connect(rport, "127.0.0.1", () => {
+      s.write("GET /v1/ws HTTP/1.1\r\nHost: vm.tail.ts.net:4780\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n")
+    })
+    s.once("data", () => resolve(s))
+    s.on("error", reject)
+  })
+  const old = Date.now() / 1000 - 3 * 3600 // three hours ago: past the 2 h idle stop
+  utimesSync(beatFile, old, old)
+  await sleep(300) // no request crosses the socket meanwhile
+  assert.ok(statSync(beatFile).mtimeMs / 1000 > old + 3600, "an open socket beats the heartbeat")
+  sock.destroy()
+  await sleep(100)
+  utimesSync(beatFile, old, old)
+  await sleep(300)
+  assert.ok(Math.abs(statSync(beatFile).mtimeMs / 1000 - old) < 1, "a closed socket stops beating")
+  done(router, stack)
+})
+
+test("the router kills a wake only after the wake's own wait for health ran out", () => {
+  const args = wakeArgs("t")
+  assert.deepEqual(args.slice(1), ["wake", "--tag", "t", "--wait", String(WAKE_WAIT_S)])
+  assert.ok(WAKE_TIMEOUT_MS >= (WAKE_WAIT_S + 60) * 1000, `${WAKE_TIMEOUT_MS} ms kill vs a ${WAKE_WAIT_S} s wait`)
 })
