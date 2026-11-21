@@ -85,7 +85,12 @@ pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<i32> {
     let request = match parse(&rest) {
         Ok(request) => request,
         Err(what) => {
-            return Some(super::super::scope_usage_failure(global.output, "agent-config", &what, HELP));
+            return Some(super::super::scope_usage_failure(
+                global.output,
+                "agent-config",
+                &what,
+                HELP,
+            ));
         }
     };
     let json_out = matches!(global.output, OutputMode::Json | OutputMode::JsonLines);
@@ -129,7 +134,11 @@ fn fail(output: OutputMode, error: SettingsError) -> i32 {
     } else {
         format!("cmux: {}", error.message)
     };
-    super::super::wire::print_local_error(&json!({"code": error.code, "message": message}), output, 1)
+    super::super::wire::print_local_error(
+        &json!({"code": error.code, "message": message}),
+        output,
+        1,
+    )
 }
 
 fn parse(words: &[String]) -> Result<Request, String> {
