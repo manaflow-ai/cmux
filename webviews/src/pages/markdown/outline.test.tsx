@@ -14,6 +14,9 @@ import { L } from "./strings";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
+// Frames are queued and run by frame(), so a test paints the next frame without waiting on the clock.
+const frames = new Map<number, () => void>();
+let lastFrame = 0;
 const replacements = {
   window: dom.window,
   document: dom.window.document,
@@ -21,15 +24,22 @@ const replacements = {
   HTMLElement: dom.window.HTMLElement,
   Element: dom.window.Element,
   Node: dom.window.Node,
-  requestAnimationFrame: (run: () => void) => setTimeout(run, 0) as unknown as number,
-  cancelAnimationFrame: (id: number) => clearTimeout(id),
+  requestAnimationFrame: (run: () => void) => {
+    frames.set(++lastFrame, run);
+    return lastFrame;
+  },
+  cancelAnimationFrame: (id: number) => frames.delete(id),
   IS_REACT_ACT_ENVIRONMENT: true,
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
 const { createRoot } = await import("react-dom/client");
 const strings = createStrings(table);
-const frame = () => new Promise((resolve) => setTimeout(resolve, 5));
+const frame = async () => {
+  const due = [...frames.values()];
+  frames.clear();
+  for (const run of due) run();
+};
 
 afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope: globals });
