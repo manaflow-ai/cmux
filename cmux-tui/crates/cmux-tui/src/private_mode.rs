@@ -48,7 +48,9 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         // daemon socket: local, SSH or Cloud
         // (scripts/measure/terminal-scroll-stress-linux.sh).
         #[cfg(unix)]
-        Some(crate::scroll_probe::MODE) => Some(crate::scroll_probe::run(&args[1..])),
+        Some(crate::scroll_probe::MODE) => {
+            Some(crate::scroll_probe::run(args.get(1..).unwrap_or_default()))
+        }
         _ => None,
     }
 }

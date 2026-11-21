@@ -288,12 +288,12 @@ fn parse_row(text: &str, cols: u64) -> Row {
             .filter(|s| s.bytes().all(|b| b.is_ascii_digit()))
             .and_then(|s| s.parse::<u64>().ok())
     };
-    let (n, k) = match bytes[0] {
-        b'L' => match digits(1) {
+    let (n, k) = match bytes.first() {
+        Some(b'L') => match digits(1) {
             Some(n) => (n, 0),
             None => return Row::Other,
         },
-        b'+' => {
+        Some(b'+') => {
             match (digits(1), bytes.get(8), text.get(9..10).and_then(|s| s.parse::<u64>().ok())) {
                 (Some(n), Some(b'/'), Some(k)) => (n, k),
                 _ => return Row::Other,
@@ -793,7 +793,9 @@ impl<'s, 'e> Probe<'s, 'e> {
     fn send(&mut self, conn: Conn, mut request: Value) -> Result<u64, String> {
         let id = self.next_id;
         self.next_id += 1;
-        request["id"] = json!(id);
+        if let Some(fields) = request.as_object_mut() {
+            fields.insert("id".into(), json!(id));
+        }
         let link = self.link(conn).ok_or_else(|| format!("{conn:?} is closed"))?;
         let mut line = request.to_string();
         line.push('\n');
@@ -1291,7 +1293,8 @@ impl<'s, 'e> Probe<'s, 'e> {
     fn report(&self, protocol: u64, version: Value, started: Instant) -> Value {
         let mirror = self.m.json();
         let daemon = self.d.json();
-        let bad = mirror["bad"].as_u64().unwrap_or(0) + daemon["bad"].as_u64().unwrap_or(0);
+        let bad_of = |view: &Value| view.get("bad").and_then(Value::as_u64).unwrap_or(0);
+        let bad = bad_of(&mirror) + bad_of(&daemon);
         let total_rows =
             self.ordinals.of(last_line(&self.o), segments(last_line(&self.o)) - 1).unwrap_or(0) + 1;
         let mirror_total = self.mirror.as_ref().and_then(|m| m.term.scrollbar()).map(|s| s.total);
@@ -1322,8 +1325,12 @@ impl<'s, 'e> Probe<'s, 'e> {
 /// The largest `L<7 digits> ` line number in a chunk of output.
 fn newest_number(data: &[u8]) -> u64 {
     data.windows(9)
-        .filter(|w| w[0] == b'L' && w[8] == b' ' && w[1..8].iter().all(u8::is_ascii_digit))
-        .filter_map(|w| std::str::from_utf8(&w[1..8]).ok()?.parse().ok())
+        .filter_map(|w| match w {
+            [b'L', digits @ .., b' '] if digits.iter().all(u8::is_ascii_digit) => {
+                std::str::from_utf8(digits).ok()?.parse().ok()
+            }
+            _ => None,
+        })
         .max()
         .unwrap_or(0)
 }
