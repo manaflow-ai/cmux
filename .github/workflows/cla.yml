@@ -43,11 +43,14 @@ jobs:
       )
     # A fork pull request, or a comment on one, runs this job with a write
     # token. Neither event says whether the head is a fork, so the job must
-    # run on a VM that is destroyed after one job. CI_TRUSTED_RUNNER can pick
-    # only GitHub-hosted ubuntu-24.04 or a Blacksmith Ubuntu VM, never an
-    # owned host, so either provider can carry this check while the other is
-    # down. validate-cla-policy.rb pins these exact bytes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: write token on fork pull requests
+    # run on a VM that is destroyed after one job. Our persistent Linux pool
+    # (cmux-runner-pool-*) also registers the Blacksmith Ubuntu labels, so a
+    # Blacksmith label no longer guarantees a one-job VM: this job landed on
+    # cmux-runner-pool-he4a-0037 and the guard step refused it (run
+    # 44852893055). Only a GitHub-hosted label the pool does not carry does,
+    # so the job pins ubuntu-22.04. validate-cla-policy.rb pins these exact
+    # bytes.
+    runs-on: ubuntu-22.04 # ephemeral-required: write token on fork pull requests; the persistent pool carries every Blacksmith Linux label
     timeout-minutes: 10
     # One run at a time per pull request so two signature events cannot write
     # the ledger from different snapshots. Independent pull requests proceed.
@@ -66,8 +69,8 @@ jobs:
       # Read the trusted merge status on catch-up merge commits.
       statuses: read
     steps:
-      # Blacksmith reports itself as self-hosted. Refuse any runner that is
-      # neither GitHub-hosted nor a Blacksmith VM for the labels above.
+      # Refuse any runner that is not GitHub-hosted or a Blacksmith VM (one
+      # reports itself as self-hosted). A pool VM matches neither.
       - name: Require GitHub-hosted or Blacksmith runner
         if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) || contains(runner.name, 'glaeda')
         run: |

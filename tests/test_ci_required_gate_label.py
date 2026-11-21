@@ -14,9 +14,13 @@ however deep the PR backlog is. `vars.CI_GATE_SKIP_FLEET=1` turns the label off 
 
 The two CLA workflows are pinned byte for byte by scripts/ci/validate-cla-policy.rb, which runs from the base
 branch, so they move in steps: the validator first admits the gate selector (CLA_GATE_RUNNER_EXPRESSION) and
-the gate runner guard, then cla-policy-guard.yml moves (a guard-only change), then cla.yml moves to the bytes
-the validator already pins (a policy change). STAGED holds a job until its step lands; a staged job that already
-leads with the label fails here so the list only shrinks.
+the gate runner guard, then cla-policy-guard.yml moves (a guard-only change). STAGED holds a job until its step
+lands; a staged job that already leads with the label fails here so the list only shrinks.
+
+HOSTED lists the gate jobs pinned to a GitHub-hosted label instead. cla.yml's CLAAssistant holds a write token on
+fork pull requests, and the persistent pool (cmux-runner-pool-*) registers the Blacksmith labels the selector falls
+back to, so it landed on pool VM cmux-runner-pool-he4a-0037 and its runner guard refused the required check (job
+136688165968). It pins the hosted label validate-cla-policy.rb's hosted successor pins (CLA_PINNED_HOSTED_RUNNER).
 
 This test is the pattern's detector: a job that reports a required check off the label, a required check no
 listed job reports, or any other job on the label, fails.
@@ -54,7 +58,10 @@ GATE_JOBS = {
 # them. Each still uses the exact selector the validator admits today.
 STAGED = {
     ("cla-policy-guard.yml", "validate"): "a guard-only PR, once the validator admitting the gate selector is on main",
-    ("cla.yml", "CLAAssistant"): "a policy PR to the cla.yml bytes CLA_ACTION_RUNNER_SUCCESSOR_PINS pins",
+}
+# Gate jobs pinned to a GitHub-hosted label (see the module docstring), with why.
+HOSTED = {
+    ("cla.yml", "CLAAssistant"): "a fork PR's write token needs a one-job VM; the pool carries every Blacksmith label",
 }
 CLA_SELECTOR = (FORK_BRANCH + "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\","
                 "\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || "
@@ -90,7 +97,7 @@ class RequiredGateLabelTest(unittest.TestCase):
 
     def test_every_gate_job_leads_with_the_gate_label(self) -> None:
         for (name, job_id), check in sorted(GATE_JOBS.items()):
-            if (name, job_id) in STAGED:
+            if (name, job_id) in STAGED or (name, job_id) in HOSTED:
                 continue
             with self.subTest(workflow=name, job=job_id, check=check):
                 value = runs_on(load(name)["jobs"][job_id])
@@ -102,6 +109,16 @@ class RequiredGateLabelTest(unittest.TestCase):
                 value = runs_on(load(name)["jobs"][job_id])
                 self.assertNotIn(GATE_LABEL, value, f"moved: drop it from STAGED ({step})")
                 self.assertEqual(value, CLA_SELECTOR)
+
+    def test_a_hosted_gate_job_pins_the_label_the_validator_pins(self) -> None:
+        validator = (ROOT / "scripts" / "ci" / "validate-cla-policy.rb").read_text(encoding="utf-8")
+        pinned = re.search(r'^CLA_PINNED_HOSTED_RUNNER = "([^"]+)"\.freeze$', validator, re.MULTILINE)
+        self.assertIsNotNone(pinned, "validate-cla-policy.rb pins no hosted CLA runner")
+        for (name, job_id), why in sorted(HOSTED.items()):
+            with self.subTest(workflow=name, job=job_id, why=why):
+                value = runs_on(load(name)["jobs"][job_id])
+                self.assertEqual(value, pinned.group(1))
+                self.assertNotIn(GATE_LABEL, value)
 
     def test_the_cla_validator_admits_the_gate_selector_and_guard(self) -> None:
         # The staged moves can land only once the base validator admits them.
@@ -115,10 +132,10 @@ class RequiredGateLabelTest(unittest.TestCase):
     def test_only_gate_jobs_ask_for_the_gate_label(self) -> None:
         # The label stays reserved: a PR or build job on it would put the backlog back in front of the gates.
         found = {(name, job_id) for name, job_id, job in all_jobs() if GATE_LABEL in runs_on(job)}
-        self.assertEqual(found, set(GATE_JOBS) - set(STAGED))
+        self.assertEqual(found, set(GATE_JOBS) - set(STAGED) - set(HOSTED))
 
     def test_the_switch_leaves_the_previous_selector(self) -> None:
-        for name, job_id in sorted(set(GATE_JOBS) - set(STAGED)):
+        for name, job_id in sorted(set(GATE_JOBS) - set(STAGED) - set(HOSTED)):
             with self.subTest(workflow=name, job=job_id):
                 after = runs_on(load(name)["jobs"][job_id]).replace(GATE_OPERAND, "", 1)
                 self.assertNotIn(GATE_LABEL, after)
