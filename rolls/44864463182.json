@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44864463182",
+  "recorded_at": "2026-11-21T04:25:52Z",
+  "reason": "cmux-tui 08fd477892eb changes the image's cmux-tui (pinned 9da1567514a7)",
+  "dry_run": false,
+  "cmux_tui": "08fd477892ebf3e44d42ffe0b85ac3f706cb5d0f",
+  "fixes": [
+    {
+      "sha": "ed48835103ffced0e6bd86832fc561f520312989",
+      "mergedAt": "2026-11-21T03:41:41Z",
+      "subject": "acpmux: workflow machine on ci runs on the Linux pool with one bounded wait (#48179)"
+    },
+    {
+      "sha": "cd616675e82ac24e33b66b69deb51fe74e49cd36",
+      "mergedAt": "2026-11-21T03:39:00Z",
+      "subject": "cmux-tui: terminals can share one holder process, off by default (successor of #47193) (#47798)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T04:25:52Z",
+    "snapshot_id": "sh-9022e1083a2844e6b5c33dddeaa63b08",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44864463182): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "cf6fb43d2661a24a7b3f955ba155d2de128d5e1e",
+    "image": "cloud-native-auto-08fd4778-44864463182-1",
+    "revision": "ci-44864463182-1",
+    "at": "2026-11-21T04:25:52Z"
+  },
+  "rolled_back": false
+}
