@@ -268,6 +268,15 @@ final class ScreenContentView: NSView {
         reconciledScale = scale
         baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale).placingFloating(floatState.shown, scale: scale)
         geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
+        // A viewport change that would turn a springing pane inside out (it shrank by more than the spring had left)
+        // is not rebased: the motion lands, every frame at its place, as a window resize without motion does. Edges
+        // of a rebase move with their targets, so the panes tile as long as none inverts (F2).
+        let rebaseInverts = rebasing && !structural && baseGeometry.panes.contains { pane, target in
+            guard let frame = paneFrames[pane], frame.rect != frame.targetRect else { return false }
+            return !frame.rebaseKeepsExtent(onto: target)
+        }
+        let rebasing = rebasing && !rebaseInverts
+        let animated = animated && !rebaseInverts
         // A structural change (a split, a close, a zoom, an unzoom, a pane moved) is one commit: its end is known when
         // it starts, so no pane and no divider of it shows between the two layouts. Every frame snaps to its place in
         // the new layout, and the screen shows them all in one pass (`ScreenContentView+SnapFrame`).
@@ -369,7 +378,8 @@ final class ScreenContentView: NSView {
                 addSubview(view)
                 dividerViews[kind] = view
             }
-            view.lineThickness = style.dividerThickness
+            // On whole device pixels, as the gap the layout leaves for it (`SplitGeometry.dividerThickness`).
+            view.lineThickness = SplitGeometry.dividerThickness(style.dividerThickness, extent: .greatestFiniteMagnitude, scale: scale)
             view.showsIdleLine = showsIdleLine(kind)
             view.showsActiveLine = style.showsDividerFeedback
             if var frame = dividerFrames[kind] {
