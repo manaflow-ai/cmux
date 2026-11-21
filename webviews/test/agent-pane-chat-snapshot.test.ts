@@ -52,12 +52,15 @@ await requireBrowserLane("agent-pane-chat-snapshot.test.ts", async () => {
     .composer textarea { width: 300px; height: 40px; }
     @media (min-width: 1px) { :root .acpmux-row { padding-left: 4px; } }
   `;
-  const MARKUP = () => {
+  /// `short`: a chat of 11 rows in 460 px, which fits the 472 px transcript of a 600 px window and
+  /// overflows the 444 px one of a window a tab row (28 px) shorter.
+  const MARKUP = (short = false) => {
     const rows = Array.from(
-      { length: 100 },
+      { length: short ? 11 : 100 },
       (_, at) => `<article class="acpmux-row" data-row-id="r${at}" style="top:${at * 40}px">row ${at}</article>`,
     ).join("");
-    return `<div class="header">Chat title</div><div class="acpmux-scroll"><div class="acpmux-spacer">${rows}</div></div><div class="composer"><div class="prompt" contenteditable="true"></div><textarea></textarea></div>`;
+    const spacer = short ? ` style="height:460px"` : "";
+    return `<div class="header">Chat title</div><div class="acpmux-scroll"><div class="acpmux-spacer"${spacer}>${rows}</div></div><div class="composer"><div class="prompt" contenteditable="true"></div><textarea></textarea></div>`;
   };
   /// The person's theme.css, which the page adds once the host sends it (paneTheme.ts).
   const USER_CSS = "#root .header { height: 52px; }";
@@ -121,7 +124,7 @@ w.atBundle = host && copy ? {
   header: box(copy.querySelector(".header")),
   // Written at the latest row, the copy leaves r60 out (out of view).
   row: copy.querySelector('[data-row-id="r60"]') ? box(copy.querySelector('[data-row-id="r60"]')) : null,
-  last: copy.querySelector('[data-row-id="r99"]') ? box(copy.querySelector('[data-row-id="r99"]')) : null,
+  last: copy.querySelector(".acpmux-row:last-of-type") ? box(copy.querySelector(".acpmux-row:last-of-type")) : null,
   composer: box(copy.querySelector(".composer textarea")),
   text: copy.querySelector(".composer .prompt")!.textContent,
   field: (copy.querySelector(".composer textarea") as HTMLTextAreaElement).value,
@@ -150,7 +153,8 @@ requestAnimationFrame(() => {
   swapChatSnapshot();
   watch();
   requestAnimationFrame(() => requestAnimationFrame(() => {
-    w.afterSwap = { header: box(root.querySelector(".header")), row: box(root.querySelector('[data-row-id="r60"]')), composer: box(root.querySelector(".composer textarea")), ...(w.atEnd ? { last: box(root.querySelector('[data-row-id="r99"]')) } : {}) };
+    const r60 = root.querySelector('[data-row-id="r60"]');
+    w.afterSwap = { header: box(root.querySelector(".header")), row: r60 ? box(r60) : null, composer: box(root.querySelector(".composer textarea")), ...(w.atEnd ? { last: box(root.querySelector(".acpmux-row:last-of-type")) } : {}) };
   }));
 });
 }
@@ -166,9 +170,12 @@ requestAnimationFrame(() => {
 
   /// The page the chat was written from: the chat scrolled to row 50, a draft in the composer, and
   /// the agent theme's variable set as the page's theme event sets it.
-  async function written(page: Page, { atEnd = false }: { atEnd?: boolean } = {}): Promise<Record<string, unknown>> {
+  async function written(
+    page: Page,
+    { atEnd = false, short = false }: { atEnd?: boolean; short?: boolean } = {},
+  ): Promise<Record<string, unknown>> {
     await page.route("http://chat.test/a.html", (route) =>
-      route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP()}</main>`) }),
+      route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP(short)}</main>`) }),
     );
     await page.goto("http://chat.test/a.html");
     await page.addScriptTag({ content: capture });
@@ -188,11 +195,13 @@ requestAnimationFrame(() => {
         const r = el!.getBoundingClientRect();
         return [r.x, r.y, r.width, r.height];
       };
+      const r60 = document.querySelector('[data-row-id="r60"]');
       return {
         snapshot: (globalThis as any).captureSnapshot(document, "theme-1"),
         header: box(document.querySelector(".header")),
-        row: box(document.querySelector('[data-row-id="r60"]')),
+        row: r60 ? box(r60) : null,
         composer: box(document.querySelector(".composer textarea")),
+        scrollTop: scroller.scrollTop,
       };
     }, atEnd);
   }
@@ -209,7 +218,14 @@ requestAnimationFrame(() => {
       drawFirst = false,
       holdDraw = false,
       atEnd = false,
-    }: { holdUntil?: "bundle" | "drawn"; drawFirst?: boolean; holdDraw?: boolean; atEnd?: boolean } = {},
+      short = false,
+    }: {
+      holdUntil?: "bundle" | "drawn";
+      drawFirst?: boolean;
+      holdDraw?: boolean;
+      atEnd?: boolean;
+      short?: boolean;
+    } = {},
   ): Promise<void> {
     await page.route("http://chat.test/**", (route) => {
       const url = new URL(route.request().url());
@@ -224,7 +240,7 @@ requestAnimationFrame(() => {
       if (url.pathname === "/fixture.js")
         return route.fulfill({
           contentType: "text/javascript",
-          body: `self.liveMarkup=${JSON.stringify(MARKUP())};self.userCss=${JSON.stringify(USER_CSS)};self.drawFirst=${drawFirst};self.holdDraw=${holdDraw};self.atEnd=${atEnd};`,
+          body: `self.liveMarkup=${JSON.stringify(MARKUP(short))};self.userCss=${JSON.stringify(USER_CSS)};self.drawFirst=${drawFirst};self.holdDraw=${holdDraw};self.atEnd=${atEnd};`,
         });
       if (url.pathname === "/__snapshot/chat.js")
         return (
@@ -588,6 +604,28 @@ requestAnimationFrame(() => {
     await relaunched(page, before.snapshot, "theme-1", { atEnd: true });
     const atBundle = (await page.evaluate(() => (window as any).atBundle)) as Record<string, number[] | boolean>;
     expect(atBundle.shown).toBe(true);
+    const afterSwap = (await page.evaluate(() => (window as any).afterSwap)) as Record<string, number[]>;
+    expect(atBundle.last).toEqual(afterSwap.last);
+    expect(afterSwap.composer).toEqual(atBundle.composer as number[]);
+    await context.close();
+    await shorter.close();
+  });
+
+  test("a short transcript that fit its window draws at its latest row a tab row shorter, as the live page then does", async () => {
+    // Written at offset 0 (it did not scroll), the copy kept the rows there, while the live page opens
+    // the now-overflowing transcript at its latest row: every row moved at the swap.
+    const context = await newContext(800, 600);
+    const before = await written(await context.newPage(), { atEnd: true, short: true });
+    expect(before.scrollTop).toBe(0);
+    const shorter = await newContext(800, 572);
+    const page = await shorter.newPage();
+    await relaunched(page, before.snapshot, "theme-1", { atEnd: true, short: true });
+    const atBundle = (await page.evaluate(() => (window as any).atBundle)) as Record<
+      string,
+      number[] | number | boolean
+    >;
+    expect(atBundle.shown).toBe(true);
+    expect(atBundle.scrollTop).toBe(16);
     const afterSwap = (await page.evaluate(() => (window as any).afterSwap)) as Record<string, number[]>;
     expect(atBundle.last).toEqual(afterSwap.last);
     expect(afterSwap.composer).toEqual(atBundle.composer as number[]);
