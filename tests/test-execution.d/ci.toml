@@ -154,6 +154,11 @@ path = "tests/test_ci_evidence_outcomes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_expected_wait.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/expected_wait.py's admission verdict (cmuxterm-hq#16113 step 3); run python3 -m unittest tests.test_ci_expected_wait yourself after changing it (under 1 s, no network)."
+
+[[test]]
 path = "tests/test_ci_fast_check_route.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, AGENTS.md:214). Checks scripts/ci/fast-check-inputs.json against the jobs and scripts each fast check reads, and that every routed job is wired to fast_check_route.py and covered by a push; run python3 tests/test_ci_fast_check_route.py yourself after changing fast_check_route.py, fast-check-inputs.json or a routed workflow (a few seconds, no build)."
@@ -668,6 +673,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_runner_capability_resolver.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runner_census_tallies.py"
 lane = "linux-guard"
 
 [[test]]
