@@ -110,7 +110,13 @@ pub fn check_private_dir(dir: &Path, what: &str) -> Result<()> {
             dir.display()
         )));
     }
-    check_no_acl_grants(dir, what)
+    // The ACL of the folder itself, through a symlink to it if `dir` is one
+    // (a stowed `~/.config`): reading the symlink's own ACL would miss it.
+    let folder = std::fs::File::open(dir).map_err(|e| Error::io(dir.display(), e))?;
+    if crate::acl::fd_write_grants(&folder).map_err(|e| Error::io(dir.display(), e))? {
+        return Err(acl_refusal(dir, what));
+    }
+    Ok(())
 }
 
 /// A folder above the LaunchAgent log: owned by this account or root, and
@@ -237,14 +243,53 @@ fn check_log_path(_logs: &Path) -> Result<()> {
 /// says. No-op where there are no such ACLs.
 pub fn check_no_acl_grants(path: &Path, what: &str) -> Result<()> {
     if crate::acl::write_grants(path).map_err(|e| Error::io(path.display(), e))? {
+        return Err(acl_refusal(path, what));
+    }
+    Ok(())
+}
+
+/// Refuses the file `path` (`what`) when another account could write it:
+/// not owned by this account or root, a group or other write bit, or a
+/// macOS ACL entry that allows writing. A missing file passes.
+#[cfg(unix)]
+pub(crate) fn check_not_shared(path: &Path, what: &str) -> Result<()> {
+    use std::os::unix::fs::MetadataExt as _;
+    let meta = match std::fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(Error::io(path.display(), e)),
+    };
+    let owner = meta.uid();
+    let mode = meta.mode() & 0o7777;
+    if (owner != crate::sys::euid() && owner != 0) || mode & 0o022 != 0 {
         return Err(Error::rejected(format!(
-            "{} ({what}) has an ACL entry that allows writing (`ls -led {}` lists it): another account could replace what cmux puts there, whatever its mode says. Remove that entry (`chmod -N {}` removes them all), then run the command again",
-            path.display(),
+            "{} ({what}) is owned by uid {owner} with mode {mode:o}: another account could change what the service manager runs or stops. Fix its owner or mode (chmod go-w {}), then run the command again",
             path.display(),
             path.display()
         )));
     }
+    check_no_acl_grants(path, what)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn check_not_shared(_path: &Path, _what: &str) -> Result<()> {
     Ok(())
+}
+
+/// `e` with what came of the command added (`nothing was changed`): the
+/// checks say why, their callers say what was done before they refused.
+pub(crate) fn outcome(mut e: Error, what: &str) -> Error {
+    e.message = format!("{}; {what}", e.message);
+    e
+}
+
+fn acl_refusal(path: &Path, what: &str) -> Error {
+    Error::rejected(format!(
+        "{} ({what}) has an ACL entry that allows writing (`ls -led {}` lists it): another account could replace what cmux puts there, whatever its mode says. Remove that entry (`chmod -N {}` removes them all), then run the command again",
+        path.display(),
+        path.display(),
+        path.display()
+    ))
 }
 
 #[cfg(not(unix))]
@@ -361,9 +406,11 @@ impl Services<'_> {
         }
         match self.layout.service {
             ServiceKind::SystemdUser { .. } | ServiceKind::SystemdSystem { .. } => {
-                systemd::check_sources(self)?;
+                systemd::check_sources(self).map_err(|e| outcome(e, "nothing was changed"))?;
             }
-            ServiceKind::LaunchAgent { .. } => launchd::check_source(self)?,
+            ServiceKind::LaunchAgent { .. } => {
+                launchd::check_source(self).map_err(|e| outcome(e, "nothing was changed"))?;
+            }
             _ => {}
         }
         Ok(foreign)
@@ -506,6 +553,13 @@ impl Services<'_> {
         // Uninstall removes the unit files by name: a folder another account
         // can write would let it swap one between the check and the removal.
         self.check_unit_dirs()?;
+        // The manager reads a unit file again when uninstall stops it (an
+        // implicit reload): one another account can write could make that
+        // stop reach a unit that is not cmux's.
+        for (path, _) in self.unit_files()? {
+            check_not_shared(&path, "a service unit file cmux wrote")
+                .map_err(|e| outcome(e, "nothing was changed"))?;
+        }
         let removed = match &self.layout.service {
             ServiceKind::SystemdUser { .. } | ServiceKind::SystemdSystem { .. } => {
                 systemd::uninstall(self)
