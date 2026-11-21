@@ -75,10 +75,9 @@ EDIT_READS: dict[tuple[str, str], tuple[frozenset[str], str]] = {
     ("classic-frozen-guard.yml", "pull_request_target"): (ALL, "fails a frozen change; a skip under its name "
         "would read as a pass"),
     ("pr-router.yml", "pull_request"): (frozenset({"body"}), "routes a body edit for the size budget's `size:` "
-        "line (its callee cmux-next-size-budget.yml); a skip after a title or base edit is unchanged since the "
-        "budget landed"),
-    ("gallery-advisory.yml", "pull_request"): (frozenset({"body"}), "reads the `Gallery:` and `Visual-change:` "
-        "lines; advisory"),
+        "line and the gallery receipt's `Gallery:` and `Visual-change:` lines (callees cmux-next-size-budget.yml, "
+        "gallery-advisory.yml; each callee's own job `if:` skips the edits it does not read); a skip after a "
+        "title or base edit is unchanged since the budget landed, and the gallery receipt is advisory"),
     ("language-boundaries.yml", "pull_request_target"): (ALL, "keeps its old edit behavior: it runs on every "
         "edit until a change carrying Leo's label gates it (only his label lets this check change)"),
     ("pr-body-checks.yml", "pull_request"): (ALL, "the description lints read the body, the perf section the "

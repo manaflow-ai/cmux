@@ -42,16 +42,11 @@ on:
       - "scripts/ci/gallery_select.py"
       - "bun.lock"
       - ".github/workflows/gallery-advisory.yml"
-  pull_request:
-    branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, edited, ready_for_review]
-    paths:
-      - "webviews/**"
-      - "scripts/gallery-matrix/**"
-      - "scripts/cmux-next/build-agent-pane-web.sh"
-      - "scripts/ci/gallery_select.py"
-      - "bun.lock"
-      - ".github/workflows/gallery-advisory.yml"
+  # A feat-cmux-next pull request starts this only through pr-router.yml (one router per push, RFD 0023):
+  # the router lists the changed files once and calls it for the paths above, less test files, which no
+  # rendered state imports (scripts/ci/pr_router.json `affects`), and on an edit of a `Gallery:` or
+  # `Visual-change:` line (the route job's `if:`; the jobs below still skip every other edit).
+  workflow_call:
 
 permissions:
   contents: read

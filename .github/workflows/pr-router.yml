@@ -28,8 +28,10 @@ jobs:
   route:
     name: pr router
     # A title or description edit routes only when a callee reads the description: the size budget's
-    # `size:` line. Every other edit skips here with no runner.
-    if: ${{ github.event.action != 'edited' || (github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:'))) }}
+    # `size:` line, the gallery receipt's `Gallery:` and `Visual-change:` lines. Every other edit skips
+    # here with no runner. Each callee's own job `if:` still skips the edits it does not read, so an edit
+    # routed for one callee starts no runner in another.
+    if: ${{ github.event.action != 'edited' || (github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:') || contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:') || contains(github.event.pull_request.body, 'isual-change:') || contains(github.event.changes.body.from, 'isual-change:'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
@@ -61,3 +63,12 @@ jobs:
     uses: ./.github/workflows/cmux-next-size-budget.yml
     permissions:
       contents: read
+
+  gallery-advisory:
+    name: gallery visual evidence (advisory)
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'gallery-advisory.yml') }}
+    uses: ./.github/workflows/gallery-advisory.yml
+    permissions:
+      contents: read
+      pull-requests: write

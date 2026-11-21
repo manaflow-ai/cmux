@@ -35,6 +35,7 @@ into one run, so only some of its jobs are held or skip drafts.
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 import unittest
@@ -75,6 +76,9 @@ NEVER_DRAFT_SKIPPED = (
     "pr-body-checks.yml",  # its pr-capture-check job
 )
 DRAFT = "!github.event.pull_request.draft"
+# Workflows pr-router.yml calls for feat-cmux-next pull requests (one router per push): their triggers live in
+# scripts/ci/pr_router.json, not in their own `on:`.
+ROUTED: dict[str, dict] = json.loads((ROOT / "scripts" / "ci" / "pr_router.json").read_text())["callees"]
 PR_EVENTS = ("pull_request", "pull_request_target")
 
 DELIVERY = re.compile(r"^(nightly.*|cmux-next-dev-daily.*|.*promote.*|release)\.ya?ml$")
@@ -144,7 +148,12 @@ def draft_violations(paths: list[Path] | None = None, listed: dict[str, tuple[st
         workflow = workflows[path]
         triggers = events(workflow)
         pr_events = [event for event in PR_EVENTS if event in triggers]
-        if not pr_events:
+        routed = ROUTED.get(name)
+        if not pr_events and routed is not None:
+            # A pr-router.yml callee: its pull request types are the router manifest's.
+            if "ready_for_review" not in routed.get("types", []):
+                failures.append(f"{name} skips drafts but its pr_router.json types do not list ready_for_review")
+        elif not pr_events:
             failures.append(f"{name} has no pull request trigger to skip drafts on")
         for event in pr_events:
             types = (triggers[event] or {}).get("types") if isinstance(triggers[event], dict) else None

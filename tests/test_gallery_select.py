@@ -325,7 +325,12 @@ class WorkflowTests(unittest.TestCase):
         workflow = yaml.safe_load(self.text)
         on = workflow.get(True) or workflow["on"]
         self.assertEqual(on["push"]["branches"], ["feat-cmux-next"])
-        self.assertEqual(on["push"]["paths"], on["pull_request"]["paths"])
+        # A pull request starts it through pr-router.yml, whose manifest keeps the same path filter.
+        import json
+        routed = json.loads((ROOT / "scripts/ci/pr_router.json").read_text())["callees"]["gallery-advisory.yml"]
+        self.assertIn("workflow_call", on)
+        self.assertNotIn("pull_request", on)
+        self.assertEqual(on["push"]["paths"], routed["paths"])
         # A PR's squash merge had its receipt on the PR; a bot push changes no UI.
         cond = self.jobs["capture"]["if"]
         self.assertIn("github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && "

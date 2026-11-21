@@ -29,6 +29,35 @@
    ],
    "affects_why": "bundle-size-pr.py check measures three inputs (scripts/cmux-next/bundle-size-budget.json pull_request): files under tree_paths (Resources, Packages/macOS/*/Sources/*/Resources, Assets.xcassets), the web bundles (inputs: web-bundle-key.py --routed, a superset here by directory), and the crates of shipped Rust binaries (Cargo manifests and lockfiles); plus the tool itself under scripts/cmux-next. A change touching none of them adds nothing to the app.",
    "skip_docs_only": true
+  },
+  "gallery-advisory.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "edited",
+    "ready_for_review"
+   ],
+   "paths": [
+    "webviews/**",
+    "scripts/gallery-matrix/**",
+    "scripts/cmux-next/build-agent-pane-web.sh",
+    "scripts/ci/gallery_select.py",
+    "bun.lock",
+    ".github/workflows/gallery-advisory.yml"
+   ],
+   "affects": [
+    "webviews/**",
+    "scripts/gallery-matrix/**",
+    "scripts/cmux-next/build-agent-pane-web.sh",
+    "scripts/ci/gallery_select.py",
+    "bun.lock",
+    ".github/workflows/gallery-advisory.yml",
+    "!webviews/**/*.test.ts",
+    "!webviews/**/*.test.tsx",
+    "!scripts/gallery-matrix/**/*.test.ts"
+   ],
+   "affects_why": "The capture renders the gallery states webviews/scripts/gallery/touched.ts reaches from the changed files: an entry's own gallery file, its covers and their relative imports (gallery frames import webviews/test helpers, so webviews/test stays), a host stylesheet, or a broad file (the gallery, build config, bun.lock, scripts/gallery-matrix). No non-test file imports a *.test.ts(x) (git grep, 2026-11-21), so a test file changes no rendered frame; touched.ts only placed it by folder and re-rendered an unchanged state. Last 300 merges: the old filter started it on 77, this on 60."
   }
  }
 }
