@@ -506,19 +506,22 @@ fn pgid(_pid: u32) -> Option<i32> {
     None
 }
 
+/// A record root's host records, each with the path it was read from.
+type LoadedRecords = anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>>;
+
 /// How the census reads and ends hosts: the real record files, leases and
 /// host sockets, or a test's.
-pub(crate) struct CensusOps<'a> {
-    pub(crate) load: &'a dyn Fn(&Path) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>>,
-    pub(crate) liveness: &'a dyn Fn(&Path, &TerminalHostRecord) -> TerminalHostLiveness,
+pub(super) struct CensusOps<'a> {
+    pub(super) load: &'a dyn Fn(&Path) -> LoadedRecords,
+    pub(super) liveness: &'a dyn Fn(&Path, &TerminalHostRecord) -> TerminalHostLiveness,
     /// Run under the session guard's coordinator: it must not wait on the
     /// host (see [`request_terminal_host_end`]).
-    pub(crate) end: &'a dyn Fn(&TerminalHostRecord, &Path) -> HostEnd,
-    pub(crate) grace: &'a dyn Fn(bool) -> Duration,
+    pub(super) end: &'a dyn Fn(&TerminalHostRecord, &Path) -> HostEnd,
+    pub(super) grace: &'a dyn Fn(bool) -> Duration,
 }
 
 impl CensusOps<'static> {
-    pub(crate) const REAL: Self = Self {
+    pub(super) const REAL: Self = Self {
         load: &crate::terminal_host_runtime::load_terminal_host_records,
         liveness: &terminal_host_record_liveness,
         end: &request_terminal_host_end,
