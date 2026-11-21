@@ -338,7 +338,7 @@ extension SessionScope {
     }
 }
 
-/// The device hub as the home page observes it (``MacScreenPages/hub`` is a plain property).
+/// The device hub as views and action reasons observe it (``MacScreenPages/hub`` reads and writes it).
 @MainActor @Observable
 final class MacScreenHubBox {
     var hub: DeviceHub?
