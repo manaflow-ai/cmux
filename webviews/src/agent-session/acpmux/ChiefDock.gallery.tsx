@@ -90,6 +90,18 @@ const controlSizeOption = (size: number, note: string) => ({
   },
 });
 
+/// The mascot's float, compared (CMUX-672: a page at rest draws no frame). `count` is the CSS iteration count; `none`
+/// leaves only the hover lift. The rest pose is the float's first frame, so a float that ends never jumps.
+const floatOption = (count: string, note: string) => ({
+  ...mascotOption("orb", note),
+  play: async (ctx: PlayContext) => {
+    const img = ctx.document.querySelector<HTMLImageElement>(".acpmux-chief-dock-mascot img");
+    if (!img) return;
+    if (count === "none") img.style.setProperty("animation", "none");
+    else img.style.setProperty("animation-iteration-count", count);
+  },
+});
+
 export default componentEntry({
   id: "agent-pane.chief-dock",
   title: "Chief Dock",
@@ -116,6 +128,16 @@ export default componentEntry({
       "Selected: 20px pack icons across the rail and card actions; clear silhouettes with room inside the glass slots.",
     ),
     "controls-large": controlSizeOption(22, "Large: 22px rail icons, more prominent than the card actions."),
+    "float-forever": floatOption(
+      "infinite",
+      "Before: the mascot floats forever, a compositor frame every refresh while nothing changes.",
+    ),
+    "float-three": floatOption(
+      "3",
+      "Selected: three floats when the dock appears (8.4 s), then it rests; paused while the page is not the key one.",
+    ),
+    "float-once": floatOption("1", "One float (2.8 s) then rest: quiet, but easy to miss."),
+    "float-none": floatOption("none", "No float: only the hover lift moves it; the dock reads as static."),
     baseline: {
       note: "The default Chief orb with a stacked set of working, attention and quiet agent chats; spawned child chats stay folded.",
       props: {
