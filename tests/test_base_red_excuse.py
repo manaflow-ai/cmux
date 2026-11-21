@@ -3066,7 +3066,12 @@ class WebShardBaseGitHub(FakeGitHub):
 
 class WebShardBaseVerdict(unittest.TestCase):
     """A ci.yml web shard is judged against the base runs of cmux-next-web.yml (BASE_WORKFLOW_FOR) when ci.yml has no
-    feat-cmux-next verdict at or after the PR's merge-base."""
+    feat-cmux-next verdict at or after the PR's merge-base. The checked-in manifest's `web` suite (cmux#48846) takes
+    the base verdict first (BatchSuiteBaseVerdict); these pin a manifest without it, the fallback BASE_WORKFLOW_FOR
+    keeps."""
+
+    def setUp(self):
+        batch_manifest(self, {"drill": BATCH_SUITES["drill"]})
 
     def judge(self, gh):
         return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
@@ -3193,9 +3198,19 @@ class WebShardBaseVerdict(unittest.TestCase):
             self.assertEqual(pr_job["uses"], pushed_job.get("uses"))
             for where, job in ((pr_file, pr_job), (base_file, pushed_job)):
                 self.assertEqual(excuse._check_matcher(job_id, job, where), {"exact": [], "prefixes": [f"{job_id} / "]})
-            # The base caller runs on pushes to the base; the PR caller does not (else its own runs would be read).
-            pushes = (pushed.get(True, pushed.get("on")) or {}).get("push") or {}
-            self.assertIn(branch, pushes.get("branches") or [])
+            # The base caller runs on pushes to the base, unless a post-merge batch suite of the checked-in manifest
+            # calls the same reusable workflow (cmux#48846's `web`): batch_check then gives the base verdict first.
+            # The PR caller never runs on base pushes (else its own runs would be read).
+            suites = json.loads((excuse.WORKFLOWS.parent / "post-merge-batch.json").read_text())["suites"]
+            batched = [key for key, suite in suites.items() if pr_job["uses"] == f"./.github/workflows/{suite['workflow']}"]
+            batch_manifest(self, suites)  # setUp pinned one without them
+            if batched:
+                self.assertEqual(excuse.base_caller(REPO, branch, {"path": f".github/workflows/{pr_file}"},
+                                                    f"{job_id} / x"),
+                                 (excuse.POST_MERGE_WORKFLOW, f"{batched[0]} / x"))
+            else:
+                pushes = (pushed.get(True, pushed.get("on")) or {}).get("push") or {}
+                self.assertIn(branch, pushes.get("branches") or [])
             pr_pushes = (pr.get(True, pr.get("on")) or {}).get("push") or {}
             self.assertNotIn(branch, pr_pushes.get("branches") or [] if isinstance(pr_pushes, dict) else [])
 
@@ -3451,6 +3466,10 @@ class WebviewTestReplayPerTest(unittest.TestCase):
     """A red webview replay (`web / react-apps-base-check (N)`) is judged per test against the base's webview runs:
     no base push runs a job of its name, so by name every one was refused as having no base verdict (cmux#34111)."""
 
+    def setUp(self):
+        # The fixtures serve cmux-next-web.yml base runs: a manifest without the `web` suite (cmux#48846).
+        batch_manifest(self, {"drill": BATCH_SUITES["drill"]})
+
     def judge(self, gh):
         return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
 
@@ -3622,6 +3641,10 @@ class CancelledWebShardPerFile(unittest.TestCase):
     """A head shard cancelled or timed out mid-run is judged per file against the base's webview runs: cmux#39676's
     `web / react-apps-check (1)` was cancelled after 31 min while every file it failed fails on feat-cmux-next too, and
     was refused as having no verdict (claude-sr2-coord, 2026-11-09)."""
+
+    def setUp(self):
+        # The fixtures serve cmux-next-web.yml base runs: a manifest without the `web` suite (cmux#48846).
+        batch_manifest(self, {"drill": BATCH_SUITES["drill"]})
 
     def gh(self, log, conclusion="cancelled"):
         gh = WebReplayGitHub()
@@ -14100,6 +14123,7 @@ class FixedOnBaseByStep(StepFixture, unittest.TestCase):
                          ({guard: "red"}, {}), ({}, {}), ({}, {}))
 
     def test_review_41104_f2_the_base_callers_workflow_gives_the_merge_bases_verdict(self):
+        batch_manifest(self, {"drill": BATCH_SUITES["drill"]})
         # ci.yml's web job runs on pull requests alone; cmux-next-web.yml calls it on base pushes (BASE_WORKFLOW_FOR).
         # The base verdict is the caller's, so the merge-base's is read from the caller's runs and named in the line.
         self.caller_only, self.head_path = True, ".github/workflows/ci.yml"
@@ -17175,6 +17199,7 @@ class CutSearchConsumers(unittest.TestCase):
                                r"retry after \d\d:\d\dZ")
 
     def test_f1_a_cut_search_of_the_base_callers_workflow_is_incomplete(self):
+        batch_manifest(self, {"drill": BATCH_SUITES["drill"]})
         # ci.yml has no feat-cmux-next verdict at all; cmux-next-web.yml's search is cut before its red run 40.
         github = WebShardBaseGitHub()
         github.base_runs = []
