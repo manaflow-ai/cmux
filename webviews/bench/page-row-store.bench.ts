@@ -25,6 +25,9 @@
  *
  *   bun bench/page-row-store.bench.ts
  *   ROUNDS=40 SAMPLES=250 bun bench/page-row-store.bench.ts
+ *
+ * The nightly's gate script runs each row alone through bench/v2-gate.ts, which imports the three
+ * measures below and prints the v2 gate home's line for each.
  */
 import { ChatRowsHost, type ChatRowsPost } from "../src/agent-session/acpmux/rows/host";
 import {
@@ -136,16 +139,21 @@ function percentile(values: number[], share: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor(share * sorted.length))]!;
 }
 
-const god = await openSide("god", 100_000);
-const small = await openSide("small", 100);
-for (let round = 0; round < ROUNDS; round += 1) {
-  const order = round % 2 === 0 ? [god, small] : [small, god];
-  for (const side of order) for (let sample = 0; sample < SAMPLES; sample += 1) take(side);
+/// One side's samples of a timed row, in ms.
+export type Timed = { ms: number[]; p50: number; p95: number };
+const timed = (ms: number[]): Timed => ({ ms, p50: percentile(ms, 0.5), p95: percentile(ms, 0.95) });
+
+/// v2.pr06.page_store_apply: the god side (100,000 rows) and the small one (100).
+export async function measureApply(): Promise<{ god: Timed; small: Timed }> {
+  const god = await openSide("god", 100_000);
+  const small = await openSide("small", 100);
+  for (let round = 0; round < ROUNDS; round += 1) {
+    const order = round % 2 === 0 ? [god, small] : [small, god];
+    for (const side of order) for (let sample = 0; sample < SAMPLES; sample += 1) take(side);
+  }
+  if (god.ms.length !== small.ms.length) throw new Error("the sides took different samples");
+  return { god: timed(god.ms), small: timed(small.ms) };
 }
-if (god.ms.length !== small.ms.length) throw new Error("the sides took different samples");
-const godP95 = percentile(god.ms, 0.95);
-const smallP95 = percentile(small.ms, 0.95);
-const applyRatio = godP95 / Math.max(smallP95, Number.EPSILON);
 
 async function pageThrough(name: string, chatRows: number) {
   let taken = 0;
@@ -186,10 +194,12 @@ async function pageThrough(name: string, chatRows: number) {
   return { chatRows, pages, ...host.store.held(name)!, peakRows: peak.rows, peakBytes: peak.bytes };
 }
 
-const heldGod = await pageThrough("god", 20_000);
-const heldSmall = await pageThrough("small", 200);
-const heldOk = heldGod.peakRows <= STORE_MAX_ROWS && heldGod.peakBytes <= STORE_MAX_BYTES;
-const applyOk = applyRatio <= LIMIT;
+export type Held = Awaited<ReturnType<typeof pageThrough>>;
+
+/// v2.pr06.page_store_held: the god store (20,000 rows paged through) and the small one (200).
+export async function measureHeld(): Promise<{ god: Held; small: Held }> {
+  return { god: await pageThrough("god", 20_000), small: await pageThrough("small", 200) };
+}
 
 // v2.pr06.page_store_text: one text op on an open row of 200 KB against one of 1 KB. The store
 // keeps each row's bytes and adds the piece's, so the op does not measure the row again.
@@ -230,16 +240,20 @@ function appendText(side: TextSide): void {
   side.ms.push(performance.now() - start);
 }
 
-const big = await openText("big", 200 * 1024);
-const little = await openText("little", 1024);
-for (let round = 0; round < ROUNDS; round += 1) {
-  const order = round % 2 === 0 ? [big, little] : [little, big];
-  for (const side of order) for (let sample = 0; sample < SAMPLES; sample += 1) appendText(side);
+/// v2.pr06.page_store_text: the open row of 200 KB (big) and the one of 1 KB (little).
+export async function measureText(): Promise<{ big: Timed; little: Timed }> {
+  const big = await openText("big", 200 * 1024);
+  const little = await openText("little", 1024);
+  for (let round = 0; round < ROUNDS; round += 1) {
+    const order = round % 2 === 0 ? [big, little] : [little, big];
+    for (const side of order) for (let sample = 0; sample < SAMPLES; sample += 1) appendText(side);
+  }
+  return { big: timed(big.ms), little: timed(little.ms) };
 }
-const bigP95 = percentile(big.ms, 0.95);
-const littleP95 = percentile(little.ms, 0.95);
-const textRatio = bigP95 / Math.max(littleP95, Number.EPSILON);
-const textOk = textRatio <= LIMIT;
+
+/// The held measure's pass: the god store at or under the cap, rows and bytes.
+export const heldUnderCap = (god: Held) => god.peakRows <= STORE_MAX_ROWS && god.peakBytes <= STORE_MAX_BYTES;
+
 // v2.frame_paced: the document's receiver (rows/receiver.ts, the path `window.cmuxChatRows`
 // takes), fed as the v2 row host feeds it: one batch of at most 64 KiB, the next only after
 // `taken`, which the host reads in a later task. Frames are a loop run here on the real clock:
@@ -268,7 +282,7 @@ function frameLoopEngine() {
   /// Main-thread ms spent in tasks so far, and the start of the one running now.
   let spent = 0;
   let runningSince: number | null = null;
-  const timed = (cb: () => void) => {
+  const runTimed = (cb: () => void) => {
     const start = performance.now();
     runningSince = start;
     cb();
@@ -297,10 +311,10 @@ function frameLoopEngine() {
     async frame() {
       const run = frames;
       frames = [];
-      for (const cb of run) timed(cb);
+      for (const cb of run) runTimed(cb);
       await Promise.resolve();
       for (let guard = 0; tasks.length && guard < 100_000; guard += 1) {
-        timed(tasks.shift()!);
+        runTimed(tasks.shift()!);
         await new Promise<void>((resolve) => setImmediate(resolve));
       }
     },
@@ -430,64 +444,77 @@ async function bigChange(samples: number) {
 
 const round4 = (value: number) => Number(value.toFixed(4));
 const PACED_BATCHES = Number(process.env.PACED_BATCHES ?? 60);
-const pacedBefore = await framePaced("before", PACED_BATCHES);
-const pacedAfter = await framePaced("after", PACED_BATCHES);
-const big256 = await bigChange(Number(process.env.BIG_SAMPLES ?? 40));
-resetChatRowsReceiver();
-console.log(
-  JSON.stringify(
-    {
-      scope: "model-only; the host client and the store, no React, DOM, WebKit or frame claim",
-      rounds: ROUNDS,
-      samplesPerSide: god.ms.length,
-      "v2.pr06.page_store_apply": {
-        godRows: 100_000,
-        smallRows: 100,
-        godP50Ms: round4(percentile(god.ms, 0.5)),
-        godP95Ms: round4(godP95),
-        smallP50Ms: round4(percentile(small.ms, 0.5)),
-        smallP95Ms: round4(smallP95),
-        ratio: Number(applyRatio.toFixed(3)),
-        limit: LIMIT,
-        pass: applyOk,
+
+async function main(): Promise<void> {
+  const { god, small } = await measureApply();
+  const applyRatio = god.p95 / Math.max(small.p95, Number.EPSILON);
+  const applyOk = applyRatio <= LIMIT;
+  const { god: heldGod, small: heldSmall } = await measureHeld();
+  const heldOk = heldUnderCap(heldGod);
+  const { big, little } = await measureText();
+  const textRatio = big.p95 / Math.max(little.p95, Number.EPSILON);
+  const textOk = textRatio <= LIMIT;
+  const pacedBefore = await framePaced("before", PACED_BATCHES);
+  const pacedAfter = await framePaced("after", PACED_BATCHES);
+  const big256 = await bigChange(Number(process.env.BIG_SAMPLES ?? 40));
+  resetChatRowsReceiver();
+  console.log(
+    JSON.stringify(
+      {
+        scope: "model-only; the host client and the store, no React, DOM, WebKit or frame claim",
+        rounds: ROUNDS,
+        samplesPerSide: god.ms.length,
+        "v2.pr06.page_store_apply": {
+          godRows: 100_000,
+          smallRows: 100,
+          godP50Ms: round4(god.p50),
+          godP95Ms: round4(god.p95),
+          smallP50Ms: round4(small.p50),
+          smallP95Ms: round4(small.p95),
+          ratio: Number(applyRatio.toFixed(3)),
+          limit: LIMIT,
+          pass: applyOk,
+        },
+        "v2.pr06.page_store_text": {
+          bigBodyBytes: 200 * 1024,
+          littleBodyBytes: 1024,
+          bigP50Ms: round4(big.p50),
+          bigP95Ms: round4(big.p95),
+          littleP50Ms: round4(little.p50),
+          littleP95Ms: round4(little.p95),
+          ratio: Number(textRatio.toFixed(3)),
+          limit: LIMIT,
+          pass: textOk,
+        },
+        "v2.pr06.page_store_held": {
+          cap: { rows: STORE_MAX_ROWS, bytes: STORE_MAX_BYTES },
+          god: heldGod,
+          small: heldSmall,
+          pass: heldOk,
+        },
+        "v2.frame_paced": {
+          scope: "the document receiver against a host that sends the next 64 KiB batch after taken; frames run here",
+          before: pacedBefore,
+          after: pacedAfter,
+          change256KiB: big256,
+        },
       },
-      "v2.pr06.page_store_text": {
-        bigBodyBytes: 200 * 1024,
-        littleBodyBytes: 1024,
-        bigP50Ms: round4(percentile(big.ms, 0.5)),
-        bigP95Ms: round4(bigP95),
-        littleP50Ms: round4(percentile(little.ms, 0.5)),
-        littleP95Ms: round4(littleP95),
-        ratio: Number(textRatio.toFixed(3)),
-        limit: LIMIT,
-        pass: textOk,
-      },
-      "v2.pr06.page_store_held": {
-        cap: { rows: STORE_MAX_ROWS, bytes: STORE_MAX_BYTES },
-        god: heldGod,
-        small: heldSmall,
-        pass: heldOk,
-      },
-      "v2.frame_paced": {
-        scope: "the document receiver against a host that sends the next 64 KiB batch after taken; frames run here",
-        before: pacedBefore,
-        after: pacedAfter,
-        change256KiB: big256,
-      },
-    },
-    null,
-    2,
-  ),
-);
-perfRow({ name: "v2.pr06.page_store_apply.god", p50: percentile(god.ms, 0.5), p95: godP95 });
-perfRow({ name: "v2.pr06.page_store_apply.small", p50: percentile(small.ms, 0.5), p95: smallP95 });
-perfRow({ name: "v2.pr06.page_store_text.big", p50: percentile(big.ms, 0.5), p95: bigP95 });
-perfRow({ name: "v2.pr06.page_store_text.little", p50: percentile(little.ms, 0.5), p95: littleP95 });
-perfRow({ name: "v2.pr06.page_store_held.rows", p95: heldGod.peakRows, unit: "rows", target: STORE_MAX_ROWS });
-perfRow({ name: "v2.pr06.page_store_held.bytes", p95: heldGod.peakBytes, unit: "bytes", target: STORE_MAX_BYTES });
-if (!applyOk || !heldOk || !textOk) {
-  console.error(
-    `page-row-store: ${applyOk ? "" : `apply ratio ${applyRatio.toFixed(3)} over ${LIMIT}; `}${textOk ? "" : `text ratio ${textRatio.toFixed(3)} over ${LIMIT}; `}${heldOk ? "" : "held over the cap"}`,
+      null,
+      2,
+    ),
   );
-  process.exit(1);
+  perfRow({ name: "v2.pr06.page_store_apply.god", p50: god.p50, p95: god.p95 });
+  perfRow({ name: "v2.pr06.page_store_apply.small", p50: small.p50, p95: small.p95 });
+  perfRow({ name: "v2.pr06.page_store_text.big", p50: big.p50, p95: big.p95 });
+  perfRow({ name: "v2.pr06.page_store_text.little", p50: little.p50, p95: little.p95 });
+  perfRow({ name: "v2.pr06.page_store_held.rows", p95: heldGod.peakRows, unit: "rows", target: STORE_MAX_ROWS });
+  perfRow({ name: "v2.pr06.page_store_held.bytes", p95: heldGod.peakBytes, unit: "bytes", target: STORE_MAX_BYTES });
+  if (!applyOk || !heldOk || !textOk) {
+    console.error(
+      `page-row-store: ${applyOk ? "" : `apply ratio ${applyRatio.toFixed(3)} over ${LIMIT}; `}${textOk ? "" : `text ratio ${textRatio.toFixed(3)} over ${LIMIT}; `}${heldOk ? "" : "held over the cap"}`,
+    );
+    process.exit(1);
+  }
 }
+
+if (import.meta.main) await main();

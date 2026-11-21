@@ -59,6 +59,14 @@ run_acpmux_test() {
   run cargo test --profile gate -p acpmux --test v2_connection "$1" -- --ignored --nocapture --test-threads=1
 }
 
+# The page's rows: webviews/bench/v2-gate.ts runs the rows whose names hold FILTER and appends the
+# home's line for each. Store-only rows run under bun; a row that needs a DOM starts a browser and
+# fails by name where none launches.
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+run_page() {
+  run bun "$repo_root/webviews/bench/v2-gate.ts" "$1"
+}
+
 # The gate lines are in v2-gates.d, one file per row of the design doc's PR table:
 # `pr03d.gates` holds the lines whose tests write `v2.pr03d.*` rows, so a PR that adds
 # a gate edits only its own row's file. A line is `GROUP FILTER` (a `#` starts a
@@ -73,6 +81,7 @@ declare -A group_runner=(
   [acpmux-lib]=run_acpmux_lib
   [tui-core-lib]=run_tui_core_lib
   [acpmux-v2-connection]=run_acpmux_test
+  [page]=run_page
 )
 declare -A group_filters=()
 
@@ -201,5 +210,26 @@ acpmux_connection_gates() {
   run_gates acpmux-v2-connection
 }
 run_group acpmux-v2-connection acpmux_connection_gates
+
+# The page group needs the bun webviews/package.json pins (scripts/check-webviews-bun-version.sh).
+# The workflow that runs this script sets it up first (cmux-next-quality-report.yml, the pinned
+# setup-bun step); the script only checks it and, where it cannot be had, fails the group with a
+# line naming it, never installing anything itself.
+page_ready() {
+  "$repo_root/scripts/check-webviews-bun-version.sh" --quiet && return 0
+  "$repo_root/scripts/check-webviews-bun-version.sh" || true
+  echo "v2 gates: no bun of the webviews pin on PATH; the page group's rows need it" >&2
+  return 1
+}
+
+# The page's rows (webviews/bench/v2-gate.ts), after the cargo groups.
+page_gates() {
+  if ! page_ready; then
+    failed=1
+    return
+  fi
+  run_gates page
+}
+run_group page page_gates
 
 exit "$failed"

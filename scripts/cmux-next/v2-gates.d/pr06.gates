@@ -1,4 +1,8 @@
 # The gates whose tests write the design doc's row 6 (`v2.pr06.*`). A line is GROUP FILTER; see run-v2-gates.sh.
 client v2_pr06_client_chat
 acpmux-lib hold_attach_gate
+# Row 6c: the page's row store (webviews/bench/v2-gate.ts), one line a row so a failure marks only its own.
+page page_store_apply
+page page_store_text
+page page_store_held
 # v2.pr06.host_chat_change has no line here: the pane host's Swift bench (AcpmuxChatRowsBench) measures it in the hosted macOS jobs.
