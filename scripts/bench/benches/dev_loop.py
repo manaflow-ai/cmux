@@ -15,13 +15,15 @@ when all four loops measured.
 from __future__ import annotations
 
 import json
+import subprocess
 import tarfile
 from pathlib import Path
 
 from benchlib.bench import Bench, BenchError, Context
 
 HARNESS = "scripts/measure/dev-loop-ceiling.sh"
-ARTIFACT = ".build/dev-loop-ceiling"
+OUT = ".build/dev-loop-ceiling"
+ARTIFACT = f"{OUT}/report.json"  # cmux-ci run --artifact takes one file
 LOOPS = "web_swap,daemon_restart,swift_inject,startup_loop"
 
 
@@ -53,12 +55,22 @@ class DevLoop(Bench):
         if ctx.args.get("import"):
             self.ingest(ctx, Path(ctx.args["import"]))
             return
-        args = [ARTIFACT, ctx.arg("rounds", "5"), ctx.arg("loops", LOOPS)]
+        args = [OUT, ctx.arg("rounds", "5"), ctx.arg("loops", LOOPS)]
         res = ctx.fleet_step(HARNESS, args, ARTIFACT, labels=tuple(ctx.arg("labels", "measure").split(",")),
-                             timeout=int(ctx.arg("timeout", "5400")))
+                             timeout=int(ctx.arg("timeout", "5400")), display=True)  # startup_loop draws a window
+        if res.artifact_path is None and res.job_id:  # an incomplete run exits 1 and still writes report.json
+            got = self.workdir_fetch(ctx, res.job_id)
+            if got:
+                res.artifact_path = got
         if res.artifact_path is None:
             raise BenchError(f"dev-loop: step {res.job_id or '?'} gave no artifact; log {res.log_path}")
         self.ingest(ctx, res.artifact_path)
+
+    @staticmethod
+    def workdir_fetch(ctx: Context, job_id: str) -> Path | None:
+        out = ctx.workdir / "report.json"
+        got = subprocess.run(["cmux-ci", "artifact", job_id, str(out), "--failed"], text=True, capture_output=True)
+        return out if got.returncode == 0 and out.exists() else None
 
     def ingest(self, ctx: Context, path: Path) -> None:
         report = json.loads(find_report(path).read_text())
