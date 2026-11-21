@@ -34,12 +34,24 @@ STRESS shape refused, a Chromium page that never ran) fails the run, --gate or n
 Per action: display frame intervals p50/p95/p99/max and missed frames (`debug.frames`), the layout's main-thread
 work per frame (`debug.motion` clock), each Core Animation commit (`debug.motion` work `ca.commit`: with Chromium
 pages it holds the resize wait of fork API 27), frames the springs moved (`moving_frames`: a pane or divider
-spring, or the strip camera: New Column moves only the camera), grids sent to the PTY owner
+spring, or the strip camera: New Column moves only the camera), frames a commit motion had a pane in flight
+(`commit_frames`: the `layout.commit` samples; 0 on a build without them), grids sent to the PTY owner
 (`debug.window_transition`) and hangs (`debug.hangs`). With --record, a second pass records each action with
 `debug.window_record` (frames/ in --out; the recording itself costs frames, so it never runs in the timed pass).
 The window action also samples its size once per display frame (`debug.motion trace_*`), reports the active
 resize's p95/max interval, missed intervals and largest geometry step, and rejects a snap, a no-op or a failed restore even without
 --gate. Run this script from the candidate checkout against both the base and candidate app for an A/B.
+
+`missed` is the probe's count of long intervals (each interval above 1.5 refreshes counts one time, however long it
+is). Beside it each action keeps `missed_refreshes` (the refreshes those intervals skipped, summed), the probe's
+`missed_at_ms`, `missed_split` (main_late, commit_late, presented_late), `main_max_ms` and `missed_frames`: each
+long interval with its cause, the refreshes it skipped and `after_action_ms` (when its frame ticked, after the
+action was sent; below 0 is the action's own frame). See `late_frames`.
+
+With --pane-motion on,off each round runs its actions one time for each arm, in the same app and layout
+(`ui.paneAnimations`, set with `debug.motion` kind): the off arm's rows and summary are named <layout>-motion-off,
+and its row `still` passes when no spring and no commit motion moved. Without the option the app's own setting
+runs one time and each row keeps its name.
 
 With --browser-engine webkit the probe page and the --pages pages are WebKit pages instead (no `debug.cef` counters
 change then; Lawrence 2026-11-05: "resize webviews (both chrome and webkit) more often").
@@ -55,7 +67,7 @@ the fork geometry posts per moving frame (posts_per_frame). A layout whose page 
 Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--browser]
        [--browser-engine chromium|webkit]
        [--actions split,close,column,zoom,window,drag,keys,scroll,idle,page] [--rounds 3] [--scrollback 5000] [--stream]
-       [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N]
+       [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N] [--pane-motion on,off]
 """
 import argparse, glob, json, math, os, pathlib, signal, subprocess, sys, tempfile, time
 
@@ -85,6 +97,9 @@ parser.add_argument("--json")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--gate", action="store_true", help="fail on the budget rows")
 parser.add_argument("--missed-budget", type=int, default=0)
+parser.add_argument("--pane-motion", default=None,
+                    help="on, off or on,off: each round runs its actions one time for each arm, in the same app and layout "
+                         "(`debug.motion` kind paneAnimations); the off arm's rows are named <layout>-motion-off")
 opts, _unknown = parser.parse_known_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
@@ -438,6 +453,112 @@ def moving_frames(samples):
     return count
 
 
+def commit_frames(samples):
+    """Display frames in which a commit motion had a pane in flight: the `layout.commit` samples above 0 (one for each
+    tick of a move). A commit motion has no layout spring, so `moving_frames` reads 0 for it. A build without the
+    sample gives 0."""
+    samples = samples if isinstance(samples, list) else []
+    return sum(1 for sample in samples
+               if isinstance(sample, dict) and sample.get("name") == "layout.commit" and (sample.get("v") or 0) > 0)
+
+
+def commit_notes(notes):
+    """The app's own notes of a commit motion while recording (each note whose text starts with `layout.commit`): the
+    act that moves, or why a change showed in one frame. A build without such a note gives an empty list."""
+    notes = notes if isinstance(notes, list) else []
+    return [note["text"] for note in notes
+            if isinstance(note, dict) and isinstance(note.get("text"), str) and note["text"].startswith("layout.commit")]
+
+
+def commit_placements(samples, notes):
+    """Each `layout.commit` note with its time in its own tick: `after_tick_ms` = the note's `t_ms` less the `t_ms` of
+    the last `clock.dt_ms` sample at or before it. The clock writes that sample at the start of a tick, and the app
+    writes the note after the tick placed the panes, so this is the placement's main-thread time in the tick that
+    shows the act. None when no tick sample is before the note. A note with no time is left out."""
+    samples = samples if isinstance(samples, list) else []
+    ticks = sorted(sample["t_ms"] for sample in samples if isinstance(sample, dict)
+                   and sample.get("name") == "clock.dt_ms" and isinstance(sample.get("t_ms"), (int, float)))
+    placed = []
+    for note in notes if isinstance(notes, list) else []:
+        if not (isinstance(note, dict) and isinstance(note.get("text"), str) and note["text"].startswith("layout.commit")
+                and isinstance(note.get("t_ms"), (int, float))):
+            continue
+        before = [t for t in ticks if t <= note["t_ms"]]
+        placed.append({"text": note["text"], "t_ms": note["t_ms"],
+                       "after_tick_ms": round(note["t_ms"] - before[-1], 1) if before else None})
+    return placed
+
+
+def layout_spans(spans):
+    """The app's measured parts of a pane change while recording: each span whose name starts with `layout.` (the
+    placement, the show and the hide loops), as {name: count, sum_ms, max_ms, max_at_ms (when the longest one
+    started, ms from the record's start)}. The span `layout` (a whole motion, to its rest) is not one of them. A
+    build without such a span gives an empty dict."""
+    parts = {}
+    for span in spans if isinstance(spans, list) else []:
+        if not (isinstance(span, dict) and str(span.get("name") or "").startswith("layout.")
+                and isinstance(span.get("ms"), (int, float))):
+            continue
+        part = parts.setdefault(span["name"], {"count": 0, "sum_ms": 0.0, "max_ms": None, "max_at_ms": None})
+        part["count"] += 1
+        part["sum_ms"] = round(part["sum_ms"] + span["ms"], 2)
+        if part["max_ms"] is None or span["ms"] > part["max_ms"]:
+            part["max_ms"], part["max_at_ms"] = span["ms"], span.get("at_ms")
+    return parts
+
+
+def late_frames(frames, action_s=None):
+    """Where the long intervals of a `debug.frames` reply are (stopped with `raw`). The probe's `missed` counts each
+    interval above 1.5 refreshes one time, however long it is. `missed_refreshes` is the refreshes that those
+    intervals skipped, summed (an interval of 6 refreshes skipped 5): from every interval when the reply has them,
+    else from the kept stamps (`missed_frames`) when the probe kept each one, else None. Each kept stamp gets
+    `refreshes` and `after_action_ms`: when its frame ticked, in ms after the action was sent (below 0: the long
+    interval began before the send and holds it, the action's own frame). `action_at_ms` is the send, in ms after the
+    probe's first frame; `action_s` and the reply's `first_frame_s` are both the uptime clock, and a send that is not
+    in the 10 s after that frame is taken as another clock: no place then."""
+    frames = frames if isinstance(frames, dict) else {}
+    refresh = frames.get("refresh_ms")
+    known = isinstance(refresh, (int, float)) and refresh > 0
+
+    def skipped(interval):
+        return max(1, round(interval / refresh) - 1)
+    first = frames.get("first_frame_s")
+    at = (action_s - first) * 1000 if isinstance(first, (int, float)) and isinstance(action_s, (int, float)) else None
+    at = round(at, 1) if at is not None and -100 <= at <= 10000 else None
+    stamps = [dict(miss) for miss in frames.get("missed_frames") or [] if isinstance(miss, dict)]
+    for miss in stamps:
+        interval, tick = miss.get("interval_ms"), miss.get("at_ms")
+        miss["refreshes"] = skipped(interval) if known and isinstance(interval, (int, float)) else None
+        miss["after_action_ms"] = round(tick - at, 1) if at is not None and isinstance(tick, (int, float)) else None
+    intervals = frames.get("intervals_ms")
+    if known and isinstance(intervals, list):
+        total = sum(skipped(dt) for dt in intervals if isinstance(dt, (int, float)) and dt > refresh * 1.5)
+    elif known and len(stamps) == (frames.get("missed") or 0):
+        total = sum(miss["refreshes"] or 0 for miss in stamps)
+    else:
+        total = None
+    return {"missed_refreshes": total, "missed_at_ms": frames.get("missed_at_ms"), "missed_split": frames.get("missed_split"),
+            "missed_frames": stamps, "main_max_ms": frames.get("main_max_ms"), "action_at_ms": at}
+
+
+def motion_arms(value):
+    """`--pane-motion`: the arms to measure, each one time, in the option's order. No option is no arm: one pass with
+    the app's own setting, and the rows keep their names. Another word than on or off raises ValueError."""
+    if value is None:
+        return []
+    arms = [arm.strip() for arm in value.split(",")]
+    if not all(arm in ("on", "off") for arm in arms) or len(set(arms)) != len(arms):
+        raise ValueError(f"--pane-motion takes on, off or on,off, not {value!r}")
+    return arms
+
+
+def set_pane_motion(on):
+    """Sets `ui.paneAnimations` in the running app (`debug.motion` kind); returns an error string or None."""
+    reply = rpc("debug.motion", {"action": "kind", "name": "paneAnimations", "value": on})
+    seen = reply.get("pane_animations") if isinstance(reply, dict) else None
+    return None if seen is on else f"pane_animations is {seen!r} after the call, not {on!r}"
+
+
 def not_applicable(step, columns):
     """Why `step` does not apply to a layout of `columns` columns (None when it does, and for STRESS: None
     columns). A drag presses the first vertical divider: a one-column layout (1x2) has none."""
@@ -498,10 +619,11 @@ def measure(label, name):
     rpc("debug.motion", {"action": "start"})
     rpc("debug.frames", {"action": "start"})
     rpc("debug.window_transition", {"action": "start"})
+    action_s = time.monotonic()  # the uptime clock, as the probe's `first_frame_s` (late_frames)
     error = perform(name)
     time.sleep(1.2)  # test harness: the springs land (rest is under 0.5 s) and the PTY owner answers
     trace = rpc("debug.window_transition", {"action": "stop"}) or {}
-    frames = rpc("debug.frames", {"action": "stop"}) or {}
+    frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
     motion = rpc("debug.motion", {"action": "stop"}) or {}
     background_cpu = bench_background.delta(background)
     window_trace = rpc("debug.motion", {"action": "trace_stop"}) if name in WINDOW_ACTIONS else None
@@ -511,12 +633,17 @@ def measure(label, name):
     # resize wait (fork API 27 resize sync) held the frame. None on builds without the probe.
     commit = (motion.get("work") or {}).get("ca.commit") if isinstance(motion, dict) else None
     moving = moving_frames(motion.get("samples")) if isinstance(motion, dict) else 0
+    committed = commit_frames(motion.get("samples")) if isinstance(motion, dict) else 0
+    late = late_frames(frames, action_s)
     hang_list = hangs.get("hangs") if isinstance(hangs, dict) else None
     result = {
         "label": label, "action": name, "error": error,
         "missed": frames.get("missed"), "frames_max_ms": frames.get("max_ms"), "frames_p99_ms": frames.get("p99_ms"),
         "frames_p50_ms": frames.get("p50_ms"), "frames_p95_ms": frames.get("p95_ms"), "frames": frames.get("frames"),
-        "refresh_ms": frames.get("refresh_ms"), "moving_frames": moving,
+        "refresh_ms": frames.get("refresh_ms"), "moving_frames": moving, "commit_frames": committed, **late,
+        "commit_notes": commit_notes(motion.get("notes")) if isinstance(motion, dict) else [],
+        "commit_placements": commit_placements(motion.get("samples"), motion.get("notes")) if isinstance(motion, dict) else [],
+        "layout_spans": layout_spans(motion.get("spans")) if isinstance(motion, dict) else {},
         "background_cpu": background_cpu,
         "layout_max_ms": work.get("max_ms"), "layout_p95_ms": work.get("p95_ms"), "layout_p50_ms": work.get("p50_ms"),
         "commit_p50_ms": (commit or {}).get("p50_ms"), "commit_p95_ms": (commit or {}).get("p95_ms"),
@@ -596,9 +723,17 @@ def measure(label, name):
                  f"{result['trk_clip_builds']} builds {result['trk_clip_hits']} hits {result['trk_clip_ms']} ms  occl {result['trk_occl_reads']}  "
                  f"posts {result['trk_posts']} ({result['posts_per_frame']}/frame) skips {result['trk_skips']}  "
                  f"catchers {result['catcher_updates']} reorders {result['reorders']}  page rAF {result['page_frames']}")
-    print(f"  {label:<22} moved {moving:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
+    where = ", ".join(f"{miss.get('interval_ms')} ms {miss.get('cause')} at {miss.get('after_action_ms')} ms after the action"
+                      for miss in late["missed_frames"][:8])
+    if result["commit_placements"] or result["layout_spans"]:
+        placed = ", ".join(f"{place['after_tick_ms']} ms" for place in result["commit_placements"][:4])
+        parts = ", ".join(f"{part} {facts['count']}x sum {facts['sum_ms']} max {facts['max_ms']} ms"
+                          for part, facts in sorted(result["layout_spans"].items()))
+        extra += f"  commit note after its tick's start [{placed}]  parts [{parts}]"
+    print(f"  {label:<22} moved {moving:>3} commit {committed:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
-          f"(refresh {result['refresh_ms']})  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "
+          f"long intervals = {late['missed_refreshes']} refreshes [{where}] (refresh {result['refresh_ms']})  "
+          f"main max {late['main_max_ms']} ms  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "
           f"commit p95 {result['commit_p95_ms']} max {result['commit_max_ms']} ms  "
           f"grids {result['grid_reports']}/{result['resizes_sent']}  hangs {result['hangs']}  "
           f"background {background_cpu['total_s']} s{' OVER LIMIT' if background_cpu['over_limit'] else ''}  err {error}{extra}", flush=True)
@@ -753,6 +888,7 @@ def cleanup():
 
 def main():
     global app, SOCKET, BENCH, MEASURED
+    arms = motion_arms(opts.pane_motion)  # another word than on or off ends the run here, before the app starts
     os.makedirs(opts.out, exist_ok=True)
     # The shared launch (bench_launch.py): its bench environment, a session check that fails at once with
     # no-gui-session, the state-folder socket, and a BENCH-LAUNCH report (crash, sample, log tail) on failure.
@@ -806,11 +942,20 @@ def main():
             # A bottom Dock over the window's lower edge, and chats the session replaced (none in STRESS).
             state.update(dock_overlap_pt=STRESS.get("dock_overlap_pt"), chat_fallbacks=STRESS.get("chat_fallbacks"))
         label = name if state["window_key"] else f"{name}-inactive"
-        conditions["layouts"][label] = state
-        print(f"  {name}: window key {state['window_key']}, frontmost {state['frontmost']} (rows named {label})", flush=True)
-        labels.append(label)
+        # One pass for each arm in each round (--pane-motion): the off arm's rows are named <label>-motion-off.
+        tags = {arm: label if arm != "off" else f"{label}-motion-off" for arm in arms or [None]}
+        for tag in tags.values():
+            conditions["layouts"][tag] = state
+        print(f"  {name}: window key {state['window_key']}, frontmost {state['frontmost']} (rows named {', '.join(tags.values())})", flush=True)
+        labels += tags.values()
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
-        for index in range(opts.rounds):
+        for index, arm in [(index, arm) for index in range(opts.rounds) for arm in tags]:
+            label = tags[arm]
+            problem = set_pane_motion(arm == "on") if arm else None
+            if problem:
+                row(f"{label} #{index}: the pane motion is {arm}", "the app took the setting", problem, False)
+                UNMEASURED.append(f"{label} #{index}: {problem}")
+                continue
             for step in sequence:
                 skip = not_applicable(step, columns if name != "stress" else None)
                 if skip:
@@ -819,21 +964,29 @@ def main():
                     continue
                 if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "window-unzoom", "page-close"):
                     focus_page()  # each pair starts on the Chromium pane
-                run = measure(f"{panes:>2}p {step} #{index}", step)
-                run.update(layout=label, panes=panes, round=index)
+                run = measure(f"{panes:>2}p {step} #{index}" + (f" {arm}" if arm else ""), step)
+                run.update(layout=label, panes=panes, round=index, pane_motion=arm)
                 report["runs"].append(run)
                 if step in WINDOW_ACTIONS and run["error"]:
                     UNMEASURED.append(f"{label} {step} #{index}: {run['error']}")
                 row(f"{label} {step} #{index}: ran", "no error", str(run["error"]), run["error"] is None)
-                if step not in STILL:
-                    row(f"{label} {step} #{index}: animated (layout springs or the strip camera moved)", "> 0 frames",
-                        str(run["moving_frames"]), (run["moving_frames"] or 0) > 0)
+                moved = f"{run['moving_frames']} spring frames, {run['commit_frames']} commit frames"
+                if step not in STILL and arm == "off":
+                    row(f"{label} {step} #{index}: still (the pane motion is off)", "0 frames", moved,
+                        not run["moving_frames"] and not run["commit_frames"])
+                elif step not in STILL:
+                    animated = (run["moving_frames"] or 0) > 0 or (run["commit_frames"] or 0) > 0
+                    row(f"{label} {step} #{index}: animated (layout springs, the strip camera or a commit motion moved)",
+                        "> 0 frames", moved + ("" if animated else f"; the app's notes: {run['commit_notes'][:4]}"), animated)
                 missed = run["missed"]
                 row(f"{label} {step} #{index}: missed frames" + ("" if opts.gate else " (info)"),
-                    f"<= {opts.missed_budget}", str(missed), missed is not None and missed <= opts.missed_budget or not opts.gate)
+                    f"<= {opts.missed_budget}", f"{missed} ({run['missed_refreshes']} refreshes)",
+                    missed is not None and missed <= opts.missed_budget or not opts.gate)
                 if opts.json:
                     json.dump(report, open(opts.json, "w"), indent=1)
                 time.sleep(0.4)  # test harness: idle between runs
+        if arms and set_pane_motion(True):
+            print(f"  {name}: the pane motion did not go back on", flush=True)
         for wanted in filter(None, opts.sample.split(",")):
             where, _, what = wanted.partition(":")
             if where == name and not not_applicable(what, columns if name != "stress" else None):
@@ -845,7 +998,8 @@ def main():
     print("\n== summary (median over rounds)")
     browser_keys = BROWSER_KEYS if opts.browser else []
     wide = max([13] + [len(step) for step in sequence])  # sidepanel-close
-    print(f"  {'panes':<5} {'action':<{wide}} {'p50':>6} {'p95':>6} {'p99':>6} {'max':>6} {'missed':>6} {'moved':>5} "
+    print(f"  {'panes':<5} {'action':<{wide}} {'p50':>6} {'p95':>6} {'p99':>6} {'max':>6} {'missed':>6} "
+          f"{'refr':>5} {'moved':>5} {'commit':>6} "
           f"{'tick95':>6} {'tickmx':>6} {'grids':>7}" + "".join(f" {h:>6}" for h in BROWSER_HEADS[:len(browser_keys)]))
     for name in labels:
         for step in sequence:
@@ -857,7 +1011,8 @@ def main():
                 values = sorted(v for v in (r.get(key) for r in runs) if v is not None)
                 return values[len(values) // 2] if values else None
             summary = {key: med(key) for key in ["frames_p50_ms", "frames_p95_ms", "frames_p99_ms", "frames_max_ms", "missed",
-                                                 "moving_frames", "layout_p95_ms", "layout_max_ms", "grid_reports",
+                                                 "missed_refreshes", "main_max_ms", "commit_frames", "moving_frames",
+                                                 "layout_p95_ms", "layout_max_ms", "grid_reports",
                                                  "resizes_sent", "commit_p95_ms", "commit_max_ms", "refresh_ms",
                                                  "window_intermediate", "window_max_step", "window_frame_p95_ms", "window_frame_max_ms",
                                                  "window_frame_missed", "window_refresh_ms"] + browser_keys}
@@ -868,7 +1023,8 @@ def main():
             grids = f"{f(summary['grid_reports'])}/{f(summary['resizes_sent'])}"
             print(f"  {name:<5} {step:<{wide}} {f(summary['frames_p50_ms']):>6} {f(summary['frames_p95_ms']):>6} "
                   f"{f(summary['frames_p99_ms']):>6} {f(summary['frames_max_ms']):>6} {f(summary['missed']):>6} "
-                  f"{f(summary['moving_frames']):>5} {f(summary['layout_p95_ms']):>6} {f(summary['layout_max_ms']):>6} "
+                  f"{f(summary['missed_refreshes']):>5} {f(summary['moving_frames']):>5} {f(summary['commit_frames']):>6} "
+                  f"{f(summary['layout_p95_ms']):>6} {f(summary['layout_max_ms']):>6} "
                   + (f"{grids:>7}" + "".join(f" {f(summary[k]):>6}" for k in browser_keys) if browser_keys else grids),
                   flush=True)
     if opts.json:
