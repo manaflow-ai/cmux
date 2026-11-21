@@ -144,16 +144,23 @@ export function CustomizeLibraryView({
       <div className="rows">
         {drawn && listing === null ? (
           <div className="row" data-library-unavailable="">
-            <span className="row-help">{readRefusal ?? t("settingsPage.customizeLibrary.unavailable")}</span>
+            <div className="row-label">
+              <span className="row-help">{readRefusal ?? t("settingsPage.customizeLibrary.unavailable")}</span>
+            </div>
           </div>
         ) : drawn && entries.length === 0 ? (
           <div className="row" data-library-empty="">
-            <span className="row-help">{t("settingsPage.customizeLibrary.empty")}</span>
+            <div className="row-label">
+              <span className="row-help">{t("settingsPage.customizeLibrary.empty")}</span>
+            </div>
           </div>
         ) : listing ? (
           <>
             <div className="row" data-library-help="">
-              <span className="row-help">{t("settingsPage.customizeLibrary.help")}</span>
+              {/* In a row label, so the line keeps to the card's left ~60% like every row's description. */}
+              <div className="row-label">
+                <span className="row-help">{t("settingsPage.customizeLibrary.help")}</span>
+              </div>
             </div>
             <LibraryList listing={listing} layout={layout} busy={busy} actions={actions} />
           </>
