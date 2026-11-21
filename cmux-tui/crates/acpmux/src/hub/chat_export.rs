@@ -104,19 +104,6 @@ pub fn markdown(bundle: &PortableBundle) -> String {
     out
 }
 
-fn text_of(value: &Value) -> String {
-    match value {
-        Value::String(s) => s.clone(),
-        Value::Array(items) => items.iter().map(text_of).collect::<Vec<_>>().join(""),
-        Value::Object(map) => map
-            .get("text")
-            .map(text_of)
-            .or_else(|| map.get("content").map(text_of))
-            .unwrap_or_default(),
-        _ => String::new(),
-    }
-}
-
 fn attachment_bytes(id: &str) -> Option<Vec<u8>> {
     if id.len() != 64 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return None;
@@ -323,14 +310,6 @@ pub fn read(path: &Path) -> Result<PortableBundle> {
     let bundle: PortableBundle = serde_json::from_str(&text).context("parse cmux chat bundle")?;
     anyhow::ensure!(bundle.schema == SCHEMA, "unsupported chat bundle schema {:?}", bundle.schema);
     Ok(bundle)
-}
-
-pub fn write(path: &Path, bundle: &PortableBundle) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(path, serde_json::to_vec_pretty(bundle)?)?;
-    Ok(())
 }
 
 fn imported_id(chat: &PortableChat) -> String {
@@ -794,6 +773,10 @@ mod tests {
             source.append(&session, &record.dir, &record.kind, record.msg);
         }
         let exported = export_value(&source, None, &json!({"all": true})).unwrap();
+        let sent: PortableBundle =
+            serde_json::from_str(exported["content"].as_str().unwrap()).unwrap();
+        assert_eq!(sent.chats.len(), 1, "source export: {sent:?}");
+        assert_eq!(sent.chats[0].turns.len(), 1, "source export: {:?}", sent.chats[0]);
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("chats.json");
         std::fs::write(&path, exported["content"].as_str().unwrap()).unwrap();
@@ -805,6 +788,8 @@ mod tests {
         let exported = export_value(&destination, None, &json!({"all": true})).unwrap();
         let bundle: PortableBundle =
             serde_json::from_str(exported["content"].as_str().unwrap()).unwrap();
+        assert_eq!(bundle.chats.len(), 1, "restored export: {bundle:?}");
+        assert_eq!(bundle.chats[0].turns.len(), 1, "restored export: {:?}", bundle.chats[0]);
         assert_eq!(bundle.chats[0].turns[0].prompt, "remember this");
         assert_eq!(bundle.chats[0].turns[0].answer, "I remember");
         assert!(markdown(&bundle).contains("remember this"));
