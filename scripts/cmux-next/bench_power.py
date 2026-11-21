@@ -703,6 +703,9 @@ IDLE_COST_PRESETS = {
     # each (a fast agent's text); 190 stored idle chats: 200 chat tabs.
     "many-chats": {"load_remote": 0, "load_local": 10, "load_streaming": 10, "load_tabs": 13, "load_seeded_open": 190,
                    "stream_chunk": 400, "settle": 60, "measure": 60},
+    # The same load with the window minimized: every page hidden to its own document.
+    "many-chats-minimized": {"load_remote": 0, "load_local": 10, "load_streaming": 10, "load_tabs": 13,
+                             "load_seeded_open": 190, "stream_chunk": 400, "settle": 60, "measure": 60, "window": "minimized"},
 }
 IDLE_COST_LABELS = tuple(IDLE_COST_PRESETS)
 # Command-line flags that name a Chromium renderer when no page map does (process_rows).
@@ -875,7 +878,7 @@ def run_loaded(args):
     counts = {"remote": args.load_remote, "local": args.load_local, "streaming": args.load_streaming,
               "tabs": args.load_tabs, "rate": args.stream_rate, "chunk": args.stream_chunk or 0,
               "seeded": load.seeded_idle_ids(args.load_sessions, args.load_closed, args.load_seeded_open or 0),
-              "show": "newtab" if label == "many-chats" else "chat"}
+              "show": "newtab" if label.startswith("many-chats") else "chat"}
     stream_s = args.settle + args.measure + 900  # the replies stream through the whole window
     try:
         # The remote machine first: it writes the chats the app's store is seeded with.
@@ -893,14 +896,14 @@ def run_loaded(args):
         time.sleep(args.settle)  # test script: let the app settle
         pages = (rpc(sock, "debug.cef_pages") or {}).get("pages")
         roles = renderer_roles(pages or [], bm.owned(pid, args.app))
-        if label == "many-chats" and args.window == "minimized":
+        if label.startswith("many-chats") and args.window == "minimized":
             # Every page hidden to its own document (the window minimized), then a settle for the change to apply.
             reached["window"] = "minimized" if not refused(app.run("minimizeWindow")) else "minimize refused"
             time.sleep(10)  # test script: the minimize and its page visibility changes settle
-        pushes_before = page_pushes(sock) if label == "many-chats" else None
+        pushes_before = page_pushes(sock) if label.startswith("many-chats") else None
         pushes_at = time.monotonic()
         time.sleep(5)  # test script: the debug read's own work ends before the window
-        hangs = HangWatch(sock).start() if label == "many-chats" else None
+        hangs = HangWatch(sock).start() if label.startswith("many-chats") else None
         result = measure_processes(pid, args.app, label, args.measure, roles, peer.pids())
         result["load"] = reached
         if hangs:
@@ -939,7 +942,7 @@ def run_loaded(args):
         print("PERF-IDLE-COST-TABLE-BEGIN")
         print("\n".join(perf_rows(result, None, result["harness"])))
         print("PERF-IDLE-COST-TABLE-END", flush=True)
-        if label == "many-chats":
+        if label.startswith("many-chats"):
             print("PERF-MANY-CHATS-TABLE-BEGIN")
             print("\n".join(row for row in perf_rows(result, None, result["harness"]) if "| app: " in row or row.startswith("| metric") or row.startswith("| ---")))
             print("PERF-MANY-CHATS-TABLE-END", flush=True)
@@ -979,7 +982,7 @@ def main():
     parser.add_argument("--relaunch-rounds", type=int, help="relaunch-reconnect: rounds per mode (3)")
     parser.add_argument("--load-streaming", type=int, help="loaded: open chats streaming a reply (3; idle-chats 0)")
     parser.add_argument("--load-tabs", type=int, help="loaded: Chromium tabs (10; idle-chats 0)")
-    parser.add_argument("--window", choices=("shown", "minimized"), default="shown",
+    parser.add_argument("--window", choices=("shown", "minimized"),
                         help="many-chats: measure with the window shown (the New Tab page) or minimized")
     parser.add_argument("--load-seeded-open", type=int,
                         help="stored idle chats (no agent process) opened as tabs, one workspace each (many-chats 196; else 0)")
