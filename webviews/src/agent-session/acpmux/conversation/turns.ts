@@ -2534,6 +2534,13 @@ export function liveTurnPlan(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined 
 /// message", until the agent writes a new one (Leo, 2026-11-05: "i like these plans too... i want us
 /// to be able to render it in ours"). Only a list with steps left carries over: a finished one is
 /// done work, folded in its own turn. A newer list, even an empty one that cleared it, ends it.
+///
+/// It carries over one message only: the list must have been written in the turn right before the
+/// person's message. A list no turn touched since (a coordinator's standing tasks under a run of
+/// other sessions' messages, or a turn that never went back to it) is stale and stays folded where
+/// it was written (Leo, 2026-11-21: "i dont think we have good enough prompting/calling/expiry
+/// maybe?", on a "From before your last message" list of a coordinator's old tasks;
+/// design/chat-plan-lifecycle.md).
 export function earlierTurnPlan(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined {
   // The latest list and the latest prompt decide it (`planRows`, `promptRows`): read back from the
   // end, the first prompt met is the latest, and the first list met ends the walk.
@@ -2542,9 +2549,14 @@ export function earlierTurnPlan(rows: readonly AcpmuxRow[]): AcpmuxRow | undefin
   if (!row) return undefined;
   const prompts = promptRows.read(rows);
   const prompt = prompts.items.at(-1);
+  const planAt = plans.from.at(-1)!;
   // No prompt after the list: nothing carries over. The running turn is another session's
   // message's, not the person's: nothing carries over either.
-  if (!prompt || prompts.from.at(-1)! < plans.from.at(-1)! || prompt.incoming) return undefined;
+  if (!prompt || prompts.from.at(-1)! < planAt || prompt.incoming) return undefined;
+  // Another prompt (the person's or another session's) came between the list and the latest one:
+  // a whole turn went by without the list, so it has expired.
+  const before = prompts.from.at(-2);
+  if (before !== undefined && before > planAt) return undefined;
   if (!row.turnEnded || !row.plan?.length || row.planCleared) return undefined;
   return row.plan.some((entry) => entry.status !== "completed") ? row : undefined;
 }
