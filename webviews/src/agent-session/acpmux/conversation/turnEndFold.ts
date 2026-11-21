@@ -118,7 +118,23 @@ export type TurnEndFold = {
   timer?: ReturnType<typeof setTimeout>;
   /// Stops the passes that follow the rows as they are placed again (the observer and listener).
   stop?: () => void;
+  /// How far (px) the fold holds the rows above their place now, waiting for the reply's last lines
+  /// (`TurnEndHold`): 0 once it lets them go, or with nothing held.
+  held?: () => number;
+  /// Reads the rows' places again now (the transcript's pass that just placed them calls it, so a
+  /// held row stays where it was drawn in the frame that pass paints).
+  place?: () => void;
 };
+
+/// The reply's last lines still to show when the turn ended (StreamReveal drains them once the
+/// stream ends). Each raises the rows above them as it lands at the followed bottom, while the fold
+/// brings those rows down to meet the folded line: played together the rows came down and went
+/// back up, two opposite moves (agent-pane.streaming-follow-motion#eased-follow: 11.7 px down, then
+/// 8.4 px up). While `holds()` (until `until`, performance.now ms) a row the fold would bring down
+/// stays where it was drawn, each line that lands takes up some of the room it would have come down
+/// into, and once the lines are in, the fold plays what is left of the move from there, on a fresh
+/// clock: the rows move one way.
+export type TurnEndHold = { holds: () => boolean; until: number };
 
 const mounted = (thread: HTMLElement) => thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]");
 
@@ -352,6 +368,8 @@ type Moving = {
   end?: number;
   covered?: string;
   crop?: string;
+  /// Held where it was drawn (`TurnEndHold`) rather than sliding.
+  held?: boolean;
 };
 
 /// Plays the fold the swap after `capture` makes, from the pass that placed the new rows. Each row
@@ -366,6 +384,7 @@ export function playTurnEnd(
   capture: TurnEndCapture,
   sessionId: string | undefined,
   scroller?: HTMLElement | null,
+  hold?: TurnEndHold,
 ): TurnEndFold | undefined {
   if (capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
   const { ms: settleMs, easing: settleEasing } = settle(thread);
@@ -378,6 +397,12 @@ export function playTurnEnd(
   const ms = settleMs;
   let easing = settleEasing;
   let grew = false;
+  // The reply's last lines still to show (`TurnEndHold`): the rows the fold would bring down stay
+  // where they were drawn until they are in. `releasing`: the next pass lets them go, on a new clock.
+  let holding = hold !== undefined && hold.holds();
+  let releasing = false;
+  /// How far the fold holds its rows above their place, as the last pass found.
+  let heldPx = 0;
   const look = turnEndLook(thread);
   const fold: TurnEndFold = { animations: new Set(), copies: new Set() };
   // The fold's clock starts with the first frame that paints it. A pass before that frame runs (the
@@ -411,6 +436,7 @@ export function playTurnEnd(
   const dropped = new Set<HTMLElement>();
   const pass = () => {
     const nodes = [...mounted(thread)];
+    heldPx = 0;
     if (gone.length > 0 && fold.copies.size === 0 && copyMoves.size === 0 && dropped.size === 0) {
       // The rows that went: each copy goes in before the rows that stay, so they draw over it.
       const below = nodes[0] ?? null;
@@ -483,14 +509,32 @@ export function playTurnEnd(
     // From where each row now starts: a move too fast for the clock's curve flattens it, in the fold's
     // first frames only. A move past what the straight line fits keeps it: the curve is already
     // as flat as it goes, and the clock never starts again for it.
-    const early = startedAt === undefined || now() - startedAt <= GROW_WINDOW_MS;
+    // A hold let go starts the clock again too: its move plays from where the rows are drawn. The
+    // lines that came took up all the room the rows would have come down into (none would be brought
+    // down from where it starts now): the hold ends here, and the rows rise from where they are held.
+    if (
+      holding &&
+      [...moving.values()].some((move) => move.held) &&
+      !nodes.some((node, index) => {
+        const before = was.get(node.dataset.rowId!);
+        return before !== undefined && startTop(node, before.top) - tops[index]! < -0.5;
+      })
+    ) {
+      holding = false;
+      releasing = true;
+    }
+    const released = releasing;
+    releasing = false;
+    const early = released || startedAt === undefined || now() - startedAt <= GROW_WINDOW_MS;
     const longest = early ? longestMove() : 0;
     const timing =
       early && !foldFits(longest, ms, easing) ? turnEndFoldTiming(longest, settleMs, settleEasing) : undefined;
-    grew = timing !== undefined && timing.easing !== easing;
+    const flatter = timing !== undefined && timing.easing !== easing;
+    grew = flatter || released;
     if (grew) {
       if (startedAt !== undefined) {
         // A frame has painted: each row and copy goes on from where it was drawn. All reads first.
+        // A held row was drawn at its start: its place at the last pass and its held translate.
         const drawn = [...moving.keys(), ...copyMoves.keys()].flatMap((node) => {
           const top = laid.get(node);
           if (top === undefined) return [];
@@ -505,8 +549,8 @@ export function playTurnEnd(
         startedAt = now();
       }
       // The clock starts again from this pass: its end moves out with it.
-      easing = timing!.easing;
-      if (fold.timer !== undefined) {
+      if (flatter) easing = timing!.easing;
+      if (fold.timer !== undefined && !holding) {
         clearTimeout(fold.timer);
         fold.timer = setTimeout(() => settleTurnEnd(thread, fold), ms + 50);
       }
@@ -523,6 +567,7 @@ export function playTurnEnd(
         last &&
         Math.abs(last.delta - next.delta) < 0.5 &&
         last.fades === next.fades &&
+        Boolean(last.held) === Boolean(next.held) &&
         Math.abs((last.clip ?? 0) - (next.clip ?? 0)) < 0.5
       )
         return;
@@ -530,8 +575,21 @@ export function playTurnEnd(
         animation.cancel();
         fold.animations.delete(animation);
       }
-      next.animations = keyframes().map((frames) => play(node, frames));
+      // A held row stays at its start for as long as the hold lasts, past the clock's length.
+      const [move, ...rest] = keyframes();
+      next.animations = [
+        next.held ? play(node, [move![0]!, move![0]!], { fill: "both" }) : play(node, move!),
+        ...rest.map((frames) => play(node, frames)),
+      ];
       store.set(node, next);
+    };
+    /// Whether a row that starts `delta` px from its place holds there (`TurnEndHold`): only a row the
+    /// fold would bring down, since the lines still to come raise it. The hold found is the most any
+    /// row is held.
+    const holds = (delta: number) => {
+      if (!holding || delta > -0.5) return false;
+      heldPx = Math.max(heldPx, -delta);
+      return true;
     };
     /// The rows that start clipped this pass: where each starts, the bottom it draws, its bottom at rest.
     const covers: { top: number; bottom: number }[] = [];
@@ -547,7 +605,7 @@ export function playTurnEnd(
         // fades in as a row the swap added does unless it plays its own entrance.
         const enters = node.matches(".acpmux-row--enter, .acpmux-row--message-enter");
         const from = starts.get(node)?.opacity ?? 0;
-        restart(node, moving, { delta: carried, fades: !enters, animations: [] }, () => [
+        restart(node, moving, { delta: carried, fades: !enters, animations: [], held: holds(carried) }, () => [
           [{ translate: `0 ${carried}px` }, { translate: "0 0" }],
           ...(enters ? [] : [[{ opacity: from }, { opacity: 1 }]]),
         ]);
@@ -583,7 +641,7 @@ export function playTurnEnd(
       if (clip >= 0.5 || node.classList.contains(`acpmux-${WORKED}`))
         covers.push({ top: from, bottom: tops[index]! + height });
       if (Math.abs(delta) < 0.5 && clip < 0.5 && !moving.has(node)) return;
-      restart(node, moving, { delta, fades: false, animations: [], clip }, () => [
+      restart(node, moving, { delta, fades: false, animations: [], clip, held: holds(delta) }, () => [
         [{ translate: `0 ${delta}px` }, { translate: "0 0" }],
         ...(clip >= 0.5 ? [[{ clipPath: clipBottom(Math.ceil(clip)) }, { clipPath: clipBottom(0) }]] : []),
       ]);
@@ -688,6 +746,8 @@ export function playTurnEnd(
     copies.forEach((copy, order) => laid.set(copy, copyTops[order]!));
   };
   pass();
+  // Nothing the fold would bring down: no hold.
+  if (heldPx === 0) holding = false;
   if (fold.animations.size === 0) {
     settleTurnEnd(thread, fold);
     return undefined;
@@ -711,12 +771,46 @@ export function playTurnEnd(
     attributeFilter: ["style", "aria-posinset"],
   });
   scroller?.addEventListener("scroll", pass, { passive: true });
+  // The hold lasts while the reply's last lines are still to show, read once a frame, and never past
+  // `until` (the reveal's own deadline). Let go, the rows play the rest of their move from where they
+  // are drawn, on a clock of their own length.
+  let holdFrame: number | undefined;
+  let holdTimer: ReturnType<typeof setTimeout> | undefined;
+  const release = () => {
+    if (holdFrame !== undefined) View?.cancelAnimationFrame(holdFrame);
+    clearTimeout(holdTimer);
+    holdFrame = holdTimer = undefined;
+    if (!holding) return;
+    holding = false;
+    releasing = true;
+    pass();
+    clearTimeout(fold.timer);
+    fold.timer = setTimeout(() => settleTurnEnd(thread, fold), ms + 50);
+  };
+  const checkHold = () => {
+    holdFrame = undefined;
+    if (!holding) return;
+    if (!hold!.holds() || heldPx === 0 || performance.now() >= hold!.until) release();
+    else holdFrame = View?.requestAnimationFrame(checkHold);
+  };
+  if (holding) {
+    holdFrame = View?.requestAnimationFrame(checkHold);
+    holdTimer = setTimeout(release, Math.max(0, hold!.until - performance.now()));
+  }
+  fold.held = () => (holding ? heldPx : 0);
+  fold.place = pass;
   fold.stop = () => {
     if (firstFrame !== undefined) View?.cancelAnimationFrame(firstFrame);
+    if (holdFrame !== undefined) View?.cancelAnimationFrame(holdFrame);
+    clearTimeout(holdTimer);
+    holding = false;
     observer?.disconnect();
     scroller?.removeEventListener("scroll", pass);
   };
-  // A hidden page suspends its animations: nothing of the fold outlasts its length.
-  fold.timer = setTimeout(() => settleTurnEnd(thread, fold), ms + 50);
+  // A hidden page suspends its animations: nothing of the fold outlasts its length (and its hold).
+  fold.timer = setTimeout(
+    () => settleTurnEnd(thread, fold),
+    ms + 50 + (holding ? Math.max(0, hold!.until - performance.now()) : 0),
+  );
   return fold;
 }
