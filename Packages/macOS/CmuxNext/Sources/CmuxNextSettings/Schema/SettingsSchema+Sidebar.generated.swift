@@ -127,6 +127,13 @@ extension SidebarSectionsSetting {
     public nonisolated static let tipsDefault = false
 }
 
+extension SidebarLookPreset {
+    /// `sidebar.look`.
+    public nonisolated static let configPath = ["sidebar", "look"]
+    public nonisolated static let fallback = "cmux"
+    public nonisolated static let values = ["cmux", "claude", "codex", "studio"]
+}
+
 extension WorkspaceColorsSetting {
     /// `workspaceColors.indicatorStyle`.
     public nonisolated static let indicatorStylePath = ["workspaceColors", "indicatorStyle"]
