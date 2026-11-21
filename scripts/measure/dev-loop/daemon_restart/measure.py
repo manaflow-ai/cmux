@@ -43,6 +43,7 @@ from safe_log import safe_print  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("rust_live", ROOT / "scripts/cmux-next/rust-live.py")
 rl = importlib.util.module_from_spec(spec)
+sys.modules["rust_live"] = rl  # its dataclasses look their module up by name
 spec.loader.exec_module(rl)
 
 BIN_FILE = "cmux-tui/crates/cmux-tui/src/bin/cmux-tui.rs"  # the daemon binary crate's root (link floor)
