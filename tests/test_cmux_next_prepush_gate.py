@@ -3562,6 +3562,73 @@ class AdvisoryGuardrailsDiagnosticsTests(unittest.TestCase):
         self.assertEqual(diagnostics, ["rule app-type failed (KeyError: x)"])
 
 
+class MergeUpstreamRunTests(unittest.TestCase):
+    """2026-11-21: a merge push's gate took 798 s on big-red (the hook's 600 s limit): gate_own's run over the range
+    the merge does not own ran every check again, whole-package dependency and surface material trees among them
+    (293 s), though only the checks the push's own run found something in are ever read from it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.gate = load_gate_tools()
+        cls.gate.load_push_range(SOURCE, SOURCE / "scripts/cmux-next")  # gate_own reads it from sys.modules
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = git_fixture_env.init_repo(Path(self.tmp.name) / "repo")
+
+    def commit(self, relative: str, text: str) -> str:
+        path = self.repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        git = ["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+               "-c", "commit.gpgsign=false"]
+        subprocess.run([*git, "add", "-A"], check=True, capture_output=True)
+        subprocess.run([*git, "commit", "-qm", relative], check=True, capture_output=True)
+        return subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+
+    def own_range(self, **fields):
+        return sys.modules[self.gate.PUSH_RANGE_MODULE].OwnRange(**fields)
+
+    def test_the_upstream_run_runs_only_the_checks_the_own_run_found(self):
+        base = self.commit(f"{PKG}/Sources/A.swift", "let a = 1\n")
+        upstream = self.commit(f"{PKG}/Sources/B.swift", "let b = 1\n")
+        head = self.commit(f"{PKG}/Sources/C.swift", "let c = 1\n")
+        found = "Sources/C.swift:1: [fake] own finding"
+        calls = []
+
+        def fake_gate(repo, b, a, only, timings, trusted_scripts=None, **kwargs):
+            calls.append((b, a, kwargs.get("checks")))
+            return [("Fake check", [found])] if (b, a) == (upstream, head) else []
+
+        own = self.own_range(head=head, base=upstream, before=((base, upstream),))
+        with unittest.mock.patch.object(self.gate, "gate", side_effect=fake_gate):
+            kept = self.gate.gate_own(self.repo, own, None, False)
+        self.assertEqual(calls, [(upstream, head, None), (base, upstream, {"Fake check"})])
+        self.assertEqual(kept, [("Fake check", [found])])
+
+    def test_a_run_that_wants_no_tree_check_builds_no_tree(self):
+        base = self.commit(f"{PKG}/Sources/A.swift", "let a = 1\n")
+        head = self.commit(f"{PKG}/Sources/A.swift", "let a = 2\n")
+
+        class Built(Exception):
+            pass
+
+        with unittest.mock.patch.object(self.gate, "build_trees", side_effect=Built):
+            self.assertEqual(self.gate.gate(self.repo, base, head, {"scanners"}, False,
+                                            checks={self.gate.RESERVED_CHECK}), [])
+            # The control: the same run with every check wanted, or a tree check wanted, builds its trees.
+            for checks in (None, {self.gate.DEPS_CHECK}):
+                with self.assertRaises(Built, msg=f"checks={checks}"):
+                    self.gate.gate(self.repo, base, head, {"scanners"}, False, checks=checks)
+
+    def test_a_push_already_on_the_remote_judges_nothing(self):
+        head = self.commit("a.txt", "a\n")
+        own = self.own_range(head=head, base=head)
+        with unittest.mock.patch.object(self.gate, "gate", side_effect=AssertionError("judged an empty range")):
+            self.assertEqual(self.gate.gate_own(self.repo, own, None, False), [])
+
+
 if __name__ == "__main__":
     # `--shard I/N`: the checks job runs this file as four pool commands (tests/unittest_shard.py).
     _shard_spec = importlib.util.spec_from_file_location("unittest_shard", Path(__file__).resolve().parent / "unittest_shard.py")

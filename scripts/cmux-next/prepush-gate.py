@@ -1484,12 +1484,18 @@ def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path) -> list[str
     own count where that is lower (a row REV deleted reads 0 and is dropped); every other line stays the installed
     one, so a raise or a new row is never taken. REV without the file changes nothing. Returns what was lowered."""
     taken: list[str] = []
+    # One `cat-file --batch` for every baseline, not a `git show` each: each git start costs 0.3 s on a big mirror, and
+    # this runs for every side of every tree a gate builds (2026-11-21: 13 s of one merge push's dependency trees).
+    try:
+        texts = git_batch.cat_file(repo, [f"{rev}:{SCRIPTS}/{name}" for name in (*RATCHET_BASELINES, *LINE_BASELINES)])
+    except git_batch.GitError as error:
+        raise SystemExit(f"prepush-gate: {error}")
     for name, (keys, count) in RATCHET_BASELINES.items():
         path = scripts_dir / name
-        own = git_batch.run(repo, ["show", f"{rev}:{SCRIPTS}/{name}"])
-        if not path.is_file() or own.returncode != 0:
+        own = texts.get(f"{rev}:{SCRIPTS}/{name}")
+        if not path.is_file() or own is None:
             continue
-        pushed = _ratchet_rows(own.stdout.decode(errors="replace"), keys, count)
+        pushed = _ratchet_rows(own.decode(errors="replace"), keys, count)
         lines, changed = [], False
         for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
             row = _ratchet_rows(line, keys, count)
@@ -1513,10 +1519,10 @@ def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path) -> list[str
             path.write_text("".join(lines), encoding="utf-8")
     for name in LINE_BASELINES:
         path = scripts_dir / name
-        own = git_batch.run(repo, ["show", f"{rev}:{SCRIPTS}/{name}"])
-        if not path.is_file() or own.returncode != 0:
+        own = texts.get(f"{rev}:{SCRIPTS}/{name}")
+        if not path.is_file() or own is None:
             continue
-        listed = set(own.stdout.decode(errors="replace").splitlines())
+        listed = set(own.decode(errors="replace").splitlines())
         installed = path.read_text(encoding="utf-8").splitlines(keepends=True)
         # A comment or blank line stays; a site line stays only while the pushed copy still lists it.
         kept = [line for line in installed if not line.strip() or line.startswith("#") or line.rstrip("\n") in listed]
@@ -2992,95 +2998,111 @@ def chrome_look(repo: Path, base: str, head: str) -> list[str]:
     return found
 
 
+AST_GREP_JOB = "ast-grep (scripts/cmux-next/lint/ast-grep-rules)"
+SWIFTFORMAT_JOB = "SwiftFormat --lint"
+RUSTFMT_JOB = "rustfmt (cmux-tui)"
+SWIFTLINT_JOB = "SwiftLint (syntax rules)"
+# Every check gate() runs in its temp trees: a run whose CHECKS names none of them builds no tree.
+TREE_CHECKS = frozenset({name for name, _cmd, _prefixes in SCANNERS} | {DEPS_CHECK, AST_GREP_JOB, SWIFTFORMAT_JOB,
+                                                                        RUSTFMT_JOB, SWIFTLINT_JOB, CRASH_RATCHET_CHECK})
+
+
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
          trusted_scripts: Path | None = None, ack_rev: str | None = None,
          restrict: set[str] | None = None, swiftformat_layer: bool = False,
-         highlights_layer: bool = False) -> list[tuple[str, list[str]]]:
+         highlights_layer: bool = False, checks: set[str] | None = None) -> list[tuple[str, list[str]]]:
     """[(check, new findings)] that head adds over base; the tree checks read only RESTRICT's files when given.
+
+    CHECKS: run only the checks of these names (gate_own's runs over the ranges a merge does not own, which only take
+    findings off the push's own run: a check that found nothing there has nothing to take off). None runs them all.
 
     SWIFTFORMAT_LAYER: run SwiftFormat (main() sets it for the local pre-push hook and a plain local run only), or
     when `--only` names swiftformat. HIGHLIGHTS_LAYER: validate the What's New highlights the push changes (set
     like SWIFTFORMAT_LAYER), or when `--only` names highlights."""
     repo = absolute(repo)
     trusted_scripts = absolute(trusted_scripts) if trusted_scripts is not None else None
+
+    def want(name: str) -> bool:
+        return checks is None or name in checks
+
     reserved: list[tuple[str, list[str]]] = []
-    if only is None or "reserved" in only:
+    if (only is None or "reserved" in only) and want(RESERVED_CHECK):
         fresh = reserved_keys(repo, base, head, trusted_scripts)
         reserved = [(RESERVED_CHECK, fresh)] if fresh else []
-    if only is None or "ui-font" in only:
+    if (only is None or "ui-font" in only) and want(UI_FONT_CHECK):
         fresh = ui_font(repo, base, head, trusted_scripts)
         reserved += [(UI_FONT_CHECK, fresh)] if fresh else []
-    if only is None or "conflicts" in only:
+    if (only is None or "conflicts" in only) and want(CONFLICT_CHECK):
         markers = conflict_markers(repo, base, head)
         if markers:
             reserved.append((CONFLICT_CHECK, markers))
     # Local only, like the highlights (CLAUDE.md: no new CI gates): CI's "Lint every workflow" step (actionlint, on
     # every pull request and every feat-cmux-next and main push) is the backstop. Here it meets a direct commit first.
-    if highlights_layer if only is None else "workflows" in only:
+    if (highlights_layer if only is None else "workflows" in only) and want(WORKFLOW_CHECK):
         broken = workflow_problems(repo, base, head, restrict)
         if broken:
             reserved.append((WORKFLOW_CHECK, broken))
     # Local only, like the workflow parse (CLAUDE.md: no new CI gates): ci-guards.yml runs the checker --advisory.
-    if (highlights_layer if only is None else "single-host-fallbacks" in only) and restrict is None:
+    if (highlights_layer if only is None else "single-host-fallbacks" in only) and restrict is None and want(FALLBACKS_CHECK):
         undeclared = single_host_fallback_problems(repo, base, head, trusted_scripts)
         if undeclared:
             reserved.append((FALLBACKS_CHECK, undeclared))
     # Local only, like SwiftFormat: CI's own --locked cargo steps stay the backstop. Not in gate_own's runs over the
     # ranges a merge does not own (RESTRICT): the check reads only the checkout, never those ranges' heads.
-    if (highlights_layer if only is None else "cargo-lock" in only) and restrict is None:
+    if (highlights_layer if only is None else "cargo-lock" in only) and restrict is None and want(CARGO_LOCK_CHECK):
         drift = cargo_lock_drift(repo, base, head, trusted_scripts)
         if drift:
             reserved.append((CARGO_LOCK_CHECK, drift))
     # Local only (CLAUDE.md: no new CI gates): git objects only, seconds, and only when a Cargo.lock changes.
-    if highlights_layer if only is None else "new-crate-versions" in only:
+    if (highlights_layer if only is None else "new-crate-versions" in only) and want(NEW_VERSIONS_CHECK):
         added = new_crate_versions(repo, base, head, trusted_scripts)
         if added:
             reserved.append((NEW_VERSIONS_CHECK, added))
     # Local only (CLAUDE.md: no new CI gates): git objects only, keys only, and only when a settings file changes. Not
     # in gate_own's runs over the ranges a merge does not own (RESTRICT): this is not a debt check, so those runs have
     # nothing to take off. A merge push's own run already compares with the merged base's exports (#43022's shape).
-    if (highlights_layer if only is None else "settings-export-keys" in only) and restrict is None:
+    if (highlights_layer if only is None else "settings-export-keys" in only) and restrict is None and want(SETTINGS_KEYS_CHECK):
         drift = settings_export_keys(repo, base, head, trusted_scripts)
         if drift:
             reserved.append((SETTINGS_KEYS_CHECK, drift))
     # Local only, like SwiftFormat (CLAUDE.md: no new CI gates).
-    if highlights_layer if only is None else "redefinitions" in only:
+    if (highlights_layer if only is None else "redefinitions" in only) and want(REDEFINITION_CHECK):
         redefined = test_redefinition_problems(repo, base, head, trusted_scripts, restrict)
         if redefined:
             reserved.append((REDEFINITION_CHECK, redefined))
     # Local only, like the workflow parse (CLAUDE.md: no new CI gates): the fast gates' --advisory pass warns.
-    if (highlights_layer if only is None else "port-drift" in only) and restrict is None:
+    if (highlights_layer if only is None else "port-drift" in only) and restrict is None and want(PORT_DRIFT_CHECK):
         drift = port_drift(repo, base, head, trusted_scripts)
         if drift:
             reserved.append((PORT_DRIFT_CHECK, drift))
     # Local only, like the workflow parse (CLAUDE.md: no new CI gates): hq's NOW names a standing difference.
-    if (highlights_layer if only is None else "main-twin" in only) and restrict is None:
+    if (highlights_layer if only is None else "main-twin" in only) and restrict is None and want(MAIN_TWIN_CHECK):
         drift = main_twin_drift(repo, base, head)
         if drift:
             reserved.append((MAIN_TWIN_CHECK, drift))
     # Local only, like the twin check (CLAUDE.md: no new CI gates).
-    if (highlights_layer if only is None else "job-bounds" in only) and restrict is None:
+    if (highlights_layer if only is None else "job-bounds" in only) and restrict is None and want(JOB_BOUNDS_CHECK):
         unbounded = job_bounds_drift(repo, base, head)
         if unbounded:
             reserved.append((JOB_BOUNDS_CHECK, unbounded))
-    if only is None or "sidebar" in only:
+    if (only is None or "sidebar" in only) and want(SIDEBAR_CHECK):
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
             reserved.append((SIDEBAR_CHECK, owner))
-    if only is None or "chrome" in only:
+    if (only is None or "chrome" in only) and want(CHROME_CHECK):
         chrome = chrome_look(repo, base, head)
         if chrome:
             reserved.append((CHROME_CHECK, chrome))
-    if only is None or "freeze" in only:
+    if (only is None or "freeze" in only) and want(FREEZE_CHECK):
         frozen = window_freezes(repo, base, head)
         if frozen:
             reserved.append((FREEZE_CHECK, frozen))
-    if only is None or "crash-allow" in only:
+    if (only is None or "crash-allow" in only) and want(CRASH_ALLOW_CHECK):
         unreviewed = crash_allow_unreviewed(repo, base, head)
         if unreviewed:
             reserved.append((CRASH_ALLOW_CHECK, unreviewed))
     # Local only, like SwiftFormat (CLAUDE.md: no new CI gates): CI's release-notary test stays the backstop.
-    if highlights_layer if only is None else "highlights" in only:
+    if (highlights_layer if only is None else "highlights" in only) and want(HIGHLIGHTS_CHECK):
         t0 = time.monotonic()
         bad = highlight_problems(repo, base, head, trusted_scripts, restrict)
         if timings:
@@ -3088,12 +3110,16 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         if bad:
             reserved.append((HIGHLIGHTS_CHECK, bad))
     # Local only, like the highlights (CLAUDE.md: no new CI gates): NOW's whats_new count is the backstop.
-    if highlights_layer if only is None else "pictures" in only:
+    if (highlights_layer if only is None else "pictures" in only) and want(PICTURES_CHECK):
         missing = picture_problems(repo, base, head, restrict)
         if missing:
             reserved.append((PICTURES_CHECK, missing))
     # The git-only checks above need no trees: a run of only those (CI's sidebar sweep) stops here.
     if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint", "rustfmt", "crash-ratchet"}:
+        return reserved
+    # So does a run whose CHECKS name no tree check: it builds no tree (on 2026-11-21 a merge push's upstream run built
+    # its dependency and surface material trees, about 13,000 and 10,000 files a side, for checks it never read).
+    if checks is not None and not checks & TREE_CHECKS:
         return reserved
     changed = sorted(set(changed_files(repo, base, head)) | set(ratchet_row_files(repo, base, head)))
     deleted = deleted_package_swift(repo, base, head) if only is None or "scanners" in only else []
@@ -3138,12 +3164,12 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             if not has_package and any("{pkg}" in c for c in cmd):
                 continue  # a main-based push: no CmuxNext package for a {pkg} scanner to judge (PKG_SCANNERS)
             runs = any(p.startswith(prefixes) for p in changed) or (name == SURFACE_MATERIALS_CHECK and materials_data)
-            if runs and (only is None or "scanners" in only):
+            if runs and (only is None or "scanners" in only) and want(name):
                 jobs[name] = ("cmd", cmd)
         if VISIBLE_ONLY_CHECK in jobs and lock.is_file():
             # The scanner runs the pinned ast-grep the layer below runs (downloaded once, sha256 checked).
             os.environ["CMUX_AST_GREP"] = str(ensure_tool(lock, "ast-grep"))
-        if (dropped or deleted) and DEPS_CHECK not in jobs and has_package:
+        if (dropped or deleted) and DEPS_CHECK not in jobs and has_package and want(DEPS_CHECK):
             jobs[DEPS_CHECK] = ("cmd", next(cmd for name, cmd, _ in SCANNERS if name == DEPS_CHECK))
         if DEPS_CHECK in jobs and (MANIFEST in changed or dropped):
             # Each side's own Swift files, so a finding both sides have still cancels out. Its own list: `sources` is
@@ -3163,21 +3189,21 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                                                              trusted_scripts, index=False)
         if not lock.is_file():
             sources, swift = [], []  # a checkout older than the pinned tools: scanners only
-        if sources and (only is None or "ast-grep" in only):
-            jobs["ast-grep (scripts/cmux-next/lint/ast-grep-rules)"] = ("fn", ast_grep, ensure_tool(lock, "ast-grep"),
+        if sources and (only is None or "ast-grep" in only) and want(AST_GREP_JOB):
+            jobs[AST_GREP_JOB] = ("fn", ast_grep, ensure_tool(lock, "ast-grep"),
                                                                        lint / "sgconfig.yml", sources)
         # Local only (lead 2026-10-27): CI and the merge-time gates (fast gates, car guards: --base/--head; pushes:
         # --commits) never refused a SwiftFormat finding, and must not start to (CLAUDE.md: no new CI gates).
-        if swift and (swiftformat_layer if only is None else "swiftformat" in only):
-            jobs["SwiftFormat --lint"] = ("fn", swiftformat, ensure_tool(lock, "swiftformat"),
+        if swift and (swiftformat_layer if only is None else "swiftformat" in only) and want(SWIFTFORMAT_JOB):
+            jobs[SWIFTFORMAT_JOB] = ("fn", swiftformat, ensure_tool(lock, "swiftformat"),
                                           lint / "swiftformat.conf", swift)
         # Local only, like SwiftFormat (lead 2026-11-05: PRs merge before CI's fmt check ends; no new CI gate).
         rust = [p for p in changed if p.startswith(RUST_SCOPE) and p.endswith(".rs")]
-        if rust and (swiftformat_layer if only is None else "rustfmt" in only):
+        if rust and (swiftformat_layer if only is None else "rustfmt" in only) and want(RUSTFMT_JOB):
             rust_root = rust_workspace_root(repo, head, absolute(Path(tmp)))
-            jobs["rustfmt (cmux-tui)"] = ("fn", rustfmt, rust_root, rust_root / RUST_SCOPE / "rustfmt.toml", rust)
-        if swift and (only is None or "swiftlint" in only):
-            jobs["SwiftLint (syntax rules)"] = ("fn", swiftlint, ensure_tool(lock, "swiftlint"),
+            jobs[RUSTFMT_JOB] = ("fn", rustfmt, rust_root, rust_root / RUST_SCOPE / "rustfmt.toml", rust)
+        if swift and (only is None or "swiftlint" in only) and want(SWIFTLINT_JOB):
+            jobs[SWIFTLINT_JOB] = ("fn", swiftlint, ensure_tool(lock, "swiftlint"),
                                                 lint / "swiftlint.yml", swift)
 
         def side(job, tree):
@@ -3192,7 +3218,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             return code, out, time.monotonic() - t0
 
         crates = [p for p in changed if p.startswith(RUST_CRATES) and p.endswith(".rs")]
-        crash_layer = bool(crates) and (highlights_layer if only is None else "crash-ratchet" in only)
+        crash_layer = (bool(crates) and (highlights_layer if only is None else "crash-ratchet" in only)
+                       and want(CRASH_RATCHET_CHECK))
         with concurrent.futures.ThreadPoolExecutor(max_workers=side_workers()) as pool:
             futures = {(name, i): pool.submit(side, job, tree)
                        for name, job in jobs.items()
@@ -3310,6 +3337,8 @@ def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
     taken off and refuses (fails closed). A record without a file location in a check that also printed located
     ones describes them (`check-crash-safety: 1 violation(s)`): it is kept only when one of that check's located
     findings is."""
+    if own.base == own.head:
+        return []  # every pushed commit is already on the remote: the push adds nothing to judge
     found = gate(repo, own.base, own.head, only, timings, trusted_scripts, swiftformat_layer=swiftformat_layer,
                  highlights_layer=highlights_layer)
     if not own.before or not found:
@@ -3319,8 +3348,11 @@ def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
     # workflow layers read nothing, subtracted nothing, and blamed the push for upstream's debt (#41818 review, F1).
     changed = {p for p in git(repo, "diff", "--name-only", "--no-renames", "-z", own.base, own.head)
                .decode("utf-8", "surrogateescape").split("\0") if p}
+    # Only the checks the own run found something in (CHECKS): no other check's findings are read below, and on
+    # 2026-11-21 the upstream run's other checks (whole-package trees among them) cost 293 s of a 798 s merge push.
+    wanted = {name for name, _ in found}
     before = [dict(gate(repo, b, a, only, timings, trusted_scripts, restrict=changed, swiftformat_layer=swiftformat_layer,
-                        highlights_layer=highlights_layer))
+                        highlights_layer=highlights_layer, checks=wanted))
               for b, a in own.before]
     push_range = sys.modules[PUSH_RANGE_MODULE]
     kept = []
