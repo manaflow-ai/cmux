@@ -51,11 +51,23 @@ import Testing
         var commitSurfaces: [any PaneCommitSurface] { [inner] }
     }
 
+    /// Pane content with a header of its own, as a pane with a tab row has: the pane's clip has no round corners
+    /// then, and the content rounds its own area.
+    final class Headed: Content, PaneContentChrome {
+        let paneHeaderHeight: CGFloat = 28
+        var onPaneHeaderHeightChange: (() -> Void)?
+        private(set) var radius: CGFloat = 0
+
+        func setPaneContentCornerRadius(_ radius: CGFloat) { self.radius = radius }
+    }
+
     final class Panes: LayoutPaneContentProvider {
         /// Every pane's content is of the kind that kept one size while its pane moved on a layout spring.
         let holds: Bool
         /// Every pane's content is a ``Surface``; with `hosted`, a ``Hosting`` with one inside.
         let surfaces: Bool, hosted: Bool
+        /// Every pane's content is a ``Headed``.
+        let headed: Bool
         private(set) var contents: [PaneID: Content] = [:]
         /// The panes whose content the layout released, in order.
         private(set) var released: [PaneID] = []
@@ -63,14 +75,15 @@ import Testing
         /// released, and again the ones a close gave back.
         private(set) var shown: Set<PaneID> = []
 
-        init(holds: Bool, surfaces: Bool, hosted: Bool) {
+        init(holds: Bool, surfaces: Bool, hosted: Bool, headed: Bool = false) {
             self.holds = holds
             self.surfaces = surfaces
             self.hosted = hosted
+            self.headed = headed
         }
 
         func makeContentView(for pane: PaneID) -> NSView {
-            let view: Content = hosted ? Hosting() : surfaces ? Surface() : Content()
+            let view: Content = hosted ? Hosting() : surfaces ? Surface() : headed ? Headed() : Content()
             view.wantsLayer = true
             if let hosting = view as? Hosting {
                 hosting.inner.autoresizingMask = [.width, .height]
@@ -102,9 +115,9 @@ import Testing
         let window: NSWindow
 
         /// `configure`: sets the model up before the view reads it.
-        init(_ screens: [LayoutScreen], focused: PaneID, holds: Bool, surfaces: Bool = false, hosted: Bool = false,
+        init(_ screens: [LayoutScreen], focused: PaneID, holds: Bool, surfaces: Bool = false, hosted: Bool = false, headed: Bool = false,
              configure: (LayoutModel) -> Void = { _ in }) {
-            provider = Panes(holds: holds, surfaces: surfaces, hosted: hosted)
+            provider = Panes(holds: holds, surfaces: surfaces, hosted: hosted, headed: headed)
             model = LayoutModel(screens: screens, activeScreenID: "s", focusedPane: focused)
             configure(model)
             root = LayoutRootView(model: model, contentProvider: provider)

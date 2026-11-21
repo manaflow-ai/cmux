@@ -318,6 +318,22 @@ final class LayoutViewContext {
         return hid
     }
 
+    /// The panes that a zoom of `screen` covers and keeps for the unzoom (`Retirement.zoom`). The zoom's move shows
+    /// them until the zoomed pane covers them, and the unzoom shows them again in its first frame. So the layout
+    /// reports them as kept, not as hidden (`ScreenContentView.keepAlivePanes()`): reported hidden, their content
+    /// could go at the zoom's first frame and come back late at the unzoom.
+    func zoomCovered(of screen: ScreenID) -> [PaneID] {
+        retired.compactMap { $0.value.screen == screen && $0.value.until == .zoom ? $0.key : nil }
+    }
+
+    /// Tells the app each pane whose presence changed, in the order of `changes`. The app's work for them is one
+    /// span of the motion trace (`PaneZoomDim.ActSpan.report`).
+    func report(_ changes: [(PaneID, PanePresence)]) {
+        if MotionTrace.isEnabled { MotionTrace.begin(PaneZoomDim.ActSpan.report.rawValue) }
+        for (pane, presence) in changes { provider?.panePresenceDidChange(pane, presence: presence) }
+        if MotionTrace.isEnabled { MotionTrace.end(PaneZoomDim.ActSpan.report.rawValue) }
+    }
+
     /// The presentation that shows an unzoom placed its panes: each host of `panes` that `screen` holds hidden shows
     /// (the panes that the zoom covered come back). Returns whether any did.
     func showReturning(_ panes: [PaneID], on screen: NSView) -> Bool {

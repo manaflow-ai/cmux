@@ -73,15 +73,31 @@ final class PaneZoomDimView: NSView {
     }
 
     /// The dim comes, on the pane veil's fade: from nothing to its full strength, or, `continuing` a dim that was
-    /// going, from the strength it shows.
-    func fadeIn(continuing: Bool) {
-        Motion.panes.set(dim, "opacity", to: Float(amount), fade: .paneDim, from: continuing ? nil : Float(0))
+    /// going, from the strength it shows. `veil`: the strength of the veil that the panes under the dim showed until
+    /// this frame and show no more. The dim then starts with that strength (over the strength it shows, if it
+    /// continues) and ends at its full strength as before, or at its start if that is stronger, so no pane under it
+    /// is brighter in a frame than it was before. With no veil nothing changes.
+    func fadeIn(continuing: Bool, over veil: CGFloat = 0) {
+        guard veil > 0 else {
+            Motion.panes.set(dim, "opacity", to: Float(amount), fade: .paneDim, from: continuing ? nil : Float(0))
+            return
+        }
+        let shown = continuing ? CGFloat(dim.presentation()?.opacity ?? dim.opacity) : 0
+        let start = 1 - (1 - veil) * (1 - shown)
+        Motion.panes.set(dim, "opacity", to: Float(max(amount, start)), fade: .paneDim, from: Float(start))
     }
 
     /// The dim goes, on the pane veil's fade: from its full strength to nothing, or, `continuing` a dim that came
-    /// with a zoom, from the strength it shows.
-    func fadeOut(continuing: Bool) {
-        Motion.panes.set(dim, "opacity", to: Float(0), fade: .paneDim, from: continuing ? nil : Float(amount))
+    /// with a zoom, from the strength it shows. `limit`: the seconds that the move of the pane that closes has left;
+    /// the fade takes no longer, so the dim and the move end in one frame. Nil: no pane moves.
+    ///
+    /// The layer's own value stays the strength that the fade starts from; the fade ends at nothing and holds it
+    /// (`MotionGate.fadeAway`), and the view leaves when the dim's time is over (``PaneZoomDim/step(_:)``). A layer
+    /// whose fade does not run then shows the dim for that time and loses it in one step, where a layer with the
+    /// value 0 would show no dim at all over the panes that an unzoom brings back.
+    func fadeOut(continuing: Bool, atMost limit: TimeInterval? = nil) {
+        let start = continuing ? (dim.presentation()?.opacity ?? dim.opacity) : Float(amount)
+        Motion.panes.fadeAway(dim, "opacity", from: start, to: Float(0), fade: .paneDim, atMost: limit)
     }
 
     override func viewDidChangeEffectiveAppearance() {

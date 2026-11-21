@@ -22,9 +22,9 @@ extension ScreenContentView {
     /// `[fx, fy, fwidth, fheight]` (window points, top-left origin), the content view's size
     /// `[cwidth, cheight]`, and `header`, the share of the content's header (its tab strip)
     /// that shows (1: all of it; 0 without a header), then the content view in the window
-    /// `[cx, cy, cwidth, cheight]`. `late`: each pane that shows its ground because a producer in it was not ready when
-    /// its layout change showed (`PaneHostView.showsLateGround`), as `[pane, x, y, width, height, alpha, z]`; a pane in
-    /// it is in `panes` too.
+    /// `[cx, cy, cwidth, cheight]`, then where the pane IS in this sample, `[px, py, pwidth, pheight]` (`PaneHostView.shownNow`).
+    /// `late`: each pane that shows its ground because a producer in it was not ready when its layout change showed
+    /// (`PaneHostView.showsLateGround`), as `[pane, x, y, width, height, alpha, z]`; a pane in it is in `panes` too.
     static func motionSample(_ view: NSView) -> [String: [Any]]? {
         guard let screen = view as? ScreenContentView else { return nil }
         guard let window = screen.window, !screen.isHiddenOrHasHiddenAncestor else { return [:] }
@@ -48,7 +48,7 @@ extension ScreenContentView {
                     ? Double(shownHeader.width * shownHeader.height / (header.width * header.height)) : 0
                 let laidOut = topLeft(host.frame, in: screen) + [Double(host.content.frame.width), Double(host.content.frame.height), (headerShare * 1000).rounded() / 1000]
                     + topLeft(host.content.bounds, in: host.content)
-                panes.append(row + laidOut.map { $0 as Any })
+                panes.append(row + (laidOut + topLeft(host.shownNow, in: screen)).map { $0 as Any })
             } else if let divider = subview as? DividerHandleView, !divider.isHidden {
                 let row: [Any] = [divider.kind.mouseAreaID as Any] + topLeft(divider.frame, in: screen).map { $0 as Any } + [Double(divider.alphaValue) as Any, index as Any]
                 dividers.append(row)

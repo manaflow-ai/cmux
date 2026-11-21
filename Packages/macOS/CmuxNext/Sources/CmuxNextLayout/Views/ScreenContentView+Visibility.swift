@@ -89,11 +89,11 @@ extension ScreenContentView {
 
     /// Panes whose displayed frame lies within one viewport width of the
     /// viewport on either side (architecture.md 4): visible panes plus the
-    /// off-screen columns a short scroll brings in. Their content stays
-    /// alive, paused, so scrolling back shows it at once.
+    /// off-screen columns a short scroll brings in, and the panes that a zoom of this screen covers
+    /// (`LayoutViewContext.zoomCovered(of:)`). Their content stays alive, paused, so it shows at once.
     func keepAlivePanes() -> Set<PaneID> {
         KeepAliveBand.panes(displayed: paneFrames.reduce(into: [:]) { $0[$1.key] = displayedRect($1.value.rect, pane: $1.key) },
-                            viewport: bounds)
+                            viewport: bounds).union(context.zoomCovered(of: screenID))
     }
 
     /// The pane under `localPoint`: a docked column's pane above the strip.

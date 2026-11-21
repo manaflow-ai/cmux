@@ -16,9 +16,35 @@ extension PaneCommitMotion {
         if size != .zero { add("bounds.size", from: NSValue(size: size), to: NSValue(size: .zero), on: layer, token) }
     }
 
-    /// Adds one animation of this motion to `layer`; ``finish()`` takes it away.
-    func add(_ keyPath: String, from: NSValue, to: NSValue, on layer: CALayer, _ token: MotionSpring) {
+    /// Adds the move of one pane's host, and its twin on the pane's copy of the window's picture: the copy is a layer
+    /// of the host, or of the host's clip, which is at one place in the host. So it gets the inverse of the move of
+    /// the host's origin, with the same spring in the same transaction. The two cancel at each time, and the copy
+    /// stays where the window has the picture (`PaneCommitMotion+Sheet`). The host's size change moves its origin
+    /// by nothing: `move` puts the size's part of the anchor into the position.
+    func move(_ change: Change, _ token: MotionSpring) {
+        guard let layer = change.host.layer else { return }
+        move(layer, token, origin: change.origin, size: change.size)
+        guard let copy = sheets.first(where: { $0.host === change.host })?.picture else { return }
+        move(copy, token, origin: CGPoint(x: -change.origin.x, y: -change.origin.y), size: .zero)
+    }
+
+    /// The spring of `token` at this motion's speed: the app's setting, or ``speed``.
+    func spring(_ token: MotionSpring) -> SpringParameters {
+        var policy = Motion.panes.policy
+        if let speed { policy.speed = speed }
+        return policy.spring(token)
+    }
+
+    /// Adds one animation of this motion to `layer`; ``finish()`` takes it away. `holds`: it stays at its end until then.
+    func add(_ keyPath: String, from: NSValue, to: NSValue, on layer: CALayer, _ token: MotionSpring, holds: Bool = false) {
         let animation = Motion.panes.springAnimation(token, keyPath, from: from, to: to)
+        if holds { (animation.fillMode, animation.isRemovedOnCompletion) = (.forwards, false) }
+        if speed != nil {
+            let spring = self.spring(token)
+            animation.stiffness = spring.stiffness
+            animation.damping = spring.damping
+            animation.duration = spring.settlingTime(within: Self.rest)
+        }
         animation.isAdditive = true
         let key = "pane.commit.\(serial).\(keyPath)"
         layer.add(animation, forKey: key)
@@ -63,22 +89,39 @@ extension PaneCommitMotion {
     /// the panes that take their room grow over them. Their rings hide now. ``finish()`` gives each layer its
     /// `zPosition` back, and hides the panes. A pane that a later change took back into the layout gets it back here:
     /// until then it shows no ring (`PaneHostView.hidesRing`), also in the turn of the key that took it back.
+    /// A pane that a later act takes out was over the panes that the move kept before: those go one step lower, so
+    /// it stays over them, whatever the order of the screen's views.
     func keepUnder(_ hosts: [PaneHostView]) {
         under.removeAll { entry in
             guard !entry.host.isLeaving else { return false }
             entry.host.layer?.zPosition = entry.z
             return true
         }
-        for host in hosts {
-            host.chrome.isHidden = true
-            guard let layer = host.layer, !under.contains(where: { $0.host === host }) else { continue }
+        let new = hosts.filter { host in host.layer != nil && !under.contains { $0.host === host } }
+        if !new.isEmpty { for entry in under { entry.host.layer?.zPosition -= 1 } }
+        for host in hosts { host.chrome.isHidden = true }
+        for host in new {
+            guard let layer = host.layer else { continue }
             under.append((host: host, z: layer.zPosition))
             layer.zPosition = Self.underZ
         }
     }
 
-    /// The `zPosition` of a pane host's layer while a move keeps the pane under the others.
+    /// The `zPosition` of a pane host's layer while a move keeps the pane under the others, or a lower one: a pane
+    /// that the move kept before another is under that one.
     static let underZ: CGFloat = -1
+
+    /// Whether `host` is in front of no pane in what its screen shows, whatever its place in the order of the
+    /// screen's views (``keepUnder(_:)`` changes only a layer's `zPosition`). `unshown`: a change of the screen waits
+    /// for the pass that shows it.
+    /// A pane that left the layout is in front of no pane from the pass that shows its change: it hides in that pass,
+    /// or the move keeps it under each pane to its end. Before that pass the screen shows the layout before the
+    /// change, and the pane covers what it covered. A pane that the move keeps under, and that a later change took
+    /// back, stays under until the pass that shows that change: from that pass it is in front again.
+    func isUnderEachPane(_ host: PaneHostView, unshown: Bool) -> Bool {
+        let kept = under.contains { $0.host === host }
+        return host.isLeaving ? kept || !unshown : kept && unshown
+    }
 
     /// A pane's ring (its border, focus ring and dim, in the layout's overlay plane) gets the pane's move, and each
     /// of its layers the change of size.
@@ -112,5 +155,5 @@ extension PaneHostView {
     /// Whether this pane's ring is hidden: the host is hidden, or a move keeps it shown under the other panes
     /// (``PaneCommitMotion/keepUnder(_:)``). A pane that a second key takes back into the layout while a zoom's pane
     /// still moves over it gets its ring in the pass that shows that key's change, not in the key's turn.
-    var hidesRing: Bool { isHidden || layer?.zPosition == PaneCommitMotion.underZ }
+    var hidesRing: Bool { isHidden || (layer?.zPosition ?? 0) <= PaneCommitMotion.underZ }
 }

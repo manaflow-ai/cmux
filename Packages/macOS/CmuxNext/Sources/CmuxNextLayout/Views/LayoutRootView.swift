@@ -659,9 +659,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         let focused = reads.focusedPane
         let order = Dictionary((reads.activeScreen?.panes ?? []).enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         func place(_ pane: PaneID) -> (Int, Int, String) { (pane == focused ? 0 : 1, order[pane] ?? .max, pane.rawValue) }
-        for (pane, presence) in changes.sorted(by: { $0.1.rank != $1.1.rank ? $0.1.rank < $1.1.rank : place($0.0) < place($1.0) }) {
-            context.provider?.panePresenceDidChange(pane, presence: presence)
-        }
+        context.report(changes.sorted(by: { $0.1.rank != $1.1.rank ? $0.1.rank < $1.1.rank : place($0.0) < place($1.0) }))
     }
 
     // MARK: Layout and window

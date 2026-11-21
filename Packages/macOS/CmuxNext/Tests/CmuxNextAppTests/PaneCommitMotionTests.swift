@@ -36,11 +36,11 @@ import Testing
     }
 
     /// Each time is where the act's spring animation ends, with 0.2 percent of its way left: the motion's frame count
-    /// ends there too. A split's 0.115 s, a close's 0.086 s and a zoom's 0.27 s; for the eye (0.5 percent left) they are
-    /// 0.10 s, 0.08 s and 0.24 s.
+    /// ends there too. A split's 0.115 s, a close's 0.086 s and a zoom's 0.128 s; for the eye (0.5 percent left) they are
+    /// 0.10 s, 0.08 s and 0.11 s.
     nonisolated static let split = Act(name: "split right", time: 0.115)
     nonisolated static let close = Act(name: "close", time: 0.086)
-    nonisolated static let zoom = Act(name: "zoom", time: 0.27)
+    nonisolated static let zoom = Act(name: "zoom", time: 0.128)
     nonisolated static let acts = [split, Act(name: "split down", time: 0.115), close, zoom]
 
     /// From here on a split, a close and a zoom of `harness` move their panes: the pane animations are on, and the
@@ -63,10 +63,14 @@ import Testing
 
         var moves: Bool { !animations.isEmpty }
 
-        /// The layer's frame when each of its animations is at `part` of its way (0: the start, 1: the end).
+        /// The layer's frame when each of its animations is at `part` of its way (0: the start, 1: the end). The math
+        /// is on each rect's own origin and size: the moves of one act alone can give a size below 0 (a zoom's move
+        /// read on the small cell that its pane has after an unzoom), and `minX` and `width` of such a rect give the
+        /// rect's standard form, not its numbers.
         func rect(at part: CGFloat) -> CGRect {
-            CGRect(x: start.minX + (end.minX - start.minX) * part, y: start.minY + (end.minY - start.minY) * part,
-                   width: start.width + (end.width - start.width) * part, height: start.height + (end.height - start.height) * part)
+            CGRect(x: start.origin.x + (end.origin.x - start.origin.x) * part, y: start.origin.y + (end.origin.y - start.origin.y) * part,
+                   width: start.size.width + (end.size.width - start.size.width) * part,
+                   height: start.size.height + (end.size.height - start.size.height) * part)
         }
     }
 
