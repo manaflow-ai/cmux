@@ -1702,6 +1702,17 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::F
     for k in crate::config::inherited_caller_scoped_keys() {
         cmd.env_remove(k);
     }
+    // Nor its starter's session marks: a daemon a chat's shell started carried that chat's id and
+    // host nonce, and so did everything it started for other sessions, which made them read as
+    // that chat's (`acpmux process owner`, `cli/process_owner.rs`).
+    for k in [
+        "ACPMUX_SESSION_ID",
+        "ACPMUX_SESSION_NAME",
+        crate::agent_host::HOST_MARK,
+        crate::bg_run::TASK_MARK,
+    ] {
+        cmd.env_remove(k);
+    }
     // The daemon must use this client's state directory and socket, including a host
     // override that its own environment would not reproduce, absolute: it changes into
     // its home before it binds (`login_placement::daemon_env`).

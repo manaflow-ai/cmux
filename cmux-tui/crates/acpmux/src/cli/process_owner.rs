@@ -39,6 +39,9 @@ const SESSION_NAME: &str = "ACPMUX_SESSION_NAME";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
+    /// acpmux itself: its daemon, an agent host, a task runner. Never ended by pid: each has its
+    /// own stop (`daemon restart`, `session stop`, `process kill SESSION/TASK`).
+    Acpmux,
     Yours,
     Task,
     Live,
@@ -50,6 +53,7 @@ pub enum Verdict {
 impl Verdict {
     pub fn word(self) -> &'static str {
         match self {
+            Verdict::Acpmux => "acpmux",
             Verdict::Yours => "yours",
             Verdict::Task => "task",
             Verdict::Live => "live",
@@ -114,7 +118,12 @@ pub fn judge(
     if marks.task_mark.is_some() {
         return match runner {
             Some(Liveness::Live) => Verdict::Task,
-            Some(Liveness::Dead) => judge_host(host),
+            // Its runner is gone: with no host nonce nothing else ends it (a task's process runs
+            // with the daemon's environment and the task's mark only).
+            Some(Liveness::Dead) => match host {
+                None => Verdict::LeftBehind,
+                Some(_) => judge_host(host),
+            },
             _ => Verdict::Unknown,
         };
     }
@@ -132,25 +141,19 @@ fn judge_host(host: Option<Liveness>) -> Verdict {
     }
 }
 
-/// The runner of the task marked `<runner pid>-<start ms>`: live while that pid runs and
-/// started at that time (to the second; a reused pid starts later).
+/// The runner of the task marked `<runner pid>-<start ms>`: live while that pid runs as an
+/// `acpmux __bg-run` (the runner sets the mark only on its child, so it is known by its argv).
+/// The mark's start is not compared: a pid reused by another runner reads live, which only
+/// refuses an end, never allows one.
 fn runner_liveness(mark: &str, table: &[tree::Started]) -> Liveness {
     let Some((pid, _)) = mark.split_once('-') else { return Liveness::Unknown };
     let Ok(pid) = pid.parse::<u32>() else { return Liveness::Unknown };
     match table.iter().find(|p| p.pid == pid) {
-        // The runner's own environment carries the same mark (it set it for the task, and
-        // `ps` start time alone cannot be compared with ms): a reused pid has none.
-        Some(p) => match tree::environ(p.pid) {
-            Some(env) if Marks::from_env(&env).task_mark.as_deref() == Some(mark) => Liveness::Live,
-            Some(_) => runner_by_argv(p.pid),
-            None => Liveness::Unknown,
-        },
+        Some(p) => runner_by_argv(p.pid),
         None => Liveness::Dead,
     }
 }
 
-/// A runner that did not set the mark in its own environment is known by its argv
-/// (`acpmux __bg-run`).
 fn runner_by_argv(pid: u32) -> Liveness {
     match tree::argv(pid) {
         Some(argv) if argv.iter().any(|a| a == crate::bg_run::RUN_ARG) => Liveness::Live,
@@ -168,7 +171,11 @@ fn host_liveness(session: Option<&str>, nonce: &str) -> Liveness {
     let Some(session) = session else { return Liveness::Unknown };
     let hosts = agent_host::hosts_dir();
     let mut dirs: Vec<PathBuf> = vec![agent_host::pool_dir(&hosts), hosts.clone()];
-    let record = read_record(&hosts, session);
+    let record = match read_record(&hosts, session) {
+        Record::Unreadable => return Liveness::Unknown,
+        Record::Missing => None,
+        Record::Read(nonce, socket) => Some((nonce, socket)),
+    };
     if let Some(dir) =
         record.as_ref().and_then(|(_, socket)| socket.parent().map(Path::to_path_buf))
         && !dirs.contains(&dir)
@@ -192,13 +199,41 @@ fn host_liveness(session: Option<&str>, nonce: &str) -> Liveness {
     out
 }
 
+enum Record {
+    Missing,
+    /// There but not readable: its socket's folder, where a lock may be, is not known.
+    Unreadable,
+    Read(String, PathBuf),
+}
+
 /// The session's host record: its current start nonce and socket.
-fn read_record(hosts: &Path, session: &str) -> Option<(String, PathBuf)> {
-    let text = std::fs::read_to_string(agent_host::record_path(hosts, session)).ok()?;
-    let v: Value = serde_json::from_str(&text).ok()?;
-    let nonce = v.get("start_nonce")?.as_str()?.to_owned();
-    let socket = PathBuf::from(v.get("socket").and_then(Value::as_str).unwrap_or(""));
-    Some((nonce, socket))
+fn read_record(hosts: &Path, session: &str) -> Record {
+    let text = match std::fs::read_to_string(agent_host::record_path(hosts, session)) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Record::Missing,
+        Err(_) => return Record::Unreadable,
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&text) else { return Record::Unreadable };
+    let Some(nonce) = v.get("start_nonce").and_then(Value::as_str) else {
+        return Record::Unreadable;
+    };
+    match v.get("socket").and_then(Value::as_str) {
+        Some(socket) => Record::Read(nonce.to_owned(), PathBuf::from(socket)),
+        None => Record::Unreadable,
+    }
+}
+
+/// Whether `argv` is acpmux's own: its daemon (`daemon run`), an agent host, a task runner or
+/// the Bash hook.
+pub fn is_acpmux_own(argv: &[String]) -> bool {
+    let own = [agent_host::HOST_ARG, crate::bg_run::RUN_ARG, crate::bg_hook::HOOK_ARG];
+    argv.iter().skip(1).any(|a| own.contains(&a.as_str()))
+        || argv.windows(2).any(|w| w[0] == "daemon" && w[1] == "run")
+}
+
+/// The pid `<acpmux home>/daemon.pid` names.
+fn daemon_pid() -> Option<u32> {
+    std::fs::read_to_string(crate::config::home().join("daemon.pid")).ok()?.trim().parse().ok()
 }
 
 /// One process and its owner.
@@ -215,14 +250,23 @@ fn caller_session() -> Option<String> {
 }
 
 fn own(proc: &tree::Started, table: &[tree::Started], caller: Option<&str>) -> Owned {
+    let argv = tree::argv(proc.pid);
     let marks = tree::environ(proc.pid).map(|env| Marks::from_env(&env));
+    // acpmux's own processes first: a daemon a chat's shell started carries that chat's marks
+    // (an older build did not clear them), and ending it would end every session.
+    if daemon_pid() == Some(proc.pid) || argv.as_deref().is_some_and(is_acpmux_own) {
+        return Owned { proc: proc.clone(), marks, verdict: Verdict::Acpmux, argv };
+    }
+    if argv.is_none() {
+        return Owned { proc: proc.clone(), marks, verdict: Verdict::Unknown, argv };
+    }
     let runner =
         marks.as_ref().and_then(|m| m.task_mark.as_deref()).map(|m| runner_liveness(m, table));
     let host = marks
         .as_ref()
         .and_then(|m| m.host_nonce.as_deref().map(|n| host_liveness(m.session_id.as_deref(), n)));
     let verdict = judge(marks.as_ref(), caller, runner, host);
-    Owned { proc: proc.clone(), marks, verdict, argv: tree::argv(proc.pid) }
+    Owned { proc: proc.clone(), marks, verdict, argv }
 }
 
 /// The owner of each of `pids`; `None` for one that does not run.
@@ -245,7 +289,10 @@ pub fn left_behind() -> Vec<Owned> {
         .iter()
         .filter(|p| !spared.contains(&p.pid))
         .filter(|p| {
-            tree::environ(p.pid).is_some_and(|env| Marks::from_env(&env).host_nonce.is_some())
+            tree::environ(p.pid).is_some_and(|env| {
+                let m = Marks::from_env(&env);
+                m.host_nonce.is_some() || m.task_mark.is_some()
+            })
         })
         .map(|p| own(p, &table, caller.as_deref()))
         .filter(|o| o.verdict == Verdict::LeftBehind)
@@ -284,6 +331,9 @@ fn next_step(o: &Owned) -> String {
         o.marks.as_ref().and_then(|m| m.session_name.clone().or_else(|| m.session_id.clone()));
     let name = name.unwrap_or_else(|| "-".to_owned());
     match o.verdict {
+        Verdict::Acpmux => "acpmux's own (daemon, agent host or task runner): never ended by pid; \
+                            use `acpmux daemon restart`, `session stop` or `process kill SESSION/TASK`"
+            .to_owned(),
         Verdict::Yours => format!("yours: `acpmux process kill --pid {}` ends it", o.proc.pid),
         Verdict::Task => format!(
             "background task of {name}: `acpmux process list --session {name} --running` names it; stop it there"
@@ -367,8 +417,23 @@ pub async fn kill_pid(pid: u32, json_out: bool) -> Result<()> {
     if !o.verdict.may_end() {
         return Err(anyhow!("refused: pid {pid} is {}: {}", o.verdict.word(), next_step(&o)));
     }
+    // What runs under it goes too, each only when its own answer allows it and it is the same
+    // session's: never acpmux's own processes or another session's that happen to sit below.
+    let table = tree::all();
+    let caller = caller_session();
+    let session = o.marks.as_ref().and_then(|m| m.session_id.clone());
     let mut procs = vec![o.proc.clone()];
-    procs.extend(tree::descendants(&[pid]).into_iter().filter(|p| !spared.contains(&p.pid)));
+    procs.extend(
+        tree::descendants(&[pid])
+            .into_iter()
+            .filter(|p| !spared.contains(&p.pid))
+            .map(|p| own(&p, &table, caller.as_deref()))
+            .filter(|c| {
+                c.verdict.may_end()
+                    && c.marks.as_ref().and_then(|m| m.session_id.clone()) == session
+            })
+            .map(|c| c.proc),
+    );
     tree::signal_still_running(&procs, libc::SIGTERM);
     let deadline = std::time::Instant::now() + crate::bg_run::GRACE;
     let mut left = tree::still_running(&procs);
@@ -483,6 +548,24 @@ mod tests {
         for v in [Verdict::Task, Verdict::Live, Verdict::NotAnAgents, Verdict::Unknown] {
             assert!(!v.may_end(), "{v:?}");
         }
+    }
+
+    #[test]
+    fn acpmuxs_own_processes_are_known_by_argv() {
+        let v = |a: &[&str]| a.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert!(is_acpmux_own(&v(&["/x/acpmux", "daemon", "run", "--ready-fd", "3"])));
+        assert!(is_acpmux_own(&v(&["/x/acpmux", "__agent-host"])));
+        assert!(is_acpmux_own(&v(&["/x/acpmux", "__bg-run"])));
+        assert!(!is_acpmux_own(&v(&["/usr/bin/python3", "server.py", "--daemon"])));
+        assert!(!is_acpmux_own(&v(&["__bg-run"])));
+        assert!(!Verdict::Acpmux.may_end());
+    }
+
+    #[test]
+    fn a_task_whose_runner_ended_with_no_host_is_left_behind() {
+        let m = marks("s2", None, Some("123-456"));
+        assert_eq!(judge(Some(&m), Some("s1"), Some(Liveness::Dead), None), Verdict::LeftBehind);
+        assert_eq!(judge(Some(&m), Some("s1"), Some(Liveness::Live), None), Verdict::Task);
     }
 
     #[test]

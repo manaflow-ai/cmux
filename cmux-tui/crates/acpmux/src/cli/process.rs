@@ -149,6 +149,7 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
         return finish_start(&start, outcome, hook_denied.zip(hook_key), json_out);
     }
     // Read from the processes themselves: no daemon needed, and none started.
+    #[cfg(unix)]
     match &cmd {
         ProcessCmd::Owner { pids } => {
             return crate::cli::process_owner::owner(pids, json_out).await;
@@ -203,7 +204,8 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
             Ok(())
         }
         ProcessCmd::Kill { process, .. } => {
-            let process = process.ok_or_else(|| anyhow!("name a process id or --pid"))?;
+            let process =
+                process.ok_or_else(|| anyhow!("name a process id (--pid is unix only)"))?;
             client.request(method::MUX_PROCESS_KILL, json!({"processId": process})).await?;
             if json_out {
                 print_json(&json!({"ok": true}));
@@ -228,7 +230,7 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
         // Answered above, on the chat's own daemon.
         ProcessCmd::Start { .. } => Err(anyhow!("process start runs before any other connection")),
         ProcessCmd::Owner { .. } | ProcessCmd::LeftBehind => {
-            Err(anyhow!("answered without the daemon"))
+            Err(anyhow!("process owner and left-behind read processes on unix only"))
         }
         ProcessCmd::Show { process, session, tool_call, follow } => {
             if process.is_none() && tool_call.is_none() {
