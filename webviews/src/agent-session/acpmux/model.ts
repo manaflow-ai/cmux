@@ -1,6 +1,7 @@
 import type { BrowserWorkspaces } from "./browser/workspaces";
 import type { ChatTaskList } from "./chatTaskList";
 import { experimentArm } from "../../experiments/experiment";
+import type { PromptHeads } from "./promptHeads";
 import { permissionCardHeight } from "./permissions/cardHeight";
 import { freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
@@ -1405,6 +1406,9 @@ export type AcpmuxSnapshot = {
     /// The chat's tools (acpmux `tools`, cx-thur3) and whether `_acpmux/set_tools` can change them.
     tools?: ChatTool[];
     toolsMutable?: boolean;
+    /// Where the chat stands and its next action (acpmux `rollingSummary`, kept after each turn a
+    /// person started); the header draws it beside the title (header/ChatSummaryLine.tsx).
+    rollingSummary?: { text: string; next?: string };
   };
   connection: string;
   /** The first request that crossed its progress threshold while the socket stayed open. */
@@ -1574,7 +1578,7 @@ export type AcpmuxSnapshot = {
    * instead of adding ticks. Each is a `user` row (`user-<seq>`, its promptId and the start of its
    * text) that opens a turn. Absent while unread, and for a chat with no older history.
    */
-  earlierPrompts?: readonly AcpmuxRow[];
+  earlierPrompts?: PromptHeads;
   /**
    * The chat's prompt count from its summary (`turnCount`), while the pane does not hold every prompt
    * yet (the prompt index has not answered, or the daemon has none) and older history is left: the

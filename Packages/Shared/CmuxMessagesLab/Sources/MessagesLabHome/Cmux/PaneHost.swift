@@ -666,6 +666,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func dispatch(_ a: Action) {
         guard let store else { return }
         if case .reply(let ref) = a, intents?.canInteract(with: ref.messageId) == false { return }
+        let field = demo.map { ($0.compose.fieldRect, $0.fieldTop) }
         thread.note(a)
         forgetQuote(for: a)
         // MessagesLab bd65bbf (Host.dispatch): a keystroke goes first. Engine jobs due now
@@ -700,12 +701,16 @@ final class ChatController: NSObject, NSTextViewDelegate {
             inKeystrokeFrame = true
             nextFrame { [weak self] in self?.inKeystrokeFrame = false }
         }
-        afterEngine()
+        // A key that kept the field's frame changed only the compose layers (no engine job ran with it: a due one waits
+        // for the next frame, `ahead`), so the scale walk covers the compose tree alone.
+        let keyInField: Bool = { if case .setDraft = a, let demo, let field { return field == (demo.compose.fieldRect, demo.fieldTop) }; return false }()
+        afterEngine(composeOnly: keyInField)
     }
 
-    /// After any engine change: the native views follow the shared geometry.
-    func afterEngine() {
-        ScaleKeeper.shared.setNeedsApply()
+    /// After any engine change: the native views follow the shared geometry. `composeOnly`: only the compose layers
+    /// could have changed (ScaleKeeper walks that tree alone).
+    func afterEngine(composeOnly: Bool = false) {
+        if composeOnly { ScaleKeeper.shared.setNeedsComposeApply(host) } else { ScaleKeeper.shared.setNeedsApply() }
         host.scrollView.syncFromModel()
         if !selection.isEmpty { selection.refresh() }
         if let demo { host.fieldChrome.follow(field: demo.compose.fieldRect) }
