@@ -97,6 +97,17 @@ public final class CloudSetup {
             if case .connection(let id, _) = self { return id }
             return nil
         }
+
+        /// Whether the chat's model calls go somewhere other than this Mac's own gateway (``PersonalGateway``): the
+        /// agent launch carries this Mac's connection credential, or the platform edge serves the organization's key.
+        /// A start then has no gateway to wait for before its first turn. The production probe's starts on such a
+        /// route waited out the gateway's whole 10 s deadline in about one in five runs (2026-11-21).
+        public var servedWithoutMacGateway: Bool {
+            switch self {
+            case .connection, .organization: true
+            case .gateway, .setup, .fallback: false
+            }
+        }
     }
 
     /// The families a Cloud chat runs (the picker's agent, as the gateway names them).
