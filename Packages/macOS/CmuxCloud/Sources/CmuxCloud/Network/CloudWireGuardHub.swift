@@ -146,7 +146,12 @@ public actor CloudWireGuardHub {
     public func refreshAfterUnansweredRoute() async throws -> Ready? {
         _ = try await ensureRunning()
         // A route refresh in flight never restarts on a new config; let it end, then ask ourselves.
-        while let refreshTask { _ = try? await refreshTask.value }
+        // Clear it here too: awaiting a finished task keeps this actor, so its owner may never get
+        // to run and clear it, and re-reading the field would spin forever and wedge the hub.
+        while let task = refreshTask {
+            _ = try? await task.value
+            if refreshTask == task { refreshTask = nil }
+        }
         let now = configuration.now()
         if let last = lastUnansweredRefresh, last.duration(to: now) < .seconds(60) { return nil }
         lastUnansweredRefresh = now
