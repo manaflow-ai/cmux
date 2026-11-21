@@ -347,10 +347,10 @@ fn exchange(
         if let Err(error) = sent {
             // Explicit rejection before delivery is safe to retain. Transport loss after
             // submission is never evidence that the agent is gone or the answer failed.
-            if let Some(refusal) = error.downcast_ref::<Refusal>() {
-                if refusal.0 != "question.delivery_unknown" {
-                    return Ok(DeliveryResult::Refused(refusal.0.clone()));
-                }
+            if let Some(refusal) = error.downcast_ref::<Refusal>()
+                && refusal.0 != "question.delivery_unknown"
+            {
+                return Ok(DeliveryResult::Refused(refusal.0.clone()));
             }
             if !submitted {
                 return Ok(DeliveryResult::Refused("question.agent_unavailable".into()));
