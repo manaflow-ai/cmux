@@ -252,6 +252,148 @@ struct FeedCoordinatorTests {
         #expect(!FeedPermissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: capabilityToolInput))
     }
 
+    private func listedToolInput(
+        _ toolInputJSON: String,
+        toolName: String = "Write",
+        asToolUse: Bool = false
+    ) throws -> (text: String, truncated: Bool) {
+        let item = WorkstreamItem(
+            workstreamId: "claude-session-1",
+            source: .claude,
+            kind: asToolUse ? .toolUse : .permissionRequest,
+            payload: asToolUse
+                ? .toolUse(toolName: toolName, toolInputJSON: toolInputJSON)
+                : .permissionRequest(
+                    requestId: "request-1",
+                    toolName: toolName,
+                    toolInputJSON: toolInputJSON,
+                    pattern: nil
+                )
+        )
+        let dict = FeedSocketEncoding.itemDict(item)
+        return (
+            try #require(dict["tool_input"] as? String),
+            dict["tool_input_truncated"] as? Bool == true
+        )
+    }
+
+    private func sortedJSON(_ object: [String: Any]) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        return try #require(String(data: data, encoding: .utf8))
+    }
+
+    private func decodedObject(_ json: String) throws -> [String: Any] {
+        try #require(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+    }
+
+    // `content` sorts before `file_path`, so cutting the serialized string
+    // dropped the path and left text that does not parse (#47583).
+    @Test func longWritePermissionListKeepsFilePathAndParses() throws {
+        let content = String(repeating: "line of text\n", count: 1_600)
+        let listed = try listedToolInput(try sortedJSON([
+            "content": content,
+            "file_path": "/tmp/project/notes.md",
+        ]))
+
+        #expect(listed.truncated)
+        #expect(listed.text.count <= 8_000)
+        let object = try decodedObject(listed.text)
+        #expect(object["file_path"] as? String == "/tmp/project/notes.md")
+        let listedContent = try #require(object["content"] as? String)
+        #expect(listedContent.hasSuffix("..."))
+        #expect(content.hasPrefix(String(listedContent.dropLast(3))))
+        #expect(listedContent.count > 3_000)
+    }
+
+    @Test func longEditToolUseListShortensEveryLongValue() throws {
+        let listed = try listedToolInput(
+            try sortedJSON([
+                "file_path": "/tmp/project/main.swift",
+                "new_string": String(repeating: "n", count: 9_000),
+                "old_string": String(repeating: "o", count: 9_000),
+                "replace_all": true,
+            ]),
+            toolName: "Edit",
+            asToolUse: true
+        )
+
+        #expect(listed.truncated)
+        #expect(listed.text.count <= 8_000)
+        let object = try decodedObject(listed.text)
+        #expect(object["file_path"] as? String == "/tmp/project/main.swift")
+        #expect(object["replace_all"] as? Bool == true)
+        let newString = try #require(object["new_string"] as? String)
+        let oldString = try #require(object["old_string"] as? String)
+        #expect(newString.hasSuffix("...") && newString.hasPrefix("nnn"))
+        #expect(oldString.hasSuffix("...") && oldString.hasPrefix("ooo"))
+        #expect(newString.count == oldString.count)
+    }
+
+    @Test func longToolResultListStaysValidJSON() throws {
+        let item = WorkstreamItem(
+            workstreamId: "claude-session-1",
+            source: .claude,
+            kind: .toolResult,
+            payload: .toolResult(
+                toolName: "Bash",
+                resultJSON: try sortedJSON([
+                    "interrupted": false,
+                    "stderr": "",
+                    "stdout": String(repeating: "out ", count: 5_000),
+                ]),
+                isError: false
+            )
+        )
+
+        let dict = FeedSocketEncoding.itemDict(item)
+        let listed = try #require(dict["tool_result"] as? String)
+
+        #expect(dict["tool_result_truncated"] as? Bool == true)
+        #expect(listed.count <= 8_000)
+        let object = try decodedObject(listed)
+        #expect(object["interrupted"] as? Bool == false)
+        #expect(object["stderr"] as? String == "")
+        #expect((object["stdout"] as? String)?.hasSuffix("...") == true)
+    }
+
+    @Test func unbalancedToolInputKeepsThePlainCut() throws {
+        let json = #"{"content":""# + String(repeating: "x", count: 9_000)
+        let listed = try listedToolInput(json)
+
+        #expect(listed.truncated)
+        #expect(listed.text == String(json.prefix(7_997)) + "...")
+    }
+
+    @Test func shortToolInputIsListedUnchanged() throws {
+        let json = #"{"file_path": "/tmp/a.txt",   "content": "hi"}"#
+        let listed = try listedToolInput(json)
+
+        #expect(listed.text == json)
+        #expect(!listed.truncated)
+    }
+
+    @Test func longToolInputThatIsNotJSONKeepsThePlainCut() throws {
+        let listed = try listedToolInput(String(repeating: "x", count: 12_000))
+
+        #expect(listed.truncated)
+        #expect(listed.text.count == 8_000)
+        #expect(listed.text.hasSuffix("..."))
+    }
+
+    @Test func toolInputWhoseKeysAloneExceedTheLimitKeepsThePlainCut() throws {
+        var object: [String: Any] = [:]
+        for index in 0..<1_000 {
+            object["key_number_\(index)"] = index
+        }
+        let json = try sortedJSON(object)
+        try #require(json.count > 8_000)
+        let listed = try listedToolInput(json)
+
+        #expect(listed.truncated)
+        #expect(listed.text.count == 8_000)
+        #expect(listed.text == String(json.prefix(7_997)) + "...")
+    }
+
     @Test func codexAppServerApprovalBuildsActionableFeedEvent() throws {
         let event = CodexTeamsApprovalBridge.feedEvent(
             method: "item/commandExecution/requestApproval",
