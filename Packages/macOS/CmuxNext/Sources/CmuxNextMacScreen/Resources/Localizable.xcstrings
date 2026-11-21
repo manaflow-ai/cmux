@@ -31965,6 +31965,137 @@
         }
       }
     },
+    "macScreen.run.displayGone": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تعد شاشة هذا التشغيل موجودة؛ يتم عرض الشاشة الرئيسية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran tog pokretanja više ne postoji; prikazuje se glavni ekran"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kørslens skærm findes ikke længere; viser hovedskærmen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Bildschirm dieses Laufs ist weg; der Hauptbildschirm wird angezeigt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That run's display is gone; showing the main display"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pantalla de esa ejecución ya no existe; se muestra la pantalla principal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’écran de cette exécution n’existe plus ; affichage de l’écran principal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo schermo di quell’esecuzione non c’è più; viene mostrato lo schermo principale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その実行のディスプレイはなくなりました。メインディスプレイを表示しています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អេក្រង់នៃការដំណើរការនោះបាត់ហើយ; កំពុងបង្ហាញអេក្រង់មេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 실행의 디스플레이가 사라졌습니다. 기본 디스플레이를 표시합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjermen til den kjøringen er borte; viser hovedskjermen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran tego uruchomienia już nie istnieje; wyświetlany jest ekran główny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A tela dessa execução não existe mais; mostrando a tela principal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экрана этого запуска больше нет; показан основной экран"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จอภาพของการรันนั้นหายไปแล้ว กำลังแสดงจอภาพหลัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu çalıştırmanın ekranı artık yok; ana ekran gösteriliyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Екрана цього запуску більше немає; показано основний екран"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màn hình của lần chạy đó không còn; đang hiển thị màn hình chính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该运行的显示器已不存在；正在显示主显示器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該執行的顯示器已不存在；正在顯示主顯示器"
+          }
+        }
+      }
+    },
     "macScreen.scope.full": {
       "extractionState": "manual",
       "localizations": {
