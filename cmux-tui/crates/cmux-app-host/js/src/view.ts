@@ -73,6 +73,15 @@ export class ViewNode {
   strokeWidth(v: Bindable<number>) { return this.set("strokeWidth", v) }
   size(v: Bindable<number>) { return this.set("size", v) }
   rotation(degrees: Bindable<number>) { return this.set("rotation", degrees) }
+  /** Draws only part of a stroked shape's outline, as SwiftUI's `trim(from:to:)`: `from` (0 by
+   * default) to `to`, fractions 0 to 1. A Circle starts at 12 o'clock and runs clockwise, so
+   * `Circle().stroke(tint).strokeWidth(8).trim({ to: 0.7, lineCap: "round" })` is a ring at 70 %.
+   * `lineCap` is `butt` (the default) or `round`; `null` draws the whole outline. With
+   * `.animation(...)` a change sweeps to the new arc. */
+  trim(v: Bindable<SceneTrim | null>) {
+    if (typeof v !== "function" && v !== null) checkTrim(v)
+    return this.set("trim", v)
+  }
   cursor(v: "pointer" | "default") { return this.set("cursor", v) }
   help(v: Bindable<string>) { return this.set("help", v) }
   // Motion: the host animates these (the app never runs a timer for them). Reduce Motion and
@@ -84,7 +93,7 @@ export class ViewNode {
   /** How a Text's new content replaces the old: `numericText` rolls the changed digits (up when
    * the number grows, down when it shrinks), `opacity` crossfades. */
   contentTransition(v: "numericText" | "opacity") { return this.set("contentTransition", v) }
-  /** Animates this node's own prop changes (opacity, colors, rotation, strikethrough) with a
+  /** Animates this node's own prop changes (opacity, colors, rotation, strikethrough, a shape's trim) with a
    * curve: `smooth` (the motion scale's standard step), `snappy` (its micro step), `none`. */
   animation(v: "smooth" | "snappy" | "none" = "smooth") { return this.set("animation", v) }
   // Behavior
@@ -125,6 +134,17 @@ export type SceneGradient = { linear: { colors: string[]; angle?: number } } | {
 /** A color token, `#RRGGBB[AA]`, or a gradient. */
 export type SceneFill = string | SceneGradient
 export type SymbolRendering = "monochrome" | "hierarchical" | "palette" | "multicolor"
+/** A shape's `trim`: fractions of its stroked outline, and the cap at each end of the arc. */
+export type SceneTrim = { from?: number; to: number; lineCap?: "round" | "butt" }
+
+function checkTrim(v: SceneTrim): void {
+  const ok =
+    typeof v === "object" && v !== null && typeof v.to === "number" && Number.isFinite(v.to) &&
+    (v.from === undefined || (typeof v.from === "number" && Number.isFinite(v.from))) &&
+    (v.lineCap === undefined || v.lineCap === "round" || v.lineCap === "butt") &&
+    Object.keys(v).every((key) => key === "from" || key === "to" || key === "lineCap")
+  if (!ok) throw new TypeError(`trim: expected { from?: number, to: number, lineCap?: "round" | "butt" }, got ${JSON.stringify(v)}`)
+}
 const SYMBOL_RENDERINGS: readonly string[] = ["monochrome", "hierarchical", "palette", "multicolor"]
 
 function gradientStops(name: string, colors: readonly string[]): string[] {

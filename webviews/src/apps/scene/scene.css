@@ -175,6 +175,17 @@
 .cmux-app-scene-roundedrectangle {
   border-radius: var(--grid-base);
 }
+/* A stroked shape with `trim`: its outline is SVG over the node's box (SceneShapeOutline). */
+.cmux-app-scene-node:has(> .cmux-app-scene-shape-svg) {
+  position: relative;
+}
+.cmux-app-scene-shape-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
 .cmux-app-scene-menu-danger {
   color: var(--agent-danger);
 }
@@ -426,5 +437,19 @@
       background-color var(--cmux-motion-micro) var(--cmux-app-scene-ease),
       transform var(--cmux-motion-micro) var(--cmux-app-scene-ease),
       text-decoration-color var(--cmux-motion-micro) var(--cmux-app-scene-ease);
+  }
+  /* A trimmed outline sweeps to its new `trim` only under full motion, as a transform moves;
+     reduced and off draw the new arc at once. */
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-animation="smooth"] > .cmux-app-scene-shape-svg > * {
+    transition:
+      stroke-dasharray var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+      stroke-dashoffset var(--cmux-motion-standard) var(--cmux-app-scene-ease),
+      stroke var(--cmux-motion-standard) var(--cmux-app-scene-ease);
+  }
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-agent-motion="off"]):not([data-agent-motion="reduced"]) .cmux-app-scene-node[data-animation="snappy"] > .cmux-app-scene-shape-svg > * {
+    transition:
+      stroke-dasharray var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+      stroke-dashoffset var(--cmux-motion-micro) var(--cmux-app-scene-ease),
+      stroke var(--cmux-motion-micro) var(--cmux-app-scene-ease);
   }
 }

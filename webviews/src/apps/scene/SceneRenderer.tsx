@@ -21,7 +21,16 @@ import {
   useSceneChildren,
   useSceneEntering,
 } from "./sceneMotion";
-import { sceneColor, sceneGradient, sceneNumber, sceneStyle, sceneText, textStyle } from "./sceneStyle";
+import {
+  sceneColor,
+  sceneGradient,
+  sceneNumber,
+  sceneRecord,
+  sceneStyle,
+  sceneText,
+  sceneTrim,
+  textStyle,
+} from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import "./scene.css";
 
@@ -258,6 +267,73 @@ function SceneSlider({ node, dispatch, disabled }: { node: SceneNode; dispatch: 
   );
 }
 
+const SHAPES = ["Circle", "Capsule", "Rectangle", "RoundedRectangle"];
+
+/** A stroked shape with `trim` draws its outline as SVG (a CSS border cannot draw part of itself).
+ * Every other shape keeps its CSS box and border. */
+const trimmedOutline = (node: SceneNode): boolean =>
+  SHAPES.includes(node.type) && sceneColor(node.props.stroke) !== undefined && sceneTrim(node.props.trim) !== undefined;
+
+/** A shape's box: `size` makes a square of that side; else its `frame` width and height, each 16
+ * when neither names it. */
+function shapeBox(props: SceneNode["props"]): [number, number] {
+  const size = sceneNumber(props.size);
+  if (size !== undefined) return [Math.max(0, size), Math.max(0, size)];
+  const frame = sceneRecord(props.frame);
+  return [Math.max(0, sceneNumber(frame.width) ?? 16), Math.max(0, sceneNumber(frame.height) ?? 16)];
+}
+
+/** The trimmed outline (carried from #44315): `pathLength` 1, so the dash is the trimmed fraction;
+ * a circle starts at 12 o'clock and runs clockwise (SwiftUI's `trim(from:to:)` on a ring), a
+ * rectangle at its top-left corner. The dash sits in `style`, so scene.css's `animation`
+ * transitions sweep it. */
+function SceneShapeOutline({ node }: { node: SceneNode }) {
+  const props = node.props;
+  const [boxWidth, boxHeight] = shapeBox(props);
+  const size = Math.min(boxWidth, boxHeight);
+  const width = Math.min(Math.max(0, sceneNumber(props.strokeWidth) ?? 1), size / 2);
+  const { from, to, lineCap } = sceneTrim(props.trim) ?? { from: 0, to: 1, lineCap: "butt" };
+  const length = to - from;
+  const outline = {
+    pathLength: 1,
+    fill: "none",
+    strokeWidth: width,
+    // A token is a var(), which a presentation attribute cannot read: the ink is a style. An
+    // empty trim draws nothing, even with round caps (a zero-length round dash is a dot).
+    style: {
+      stroke: sceneColor(props.stroke),
+      strokeDasharray: `${length} 1`,
+      strokeDashoffset: -from,
+      strokeLinecap: length > 0 ? lineCap : "butt",
+    } satisfies CSSProperties,
+  };
+  const inner = Math.max(0, size - width);
+  const radius =
+    node.type === "Circle" || node.type === "Capsule"
+      ? inner / 2
+      : node.type === "RoundedRectangle"
+        ? Math.min(sceneNumber(props.cornerRadius) ?? 4, inner / 2)
+        : 0;
+  const cx = boxWidth / 2;
+  const cy = boxHeight / 2;
+  return (
+    <svg className="cmux-app-scene-shape-svg" viewBox={`0 0 ${boxWidth} ${boxHeight}`} aria-hidden="true">
+      {node.type === "Circle" ? (
+        <circle {...outline} cx={cx} cy={cy} r={inner / 2} transform={`rotate(-90 ${cx} ${cy})`} />
+      ) : (
+        <rect
+          {...outline}
+          x={width / 2}
+          y={width / 2}
+          width={Math.max(0, boxWidth - width)}
+          height={Math.max(0, boxHeight - width)}
+          rx={radius}
+        />
+      )}
+    </svg>
+  );
+}
+
 function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch, disabled: boolean): ReactNode {
   const props = node.props;
   switch (node.type) {
@@ -331,7 +407,7 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
     case "Capsule":
     case "Rectangle":
     case "RoundedRectangle":
-      return null;
+      return trimmedOutline(node) ? <SceneShapeOutline node={node} /> : null;
     case "Image":
       return <SceneImage source={props.src} />;
     case "Toggle":
@@ -384,7 +460,7 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     // SwiftUI's vertical alignment: top, center (the default) or bottom.
     style.alignItems = props.alignment === "top" ? "flex-start" : props.alignment === "bottom" ? "flex-end" : undefined;
   }
-  if (["Circle", "Capsule", "Rectangle", "RoundedRectangle"].includes(node.type)) {
+  if (SHAPES.includes(node.type)) {
     // `size` sets both sides; a `frame` width or height wins on its own side (a bar, a capsule).
     const frame = props.frame && typeof props.frame === "object" ? (props.frame as Record<string, unknown>) : {};
     const side = Math.max(0, sceneNumber(props.size) ?? 16);
@@ -397,7 +473,8 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     style.backgroundColor = style.backgroundImage
       ? undefined
       : (sceneColor(props.fill) ?? (sceneColor(props.stroke) ? "transparent" : sceneColor("secondary")));
-    if (sceneColor(props.stroke)) {
+    // A trimmed outline is SVG (SceneShapeOutline); the box draws only the fill.
+    if (sceneColor(props.stroke) && !trimmedOutline(node)) {
       style.borderColor = sceneColor(props.stroke);
       style.borderStyle = "solid";
       style.borderWidth = Math.max(0, sceneNumber(props.strokeWidth) ?? 1);

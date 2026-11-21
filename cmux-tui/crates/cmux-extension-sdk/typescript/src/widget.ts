@@ -5,7 +5,7 @@
 // wiggle); a widget draws only what is inside. The helpers are plain views built on the scene
 // DSL: use them, mix them with VStack and Text, or ignore them.
 
-import { ForEach, HStack, Icon, ProgressView, Spacer, Text, VStack, type View } from "./index.ts"
+import { Circle, ForEach, HStack, Icon, ProgressView, Spacer, Text, VStack, ZStack, type View } from "./index.ts"
 
 /** A widget's size, as Apple's widget families: small is a 1x1 tile, medium 2x1, large 2x2. */
 export type WidgetSize = "small" | "medium" | "large"
@@ -119,6 +119,35 @@ export function Gauge(value: number | (() => number), options: { label?: string 
   const tinted = options.tint ? bar.color(options.tint) : bar
   if (options.label === undefined) return tinted
   return VStack({ spacing: 2, alignment: "leading" }, [tinted, Caption(options.label)])
+}
+
+/**
+ * A ring gauge, as Apple's activity rings: a full `track` circle and, over it, a round-capped arc
+ * from 12 o'clock clockwise to `value` (0 to 1, clamped). A change sweeps to the new value (drawn
+ * at once under Reduce Motion). `tint` colors the arc (`accent` by default), `track` the circle
+ * under it (`separator` by default), `width` is the stroke (6 points) and
+ * `size` the ring's side (44 points). Stack rings of falling `size` in a `ZStack` for nested rings.
+ */
+export function Ring(
+  value: number | (() => number),
+  options: { tint?: string; track?: string; width?: number; size?: number } = {}
+): View {
+  const width = options.width ?? 6
+  const size = options.size ?? 44
+  const read = typeof value === "function" ? value : () => value
+  const fraction = () => {
+    const v = read()
+    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0
+  }
+  return ZStack([
+    Circle().stroke(options.track ?? "separator").strokeWidth(width).size(size),
+    Circle()
+      .stroke(options.tint ?? "accent")
+      .strokeWidth(width)
+      .size(size)
+      .trim(() => ({ to: fraction(), lineCap: "round" }))
+      .animation("smooth"),
+  ])
 }
 
 /** One row of a widget list: a tinted bar (as Apple's Calendar widget marks an event), a title and a detail.
