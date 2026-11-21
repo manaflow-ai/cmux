@@ -117,10 +117,7 @@ fn a_dial_to_a_carrier_that_is_not_serving_says_so() {
     }
     assert_eq!(relay_refusal("ticket expired".to_owned(), wait), "ticket expired");
     let said = ticket_refusal("the hub answered 404 machine.not_found".to_owned());
-    assert!(
-        said.contains("hub carrier is off") && said.contains("carrier.not_serving"),
-        "{said}"
-    );
+    assert!(said.contains("hub carrier is off") && said.contains("carrier.not_serving"), "{said}");
     assert_eq!(ticket_refusal("the hub answered 503".to_owned()), "the hub answered 503");
     assert!(carrier_not_serving(Duration::from_millis(10)).contains("within 1s"));
 }
@@ -136,10 +133,7 @@ fn a_hub_machine_is_found_by_the_name_machine_ls_shows() {
         crate::cmux_tui_service::book_machine(&book, "air-blue").as_deref(),
         Some("key-air")
     );
-    assert_eq!(
-        crate::cmux_tui_service::book_machine(&book, "big-red").as_deref(),
-        Some("key-big")
-    );
+    assert_eq!(crate::cmux_tui_service::book_machine(&book, "big-red").as_deref(), Some("key-big"));
     assert_eq!(crate::cmux_tui_service::book_machine(&book, "nope"), None);
     let twins = vec![("k1".to_owned(), "mac".to_owned()), ("k2".to_owned(), "mac".to_owned())];
     assert_eq!(

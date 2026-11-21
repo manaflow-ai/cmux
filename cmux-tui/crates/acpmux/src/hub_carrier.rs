@@ -508,7 +508,10 @@ impl HubCarrier {
             if e.contains("machine.not_found") {
                 ticket_refusal(e)
             } else {
-                format!("{} no relay ticket: {e}", crate::protocol::peer_state::CREDENTIAL_UNAVAILABLE)
+                format!(
+                    "{} no relay ticket: {e}",
+                    crate::protocol::peer_state::CREDENTIAL_UNAVAILABLE
+                )
             }
         })?;
         let pinned = key_bytes(answer.peer_key.as_deref().ok_or("the hub named no key to pin")?)
