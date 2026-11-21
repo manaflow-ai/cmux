@@ -22,6 +22,12 @@ import UIKit
         let window: UIWindow
         let list: UICollectionView
         let seen: Seen
+        /// A plain view holding the list's host. A transform on it moves the list on screen with no
+        /// layout pass and no safe-area change (SwiftUI and the window put back a transform on the
+        /// collection or the root view, steps 797372f0 and 93049c31; moving it under a safe area
+        /// changes the list's insets, which the list explains as an edge's move, steps 69902ff8 and
+        /// d25910e3: so it sits clear of them).
+        let container: UIView
     }
 
     private func host() throws -> Hosted {
@@ -35,7 +41,20 @@ import UIKit
         .pagedIdentifier("commit.list")
         .pagedProbe(probe)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-        window.rootViewController = UIHostingController(rootView: list)
+        let root = UIViewController()
+        let container = UIView(frame: root.view.bounds)
+        container.autoresizingMask = []
+        root.view.addSubview(container)
+        let hosting = UIHostingController(rootView: list)
+        root.addChild(hosting)
+        hosting.view.frame = container.bounds
+        container.addSubview(hosting.view)
+        hosting.didMove(toParent: root)
+        window.rootViewController = root
+        // In the middle of the window, clear of its safe areas: a move of the holder changes no
+        // inset, so nothing explains it as an edge's or a keyboard's move.
+        container.frame = CGRect(x: 0, y: 200, width: window.bounds.width, height: 420)
+        hosting.view.frame = container.bounds
         window.makeKeyAndVisible()
         let found = try #require(drain { () -> UICollectionView? in
             guard let view = window.firstCollection(identifier: "commit.list"), !view.indexPathsForVisibleItems.isEmpty else { return nil }
@@ -43,7 +62,7 @@ import UIKit
         }, "the list showed no rows")
         settle()
         seen.shifts = []
-        return Hosted(window: window, list: found, seen: seen)
+        return Hosted(window: window, list: found, seen: seen, container: container)
     }
 
     /// A row being read that moves on screen and stays there is a shift of its full size, even when
@@ -51,7 +70,7 @@ import UIKit
     @Test func aJumpThatDrawsCountsInFull() throws {
         let hosted = try host()
         defer { hosted.window.isHidden = true }
-        hosted.list.transform = CGAffineTransform(translationX: 0, y: 10)
+        hosted.container.transform = CGAffineTransform(translationX: 0, y: 10)
         settle()
         #expect(abs(hosted.seen.worst - 10) < 0.5, "a drawn 10 pt jump measured \(hosted.seen.shifts)")
     }
@@ -60,9 +79,9 @@ import UIKit
     @Test func aOneFrameJumpCountsThereAndBack() throws {
         let hosted = try host()
         defer { hosted.window.isHidden = true }
-        hosted.list.transform = CGAffineTransform(translationX: 0, y: 10)
+        hosted.container.transform = CGAffineTransform(translationX: 0, y: 10)
         turn()
-        hosted.list.transform = .identity
+        hosted.container.transform = .identity
         settle()
         let big = hosted.seen.shifts.filter { abs($0) > 0.5 }
         #expect(big.count == 2 && abs(abs(big[0]) - 10) < 0.5 && abs(abs(big[1]) - 10) < 0.5,
