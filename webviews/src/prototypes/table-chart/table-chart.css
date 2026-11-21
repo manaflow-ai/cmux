@@ -226,8 +226,8 @@
   padding: 4px;
   border-radius: 999px;
   background: rgba(10, 10, 10, 0.82);
-  -webkit-backdrop-filter: blur(12px) saturate(1.4);
-  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--ds-blur-bar, 20px)) saturate(1.4);
+  backdrop-filter: blur(var(--ds-blur-bar, 20px)) saturate(1.4);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.08) inset,
     var(--elevation-2);

@@ -6,7 +6,11 @@ import { readFileSync } from "node:fs";
 
 import designScale from "../../schemas/design-scale/design-scale.json";
 import {
+  blurRadii,
+  findOffScaleBlurs,
   findRawBlurs,
+  offScaleBlursInCss,
+  offScaleBlursInScript,
   findRawNativeGlass,
   rawBlursInCss,
   rawBlursInScript,
@@ -148,6 +152,41 @@ test("the check fails a raw blur and passes a level, an element filter and a sta
   expect(rawBlursInScript('el.style.backdropFilter = "blur(12px)";\nconst ok = "blur(var(--r))";', "x.ts")).toEqual([
     'x.ts:1: el.style.backdropFilter = "blur(12px)";',
   ]);
+});
+
+// Three blur radii (cmuxterm-hq docs/reading/2026-11-19-glass-field-study.md, gap 3).
+test("every backdrop blur in webviews/src is one of three radii: scrim 8, bar 20, menu 32", () => {
+  expect(blurRadii()).toEqual([8, 20, 32]);
+  expect(findOffScaleBlurs()).toEqual([]);
+  const desktop = source("pages/shared/desktop.css");
+  expect(desktop).toContain("--ds-blur-scrim: 8px;");
+  expect(desktop).toContain("--ds-blur-bar: 20px;");
+  expect(desktop).toContain("--ds-blur-menu: 32px;");
+  const exceptions = new Set(designScale.blurExceptions.map((entry) => entry.name));
+  for (const level of designScale.glass) {
+    const radius = Number(/^blur\(([\d.]+)px\)/.exec(level.blur)![1]);
+    if (!exceptions.has(level.name)) expect([8, 20, 32], `glass ${level.name}`).toContain(radius);
+  }
+  expect([8, 20, 32]).toContain(designScale.transientMaterial.webBlur);
+});
+
+test("the radius check fails an off-scale backdrop blur and passes the three, a filter and a stated exception", () => {
+  const css = [
+    ".a { backdrop-filter: blur(24px) saturate(1.25); }",
+    ".b { backdrop-filter: blur(var(--x, 6px)); }",
+    ".c { --x-frost: 12px; }",
+    ".d { backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(var(--ds-blur-menu, 32px)); --y-blur: 8px; }",
+    ".e { filter: blur(3px); backdrop-filter: blur(0); }",
+    ".f { --x-blur: 2px; } /* glass-blur-off-scale: a shader uniform */",
+  ].join("\n");
+  expect(offScaleBlursInCss(css, "x.css")).toEqual([
+    "x.css:1: backdrop-filter: blur(24px) saturate(1.25) (24px)",
+    "x.css:2: backdrop-filter: blur(var(--x, 6px)) (6px)",
+    "x.css:3: --x-frost: 12px (12px)",
+  ]);
+  expect(
+    offScaleBlursInScript('el.style.backdropFilter = "blur(16px)";\nel.style.backdropFilter = "blur(32px)";', "x.ts"),
+  ).toEqual(['x.ts:1: el.style.backdropFilter = "blur(16px)";']);
 });
 
 test("every native glass view and tint is a glass level", () => {

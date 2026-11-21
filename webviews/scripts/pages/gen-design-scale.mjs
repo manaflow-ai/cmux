@@ -57,6 +57,23 @@ function load() {
     assert(["level", "mode"].includes(level.kind), `glass ${level.name} is a level or a mode`);
     assert(GLASS_FILTER.test(level.blur), `glass ${level.name}'s blur is blur(<px>) saturate(<n>)`);
   }
+  // Three blur radii (cmuxterm-hq docs/reading/2026-11-19-glass-field-study.md, gap 3: 15 distinct
+  // blur() values, where the references use one per role): scrim 8, bar 20, menu 32. Every glass level
+  // and mode blurs at one of them; a named exception says why it is not a backdrop material.
+  assert(
+    data.blurs.map((blur) => `${blur.name}:${blur.px}`).join() === "scrim:8,bar:20,menu:32",
+    "the blur radii are scrim 8, bar 20 and menu 32 (glass field study, gap 3)",
+  );
+  const blurRadii = new Set(data.blurs.map((blur) => blur.px));
+  const blurExceptions = new Map(data.blurExceptions.map((entry) => [entry.name, entry.px]));
+  for (const level of data.glass) {
+    const radius = Number(level.blur.match(GLASS_FILTER)[1]);
+    assert(
+      blurRadii.has(radius) || blurExceptions.get(level.name) === radius,
+      `glass ${level.name} blurs at ${radius}px: use a blur radius (8, 20, 32) or name an exception in blurExceptions`,
+    );
+  }
+  assert(blurRadii.has(data.transientMaterial.webBlur), "the transient material blurs at a blur radius (8, 20, 32)");
   const levels = data.glass.filter((level) => level.kind === "level").map((level) => level.name);
   assert(
     levels.join() === "chrome,popover,menu,chip",
@@ -145,6 +162,7 @@ function cssBlock(data) {
     const note = radius.for ? ` /* ${radius.for} */` : "";
     out.push(`  --ds-radius-${radius.name}: ${radius.var ?? px(radius.px)};${note}`);
   }
+  for (const blur of data.blurs) out.push(`  --ds-blur-${blur.name}: ${px(blur.px)}; /* ${blur.for} */`);
   for (const level of data.glass) {
     const { tint, blur, radius, artTint, veil } = glassVars(level);
     out.push(`  /* glass ${level.name} (${level.kind}): ${level.for} */`, `  ${tint[0]}: ${tint[1]};`);

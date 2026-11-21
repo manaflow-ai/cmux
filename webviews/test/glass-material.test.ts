@@ -123,7 +123,7 @@ await requireBrowserLane("glass-material.test.ts", async () => {
     test(`${colorScheme}, art under Plain glass: the frost keeps the art's colors vivid`, async () => {
       const page = await open(colorScheme, { "data-cmux-see-through": "", "data-glass": "plain" });
       const { fill, backdrop } = await look(page);
-      expect(backdrop).toContain("blur(24px)");
+      expect(backdrop).toContain("blur(32px)");
       expect(backdrop).toContain("saturate(1.8)");
       // Chromium's underlay (glass.css) is the fill's color layer: under floating glass it hides
       // crisp text at 70%. A card outside the dock keeps it.
@@ -148,7 +148,7 @@ await requireBrowserLane("glass-material.test.ts", async () => {
     const page = await open("dark", {});
     const { fill, backdrop } = await look(page);
     expect(fill).toBeCloseTo(0.7, 2);
-    expect(backdrop).toContain("blur(24px)");
+    expect(backdrop).toContain("blur(32px)");
     expect(backdrop).not.toContain("saturate(1.8)");
     await page.close();
   });

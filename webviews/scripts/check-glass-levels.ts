@@ -79,6 +79,93 @@ export function rawBlursInScript(source: string, file: string): string[] {
   return out;
 }
 
+// Three blur radii (cmuxterm-hq docs/reading/2026-11-19-glass-field-study.md, gap 3: webviews/src had 15
+// distinct blur() values; the references use one per role). The design scale's `blurs` (scrim 8, bar
+// 20, menu 32; --ds-blur-*) are the only radii a backdrop blurs at, allowlisted or not, prototypes
+// included: a literal radius in a backdrop-filter, a var() fallback, or a `*blur*`/`*frost*` custom
+// property, at any other size fails unless its line or the line before says why it is not a backdrop
+// material: `/* glass-blur-off-scale: <reason> */`. `filter: blur()` (an element's own blur, a reveal) is
+// not a backdrop. The levels themselves are held by gen-design-scale.mjs.
+const DESIGN_SCALE = join(dirname(fileURLToPath(import.meta.url)), "../../schemas/design-scale/design-scale.json");
+const OFF_SCALE_ALLOW = /glass-blur-off-scale:\s*\S/;
+const SKIP_DIR_SCALE = new Set(["node_modules", "gallery"]);
+const LITERAL_RADIUS = /\bblur\(\s*(?:var\(\s*--[\w-]+\s*,\s*)?([\d.]+)px/g;
+const SCRIPT_BACKDROP = /(backdrop-filter|backdropFilter)["'`]?\s*[:,=]/;
+
+/** The design scale's blur radii, px: [8, 20, 32]. */
+export function blurRadii(): number[] {
+  const scale = JSON.parse(readFileSync(DESIGN_SCALE, "utf8")) as { blurs: { px: number }[] };
+  return scale.blurs.map((blur) => blur.px);
+}
+
+function* scaleFiles(dir: string): Generator<string> {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (!SKIP_DIR_SCALE.has(entry.name)) yield* scaleFiles(full);
+    } else if (/\.(css|tsx?)$/.test(entry.name) && !SKIP_FILE.test(entry.name)) {
+      yield full;
+    }
+  }
+}
+
+function offScaleAllowed(lines: string[], line: number): boolean {
+  return OFF_SCALE_ALLOW.test(lines[line] ?? "") || OFF_SCALE_ALLOW.test(lines[line - 1] ?? "");
+}
+
+/// `file:line: declaration (Npx)` for each backdrop blur in `css` at a radius off the scale.
+export function offScaleBlursInCss(css: string, file: string, radii = blurRadii()): string[] {
+  const lines = css.split("\n");
+  const text = blank(blank(css, GENERATED), /\/\*[\s\S]*?\*\//g);
+  const out: string[] = [];
+  for (const match of text.matchAll(/(--[\w-]+|[a-z-]+)\s*:\s*([^;{}]*)/gi)) {
+    const [, property, value] = match as unknown as [string, string, string];
+    if (property === "filter") continue;
+    const sizes = [...value.matchAll(LITERAL_RADIUS)].map((found) => Number(found[1]));
+    if (
+      property.startsWith("--") &&
+      /blur|frost/i.test(property) &&
+      BARE_LENGTH.test(value) &&
+      value.trim().endsWith("px")
+    )
+      sizes.push(Number.parseFloat(value));
+    const off = sizes.filter((size) => size !== 0 && !radii.includes(size));
+    if (off.length === 0) continue;
+    const line = text.slice(0, match.index).split("\n").length - 1;
+    if (offScaleAllowed(lines, line)) continue;
+    out.push(`${file}:${line + 1}: ${property}: ${value.trim()} (${off.map((size) => `${size}px`).join(", ")})`);
+  }
+  return out;
+}
+
+/// `file:line: text` for each backdrop filter a script writes at a radius off the scale.
+export function offScaleBlursInScript(source: string, file: string, radii = blurRadii()): string[] {
+  const lines = source.split("\n");
+  const out: string[] = [];
+  lines.forEach((text, line) => {
+    if (!SCRIPT_BACKDROP.test(text) || offScaleAllowed(lines, line)) return;
+    const off = [...text.matchAll(LITERAL_RADIUS)]
+      .map((found) => Number(found[1]))
+      .filter((size) => size !== 0 && !radii.includes(size));
+    if (off.length > 0) out.push(`${file}:${line + 1}: ${text.trim()}`);
+  });
+  return out;
+}
+
+/// Every backdrop blur under `root` (webviews/src, prototypes included) at a radius off the scale.
+export function findOffScaleBlurs(root = SRC): string[] {
+  const radii = blurRadii();
+  const out: string[] = [];
+  for (const full of scaleFiles(root)) {
+    const file = relative(root, full);
+    const text = readFileSync(full, "utf8");
+    out.push(
+      ...(full.endsWith(".css") ? offScaleBlursInCss(text, file, radii) : offScaleBlursInScript(text, file, radii)),
+    );
+  }
+  return out;
+}
+
 // The native side (Packages/macOS/CmuxNext/Sources): a glass view is built by the glass's own files
 // (Glass.makePanel / makeOverlayPanel / makeSurface, the window's material), tinted at a GlassLevel.
 // Anywhere else a new NSVisualEffectView, NSGlassEffectView, GlassPanelView or SwiftUI .glassEffect,
@@ -146,5 +233,14 @@ if (import.meta.main) {
     for (const line of found) console.error(`  ${line}`);
     process.exit(1);
   }
-  console.log("check-glass-levels: every blur names a glass level");
+  const offScale = findOffScaleBlurs();
+  if (offScale.length > 0) {
+    console.error(
+      `A backdrop blur off the three radii (--ds-blur-scrim 8px, --ds-blur-bar 20px, --ds-blur-menu 32px; ` +
+        "glass field study gap 3). Use one, or say why it is not a backdrop material with /* glass-blur-off-scale: <reason> */:",
+    );
+    for (const line of offScale) console.error(`  ${line}`);
+    process.exit(1);
+  }
+  console.log("check-glass-levels: every blur names a glass level, at one of three radii");
 }

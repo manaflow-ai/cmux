@@ -68,14 +68,17 @@ body {
    - Glass: four levels, and every web backdrop-filter names one (check-glass-levels.ts; Leo 2026-11-06:
      "we have, like, a ton of varying glassiness on stuff"). Each fixes the tint, the blur radius and
      saturation, and the one hairline edge (--ds-glass-edge). chrome (60%, 20px) is glass docked on the
-     window: panes, bars, rails, side tabs. popover (70%, 24px; 50% over art) floats over dense text:
+     window: panes, bars, rails, side tabs. popover (70%, 32px; 50% over art) floats over dense text:
      popovers, hover cards, the composer, Session Info, the running tray, viewers. menu (78%, 32px) is
      menus and pickers (Leo 2026-10-30: the Check Every slider and its "3600" read through the Update
      Channel menu; design/settings.md, "Glass"), still below the surface roles' near-opaque 0.9. chip
-     (the host's tooltip tint, 24px) is small one-line glass: tooltips, the find pill, chips. lens and
+     (the host's tooltip tint, 20px) is small one-line glass: tooltips, the find pill, chips. lens and
      fisheye are modes, not levels: the lens's tint and frost while it draws. fisheye is the Jump to latest lens (glass.css FISHEYE;
      Leo 2026-11-03: "this is a little too transparent"): the bend stays, a light frost runs after it,
-     and the popover's 24px blur would flatten a 32px disc, so it keeps its own (design/glass.md).
+     and a scrim's 8px blur would flatten a 32px disc, so it keeps its own (design/glass.md).
+   - Blur: three radii (--ds-blur-scrim 8px, --ds-blur-bar 20px, --ds-blur-menu 32px; cmuxterm-hq
+     docs/reading/2026-11-19-glass-field-study.md, gap 3). Every level blurs at one of them, and
+     check-glass-levels.ts fails a backdrop blur at any other radius unless it says why it is not glass.
    - Elevation: one scale for every drop shadow (Leo 2026-10-14, no dramatic shadows): a tight,
      low-alpha drop under the surface, while the thin rim carries the edge. `--elevation-1` lifts
      rows, cards and inline surfaces; `--elevation-2` popovers, menus, the palette, hover cards, the
@@ -114,6 +117,9 @@ body {
   --ds-radius-card: 14px; /* today's card radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-composer: 18px; /* today's composer radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-menu: var(--cmux-menu-highlight-radius); /* AppKit's menu highlight (menu-metrics) */
+  --ds-blur-scrim: 8px; /* scrims and soft fade bands under or over content: a dialog's scrim, the solo tab row's edge, scroll-edge bands, the lens mode's frost */
+  --ds-blur-bar: 20px; /* bars and chrome docked on the window, and one-line chips: the chrome and chip levels */
+  --ds-blur-menu: 32px; /* menus, popovers and every floating card: the popover and menu levels and the transient material */
   /* glass chrome (level): chrome docked on the window: panes, the sidebar, bars, rails, side tabs, sticky headers and the minimap */
   --ds-glass-chrome-tint: 60%;
   --ds-glass-chrome-blur: blur(20px) saturate(1.4);
@@ -121,8 +127,8 @@ body {
   /* glass popover (level): floating surfaces over dense text: popovers, hover cards and link cards, the composer, Session Info, the running tray, viewers and sheets (artTint over art or a see-through window) */
   --ds-glass-popover-tint: 70%;
   --ds-glass-popover-art-tint: 50%;
-  --ds-glass-popover-blur: blur(24px) saturate(1.25);
-  --ds-glass-popover-radius: 24px;
+  --ds-glass-popover-blur: blur(32px) saturate(1.25);
+  --ds-glass-popover-radius: 32px;
   /* glass menu (level): every floating popup, menu, picker and card, web and native (design/surface-materials.md, One floating material); veil is the theme surface the page or the App lays on the App's own glass under it (Swift GlassMenuMaterial reads the same numbers) */
   --ds-glass-menu-tint: 78%;
   --ds-glass-menu-veil: 40%;
@@ -130,11 +136,11 @@ body {
   --ds-glass-menu-radius: 32px;
   /* glass chip (level): small glass on one line: tooltips, the find pill and chips; the tint is the host's --cmux-tooltip-tint (TooltipSurface.swift), this percentage of the popup surface before the host speaks */
   --ds-glass-chip-tint: 60%;
-  --ds-glass-chip-blur: blur(24px) saturate(1.6);
-  --ds-glass-chip-radius: 24px;
+  --ds-glass-chip-blur: blur(20px) saturate(1.6);
+  --ds-glass-chip-radius: 20px;
   /* glass lens (mode): a mode, not a level: while the lens draws the wallpaper behind the glass, every level takes this tint and frost */
   --ds-glass-lens-tint: 40%;
-  --ds-glass-lens-blur: blur(6px) saturate(1.3);
+  --ds-glass-lens-blur: blur(8px) saturate(1.3);
   /* glass fisheye (mode): a mode, not a level: the Jump to latest fisheye (design/glass.md): the bend stays, the frost runs after it */
   --ds-glass-fisheye-tint: 50%;
   --ds-glass-fisheye-frost: blur(2.5px) saturate(1.15);
@@ -663,7 +669,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   /* TOOLTIP SURFACE (CmuxNextDesign/Tooltip/TooltipSurface.swift; tooltip-surface.test.ts holds the
      two in step). Frosted glass: the host's tint (--cmux-tooltip-tint: the popup surface at the
      least alpha that keeps the text 4.5:1 over pure black and pure white, whatever the blur
-     averages), else the popup surface at 60%; a 24px blur; the separator rim one device pixel
+     averages), else the popup surface at 60%; a 20px blur; the separator rim one device pixel
      (--cmux-hairline); elevation 1. It shows and goes in one frame. Reduce Transparency: the opaque
      popup surface. */
   --tooltip-tint: var(--cmux-tooltip-tint, color-mix(in srgb, var(--surface-popup) var(--ds-glass-chip-tint), transparent));
