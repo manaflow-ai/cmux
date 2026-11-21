@@ -23,6 +23,8 @@
 
 pub(crate) mod cli;
 
+pub use cli::{OffHere, share_off_here};
+
 #[cfg(unix)]
 mod channel;
 #[cfg(unix)]
