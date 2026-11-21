@@ -16,7 +16,7 @@
 # `result` and `sha` (GITHUB_OUTPUT) say the same.
 set -euo pipefail
 action="${1:?usage: image-roll-push.sh roll|rollback ...}"; shift
-candidate="" revision="" run="" attempt="" pin="" image="" message_file="" dry_run="" platform_checkout=""
+candidate="" revision="" run="" attempt="" pin="" image="" message_file="" dry_run="" platform_checkout="" platform_wrangler=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --candidate) candidate="$2"; shift 2 ;;
@@ -27,6 +27,8 @@ while [ $# -gt 0 ]; do
     --image) image="$2"; shift 2 ;;
     --message-file) message_file="$2"; shift 2 ;;
     --platform-checkout) platform_checkout="$2"; shift 2 ;;
+    # cmux-platform's root wrangler.jsonc: its CLOUD_VM_API_IMAGE pins stay in every list (auto-roll.ts platformPins).
+    --platform-wrangler) platform_wrangler="$2"; shift 2 ;;
     --dry-run) dry_run=1; shift ;;
     *) echo "image-roll-push: unknown argument $1" >&2; exit 2 ;;
   esac
@@ -51,6 +53,12 @@ git_with_token() {
   GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$token" | base64 -w0)" \
     git "$@"
 }
+
+pins_args=()
+if [ -n "$platform_wrangler" ]; then
+  [ -s "$platform_wrangler" ] || { echo "image-roll-push: --platform-wrangler $platform_wrangler is missing or empty" >&2; exit 2; }
+  pins_args=(--platform-wrangler "$platform_wrangler")
+fi
 
 platform_mode=0
 if [ -n "$platform_checkout" ]; then
@@ -93,7 +101,7 @@ for push_try in 1 2 3 4 5; do
           git -C "$platform_checkout" reset -q --hard FETCH_HEAD
           set +e
           bun images/cmux-vm/auto-roll.ts approve --candidate "$candidate" --revision "$revision" --run "$run" --attempt "$attempt" \
-            --wrangler "$platform_checkout/workers/cmux-vm/wrangler.jsonc" --lock "$PWD/images/cmux-vm/inputs.lock.json" > "$RUNNER_TEMP/approve.json"
+            --wrangler "$platform_checkout/workers/cmux-vm/wrangler.jsonc" --lock "$PWD/images/cmux-vm/inputs.lock.json" "${pins_args[@]}" > "$RUNNER_TEMP/approve.json"
           rc=$?
           set -e
           if [ "$rc" = 4 ]; then report nothing "the tip moved the image inputs since the bake; the next roll bakes them" ""; exit 0; fi
@@ -112,7 +120,7 @@ for push_try in 1 2 3 4 5; do
           platform_done=1
         else
           set +e
-          bun images/cmux-vm/auto-roll.ts approve --candidate "$candidate" --revision "$revision" --run "$run" --attempt "$attempt" > "$RUNNER_TEMP/approve.json"
+          bun images/cmux-vm/auto-roll.ts approve --candidate "$candidate" --revision "$revision" --run "$run" --attempt "$attempt" "${pins_args[@]}" > "$RUNNER_TEMP/approve.json"
           rc=$?
           set -e
           if [ "$rc" = 4 ]; then report nothing "the tip moved the image inputs since the bake; the next roll bakes them" ""; exit 0; fi
@@ -135,7 +143,7 @@ for push_try in 1 2 3 4 5; do
         rollback_wrangler="$platform_checkout/workers/cmux-vm/wrangler.jsonc"
         rollback_repo="$platform_checkout"
       fi
-      bun images/cmux-vm/auto-roll.ts rollback --image "$image" --wrangler "$rollback_wrangler" > "$RUNNER_TEMP/rollback.json"
+      bun images/cmux-vm/auto-roll.ts rollback --image "$image" --wrangler "$rollback_wrangler" "${pins_args[@]}" > "$RUNNER_TEMP/rollback.json"
       cat "$RUNNER_TEMP/rollback.json"
       if [ "$(jq -r .rolledBack "$RUNNER_TEMP/rollback.json")" != true ]; then
         report nothing "$(jq -r .reason "$RUNNER_TEMP/rollback.json")" ""

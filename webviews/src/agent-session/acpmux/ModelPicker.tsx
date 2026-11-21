@@ -1,5 +1,6 @@
 import { acpmuxPerf } from "./perf";
 import { authChipText, authLoginText, authText, canSessionLogin } from "./sessionAuth";
+import { installedFirst } from "./railOrder";
 import {
   useCallback,
   useContext,
@@ -913,8 +914,11 @@ export function ModelPicker(props: ModelPickerProps) {
     if (!modelsNeeded) return [];
     const row = (entry: HarnessChoice, model: ModelChoice) => quickRow(entry.id, model);
     // A started chat that forks lists every harness, as a New Tab does; its own stays the chat's.
-    const startable = (forkHarnesses ? allHarnesses : harnesses).filter(
-      (entry) => !entry.folder && entry.pickable && !blockedProfile(entry),
+    // The harnesses this Mac has lead the rail; the ones to install follow (railOrder.ts).
+    const startable = installedFirst(
+      (forkHarnesses ? allHarnesses : harnesses).filter(
+        (entry) => !entry.folder && entry.pickable && !blockedProfile(entry),
+      ),
     );
     const list: QuickFamily[] = [];
     // A harness whose probe failed lends no rows to Starred (they are stale), unless it runs the chat.
@@ -999,31 +1003,30 @@ export function ModelPicker(props: ModelPickerProps) {
   ]);
   /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
   /// A searched row with an effort or fast mode lands as one combo, as the full picker's does.
-  const pickQuick = (model: QuickModel) => {
+  /// True when the pick sets its harness up first (installs it, signs it in): the menu shows that.
+  const pickQuick = (model: QuickModel): boolean => {
     const owner = harnesses.find((entry) => entry.id === model.family);
-    if (!owner || model.disabled || !owner.pickable) return;
-    if (needsSetup(owner)) {
-      setUpPick(owner, model.id, model.effort, model.fast);
-      return;
-    }
+    if (!owner || model.disabled || !owner.pickable) return false;
+    if (needsSetup(owner)) return setUpPick(owner, model.id, model.effort, model.fast);
     const harnessId = owner.acpmuxHarness ?? owner.id;
     const here = owner.ids.includes(harness ?? "");
     if (onCombo && (model.effort || model.fast || !here)) {
       onCombo({ harness: harnessId, model: model.id, effort: model.effort, fast: model.fast });
-      return;
+      return false;
     }
     if (here) {
       onLand(model.id);
-      return;
+      return false;
     }
     // A started chat that can fork holds the harness for its next message; it never switches.
     if (forkHarnesses) fork?.hold(harnessId);
     else if (owner.acpmuxHarness) onHarness?.(owner.acpmuxHarness);
+    return false;
   };
   /// A compact-menu pick from the rail or the search: the prompt takes the keyboard once it closes.
   const pickQuickToPrompt = (model: QuickModel) => {
     quickPicked.current = true;
-    pickQuick(model);
+    return pickQuick(model);
   };
   /// An Account pick: the harness's other profile starts a chat there, or, in a started chat, is
   /// held as the next message's fork target. `id` is an acpmux profile: one a tab folded
