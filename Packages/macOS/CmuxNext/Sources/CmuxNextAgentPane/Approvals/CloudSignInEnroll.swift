@@ -145,6 +145,9 @@ extension CloudSignInEnroll {
             return await line.call(method, params) != nil
         }
         windows?.followAvailability(enroll) { [weak enroll] in enroll?.acpmuxReturned() }
+        // Door A: a pane's join of a machine over ssh goes with the same token the machine routes take;
+        // nil signed out, and the pane says to sign in.
+        AgentPaneTransport.machineJoinTokenSource = { [weak auth] in await auth?.machineRoutesToken(identity: identity) }
         return enroll
     }
 }
