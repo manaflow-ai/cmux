@@ -2990,23 +2990,27 @@ jobs:
   app-compile-fleet:
     needs: [path_route, push-head-preflight, app-compile-placement]
     # Why: docs/ci/cmux-next-workflow-notes.md#note-371
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && needs.app-compile-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.app-compile-placement.outputs.gateway_runner != '' }}
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
     name: cmux-next app compile (build fleet)
     concurrency:
       group: cmux-next-pr-${{ github.event.pull_request.number }}-app-compile-fleet
       cancel-in-progress: true
-    runs-on: ${{ needs.app-compile-placement.outputs.gateway_runner }}
+    # The smallest Linux runner: the job checks nothing out and only reads the fleet's own compile of the head.
+    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     permissions: {}
-    timeout-minutes: 30
+    timeout-minutes: 60
     outputs:
       verdict: ${{ steps.check.outputs.verdict }}
     steps:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-181
-      - name: Compile-check the app at the pull request's head on the build fleet
+      - name: Read the build fleet's compile of the pull request's head
         id: check
         env:
           REF: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
           MAC_RELEASE: ${{ needs.path_route.outputs.mac_release }}
+          RESULTS: https://gh-events.cmux.com/compile-checks/v1
         run: |
           set -uo pipefail
           # No verdict is never a pass: the job fails and says why, and release-compile (a Mac)
@@ -3020,17 +3024,42 @@ jobs:
             echo "::error title=Build fleet compile: no verdict::$summary"
             exit 1
           }
-          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          if ! [[ -x "$client" ]]; then
-            no_verdict "$client is not installed on runner $RUNNER_NAME"
-            exit 1  # no_verdict exits already; this keeps the guard's shape visible
-          fi
-          status=0
-          "$client" compile-check --ref "$REF" --app --timeout 1200 --queue-timeout 300 || status=$?
-          case "$status" in
-            0) verdict=pass; summary="The build fleet compiled and linked the cmux-next app at \`$REF\` (Debug, swift.org toolchain). The Release compile runs on the base push after the merge." ;;
-            1) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`; the errors are in this job's log above." ;;
-            *) no_verdict "controller unreachable or timed out: cmux-ci exit $status" ;;
+          [[ "$REF" =~ ^[0-9a-f]{40}$ ]] || no_verdict "bad head sha '$REF'"
+          [[ "${PR:-}" =~ ^[1-9][0-9]*$ ]] || PR=""
+          # The fleet compiles every same-repository pull request head on its own (Release, -Onone, recipe 2);
+          # cmux-next/compile is posted from the same result. This job only reads it, under one deadline
+          # (WAIT_SECONDS, 55 min, inside the job's 60; the fleet's queue held a head 35 min on 2026-11-21): no Mac runner and no second compile of the head.
+          # Each read blocks at most 80 s: the edge in front of the service ends a request at 100 s (HTTP 524),
+          # which is a read that ran out, not the service down.
+          reply="$RUNNER_TEMP/compile-check.json"
+          url="$RESULTS/$REF?repo=${REPO/\//%2F}${PR:+&pr=$PR}"
+          deadline=$((SECONDS + ${WAIT_SECONDS:-3300}))
+          state="" last="" bad=0
+          while (( SECONDS < deadline - 1 )); do
+            left=$((deadline - SECONDS))
+            wait=$(( left > 60 ? left - 30 : left / 2 )); wait=$(( wait < ${READ_WAIT:-80} ? wait : ${READ_WAIT:-80} ))
+            code="$(timeout "$left" curl -sS -o "$reply" -w '%{http_code}' --connect-timeout 10 \
+              --max-time "$left" "$url&wait=$wait")" || code=000
+            case "${code:-000}" in
+              200) bad=0 last=""
+                state="$(jq -r --arg sha "$REF" --arg repo "$REPO" '
+                  if .sha != $sha or .repo != $repo or .recipe_version != 2 or .configuration != "release-onone"
+                  then "mismatch" else (.state // "") end' "$reply" 2>/dev/null || echo unreadable)"
+                echo "read: $state"
+                case "$state" in pass|fail|unavailable|mismatch|unreadable) break ;; esac ;;
+              404) bad=0 last=""; echo "no fleet result for $REF yet" ;;
+              524) bad=0 last="HTTP 524"; echo "the read ran out at the edge; reading again" ;;
+              *) bad=$((bad + 1)) last="HTTP $code"
+                # The results service down on three reads in a row hands off now, not at the deadline.
+                (( bad < ${BAD_READS:-3} )) || break ;;
+            esac
+            gap=$(( deadline - SECONDS < ${READ_GAP:-30} ? deadline - SECONDS : ${READ_GAP:-30} ))
+            (( gap <= 0 )) || sleep "$gap"
+          done
+          case "$state" in
+            pass) verdict=pass; summary="The build fleet compiled and linked the cmux-next app at \`$REF\` (Release, -Onone). The Mac Release compile runs on the base push after the merge." ;;
+            fail) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`; the errors are in cmux-next/compile's log: $(jq -r '.log_url // empty' "$reply" 2>/dev/null)" ;;
+            *) no_verdict "${state:-${last:-no result}} after $SECONDS s" ;;
           esac
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
           echo "### Build fleet app compile: $verdict"$'\n\n'"$summary" >> "$GITHUB_STEP_SUMMARY"
@@ -5423,7 +5452,9 @@ jobs:
     concurrency:
       group: ${{ format('cmux-next-release-compile-fast-{0}', github.run_id) }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '' && needs.macos-placement.outputs.gateway_runner || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
+    # 2026-11-21: always the Linux read of the fleet's own compile of this push, never a Mac gateway runner
+    # (its client only waited there: 9 runner-hours a day at 0.01 cores, 11-13..21).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
     permissions:
       contents: read
     timeout-minutes: 30
@@ -5438,7 +5469,8 @@ jobs:
           REF: ${{ github.sha }}
           REPO: ${{ github.repository }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-282
-          GATEWAY: ${{ needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner || '' }}
+          # Empty: the job takes no gateway runner (2026-11-21), so the step reads the results service.
+          GATEWAY: ""
           # Why: docs/ci/cmux-next-workflow-notes.md#note-283
           RESULTS: https://gh-events.cmux.com/compile-checks/v1
         run: |
@@ -7367,7 +7399,7 @@ jobs:
   # Posts cmux-next/compile from the Mac Release compile when compile-status handed off to it.
   # Why: docs/ci/cmux-next-workflow-notes.md#note-83
   compile-status-handoff:
-    needs: [compile-status, release-compile-fast, release-compile]
+    needs: [compile-status, release-compile-fast, release-compile, app-compile-fleet]
     if: ${{ always() && !cancelled() && needs.compile-status.outputs.handoff != '' }}
     name: cmux-next fleet Release compile (handoff)
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
@@ -7396,15 +7428,18 @@ jobs:
           DOWN: ${{ needs.compile-status.outputs.handoff }}
           FAST: ${{ needs.release-compile-fast.result }}/${{ needs.release-compile-fast.outputs.verdict }}
           MAC: ${{ needs.release-compile.result }}
+          # A pull request's app compile reads the same fleet compile on its own deadline (2026-11-21); its
+          # verdict answers when compile-status's reads gave up first and release-compile skipped on that pass.
+          APP: ${{ needs.app-compile-fleet.outputs.verdict }}
         run: |
           set -uo pipefail
           # post()'s rate-limit waits end here: the step's 56 min less a last try, inside the token's hour.
           post_end=$((SECONDS + ${POST_END_SECONDS:-3240}))
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Compile check::bad head sha '$SHA'"; exit 1; }
           # The fast check's own verdict (a gateway's fleet compile) first, else the Mac Release compile.
-          case "$FAST/$MAC" in
-            success/pass/*|*/success) state=success d="The Release compile (fallback) compiled this head; the results service was down" ;;
-            */fail/*|*/failure) state=failure d="The Release compile (fallback) failed at this head; see its log" ;;
+          case "$FAST/$MAC/${APP:-}" in
+            success/pass/*|*/success/*|*/pass) state=success d="The Release compile (fallback) compiled this head; the results service was down" ;;
+            */fail/*|*/failure/*|*/fail) state=failure d="The Release compile (fallback) failed at this head; see its log" ;;
             *) state=error d="[no-verdict] No compile verdict: results service was down ($DOWN) and no fallback compile ran; re-run all jobs" ;;
           esac
           # Why: docs/ci/cmux-next-workflow-notes.md#note-10 (a refused status post)

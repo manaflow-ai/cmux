@@ -553,9 +553,9 @@ class ResultsServiceDown(unittest.TestCase):
     def compile_status(self, **env: str) -> tuple[int, str, str]:
         return self.bash(step_script(), PROBE_GAP="1", READ_GAP="1", **env)
 
-    def handoff(self, down: str, fast: str, mac: str) -> tuple[int, str, str]:
+    def handoff(self, down: str, fast: str, mac: str, app: str = "") -> tuple[int, str, str]:
         script = next(step["run"] for step in handoff_job()["steps"] if "run" in step)
-        return self.bash(script, DOWN=down, FAST=fast, MAC=mac)
+        return self.bash(script, DOWN=down, FAST=fast, MAC=mac, APP=app)
 
     def test_a_pull_request_with_a_fallback_gets_the_fallbacks_verdict(self):
         started = time.monotonic()
@@ -575,9 +575,15 @@ class ResultsServiceDown(unittest.TestCase):
                                             ("success/pass", "skipped", "success", 0),
                                             ("failure/fail", "skipped", "failure", 1),
                                             ("skipped/", "skipped", "error", 3),
-                                            ("skipped/", "cancelled", "error", 3)):
-            with self.subTest(fast=fast, mac=mac):
-                code, stdout, _ = self.handoff(down, fast, mac)
+                                            ("skipped/", "cancelled", "error", 3),
+                                            # 2026-11-21: a pull request's app compile reads the same fleet compile
+                                            # on Linux; its verdict answers when release-compile skipped on it.
+                                            ("skipped/", "skipped/pass", "success", 0),
+                                            ("skipped/", "skipped/fail", "failure", 1),
+                                            ("skipped/", "skipped/unavailable", "error", 3)):
+            mac, _, app = mac.partition("/")
+            with self.subTest(fast=fast, mac=mac, app=app):
+                code, stdout, _ = self.handoff(down, fast, mac, app)
                 post = self.server.posts[-1]
                 self.assertEqual((post["state"], post["context"], code), (state, "cmux-next/compile", exit_code))
                 self.assertEqual("::error::no verdict: " in stdout, state == "error")
@@ -635,7 +641,7 @@ class ResultsServiceDown(unittest.TestCase):
 
     def test_the_handoff_job_waits_on_the_fallback_and_checks_nothing_out(self):
         j = handoff_job()
-        self.assertEqual(j["needs"], ["compile-status", "release-compile-fast", "release-compile"])
+        self.assertEqual(j["needs"], ["compile-status", "release-compile-fast", "release-compile", "app-compile-fleet"])
         self.assertIn("needs.compile-status.outputs.handoff != ''", j["if"])
         self.assertIn("always()", j["if"])
         self.assertEqual(j["permissions"], {})

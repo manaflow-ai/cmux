@@ -3056,13 +3056,14 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         # its verdict output is what the admission job turns red.
         compile_step = next(step for step in fast["steps"] if step.get("id") == "compile")
         self.assertIs(compile_step.get("continue-on-error"), True)
-        # An idle gateway runner from this attempt submits the check; otherwise a Linux runner reads the build
-        # fleet's own Release (-Onone) compile of the push, fail closed on sha, repo, recipe and configuration.
+        # A Linux runner reads the build fleet's own Release (-Onone) compile of the push, fail closed on sha,
+        # repo, recipe and configuration. Since 2026-11-21 it never takes a Mac gateway runner: its client only
+        # waited there.
         self.assertTrue(one_runs_on(fast).startswith(
-            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-            "needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && "
-            "needs.macos-placement.outputs.gateway_runner != '' && needs.macos-placement.outputs.gateway_runner || "),
+            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED"),
             one_runs_on(fast))
+        self.assertNotIn("gateway_runner", one_runs_on(fast))
+        self.assertEqual(compile_step["env"]["GATEWAY"], "")
         self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", one_runs_on(fast))
         run = next(step["run"] for step in fast["steps"] if step.get("id") == "compile")
         self.assertIn("compile-check --ref", run)
@@ -3583,11 +3584,10 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
     STD = "glaeda-side-std-xcode-26.6"
     # The job whose gateway reading each gateway job takes: macos-placement, after the PR quiet period, except
     # the PR's app compile, judged at once (app-compile-placement; Leo, 2026-11-08: only the Mac jobs wait).
-    READING = {"app-compile-fleet": "app-compile-placement"}
+    # (2026-11-21: app-compile-fleet reads the fleet's compile on Linux and takes no gateway.)
+    READING: dict[str, str] = {}
     # Each gateway job's Mac fallback, which must run when the gateway job does not, and the event it runs on.
-    FALLBACKS = {"app-compile-fleet": ("release-compile", "pull_request"),
-                 "swift-canary-fleet": ("swift-canary", "pull_request"),
-                 "release-compile-fast": ("release-compile", "push"),
+    FALLBACKS = {"swift-canary-fleet": ("swift-canary", "pull_request"),
                  # Only while macos-placement lists the tier in fleet_jobs (GatewayRunsOnlyTheFleetClient).
                  "fast-tier-fleet": ("fast-tier", "pull_request")}
     PINS = ("CI_COMPILE_CHECK_GATEWAY", "side-light", "gateway_runner")
@@ -3595,7 +3595,8 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
     # fleet's own compile of the same sha (2026-11-02: every gateway runner busy from 09:39Z sent pushes 622a6b75
     # and 0fa148c5 to the Mac Release queue for over two hours while cmux-next/compile had passed both). Their
     # Mac fallback runs only when that read gives no verdict.
-    LINUX_ROUTE = {"release-compile-fast": ("blacksmith-2vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404")}
+    # (2026-11-21: release-compile-fast and app-compile-fleet read on Linux always and take no gateway.)
+    LINUX_ROUTE: dict[str, tuple[str, ...]] = {}
 
     def jobs(self) -> dict:
         return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -3713,14 +3714,22 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         context = {**self.context(), "needs.app-compile-placement.outputs.gateway_attempt": "1",
                    "needs.app-compile-placement.outputs.gateway_runner": "glaeda-gateway"}
         self.assertTrue(evaluate(job["if"], context))
-        self.assertEqual(evaluate(one_runs_on(job), context), "glaeda-gateway")
+        # 2026-11-21: the smallest Linux runner, whatever the gateway reading; it only reads the fleet's result.
+        self.assertEqual(evaluate(one_runs_on(job), context), "blacksmith-2vcpu-ubuntu-2404")
+        self.assertTrue(evaluate(job["if"], self.context()))
+        self.assertNotIn("gateway", one_runs_on(job))
+        self.assertNotIn("macos", one_runs_on(job))
+        step = next(step for step in job["steps"] if step.get("id") == "check")
+        self.assertNotIn("cmux-ci", step["run"])
+        self.assertIn('.recipe_version != 2 or .configuration != "release-onone"', step["run"])
+        self.assertEqual(step["env"]["RESULTS"], "https://gh-events.cmux.com/compile-checks/v1")
 
     def test_it_takes_only_an_idle_gateway_placement_saw(self):
         """2026-10-26 06:00Z: 44 jobs queued on the light side gateway, oldest 58 minutes; PR #24155's
         compile queued there three times. Its placement (app-compile-placement for the app compile,
         macos-placement for the canary) names an idle gateway runner or none."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        for name, placement in (("app-compile-fleet", "app-compile-placement"), ("swift-canary-fleet", "macos-placement")):
+        for name, placement in (("swift-canary-fleet", "macos-placement"),):
             job = jobs[name]
             with self.subTest(job=name):
                 self.assertIn(placement, job["needs"])
@@ -3789,70 +3798,94 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         for why, context in (("fork", self.context(head_repo="someone/cmux")),
                              ("full-ci", self.context(labels=("full-ci",))),
                              ("push", self.context("push")),
-                             ("no native tier", self.context(native="false")),
-                             ("no gateway", self.context(gateway=""))):
+                             ("no native tier", self.context(native="false"))):
             with self.subTest(why=why):
                 self.assertFalse(evaluate(self.job()["if"], {**context, **idle}))
+        # 2026-11-21: it reads the fleet's own compile on Linux, so it runs with or without a gateway label.
+        self.assertTrue(evaluate(self.job()["if"], self.context(gateway="")))
 
     def test_release_compile_waits_for_its_verdict(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         self.assertIn("app-compile-fleet", jobs["release-compile"]["needs"])
 
-    def run_check(self, client_exit: int | None, *, mac_release: str = "false"
-                  ) -> tuple[subprocess.CompletedProcess, str, str, str]:
-        """Run the step with a stub cmux-ci exiting client_exit (None: no client installed)."""
+    OK = {"sha": "d" * 40, "repo": "manaflow-ai/cmux", "recipe_version": 2, "configuration": "release-onone"}
+
+    def run_check(self, codes: list[str], reply: dict | None = None, *, mac_release: str = "false",
+                  wait: int = 20) -> tuple[subprocess.CompletedProcess, str, str, str]:
+        """Run the step against a fake results service: each read answers the next HTTP code in codes
+        (404 once they run out), a 200 with reply. Returns (result, outputs, the URLs read, summary)."""
         step = next(s for s in self.job()["steps"] if s.get("id") == "check")
         self.assertEqual(step["env"]["REF"], "${{ github.event.pull_request.head.sha }}")
         with tempfile.TemporaryDirectory() as tmp:
-            client = Path(tmp) / "cmux-ci"
-            if client_exit is not None:
-                client.write_text(f'#!/bin/bash\necho "$@" > "{tmp}/args"\nexit {client_exit}\n')
-                client.chmod(0o755)
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            (Path(tmp) / "codes").write_text("\n".join(codes) + "\n")
+            (Path(tmp) / "reply.json").write_text(json.dumps(reply) if reply is not None else "")
+            curl = bin_dir / "curl"
+            curl.write_text(f"""#!/bin/bash
+echo "${{@: -1}}" >> "{tmp}/calls"
+code=$(head -1 "{tmp}/codes"); sed -i.bak 1d "{tmp}/codes"; code=${{code:-404}}
+if [[ $code == 200 ]]; then while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && cp "{tmp}/reply.json" "$2"; shift; done; fi
+printf %s "$code"
+""")
+            curl.chmod(0o755)
             output = Path(tmp) / "output"
             output.touch()
             summary = Path(tmp) / "summary"
-            env = git_fixture_env.fixture_env({"PATH": os.environ["PATH"], "HOME": tmp, "CMUX_CI_CLIENT": str(client), "REF": "d" * 40,
-                   "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": tmp, "RUNNER_NAME": "gw",
-                   "GITHUB_STEP_SUMMARY": str(summary), "MAC_RELEASE": mac_release})
+            env = git_fixture_env.fixture_env({"PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": tmp, "REF": "d" * 40,
+                   "REPO": "manaflow-ai/cmux", "PR": "12", "RESULTS": "https://results.invalid/compile-checks/v1",
+                   "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": tmp, "RUNNER_NAME": "linux",
+                   "GITHUB_STEP_SUMMARY": str(summary), "MAC_RELEASE": mac_release,
+                   "READ_GAP": "0", "WAIT_SECONDS": str(wait)})
             # The step's own shell: bash -e {0}.
             result = subprocess.run(["bash", "-e", "-c", step["run"]], env=env,
                                     capture_output=True, text=True, timeout=60)
-            args = (Path(tmp) / "args").read_text() if (Path(tmp) / "args").exists() else ""
-            return result, output.read_text(), args, summary.read_text() if summary.exists() else ""
+            calls = (Path(tmp) / "calls").read_text() if (Path(tmp) / "calls").exists() else ""
+            return result, output.read_text(), calls, summary.read_text() if summary.exists() else ""
 
-    def test_a_fleet_pass_is_green_and_compiles_the_head(self):
-        result, output, args, summary = self.run_check(0)
+    def test_a_fleet_pass_is_green_and_reads_the_head(self):
+        # An edge timeout (524) is a read that ran out, not the service down: it reads again.
+        result, output, calls, summary = self.run_check(["404", "524", "524", "524", "200"], {**self.OK, "state": "pass"})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("verdict=pass", output)
-        self.assertIn(f"compile-check --ref {'d' * 40} --app", args)
+        self.assertIn(f"/compile-checks/v1/{'d' * 40}?repo=manaflow-ai%2Fcmux&pr=12&wait=", calls)
+        # No read blocks past the edge's 100 s.
+        self.assertTrue(all(int(w) <= 80 for w in re.findall(r"&wait=(\\d+)", calls)), calls)
         self.assertIn("Build fleet app compile: pass", summary)
 
     def test_a_fleet_compile_failure_is_the_prs_red(self):
-        result, output, _, _ = self.run_check(1)
+        result, output, _, _ = self.run_check(["200"], {**self.OK, "state": "fail"})
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("verdict=fail", output)
 
     def test_no_fleet_verdict_is_never_green(self):
-        """2026-10-28: cmux-ci exited 69 (EX_UNAVAILABLE, a TimeoutError against the wedged controller)
-        on PR #26741's head 292b43ef and this job went green, though no Mac Release compile ran for
-        that change: a pass with nothing compiled. No verdict fails the job and says so; the verdict
-        output stays unavailable, so release-compile still takes over where mac_release sends it."""
-        for client_exit in (69, 75, 124, 2, 3, 137):
-            with self.subTest(client_exit=client_exit):
-                result, output, _, summary = self.run_check(client_exit)
+        """2026-10-28: cmux-ci exited 69 against the wedged controller on PR #26741's head 292b43ef and this
+        job went green, though nothing had compiled that change. No verdict (the fleet's own unavailable, a
+        result for another sha or recipe, the service down, or the wait running out) fails the job and says
+        so; the verdict output stays unavailable, so release-compile still takes over where mac_release
+        sends it."""
+        for why, codes, reply in (("unavailable", ["200"], {**self.OK, "state": "unavailable"}),
+                                  ("mismatch", ["200"], {**self.OK, "state": "pass", "sha": "e" * 40}),
+                                  ("mismatch", ["200"], {**self.OK, "state": "pass", "recipe_version": 1}),
+                                  ("HTTP 530", ["530", "530", "530"], None),
+                                  # Edge timeouts alone never end the wait early; the deadline does.
+                                  ("no result", ["524"] * 5, None),
+                                  ("running", ["200"] * 40, {**self.OK, "state": "running"}),
+                                  ("no result", [], None)):
+            with self.subTest(why=why, reply=reply):
+                result, output, _, summary = self.run_check(codes, reply, wait=6)
                 self.assertNotEqual(result.returncode, 0, "no build-fleet verdict must not report success")
                 self.assertIn("verdict=unavailable", output)
                 self.assertNotIn("verdict=pass", output)
                 self.assertIn("no verdict", result.stdout)
-                self.assertIn("controller unreachable or timed out", result.stdout)
-                self.assertIn(f"exit {client_exit}", result.stdout)
+                self.assertIn(f"({why} after", result.stdout)
                 self.assertIn("Build fleet app compile: no verdict", summary)
                 self.assertIn("No Mac Release compile runs for this change", result.stdout)
 
     def test_no_fleet_verdict_names_the_mac_fallback_when_it_runs(self):
         step = next(s for s in self.job()["steps"] if s.get("id") == "check")
         self.assertEqual(step["env"].get("MAC_RELEASE"), "${{ needs.path_route.outputs.mac_release }}")
-        result, output, _, _ = self.run_check(69, mac_release="true")
+        result, output, _, _ = self.run_check(["200"], {**self.OK, "state": "unavailable"}, mac_release="true")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("verdict=unavailable", output)
         self.assertIn("Mac Release compile (cmux-next Release compile (Xcode 26)) runs as the fallback", result.stdout)
@@ -3861,12 +3894,11 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         self.assertIn("always()", jobs["release-compile"]["if"])
         self.assertIn("needs.app-compile-fleet.outputs.verdict != 'pass'", jobs["release-compile"]["if"])
 
-    def test_a_missing_client_is_no_verdict_not_a_pass(self):
-        result, output, args, _ = self.run_check(None)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(args, "")
-        self.assertIn("verdict=unavailable", output)
-        self.assertIn("is not installed on runner gw", result.stdout)
+    def test_the_wait_is_bounded_inside_the_job(self):
+        job = self.job()
+        step = next(s for s in job["steps"] if s.get("id") == "check")
+        wait = int(re.search(r"WAIT_SECONDS:-(\d+)", step["run"]).group(1))
+        self.assertLessEqual(wait + 120, int(job["timeout-minutes"]) * 60)
 
     def test_a_skip_is_a_skip_never_a_pass(self):
         """The only no-compile outcome that is not red is the job-level skip (no idle gateway, a
