@@ -282,7 +282,7 @@ impl Translator {
                             return Vec::new();
                         }
                         if changed {
-                            auth.held.extend(self.translate_client(msg));
+                            auth.held.extend(self.forward_client(msg));
                             return vec![auth.login_request(file)];
                         }
                     }
@@ -302,10 +302,11 @@ impl Translator {
         if let Some(out) = self.background().request(msg) {
             return out;
         }
-        self.translate_client(msg)
+        self.forward_client(msg)
     }
 
-    fn translate_client(&self, msg: &Value) -> Vec<Out> {
+    /// Hands a hub message to the Codex translator, unless the model catalog holds it (a pick before the list).
+    fn forward_client(&self, msg: &Value) -> Vec<Out> {
         let mut catalog = self.catalog.lock().unwrap_or_else(|e| e.into_inner());
         if catalog.hold_pick(msg) {
             return Vec::new();
@@ -373,7 +374,7 @@ impl Translator {
                         if let Some(out) = self.background().request(&msg) {
                             released.extend(out);
                         } else {
-                            released.extend(self.translate_client(&msg));
+                            released.extend(self.forward_client(&msg));
                         }
                     }
                     return released;
