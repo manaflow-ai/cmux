@@ -16,7 +16,7 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 
 | | linux | shims | mac | all |
 | --- | ---: | ---: | ---: | ---: |
-| targets | 42 | 25 | 261 | 328 |
+| targets | 42 | 25 | 259 | 326 |
 | of them test suites | 16 | 6 | 83 | 105 |
 
 ## Packages and projects
@@ -69,7 +69,6 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | `cmux-tui/apps/macos/TerminalBytesDemo` | 1 | 0 | 2 | - |
 | `cmux-tui/crates/cmux-mobile-ffi/swift` | 0 | 3 | 0 | - |
 | `cmux.xcodeproj` | 0 | 0 | 1 | - |
-| `experiments/cmux-vnc-ios/CmuxVNCiOS.xcodeproj` | 0 | 0 | 2 | - |
 | `experiments/remote-desktop/rdclient-mac` | 0 | 0 | 1 | - |
 | `experiments/remote-desktop/rdpane-variants` | 0 | 0 | 1 | - |
 | `ios/CmuxiOS` | 0 | 0 | 11 | - |
@@ -613,13 +612,6 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | Target | Kind | Class | Proof | Why | Guarded |
 | --- | --- | --- | --- | --- | --- |
 | cmux-next | xcode application | mac | project | Xcode macOS application | - |
-
-## `experiments/cmux-vnc-ios/CmuxVNCiOS.xcodeproj`
-
-| Target | Kind | Class | Proof | Why | Guarded |
-| --- | --- | --- | --- | --- | --- |
-| CmuxVNCRustiOS | xcode application | mac | project | Xcode iOS application | - |
-| CmuxVNCiOS | xcode application | mac | project | Xcode iOS application | - |
 
 ## `experiments/remote-desktop/rdclient-mac`
 

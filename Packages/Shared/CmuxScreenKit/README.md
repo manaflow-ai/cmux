@@ -1,8 +1,8 @@
 # CmuxScreenKit
 
 See and control a Mac's screen from an iOS app. This is the library behind
-the cmux VNC demo apps (`experiments/cmux-vnc-ios`), which use it as their
-only screen code.
+Screen Sharing in the cmux iOS app (`cmux-next-ios/CmuxMobileKit`), which
+uses it as its only screen code.
 
 | Product | Platforms | What it holds |
 | --- | --- | --- |
@@ -20,7 +20,7 @@ SwiftPM, local path (Xcode: Add Package → Add Local…):
 .product(name: "CmuxScreenKitUI", package: "CmuxScreenKit"),
 ```
 
-XcodeGen: see `experiments/cmux-vnc-ios/project.yml`.
+For a full example, see how `cmux-next-ios/CmuxMobileKit/Package.swift` links both products.
 
 ## Connect to a Mac
 
@@ -56,7 +56,7 @@ reached directly, `ScreenSession()` for the built-in demo desktop.
 
 ## Pick features
 
-`ScreenFeatures` is an option set. `.all` is the demo app; `.minimal` is the
+`ScreenFeatures` is an option set. `.all` turns on every feature; `.minimal` is the
 screen with a close button, state cards and display paging.
 
 | Feature | What the user gets |
@@ -206,5 +206,5 @@ this device a `typ relay` address.
 ## Tests
 
 `swift test` in this folder runs the tests that need no device. The UI target
-builds for iOS only, through the demo apps
-(`xcodebuild -project experiments/cmux-vnc-ios/CmuxVNCiOS.xcodeproj -scheme CmuxVNCiOS`).
+builds for iOS only, through the cmux iOS app (`cmux-next-ios`), which links
+`CmuxScreenKitUI`.

@@ -2,8 +2,8 @@ name: CmuxVNC
 
 # The shared RFB (VNC) client engine (Packages/Shared/CmuxVNC): protocol,
 # authentication and decoder unit tests, plus end-to-end runs against the
-# package's loopback demo server. The cmux-next app and the iOS demo
-# (experiments/cmux-vnc-ios) both link it.
+# package's loopback demo server. The cmux-next Mac app links it, and the
+# cmux iOS app links it through CmuxScreenKit.
 
 on:
   pull_request:
