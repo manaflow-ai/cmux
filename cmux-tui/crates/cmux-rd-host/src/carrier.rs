@@ -23,7 +23,8 @@ const MAX_UDP_PER_WAKE: usize = 64;
 
 /// One thing that arrived.
 pub enum Incoming {
-    Control(Control),
+    /// Boxed: a stats message is hundreds of bytes, a datagram is a `Vec` header.
+    Control(Box<Control>),
     Datagram(Vec<u8>),
 }
 
@@ -31,7 +32,6 @@ pub enum Incoming {
 /// the session is using cmux-rd-link.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MediaQueueStats {
-    pub departure_overflows: u64,
     pub queue_frames: usize,
     pub queue_datagrams: usize,
     pub dropped_frames: u64,
@@ -48,7 +48,6 @@ pub struct MediaQueueStats {
 impl From<cmux_rd_link::net::NetStats> for MediaQueueStats {
     fn from(stats: cmux_rd_link::net::NetStats) -> Self {
         Self {
-            departure_overflows: stats.departure_overflows,
             queue_frames: stats.queue_frames,
             queue_datagrams: stats.queue_datagrams,
             dropped_frames: stats.dropped_frames,
@@ -150,7 +149,7 @@ impl<S: Read + Write + AsRawFd> Carrier for SocketCarrier<'_, S> {
                 Ok(Some((FRAME_CONTROL, payload))) => {
                     // A message the host does not know is ignored, as before.
                     if let Ok(control) = serde_json::from_slice::<Control>(&payload) {
-                        out.push(Incoming::Control(control));
+                        out.push(Incoming::Control(Box::new(control)));
                     }
                 }
                 Ok(Some((FRAME_DATAGRAM, payload))) => out.push(Incoming::Datagram(payload)),
@@ -261,7 +260,7 @@ impl Carrier for LinkCarrier {
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Control(record))) => {
                     if let Ok(control) = serde_json::from_slice::<Control>(&record) {
-                        out.push(Incoming::Control(control));
+                        out.push(Incoming::Control(Box::new(control)));
                     }
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)) => {

@@ -53,10 +53,10 @@ impl MediaQueue {
                 self.record_drop(datagrams, DropReason::RejectedProtected);
                 return;
             }
-        } else if self.frames.front().is_some_and(|frame| frame.droppable) {
-            if let Some(old) = self.pop() {
-                self.record_drop(old, DropReason::EvictedForProtected);
-            }
+        } else if self.frames.front().is_some_and(|frame| frame.droppable)
+            && let Some(old) = self.pop()
+        {
+            self.record_drop(old, DropReason::EvictedForProtected);
         }
         self.queued_datagrams += datagrams.datagrams.len();
         self.frames.push_back(datagrams);

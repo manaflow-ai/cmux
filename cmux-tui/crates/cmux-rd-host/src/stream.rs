@@ -4,7 +4,7 @@
 //! packetize with FEC, NACK history, recovery, exactly-once input) is the shared engine,
 //! cmux-rd-engine (rd change C7 step 2).
 
-use crate::carrier::{Carrier, Incoming};
+use crate::carrier::{Carrier, DatagramDeparture, Incoming};
 use crate::clock::now_ns;
 use crate::cursor::CursorChannel;
 use crate::desktop::{Desktop, FrameSource};
@@ -75,6 +75,11 @@ pub struct MediaSession {
     /// Upstream media the viewer opened (rd change C4).
     upstreams: Upstreams<Box<dyn UpstreamSink>>,
     stats_frames_sent: u64,
+    /// Departure receipts drained from the carrier each pump (a reused buffer) and their
+    /// running totals for the stats line: what left the socket, not what was queued.
+    departures: Vec<DatagramDeparture>,
+    departed_datagrams: u64,
+    departed_bytes: u64,
     encode_ms: VecDeque<f64>,
     next_stats_ns: u64,
     stats_every_ns: u64,
@@ -290,6 +295,9 @@ impl MediaSession {
             engine,
             upstreams: Upstreams::new(sink, negotiated_caps),
             stats_frames_sent: 0,
+            departures: Vec::new(),
+            departed_datagrams: 0,
+            departed_bytes: 0,
             encode_ms: VecDeque::new(),
             next_stats_ns: now_ns(),
             stats_every_ns: cfg.stats_every_ms * 1_000_000,
@@ -393,30 +401,32 @@ impl MediaSession {
             self.engine.update_frames_in_flight_from_rtt(carrier.path_rtt_us());
             for item in incoming.drain(..) {
                 match item {
-                    Incoming::Control(Control::Stop) => return "stopped by viewer".into(),
-                    Incoming::Control(Control::Clipboard { seq, text, offset, total }) => {
-                        // Applied only in a control session; without the cap, ignored.
-                        let may_control = table.may_inject_input(session, viewer);
-                        if let Some(clipboard) = self.clipboard.as_mut() {
-                            let part = cmux_rd_proto::clipboard::ClipboardPart {
-                                seq,
-                                text,
-                                offset,
-                                total,
-                            };
-                            clipboard.on_part(part, may_control);
-                        }
-                    }
-                    Incoming::Control(control) => {
-                        let may_control = table.may_inject_input(session, viewer);
-                        if let Some(answer) =
-                            self.upstreams.on_control(&mut self.engine, &control, may_control)
-                        {
-                            if let Err(e) = carrier.send_control(&answer) {
-                                return format!("control write failed: {e}");
+                    Incoming::Control(control) => match *control {
+                        Control::Stop => return "stopped by viewer".into(),
+                        Control::Clipboard { seq, text, offset, total } => {
+                            // Applied only in a control session; without the cap, ignored.
+                            let may_control = table.may_inject_input(session, viewer);
+                            if let Some(clipboard) = self.clipboard.as_mut() {
+                                let part = cmux_rd_proto::clipboard::ClipboardPart {
+                                    seq,
+                                    text,
+                                    offset,
+                                    total,
+                                };
+                                clipboard.on_part(part, may_control);
                             }
                         }
-                    }
+                        control => {
+                            let may_control = table.may_inject_input(session, viewer);
+                            if let Some(answer) =
+                                self.upstreams.on_control(&mut self.engine, &control, may_control)
+                            {
+                                if let Err(e) = carrier.send_control(&answer) {
+                                    return format!("control write failed: {e}");
+                                }
+                            }
+                        }
+                    },
                     Incoming::Datagram(datagram) => {
                         self.on_datagram(carrier, &datagram, table, session, viewer)
                     }
@@ -532,7 +542,17 @@ impl MediaSession {
 
     /// Hands the engine the frame the encode thread finished, if there is one, and sends its
     /// datagrams.
+    /// Drains the carrier's bounded departure receipts so they never overflow while a session
+    /// runs; the totals go out with the stats line.
+    fn take_departures(&mut self, carrier: &mut dyn Carrier) {
+        carrier.drain_departures(&mut self.departures);
+        self.departed_datagrams += self.departures.len() as u64;
+        self.departed_bytes += self.departures.iter().map(|d| d.wire_bytes as u64).sum::<u64>();
+        self.departures.clear();
+    }
+
     fn send_encoded(&mut self, carrier: &mut dyn Carrier) -> Res<()> {
+        self.take_departures(carrier);
         let Some(Done { req, result }) = self.encoder.take_done()? else { return Ok(()) };
         let frame = result?;
         let idr = frame.idr.then(|| idr_reason(&req, frame.idr_cause));
@@ -762,6 +782,7 @@ impl MediaSession {
     }
 
     fn send_stats(&mut self, carrier: &mut dyn Carrier) {
+        self.take_departures(carrier);
         let now = now_ns();
         self.next_stats_ns = now + self.stats_every_ns.max(100_000_000);
         // Stats only while frames flow: an idle session sends nothing.
@@ -799,6 +820,9 @@ impl MediaSession {
                 .map(|stats| stats.dropped_rejected_protected_frames),
             queue_dropped_rejected_protected_datagrams: queue
                 .map(|stats| stats.dropped_rejected_protected_datagrams),
+            departed_datagrams: Some(self.departed_datagrams),
+            departed_bytes: Some(self.departed_bytes),
+            departure_overflows: Some(carrier.departure_overflows()),
         };
         let _ = carrier.send_control(&stats);
     }
@@ -965,7 +989,7 @@ mod encode_off_loop_tests {
                 }
             }
             if self.seen.encode_returned.load(SeqCst) {
-                out.push(Incoming::Control(Control::Stop));
+                out.push(Incoming::Control(Box::new(Control::Stop)));
             }
             Ok(())
         }
