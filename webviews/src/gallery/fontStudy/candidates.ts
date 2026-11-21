@@ -24,6 +24,9 @@ import newsreader from "./fonts/newsreader.woff2";
 import notoSans from "./fonts/noto-sans.woff2";
 import onest from "./fonts/onest.woff2";
 import publicSans from "./fonts/public-sans.woff2";
+import quilletMono from "./fonts/quillet-mono.woff2";
+import quilletSans from "./fonts/quillet-sans.woff2";
+import quilletSerif from "./fonts/quillet-serif.woff2";
 import recursive from "./fonts/recursive.woff2";
 import schibsted from "./fonts/schibsted-grotesk.woff2";
 import sourceSerif from "./fonts/source-serif-4.woff2";
@@ -78,6 +81,11 @@ export const FACES = {
     ],
   },
   publicSans: variable("Study Public Sans", publicSans),
+  // Quillet (fonts/OFL-Quillet.txt): our own family, Modified Versions of Hanken Grotesk, Newsreader
+  // and JetBrains Mono, the faces the Folio pack stands in with (chatFonts/FontPack.gallery.ts).
+  quilletMono: { family: "Study Quillet Mono", files: [{ url: quilletMono, weight: "100 800" }] },
+  quilletSans: variable("Study Quillet Sans", quilletSans),
+  quilletSerif: { family: "Study Quillet Serif", files: [{ url: quilletSerif, weight: "200 800" }] },
   recursive: variable("Study Recursive", recursive),
   roboto: variable("Study Roboto", roboto),
   schibsted: variable("Study Schibsted Grotesk", schibsted),
@@ -168,6 +176,15 @@ export const PAIRINGS: readonly Pairing[] = [
     why: "Vercel's grotesque and its mono, a tool's look.",
     ui: "geist",
     mono: "geistMono",
+  },
+  {
+    id: "quillet",
+    label: "Quillet Sans + Serif + Mono",
+    why: "Our own family on one line box: Hanken, Newsreader and JetBrains Mono with designed changes.",
+    ui: "quilletSans",
+    prose: "quilletSerif",
+    mono: "quilletMono",
+    proseSize: 15,
   },
   { id: "hanken", label: "Hanken Grotesk", why: "Warm, open grotesque, all sans.", ui: "hanken" },
   { id: "instrument", label: "Instrument Sans", why: "Crisp grotesque with a narrow, even rhythm.", ui: "instrument" },
