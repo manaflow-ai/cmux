@@ -1460,3 +1460,17 @@ struct MacScreenRdWishTests {
         #expect(MacScreenRdDocument.wish(.smooth, refresh: 120, paneWidth: 1000) == (1920, 120))
     }
 }
+
+/// Customize's bitrate cap and cursor ride the offer; the defaults add no line (today's offer).
+struct MacScreenRdCustomizeTests {
+    @Test func customizeWishesRoundTripAndDefaultsAddNothing() throws {
+        var document = MacScreenRdDocument(key: String(repeating: "ab", count: 32))
+        document.customize(ScreenPreferences())
+        #expect(!document.text.contains("max-kbps") && !document.text.contains("cmux-rd-cursor"))
+        document.customize(ScreenPreferences(maxKbps: 10_000, showCursorInStream: false))
+        #expect(document.text.contains("a=cmux-rd-max-kbps:10000\r\n"))
+        #expect(document.text.contains("a=cmux-rd-cursor:0\r\n"))
+        let parsed = try #require(MacScreenRdDocument(text: document.text))
+        #expect(parsed == document)
+    }
+}
