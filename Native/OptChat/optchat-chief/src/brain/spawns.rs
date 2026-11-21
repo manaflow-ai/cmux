@@ -1455,6 +1455,15 @@ impl Brain {
             }),
         );
         (self.log)(&format!("subagent {id} finished"));
+        // A loop that waits for this run's final report closes now, by code
+        // (memory.rs `close_loops`): only this run's own report, and never a
+        // stopped, held or unlanded one.
+        if !stopped && !held && !resuming && crate::check_in::report_is_final(&report) {
+            self.close_loops(
+                &crate::check_in::CloseWhen::AgentDone(id.to_owned()),
+                &format!("{id} reported its result"),
+            );
+        }
         if land_followup {
             (self.log)(&format!("subagent {id}: not landed, followed up"));
             self.trace.emit("subagent.land_followup", json!({"id": id}));

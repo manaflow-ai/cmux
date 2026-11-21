@@ -67,7 +67,7 @@ fn entries(store: &dyn Store) -> Vec<Entry> {
 }
 
 fn entry(seq: u64, role: Role, text: &str) -> Entry {
-    Entry { seq, at: seq, role, text: text.into() }
+    Entry { seq, at: seq, role, steer: false, text: text.into() }
 }
 
 /// The first search writes the copy; the second reads it, not the segment: a segment whose bytes

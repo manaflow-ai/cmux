@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
 import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
-import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
+import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineStopFields, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
@@ -2720,6 +2720,7 @@ describe("preclaim MET table fields", () => {
       const cmux = join(dir, "cmux");
       writeFileSync(cmux, `#!/bin/sh\ncat >/dev/null\ncase "$*" in\n  *loginReceipt*) echo '{"installed":true}' ;;\n  *'"installed":'*) echo '{"ok":true}' ;;\n  *'"ready":'*) echo '{"copy":{"generation":"gen-1"}}' ;;\n  *) echo '{"machine":"${spare}"}' ;;\nesac\n`, { mode: 0o755 });
       const guest = (command: string) => command.includes("acp wait") ? "@@wait 0\nThe measured reply." : command.includes("acp ensure") || command.includes("acp send") ? "@@exit 0" : command.includes("own-login") ? "own-login" : "";
+      const requestedSizes: unknown[] = [];
       const api: any = {
         origin: "https://cloud-api-staging.cmux.dev",
         bearer: "session-token",
@@ -2729,7 +2730,10 @@ describe("preclaim MET table fields", () => {
           : route.endsWith("/exec") ? { status: 200, body: { value: { exitCode: 0, stdout: guest(String(body?.command ?? "")) } } }
           : { status: 200, body: { ok: true } },
         read: async (op: string) => op === "cloud.plan.get" ? { usage: { active: 0, saved: 0, vm_hours_used: 4, vm_hours_used_by_you: 1.5 } } : { status: "running", host: "host-1", created_at: 1_000, running_since: 9_000 },
-        op: async () => ({ machine: { id: spare, status: "running" }, claim: { behind: true }, stages_ms: [{ step: "claim", ms: 40 }, { step: "bound", ms: 60 }] }),
+        op: async (_op: string, params: { size: unknown }) => {
+          requestedSizes.push(params.size);
+          return { machine: { id: spare, status: "running" }, claim: { behind: true }, stages_ms: [{ step: "claim", ms: 40 }, { step: "bound", ms: 60 }] };
+        },
         deleteMachine: async () => undefined,
       };
       // The platform's deploy moves during claim 0 (its health_after reads the new commit), then stays.
@@ -2746,6 +2750,7 @@ describe("preclaim MET table fields", () => {
       });
       expect(code).toBe(0);
       const written = JSON.parse(readFileSync(rowsPath, "utf8"));
+      expect(requestedSizes).toEqual(Array(2).fill({ cpu: 4, memory_mb: 16384, disk_mb: 65536 }));
       expect(written.header.burst).toEqual({ claims_expected: 2, hold_minutes_t0: 90, hold_minutes_t0_unavailable: null });
       const [first, second] = written.rows;
       expect(first.lease_hit).toBe(true);
@@ -2961,6 +2966,13 @@ describe("exec probe bench", () => {
     expect(execProbeHop(run(await answer(524, { raw: "<html>" })))).toBe("edge → Worker (HTTP 524)");
     expect(execProbeHop(run(await answer(200, { ok: true, value: { exitCode: 1, stdout: "", stderr: "x" } })))).toBe("guest command (exit 1)");
     expect(execProbeHop(run({}))).toBeNull();
+  });
+
+  test("a stopped machine's row keeps only the fields that say who stopped it", () => {
+    const row = { id: "m1", status: "paused", pause_reason: "idle", host: "h", env: { A: "1" }, transport: "direct", spec: { cpu: 2 } };
+    expect(machineStopFields(row)).toEqual({ status: "paused", pause_reason: "idle", transport: "direct" });
+    expect(machineStopFields({ status: "running", paused_by: "spend_cap" })).toEqual({ status: "running", paused_by: "spend_cap" });
+    expect(machineStopFields(null)).toEqual({});
   });
 
   test("a probe with no answer is placed by whether the guest holds its nonce", () => {

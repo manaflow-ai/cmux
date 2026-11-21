@@ -33,6 +33,7 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
 
 #[test]
 fn no_image_is_scaled_in_srgb() {
+    // affected-reads: cmux-tui Native
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let this = Path::new(file!()).file_name().unwrap();
     let mut files = Vec::new();
