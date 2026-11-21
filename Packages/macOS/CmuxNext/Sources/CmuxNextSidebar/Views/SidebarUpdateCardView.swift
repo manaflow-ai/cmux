@@ -25,7 +25,7 @@ final class SidebarUpdateCardView: NSView {
     private(set) var card: SidebarUpdateCard?
     /// The cards' surface, under everything else, its veil in the theme's glass tint (as the
     /// Updated and notice cards'; Leo 2026-11-03: "will this be themeed properly?").
-    let surface = CardSurfaceView()
+    let surface = CardSurfaceView() // concentric-allow: `layout()` rounds it by `cardCornerRadius`, from `buttonContainer`
     private let titleLabel = ChromeLabel(labelWithString: "")
     /// The short version and build date.
     let detailLabel = ChromeLabel(labelWithString: "")
@@ -197,6 +197,8 @@ final class SidebarUpdateCardView: NSView {
     /// Compact (Leo 2026-10-19): a 10 pt inset, the detail right under the
     /// title. 6 pt between the rows (Leo 2026-11-03: "stretched out wasted space"; it was 8).
     private static var padding: CGFloat { Metrics.space2 + Metrics.space1 / 2 }
+    /// The card's corner, concentric with its buttons: the button corner plus ``padding``, the gap from its edges to them.
+    static var cardCornerRadius: CGFloat { Metrics.buttonContainer(padding: padding).outerRadius }
     private static var rowGap: CGFloat { Metrics.space1 + Metrics.space1 / 2 }
     private static var titleFont: NSFont { Typography.bodyEmphasized }
 
@@ -211,7 +213,9 @@ final class SidebarUpdateCardView: NSView {
     }
 
     static func height(for card: SidebarUpdateCard, layout: SidebarUpdateCardLayout) -> CGFloat {
-        let title = ceil(titleFont.boundingRectForFont.height)
+        // The title row is as tall as Hide when the card shows it (Hide sits the padding from the top, in the corner).
+        let titleHeight = ceil(titleFont.boundingRectForFont.height)
+        let title = card.closeTitle != nil && card.closeAction != nil ? max(titleHeight, SidebarCardTextButton.height) : titleHeight
         let detail = card.detail == nil ? 0 : Metrics.space1 / 2 + captionHeight
         switch layout {
         case .card:
@@ -231,7 +235,8 @@ final class SidebarUpdateCardView: NSView {
         super.layout()
         let b = bounds, pad = Self.padding
         surface.frame = b
-        surface.cornerRadius = Metrics.surfaceCornerRadius
+        // Concentric with its buttons (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons inside").
+        surface.cornerRadius = Self.cardCornerRadius
         titleLabel.font = Self.titleFont
         let width = max(0, b.width - 2 * pad)
         switch layoutStyle {
@@ -245,9 +250,11 @@ final class SidebarUpdateCardView: NSView {
         let th = ceil(Self.titleFont.boundingRectForFont.height)
         let closeWidth = closeButton.fittingWidth, closeHeight = SidebarCardTextButton.height
         let closeRoom = closeButton.isHidden ? 0 : closeWidth + Metrics.space1
-        closeButton.frame = NSRect(x: b.width - pad / 2 - closeWidth, y: pad + (th - closeHeight) / 2, width: closeWidth, height: closeHeight)
-        titleLabel.frame = NSRect(x: pad, y: pad, width: max(0, width - closeRoom), height: th)
-        var y = titleLabel.frame.maxY
+        closeButton.frame = NSRect(x: b.width - pad - closeWidth, y: pad, width: closeWidth, height: closeHeight) // concentric-allow: Hide sits `padding` from the top and the side of a card rounded by buttonContainer(padding:)
+        // The title centres on Hide, which sits the padding from the top and trailing edge, in the corner.
+        let titleY = closeButton.isHidden ? pad : pad + max(0, (closeHeight - th) / 2)
+        titleLabel.frame = NSRect(x: pad, y: titleY, width: max(0, width - closeRoom), height: th)
+        var y = max(titleLabel.frame.maxY, closeButton.isHidden ? 0 : closeButton.frame.maxY)
         let caption = Self.captionHeight
         if !detailLabel.isHidden {
             y += Metrics.space1 / 2
@@ -270,9 +277,11 @@ final class SidebarUpdateCardView: NSView {
         closeButton.isHidden = card?.closeTitle == nil || card?.closeAction == nil
         let closeWidth = closeButton.fittingWidth, closeHeight = SidebarCardTextButton.height
         let closeRoom = closeButton.isHidden ? 0 : closeWidth + Metrics.space1
-        closeButton.frame = NSRect(x: bounds.width - pad / 2 - closeWidth, y: pad + (th - closeHeight) / 2, width: closeWidth, height: closeHeight)
-        titleLabel.frame = NSRect(x: pad, y: pad, width: max(0, width - closeRoom), height: th)
-        let y = titleLabel.frame.maxY + Self.rowGap, h = SidebarUpdateButton.height
+        closeButton.frame = NSRect(x: bounds.width - pad - closeWidth, y: pad, width: closeWidth, height: closeHeight) // concentric-allow: Hide sits `padding` from the top and the side of a card rounded by buttonContainer(padding:)
+        // The title centres on Hide, which sits the padding from the top and trailing edge, in the corner.
+        let titleY = closeButton.isHidden ? pad : pad + max(0, (closeHeight - th) / 2)
+        titleLabel.frame = NSRect(x: pad, y: titleY, width: max(0, width - closeRoom), height: th)
+        let y = max(titleLabel.frame.maxY, closeButton.isHidden ? 0 : closeButton.frame.maxY) + Self.rowGap, h = SidebarUpdateButton.height
         let buttonWidth = min(width, button.fittingWidth)
         button.frame = NSRect(x: pad + width - buttonWidth, y: y, width: buttonWidth, height: h)
         detailLabel.font = Typography.caption

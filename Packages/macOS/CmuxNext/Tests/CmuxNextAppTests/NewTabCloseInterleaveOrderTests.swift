@@ -103,11 +103,9 @@ struct NewTabCloseInterleaveOrderTests {
             let frames = recorder.frames
             let seen = frames.map { $0.joined() }
             let gone = frames.firstIndex { !$0.contains(victimName) } ?? frames.endIndex
-            // Rarely (1 run in about 17) a same-turn close shows its tab again for one frame as the close's
-            // hide lifts for the close itself; the order of the others never changes (#36813).
-            withKnownIssue("a same-turn close can show its tab for one frame", isIntermittent: true) {
-                #expect(!frames[gone...].contains { $0.contains(victimName) }, "the closed tab came back: \(seen)")
-            }
+            // A closed tab that shows again is a fault, not a known issue (decision of 2026-11-16). This loop sees that
+            // frame only when a sample falls in it; `ACloseInTheTurnOfANewTabStaysClosedTests` sees it in each run.
+            #expect(!frames[gone...].contains { $0.contains(victimName) }, "the closed tab came back: \(seen)")
             let afterClose = frames[gone...].filter { !$0.contains(victimName) }
             #expect(afterClose.allSatisfy { $0 == want }, "the strip reordered: \(seen)")
             #expect(frames.last == want, "settled at \(frames.last?.joined() ?? "-"), want \(want.joined()); \(seen)")

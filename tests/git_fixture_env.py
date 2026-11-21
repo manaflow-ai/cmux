@@ -3,7 +3,7 @@
 git commit, fetch, and clone start `git maintenance run --auto --detach`,
 which can outlive the command and still be writing into `.git` when a
 TemporaryDirectory is removed ("Directory not empty: '.git'"). The opt-out
-(OPT_OUT: maintenance.auto=false, gc.auto=0, receive.autogc=false) reaches git
+(OPT_OUT: maintenance.auto=false, gc.auto=0, receive.autogc=false, core.fsync=none) reaches git
 three ways, because each one alone has a hole:
 
 1. Repository config. `init_repo` and `clone_repo` write OPT_OUT into the new
@@ -50,15 +50,21 @@ import tempfile
 from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 
-# Applied in this order; the receiver side needs receive.autogc as well.
+# Applied in this order; the receiver side needs receive.autogc as well. core.fsync=none: a throwaway repository
+# needs no durable write, and on macOS git's fsync is F_FULLFSYNC, a flush of the whole drive's cache on every ref
+# update and pack. On a CI mini that shares its drive with other jobs' builds each flush waits on their writes: the
+# checks job's git-heavy suites ran about 3x their Linux time there whether it ran 14 or 5 checks at once (prepush
+# gate suite 693 s and 708 s, 238 s on Linux; jobs 131984422217 and 132041381666).
 OPT_OUT: tuple[tuple[str, str], ...] = (
     ("maintenance.auto", "false"),
     ("gc.auto", "0"),
     ("receive.autogc", "false"),
+    ("core.fsync", "none"),
 )
 
 # Config-file text with OPT_OUT, for a fixture that writes its own config file.
-CONFIG_FILE_OPT_OUT = "[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n[receive]\n\tautogc = false\n"
+CONFIG_FILE_OPT_OUT = ("[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n[receive]\n\tautogc = false\n"
+                       "[core]\n\tfsync = none\n")
 
 _FALSE = {"false", "no", "off", "0"}
 
@@ -123,7 +129,8 @@ def without_auto_maintenance(env: MutableMapping[str, str]) -> MutableMapping[st
             last[key] = env.get(f"GIT_CONFIG_VALUE_{index}", "")
     for key, value in OPT_OUT:
         # Git uses the last entry for a key, so only a trailing opt-out is enough.
-        if last.get(key, "").strip().lower() in _FALSE:
+        current = last.get(key, "").strip().lower()
+        if current == value or (value in _FALSE and current in _FALSE):
             continue
         env[f"GIT_CONFIG_KEY_{count}"] = key
         env[f"GIT_CONFIG_VALUE_{count}"] = value

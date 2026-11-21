@@ -27,7 +27,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The tab chosen on this screen. When it disappears (a new workspace
     /// whose placeholder tab became the Mac's real tab), the active tab
     /// falls back to the workspace's opening tab.
-    private var selectedTabID: String?
+    var selectedTabID: String?
     /// From the published tabs (`tabs`), not the workspace: a Mac publish
     /// that changes nothing the kit shows does not re-run the tabs screen.
     public var activeTabID: String? {
@@ -36,6 +36,15 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
     /// The workspace's opening tab as of the last `refreshTabs()`.
     private var openingTabID: String?
+    /// The selected tab as last published, and where: kept on screen through a Mac publish that
+    /// leaves it out (WorkspaceTabsSource+StickySelection.swift).
+    @ObservationIgnored var heldTab: (tab: WorkspaceTab, index: Int)?
+    /// The hold's clock: runs only while the Mac link is up; done means the tab is gone for good.
+    @ObservationIgnored var heldGraceTask: Task<Void, Never>?
+    @ObservationIgnored var heldGraceDone = false
+    /// Tabs this screen itself removed (closed, moved, archived, closed by the Mac's group close):
+    /// never held.
+    @ObservationIgnored var removedHere: Set<String> = []
     @ObservationIgnored let store: AppStore
     @ObservationIgnored let terminal: any TerminalTabContent
     @ObservationIgnored let sessions: AgentSessionDirectory
@@ -49,11 +58,16 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Toggle Terminal and Chat (WorkspaceTabsSource+TerminalChat.swift): the face each paired tab
     /// shows, once the person chose one (else Rust's default).
     var chosenFaces: [String: TabFace] = [:]
+    /// Tab groups this phone's own edit (Ungroup, Close, Remove) emptied: their page goes at once,
+    /// not after the reconnect grace (`groupStaysGone`).
+    @ObservationIgnored var groupsEmptiedHere: Set<String> = []
     /// The View Only chat this phone had the Mac open for a terminal's session (`macID|harness|session`).
     var openedTerminalChats: [String: String] = [:]
     /// Macs whose acpmux makes no View Only chat for a phone (`remote.adopt_refused`): asked once.
     var terminalChatRefusingMacs: Set<String> = []
     @ObservationIgnored var openingTerminalChats: Set<String> = []
+    /// Settings → Terminal → Terminal and Chat Toggle (off by default); tests set it.
+    @ObservationIgnored var terminalChatToggleOn: @MainActor () -> Bool = { CmuxMobilePreferences.terminalChatToggle() }
     /// Created with their tabs (never during a view update); each model is
     /// itself observable, so toolbar state follows the page.
     @ObservationIgnored private var browsers: [String: BrowserTabModel] = [:]
@@ -230,9 +244,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
         listGeneration += 1
         listStale = false
         let generation = listGeneration
-        let (workspace, opening) = withObservationTracking {
+        let (published, opening, linked) = withObservationTracking {
             let workspace = store.workspace(id: workspaceID)
-            return (workspace, workspace.flatMap { store.openingTab(for: $0)?.id })
+            // The link is read too: the held tab (`holdSelectedTab`) is let go only while it is up.
+            return (workspace, workspace.flatMap { store.openingTab(for: $0)?.id },
+                    workspace.map { store.macConnection[$0.macID] == .connected } ?? false)
         } onChange: { [weak self] in
             // The store is main-actor isolated: its changes, and so this call, run on main.
             MainActor.assumeIsolated {
@@ -244,18 +260,19 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 self.refreshTabs()
             }
         }
-        workspaceSnapshot = workspace
         if openingTabID != opening { openingTabID = opening }
         // A request that arrives while the screen is up is taken here only when the tab on screen
         // is gone (a new workspace's placeholder tab became the Mac's real one). Otherwise it is
         // for the next screen of this workspace (a notification or Feed item rebuilds the page),
         // which opens on it and takes it in `opened()`.
-        if hasAppeared, let workspace, let opening, store.requestedTabByWorkspace[workspace.id] == opening,
-           !workspace.tabs.contains(where: { $0.id == selectedTabID }) {
+        if hasAppeared, let published, let opening, store.requestedTabByWorkspace[published.id] == opening,
+           !published.tabs.contains(where: { $0.id == selectedTabID }) {
             selectedTabID = opening
             // Taken outside this rebuild (an action), so the next open starts where this screen is left.
-            Task { @MainActor [store] in store.takeRequestedTab(workspace.id) }
+            Task { @MainActor [store] in store.takeRequestedTab(published.id) }
         }
+        let workspace = holdSelectedTab(in: published, linked: linked)
+        workspaceSnapshot = workspace
         let identity = workspace.map { WorkspaceIdentity(macID: $0.macID, title: $0.title, directory: $0.directory, branch: $0.branch,
                                                          screens: $0.screens) }
         if workspaceIdentity != identity { workspaceIdentity = identity }
@@ -591,7 +608,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             CmuxMobileTheme.standard.haptics.error()
             return false
         }
-        let next = store.removeTab(id, from: workspaceID)
+        let next = removeTabHere(id)
         // The kit reads `tabs` as soon as this returns (Safari's timing).
         refreshTabs()
         surfaces[id] = nil
@@ -1249,8 +1266,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
             let key = AgentCardRasterKey.current(
                 feed, colorScheme: template.colorScheme, page: template.page, visibleHeight: template.visibleHeight,
                 topInset: lastInsets.top + 8,
-                bottomInset: WorkspaceTabPage.bottomInset(surface: surface(tab.id), insets: lastInsets, pageHeight: pageHeight),
-                scale: template.scale)
+                bottomInset: WorkspaceTabPage.bottomInset(surface: surface(tab.id)),
+                scale: template.scale, textSize: template.textSize)
             if !rasterizer.isDone(feed, key) { return (feed, key) }
         }
         return nil
@@ -1612,7 +1629,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         do {
             let landed = try await creator.backend.moveTab(tab, from: workspace, toWorkspace: destination)
             if landed?.id == workspaceID { return }
-            let next = store.removeTab(id, from: workspaceID)
+            let next = removeTabHere(id)
             refreshTabs()
             // The mock keeps tabs in its own store; a live Mac's list already moved it.
             if let landed, store.workspace(id: landed.id)?.tabs.contains(where: { $0.id == id }) == false {
@@ -1658,6 +1675,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             guard await confirmClose(members, in: workspace) else { return }
         }
         let before = workspace.tabs
+        if edit == .ungroup || edit == .close || edit == .remove, let group = tab.group { groupsEmptiedHere.insert(group.id) }
         apply(edit, to: tab)
         refreshTabs()
         do {
@@ -1689,8 +1707,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Tabs the Mac closed (a tab group, a screen): gone here too, with their pages; the
     /// workspace leaves when none is left.
     func dropClosedTabs(_ ids: [String]) {
+        let shownIndex = workspace?.tabs.firstIndex { $0.id == selectedTabID }
         for id in ids {
-            _ = store.removeTab(id, from: workspaceID)
+            _ = removeTabHere(id)
             surfaces[id] = nil
             browsers[id] = nil
             streamed.drop(tab: id)
@@ -1698,7 +1717,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         // `workspaceTab` reads the listed copy: list the removals before reading it.
         refreshTabs()
-        if !isListed(selectedTabID) { selectedTabID = workspace?.tabs.first?.id }
+        // The neighbour of the tab that went (Safari's close), not the first tab: that is often a browser.
+        if !isListed(selectedTabID) { selectedTabID = Self.neighbour(at: shownIndex ?? 0, in: workspace?.tabs ?? [])?.id }
         if workspace?.tabs.isEmpty ?? true { exit() }
     }
 
@@ -1808,7 +1828,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         } catch {
             return show(error, doing: "archive", tab.title)
         }
-        let next = store.removeTab(id, from: workspaceID)
+        let next = removeTabHere(id)
         refreshTabs()
         surfaces[id] = nil
         if selectedTabID == id || !isListed(selectedTabID) { selectedTabID = next?.id }
@@ -2326,19 +2346,16 @@ struct WorkspaceTabPage: View {
                 topInset: insets.top + 8,
                 onUserScroll: { context.reportScroll(fingerDelta: $0) }
             )
-            .background(Color.cmuxMobileBackground)
+            .background(CmuxMobileChatBackdrop())
             // A page built during a zoom or swipe is laid out before its
             // composer is measured; once it settles, a following chat lands
             // on its newest turn above the composer.
             .onChange(of: context.isInteractive) { _, interactive in
                 if interactive, surface.following { surface.scrollToBottom(animated: false) }
             }
-            // A chat of a Claude Code or Codex session a terminal runs: the same control, at the
-            // same place, whose other face is that terminal.
-            .overlay(alignment: .topTrailing) { ChatTerminalToggle(source: source, tab: tab, workspace: workspace, topInset: insets.top) }
         case .terminal:
-            // Claude Code and Codex: the terminal and a View Only chat of its session, both parked,
-            // with the Chat | Terminal control (Toggle Terminal and Chat).
+            // Claude Code and Codex: the terminal and a View Only chat of its session, both parked;
+            // the page menu's Show Chat / Show Terminal row swaps them.
             TerminalChatPage(source: source, tab: tab, workspace: workspace, topInset: insets.top,
                              reportScroll: { context.reportScroll(fingerDelta: $0) }) {
                 terminalPage(tab, workspace)
@@ -2388,10 +2405,12 @@ struct WorkspaceTabPage: View {
             }
     }
 
-    /// Above the floating composer (which rides the toolbar or the keyboard).
-    static func bottomInset(surface: AgentChatSurface, insets: EdgeInsets, pageHeight: CGFloat) -> CGFloat {
-        guard let top = surface.bottomStackTop, top > 0, pageHeight > 0 else { return insets.bottom + 72 }
-        return max(insets.bottom, pageHeight - top) + 12
+    /// A card's space under its newest turn: the page's own at rest, above the composer
+    /// (`AgentChatSurface.restingTranscriptBottomInset`), so the card opens into its page
+    /// without a jump (Leo 2026-11-17: the card had 4 pt more, and 66 pt less for a tab
+    /// whose composer was not measured yet).
+    static func bottomInset(surface: AgentChatSurface) -> CGFloat {
+        surface.restingTranscriptBottomInset
     }
 
     private var terminalContext: TerminalTabContext {
@@ -2516,7 +2535,7 @@ struct WorkspaceTabCard: View {
                 // A picture of the preview once drawn (`AgentCardRasterizer`), the live preview until then.
                 AgentTabCard(feed: source.cardFeed(tab, workspace), rasterizer: source.rasterizer, cardScale: source.cardScale,
                              page: CGSize(width: source.pageWidth, height: source.pageHeight), topInset: insets.top + 8,
-                             bottomInset: WorkspaceTabPage.bottomInset(surface: surface, insets: insets, pageHeight: source.pageHeight))
+                             bottomInset: WorkspaceTabPage.bottomInset(surface: surface))
             case .terminal:
                 source.terminal.card(for: tab, in: workspace)
             case .browser:

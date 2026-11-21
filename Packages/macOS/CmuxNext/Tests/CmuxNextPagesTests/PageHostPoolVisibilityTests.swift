@@ -46,12 +46,11 @@ import Testing
         #expect(pool.claim(.settings, routes: [], options: webKitOptions, window: window, focus: false) == nil)
         #expect(pool.timer.isScheduled, "a WebKit-required claim warms even a Chromium-configured pool")
 
-        #expect(pool.claim(.settings, routes: [], options: .standard, window: window, focus: false) == nil)
-        #expect(!pool.timer.isScheduled)
-        #expect(!pool.shouldBuild)
-
-        #expect(pool.claim(.settings, routes: [], options: webKitOptions, window: window, focus: false) == nil)
+        // A page that shows in Chromium is made fresh, and its claim leaves the warmup for the WebKit page
+        // alone (dropping it made the next Settings open build its page cold, 2026-11-15).
+        #expect(pool.claim(.history, routes: [], options: .standard, window: window, focus: false) == nil)
         #expect(pool.timer.isScheduled)
+        #expect(pool.shouldBuild)
     }
 
     @Test func aProjectionWindowGetsAFreshPageNotTheSpare() async throws {

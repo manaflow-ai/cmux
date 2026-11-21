@@ -57,6 +57,11 @@ pub(super) fn list_workspaces(
     known: Option<&KnownTree>,
     limit: Option<usize>,
 ) -> anyhow::Result<Value> {
+    // A client that sends no `known` holds no tree and asks no second time: its reply reads each
+    // stale git HEAD itself (git_heads.rs). A `known` request leaves them to the refresh.
+    if known.is_none() {
+        mux.read_stale_git_heads();
+    }
     // A remote device that must not see some workspaces (#31210) is answered
     // from the ones it may see: its page, `total` and revision say nothing of
     // the others, all read with one view of them.
@@ -82,7 +87,13 @@ pub(super) fn list_workspaces_text(
     writer: &super::MessageWriter,
 ) -> anyhow::Result<super::tree_reply_text::TreeReply> {
     let lines_written_before_read = writer.lines_written();
-    let text = super::list_workspaces_reply_text(mux, &writer.render_service)?;
+    // This is a request with no `known`: see `list_workspaces`.
+    mux.read_stale_git_heads();
+    let text = super::tree_reply_text::list_workspaces_reply_text(
+        mux,
+        &writer.render_service,
+        writer.tab_projection(),
+    )?;
     Ok(super::tree_reply_text::TreeReply { text, lines_written_before_read })
 }
 

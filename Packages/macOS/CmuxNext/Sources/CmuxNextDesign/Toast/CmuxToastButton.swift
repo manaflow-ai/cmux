@@ -21,7 +21,19 @@ public final class CmuxToastButton: ClickableButton {
 
     /// Horizontal padding of the action title inside its hover fill.
     static let titlePadding: CGFloat = 6
-    static let closeSide: CGFloat = 20
+    /// Every toast button's height, and close's side: one height, so each sits the toast's padding from its top
+    /// and bottom and close the same padding from its trailing edge (``CmuxToastView/geometry``).
+    public static let height: CGFloat = 22
+    /// The hover and pressed shape's corner: the toast's concentric child corner
+    /// (``ConcentricContainer/childRadius``), at most half the button's height. The toast sets it.
+    public var concentricRadius: CGFloat = Metrics.buttonCornerRadius {
+        didSet { if concentricRadius != oldValue { needsLayout = true; applyStyle() } }
+    }
+    /// ``concentricRadius`` on this button's size now.
+    private var fittedRadius: CGFloat {
+        let side = min(bounds.width, bounds.height)
+        return side > 0 ? min(concentricRadius, side / 2) : concentricRadius
+    }
     let style: Style
     private var plainTitle: String
     /// A disclosure that is open (a toast's Details while they show): a quiet text link, the
@@ -59,13 +71,13 @@ public final class CmuxToastButton: ClickableButton {
         setAccessibilityLabel(title)
         switch style {
         case .action, .quiet, .filled:
-            heightAnchor.constraint(equalToConstant: Self.closeSide + 2).isActive = true
+            heightAnchor.constraint(equalToConstant: Self.height).isActive = true
         case .close:
             let config = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
             image = NSImage(systemSymbolName: "xmark", accessibilityDescription: title)?.withSymbolConfiguration(config)
             imagePosition = .imageOnly
-            widthAnchor.constraint(equalToConstant: Self.closeSide).isActive = true
-            heightAnchor.constraint(equalToConstant: Self.closeSide).isActive = true
+            widthAnchor.constraint(equalToConstant: Self.height).isActive = true
+            heightAnchor.constraint(equalToConstant: Self.height).isActive = true
         }
         setContentHuggingPriority(.required, for: .horizontal)
         setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -79,17 +91,17 @@ public final class CmuxToastButton: ClickableButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     public override var intrinsicContentSize: NSSize {
-        guard style != .close else { return NSSize(width: Self.closeSide, height: Self.closeSide) }
+        guard style != .close else { return NSSize(width: Self.height, height: Self.height) }
         let text = attributedTitle.size()
         let chevron = image.map { ceil($0.size.width) + Self.chevronGap } ?? 0
         // Never narrower than the cell needs to draw the whole title: the cell's own insets clipped a title sized
         // to its text alone to "Restart cmux-tui…" (Leo, 2026-11-03).
         let drawn = cell.map { ceil($0.cellSize.width) } ?? 0
-        return NSSize(width: max(ceil(text.width) + chevron + Self.titlePadding * (style == .filled ? 3 : 2), drawn), height: Self.closeSide + 2)
+        return NSSize(width: max(ceil(text.width) + chevron + Self.titlePadding * (style == .filled ? 3 : 2), drawn), height: Self.height)
     }
 
-    /// The frame is the alignment rect: the toast's row centres the frames, so Details (22 pt) and
-    /// close (20 pt) sit on one centre line. AppKit's own insets for a borderless button put them a
+    /// The frame is the alignment rect: the toast's row centres the frames, so Details and close sit on one
+    /// centre line. AppKit's own insets for a borderless button put them a
     /// point apart.
     nonisolated public override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets() }
 
@@ -116,7 +128,7 @@ public final class CmuxToastButton: ClickableButton {
                 // The accent fill, a little deeper under the pointer and pressed; the title on it in the
                 // theme's on-accent ink.
                 wantsLayer = true
-                layer?.cornerRadius = Metrics.buttonCornerRadius
+                layer?.cornerRadius = fittedRadius
                 let fill = Palette.accentFill
                 let lit = hover.state.pressed ? fill.blended(withFraction: 0.2, of: .black) : hover.state.hovering ? fill.blended(withFraction: 0.1, of: .black) : fill
                 layer?.backgroundColor = (lit ?? fill).cgColor
@@ -148,6 +160,7 @@ public final class CmuxToastButton: ClickableButton {
 
     public override func layout() {
         super.layout()
+        hover.cornerRadius = fittedRadius
         hover.layout()
     }
 

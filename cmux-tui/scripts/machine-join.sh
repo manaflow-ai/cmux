@@ -15,8 +15,13 @@
 # install and the service, or to finish a join that was cut off; a joined
 # machine never spends a new token.
 #
-# The join grants mesh membership only. Screen sharing and control stay off
-# until a person at this machine allows them.
+# The join grants mesh membership. On Linux it also shares the screen with
+# your own account only: the person who joined this machine can view its
+# screen from their other devices with nothing to do here, and other
+# accounts can't reach it (the device hub pairs only one account's own
+# devices). The acpmux daemon sets that up itself at its start, through
+# cmux-rd (~/.local/bin/cmux-rd, the path its screen host unit runs); this
+# script does not install cmux-rd yet: no channel publishes it.
 #
 # Once joined: Claude Code (its official installer) and Codex (acpmux's
 # pinned, checked runtime) are installed when missing; the person's vault (env
@@ -66,6 +71,8 @@ say() { printf 'cmux join: %s\n' "$*" >&2; }
 die() {
   code="$1"
   shift
+  # A replaced binary's restart, deferred to after the redeem, still runs.
+  [ "${restart_pending:-0}" = 0 ] || restart_daemon || :
   say "$*"
   exit "$code"
 }
@@ -226,7 +233,24 @@ tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-join.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 trap 'exit 130' HUP INT TERM
 
-fetch() { curl --proto '=https' --tlsv1.2 -fsSL "$1" -o "$2"; }
+# A transport failure (a reset, a timeout, DNS: curl's 5 6 7 18 28 35 52 55
+# 56) is retried, 4 tries with waits of 2, 8 and 20 s: a 23 s network blip
+# failed a whole join (run 44192875334). An HTTP status the server sent
+# (curl's 22) is an answer, not a blip: no retry. Not --retry-all-errors: it
+# needs curl 7.71.
+fetch() {
+  for fetch_wait in 2 8 20 ''; do
+    fetch_rc=0
+    curl --proto '=https' --tlsv1.2 -fsSL "$1" -o "$2" || fetch_rc=$?
+    case "$fetch_rc" in
+      0) return 0 ;;
+      5 | 6 | 7 | 18 | 28 | 35 | 52 | 55 | 56) [ -n "$fetch_wait" ] || return "$fetch_rc" ;;
+      *) return "$fetch_rc" ;;
+    esac
+    say "the network dropped $1 (curl exit $fetch_rc); retrying in $fetch_wait s"
+    sleep "$fetch_wait"
+  done
+}
 
 # The value of "name": "<hex>" in a JSON file, pretty or not.
 json_hex() {
@@ -257,6 +281,7 @@ if fetch "$files/channels/$channel.json" "$tmp/channel.json"; then
   fi
 fi
 replaced=0
+restart_pending=0
 if [ -z "$want" ]; then
   if [ -n "$t" ] || ! has_capability "$acpmux"; then
     die 1 "cannot read the $channel channel from files.cmux.com: check this machine's outbound HTTPS, then paste the line again"
@@ -275,7 +300,14 @@ else
   mkdir -p "$bin_dir"
   install -m 755 "$tmp/acpmux" "$bin_dir/.acpmux.new"
   if [ -e "$acpmux" ]; then
-    cp -p "$acpmux" "$bin_dir/acpmux.prev"
+    # Staged and renamed, never copied over: processes started before an
+    # earlier update can still run acpmux.prev, and writing over a running
+    # binary fails with "Text file busy" where a rename does not.
+    { cp -p "$acpmux" "$bin_dir/.acpmux.prev.new" &&
+      mv -f "$bin_dir/.acpmux.prev.new" "$bin_dir/acpmux.prev"; } || {
+      rm -f "$bin_dir/.acpmux.prev.new" "$bin_dir/.acpmux.new"
+      die 1 "cannot keep the installed acpmux as $bin_dir/acpmux.prev; nothing was installed"
+    }
     replaced=1
   fi
   mv -f "$bin_dir/.acpmux.new" "$acpmux"
@@ -296,7 +328,11 @@ install_cli() {
   fetch "$files/$commit/cmux-tui-$cli_target" "$tmp/cmux" || return 1
   [ "$(sha256 "$tmp/cmux")" = "$sum" ] || return 1
   mkdir -p "$HOME/.cmux/bin"
-  install -m 755 "$tmp/cmux" "$cli"
+  # Renamed into place, as acpmux is: a running cmux cannot be written over.
+  { install -m 755 "$tmp/cmux" "$cli.new" && mv -f "$cli.new" "$cli"; } || {
+    rm -f "$cli.new"
+    return 1
+  }
   case ":$PATH:" in
     *":$HOME/.cmux/bin:"*) ;;
     *)
@@ -336,12 +372,55 @@ if "$acpmux" daemon service --help >/dev/null 2>&1; then
 else
   say "warning: this acpmux cannot install its service yet; the daemon runs until the next reboot"
 fi
+# When the user unit acpmux.service is loaded (`daemon service install`'s,
+# or a fleet-written one with Restart=), systemd owns the daemon: starts and
+# restarts go through it, after reset-failed. `acpmux daemon restart` under
+# such a unit is an exit systemd restarts too, and two of those within a few
+# seconds hit the unit's start limit (start-limit-hit, no daemon at all).
+daemon_unit="acpmux.service"
+unit_loaded() {
+  [ "$os" = "Linux" ] && command -v systemctl >/dev/null 2>&1 &&
+    [ "$(systemctl --user show -p LoadState --value "$daemon_unit" 2>/dev/null)" = loaded ]
+}
+unit_next_step="run: systemctl --user reset-failed $daemon_unit; systemctl --user start $daemon_unit"
+# daemon_up start|restart: 0 once the daemon runs (under its unit: active).
+daemon_up() {
+  if unit_loaded; then
+    systemctl --user reset-failed "$daemon_unit" >/dev/null 2>&1 || :
+    systemctl --user "$1" "$daemon_unit" >/dev/null 2>&1 &&
+      systemctl --user is-active --quiet "$daemon_unit" >/dev/null 2>&1
+  elif [ "$1" = restart ]; then
+    "$acpmux" daemon restart >/dev/null 2>&1
+  else
+    "$acpmux" daemon start >/dev/null
+  fi
+}
+# The one restart a run does (restart_pending), after any redeem. Returns 1
+# when the unit is not active after it: the caller fails on that.
+restart_daemon() {
+  restart_pending=0
+  if daemon_up restart; then
+    ! unit_loaded || say "restarted $daemon_unit; it is active"
+  elif unit_loaded; then
+    say "$daemon_unit is not active after its restart: $unit_next_step"
+    return 1
+  else
+    say "warning: the daemon did not restart onto the new acpmux or the join, so it sends no heartbeat yet: run $acpmux daemon restart"
+  fi
+}
 # A replaced binary takes over a running daemon by a restart, which keeps
-# its sessions; with none running, the restart fails and start starts one.
-if [ "$replaced" = 1 ] && "$acpmux" daemon restart >/dev/null 2>&1; then
-  :
-else
-  "$acpmux" daemon start >/dev/null || say "warning: the acpmux daemon did not start: run $acpmux daemon start"
+# its sessions. That restart waits for the redeem below, so a join that
+# redeems restarts the daemon once, not twice; any exit from here on runs
+# it (see die).
+if [ "$replaced" = 1 ]; then
+  restart_pending=1
+fi
+if ! daemon_up start; then
+  if unit_loaded; then
+    say "warning: $daemon_unit did not start: $unit_next_step"
+  else
+    say "warning: the acpmux daemon did not start: run $acpmux daemon start"
+  fi
 fi
 
 # 5. The name: CMUX_JOIN_NAME, else the first label of the host name (the
@@ -437,10 +516,9 @@ if [ -n "$t" ] || [ "$resume" = 1 ]; then
         say "already joined; nothing redeemed"
       else
         if [ "$resume" = 1 ]; then say "joined"; else say "joined as $name"; fi
-        # The daemon reads the join (its mesh relay) when it starts: until this
-        # restart it sends no heartbeat.
-        "$acpmux" daemon restart >/dev/null 2>&1 ||
-          say "warning: the daemon did not restart onto the join, so it sends no heartbeat yet: run $acpmux daemon restart"
+        # The daemon reads the join (its mesh relay) when it starts: until
+        # the restart below it sends no heartbeat.
+        restart_pending=1
       fi
       ;;
     2) die 2 "the line was damaged; copy it again from cmux" ;;
@@ -468,6 +546,10 @@ if [ -n "$t" ] || [ "$resume" = 1 ]; then
       ;;
   esac
 fi
+# The one restart: onto a replaced binary, a new join, or both.
+if [ "$restart_pending" = 1 ] && ! restart_daemon; then
+  die 1 "the acpmux daemon is not running: $unit_next_step"
+fi
 
 # 7. Once joined: the missing harnesses, then the vault.
 install_harnesses() {
@@ -483,14 +565,14 @@ install_harnesses() {
     fi
   fi
   if wants codex && [ -z "$(find_codex || true)" ]; then
-    if [ "$os" = Darwin ] && "$acpmux" harness codex-runtime --help >/dev/null 2>&1; then
+    if "$acpmux" harness codex-runtime --help >/dev/null 2>&1; then
       if "$acpmux" harness codex-runtime install </dev/null >/dev/null 2>&1; then
         say "installed Codex (acpmux's pinned, checked runtime)"
       else
         say "warning: Codex did not install; later: $acpmux harness codex-runtime install"
       fi
     else
-      say "Codex is not installed: npm install -g @openai/codex (acpmux installs it on macOS only)"
+      say "Codex is not installed: update acpmux, then run $acpmux harness codex-runtime install"
     fi
   fi
 }
@@ -537,14 +619,30 @@ fi
 # 8. Where this machine stands.
 rc=0
 if "$acpmux" host doctor --help 2>/dev/null | grep -q -- '--here'; then
-  "$acpmux" host doctor --here || rc=$?
+  "$acpmux" host doctor --here --fix || rc=$?
 elif has_capability "$acpmux"; then
   "$acpmux" host join --status || rc=$?
 fi
-printf '%s\n' "Screen sharing and control are off on this machine. To allow them, run here: acpmux host consent grant --screen (or --control). Your team's machines cannot turn them on."
+if [ "$os" != Linux ]; then
+  printf '%s\n' "Screen sharing and control are off on this machine. To allow them, run here: acpmux host consent grant --screen (or --control). Your team's machines cannot turn them on."
+elif [ "$is_joined" != 1 ]; then
+  # Only a join's daemon sets cmux-rd's host up (acpmux share_host/linux.rs).
+  printf '%s\n' "This machine is not joined, so its screen is not shared."
+elif [ -x "$bin_dir/cmux-rd" ]; then
+  # The daemon runs cmux-rd's enable at its start (acpmux share_host/linux.rs).
+  printf '%s\n' "Your own account can view this machine's screen from your other devices, with nothing to do here. Other accounts can't reach it."
+else
+  printf '%s\n' "This machine's screen is not shared: cmux-rd is not installed at $bin_dir/cmux-rd. Once it is there, run $acpmux daemon restart and your own account can view this screen from your other devices, with nothing to do here. Other accounts can't reach it."
+fi
 
 # 9. Last: the agents' own sign-in, on this machine.
+# FUTURE_HOOK: cmux-share-prepare-json
+# The share-host-helper-process lane will replace this named no-op with one
+# best-effort `cmux share prepare --json` call once that verb lands. Keep it
+# after sign-in so it runs once at the end of a join.
+prepare_share_hook() { :; }
 if [ "$is_joined" = 1 ]; then
   signin_step
+  prepare_share_hook
 fi
 exit "$rc"

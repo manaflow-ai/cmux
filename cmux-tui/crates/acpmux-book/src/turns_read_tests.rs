@@ -1,7 +1,8 @@
 //! A page of turns: the group rows `folds.idx` lists, read alone.
 use crate::folds::Folds;
 use crate::log::{
-    Anchor, Edge, Log, MAX_FRAME_BYTES, MAX_ROWS, RECORD_OVERHEAD, RawRange, Side, Window,
+    Anchor, Edge, HEADER_LEN, Log, MAX_FRAME_BYTES, MAX_ROWS, RECORD_OVERHEAD, RawRange, Side,
+    Window,
 };
 use crate::testkit::{TURN_ROWS, folded_turns, ids, open, turn_group, turn_group_text};
 use std::io::{Seek, SeekFrom, Write};
@@ -231,4 +232,36 @@ fn a_group_row_rows_idx_does_not_hold_is_a_hole_that_keeps_its_place() {
     let page = log.read_turns(Edge::After(turn_group(3)), usize::MAX, &folds).unwrap();
     assert!(page.rows.is_empty() && page.has_before && !page.has_after);
     assert_eq!(page.refused, [missing]);
+}
+
+/// The design doc's "no row of a fold is read (a counter says so)": every segment read a page
+/// of turns makes is a group row's record, one each, whichever way it pages and from inside a
+/// fold. `stats.reads` counts the reads; the reads' places say they are the group rows.
+#[test]
+fn a_page_of_turns_reads_its_group_rows_and_no_row_of_a_fold() {
+    let home = tempfile::tempdir().unwrap();
+    let turns = 40;
+    let (mut log, folds) = folded_turns(home.path(), 1, turns);
+    let edges = [
+        Edge::Before(turn_group(turns + 1)),
+        Edge::After(0),
+        Edge::Before(turn_group(20) + 2),
+        Edge::After(turn_group(7) + 1),
+    ];
+    // Armed here; each page then takes its own reads.
+    log.take_segment_reads();
+    for edge in edges {
+        let page = log.read_turns(edge, usize::MAX, &folds).unwrap();
+        let mut reads = log.take_segment_reads();
+        assert!(!page.rows.is_empty() && page.refused.is_empty(), "{edge:?}");
+        assert!(
+            page.rows.iter().all(|row| (row.row_id - 1) % TURN_ROWS == 0),
+            "{edge:?}: only group rows"
+        );
+        let mut records: Vec<(u32, u64)> =
+            page.rows.iter().map(|row| (row.seg, u64::from(row.off) - HEADER_LEN as u64)).collect();
+        reads.sort_unstable();
+        records.sort_unstable();
+        assert_eq!(reads, records, "{edge:?}: one read a group row, none of a fold's rows");
+    }
 }

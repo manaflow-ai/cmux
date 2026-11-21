@@ -46,14 +46,6 @@ extension SidebarDocStore {
         }
     }
 
-    /// Space `from` was deleted into space `to` (Delete Space's `moveTo`): every item it owned (a Pinned link, tab or
-    /// app, a group) moves to `to` in one change, with no undo step (the delete has none). With no `to` nothing moves:
-    /// an item of a gone space reads as the default space's (`SidebarDocItem.owningRoom`) and returns if it comes back.
-    public func moveSpace(_ from: String, into to: String) {
-        let ops = Self.spaceOps(from: from, into: to, records: records)
-        if !ops.isEmpty { send(ops: ops, title: Self.moveTitle, undoable: false) }
-    }
-
     /// Group `group` (a personal group id or a document group item) moved to space `room` (Move Group to Space): its
     /// stored space follows, so it stays in `room` once no workspace of it lists there (an empty group lists only in its
     /// own space), and so does each group under it that stored the old space (`groupSpaceOps`). `from`: the space the
@@ -86,14 +78,6 @@ extension SidebarDocStore {
             }
         }
         return moving.sorted().map { ["op": "group.update", "id": $0, "patch": ["profile": room]] }
-    }
-
-    /// The ops of `moveSpace`: a group's space is its `profile` (`group.update`), a link's, tab's or app's `extra.room`.
-    static func spaceOps(from: String, into to: String, records: SidebarDocRecords) -> [[String: Any]] {
-        records.items.values.filter { $0.room == from }.sorted { $0.id < $1.id }.compactMap { item -> [String: Any]? in
-            if case .group = item.body { return ["op": "group.update", "id": item.id, "patch": ["profile": to]] }
-            return item.body.belongsToASpace ? ["op": "item.update", "id": item.id, "patch": ["room": to]] : nil
-        }
     }
 
     /// Sends `ops` as one document change titled `title`. Throws when an op

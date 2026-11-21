@@ -78,7 +78,7 @@ extension DebugBrowserExternal {
             case "deny": .deny
             default: nil
             }
-            let first = tab.pendingPrompts.first
+            let first = tab.pendingPrompts.first { if case .verificationOffer = $0.kind { false } else { true } } // a code offer is the person's alone
             if let response, let first { first.respond(response) }
             result["responded"] = .bool(response != nil && first != nil)
         }

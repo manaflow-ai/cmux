@@ -221,11 +221,8 @@ fn ms(d: Duration) -> f64 {
 fn send_to_first_token_at_load_100_is_within_1_2x_of_idle() {
     let load = knob("START_BENCH_LOAD", LOAD);
     let samples = knob("START_BENCH_SAMPLES", SAMPLES);
-    let scratch = std::env::temp_dir().join(format!(
-        "amx-startload-{}-{}",
-        std::process::id(),
-        uuid::Uuid::now_v7().simple()
-    ));
+    // Removed when the bench ends, passing or not (`ACPMUX_KEEP_SCRATCH=1` keeps it).
+    let scratch = daemon_env::Scratch::new("amx-startload");
     let home = scratch.join("acpmux");
     fs::create_dir_all(&home).unwrap();
     let work = scratch.join("work");
@@ -248,7 +245,6 @@ fn send_to_first_token_at_load_100_is_within_1_2x_of_idle() {
     let (load_cold, load_warm) = measure(&socket, &work, samples);
     drop(busy);
     drop(daemon);
-    let _ = fs::remove_dir_all(&scratch);
 
     let cpus = std::thread::available_parallelism().map_or(0, |n| n.get());
     println!(
