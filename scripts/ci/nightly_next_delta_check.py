@@ -201,7 +201,9 @@ def main(argv: list[str]) -> int:
     ki.add_argument("feed", type=Path)
     ki.add_argument("--build", type=int, required=True)
     nw = sub.add_parser("newest")
-    nw.add_argument("--feed-url", required=True)
+    nw_src = nw.add_mutually_exclusive_group(required=True)
+    nw_src.add_argument("--feed-url")
+    nw_src.add_argument("--feed-file", type=Path)
     nw.add_argument("--build", type=int, required=True)
     mg = sub.add_parser("merge")
     mg.add_argument("live", type=Path)
@@ -216,7 +218,8 @@ def main(argv: list[str]) -> int:
     if args.command == "newest":
         # Exit 0 only while the live feed's newest item is this build: the post-feed delta part stops at once
         # otherwise (a newer build's own publication owns its deltas).
-        item = newest_item(fetch(args.feed_url))
+        # --feed-file: the merged feed about to be written, so the write's newest is checked, not only the live one.
+        item = newest_item(args.feed_file.read_bytes() if args.feed_file else fetch(args.feed_url))
         version = (item.findtext(f"{S}version") or "").strip() if item is not None else ""
         print(f"live feed's newest build is {version or 'unknown'}; this build is {args.build}")
         return 0 if version == str(args.build) else 1
