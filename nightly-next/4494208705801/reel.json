@@ -1,0 +1,251 @@
+{
+  "version": 1,
+  "build": "4494208705801",
+  "notes": "notes/4494208705801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 49261,
+      "title": "git_batch.cat_file: fetch a partial clone's missing blobs in one fetch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49195,
+      "title": "ci: changes and detect-ios-changes write their file lists under RUNNER_TEMP, not a fixed /tmp path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45389,
+      "title": "launch-shell: cmux_launch_shell_plan reads the launch record (C entry for the stage-0 window)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/45389/hv-72cca8952299-video.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 47762,
+      "title": "App Store: list only cmux's own apps (the widgets included); samples move to a developers-only Examples shelf, cmux ext dev apps show as Local (dev)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49193,
+      "title": "Fast gates: check:compiler-bails reads only the change's files",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48798,
+      "title": "Add an installable Recents sidebar for agent sessions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47485,
+      "title": "terminal scroll probe (local, ssh) and its first find: a reattach no longer moves a scrolled-back terminal (successor of #47201)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49139,
+      "title": "ci(nightly): give each signing Mac its own opt-in build slot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48847,
+      "title": "dev-loop-ceiling: web_swap loop measurement (stages and floors of a ComposerFoot.tsx save through Vite dev + React Fast Refresh)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48919,
+      "title": "NEXT: a Cloud start keeps its chat on screen until the machine's page painted (Austin's #48751)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48998,
+      "title": "ci(cmux-next generated files): build in the owned mini's seed root with the base seed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49123,
+      "title": "measure: dev-loop-ceiling.sh fetches Ghostty's submodules and GhosttyKit before the loops build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48677,
+      "title": "Screen Sharing viewer: a look seam, a native viewer gallery, and three redesigned looks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48391,
+      "title": "acpmux: agent messages to an idle chat wait 2 s to go in together",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47044,
+      "title": "perf cron: a cold launch part, launch.cold.* rows with Home judged against 600 ms",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49125,
+      "title": "Model picker search: surviving rows glide to their new slot",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49125/hv-c2c259439209-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 49024,
+      "title": "ci: the PR pipeline as one step table, slice 1 (ci/run, five contract-test workflows become steps)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49175,
+      "title": "ci(next): generated-files, daemon-test and action-exports take a scheduler grant, behind a per-job switch (empty)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49213,
+      "title": "Remove the leftover composer layout probe from the rail bench",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49216,
+      "title": "ci(cmux-next): control hops with no ephemeral need run on cmux-linux, not the PR control JIT label",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49128,
+      "title": "cloud chaos: time each step of an agent daemon restart",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47282,
+      "title": "Settings: Claude Code and Codex settings shown and edited in cmux NEXT (Labs)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/47282/agent-settings-ea917b2.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 47135,
+      "title": "iOS sim step: device=NAME and reducemotion=1",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47136,
+      "title": "ci: listperf rows for Home, subagents and the Event Inspector (iPhone list rig)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47721,
+      "title": "ci(ios-sim): keep the worker's rustup shim ahead of Homebrew on PATH",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48212,
+      "title": "acpmux: a standing-rules preamble never titles a chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48214,
+      "title": "ci(cmux-next): lint findings annotate instead of blocking; required checks fail only on compile errors",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48826,
+      "title": "SDK: drag rows inside Reorderable app lists",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48319,
+      "title": "cmux VM: refresh pinned upstream surface",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47522,
+      "title": "Sidebar looks: sidebar.look draws the sidebar like Claude, Codex or a studio (carries #46805)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48469,
+      "title": "cmux NEXT: a custom background fills the window at every size; Choose Image says why a file is refused",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45052,
+      "title": "Screen sharing: a follow camera (cmux-follow-cam) for a portrait Follow mode and vertical cuts",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/45052/hv-0fe975efc118-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 44578,
+      "title": "cmux-remote, acpmux: a mint outage reads credential-unavailable, a down link names why it is offline, every wait takes one Deadline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48794,
+      "title": "Add seven separately installable Claude Code controls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49170,
+      "title": "bench_memory: a fresh launch starts from no saved workspaces",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47524,
+      "title": "Home card glow: per-chat tinted glow on Home cards (experiment, off by default)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48987,
+      "title": "perf(cmux-next): the prompt rail's hover and click stop restyling the whole chat pane",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48020,
+      "title": "dogfood benches: nightly-fresh-launch --arms update, and the TTI cold copy goes to a new folder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46989,
+      "title": "Agent chat: choosing an interface font loads that face alone, not all eight",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
