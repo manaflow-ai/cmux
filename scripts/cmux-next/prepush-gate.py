@@ -585,6 +585,7 @@ ESCAPES = {
     "no-main-thread-block": re.compile(r"//\s*concurrency-allow:\s*\S"),
     "no-system-dialog": re.compile(r"dialog-keys-exempt:\s*\S"),
     "no-opaque-glass": re.compile(r"//\s*glass-opaque-allow:\s*\S"),
+    "no-frame-text-search": re.compile(r"//\s*frame-search-allow:\s*\S"),
 }
 COMMENT_LINE = re.compile(r"^\s*(//|\*|/\*)")
 LOCATION = re.compile(r"(?P<path>[\w.+@/-]+\.(?:swift|rs|ts|tsx|py|sh|json|xcstrings|md)):(?P<line>\d+)(?::\d+)?")

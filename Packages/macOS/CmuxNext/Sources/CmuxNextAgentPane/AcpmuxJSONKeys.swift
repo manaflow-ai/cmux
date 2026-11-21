@@ -25,13 +25,46 @@ nonisolated enum AcpmuxJSONKeys {
     }
 
     static func verdict(_ buffer: UnsafeBufferPointer<UInt8>) -> Verdict {
-        guard let base = buffer.baseAddress, !buffer.isEmpty else { return .malformed }
+        facts(buffer).verdict
+    }
+
+    /// What the inbound pass routes a daemon frame by, read in the same pass as the check: the
+    /// frame's top-level `method` and `id`, and its `params.kind`. Keys and the two values are
+    /// decoded, so an escaped spelling reads as what it decodes to. Every frame is read once,
+    /// byte by byte; nothing searches its text again (a Foundation `contains` per marker took 75%
+    /// of each pane socket's inbound queue in Leo's NIGHTLY, 2026-11-21).
+    nonisolated struct Facts: Equatable {
+        var verdict: Verdict
+        /// The top-level object has a `method` member (of any type).
+        var hasMethod = false
+        /// Its value, decoded, when a string.
+        var method: String?
+        /// The top-level object has an `id` member (a reply, or a request that waits on one).
+        var hasID = false
+        /// `params.kind`, decoded, when `params` is an object and its `kind` a string.
+        var kind: String?
+
+        init(verdict: Verdict) { self.verdict = verdict }
+    }
+
+    /// The page frame's own UTF-8, read in place, once.
+    static func facts(_ text: String) -> Facts {
+        var text = text
+        return text.withUTF8 { facts($0) }
+    }
+
+    static func facts(_ buffer: UnsafeBufferPointer<UInt8>) -> Facts {
+        guard let base = buffer.baseAddress, !buffer.isEmpty else { return Facts(verdict: .malformed) }
         var reader = Reader(bytes: base, count: buffer.count)
         let wellFormed = reader.wellFormedWithoutDuplicates()
-        return reader.duplicate ? .duplicate : wellFormed ? .clean : .malformed
+        reader.facts.verdict = reader.duplicate ? .duplicate : wellFormed ? .clean : .malformed
+        return reader.facts
     }
 
     private nonisolated enum Expect { case value, valueOrEnd, key, keyOrEnd, commaOrEnd }
+
+    /// The member whose value comes next, when the facts read it.
+    private nonisolated enum Pending { case none, method, params, kind }
 
     private nonisolated struct Reader {
         /// The frame's bytes, `count` of them (read only while the caller holds the buffer).
@@ -42,6 +75,11 @@ nonisolated enum AcpmuxJSONKeys {
         var stack: [Set<String>?] = []
         /// Set when the read stopped at a repeated key.
         var duplicate = false
+        /// The routing facts read on the way (``Facts``).
+        var facts = Facts(verdict: .malformed)
+        var pending = Pending.none
+        /// The open object at depth 2 is the top level's `params`.
+        var inParams = false
 
         init(bytes: UnsafePointer<UInt8>, count: Int) {
             self.bytes = bytes
@@ -72,10 +110,21 @@ nonisolated enum AcpmuxJSONKeys {
                         stack.removeLast()
                         expect = .commaOrEnd
                     } else {
+                        let role = pending
+                        pending = .none
                         switch bytes[i] {
-                        case 0x7B: stack.append(Set<String>()); i += 1; expect = .keyOrEnd
+                        case 0x7B:
+                            stack.append(Set<String>()); i += 1; expect = .keyOrEnd
+                            if role == .params { inParams = true }
                         case 0x5B: stack.append(nil); i += 1; expect = .valueOrEnd
-                        case 0x22: guard string(decode: false) != nil else { return false }; expect = .commaOrEnd
+                        case 0x22:
+                            if role == .method || role == .kind {
+                                guard let value = string(decode: true) else { return false }
+                                if role == .method { facts.method = value } else { facts.kind = value }
+                            } else {
+                                guard string(decode: false) != nil else { return false }
+                            }
+                            expect = .commaOrEnd
                         case 0x74, 0x66, 0x6E: guard literal() else { return false }; expect = .commaOrEnd
                         case 0x2D, 0x30...0x39: guard number() else { return false }; expect = .commaOrEnd
                         default: return false
@@ -85,10 +134,21 @@ nonisolated enum AcpmuxJSONKeys {
                     if expect == .keyOrEnd, bytes[i] == 0x7D {
                         i += 1
                         stack.removeLast()
+                        if stack.count < 2 { inParams = false }
                         expect = .commaOrEnd
                     } else {
                         guard bytes[i] == 0x22, let key = string(decode: true) else { return false }
                         guard stack[stack.count - 1]?.insert(key).inserted == true else { duplicate = true; return false }
+                        if stack.count == 1 {
+                            switch key {
+                            case "method": facts.hasMethod = true; pending = .method
+                            case "id": facts.hasID = true
+                            case "params": pending = .params
+                            default: break
+                            }
+                        } else if stack.count == 2, inParams, key == "kind" {
+                            pending = .kind
+                        }
                         space()
                         guard i < count, bytes[i] == 0x3A else { return false }
                         i += 1
@@ -99,7 +159,10 @@ nonisolated enum AcpmuxJSONKeys {
                     switch (bytes[i], top == nil) {
                     case (0x2C, false): expect = .key
                     case (0x2C, true): expect = .value
-                    case (0x7D, false), (0x5D, true): stack.removeLast(); expect = .commaOrEnd
+                    case (0x7D, false), (0x5D, true):
+                        stack.removeLast()
+                        if stack.count < 2 { inParams = false }
+                        expect = .commaOrEnd
                     default: return false
                     }
                     i += 1
@@ -179,6 +242,17 @@ nonisolated enum AcpmuxJSONKeys {
         /// The string at `i` (a quote): its decoded text when `decode`, else "". Nil when malformed.
         mutating func string(decode: Bool) -> String? {
             i += 1
+            // A decoded key or value of plain ASCII with no escape (nearly every key): read in
+            // place, with no byte array per key.
+            if decode {
+                var end = i
+                while end < count, bytes[end] >= 0x20, bytes[end] < 0x80, bytes[end] != 0x22, bytes[end] != 0x5C { end += 1 }
+                if end < count, bytes[end] == 0x22 {
+                    let text = String(decoding: UnsafeBufferPointer(start: bytes + i, count: end - i), as: UTF8.self)
+                    i = end + 1
+                    return text
+                }
+            }
             var out: [UInt8] = []
             while i < count {
                 // A value's plain ASCII runs, 8 bytes at a time (a key is decoded byte by byte).
