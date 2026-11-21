@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Env } from "../src/env";
-import { mintTurn, parsePlatformIce } from "../src/turn";
-import { PLATFORM_TURN_ORIGIN, hubEnv, mockOutbound, outbound, platformTurn } from "./helpers";
+import { ICE_TTL_S, type TurnMinter, mintTurn, parsePlatformIce } from "../src/turn";
+import { hubEnv, mockOutbound, outbound } from "./helpers";
+
+// The cmux relay ICE: cmux-platform's TurnMinter over the TURN_MINTER service
+// binding first, the hub's own mint (TURN_KEY_*) when the binding fails or
+// answers no servers (src/turn.ts).
 
 const LOCAL_ICE = [
   { urls: ["stun:stun.cloudflare.com:3478"] },
@@ -9,8 +13,22 @@ const LOCAL_ICE = [
 ];
 const PLATFORM_ICE = [{ urls: ["turn:platform.test:3478?transport=udp"], username: "pu", credential: "pc" }];
 
+/** A TURN_MINTER binding that records what it was asked and answers `answer`. */
+function minter(answer: () => unknown): { binding: TurnMinter; asked: unknown[] } {
+  const asked: unknown[] = [];
+  return {
+    asked,
+    binding: {
+      ice: async (options) => {
+        asked.push(options);
+        return answer();
+      },
+    },
+  };
+}
+
 function env(over: Partial<Env>): Env {
-  return { ...hubEnv, PLATFORM_TURN_ORIGIN, DEVICE_HUB_TURN_TOKEN: "hub-turn-token", ...over };
+  return { ...hubEnv, ...over };
 }
 
 const localCalls = () => outbound.filter((u) => u.startsWith("https://rtc.live.cloudflare.com/")).length;
@@ -19,97 +37,58 @@ describe("mintTurn", () => {
   beforeEach(() => {
     mockOutbound();
     outbound.length = 0;
-    platformTurn.calls.length = 0;
-    platformTurn.answer = { body: { ice: PLATFORM_ICE } };
   });
 
-  it("uses the platform's answer in platform-first and sends the token and ttl", async () => {
-    expect(await mintTurn(env({ TURN_SOURCE: "platform-first" }))).toEqual(PLATFORM_ICE);
-    expect(platformTurn.calls).toEqual([{ authorization: "Bearer hub-turn-token", body: { ttlSeconds: 3600 } }]);
+  it("uses the platform's answer over the binding and asks for 1 h", async () => {
+    const m = minter(() => PLATFORM_ICE);
+    expect(await mintTurn(env({ TURN_MINTER: m.binding }))).toEqual(PLATFORM_ICE);
+    expect(m.asked).toEqual([{ ttlS: ICE_TTL_S }]);
     expect(localCalls()).toBe(0);
   });
 
   for (const [name, answer] of [
-    ["a 502", { status: 502, body: { error: "turn_mint_failed" } }],
-    ["a 503", { status: 503, body: { error: "turn_unconfigured" } }],
-    ["a 401", { status: 401, body: { error: "unauthorized" } }],
-    ["empty ice", { body: { ice: [] } }],
-    ["a bad body", { body: { ice: [{ urls: "turn:x" }] } }],
-    ["a network failure", "network"],
+    ["an empty list (the platform has no TURN key)", () => []],
+    ["a bad answer", () => [{ urls: "turn:x" }]],
+    ["a non-list answer", () => ({ ice: PLATFORM_ICE })],
+    [
+      "a thrown RPC error",
+      () => {
+        throw new Error("entrypoint not found");
+      },
+    ],
   ] as const) {
-    it(`falls back to the local mint in platform-first on ${name}`, async () => {
-      platformTurn.answer = answer as typeof platformTurn.answer;
-      expect(await mintTurn(env({ TURN_SOURCE: "platform-first" }))).toEqual(LOCAL_ICE);
-      expect(platformTurn.calls.length).toBe(1);
+    it(`falls back to the local mint on ${name}`, async () => {
+      const m = minter(answer);
+      expect(await mintTurn(env({ TURN_MINTER: m.binding }))).toEqual(LOCAL_ICE);
+      expect(m.asked.length).toBe(1);
       expect(localCalls()).toBe(1);
     });
   }
 
-  it("falls back to the local mint in platform-first when the platform times out", async () => {
-    platformTurn.answer = "hang";
-    expect(await mintTurn(env({ TURN_SOURCE: "platform-first" }), { timeoutMs: 100 })).toEqual(LOCAL_ICE);
+  it("mints locally without the binding", async () => {
+    expect(await mintTurn(env({ TURN_MINTER: undefined }))).toEqual(LOCAL_ICE);
     expect(localCalls()).toBe(1);
   });
 
-  it("answers [] in platform-first when the platform fails and TURN_KEY_* are unset", async () => {
-    platformTurn.answer = { status: 502, body: { error: "turn_mint_failed" } };
-    expect(await mintTurn(env({ TURN_SOURCE: "platform-first", TURN_KEY_ID: undefined, TURN_KEY_API_TOKEN: undefined }))).toEqual([]);
+  it("answers [] when the platform answers nothing and TURN_KEY_* are unset", async () => {
+    const m = minter(() => []);
+    expect(await mintTurn(env({ TURN_MINTER: m.binding, TURN_KEY_ID: undefined, TURN_KEY_API_TOKEN: undefined }))).toEqual([]);
     expect(localCalls()).toBe(0);
   });
 
-  it("never calls the local mint in platform mode", async () => {
-    expect(await mintTurn(env({ TURN_SOURCE: "platform" }))).toEqual(PLATFORM_ICE);
-    platformTurn.answer = { status: 503, body: { error: "turn_unconfigured" } };
-    expect(await mintTurn(env({ TURN_SOURCE: "platform" }))).toEqual([]);
-    platformTurn.answer = "hang";
-    expect(await mintTurn(env({ TURN_SOURCE: "platform" }), { timeoutMs: 100 })).toEqual([]);
-    expect(platformTurn.calls.length).toBe(3);
-    expect(localCalls()).toBe(0);
-  });
-
-  it("mints locally without DEVICE_HUB_TURN_TOKEN, in every mode", async () => {
-    for (const TURN_SOURCE of ["platform-first", "platform"]) {
-      expect(await mintTurn(env({ TURN_SOURCE, DEVICE_HUB_TURN_TOKEN: undefined }))).toEqual(LOCAL_ICE);
-    }
-    expect(platformTurn.calls.length).toBe(0);
-    expect(localCalls()).toBe(2);
-  });
-
-  it("mints locally in local mode and for a missing or unknown TURN_SOURCE", async () => {
-    for (const TURN_SOURCE of ["local", undefined, "bogus"]) {
-      expect(await mintTurn(env({ TURN_SOURCE }))).toEqual(LOCAL_ICE);
-    }
-    expect(platformTurn.calls.length).toBe(0);
-    expect(localCalls()).toBe(3);
-  });
-
-  it("local mode still answers [] without TURN_KEY_*", async () => {
-    expect(await mintTurn(env({ TURN_SOURCE: "local", TURN_KEY_ID: undefined }))).toEqual([]);
-    expect(outbound.length).toBe(0);
+  it("reaches the configured binding (the test stand-in for a keyless cmux-platform-production) and falls back", async () => {
+    expect(hubEnv.TURN_MINTER).toBeDefined();
+    expect(await mintTurn(hubEnv)).toEqual(LOCAL_ICE);
+    expect(localCalls()).toBe(1);
   });
 });
 
 describe("parsePlatformIce", () => {
-  it("accepts the contract shape", () => {
-    expect(parsePlatformIce({ ice: [{ urls: ["stun:a"] }, { urls: ["turn:b"], username: "u", credential: "c" }] })).toEqual([
-      { urls: ["stun:a"] },
-      { urls: ["turn:b"], username: "u", credential: "c" },
-    ]);
-  });
-
-  it("rejects anything else", () => {
-    for (const body of [
-      null,
-      [],
-      { ice: "x" },
-      { iceServers: [{ urls: ["stun:a"] }] },
-      { ice: [null] },
-      { ice: [{ urls: [] }] },
-      { ice: [{ urls: ["stun:a", 3] }] },
-      { ice: [{ urls: ["turn:b"], username: 1 }] },
-      { ice: [{ urls: ["turn:b"], credential: {} }] },
-    ]) {
-      expect(parsePlatformIce(body), JSON.stringify(body)).toBeNull();
+  it("takes a well-formed list and refuses any bad entry", () => {
+    expect(parsePlatformIce(PLATFORM_ICE)).toEqual(PLATFORM_ICE);
+    expect(parsePlatformIce([])).toEqual([]);
+    for (const bad of [null, {}, { ice: PLATFORM_ICE }, [null], [{ urls: [] }], [{ urls: [""] }], [{ urls: ["turn:x"], username: 1 }]]) {
+      expect(parsePlatformIce(bad)).toBeNull();
     }
   });
 });

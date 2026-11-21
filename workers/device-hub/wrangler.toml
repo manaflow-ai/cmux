@@ -12,9 +12,6 @@
 #   TURN_KEY_ID        optional, Cloudflare Realtime TURN key id
 #   TURN_KEY_API_TOKEN optional, its API token. The hub's own mint, the fallback
 #                      until it is removed; without both it mints nothing.
-#   DEVICE_HUB_TURN_TOKEN optional, bearer for cmux-platform's one TURN minter
-#                      (POST /v1/relay/ice-servers); put by a cmux-platform
-#                      workflow. Without it the hub mints locally.
 # `npm run dev-secrets` writes a fresh .dev.vars with both keys.
 
 name = "cmux-device-hub"
@@ -51,11 +48,6 @@ PUBLIC_BASE_URL = ""
 # join enrolls with by default (cmux-cloud-environment PRODUCTION_PLATFORM) and
 # whose STACK_PROJECT_ID is cmux prod.
 MACHINE_ORIGINS = "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux-platform-production.debussy.workers.dev"
-# Where the cmux relay ICE comes from (src/turn.ts): cmux-platform's one TURN
-# minter first, the hub's own mint (TURN_KEY_*) when the platform fails. Also
-# `local` or `platform`.
-TURN_SOURCE = "platform-first"
-PLATFORM_TURN_ORIGIN = "https://cmux-platform-production.debussy.workers.dev"
 
 [[durable_objects.bindings]]
 name = "USER_DO"
@@ -64,6 +56,15 @@ class_name = "UserDO"
 [[durable_objects.bindings]]
 name = "SESSION_DO"
 class_name = "SessionDO"
+
+# The cmux relay ICE (src/turn.ts): cmux-platform's TurnMinter entrypoint (its
+# src/server/cloud/TurnMinter.ts), the one TURN minter, asked first; the hub's
+# own mint (TURN_KEY_*) when it fails or answers no servers. A same-account
+# service binding needs no shared secret and no public fetch.
+[[services]]
+binding = "TURN_MINTER"
+service = "cmux-platform-production"
+entrypoint = "TurnMinter"
 
 [[migrations]]
 tag = "v1"
@@ -94,9 +95,6 @@ PUBLIC_BASE_URL = ""
 # The production platform for prod-project users; the development and staging
 # platforms (both on the Stack development project) for development-project users.
 MACHINE_ORIGINS = "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux-platform-production.debussy.workers.dev,454ecd03-1db2-4050-845e-4ce5b0cd9895=https://cmux-platform-development.debussy.workers.dev,454ecd03-1db2-4050-845e-4ce5b0cd9895=https://cmux-platform-staging.debussy.workers.dev"
-# The development platform's TURN minter, then the hub's own mint.
-TURN_SOURCE = "platform-first"
-PLATFORM_TURN_ORIGIN = "https://cmux-platform-development.debussy.workers.dev"
 
 [[env.dev.durable_objects.bindings]]
 name = "USER_DO"
@@ -105,6 +103,12 @@ class_name = "UserDO"
 [[env.dev.durable_objects.bindings]]
 name = "SESSION_DO"
 class_name = "SessionDO"
+
+# The development platform's TurnMinter mints the dev hub's cmux relay ICE.
+[[env.dev.services]]
+binding = "TURN_MINTER"
+service = "cmux-platform-development"
+entrypoint = "TurnMinter"
 
 [[env.dev.migrations]]
 tag = "v1"
