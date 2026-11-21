@@ -5,6 +5,7 @@ import Observation
 import OSLog
 import QuartzCore
 import SwiftUI
+import UIKit
 
 /// Launch to first interaction, step by step: each mark is taken once per
 /// process, in milliseconds since the process started (the kernel's start time,
@@ -34,7 +35,15 @@ import SwiftUI
 public final class LaunchMarks {
     public static let shared = LaunchMarks()
 
-    private init() {}
+    private init() {
+        // Foreground: the next presented terminal frame is timed from here (`terminalPresented`).
+        NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.foregroundAt = Date() }
+        }
+    }
+
+    /// When the app last came to the foreground, until a terminal frame has been timed from it.
+    private var foregroundAt: Date?
 
     private static let signposter = OSSignposter(subsystem: "dev.cmux.mobile", category: "launch")
     private static let log = Logger(subsystem: "dev.cmux.mobile", category: "timing")
@@ -56,6 +65,16 @@ public final class LaunchMarks {
         #if DEBUG
         LaunchMarksBoard.shared?.update()
         #endif
+    }
+
+    /// A terminal attached to its session presented a frame: the first one after a foreground is logged as
+    /// `timing foreground terminal_frame +<ms>ms` (ms since the foreground), the warm open-to-first-terminal-frame
+    /// the timing mode of `cmux-next-ios-sim.sh` reads. Costs one nil check per frame.
+    public func terminalPresented() {
+        guard let start = foregroundAt else { return }
+        foregroundAt = nil
+        let ms = Date().timeIntervalSince(start) * 1000
+        Self.log.info("timing foreground terminal_frame +\(Int(ms.rounded()), privacy: .public)ms")
     }
 
     /// Takes `name` when the next frame is presented (a one-shot display link),

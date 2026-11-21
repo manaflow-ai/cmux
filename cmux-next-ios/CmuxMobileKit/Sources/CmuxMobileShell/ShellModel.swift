@@ -622,6 +622,9 @@ final class ShellModel {
 
     /// The workspaces (or a Mac's data phase) changed while a restore waits.
     func continueRestore() {
+        #if DEBUG
+        TimingScenario.shared.step(self)
+        #endif
         if let macID = restoreLinkMac, let live,
            store.teams.flatMap(\.macs).contains(where: { $0.id == macID && $0.isOnline }) {
             restoreLinkMac = nil
