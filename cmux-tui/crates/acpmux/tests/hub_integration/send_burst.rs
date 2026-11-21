@@ -137,9 +137,17 @@ async fn burst(hub: &Arc<Hub>, receiver: &str, senders: &[String], inbox: bool, 
     let mut logged: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut turn_text: BTreeMap<String, String> = BTreeMap::new();
     let mut joined: BTreeMap<String, String> = BTreeMap::new();
+    // A notice logged as a steer that never went in (its turn ended first, `steer_end.rs`):
+    // its messages go in with the next notice.
+    let withdrawn: BTreeSet<&str> = events
+        .iter()
+        .filter(|e| e.kind == "steer_withdrawn")
+        .filter_map(|e| e.msg["promptId"].as_str())
+        .collect();
     for e in &events {
         let pid = e.msg["promptId"].as_str().unwrap_or("").to_owned();
         match e.kind.as_str() {
+            "user_message" if withdrawn.contains(pid.as_str()) => {}
             "user_message" if e.msg["_meta"]["provenance"]["kind"] == "inbox_notice" => {
                 for carried in carried(&e.msg) {
                     *delivered.entry(carried).or_default() += 1;
@@ -203,7 +211,7 @@ fn trail(events: &[acpmux::store::EventRecord], delivered: &BTreeMap<String, usi
         .collect();
     let mut lines = Vec::new();
     for e in events {
-        let pid = e.msg["promptId"].as_str().unwrap_or("");
+        let pid = e.msg["promptId"].as_str().or(e.msg["noticePromptId"].as_str()).unwrap_or("");
         if names(e) || carriers.contains(pid) {
             let mut msg = e.msg.clone();
             if let Some(m) = msg.as_object_mut() {

@@ -502,10 +502,13 @@ impl Hub {
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                 let Some(blocks) = fallback else {
-                    // Logged above, it never went: the log says so (a notice whose turn ended, a
-                    // steer-only one the person's prompt queued ahead of meanwhile).
+                    // Logged above, it never went: the log says so (the turn cap's notice or an
+                    // inbox notice whose turn ended or that a waiting prompt held, a steer-only
+                    // one the person's prompt queued ahead of meanwhile). An inbox notice's
+                    // messages go in with the next notice (`inbox.rs` `notice_done`): unmarked,
+                    // the chat showed them twice, and the log said they went in twice.
                     let waits = prompt_held.load(std::sync::atomic::Ordering::SeqCst);
-                    if bound || waits {
+                    if bound || waits || inbox_notice {
                         let msg = json!({"promptId": prompt_id, "turnId": turn_id});
                         self.append(session, "mux", "steer_withdrawn", msg);
                     }
