@@ -87,6 +87,9 @@ SOCKET_PATH="$WORK_DIR/s.sock"
 APP_LOG="$WORK_DIR/app.log"
 # --canary: the app's acpmux home, with acpmux's test agent as its one harness.
 ACPMUX_HOME_DIR="$WORK_DIR/acpmux"
+# An inherited ACPMUX_* variable (ACPMUX_SOCKET above all) would point this run's acpmux, and its
+# `daemon shutdown --end-agents` on exit, at the caller's daemon.
+for name in $(compgen -A export ACPMUX_); do unset "$name"; done
 CANARY_HARNESS="nightly-canary-agent"
 CRASH_MARKER="$WORK_DIR/launched"
 APP_PID=""
