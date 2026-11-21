@@ -535,6 +535,27 @@ fn provider<'a>(name: &str, m: &'a Value) -> Option<&'a str> {
     None
 }
 
+/// Whether the registry's `lane_place.placement_preference` puts `freestyle` first, as it does
+/// by default: `new --host auto` then asks the Freestyle claim before it places an agent lane on
+/// any other host (`cli/place.rs` `freestyle_turn`).
+pub fn freestyle_first(registry: Option<&Value>) -> bool {
+    registry.and_then(|r| r.pointer("/lane_place/placement_preference/0")).and_then(Value::as_str)
+        == Some("freestyle")
+}
+
+/// Whether `name` (by name or alias) is a registry machine on Freestyle (`provider`).
+pub fn is_freestyle(registry: Option<&Value>, name: &str) -> bool {
+    let Some(machines) = registry.and_then(|r| r.get("machines")).and_then(Value::as_object) else {
+        return false;
+    };
+    let want = canonical(name);
+    machines
+        .iter()
+        .find(|(n, m)| machine_names(n, m).contains(&want))
+        .and_then(|(n, m)| provider(n, m))
+        == Some("freestyle")
+}
+
 /// The place (0 best) and the list entry of `name`'s (by name or alias) tier in the registry's
 /// `lane_place.placement_preference`, a list best first of providers and machine names: its
 /// own name's place in the list, else its provider's (`provider`). `None`: no list, a list
