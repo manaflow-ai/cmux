@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextLayout
+public import CmuxNextLayout
 public import CmuxNextTabs
 
 /// Drag a pane by its tab bar: onto another pane's center to swap them, onto an edge, a column gap or a dock band to move it there (cx-8bv1j, iTerm's pane drag). The
