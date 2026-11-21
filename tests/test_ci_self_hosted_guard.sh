@@ -1480,6 +1480,13 @@ PY_LIGHT
     # persistent Linux pool registers every blacksmith-*-ubuntu-2404 label, so only hosted Ubuntu is
     # ephemeral (run 44801662760 landed on cmux-runner-pool-n4c-0027). Not a required check on main.
     "web-complexity-trusted.yml:    runs-on: ubuntu-24.04 # github-hosted-required: reads untrusted pull request source; the persistent pool carries every Blacksmith Linux label"
+    # CLA Assistant holds a write token on fork pull requests and must run on a
+    # one-job VM. The persistent pool registers every Blacksmith Linux label,
+    # so the CI_TRUSTED_RUNNER selector landed it on cmux-runner-pool-he4a-0037
+    # and its runner guard refused the required check (job 136688165968).
+    # ubuntu-22.04 is a hosted label the pool does not carry. The bytes are
+    # pinned by validate-cla-policy.rb (CLA_ACTION_RUNNER_SUCCESSOR_PINS).
+    "cla.yml:    runs-on: ubuntu-22.04 # ephemeral-required: write token on fork pull requests; the persistent pool carries every Blacksmith Linux label"
     # The packages' attestations are verified with --deny-self-hosted-runners,
     # so they must be signed on a GitHub-hosted runner.
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
