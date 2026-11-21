@@ -3,6 +3,7 @@
 
     head_tier.py            reads $GITHUB_EVENT_NAME and $GITHUB_EVENT_PATH, writes tier=full|cheap and
                             reason=... to $GITHUB_OUTPUT (or prints them), one line to the step summary
+    head_tier.py tier       the same decision, only the word (full or cheap) on stdout, for a shell `if`
     head_tier.py explain EVENT_JSON [EVENT_NAME]
                             the same decision for a saved event payload, printed
 
@@ -59,6 +60,10 @@ def main(argv: list[str]) -> int:
         name = argv[2] if len(argv) > 2 else "pull_request"
         result = tier(name, _load(argv[1]), os.environ.get("CI_DRAFT_CHEAP_TIER", "1"))
         print(f"tier={result[0]}\nreason={result[1]}")
+        return 0
+    if argv[:1] == ["tier"]:
+        print(tier(os.environ.get("GITHUB_EVENT_NAME", ""), _load(os.environ.get("GITHUB_EVENT_PATH", "")),
+                   os.environ.get("CI_DRAFT_CHEAP_TIER", "1"))[0])
         return 0
     if argv:
         print(__doc__, file=sys.stderr)
