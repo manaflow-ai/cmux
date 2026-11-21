@@ -25,9 +25,10 @@ struct AgentPaneAttachDroppedTests {
         let model = AgentPaneModel(host: NoHost())
         let clock = Uptime()
 
-        init(local: Bool? = true) {
+        init(local: Bool? = true, handshake: Bool = true) {
             let clock = clock
             model.droppedPaths = AgentPaneDroppedPaths(now: { clock.now })
+            model.hasHandshake = handshake
             if let local { model.onLocalPaths = { local } }
         }
 
@@ -273,6 +274,20 @@ struct AgentPaneAttachDroppedTests {
             rig.model.droppedPaths.stash([url], kind: .drop)
             #expect(Self.errorCode(await rig.ask("drop", ["build.zip"])) == "unsupported")
         }
+    }
+
+    /// Before its handshake a page on a remote route still reads `remoteChat == false`, so a drop
+    /// then never gets this Mac's paths; after the handshake a chat on this Mac does.
+    @Test func refusedBeforeTheHandshake() async throws {
+        let (base, _, file) = try Self.dropped()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let rig = Rig(handshake: false)
+        rig.model.droppedPaths.stash([file], kind: .drop)
+        #expect(Self.errorCode(await rig.ask("drop", ["build.zip"])) == "unsupported")
+
+        rig.model.hasHandshake = true
+        rig.model.droppedPaths.stash([file], kind: .drop)
+        #expect(Self.items(await rig.ask("drop", ["build.zip"]))?.compactMap { $0["path"] as? String } == [file.path])
     }
 
     /// WebKit's Paste in the composer's right-click menu runs the web view's own `paste:`, so a
