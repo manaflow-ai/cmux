@@ -40,8 +40,8 @@ extension SettingsSchema {
         "sidebar.controlsOnHover", "sidebar.floatOnHover",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
         "sidebar.groupPalette", "sidebar.groupGradient", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping",
-        "sidebar.steppingWraps", "sidebar.side", "sidebar.style", "sidebar.spacesPosition", "sidebar.spacesVisibility",
-        "tabs.newTabTemplate",
+        "sidebar.steppingWraps", "sidebar.side", "sidebar.look", "sidebar.style", "sidebar.spacesPosition",
+        "sidebar.spacesVisibility", "tabs.newTabTemplate",
         // Which New Tab page draws; a look switch, ends no work.
         "tabs.nativeNewTabPage", "tabs.newTabApp",
         "tabs.newTabPosition",
@@ -140,12 +140,14 @@ extension SettingsSchema {
         // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
+        // Experiments are taste prototypes of how a surface looks (looks only), each off by default.
+        "experiments.glassToolbarGroups",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
         // The floating Chief pet and its character: a display the person can hide again; its reply box types only what the person writes.
         "home.chiefPetEnabled", "home.chiefPetMascot",
-        // Where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).
-        "home.chiefDock.edge", "home.chiefPanel.style", "home.chiefDock.openBeside",
+        // Whether the Chief stays docked as a side panel, where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).
+        "home.chiefDock.sidePanel", "home.chiefDock.edge", "home.chiefPanel.style", "home.chiefDock.openBeside",
         // Needs you in the agent chat header (an App Store item): a display the person can hide again.
         "agentPane.needsYou.enabled",
         // Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31); a new chat's composer can still change it for that chat.
@@ -235,7 +237,9 @@ extension SettingsSchema {
         "agentPane.display.code.family", "agentPane.display.code.scale", "agentPane.display.sessionInfo.placement",
         "agentPane.display.environment.placement", "agentPane.display.minimap", "agentPane.display.transcriptView",
         "agentPane.display.presentation", "agentPane.display.promptCoach", "agentPane.display.statusVerbs.mode",
-        "agentPane.display.statusVerbs.custom", "agentPane.display.harnessPlacement", "agentPane.display.rail.side",
+        "agentPane.display.statusVerbs.custom", "agentPane.display.thinking.shimmer",
+        "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
+        "agentPane.display.thinking.jumpButton", "agentPane.display.harnessPlacement", "agentPane.display.rail.side",
         "agentPane.display.commandLabels",
         // The code editor's looks and editing behavior (diff-host S7); editor.importFrom is the person's.
         "editor.fontFamily", "editor.fontSize", "editor.fontWeight", "editor.fontLigatures", "editor.lineHeight",

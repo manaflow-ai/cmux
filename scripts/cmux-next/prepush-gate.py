@@ -290,6 +290,12 @@ SCANNERS = (
     ("No literal state roots (per-build isolation S7, cx-is1kf.8)", ["/bin/bash", "{s}/check-state-roots.sh", "{root}"], SCOPES),
     ("No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)",
      ["python3", "-I", "{s}/check-no-process-scan.py", "{root}"], SCOPES),
+    # Leo 2026-11-21: "i wonder if there's a script or some kinda tool we can build to simply get rid fo the prompt?"
+    # A keychain or LocalAuthentication call with no no-UI guard can stop an unattended Mac on a panel.
+    ("Keychain calls never prompt unattended (keychain-prompt ratchet)",
+     ["python3", "-I", "{s}/check-keychain-no-prompt.py", "{root}"],
+     (PKG + "/Sources/", "Packages/macOS/CmuxPhonePush/", "Packages/Shared/",
+      "scripts/cmux-next/check-keychain-no-prompt.py", "scripts/cmux-next/keychain-no-prompt-baseline.tsv")),
     ("No raw spawns in the daemon (cmux_process, reviews of pl-holder-11)",
      ["python3", "-I", "{s}/check-no-raw-spawn.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-spawn-baseline.tsv")),
     ("Every spawn has an owner (cmux_scope::Scope, cmux_process::Child; cmuxterm-hq#9096)",
@@ -378,6 +384,8 @@ PORT_DRIFT_TIP = "refs/remotes/origin/feat-cmux-next"  # drift already here is n
 # section 10: thirteen scheduled files existed only here and never fired, and all 33 on both branches differed): a push
 # that changes a workflow with a `schedule:` is refused when main has no copy of it (the schedule never fires) or when
 # its jobs or crons now differ from main's, unless a pushed commit names the main twin in a `Main-Twin:` trailer.
+# A file whose main copy is another workflow under the same path (other job names or triggers before the push:
+# classic's nightly.yml beside NEXT's) has no twin to open: only its crons are held (cmux#44131).
 # NO_MAIN_TWIN lists the scheduled files that stay here on purpose, each with why.
 MAIN_TWIN_CHECK = "Scheduled workflows match main's (a schedule runs main's copy)"
 MAIN_TWIN_FILE = ".github/workflows/cloud-journey-prod.yml"  # compared whether or not it has a schedule
@@ -498,6 +506,7 @@ CRASH_OK = re.compile(r"^Crash-allow-OK:[ \t]*(\S.*)$", re.MULTILINE)
 RATCHET_BASELINES = {
     "focus-routes-baseline.tsv": ((0,), 1),
     "process-scan-baseline.tsv": ((0,), 1),
+    "keychain-no-prompt-baseline.tsv": ((0,), 1),
     "state-roots-baseline.tsv": ((0,), 1),
     "raw-spawn-baseline.tsv": ((0,), 1),
     "raw-flock-baseline.tsv": ((0,), 1),
@@ -1967,6 +1976,24 @@ def _twin_shape(text: str) -> tuple[str, tuple[str, ...]]:
     return _journey_jobs(text), crons
 
 
+def _twin_identity(text: str) -> tuple[frozenset[str], frozenset[str]]:
+    """A workflow's job ids and trigger names. Two copies of one path that differ here are two workflows, not one
+    that drifted: main's nightly.yml is classic's build (18 jobs) and feat-cmux-next's is NEXT's (52), so a change to
+    one has no counterpart in the other to open as a twin."""
+    def section(key: str) -> tuple[str, str]:
+        found = re.search(rf"^['\"]?{key}['\"]?:[ \t]*(.*)$", text, re.MULTILINE)
+        if not found:
+            return "", ""
+        rest = text[found.end():]
+        end = re.search(r"^\S", rest, re.MULTILINE)
+        return found.group(1).split("#")[0].strip(), rest[:end.start() if end else len(rest)]
+
+    inline, body = section("on")
+    triggers = re.findall(r"[a-z_]+", inline) if inline else re.findall(r"^  ([a-z_]+):", body, re.MULTILINE)
+    _, jobs = section("jobs")
+    return frozenset(re.findall(r"^  ([A-Za-z0-9_-]+):", jobs, re.MULTILINE)), frozenset(triggers)
+
+
 def _cut_from_main(repo: Path, head: str, main_ref: str) -> bool:
     """True when HEAD is a branch off main, by git objects alone: feat-cmux-next has the CmuxNext app entry and HEAD
     does not, or the commit where HEAD left main is not on feat-cmux-next (main_based's test, without a head tree)."""
@@ -1993,7 +2020,9 @@ def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_
     section 10). For each workflow the push changes that has a `schedule:` (here or on main; MAIN_TWIN_FILE always):
     a file main has no copy of is refused unless NO_MAIN_TWIN lists it; a file whose jobs or crons differ from main's
     is refused, unless the push left them as base had them or a pushed commit that changes the file names the main
-    twin PR in a `Main-Twin:` trailer. A push when main cannot be read passes (local only: not a CI gate)."""
+    twin PR in a `Main-Twin:` trailer. A file whose main copy was already another workflow before the push (other
+    job ids or triggers, _twin_identity) is held by its crons only, like a main dispatcher: no twin of a job change
+    can exist there. A push when main cannot be read passes (local only: not a CI gate)."""
     names = [n for n in git(repo, "diff", "--name-only", "--no-renames", base, head, "--", MAIN_TWIN_DIR,
                             check=False).decode(errors="replace").split()
              if n.endswith((".yml", ".yaml")) and "/" not in n[len(MAIN_TWIN_DIR):]]
@@ -2032,13 +2061,16 @@ def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_
                             f"{MAIN_TWIN_HINT}")
             continue
         shape = _twin_shape(ours)
-        if re.search(rf"gh workflow run {re.escape(Path(name).name)}\b[^\n]*--ref feat-cmux-next", main):
+        other = before is not None and _twin_identity(before) != _twin_identity(main)
+        if other or re.search(rf"gh workflow run {re.escape(Path(name).name)}\b[^\n]*--ref feat-cmux-next", main):
             # main's copy is a dispatcher (cmux-next-ios-kit.yml's shape): its cron starts this file on
-            # feat-cmux-next, so this copy's jobs are what run; only the crons must agree.
+            # feat-cmux-next, so this copy's jobs are what run; only the crons must agree. The same when main's copy
+            # is another workflow (other): no twin of a job change can exist in it, but a cron edit still never fires.
             crons = shape[1]
             if not crons or crons == _twin_shape(main)[1] or (before is not None and crons == _twin_shape(before)[1]):
                 continue
-            problems.append(f"{name}: its crons {list(crons)} differ from {main_ref}'s dispatcher "
+            problems.append(f"{name}: its crons {list(crons)} differ from {main_ref}'s "
+                            f"{'copy (another workflow under this path)' if other else 'dispatcher'} "
                             f"{list(_twin_shape(main)[1])}, which is what fires. {MAIN_TWIN_HINT}")
             continue
         if shape == _twin_shape(main) or (before is not None and shape == _twin_shape(before)):
