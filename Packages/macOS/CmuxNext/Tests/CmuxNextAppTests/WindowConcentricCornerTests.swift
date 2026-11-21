@@ -100,7 +100,7 @@ import Testing
         defer { load() }
         load()
         #expect(!Metrics.cornerRadiusIsSet)
-        #expect(PaneToolbarView.moreCornerRadius(inset: PaneToolbarView.trailingGap) == Metrics.buttonCornerRadius)
+        #expect(PaneToolbarView.moreCornerRadius(inset: PaneToolbarView.trailingGap) == Metrics.tabBarControlCornerRadius())
         let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 160, height: Metrics.tabStripHeight))
         toolbar.moreButton.hoverStyle = .plate
         toolbar.show([], more: true, lit: false)
