@@ -268,8 +268,14 @@ jobs:
         id: plan
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
+          CMUX_CI_RECEIPT_VERIFY_KEY: ${{ secrets.CMUX_CI_RECEIPT_VERIFY_KEY }}
         run: |
           jobs=$(python3 .github/scripts/rust-workspaces.py plan --base "$BASE_SHA")
+          tree="$(git rev-parse HEAD^{tree})"
+          jobs="$(printf '%s' "$jobs" | python3 scripts/ci/same_tree_receipt.py filter \
+            --tree "$tree" \
+            --job-template 'rust-workspaces:{root}:v1' \
+            --command-template 'python3 .github/scripts/rust-workspaces.py run {root}')"
           echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
           python3 -c 'import json, sys; jobs = json.loads(sys.argv[1]); print("\n".join(j["root"] for j in jobs) or "no Cargo workspace reached")' "$jobs"
 
