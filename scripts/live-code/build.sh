@@ -69,6 +69,6 @@ while IFS= read -r module; do
 done < <(live_code_targets)
 live_code_check "$bin" "$out" || exit 1
 echo "live-code build: built in $((SECONDS - build_start)) s"
-grep -E -- "-module-name CmuxNext[A-Za-z0-9_]* " "$log" > "$out/cmuxnext-commands.log" || true
+grep -E -- "-module-name (CmuxNext[A-Za-z0-9_]*|$(live_code_shared_modules | paste -sd '|' -)) " "$log" > "$out/cmuxnext-commands.log" || true
 printf '%s\n' "$app" > "$out/app-path"
 echo "$app"

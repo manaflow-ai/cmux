@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-21 (lane/sidebar-pin-archive): Sidebar-Look: Leo, 2026-11-21: "the pin button does not make sense. you
+  expect this to be the pinned thing. but it isn't. when you pin it, the pin goes to teh left of the bar as an empty
+  looking pin symbol." A hover control says what a press does, never what the row is: Pin on an unpinned row is the
+  outline pin (`action.pin`); Unpin on a pinned row, a pinned tile and a pinned group header is the struck-through pin
+  (`browser.toolbar.unpin`, pin.slash). The pinned state alone draws the filled pin (`state.pinned`, solid): a Pinned
+  row's leading pin, a pinned group's pin and the Pinned header's glyph. Replaces the a-sidebar-pin-hover entry's
+  outline-pin/filled-pin pair (last good 58deafaa036), where the filled hover Unpin and the outline leading mark read
+  the wrong way round.
 - 2026-11-20 (nx-48416-chief-onboarding): Sidebar-Look: user, 2026-11-20 (https://github.com/manaflow-ai/cmux/issues/48416):
   "rename Home to Chief in the UI". Only names change: the Home item reads Chief (`sidebar.builtin.home`), and the
   item that was already called Chief (its conversation, status and subagents, `LayoutItem.chief`) reads Chief
@@ -45,6 +53,14 @@
   run. No row draws a pin at rest, so Leo's 2026-10-21 "no empty pin symbol by default" still holds at rest; the
   hover pin reverses only its hover half. Drag still pins. Regression: `SidebarHoverPinTests`,
   `SidebarTrailingColumnTests.anExpandedRowOffersItsPinOnHoverOnly`.
+
+- 2026-11-20 (a-chat-task-list): Sidebar-Look: David Beyer, Nov 20 call (via Chief): "a task list that tracks
+  what's done and what's next across long agent chats", shown per thread in the sidebar. An agent chat's row shows a
+  quiet `done/total` ("3/7") in its trailing status slot while its task list has steps left, only when the row shows
+  no status and no age there, so nothing moves and no status is hidden. The hover card adds the progress, "Now: ..."
+  and "Next: ...". The list is acpmux's `taskList` (the harness's own plan, else what the Chief keeps); a working
+  lane's unfinished list leads, else the newest (`SidebarLaneStatus.taskProgress`). Tunable `sidebar.taskProgress`
+  (default on) turns it off. VoiceOver says "N of M tasks done". Fixture: `sidebar.laneFixture`.
 
 - 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
   them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with

@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture rows, not shipped UI.
-// While a turn runs, the Thinking line sits one gap under the last row over it that draws: 16 under a
+// While a turn runs, the Thinking line sits one gap under the last row over it that draws: 8 under a
 // step row, 8 under a reply, at most 24 under anything else (transcriptGrid.ts transcriptGap). Leo saw
 // a much larger gap there in a long Claude Code coordinator chat ("we can't afford to have these thrown
 // together"). Every painted frame of each scene is read: the drawn distance from the bottom of the last
