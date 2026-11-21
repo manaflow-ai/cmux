@@ -46,7 +46,8 @@ extension FieldTextView {
     @objc private func undoDraftStep(_ step: DraftUndoStep) {
         let range = step.range, text = step.text
         guard let storage = textStorage, NSMaxRange(range) <= storage.length else { forgetUndo(); return }
-        guard shouldChangeText(in: range, replacementString: text.string) else { return }
+        // Refused (not editable): the step is spent and the text stays, so the older ranges no longer fit.
+        guard shouldChangeText(in: range, replacementString: text.string) else { forgetUndo(); return }
         storage.replaceCharacters(in: range, with: text)
         setSelectedRange(NSRange(location: range.location + text.length, length: 0))
         didChangeText()
