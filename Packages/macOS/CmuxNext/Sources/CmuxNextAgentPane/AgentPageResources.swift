@@ -11,6 +11,9 @@ import Foundation
 final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSource, PageReadyResourceSource {
     private let session: @MainActor () -> String?
     private let allowed: @MainActor () -> Bool
+    /// The markdown viewer's bundled libraries (`Resources/markdown-viewer`), served at `__lib/`
+    /// for the chat's charts and diagrams; nil when the app has none.
+    let libraries: URL?
     /// The theme key the page would get now (``AgentPageEvent/theme(_:surface:)``'s `key`), nil
     /// until the pane sets it: the page draws its copy only under the theme it was drawn in.
     var themeKey: @MainActor () -> String? = { nil }
@@ -20,9 +23,12 @@ final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSou
     /// - Parameters:
     ///   - session: The chat the page shows now, nil for none.
     ///   - allowed: Whether that chat may keep its copy (false in an incognito window).
-    init(session: @escaping @MainActor () -> String?, allowed: @escaping @MainActor () -> Bool) {
+    ///   - libraries: The chart and diagram libraries' folder (the app's by default; a test passes the repository's).
+    init(session: @escaping @MainActor () -> String?, allowed: @escaping @MainActor () -> Bool,
+         libraries: URL? = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))) {
         self.session = session
         self.allowed = allowed
+        self.libraries = libraries
         // The chat's copy is read from when the page is made, while its document loads: at launch
         // the main thread is busy, and the request then waits on no disk read of its own.
         if let chat = session(), !chat.isEmpty {
