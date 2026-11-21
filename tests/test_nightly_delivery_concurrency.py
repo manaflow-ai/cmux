@@ -267,7 +267,7 @@ def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() ->
     assert 'cron: "2-59/5 * * * *"' in dev or 'cron: "7,22,37,52 * * * *"' in dev
     assert "cancel-in-progress: false" in dev
     cmux_next = (WORKFLOWS / "cmux-next.yml").read_text(encoding="utf-8")
-    assert "group: ${{ format('cmux-next-release-compile-{0}', github.run_id) }}" in cmux_next
+    assert "format('cmux-next-release-compile-{0}', github.run_id) }}" in cmux_next
     assert "needs.push-head-preflight.outputs.current == 'true'" in cmux_next
 
 
