@@ -1,8 +1,8 @@
 # Rex settings navigator
 
-An opt-in New Tab page that lists all 85 of Rex's preference actions
-([reference](https://www.superlogical.com/rex/docs/reference/mac-actions), the Settings
-group: notifications, interface, themes, terminal, remote hosts, developer). Each row says
+An opt-in New Tab page that lists all 85 of Rex's preference actions (the Settings group
+of its Mac actions reference: notifications, interface, themes, terminal, remote hosts,
+developer). Each row says
 how the action maps to cmux:
 
 - **Exact**: the cmux setting does the same thing. Click or Return opens Settings at it.

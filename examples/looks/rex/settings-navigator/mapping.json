@@ -1,5 +1,5 @@
 {
-  "source": "https://www.superlogical.com/rex/docs/reference/mac-actions",
+  "source": "Rex Mac actions reference, Settings group (85 actions)",
   "statuses": {
     "exact": "The cmux setting does the same thing; the row opens Settings on it.",
     "related": "The cmux setting is the nearest control but not the same behavior; the row opens it and says how it differs.",
