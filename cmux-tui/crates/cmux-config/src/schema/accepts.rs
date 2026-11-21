@@ -66,11 +66,11 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
     }
     let accepted = if is_backdrop_selection(row) {
         Accepted::Shape(
-            "none, a listed painting, system:<absolute path>, file:<absolute path> or folder:<absolute path>",
+            "none, a listed painting, system:<absolute path>, file:<absolute path>, youtube:<video id> (or a YouTube video address) or folder:<absolute path>",
         )
     } else if row.validation == super::Validation::Domain(DomainKind::BackdropPicture) {
         Accepted::Shape(
-            "a listed painting, desktop, system:<absolute path> or file:<absolute path>",
+            "a listed painting, desktop, system:<absolute path>, file:<absolute path> or youtube:<video id> (or a YouTube video address)",
         )
     } else if row.validation == super::Validation::Domain(DomainKind::BackdropSchedule) {
         Accepted::Shape(
@@ -78,6 +78,10 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         )
     } else if row.validation == super::Validation::Domain(DomainKind::BackdropLocation) {
         Accepted::Shape("\"LAT,LON\" in degrees, such as \"37.77,-122.42\"")
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropMemory) {
+        Accepted::Shape(
+            "an object of rotate (daily or folder:<absolute path>), folder (folder:<absolute path>) and off (none or a fixed background)",
+        )
     } else if row.validation == super::Validation::Domain(DomainKind::ChatRoots) {
         Accepted::Shape(
             "an array of absolute folders outside / , the home folder, other volumes and privacy-protected folders",
@@ -121,7 +125,31 @@ fn is_backdrop_selection(row: &Row) -> bool {
     row.validation == super::Validation::Domain(DomainKind::BackdropSelection)
 }
 
+/// Values written by older cmux-next builds for the hand-written Swift
+/// `WorkspaceColorIndicatorStyle` enum. Swift reads each as its canonical
+/// replacement without a diagnostic, so the shared Rust validator must do the
+/// same or customization would reject an otherwise valid user config.
+fn accepts_legacy_workspace_color_indicator(row: &Row, value: &Value) -> bool {
+    row.key == "workspaceColors.indicatorStyle"
+        && value.as_str().is_some_and(|text| {
+            matches!(
+                text,
+                "solidFill"
+                    | "rail"
+                    | "border"
+                    | "wash"
+                    | "lift"
+                    | "typography"
+                    | "washRail"
+                    | "blueWashColorRail"
+            )
+        })
+}
+
 fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
+    if accepts_legacy_workspace_color_indicator(row, value) {
+        return true;
+    }
     match row.validation {
         super::Validation::Domain(DomainKind::ChatRoots) => {
             let home = std::env::var("HOME").unwrap_or_default();
@@ -143,6 +171,9 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         super::Validation::Domain(DomainKind::BackdropLocation) => {
             return value.as_str().is_some_and(super::backdrop::is_location);
         }
+        super::Validation::Domain(DomainKind::BackdropMemory) => {
+            return super::backdrop::is_memory(value);
+        }
         super::Validation::Domain(DomainKind::CustomDensities) => {
             return value.as_array().is_some_and(|items| items.iter().all(is_custom_density));
         }
@@ -157,12 +188,10 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
     if is_backdrop_selection(row) {
         let Some(text) = value.as_str() else { return false };
         // `system:<absolute path>` (a macOS wallpaper), `file:<absolute
-        // path>` (the person's own image) or `folder:<absolute path>` (the
-        // pictures of a folder shuffled, never `/` alone), as Swift
-        // `BackdropSelectionSetting`.
-        let path = ["system:", "file:"]
-            .iter()
-            .any(|prefix| text.strip_prefix(prefix).is_some_and(|path| path.starts_with('/')));
+        // path>` (the person's own image or video), a canonical `youtube:`
+        // video or `folder:<absolute path>` (the pictures of a folder
+        // shuffled, never `/` alone), as Swift `BackdropSelectionSetting`.
+        let path = super::backdrop::is_path_or_video(text);
         let folder = text
             .strip_prefix("folder:")
             .is_some_and(|path| path.starts_with('/') && path.len() > 1);
@@ -405,10 +434,42 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::BackdropPicture => "backdrop_picture",
         DomainKind::BackdropSchedule => "backdrop_schedule",
         DomainKind::BackdropLocation => "backdrop_location",
+        DomainKind::BackdropMemory => "backdrop_memory",
         DomainKind::ChatRoots => "chat_roots",
         DomainKind::SearchTemplate => "search_template",
         DomainKind::CustomDensities => "custom_densities",
         DomainKind::CommandLabels => "command_labels",
         DomainKind::AppId => "app_id",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workspace_color_indicator_accepts_swift_legacy_values() {
+        let row = super::super::Schema::embedded()
+            .row("workspaceColors.indicatorStyle")
+            .expect("workspace color indicator row");
+        for value in [
+            "solidFill",
+            "rail",
+            "border",
+            "wash",
+            "lift",
+            "typography",
+            "washRail",
+            "blueWashColorRail",
+        ] {
+            assert!(
+                accepts(row, &Value::String(value.to_owned()), &Default::default()).is_ok(),
+                "{value}"
+            );
+        }
+        assert!(
+            accepts(row, &Value::String("__not_a_choice__".to_owned()), &Default::default())
+                .is_err()
+        );
     }
 }

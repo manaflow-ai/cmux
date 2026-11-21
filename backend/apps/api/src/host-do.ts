@@ -1,6 +1,7 @@
+import { envForObject } from "./build-space.ts"
 import { DurableObject } from "cloudflare:workers"
 import type { Principal } from "@cmux/ownership"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 import { route, type Endpoint } from "./host-relay/route.ts"
 import { ReplicaStore } from "./host-replica/store.ts"
 import { replicaPrincipal, ReplicaWire, type ReplicaAttachment } from "./host-replica/wire.ts"
@@ -85,7 +86,8 @@ export class HostDO extends DurableObject<Env> {
   /** The object's clock; a field so tests can move it (test/host-do-liveness.test.ts). */
   clock: () => number = () => Date.now()
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env)
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS host_relay (id INTEGER PRIMARY KEY CHECK (id = 1), host_peer TEXT NOT NULL, reachable TEXT NOT NULL)`)
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS replica_dropped (id INTEGER PRIMARY KEY CHECK (id = 1), at INTEGER NOT NULL, reason TEXT NOT NULL)`)
