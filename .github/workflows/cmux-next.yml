@@ -70,6 +70,9 @@ on:
       - scripts/ci/cmux-tui-mac-cargo-builds.sh
       - scripts/ci/acpmux-build-features.sh
       - scripts/ci/tailnet-go.sh
+      # sign-cmux-bundle.sh and ensure-cef.sh read these (cmux_next_route.py NATIVE_SCRIPT_INPUTS).
+      - scripts/ci/check-screen-share-identity.sh
+      - scripts/ci/timeout.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - workers/cmux-vm/cli/**
@@ -440,6 +443,9 @@ on:
       - scripts/ci/cmux-tui-mac-cargo-builds.sh
       - scripts/ci/acpmux-build-features.sh
       - scripts/ci/tailnet-go.sh
+      # sign-cmux-bundle.sh and ensure-cef.sh read these (cmux_next_route.py NATIVE_SCRIPT_INPUTS).
+      - scripts/ci/check-screen-share-identity.sh
+      - scripts/ci/timeout.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - workers/cmux-vm/cli/**
