@@ -1222,7 +1222,7 @@ export default agentPaneEntry({
               .replace(/acpmux-/g, "")
               .slice(0, 60);
             const st = inner?.getAttribute("data-state") ?? "";
-            const sz = inner?.hasAttribute("data-sizing") ? "S" : "";
+            const sz = (inner?.hasAttribute("data-sizing") ? "S" : "") + (inner?.hasAttribute("data-held") ? "H" : "");
             return `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)}x${Math.round(r.height)}:${cls}:${st}${sz}`;
           });
           log.push(`${Math.round(view.performance.now() - t0)} h=${box?.height.toFixed(1)} | ${chips.join(" ; ")}`);

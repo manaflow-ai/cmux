@@ -191,16 +191,41 @@ function widthless(chip: PendingAttachment): boolean {
   return Boolean(chip.sizing && !chip.failed && !(chip.image && chip.size));
 }
 
-/// The chips as drawn: while any chip of a gesture (`gesture`) has no width yet, every chip of it is
-/// `held`, so the gesture's chips take their widths in one frame. A file's chip, which has no header to
-/// read, waits with them (HEADER_WAIT_MS or PICTURE_WAIT_MS at most). One that failed is never held.
-export function heldTogether(chips: readonly PendingAttachment[]): PendingAttachment[] {
+/// The gestures (PendingAttachment `gesture`) with a chip that still has no width.
+function waitingGestures(chips: readonly PendingAttachment[]): ReadonlySet<string> {
   const waiting = new Set<string>();
   for (const chip of chips) if (chip.gesture && widthless(chip)) waiting.add(chip.gesture);
+  return waiting;
+}
+
+/// The chips as drawn: while any chip of a gesture (`gesture`) has no width yet, every chip of it is
+/// `held`, so the gesture's chips take their widths in one frame. A file's chip, which has no header to
+/// read, waits with them (HEADER_WAIT_MS or PICTURE_WAIT_MS at most), and so does one of them that is
+/// ready meanwhile (heldReady). One that failed is never held.
+export function heldTogether(
+  chips: readonly PendingAttachment[],
+  waiting = waitingGestures(chips),
+): PendingAttachment[] {
   if (waiting.size === 0) return chips as PendingAttachment[];
   return chips.map((chip) =>
     chip.gesture && !chip.failed && waiting.has(chip.gesture) ? { ...chip, held: true } : chip,
   );
+}
+
+const NONE_HELD: ReadonlySet<string> = new Set();
+
+/// The ready chips (by id) still held with their gesture (`gestureOf`): a file read in a frame stays
+/// unseen and takes no width until its gesture's chips show, then shows with them.
+export function heldReady(
+  gestureOf: ReadonlyMap<string, string>,
+  waiting: ReadonlySet<string>,
+  pending: readonly PendingAttachment[],
+): ReadonlySet<string> {
+  if (waiting.size === 0) return NONE_HELD;
+  const held = new Set<string>();
+  for (const [id, gesture] of gestureOf)
+    if (waiting.has(gesture) && !pending.some((chip) => chip.id === id)) held.add(id);
+  return held.size === 0 ? NONE_HELD : held;
 }
 
 /// The style that gives a tile its image's thumbnail shape (`size`, the image's pixels; imageWork.ts
@@ -341,6 +366,16 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const [twinReads, setTwinReads] = useState<GestureChat[]>([]);
   const pendingRef = useRef<PendingAttachment[]>([]);
   pendingRef.current = pending;
+  /// The gesture of each chip that came in with others (PendingAttachment `gesture`), kept once it is
+  /// ready: a ready chip whose gesture still has a chip with no width is held too (`held`).
+  const [gestureOf, setGestureOf] = useState<ReadonlyMap<string, string>>(() => new Map());
+  // A gesture whose chips all show is done with: its chips are no longer looked up.
+  useLayoutEffect(() => {
+    if (gestureOf.size === 0) return;
+    const waiting = waitingGestures(pending);
+    if ([...gestureOf.values()].some((gesture) => waiting.has(gesture))) return;
+    setGestureOf(new Map());
+  }, [pending, gestureOf]);
   const [attachError, setAttachError] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
   /// The drop overlay's state (composer/DropOverlay.tsx). Kept in a ref too: a refused drag's
@@ -493,6 +528,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     if (shown.length > 1 && shown.some((chip) => chip.sizing)) {
       const gesture = crypto.randomUUID();
       for (const chip of shown) chip.gesture = gesture;
+      setGestureOf((kept) => new Map([...kept, ...shown.map((chip) => [chip.id, gesture] as const)]));
     }
     // Each image's own picture, on its tile while the tile still loads.
     files.forEach((file, index) => {
@@ -1026,7 +1062,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       document.removeEventListener("paste", paste);
     };
   }, [attach, showDrop, refused]);
-  const shown = heldTogether(pending.filter((chip) => chip.scope === scope));
+  const here = pending.filter((chip) => chip.scope === scope);
+  const waiting = waitingGestures(here);
+  const shown = heldTogether(here, waiting);
+  /// The ready chips still held with their gesture's (heldReady): the views draw them unseen, no width.
+  const held = heldReady(gestureOf, waiting, here);
   /// The chips a send waits for. One still reading, one streaming to the session's machine and
   /// one whose upload failed (until its Retry makes it or its x takes it out) all hold the send,
   /// so a prompt never goes without a file the person added. Before, a send made while a pasted
@@ -1051,6 +1091,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     attachments,
     setAttachments,
     pending: shown,
+    held,
     // Every chat shows these: saving an original again is a real retry wherever the agent runs.
     originalFailures,
     originalUploads,

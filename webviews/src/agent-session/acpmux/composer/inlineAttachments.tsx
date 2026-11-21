@@ -42,6 +42,8 @@ type Options = {
   attachmentsRef: RefObject<ComposerAttachment[]>;
   setAttachments(update: (current: ComposerAttachment[]) => ComposerAttachment[]): void;
   pending: readonly PendingAttachment[];
+  /// Ready chips held with their gesture's others (attachmentIntakeModel.ts heldReady): unseen, no width yet.
+  held?: ReadonlySet<string>;
   /// A pending chip's cancel (attachmentIntake.tsx).
   cancel(id: string): void;
   retry(id: string): void;
@@ -362,6 +364,7 @@ export function useInlineAttachments(options: Options) {
         id={id}
         attachment={options.attachments.find((attachment) => attachment.id === id)}
         pending={options.pending.find((chip) => chip.id === id)}
+        held={options.held?.has(id) ?? false}
         onRemove={api.remove}
         onCancel={api.cancel}
         onRetry={api.retry}
@@ -385,6 +388,7 @@ const InlineChip = memo(function InlineChip({
   id,
   attachment,
   pending,
+  held,
   onRemove,
   onCancel,
   onRetry,
@@ -396,6 +400,8 @@ const InlineChip = memo(function InlineChip({
   id: string;
   attachment: ComposerAttachment | undefined;
   pending: PendingAttachment | undefined;
+  /// Ready, and held with its gesture's chips still taking their widths (heldReady).
+  held: boolean;
   onRemove(id: string): void;
   onCancel(id: string): void;
   onRetry(id: string): void;
@@ -549,6 +555,7 @@ const InlineChip = memo(function InlineChip({
       className="acpmux-md-inline-chip"
       data-state="ready"
       data-chip="strip"
+      {...(held ? { "data-held": "" } : {})}
       ref={chipRef(id)}
       {...(loaded && !pictured ? { "data-loaded": "" } : {})}
     >
