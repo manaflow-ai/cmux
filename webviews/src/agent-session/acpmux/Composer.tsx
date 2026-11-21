@@ -6,12 +6,12 @@ import React, {
   useCallback,
   useEffect,
   useImperativeHandle,
-  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
+  useInsertionEffect,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
@@ -30,6 +30,7 @@ import {
   type DroppedKind,
   type LinkItem,
 } from "./attachments";
+import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
 import { canResumeFromComposer } from "./composer/resumeControl";
 import { useTranscriptReadOnly } from "./conversation/readOnly";
@@ -128,7 +129,7 @@ import { useComposerChrome } from "./composerChromeModel";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
-import { useComposerLook } from "./composerLook";
+import { useComposerLookWithV2 } from "./composerV2";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory, usePromptRecalled } from "./composer/promptHistory";
 import {
@@ -161,6 +162,11 @@ import { compactingUsage } from "./usageStats";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { cloudStartComposerLook } from "./cloudStartComposer.experiment";
+import { composerShellLook } from "./composer/shellLook.experiment";
+import { composerFooterControls } from "./composer/footerControls.experiment";
+import { composerEmptyHeight } from "./composer/emptyHeight.experiment";
+// The composer look climbs' arms (composer/*.experiment.ts): gallery-only; the default arms add nothing.
+import "./composerClimbs.css";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
 import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
@@ -752,7 +758,7 @@ function ComposerFrame({
   // Claude's look draws Claude desktop's draft-sensitive ↵ slot before the mic; Codex's draws
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
-  const look = useComposerLook();
+  const look = useComposerLookWithV2();
   const quietActions = plainFooter && look !== "codex";
   const usage = compactingUsage(
     snapshot.summary?.usage,
@@ -847,6 +853,8 @@ function ComposerFrame({
     },
   });
   const attachmentsRef = useRef(attachments);
+  // Browser picks that leave (their × or a send) leave the page too: its pins match the chips.
+  useReleasedPicks(attachments);
   const pendingRef = useRef(pending);
   // The latest of each, written as the render commits (every reader is a handler, an effect or the
   // handle): a write during render keeps the composer out of the React Compiler, and each key then
@@ -1244,11 +1252,13 @@ function ComposerFrame({
         if (sending.current) return "composer.sending";
         if (state.dictating) return "composer.dictation";
         if (state.reading) return "composer.attachment-reading";
-        if (shellRef.current.shell) return "composer.shell";
         // A new chat's prompt has no chat to keep it with yet.
-        if (!state.sessionId)
-          return (field.current?.value() ?? textRef.current).trim() || state.chips ? "composer.new-chat" : null;
-        if (hydratedSession.current !== state.sessionId) return "composer.draft-restoring";
+        if (!state.sessionId) {
+          if ((field.current?.value() ?? textRef.current).trim() || state.chips) return "composer.new-chat";
+        } else if (hydratedSession.current !== state.sessionId) return "composer.draft-restoring";
+        // Last: a hidden-chat release skips it (the wake state carries shell mode back, webSwap.ts
+        // WAKE_CARRIED_HOLDS), so it must not hide a hold the release keeps the page for.
+        if (shellRef.current.shell) return "composer.shell";
         return null;
       }),
     [],
@@ -1360,13 +1370,8 @@ function ComposerFrame({
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
   const slashNames = useSlashNames(commands);
 
-  // The row the arrows chose: Return picks it whatever was typed (returnPicks). A new word, a cleared
-  // draft or the list closing forgets it, so the same word typed again picks only by its spelling.
-  const [arrowed, setArrowed] = useState(false);
-  useLayoutEffect(() => {
-    setActive(0);
-    setArrowed(false);
-  }, [query, open]);
+  // A new word or the list opening highlights the first row again; Return takes it (returnPicks).
+  useLayoutEffect(() => setActive(0), [query, open]);
   // Typing @ at a word start lists other chats, then the chat's folders and files that match what
   // follows (cx-ncc.68, mentionItems.ts).
   const chatId = snapshot.summary?.sessionId;
@@ -1411,7 +1416,7 @@ function ComposerFrame({
   const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending);
   useEffect(() => setMentionActive(undefined), [mentionWord]);
   // `:` and two letters at a word start list emoji by shortcode; a text emoticon (`:)`, `:DD`,
-  // `<3`) lists its face with no row chosen, so Return still sends it as typed (emojiShortcodes.ts).
+  // `<3`) lists its face; Return or Tab writes the highlighted row, Esc keeps the text (emojiShortcodes.ts).
   // The table loads in its own chunk at the first idle moment after the person first types in this
   // composer (`edit`), never while a chat opens: a `:` and two letters come well after that.
   const [emojiData, setEmojiData] = useState<EmojiShortcodes | undefined>();
@@ -1426,10 +1431,10 @@ function ComposerFrame({
     if (globalThis.requestIdleCallback) globalThis.requestIdleCallback(load, { timeout: 500 });
     else setTimeout(load, 0);
   };
-  // The row the arrows chose; until then no row is chosen, so Return still sends ("ok :D" ↩ sends it).
-  // Tab takes the chosen row or the first. A hovered row only lights up (emojiHover).
+  // The row the arrows or the pointer chose, else the first: a listed emoji is always highlighted, and
+  // Return or Tab writes it (Leo, 2026-11-20: "the thing should know (should highlihgt) that emoji").
+  // Esc, or typing on past the word, leaves the text as typed.
   const [emojiActive, setEmojiActive] = useState<string | undefined>();
-  const [emojiHover, setEmojiHover] = useState<number | undefined>();
   const [emojiDismissed, setEmojiDismissed] = useState<string | undefined>();
   const [emojiRecents, setEmojiRecents] = useState(loadRecentEmoji);
   const otherMenu = open || Boolean(mentionTyped) || recalling || shell;
@@ -1444,12 +1449,10 @@ function ComposerFrame({
   );
   const emojiAt = emojiRows.length > 0 ? emojiTyped : undefined;
   const emojiChosen = emojiActive === undefined ? -1 : emojiRows.findIndex((row) => row.key === emojiActive);
-  const emojiSelected = emojiChosen;
-  useEffect(() => {
-    setEmojiActive(undefined);
-    setEmojiHover(undefined);
-  }, [emojiKey]);
+  const emojiSelected = emojiRows.length === 0 ? -1 : Math.max(0, emojiChosen);
+  useEffect(() => setEmojiActive(undefined), [emojiKey]);
   const emojiLook = experimentArm(emojiShortcodeLook);
+  const listShown = open || Boolean(mentionAt) || Boolean(emojiAt);
   // A live command update can shrink the list under the selection.
   const selected = Math.min(active, Math.max(matches.length - 1, 0));
   useLayoutEffect(() => {
@@ -1471,7 +1474,12 @@ function ComposerFrame({
     requestEmoji();
     setText(value);
     setCaret(at);
+    // Esc closes a list for the text it was pressed on; an edit ends that, even one that comes back to
+    // the same text (Backspace and the letter again, or the prompt cleared and typed again), so the @
+    // and emoji lists come back as the / list does.
     setDismissed(undefined);
+    setMentionDismissed(undefined);
+    setEmojiDismissed(undefined);
     // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types, and the
     // next draft picks its own skills.
     if (!value.trim()) pickedSkills.current.clear();
@@ -2097,6 +2105,11 @@ function ComposerFrame({
   // Cloud chat (cloudStartComposer.experiment.ts). Each look stays inside the field and Send, so
   // nothing moves when the start ends.
   const startLook = experimentArm(cloudStartComposerLook);
+  // The look climbs (composerClimbs.css): an attribute only off the shipped arm, so it ships as before.
+  const climbArm = (arm: string) => (arm === "shipped" ? undefined : arm);
+  const shellLook = climbArm(experimentArm(composerShellLook));
+  const controlsLook = climbArm(experimentArm(composerFooterControls));
+  const emptyHeight = climbArm(experimentArm(composerEmptyHeight));
   const startingPlaceholder =
     !cloudStarting || startLook === "dimmed"
       ? undefined
@@ -2370,10 +2383,10 @@ function ComposerFrame({
     // Send does what Return does: mid-turn it steers an agent that steers, else it queues.
     return send(false, steersAlways || returnSteers || steersUnseen);
   };
-  // Enter sends unless it picks a command (slashCommands.ts returnPicks): the highlighted row was
-  // chosen with the arrows, or the typed word begins its name and is not that name in full with no
-  // arguments to take. A path or a word that only resembles a command is never rewritten.
-  const returnSends = () => !open || !returnPicks(matches[selected], query ?? "", arrowed);
+  // Enter sends unless it picks a command (slashCommands.ts returnPicks): while the list shows, it
+  // takes the highlighted row, unless the typed word is that row's name in full with no arguments to
+  // take (Return runs it). Esc closes the list and keeps the word as typed.
+  const returnSends = () => !open || !returnPicks(matches[selected], query ?? "");
   const sendOnReturn = (event: { preventDefault(): void }) => {
     if (!returnSteers) return submit(event);
     event.preventDefault();
@@ -2384,7 +2397,7 @@ function ComposerFrame({
   // a line here (Shift-Return does): it sends, or picks the menu's command, as a Return key would.
   const returnInput = () => {
     if (shell) return;
-    if (mentionAt && mentions[mentionSelected]) return pickMention(mentions[mentionSelected]);
+    if (mentionAt) return mentions[mentionSelected] ? pickMention(mentions[mentionSelected]) : undefined;
     if (emojiAt && emojiRows[emojiSelected]) return pickEmoji(emojiRows[emojiSelected]);
     if (returnSends()) return void sendOnReturn({ preventDefault() {} });
     if (matches.length > 0) pick(matches[selected].command);
@@ -2466,9 +2479,14 @@ function ComposerFrame({
         pickMention(mentions[mentionSelected]);
         return;
       }
+      // The list shows with no row yet ("Searching…", "No files"): Return waits for one, never sends
+      // the `@word` under an open list. Esc closes it, and then Return sends.
+      if (event.key === "Enter" && plain) {
+        event.preventDefault();
+        return;
+      }
     }
-    // The emoji menu owns arrows (and Ctrl-N/P/J/K) and Esc; Return picks only a chosen row (an
-    // emoticon's menu opens with none, so Return sends), Tab the chosen or the first.
+    // The emoji menu owns arrows (and Ctrl-N/P/J/K), Return and Tab (the highlighted row), and Esc.
     if (emojiAt) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -2485,11 +2503,10 @@ function ComposerFrame({
             : 0;
       if (step) {
         event.preventDefault();
-        const next = emojiSelected < 0 ? (step > 0 ? 0 : emojiRows.length - 1) : emojiSelected + step;
-        setEmojiActive(emojiRows[(next + emojiRows.length) % emojiRows.length]!.key);
+        setEmojiActive(emojiRows[(emojiSelected + step + emojiRows.length) % emojiRows.length]!.key);
         return;
       }
-      const row = emojiRows[emojiSelected] ?? (event.key === "Tab" ? emojiRows[0] : undefined);
+      const row = emojiRows[emojiSelected];
       if ((event.key === "Enter" || event.key === "Tab") && plain && row) {
         event.preventDefault();
         pickEmoji(row);
@@ -2599,7 +2616,6 @@ function ComposerFrame({
       event.preventDefault();
       const step = event.key === "ArrowDown" || event.key === "j" ? 1 : -1;
       setActive((selected + step + matches.length) % matches.length);
-      setArrowed(true);
     } else if ((event.key === "Enter" || event.key === "Tab") && plain) {
       event.preventDefault();
       pick(matches[selected].command);
@@ -2774,6 +2790,9 @@ function ComposerFrame({
       data-composer-look={look === "codex" ? "codex" : undefined}
       // The box inside draws the compact grid in both looks (ComposerBox.tsx, composerLocation.css).
       data-composer-grid=""
+      data-shell-look={shellLook}
+      data-footer-controls={controlsLook}
+      data-empty-height={emptyHeight}
       onSubmit={(event) => {
         if (!shell) return submit(event);
         event.preventDefault();
@@ -2875,7 +2894,12 @@ function ComposerFrame({
                   : emojiAt && emojiSelected >= 0
                     ? `acpmux-emoji-${emojiSelected}`
                     : undefined,
-            spellcheck: String(spellChecking),
+            // While a list shows, it is the only completion: macOS's own (autocorrect's suggestion
+            // bubble, which rides on spelling, and inline predictions) drew a second one under the
+            // caret (Leo, 2026-11-20).
+            spellcheck: String(spellChecking && !listShown),
+            autocorrect: listShown ? "off" : undefined,
+            writingsuggestions: listShown ? "false" : undefined,
             // Attached files, or ones still being read, are a draft too: an ask's keys leave it alone
             // (composerTyped.ts).
             "data-draft-attachments": attachments.length + pending.length > 0 ? "" : undefined,
@@ -2993,9 +3017,9 @@ function ComposerFrame({
                   key={emojiAt.start}
                   look={emojiLook}
                   matches={emojiRows}
-                  active={emojiSelected >= 0 ? emojiSelected : (emojiHover ?? -1)}
+                  active={emojiSelected}
                   back={emojiAt.token.length}
-                  onHover={setEmojiHover}
+                  onHover={(index) => setEmojiActive(emojiRows[index]?.key)}
                   onPick={pickEmoji}
                 />
               </ComposerListLayer>
