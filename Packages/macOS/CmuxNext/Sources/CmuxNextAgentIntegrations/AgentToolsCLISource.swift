@@ -41,14 +41,24 @@ public final class AgentToolsCLISource: AgentToolsSource {
     }
 
     public func agentToolsReport() async -> AgentToolsReport? {
-        guard let cli = await cli(), let report = await Self.setupMCP(cli, []),
-              let agents = AgentToolsAgent.agents(setupReport: report) else { return nil }
-        return AgentToolsReport(agents: agents, manual: AgentToolsAgent.manualCommands(setupReport: report))
+        guard let cli = await cli() else { return nil }
+        return await Self.readReport(cli)
     }
 
     public func removeLeftoverEntry(_ id: String) async -> AgentToolsRemoval {
-        guard ["claude", "codex"].contains(id), let cli = await cli(),
-              let data = await Self.setupMCP(cli, ["--remove", id, "--confirm"]) else { return .failed }
+        guard ["claude", "codex"].contains(id), let cli = await cli() else { return .failed }
+        return await Self.remove(cli, id)
+    }
+
+    /// One `cmux setup mcp` run and its report, read off the main actor.
+    @concurrent nonisolated static func readReport(_ cli: URL) async -> AgentToolsReport? {
+        guard let report = await setupMCP(cli, []), let agents = AgentToolsAgent.agents(setupReport: report) else { return nil }
+        return AgentToolsReport(agents: agents, manual: AgentToolsAgent.manualCommands(setupReport: report))
+    }
+
+    /// `cmux setup mcp --remove ID --confirm` and its report, read off the main actor.
+    @concurrent nonisolated static func remove(_ cli: URL, _ id: String) async -> AgentToolsRemoval {
+        guard let data = await setupMCP(cli, ["--remove", id, "--confirm"]) else { return .failed }
         return AgentToolsRemoval(removeReport: data)
     }
 

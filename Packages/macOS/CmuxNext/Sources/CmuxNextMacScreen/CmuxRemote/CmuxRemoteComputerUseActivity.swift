@@ -101,8 +101,7 @@ extension CmuxRemoteComputerUseState {
 
     /// Takes a daemon `computer-use-activity` event's payload.
     public func take(activityEvent payload: CmuxNextDaemon.JSONValue) {
-        guard let data = try? JSONEncoder().encode(payload),
-              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+        guard let object = CmuxRemoteService.object(payload) else { return }
         take(activity: CmuxRemoteComputerUseSession.sessions(from: object["sessions"] as? [Any]))
     }
 
