@@ -74,18 +74,23 @@ struct Served {
     mtime_ns: i64,
 }
 
+const USAGE: &str = "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
+                     REMOTE | enable | disable | status";
+
 /// `cmux link project ...`: one JSON line on stdout, exit 0 on success.
 pub(crate) fn run(args: &[String]) -> i32 {
+    // Asked-for help is a success on stdout; before, it was a `project_failed` error, exit 1.
+    if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
+        println!("{USAGE}");
+        return 0;
+    }
     let outcome = match args.first().map(String::as_str) {
         Some("serve") => serve_command(args.get(1..).unwrap_or_default()),
         Some("enable") => set_enabled(true).map(|()| json!({"ok": true, "enabled": true})),
         Some("disable") => set_enabled(false).map(|()| json!({"ok": true, "enabled": false})),
         Some("status") => Ok(json!({"ok": true, "enabled": enabled()})),
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
-        _ => Err(anyhow::anyhow!(
-            "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
-             REMOTE | enable | disable | status"
-        )),
+        _ => Err(anyhow::anyhow!(USAGE)),
     };
     match outcome {
         Ok(Value::Null) => 0,
