@@ -853,7 +853,7 @@ jobs:
   # This job runs those files (web-subarea-scope's base-reds.json, the change's affected files only) with the head's
   # runner, so the base check takes their verdicts from here and replays only the head reds it does not cover. Best
   # effort: a shard that fails, times out or uploads nothing leaves the base check replaying as before
-  # (continue-on-error keeps its result from skipping the check).
+  # (the base check explicitly tolerates this optional dependency's result).
   # 2 shards, each running its files at the head shards' widths (8 at a time, dev-server files 4 at a time, no
   # retry): run 43409592440's 12 shards ran 54 such files one at a time, 2534 s of tests (the 600 s
   # agent-pane-send-motion-contract timeout alone on shard 1, ended at 15.0 min; the rest 7.5-8.8 min), and 12
@@ -1008,7 +1008,9 @@ jobs:
   # replays only the head reds that remain after those results are joined.
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-early]
-    if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    # Early results are optional: their timeout/skip must not trigger implicit success().
+    # Missing early artifacts already fall back to replay; only the scope and head are required.
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.result == 'success' && needs.react-apps-check-shard.result == 'success' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone). The base's
     # replays after the first share what is left of it (the compare step's JOB_TIMEOUT_MINUTES and REPLAY_RESERVE).
