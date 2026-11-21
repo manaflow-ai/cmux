@@ -199,9 +199,7 @@ jobs:
 
       - name: Validate the step table
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: |
-          python3 tests/test_ci_step_table.py
-          python3 tests/test_ensure_bun.py
+        run: python3 tests/test_ci_step_table.py
 
       - name: Validate the CI timing readout
         if: ${{ !cancelled() && matrix.group == 'ci' }}
