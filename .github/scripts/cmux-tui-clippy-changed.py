@@ -43,6 +43,18 @@ is a warning; each one is printed as a `::warning file=...` annotation and liste
 the lint is fixed forward. The check fails only when the code does not build: a rustc error (an `E` code or
 no code), a failed `cargo metadata`, or a stale lockfile. The panic ratchet (--panic-ratchet) still fails on
 a new panic site: it guards against crashes in production code, not style.
+
+--autofixed-ok HEAD_SHA (feat-cmux-next pull requests, while vars.CMUX_PR_AUTOFIX_PUSH is 1): a red that
+the PR autofix repairs is not a red (with lints capped, the red this still covers is one no JSON
+diagnostic explains, such as a lint cargo stopped on). The job applies what cmux-next-pr-autofix.yml applies
+(scripts/cmux-next/autofix-clippy.sh: `cargo clippy --fix --all-targets` on the packages owning the
+changed .rs files, then `cargo fmt` on them), keeps only the files the pull request changes (what
+pr-autofix-apply.sh --changed lets the push carry) and lints again. Green then: the job passes with an
+"autofixed" notice, and the PR autofix push (cmux-next-pr-autofix-push.yml on main) brings the fix
+commit, whose own run lints strictly. A head that is already an autofix commit (an Autofix-Run trailer),
+or a red the fix leaves, fails as before. 11-13..19: clippy was one of the mechanical-only reds on 793
+PR heads (cmuxterm-hq docs/ci/bottleneck-and-skip-candidates-2026-11-21.md, section 3). Leo: "WHY IS
+LINT EVEN STOPPING SHIT INSTEAD OF JUST BEING OOPS".
 """
 
 from __future__ import annotations
@@ -155,6 +167,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", default="")
     parser.add_argument("--panic-ratchet", type=Path, metavar="JSONL",
                         help="run the panic ratchet on the selected packages, writing clippy's JSON here")
+    parser.add_argument("--autofixed-ok", default="", metavar="HEAD_SHA",
+                        help="the pull request head: a red the PR autofix repairs passes as autofixed")
     parser.add_argument("--compare-base", action="store_true",
                         help="with --panic-ratchet: lint the base too; a count the base reaches is the base's red")
     args = parser.parse_args(argv)
@@ -203,6 +217,9 @@ def main(argv: list[str] | None = None) -> int:
     # From cmux-tui/ so rustup uses its rust-toolchain.toml pin and cargo its workspace.
     result = run_clippy(command, repo / ROOT, repo)
     report_lints(result.lints, scope)
+    if result.rc and not result.lock and args.autofixed_ok and paths is not None and autofixed(
+            repo, command, paths, workspace, args.autofixed_ok):
+        return 0
     if result.rc and result.lock:
         print(stale_lock_error("cmux-tui clippy", result.lock))
         return 1
@@ -217,6 +234,55 @@ def main(argv: list[str] | None = None) -> int:
         name_base_reds(repo, base if paths is not None else "", result.red_files)
         return 1
     return 0
+
+
+def is_autofix_head(repo: Path, head: str) -> bool:
+    """Whether the pull request head is a PR autofix commit (its Autofix-Run trailer); unreadable counts as one."""
+    try:
+        if subprocess.run(["git", "-C", str(repo), "cat-file", "-e", f"{head}^{{commit}}"],
+                          capture_output=True).returncode:
+            fmt_changed.git(repo, "fetch", "--no-tags", "--quiet", "--depth=1", "origin", head)
+        return "\nAutofix-Run: " in "\n" + fmt_changed.git(repo, "log", "-1", "--format=%B", head)
+    except subprocess.CalledProcessError:
+        return True
+
+
+def autofixed(repo: Path, command: list[str], paths: list[str], workspace: dict[str, str], head: str) -> bool:
+    """Apply the PR autofix's clippy repair to the pull request's own files and lint again (see --autofixed-ok)."""
+    if not re.fullmatch(r"[0-9a-f]{40}", head) or is_autofix_head(repo, head):
+        return False
+    own = {path for path in paths if path.startswith(f"{ROOT}/") and path.endswith(".rs")}
+    names = set()
+    for path in own:
+        for directory in sorted(workspace, key=len, reverse=True):
+            if path.startswith(f"{directory}/"):
+                names.add(workspace[directory])
+                break
+    if not names:
+        return False
+    packages = [arg for name in sorted(names) for arg in ("-p", name)]
+    print("cmux-tui-clippy-changed: red; applying the PR autofix's clippy repair to this change's own files",
+          flush=True)
+    cwd = repo / ROOT
+    try:
+        subprocess.run(["cargo", "clippy", "--fix", "--allow-dirty", "--allow-staged", "--locked", "--all-targets",
+                        *packages], cwd=cwd, check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(["cargo", "fmt", *packages], cwd=cwd, check=True)
+    except subprocess.CalledProcessError:
+        fmt_changed.git(repo, "checkout", "--quiet", "--", ROOT)
+        return False
+    edited = [path for path in fmt_changed.git(repo, "diff", "--name-only", "-z", "--", ROOT).split("\0") if path]
+    if outside := [path for path in edited if path not in paths]:
+        fmt_changed.git(repo, "checkout", "--quiet", "--", *outside)  # the push leaves these (pr-autofix-apply.sh)
+    fixed = [path for path in edited if path in paths]
+    rc = run_clippy(command, cwd, repo)[0] if fixed else 1
+    fmt_changed.git(repo, "checkout", "--quiet", "--", ROOT)
+    if rc:
+        print("cmux-tui-clippy-changed: the PR autofix's repair leaves lints; they are this change's to fix")
+        return False
+    print(f"::notice title=cmux-tui clippy (autofixed)::clippy was red only on machine-applicable lints in "
+          f"{', '.join(fixed)}; the PR autofix pushes the fix as its own commit, linted strictly there")
+    return True
 
 
 class ClippyRun(NamedTuple):

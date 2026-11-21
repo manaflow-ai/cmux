@@ -1,0 +1,10 @@
+{
+  "_comment": "The post-merge batch tier's suites (scripts/ci/post_merge_batch.py, .github/workflows/cmux-next-post-merge.yml; RFD 0023 in cmuxterm-hq). Each suite is a workflow_call workflow taking inputs sha and only; a batch run calls the suites whose paths the commits since the last batch run touched. jobs maps each job id a bisect may run alone (inputs.only) to its display name. tests/test_ci_post_merge_batch.py keeps this, the caller jobs and the callees in step.",
+  "suites": {
+    "drill": {
+      "workflow": "post-merge-drill.yml",
+      "paths": [".github/post-merge-drill-red"],
+      "jobs": {"drill": "drill"}
+    }
+  }
+}

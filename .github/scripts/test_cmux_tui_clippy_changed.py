@@ -41,6 +41,17 @@ if [[ -n "${STALE_LOCK:-}" ]]; then
   exit 101
 fi
 [[ -n "${HEAD_LOG:-}" ]] && git rev-parse HEAD >> "$HEAD_LOG"
+# The PR autofix's repair: `clippy --fix` rewrites FIX_FILE (a path from the repository root) and, when
+# FIXABLE is set, the lint passes afterwards; `fmt` changes nothing.
+if [[ "$1" == fmt ]]; then exit 0; fi
+if [[ " $* " == *" --fix "* ]]; then
+  [[ -n "${FIX_FILE:-}" ]] && echo "// fixed" >> "$(git rev-parse --show-toplevel)/$FIX_FILE"
+  [[ -n "${FIX_OUTSIDE:-}" ]] && echo "// fixed" >> "$(git rev-parse --show-toplevel)/$FIX_OUTSIDE"
+  exit 0
+fi
+if [[ -n "${FIXABLE:-}" && -n "${FIX_FILE:-}" ]] && grep -q '// fixed' "$(git rev-parse --show-toplevel)/$FIX_FILE"; then
+  exit 0
+fi
 # A clippy lint as cargo --message-format=json prints it: a warning (capped), or an error that cargo stopped on.
 lint_json() {
   printf '{"reason":"compiler-message","message":{"level":"%s","code":{"code":"clippy::needless_return"},"message":"unneeded `return` statement","rendered":"%s: unneeded `return` statement\\\\n  --> crates/a/src/lib.rs:3:5\\\\n","spans":[{"is_primary":true,"file_name":"crates/a/src/lib.rs","line_start":3,"column_start":5}]}}\\n' "$1" "$1"
@@ -185,6 +196,44 @@ class ClippyChangedTests(unittest.TestCase):
         out = self.tmp / "out" / "panic-clippy.jsonl"
         result = self.run_check(*args, "--panic-ratchet", str(out), env_extra={"RATCHET_RC": str(rc)})
         return result, out
+
+    def head(self) -> str:
+        return self.git("rev-parse", "HEAD").strip()
+
+    def test_autofixed_ok_passes_a_red_the_autofix_repairs_and_leaves_the_tree_clean(self) -> None:
+        self.change("cmux-tui/crates/b/src/lib.rs")
+        result = self.run_check("--base", self.base, "--autofixed-ok", self.head(), fail="pkg-b",
+                                env_extra={"FIX_FILE": "cmux-tui/crates/b/src/lib.rs", "FIXABLE": "1"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("(autofixed)", result.stdout)
+        self.assertIn(["clippy", "--fix", "--allow-dirty", "--allow-staged", "--locked", "--all-targets", "-p", "pkg-b"],
+                      self.calls())
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_autofixed_ok_still_fails_a_red_the_fix_leaves(self) -> None:
+        self.change("cmux-tui/crates/b/src/lib.rs")
+        result = self.run_check("--base", self.base, "--autofixed-ok", self.head(), fail="pkg-b",
+                                env_extra={"FIX_FILE": "cmux-tui/crates/b/src/lib.rs"})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("this change's to fix", result.stdout)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_autofixed_ok_does_not_count_a_fix_outside_the_change(self) -> None:
+        # Only a file the change does not own would be fixed: the push leaves it, so the red stays.
+        self.change("cmux-tui/crates/b/src/lib.rs")
+        result = self.run_check("--base", self.base, "--autofixed-ok", self.head(), fail="pkg-b",
+                                env_extra={"FIX_OUTSIDE": "cmux-tui/crates/a/src/lib.rs", "FIXABLE": "1"})
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_autofixed_ok_is_strict_on_an_autofix_head(self) -> None:
+        self.write("cmux-tui/crates/b/src/lib.rs", "pub fn changed() {}\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "chore(next): PR autofix at 0123456789ab", "-m", "Autofix-Run: https://example.invalid/1")
+        result = self.run_check("--base", self.base, "--autofixed-ok", self.head(), fail="pkg-b",
+                                env_extra={"FIX_FILE": "cmux-tui/crates/b/src/lib.rs", "FIXABLE": "1"})
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(any("--fix" in call for call in self.calls()))
 
     def test_a_changed_integration_test_lints_its_package_with_all_targets(self) -> None:
         # #23163's shape: only a file under the package's tests/ changed.
