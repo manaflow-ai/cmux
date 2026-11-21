@@ -55,7 +55,7 @@ export function HeaderToolPreview({ target }: { target: HeaderToolPreviewTarget 
   const down = target.id === "splitDown";
   return createPortal(
     <div
-      className="acpmux-header-preview"
+      className="acpmux-header-preview ui-glass ui-glass-floats ui-glass-transient"
       role="tooltip"
       data-closes={target.pressed ? "" : undefined}
       style={{ top: target.box.bottom + PREVIEW_GAP * scale, right, width }}

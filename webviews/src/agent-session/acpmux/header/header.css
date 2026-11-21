@@ -334,9 +334,9 @@
   overflow: hidden;
   padding: calc(8 * var(--ui-px, 1px));
   border-radius: 8px;
-  background: var(--agent-surface-elevated, Canvas);
+  /* Its fill, frost and rim are the shared floating glass (.ui-glass-transient, ui/glass/glass.css). */
+  --glass-elevation: var(--elevation-2);
   color: var(--agent-text);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-text) 14%, transparent);
   font-size: var(--text-caption);
   line-height: 1.3;
   pointer-events: none;
