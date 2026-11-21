@@ -411,6 +411,10 @@ export function playTurnEnd(
   /// backstop waits for it: armed at the move's end alone, it finished a held fade part way, the
   /// reply from 28% ink to full in one step (cmux#48689 F2).
   let tail = 0;
+  /// A row arrived playing its own entrance, so the fold drew nothing on it. The fold still runs:
+  /// later passes ease that row to its place as the rows above settle (a turn of words alone has no
+  /// other animation at its first pass, and a fold dropped there let the reply step 35 px in a frame).
+  let entering = false;
   // `wait`: until the move starts, negative once it runs, so a pass mid-move arms what is left.
   const arm = (wait = toMove()) => {
     clearTimeout(fold.timer);
@@ -633,7 +637,10 @@ export function playTurnEnd(
         const clear = ms * clearFraction(index);
         const last = moving.get(node);
         // Nothing crosses a row that plays its own entrance: that entrance is its only fade.
-        if (clear === 0 && !last && node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) return;
+        if (clear === 0 && !last && node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) {
+          entering = true;
+          return;
+        }
         const running = !grew && last?.fades && (last.hold ?? 0) <= elapsed;
         const hold = clear > elapsed ? clear : running ? (last.hold ?? 0) : elapsed;
         holds = Math.max(holds, hold);
@@ -780,7 +787,7 @@ export function playTurnEnd(
     copies.forEach((copy, order) => laid.set(copy, copyTops[order]!));
   };
   pass();
-  if (fold.animations.size === 0) {
+  if (fold.animations.size === 0 && !entering) {
     settleTurnEnd(thread, fold);
     return undefined;
   }
