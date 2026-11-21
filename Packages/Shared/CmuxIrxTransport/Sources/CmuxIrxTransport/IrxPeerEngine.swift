@@ -275,9 +275,13 @@ public actor IrxPeerEngine {
         }
     }
 
-    /// Stops probe deadlines and automatic retry work while the app is suspended.
-    /// Explicit application requests may still use a granted background execution
-    /// window. Their connection intent survives until foreground recovery.
+    /// Stops recovery work while the app is suspended without idling an admitted
+    /// connection. iOS grants a short background execution window when the user
+    /// switches apps; keeping the connection's own keepalive running through
+    /// that window avoids needless NAT expiry and a slow foreground redial.
+    /// The engine's inactive flag still prevents automatic redials. Explicit
+    /// application requests may use a granted background execution window, and
+    /// their connection intent survives until foreground recovery.
     public func setApplicationActive(_ active: Bool) async {
         guard applicationActive != active else { return }
         applicationActive = active
@@ -289,8 +293,15 @@ public actor IrxPeerEngine {
             redialTimer?.cancel()
             redialTimer = nil
         }
-        let connection = session?.connection
-        await connection?.setApplicationActive(active)
+        // Keep an admitted connection active while the process has a chance to
+        // execute in the background. The engine-level gate above still stops
+        // recovery and redial, while the connection-level keepalive preserves
+        // the session for a quick app switch. Foreground uses the existing
+        // bounded probe to validate it before any stream repair.
+        if active {
+            let connection = session?.connection
+            await connection?.setApplicationActive(true)
+        }
         guard generation == activityGeneration, applicationActive else { return }
         if hasConnectionIntent { foregroundKick() }
     }
