@@ -824,6 +824,9 @@ import { readSteerLog, recordSteer, type SteerAct } from "./steerQueue/log";
 import { steerQueue } from "./steerQueue/model";
 import { SteerQueue, type SteerActions } from "./steerQueue/SteerQueue";
 import { steerQueueExperiment } from "./steerQueue/steerQueue.experiment";
+import { StatusIsland } from "./statusIsland/StatusIsland";
+import { statusIslandExperiment } from "./statusIsland/statusIsland.experiment";
+import { useStatusIsland } from "./statusIsland/useStatusIsland";
 import { BtwNotes } from "./aside/btwNotes";
 import { askBtwQuestion, supportsBtwGuest } from "./btwCapability";
 import { guestMention } from "./mentionItems";
@@ -11036,6 +11039,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Steer queue (steerQueue/): ⌘⇧J or the chat menu opens it over the chat. Each step opens the chat
   // it acts on first, so the step goes through the same send, Stop and fork the chat's own composer
   // and menu use, and the person sees it land in the chat under the queue.
+  // The agent status island (statusIsland/, experiment `agent-status-island`, off by default): a
+  // floating pill that morphs into the card of the agent that needs the person. Its answers go
+  // through Needs you's own actions; it replaces nothing.
+  const statusIsland = useStatusIsland(!quick && experimentArm(statusIslandExperiment) === "on", snapshot);
   const steerQueueOn = !quick && experimentArm(steerQueueExperiment) === "on";
   useEffect(() => {
     if (!steerQueueOn) return;
@@ -13862,6 +13869,30 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 recordSteer(log, { sessionId: item.sessionId, act, ...(text ? { text } : {}), at: Date.now() }),
               )
             }
+          />
+        ) : null}
+        {statusIsland ? (
+          <StatusIsland
+            state={statusIsland}
+            actions={{
+              answer: needsYou.actions.answer,
+              goTo: needsYou.actions.goTo,
+              // The chat on screen: its failure is right here, at the foot of the transcript. Another
+              // chat opens beside this one (`chat.asks.open`), which the host does only for a chat on
+              // this Mac's acpmux and never from New Tab: there the card offers no Open Chat.
+              openSession: (sessionId) => {
+                if (sessionId === snapshot.sessionId) {
+                  const failures = document.querySelectorAll(".cv-turn-error__cause");
+                  failures[failures.length - 1]?.scrollIntoView({ block: "nearest" });
+                  return;
+                }
+                void callNative("chat.asks.open", { sessionId }).catch(() => undefined);
+              },
+              canOpen: (sessionId) =>
+                !showNewTab &&
+                (sessionId === snapshot.sessionId ||
+                  !snapshot.sessions.some((session) => session.sessionId === sessionId && session.peer)),
+            }}
           />
         ) : null}
         <div
