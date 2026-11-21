@@ -409,10 +409,6 @@
    "rails": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha), not only the tree",
    "cmux-vm-schema-gate": "reads pull request metadata or the base (github.base_ref), not only the tree"
   },
-  "repair-nightly-appcast-content-types.yml": {
-   "test": "needed by repair: a skip would skip them or read as no verdict",
-   "repair": "reads secrets"
-  },
   "required-checks-drift.yml": {
    "reconcile": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
   },
