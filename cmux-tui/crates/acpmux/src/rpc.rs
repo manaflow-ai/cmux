@@ -809,6 +809,8 @@ pub mod method {
     pub const MUX_CONNECTIONS_CHATGPT_WAIT: &str = "_acpmux/connections/chatgpt.wait";
     pub const MUX_CONNECTIONS_CHATGPT_CANCEL: &str = "_acpmux/connections/chatgpt.cancel";
     pub const MUX_CONNECTIONS_CHATGPT_TOKEN: &str = "_acpmux/connections/chatgpt.token";
+    /// CI only: a Codex auth.json as a `chatgpt-plan` connection, local socket and an env switch.
+    pub const MUX_CONNECTIONS_CHATGPT_IMPORT: &str = "_acpmux/connections/chatgpt.import";
     pub const MUX_CONNECTIONS_CLAUDE_TOKEN_ADD: &str = "_acpmux/connections/claude_token.add";
     /// A Cloud-serving connection's credential for one machine agent launch (Revision 2).
     pub const MUX_CONNECTIONS_CREDENTIAL: &str = "_acpmux/connections/credential";
