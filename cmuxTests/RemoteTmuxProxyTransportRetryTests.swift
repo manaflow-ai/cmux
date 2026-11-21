@@ -420,9 +420,25 @@ import Testing
         let argv = host.transport
             .profile(port: host.transportPort)
             .controlStreamArgv(host: host, sessionName: "work", mode: .attach)
-        #expect(argv.contains("-p"))
-        #expect(argv.contains("2022"))
+        #expect(consecutive(argv, "--port", "2022"))
         #expect(!argv.contains("--terminal-path"))
+    }
+
+    /// ET 7.1 gave its short flags to the bootstrap ssh: `-c` is a cipher spec and `-p` is sshd's
+    /// port. `--command` and `--port` mean the same thing on 6.x and 7.x, so the direct argv never
+    /// uses the short spellings. With them, 7.1.1 fails every attach with "Unknown cipher type".
+    @Test func directEtArgvSpellsOutCommandAndPort() {
+        let host = RemoteTmuxHost(destination: "somehost", transport: .et, transportPort: 2022)
+        let argv = host.transport
+            .profile(port: host.transportPort)
+            .controlStreamArgv(host: host, sessionName: "work", mode: .attach)
+        // The whole argv, so the options also have to stay ahead of `--`: after it et reads
+        // everything as the destination and its command words.
+        #expect(argv == [
+            "--port", "2022",
+            "--command", "exec 'tmux' '-CC' 'attach-session' '-t' 'work'",
+            "--", "somehost",
+        ])
     }
 
     /// ssh ignores a broker on purpose: ProxyCommand/ProxyJump already do this, configured where
@@ -618,7 +634,7 @@ import Testing
         #expect(profile.executablePath() == "/usr/local/bin/et")
         #expect(argv.first != "/usr/local/bin/et")
         // etserver's default is 2022, not ssh's 22 — the port is never assumed.
-        #expect(consecutive(argv, "-p", "2039"))
+        #expect(consecutive(argv, "--port", "2039"))
         #expect(argv.last == "user@127.0.0.1")
         let command = argv.first(where: { $0.hasPrefix("exec ") })
         #expect(command?.contains("attach-session") == true)
@@ -831,7 +847,7 @@ import Testing
         #expect(consecutive(argv, "--ssh-option", "Port=2222"))
         #expect(consecutive(argv, "--ssh-option", "IdentityFile=/keys/id"))
         // etserver's port stays distinct from ssh's.
-        #expect(consecutive(argv, "-p", "2039"))
+        #expect(consecutive(argv, "--port", "2039"))
     }
 
     /// A session name long enough to push the command past one canonical line is rejected, because
@@ -1066,7 +1082,7 @@ import Testing
         )
         let streamArgv = host.transport.profile(port: host.transportPort)
             .controlStreamArgv(host: host, sessionName: "work", mode: .attach)
-        #expect(consecutive(streamArgv, "-p", "2039"), "the control stream must use et's port")
+        #expect(consecutive(streamArgv, "--port", "2039"), "the control stream must use et's port")
 
         let oneShot = RemoteTmuxSSHTransportProfile().oneShotArgv(host: host, remoteCommand: "true")
         #expect(!consecutive(oneShot, "-p", "2039"), "a one-shot must never be sent to et's port")
@@ -1075,7 +1091,7 @@ import Testing
         let defaulted = RemoteTmuxHost(destination: "user@host", transport: .et)
         let defaultArgv = defaulted.transport.profile(port: defaulted.transportPort)
             .controlStreamArgv(host: defaulted, sessionName: "work", mode: .attach)
-        #expect(consecutive(defaultArgv, "-p", "2022"))
+        #expect(consecutive(defaultArgv, "--port", "2022"))
     }
 
     /// An unrecognized transport is refused rather than becoming an unspawnable host.

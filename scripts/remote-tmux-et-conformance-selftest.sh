@@ -309,11 +309,11 @@ done
 # ---------------------------------------------------------------------------
 echo ""
 echo "--- checks this oracle does NOT exercise, so they remain unproven here"
-echo "  pty / -N        the harness skips this check in brokered mode, because on a broker a failed"
+echo "  pty/no-terminal the harness skips this check in brokered mode, because on a broker a failed"
 echo "                  connection and a silent one look identical. It is only exercised on the"
 echo "                  loopback path, where it currently passes but has no substitute that would"
 echo "                  make it fail. To close this, the oracle needs a loopback-mode arm with a"
-echo "                  stand-in et that honours -N."
+echo "                  stand-in et that honours --no-terminal."
 echo "  argv rejection  depends on the client's own wording; the real et here IGNORES an unknown"
 echo "                  flag, so the harness skips rather than asserts. No substitute drives it."
 echo "  MAX_CANON probe the host-reported figure is a cross-check only; no scenario forces a"
