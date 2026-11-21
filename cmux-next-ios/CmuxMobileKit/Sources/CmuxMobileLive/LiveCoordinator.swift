@@ -798,6 +798,8 @@ public final class LiveCoordinator {
         let session = MacSession(macID: mac.id, name: mac.name, link: controller, deviceID: identity.link,
                                  deviceName: deviceName, feedStore: feedStore)
         session.acpmux.transcriptCache = transcriptCache
+        let macID = mac.id
+        session.acpmux.onStall = { [weak self] in await self?.recoverAcpmuxChannel(macID: macID) }
         wire(session)
         sessions[mac.id] = session
         return session
