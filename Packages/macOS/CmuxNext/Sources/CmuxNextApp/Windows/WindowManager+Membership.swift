@@ -533,8 +533,10 @@ extension WindowManager {
             return changes
         }
         // A workspace that changed profile leaves no trace in membership; one moved in while Spaces is off is selected once its pin lands.
-        let pinned = pinSelections.isEmpty ? [:] : landedPins()
-        if registry.value == before, preferred.isEmpty { repairSelections(previous: [:], preferred: pinned, gesture: !pinned.isEmpty) }
+        if registry.value == before, preferred.isEmpty {
+            let pinned = pinSelections.isEmpty ? [:] : landedPins()
+            repairSelections(previous: [:], preferred: pinned, gesture: !pinned.isEmpty)
+        }
         if let launch = launchWindowID, restored, registry.value.window(launch) != nil { launchWindowID = nil }
         settleRestoreClosed()
         rememberIncognitoTabs()

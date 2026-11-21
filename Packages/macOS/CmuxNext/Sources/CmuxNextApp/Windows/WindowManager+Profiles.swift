@@ -69,7 +69,7 @@ extension WindowManager {
         let machines = services.machines
         guard let membership = WindowProfiles.membership(machines) else { return }
         let moving = ids.compactMap { id in WindowProfiles.qualified(id, machines: machines).map { (id, $0) } }.filter { !membership.contains($0.1, in: room) }
-        if let window, let first = moving.first, first.0 == ids.first { pinSelections[first.0] = window }
+        if let window, let first = moving.first, first.0 == ids.first { pinSelections[first.0] = (window, states[window]?.workspaceID) }
         for (_, workspace) in moving {
             machines.local.send("pin-workspace") { try await $0.pinWorkspace(session: workspace.session, key: WorkspaceKey(rawValue: workspace.key), to: room) }
         }
@@ -77,8 +77,10 @@ extension WindowManager {
     /// The moved workspaces whose pin now shows them in their window's space, by window; each is taken once.
     func landedPins() -> [String: [String]] {
         var landed: [String: [String]] = [:]
-        for (id, window) in pinSelections {
-            guard let state = states[window], registry.value.owner(of: id) == window else { pinSelections[id] = nil; continue }
+        for (id, (window, since)) in pinSelections {
+            guard !spacesOn, let state = states[window], registry.value.owner(of: id) == window, state.workspaceID == since || state.workspaceID == id else {
+                pinSelections[id] = nil; continue
+            }
             if WindowProfiles.visible([id], profile: state.profileID, machines: services.machines) == [id] { landed[window, default: []].append(id); pinSelections[id] = nil }
         }
         return landed
@@ -111,7 +113,9 @@ extension WindowManager {
 
     /// Selecting a workspace of another room (palette, CLI, a
     /// notification) shows that room in the window first.
+    /// Spaces off (#48355): the window keeps its view, and the workspace joins it (a pin, selected once it lands).
     func enterProfile(of workspaceID: String, in state: WindowState) {
+        guard spacesOn else { return pin([workspaceID], to: state.profileID, selectIn: state.id) }
         guard let room = WindowProfiles.room(of: workspaceID, current: state.profileID, machines: services.machines) else { return }
         state.enterProfile(room)
     }

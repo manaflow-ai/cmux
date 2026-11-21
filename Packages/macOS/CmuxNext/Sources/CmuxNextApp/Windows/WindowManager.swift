@@ -64,8 +64,9 @@ final class WindowManager {
     private var notSavedToasts: [String: CmuxToastHandle] = [:]
     /// New workspaces windows asked for before the daemon reported them (`WorkspaceClaims`).
     var claims = WorkspaceClaims()
-    /// Spaces off (#48355): a workspace moved into a window on another space, by window, selected there once its pin shows it.
-    var pinSelections: [String: String] = [:]
+    /// Spaces off (#48355): a workspace moved into a window on another space, selected there once its pin shows it while the
+    /// window still shows what it showed at the move (`since`) or that workspace: a pick made since wins.
+    var pinSelections: [String: (window: String, since: String?)] = [:]
     /// Windows to open behind (automation, Option).
     var behindWindows: Set<String> = []
     /// While ``fileOpenedMachine(of:into:)`` re-runs reconcile: a window that pass opens files nothing again.

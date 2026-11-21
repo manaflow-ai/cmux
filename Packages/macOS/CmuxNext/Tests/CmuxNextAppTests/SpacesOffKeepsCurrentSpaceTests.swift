@@ -74,10 +74,32 @@ struct SpacesOffKeepsCurrentSpaceTests {
         #expect(windows.registry.value.owner(of: "k4") == fixture.state.id)
         #expect(fixture.state.profileID == Fixture.work, "a move swapped this window's sidebar")
         // The pin lands (the fixture's daemon has no connection: its reply is applied here): k4 shows in Work and is selected.
-        fixture.store.apply(snapshot: Fixture.tree(k4In: Fixture.work))
+        fixture.store.apply(snapshot: Fixture.tree(pinned: ["k4": Fixture.work]))
         windows.reconcileMembership()
         #expect(fixture.shown == ["k2", "k3", "k4"])
         #expect(fixture.state.workspaceID == "k4", "the moved workspace was not selected once it showed")
+        #expect(windows.pinSelections.isEmpty)
+    }
+
+    /// A pick of a workspace the window lists in another space (palette, notification, `select`) while Spaces is off:
+    /// the window keeps its view, and the workspace joins it, selected once its pin lands. A pick made since wins.
+    @Test func aPickOfAHiddenWorkspaceJoinsThisWindowsView() async throws {
+        let fixture = try await Fixture(settings: #"{"sidebar":{"showSpaces":true}}"#)
+        defer { fixture.close() }
+        let windows = fixture.services.windows
+        windows.switchProfile(Fixture.work, in: fixture.state)
+        try await fixture.write("{}")
+
+        windows.select("k1", in: fixture.state)
+        #expect(fixture.state.profileID == Fixture.work, "a pick swapped this window's sidebar")
+        #expect(windows.pinSelections["k1"]?.window == fixture.state.id)
+        // Another pick before the pin lands: it stays when the pin lands, and k1 joins the view.
+        windows.select("k2", in: fixture.state)
+        fixture.store.apply(snapshot: Fixture.tree(pinned: ["k1": Fixture.work]))
+        windows.reconcileMembership()
+        #expect(fixture.state.profileID == Fixture.work)
+        #expect(fixture.shown == ["k1", "k2", "k3"])
+        #expect(fixture.state.workspaceID == "k2", "a landed pin took the selection from a later pick")
         #expect(windows.pinSelections.isEmpty)
     }
 
@@ -95,7 +117,7 @@ struct SpacesOffKeepsCurrentSpaceTests {
         try windows.mergeWindows(into: fixture.state)
         #expect(fixture.state.profileID == Fixture.work, "Merge All swapped this window's sidebar")
         #expect(windows.registry.value.owner(of: "k4") == fixture.state.id)
-        fixture.store.apply(snapshot: Fixture.tree(k4In: Fixture.work))
+        fixture.store.apply(snapshot: Fixture.tree(pinned: ["k4": Fixture.work]))
         windows.reconcileMembership()
         #expect(fixture.shown == ["k2", "k3", "k4"], "a merged workspace is hidden in this window's space")
     }
@@ -169,7 +191,7 @@ struct SpacesOffKeepsCurrentSpaceTests {
         }
 
         /// The default space holds k1 and k4 (no window lists k4); Work holds k2 and k3.
-        static func tree(k4In k4Space: ProfileID? = nil) -> DaemonTree {
+        static func tree(pinned extra: [String: ProfileID] = [:]) -> DaemonTree {
             let keys = ["k1", "k2", "k3", "k4"]
             var tree = DaemonTree(registryID: "s-local", workspaces: keys.enumerated().map { index, key in
                 WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: WorkspaceKey(rawValue: key), name: key, screens: [])
@@ -177,8 +199,8 @@ struct SpacesOffKeepsCurrentSpaceTests {
             tree.personal = PersonalState(
                 sessions: [SessionRecord(id: "s-local")],
                 profiles: [ProfileSnapshot(id: .defaultProfile, name: "Default", index: 0), ProfileSnapshot(id: work, name: "Work", index: 1)],
-                pins: ["k2", "k3"].map { WorkspacePin(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: $0), profile: work) }
-                    + (k4Space.map { [WorkspacePin(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: "k4"), profile: $0)] } ?? []),
+                pins: ["k2": work, "k3": work].merging(extra) { $1 }.sorted { $0.key < $1.key }
+                    .map { WorkspacePin(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: $0.key), profile: $0.value) },
                 workspaces: keys.enumerated().map { PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: $1), index: $0) })
             return tree
         }
