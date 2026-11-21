@@ -81,15 +81,21 @@ class HeadlessDebugDaemon(unittest.TestCase):
         # changes cmux-tui never hits it and compiled the workspace and Ghostty cold
         # (about 309 s of the 7 min job). feat-cmux-next keeps the target dir under one
         # shared key; conformance restores it read-only and rebuilds only what changed.
-        def target_cache(job: dict) -> dict:
+        def target_cache(job: dict, condition: str) -> dict:
             names = [s.get("name") for s in job["steps"]]
             cache = step(job, "Cache the cmux-tui target dir")
             self.assertTrue(str(cache.get("uses", "")).startswith("Swatinem/rust-cache@"))
             self.assertLess(names.index("Cache the cmux-tui target dir"), names.index("Build exact headless cmux-tui"))
-            self.assertEqual(cache.get("if"), "${{ steps.headless-cache.outputs.cache-hit != 'true' }}")
+            self.assertEqual(cache.get("if"), condition)
             return cache["with"]
 
-        produced, consumed = target_cache(self.producer), target_cache(self.consumer)
+        # The consumer also skips the restore when a green result for the same input tree
+        # is reused (#46962's same-tree route); otherwise both restore on an exact-binary miss.
+        produced = target_cache(self.producer, "${{ steps.headless-cache.outputs.cache-hit != 'true' }}")
+        consumed = target_cache(
+            self.consumer,
+            "${{ steps.tree.outputs.hit != 'true' && (steps.headless-cache.outputs.cache-hit != 'true') }}",
+        )
         for field in ("workspaces", "shared-key", "cache-workspace-crates"):
             self.assertEqual(produced[field], consumed[field], field)
         self.assertEqual(produced["workspaces"], "cmux-tui -> target")
