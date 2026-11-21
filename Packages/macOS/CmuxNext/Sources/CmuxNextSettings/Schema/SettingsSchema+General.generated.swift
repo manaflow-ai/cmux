@@ -78,6 +78,9 @@ extension CmuxConfigSnapshot {
     /// `app.confirmQuit`: Lawrence 2026-11-10: an accidental Cmd-Q ended every agent and terminal with no question. Asks only when the quit ends them.
     public nonisolated static let confirmQuitPath = ["app", "confirmQuit"]
     public nonisolated static let confirmQuitDefault = true
+    /// `app.warnBeforeQuitShortcut`: https://github.com/manaflow-ai/cmux/issues/48621: an accidental Cmd-Q quit at once. Chrome-style: the first Cmd-Q warns; hold it or press it again to quit. The Quit menu, the Dock and scripts quit at once.
+    public nonisolated static let warnBeforeQuitShortcutPath = ["app", "warnBeforeQuitShortcut"]
+    public nonisolated static let warnBeforeQuitShortcutDefault = true
 }
 
 extension DefaultColumnWidthSetting {
@@ -217,7 +220,7 @@ extension PaletteRankingSetting {
 extension ContextMenusSetting {
     /// `contextMenus.showCustomizeItem`.
     public nonisolated static let showCustomizeItemPath = ["contextMenus", "showCustomizeItem"]
-    public nonisolated static let showCustomizeItemDefault = false
+    public nonisolated static let showCustomizeItemDefault = true
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).

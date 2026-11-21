@@ -139,6 +139,13 @@
     },
     {
       "agent": "settable",
+      "why": "Cmd-Q's warning against an accidental quit; a quit keeps every session either way.",
+      "keys": [
+        "app.warnBeforeQuitShortcut"
+      ]
+    },
+    {
+      "agent": "settable",
       "keys": [
         "tabs.overflow"
       ]
