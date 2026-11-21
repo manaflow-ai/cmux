@@ -21,7 +21,7 @@ final class MacScreenPictureMark: NSView {
             .controlling: MacScreenStack.make(.horizontal, spacing: Metrics.space3, alignment: .centerY, [
                 Self.dot(\.focus),
                 MacScreenText(L.t("macScreen.viewer.controlling", "Controlling"), font: caption),
-                MacScreenText(L.t("macScreen.viewer.releaseKeys", "⌃⌥⎋"), font: caption, ink: \.tertiary),
+                MacScreenText("⌃⌥⎋", font: caption, ink: \.tertiary), // Keycaps, as macOS prints them in every language.
             ]),
             .viewOnly: MacScreenStack.make(.horizontal, spacing: Metrics.space3, alignment: .centerY, [
                 MacScreenGlyph("eye", font: caption, ink: \.attention),
