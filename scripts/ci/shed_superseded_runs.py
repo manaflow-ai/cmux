@@ -56,6 +56,10 @@ PROTECTED_WORKFLOW = re.compile(
 SHED_VERDICTS = ("superseded", "branch-gone")
 
 
+class WindowTooDense(RuntimeError):
+    """A GitHub created-at window cannot be listed without hitting its result cap."""
+
+
 def verdict(run: dict[str, Any], repo: str, tips: dict[str, str]) -> str:
     """Why RUN is kept ("keep:...") or cancelled (one of SHED_VERDICTS). Pure: no I/O.
 
@@ -103,9 +107,15 @@ def windows(since: dt.datetime, until: dt.datetime,
     stack = [(since, until, 0)]
     while stack:
         lo, hi, depth = stack.pop()
-        if total(lo, hi) <= LIST_CAP or hi - lo < MIN_WINDOW or depth >= MAX_DEPTH:
+        count = total(lo, hi)
+        if count <= LIST_CAP:
             out.append((lo, hi))
             continue
+        if hi - lo < MIN_WINDOW or depth >= MAX_DEPTH:
+            raise WindowTooDense(
+                f"created-at window {lo:%Y-%m-%dT%H:%M:%SZ}..{hi:%Y-%m-%dT%H:%M:%SZ} "
+                f"still has {count} queued runs after {depth} bisections"
+            )
         mid = lo + (hi - lo) / 2
         mid = mid.replace(microsecond=0)
         stack.append((mid + dt.timedelta(seconds=1), hi, depth + 1))
@@ -170,7 +180,14 @@ class GitHub:
     def queued_runs(self, since: dt.datetime, until: dt.datetime) -> tuple[list[dict[str, Any]], int]:
         runs: list[dict[str, Any]] = []
         failed = 0
-        for lo, hi in windows(since, until, self.queued_total):
+        try:
+            pieces = windows(since, until, self.queued_total)
+        except WindowTooDense as error:
+            # Never cancel from a partial view: a dense second would otherwise be capped at 1,000
+            # results and make the rest of that queue invisible to the policy.
+            print(f"::warning::{error}; skipping this sweep", file=sys.stderr)
+            return [], 1
+        for lo, hi in pieces:
             first = self._totals.pop(f"{lo}|{hi}", None) or self._page(lo, hi, 1)
             batch = first.get("workflow_runs") or []
             runs += batch
@@ -231,6 +248,12 @@ def main(argv: list[str] | None = None) -> int:
     runs, failed_pages = gh.queued_runs(now - dt.timedelta(hours=args.hours), now)
     picks, counts = plan(runs, repo, tips, args.max)
     eligible = sum(n for why, n in counts.items() if why in SHED_VERDICTS)
+    if failed_pages:
+        # A failed page leaves the listing incomplete.  Keep the evidence in the summary, but do not
+        # act on a partial queue snapshot where a newer run could have been omitted.
+        picks = []
+        eligible = 0
+        summary_line("::warning::queued run listing was incomplete; no runs will be cancelled")
 
     summary_line(f"## Shed queued runs on superseded heads{' (dry run)' if args.dry_run else ''}\n")
     summary_line(f"{len({r['id'] for r in runs})} queued runs read ({failed_pages} listing pages failed), "
