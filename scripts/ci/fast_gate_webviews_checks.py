@@ -109,6 +109,40 @@ HELP = re.compile(r"^\s*help:")
 NOISE = re.compile(r"^(?:error: (?:Type errors|Formatting issues|Lint issues) found$"
                    r"|Finished in \S+ on \d+ files?(?: with \d+ rules?)? using \d+ threads?\.$|note: You are running"
                    r"|Format issues found in above \d+ files?\. Run without `--check` to fix\.$)")
+# A finding as a GitHub workflow command, which `vp lint` (Oxlint) prints in GitHub Actions:
+# `::warning file=PATH,line=N,endLine=N,col=C,endColumn=C,title=eslint(rule)::MESSAGE`. GitHub turns the line into an
+# annotation and its log keeps only `##[warning]MESSAGE`, so a finding shown as that raw line names no file (#44638's
+# web lint printed `Expected expression to be used` and nothing else). Keyed by level, path, title and message; shown
+# as `PATH:LINE:COL: MESSAGE [level title]`, which starts with no `::`.
+ANNOTATION = re.compile(r"^::(?P<level>error|warning|notice)(?:\s+(?P<props>[^:]*))?::(?P<message>.*)$")
+
+
+def unescape(value: str, prop: bool = False) -> str:
+    """A workflow command's escaped text: %25, %0D and %0A everywhere, %3A and %2C in a property."""
+    pairs = (("%0D", " "), ("%0A", " ")) + ((("%3A", ":"), ("%2C", ",")) if prop else ())
+    for coded, plain in pairs:
+        value = value.replace(coded, plain).replace(coded.lower(), plain)
+    return value.replace("%25", "%")
+
+
+def annotation(line: str, root: str = "") -> tuple[str, str] | None:
+    """(key, shown) for one workflow-command finding, or None for any other line."""
+    match = ANNOTATION.match(line.strip())
+    if not match:
+        return None
+    props = {}
+    for part in (match["props"] or "").split(","):
+        name, _, value = part.partition("=")
+        if name.strip():
+            props[name.strip()] = unescape(value, prop=True)
+    message = unescape(match["message"]).strip()
+    path, title, level = props.get("file", ""), props.get("title", ""), match["level"]
+    where = ":".join(part for part in (path, props.get("line", ""), props.get("col", "")) if part)
+    tag = f" [{level} {title}]" if title else f" [{level}]"
+    shown = f"{where}: {message}{tag}" if where else f"{message}{tag}"
+    return f"{level} {unroot(path, root)}: {title}: {message}", shown
+
+
 # The run's count, a line that falls when the change fixes one of the base's errors: the type check's `Found 1 error
 # and 0 warnings in 9 files (1.0s)`, `vp lint`'s `Found 0 warnings and 1 error.` (#24538's web lint read the second
 # as the one finding the merge added after it fixed 3 of the base's 4 errors). Only the whole line, with only a timing
@@ -118,8 +152,21 @@ SUMMARY = re.compile(r"^Found \d+ (?:errors? and \d+ warnings?|warnings? and \d+
                      r"(?: \(\d+(?:\.\d+)?m?s(?:, \d+ threads?)?\))?\.?$")
 
 
-def run_check(webviews: Path, check: str) -> tuple[int, str]:
-    result = subprocess.run(["bun", "run", check], cwd=webviews, capture_output=True, text=True)
+# The type check of the tree under test runs inside fixit-compile (ci-oops 0a): when every type error has one safe
+# language-service fix it writes the fixup patch for fixit-compile-push, and still exits with the check's status.
+FIXIT_COMPILE = Path(__file__).resolve().parent / "oops" / "fixit_compile.py"
+
+
+def run_check(webviews: Path, check: str, fixit: bool = False) -> tuple[int, str]:
+    argv = ["bun", "run", check]
+    if not (fixit and check == "typecheck" and FIXIT_COMPILE.is_file()):
+        result = subprocess.run(argv, cwd=webviews, capture_output=True, text=True)
+        return result.returncode, result.stdout + result.stderr
+    # Its own lines go to a report printed apart, so the findings compared with the base are the check's alone.
+    with tempfile.NamedTemporaryFile("r", suffix=".log") as report:
+        result = subprocess.run([sys.executable, "-I", str(FIXIT_COMPILE), "run", "--kind", "tsc", "--report",
+                                 report.name, "--", *argv], cwd=webviews, capture_output=True, text=True)
+        print(report.read(), end="", flush=True)
     return result.returncode, result.stdout + result.stderr
 
 
@@ -137,7 +184,8 @@ def unroot(text: str, root: str) -> str:
 
 def findings(output: str, root: str = "") -> list[tuple[str, str]]:
     """(key, shown) per finding: each Oxlint diagnostic, keyed by its path, code and whole message (wrapped lines
-    and help included, the line number not), and every other line of output, so an error the parser does not
+    and help included, the line number not), each GitHub workflow-command finding (ANNOTATION, keyed without its
+    line and shown as `path:line:col: message`), and every other line of output, so an error the parser does not
     know (a crash, a config failure) is a finding of its own and never hides behind a known one."""
     out: list[tuple[str, str]] = []
     record: dict | None = None
@@ -164,6 +212,8 @@ def findings(output: str, root: str = "") -> list[tuple[str, str]]:
             close()
             record = {"message": [f"{header['code']}: {header['message']}"], "path": "", "framed": False}
             continue
+        if record is not None and ANNOTATION.match(line.strip()):
+            close()  # a workflow-command finding is never part of an open diagnostic's message
         if record is not None:
             where = LOCATION.match(line)
             if where and not record["path"]:
@@ -178,7 +228,7 @@ def findings(output: str, root: str = "") -> list[tuple[str, str]]:
                 continue
             close()
         if line.strip() and not noise(i):
-            out.append((key(line, root), line.rstrip()))
+            out.append(annotation(line, root) or (key(line, root), line.rstrip()))
     close()
     return out
 
@@ -273,7 +323,7 @@ def main(argv: list[str] | None = None) -> int:
     shown: dict[str, list[str]] = {}  # a failed check's findings, for --advisory-out
     try:
         for check in CHECKS:
-            code, output = run_check(webviews, check)
+            code, output = run_check(webviews, check, fixit=True)
             print(output, end="", flush=True)
             if code == 0:
                 continue

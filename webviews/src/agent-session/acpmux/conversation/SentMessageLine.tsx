@@ -264,6 +264,7 @@ export function SentMessageLine({
           </span>
         ) : undefined
       }
+      bare={!text}
       body={
         text ? (
           <>

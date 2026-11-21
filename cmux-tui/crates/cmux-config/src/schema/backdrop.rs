@@ -2,7 +2,8 @@
 //! a fixed picture (`appearance.backgroundLight` / `appearance.backgroundDark`
 //! and each schedule entry), the time-of-day schedule
 //! (`appearance.backgroundSchedule`) and the sun location
-//! (`appearance.backgroundLocation`).
+//! (`appearance.backgroundLocation`), and what each mode last showed
+//! (`appearance.backgroundMemory`).
 
 use serde_json::Value;
 
@@ -150,6 +151,29 @@ pub(crate) fn is_location(text: &str) -> bool {
     let number = |part: &str| part.parse::<f64>().ok().filter(|x| x.is_finite());
     number(latitude).is_some_and(|x| x.abs() <= 90.0)
         && number(longitude).is_some_and(|x| x.abs() <= 180.0)
+}
+
+/// Swift `BackdropSelectionSetting.acceptsMemory`: `appearance.backgroundMemory`,
+/// what each background mode last showed. An object with at most `rotate`
+/// (`daily` or a folder), `folder` (a folder) and `off` (`none` or a fixed
+/// picture); any other member is refused.
+pub(crate) fn is_memory(value: &Value) -> bool {
+    value.as_object().is_some_and(|members| {
+        members.iter().all(|(name, value)| {
+            let Some(text) = value.as_str() else { return false };
+            match name.as_str() {
+                "rotate" => text == "daily" || is_folder(text),
+                "folder" => is_folder(text),
+                "off" => text == "none" || is_picture(text),
+                _ => false,
+            }
+        })
+    })
+}
+
+/// `folder:<absolute path>`, never `/` alone (Swift `BackdropSelectionSetting.folderPath`).
+pub(crate) fn is_folder(text: &str) -> bool {
+    text.strip_prefix("folder:").is_some_and(|path| path.starts_with('/') && path.len() > 1)
 }
 
 #[cfg(test)]
