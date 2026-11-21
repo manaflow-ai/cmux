@@ -343,7 +343,7 @@ pub(super) fn turn_began(session: &Session, turn: &str) {
 
 /// The turn's after picture, then the pair kept or dropped. A turn whose before is still being
 /// taken gets its after once that is done.
-pub(super) fn turn_ended(session: &Session, turn: &str) {
+pub(super) fn turn_ended(scope: &cmux_scope::Scope, session: &Session, turn: &str) {
     let key = (session.id.clone(), turn.to_owned());
     let phase =
         PENDING.lock().unwrap_or_else(PoisonError::into_inner).get_mut(&key).map(|pending| {
@@ -352,7 +352,7 @@ pub(super) fn turn_ended(session: &Session, turn: &str) {
         });
     let Some(mut phase) = phase else { return };
     let socket = host_socket();
-    tokio::spawn(async move {
+    scope.spawn_named("turn-shots-after", async move {
         // The before is bounded by the capture limit, so this wait is too.
         let ready =
             tokio::time::timeout(CAPTURE_LIMIT * 2, phase.wait_for(|p| *p != Phase::Before))

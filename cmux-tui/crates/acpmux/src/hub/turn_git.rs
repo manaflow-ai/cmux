@@ -74,7 +74,7 @@ impl Hub {
         let turn = msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
         self.append(session, "mux", "turn_result", msg);
         if let Some(turn) = turn {
-            super::turn_shots::turn_ended(session, &turn);
+            super::turn_shots::turn_ended(&self.scope, session, &turn);
         }
     }
 }

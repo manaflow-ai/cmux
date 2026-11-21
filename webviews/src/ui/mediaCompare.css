@@ -115,7 +115,7 @@
   height: var(--ds-control-compact);
   padding-inline: var(--ds-space-2);
   border: 0;
-  border-radius: var(--ds-radius-sm);
+  border-radius: var(--ds-radius-control);
   background: none;
   color: var(--ui-compare-text-2);
   font: inherit;
