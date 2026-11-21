@@ -5,6 +5,7 @@ import CmuxMobileModel
 import CmuxMobileShell
 import CmuxMobileVoice
 #if DEBUG
+import CmuxLiveCode
 import CmuxMobileTerminal
 #endif
 import SwiftUI
@@ -15,6 +16,10 @@ struct CmuxMobileApp: App {
     @UIApplicationDelegateAdaptor(CmuxMobileAppDelegate.self) private var appDelegate
     @State private var auth: CmuxMobileAuthModel
     @Environment(\.scenePhase) private var scenePhase
+    #if DEBUG
+    /// Swift live code in the simulator (scripts/live-code/ios-sim.sh).
+    @State private var liveCode: LiveCodeRedraw
+    #endif
 
     init() {
         // Launch to first interaction (LaunchMarks): dyld, static initializers and UIKit's start end here.
@@ -52,6 +57,11 @@ struct CmuxMobileApp: App {
         #if DEBUG
         // Screenshot rig: CMUX_MOBILE_FEED_LIVE_FIXTURE=1 fills the Feed from a fixed Mac.
         LiveFeedFixture.shared.startIfRequested()
+        // Swift live code in the simulator (scripts/live-code/ios-sim.sh): watches the folder
+        // CMUX_LIVE_CODE_DIR names and applies each patch without a rebuild or relaunch.
+        let liveCode = LiveCodeRedraw()
+        liveCode.startFromEnvironment()
+        _liveCode = State(initialValue: liveCode)
         #endif
     }
 
@@ -82,6 +92,8 @@ struct CmuxMobileApp: App {
             #endif
             }
             #if DEBUG
+            // Rebuilt with the new code after each live code patch (LiveCodeRedraw).
+            .liveCodeRedraw(liveCode)
             // `CMUX_MOBILE_LAUNCH_MARKS=1`: the launch marks for LaunchTTIUITests.
             .overlay(alignment: .topLeading) { LaunchMarksProbe() }
             #endif
