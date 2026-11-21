@@ -29,6 +29,9 @@
 // on top (react-apps-check shard 8 on #40611, 2026-11-10: about 20 minutes of a 28 to 33 minute
 // shard). Alone, the split counts each part in series and spreads them over the shards.
 //
+// Stages load from test/support/galleryStageServer.ts: the run's built gallery when there is one, else a
+// Vite dev server. On the dev server each stage loads about 650 unbundled modules from one Vite thread,
+// and the 4 vCPU (at times 2) runners these shards moved to on 2026-11-18 made that the bound.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 // Warm the first stage through its scoped frame. Crawling the generic frame follows every lazy
 // import, including page hosts this scan never renders, and can exhaust the startup budget.

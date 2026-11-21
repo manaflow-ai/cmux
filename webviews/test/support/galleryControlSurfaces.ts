@@ -9,6 +9,9 @@
 // shard 1's 28 to 33 (react-apps-check on #40611, 2026-11-10). Each part warms and audits only
 // every `parts`-th entry, so no part comes near the old file's time, and the duration split spreads
 // the parts over the shards. Every entry is still audited exactly once.
+// Stages load from test/support/galleryStageServer.ts: the run's built gallery when there is one, else a
+// Vite dev server. On the dev server each stage loads about 650 unbundled modules from one Vite thread,
+// and the 4 vCPU (at times 2) runners these shards moved to on 2026-11-18 made that the bound.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import path from "node:path";
 import { mkdir } from "node:fs/promises";

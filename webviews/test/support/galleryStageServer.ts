@@ -10,8 +10,13 @@
 // at the same per-stage code. The dev server also failed loads under that load ("Failed to fetch
 // dynamically imported module": 17 of 264 loads, none from the build), stages the scans then skipped.
 //
-// scripts/ci/run-webviews-tests.sh builds the gallery once per run (`bun run gallery:build`) and names
-// the folder in CMUX_GALLERY_STAGE_BUILD; a folder without frame.html, or none, keeps the dev server.
+// accent-glass-invariants-1 took 297 s on the dev server and 55 s on the build (85 s pinned to 4 cores),
+// control-contrast-1 417 s and 110 s, with the same findings on every stage both read; the build read
+// every stage (603 of 603, 453 of 453) where the dev server dropped 26 and 19.
+//
+// scripts/ci/run-webviews-tests.sh builds the gallery once per run (`CMUX_GALLERY_STAGE_CSS=dev bun run
+// gallery:build`: the dev server's CSS, which the baselines were read from, not the shipped minified CSS)
+// and names the folder in CMUX_GALLERY_STAGE_BUILD; a folder without frame.html, or none, keeps the dev server.
 import fs from "node:fs";
 import path from "node:path";
 import { warmGalleryFrame } from "./galleryFrame";

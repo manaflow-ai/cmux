@@ -27,6 +27,10 @@
 // (about 4,400 more stages, an hour of one browser: an audit run, not every pull request's).
 //
 // Captures are at 2x, as the app draws on a Retina screen: thin strokes keep full-ink pixels.
+//
+// Stages load from test/support/galleryStageServer.ts: the run's built gallery when there is one, else a
+// Vite dev server. On the dev server each stage loads about 650 unbundled modules from one Vite thread,
+// and the 4 vCPU (at times 2) runners these shards moved to on 2026-11-18 made that the bound.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
