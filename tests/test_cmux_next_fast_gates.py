@@ -89,6 +89,10 @@ def step_named(steps: list[dict], fragment: str) -> dict:
     return found[0]
 
 
+# Jobs that hold a write token stay on an ephemeral_only pool (tests/test_ci_ephemeral_pool_readers.py).
+WRITE_TOKEN_JOBS = {"receipt", "post"}
+
+
 class WorkflowShape(unittest.TestCase):
     def test_name_job_and_runner(self):
         doc = workflow()
@@ -114,11 +118,16 @@ class WorkflowShape(unittest.TestCase):
                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
                         "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
                         "'blacksmith-"), runner)
-                    self.assertTrue(runner.endswith("|| 'cmux-linux' }}"), runner)
                     self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runner)
                     self.assertNotIn("needs.", runner)
                     self.assertNotIn("inputs.", runner)
-                    self.assertNotIn("vars.", runner)
+                    if key in WRITE_TOKEN_JOBS:
+                        # receipt and post hold write tokens: the ephemeral-only linux_4 pool, never the persistent
+                        # cmux-linux label (tests/test_ci_ephemeral_pool_readers.py, #49007).
+                        self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runner)
+                    else:
+                        self.assertTrue(runner.endswith("|| 'cmux-linux' }}"), runner)
+                        self.assertNotIn("vars.", runner)
                     self.assertNotIn("macos", runner.lower())
                     self.assertNotIn("vars.LINUX_RUNNER", runner)
         for key, each in doc["jobs"].items():

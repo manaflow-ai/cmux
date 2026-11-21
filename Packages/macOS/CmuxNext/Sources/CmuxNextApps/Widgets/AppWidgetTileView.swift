@@ -78,7 +78,7 @@ final class AppWidgetTileView: NSView {
         shownStale = .some(reason)
         let stale = reason != nil
         staleHint.isHidden = !stale
-        toolTip = reason.map(AppWidgetStrings.staleHelp)
+        themedToolTip = reason.map(AppWidgetStrings.staleHelp)
         Motion.sidebar.animate(.fadeIn, in: self, { scene.animator().alphaValue = stale ? AppWidgetTileView.staleOpacity : 1 })
         needsLayout = true
     }
