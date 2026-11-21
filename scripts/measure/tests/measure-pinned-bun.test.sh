@@ -16,6 +16,14 @@ for script in "$dir"/*.sh; do
   [[ -n "$build" ]] || continue
   private=$(grep -n -E '^[^#]*scripts/cmux-next/private-bun\.sh' "$script" | head -n 1 | cut -d: -f1 || true)
   name="$(basename "$script")"
+  # private-bun.sh inside a function (tab-switch.sh's prepare_build) that the build line itself calls before
+  # reload.sh ("prepare_build ... && ./scripts/reload.sh") runs before the build, whatever the line order.
+  if [[ -n "$private" ]] && (( private > build )); then
+    fn=$(head -n "$private" "$script" | grep -E '^[A-Za-z_][A-Za-z0-9_]*\(\) *\{' | tail -n 1 | sed 's/(.*//' || true)
+    if [[ -n "$fn" ]] && sed -n "${build}p" "$script" | grep -q -E "(^|[^A-Za-z0-9_])${fn}([^A-Za-z0-9_].*)?\./scripts/reload\.sh"; then
+      build=$((private + 1))
+    fi
+  fi
   if [[ -z "$private" ]]; then
     echo "FAIL: $name puts ~/.bun/bin first on PATH (line $home_bun) and builds the app (line $build) without scripts/cmux-next/private-bun.sh"
     fail=1
