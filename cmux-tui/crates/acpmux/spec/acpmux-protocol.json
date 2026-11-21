@@ -5100,6 +5100,7 @@
         },
         "cursor": true,
         "limit": true,
+        "recent": true,
         "sessionId": true
       },
       "type": "object"
@@ -6035,6 +6036,13 @@
             "null"
           ]
         },
+        "handle": {
+          "description": "The session's spoken handle, independent of its task name and ids. Older peers omit it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "harness": {
           "type": "string"
         },
@@ -6767,6 +6775,13 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "handle": {
+          "description": "The session's spoken handle, independent of its task name and ids. Older peers omit it.",
+          "type": [
+            "string",
             "null"
           ]
         },

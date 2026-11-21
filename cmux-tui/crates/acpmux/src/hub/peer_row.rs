@@ -55,6 +55,7 @@ impl Apart {
 struct Hot {
     session_id: Option<Box<str>>,
     name: Option<Box<str>>,
+    handle: Option<Box<str>>,
     status: Option<Box<str>>,
     peer: Option<Box<str>>,
     agent_session_id: Option<Box<str>>,
@@ -76,6 +77,7 @@ impl Hot {
         Self {
             session_id: text("sessionId"),
             name: text("name"),
+            handle: text("handle"),
             status: text("status"),
             peer: text("peer"),
             agent_session_id: text("agentSessionId"),
@@ -286,6 +288,10 @@ impl PeerRow {
 
     pub fn name(&self) -> Option<&str> {
         self.hot.name.as_deref()
+    }
+
+    pub fn handle(&self) -> Option<&str> {
+        self.hot.handle.as_deref()
     }
 
     pub fn status(&self) -> Option<&str> {

@@ -1080,6 +1080,7 @@ export interface ProcessListParams {
   _meta?: RequestMeta;
   cursor?: unknown;
   limit?: unknown;
+  recent?: unknown;
   sessionId?: unknown;
 }
 
@@ -1517,6 +1518,8 @@ export type SessionDetail = {
   family?: (string | null);
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
+  /** The session's spoken handle, independent of its task name and ids. Older peers omit it. */
+  handle?: (string | null);
   harness: string;
   /**
    * Unix milliseconds when its harness first refused a command because the harness's own
@@ -1870,6 +1873,8 @@ export type SessionSummary = {
   family?: (string | null);
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
+  /** The session's spoken handle, independent of its task name and ids. Older peers omit it. */
+  handle?: (string | null);
   harness: string;
   /**
    * Unix milliseconds when its harness first refused a command because the harness's own
