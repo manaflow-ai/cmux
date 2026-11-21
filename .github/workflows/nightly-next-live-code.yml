@@ -1,0 +1,240 @@
+name: nightly-next live code variant
+
+# The opt-in live code NIGHTLY (docs/cmux-next/live-code.md, Leo's design of 2026-11-04): for one published
+# nightly-next build, the same commit built -interposable, Team-signed with the hardened runtime and notarized as
+# the nightly is, published beside the nightly's DMG with its module outputs:
+#   https://files-next.cmux.com/nightly-next/<prefix>-arm64-<build>-live-code.dmg
+#   https://files-next.cmux.com/nightly-next/live-code-modules-<commit>.tar.gz
+#   https://files-next.cmux.com/nightly-next/live-code-<commit>.json   (the two names, sizes, SHA-256s, the run)
+# The default nightly does not change: no flag, entitlement, byte or launch cost of it moves. The variant is a copy
+# of the nightly's own signed app with only the executable and the package resource bundles replaced
+# (scripts/ci/nightly-steps/live-code-variant.sh), re-sealed with the entitlements the nightly is signed with.
+#
+# It gates nothing: nightly.yml's wake-nightly-next-tick asks for it after a nightly-next build reaches the feed,
+# as a continue-on-error step, so it can never delay, gate or fail the nightly; no merge, nightly or publish reads
+# its result. The identity and the nightly-next R2 keys live in the release-next environment, whose deployment
+# branch policy allows only nightly-next, so it runs as a workflow_dispatch on ref nightly-next. Nothing runs the
+# commit's code while a secret is in reach: build compiles on a fleet Mac with no secret, sign takes the overlay
+# and the published DMG as data, and publish uploads on Linux. By hand:
+#   gh workflow run nightly-next-live-code.yml --repo manaflow-ai/cmux --ref nightly-next \
+#     -f build=<build number> -f commit=<40-hex sha> -f dmg_prefix=<the nightly's DMG prefix>
+
+on:
+  # GitHub dispatches only a workflow it knows, and it learns a file that is not on the default branch from a run.
+  # A push that changes this file starts one run whose jobs skip, and that registers it.
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/nightly-next-live-code.yml]
+  workflow_dispatch:
+    inputs:
+      build:
+        description: "The published nightly-next build number (digits)"
+        required: true
+        type: string
+      commit:
+        description: "Full 40-hex commit that build is of (its Info.plist CMUXCommit)"
+        required: true
+        type: string
+      dmg_prefix:
+        description: "The nightly's DMG prefix (nightly.yml decide's dmg_prefix)"
+        required: true
+        type: string
+      swift_flags:
+        description: "The nightly's extra Swift defines (its import flags), so the variant compiles the same code"
+        required: false
+        default: ""
+        type: string
+
+# One run per build: a second ask for the same build waits and then finds it published (write-once uploads).
+concurrency:
+  group: nightly-next-live-code-${{ inputs.build || github.sha }}
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next
+  NIGHTLY_NEXT_R2_BUCKET: cmux-nightly-next
+  NIGHTLY_NEXT_R2_PREFIX: nightly-next/
+
+jobs:
+  build:
+    name: build live code overlay
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next'
+    # No environment and no secrets. An owned fleet Mac, never the nightly's signing Mac.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - name: Check the inputs
+        env:
+          BUILD: ${{ inputs.build }}
+          COMMIT: ${{ inputs.commit }}
+          PREFIX: ${{ inputs.dmg_prefix }}
+        run: |
+          set -euo pipefail
+          [[ "$BUILD" =~ ^[0-9]+$ ]] || { echo "::error::build must be digits, not '$BUILD'"; exit 1; }
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commit must be a full 40-hex sha"; exit 1; }
+          [[ "$PREFIX" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::dmg_prefix '$PREFIX' is not a file name prefix"; exit 1; }
+
+      - name: Checkout this workflow's tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: tools
+
+      - name: Build the commit's live code overlay
+        env:
+          COMMIT: ${{ inputs.commit }}
+          SWIFT_FLAGS: ${{ inputs.swift_flags }}
+          CMUX_SWAP_BINARY_ROOT: ${{ runner.temp }}/swap-binary-live-code
+        run: bash tools/scripts/ci/nightly-steps/live-code-variant.sh build "$COMMIT" "$RUNNER_TEMP/live-code" "$SWIFT_FLAGS"
+
+      - name: Upload the overlay and module outputs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: live-code-${{ inputs.build }}
+          path: |
+            ${{ runner.temp }}/live-code/overlay.tar.gz
+            ${{ runner.temp }}/live-code/live-code-modules-${{ inputs.commit }}.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+
+  sign:
+    name: sign and notarize live code variant
+    needs: build
+    # The NEXT nightly's signing identity: release-next, a deployment whose branch policy keeps it on nightly-next.
+    environment: release-next
+    # A literal ephemeral label (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7), as
+    # cmux-tui-team-signed.yml signs: it never takes the nightly's signing Mac.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout this workflow's signing tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          sparse-checkout: |
+            scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Claim the whole Mac for signing
+        run: ./scripts/ci/signing-runner-claim.sh
+
+      - name: Download the overlay
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: live-code-${{ inputs.build }}
+          path: live-code
+
+      - name: Fetch the published nightly DMG and graft the overlay in
+        env:
+          BUILD: ${{ inputs.build }}
+          PREFIX: ${{ inputs.dmg_prefix }}
+        run: |
+          set -euo pipefail
+          dmg="$PREFIX-arm64-$BUILD.dmg"
+          curl -fsSL --retry 5 --speed-limit 1000 --speed-time 120 -o "nightly.dmg" "$NIGHTLY_NEXT_FEED_BASE/$dmg"
+          mkdir overlay && tar -C overlay -xzf live-code/overlay.tar.gz
+          ents="$(bash scripts/ci/nightly-steps/live-code-variant.sh graft nightly.dmg overlay "$PWD/variant/cmux.app")"
+          app="$(ls -d variant/*.app)"
+          echo "VARIANT_APP=$app" >> "$GITHUB_ENV"
+          echo "VARIANT_ENTITLEMENTS=$ents" >> "$GITHUB_ENV"
+          bash scripts/ci/nightly-steps/live-code-variant.sh names "$PREFIX" "$BUILD" >> "$GITHUB_ENV"
+
+      - name: Import the Developer ID certificate
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci/signing-keychain.sh create
+
+      - name: Sign the variant as the nightly is signed
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: bash scripts/ci/nightly-steps/live-code-variant.sh sign "$VARIANT_APP" "$VARIANT_ENTITLEMENTS"
+
+      - name: Notarize the app and its DMG
+        timeout-minutes: 75
+        env:
+          CMUX_NOTARY_WAIT_TIMEOUT: 60m
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          CMUX_STAPLE_APP_IN_DMG: "true"
+          CMUX_NOTARY_PENDING_ON_TIMEOUT: "false"
+          CMUX_CHANNEL: next
+          # No bundle code runs where a secret is.
+          CMUX_DEFER_LAUNCH_SMOKES: "true"
+        run: ./scripts/ci/notarize-nightly-dmg.sh "$VARIANT_APP" "$LIVE_CODE_DMG_RELEASE" "$LIVE_CODE_DMG_IMMUTABLE"
+
+      - name: Delete the signing keychain
+        if: always()
+        run: ./scripts/ci/signing-keychain.sh delete
+
+      - name: Upload the notarized variant
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: live-code-variant-${{ inputs.build }}
+          path: ${{ env.LIVE_CODE_DMG_IMMUTABLE }}
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: publish live code variant
+    needs: [build, sign]
+    # The nightly-next R2 keys the nightly publishes its DMG with.
+    environment: release-next
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout this workflow's tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/ci
+
+      - name: Download the variant and module outputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: live-code-*${{ inputs.build }}
+          merge-multiple: true
+          path: out
+
+      # Write-once, read back: the DMG and the module outputs, then the commit's record naming both.
+      - name: Upload to the nightly-next files
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          BUILD: ${{ inputs.build }}
+          COMMIT: ${{ inputs.commit }}
+          PREFIX: ${{ inputs.dmg_prefix }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          dmg="out/$PREFIX-arm64-$BUILD-live-code.dmg"
+          modules="out/live-code-modules-$COMMIT.tar.gz"
+          python3 scripts/ci/publish-nightly-next-r2.py upload --file "$dmg" --file "$modules" | tee upload.txt
+          record="out/live-code-$COMMIT.json"
+          jq -n --arg build "$BUILD" --arg commit "$COMMIT" --arg run "$RUN_URL" --arg base "$NIGHTLY_NEXT_FEED_BASE" \
+            --arg dmg "$(basename "$dmg")" --arg modules "$(basename "$modules")" \
+            --argjson dmg_size "$(stat -c %s "$dmg")" --argjson modules_size "$(stat -c %s "$modules")" \
+            --arg dmg_sha256 "$(sha256sum "$dmg" | cut -d' ' -f1)" --arg modules_sha256 "$(sha256sum "$modules" | cut -d' ' -f1)" \
+            '{schema: 1, build: ($build | tonumber), commit: $commit, run: $run,
+              dmg: {url: "\($base)/\($dmg)", size: $dmg_size, sha256: $dmg_sha256},
+              modules: {url: "\($base)/\($modules)", size: $modules_size, sha256: $modules_sha256}}' > "$record"
+          python3 scripts/ci/publish-nightly-next-r2.py upload --file "$record" | tee -a upload.txt
+          { echo "### Live code variant of build $BUILD"; echo; sed 's/^/- /' upload.txt; } >> "$GITHUB_STEP_SUMMARY"

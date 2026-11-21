@@ -7632,6 +7632,20 @@ jobs:
         env:
           BUILD: ${{ needs.nightly-next-one.outputs.build }}
         run: set -o pipefail; python3 scripts/ci/nightly_next_delta_check.py check --feed-url "$NIGHTLY_NEXT_FEED_BASE/appcast-arm64.xml" --build "$BUILD" | tee -a "$GITHUB_STEP_SUMMARY"
+      # The opt-in live code variant of the build this run published (nightly-next-live-code.yml): its own run,
+      # after the feed is written, so it never delays, gates or fails this one.
+      - name: Ask for the build's live code variant
+        if: "!cancelled() && needs.nightly-next-one.outputs.feed_written == 'true' && vars.NIGHTLY_NEXT_LIVE_CODE_VARIANT != 'off'"
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ needs.nightly-next-one.outputs.build }}
+          COMMIT: ${{ needs.nightly-next-one.outputs.build_sha }}
+          PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
+          SWIFT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
+        run: |
+          bash scripts/ci/gh_budget_wait.sh workflow run nightly-next-live-code.yml --repo "$GITHUB_REPOSITORY" --ref nightly-next \
+            -f build="$BUILD" -f commit="$COMMIT" -f dmg_prefix="$PREFIX" -f swift_flags="$SWIFT_FLAGS"
 
   # Why: docs/ci/nightly-workflow-notes.md#note-22
   published-build:
