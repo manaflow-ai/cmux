@@ -1,0 +1,9 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/claude-code-side-question",
+  "name": "Claude Code side question",
+  "description": "Ask a question alongside the focused chat with Command-J then B.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1
+}

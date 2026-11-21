@@ -1,0 +1,18 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/claude-code-cloud",
+  "name": "Claude Code cloud controls",
+  "description": "Choose the computer for a cmux chat or pick a Claude cloud session to resume in a new CLI tab.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "actions": {
+    "claude-code-teleport": {
+      "type": "agent",
+      "agent": "claude",
+      "title": "Resume Claude Cloud Session in CLI\u2026",
+      "target": "newTabInCurrentPane",
+      "args": "--teleport"
+    }
+  }
+}

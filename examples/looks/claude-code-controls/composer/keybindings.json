@@ -1,0 +1,4 @@
+[
+  {"key": "opt+p", "command": "agentPane.switchModel", "when": "agentPaneFocused"},
+  {"key": "cmd+j a", "command": "agentPane.composer.addMenu", "when": "agentPaneFocused"}
+]
