@@ -304,7 +304,7 @@ impl RemoteHostSupervisor {
             // Nothing turned on (Computer Use off or Legacy, and signed out of Screen Sharing):
             // no host starts for a request, so an off switch never runs cmux Remote.
             if !lock(&self.inner.config).wanted() {
-                return Err("cmux Remote is off: Computer Use is off in cmux (Settings > Computer Use: pick a mode other than Off, or a managed setting turned it off), and Screen Sharing needs a sign-in".into());
+                return Err(off_reason(bundled()).into());
             }
             // `cmux remote-host restart` is the person's explicit start. Any other request
             // (an agent's, the app's hourly anchor) never starts a host the person quit.
@@ -1016,6 +1016,17 @@ fn write_private_checked(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         .open(&temporary)
         .and_then(|mut file| file.write_all(bytes))?;
     std::fs::rename(&temporary, path)
+}
+
+/// Why a request found cmux Remote off. A build without it (Release, NIGHTLY) never sends the
+/// switches, so its saved Computer Use reads off while the app's own Computer Use (the `cu_*`
+/// tools) works: saying "turn on Computer Use" there blamed a setting that is on.
+fn off_reason(bundled: bool) -> &'static str {
+    if bundled {
+        "cmux Remote is off: Computer Use is off in cmux (Settings > Computer Use: pick a mode other than Off, or a managed setting turned it off), and Screen Sharing needs a sign-in"
+    } else {
+        "this cmux build has no cmux Remote; Computer Use runs in the cmux app itself (the cu_* tools), and its setting is not off"
+    }
 }
 
 /// Whether this cmux build embeds cmux Remote (`CMUX_REMOTE_APP`, or the app

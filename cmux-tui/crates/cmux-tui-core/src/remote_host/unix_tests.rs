@@ -363,3 +363,10 @@ fn saved_switches_read_back_and_a_bad_file_reads_as_the_defaults() {
     assert_eq!(super::read_config(&path), super::RemoteConfig::default(), "corrupt");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn a_build_without_cmux_remote_never_blames_the_computer_use_setting() {
+    let unbundled = super::off_reason(false);
+    assert!(unbundled.contains("no cmux Remote") && !unbundled.contains("turn on"), "{unbundled}");
+    assert!(super::off_reason(true).contains("Settings > Computer Use"));
+}
