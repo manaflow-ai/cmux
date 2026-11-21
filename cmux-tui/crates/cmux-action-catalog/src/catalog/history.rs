@@ -54,6 +54,58 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "focusTabBack",
+        group: GROUP,
+        title: t("HistoryActions", "action.history.tabBack", "Go Back One Tab"),
+        keywords: &["tab", "history", "back", "previous", "any workspace"],
+        category: "window",
+        symbol: "chevron.backward",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("focusMove")), context_menu_exemption: Some("focusMove"), ..SurfacePlan::DEFAULT },
+        cli_name: "history tab-back",
+        focuses: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "focusTabBackInWorkspace",
+        group: GROUP,
+        title: t("HistoryActions", "action.history.tabBackInWorkspace", "Go Back One Tab in Workspace"),
+        keywords: &["tab", "history", "back", "previous", "workspace", "session"],
+        category: "window",
+        symbol: "chevron.backward",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("focusMove")), context_menu_exemption: Some("focusMove"), ..SurfacePlan::DEFAULT },
+        cli_name: "history tab-back-in-workspace",
+        focuses: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "focusTabRecent",
+        group: GROUP,
+        title: t("HistoryActions", "action.history.tabRecent", "Go to Recent Tab"),
+        keywords: &["tab", "history", "recent", "toggle", "alternate", "last"],
+        category: "window",
+        symbol: "arrow.uturn.backward",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("focusMove")), context_menu_exemption: Some("focusMove"), ..SurfacePlan::DEFAULT },
+        cli_name: "history tab-recent",
+        focuses: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "focusTabRecentInWorkspace",
+        group: GROUP,
+        title: t("HistoryActions", "action.history.tabRecentInWorkspace", "Go to Recent Tab in Workspace"),
+        keywords: &["tab", "history", "recent", "toggle", "alternate", "workspace", "session"],
+        category: "window",
+        symbol: "arrow.uturn.backward",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("focusMove")), context_menu_exemption: Some("focusMove"), ..SurfacePlan::DEFAULT },
+        cli_name: "history tab-recent-in-workspace",
+        focuses: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "recentlyFocused",
         group: GROUP,
         title: t("HistoryActions", "action.history.locations", "Location History…"),

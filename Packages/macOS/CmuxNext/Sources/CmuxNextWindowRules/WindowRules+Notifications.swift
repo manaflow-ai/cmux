@@ -67,7 +67,16 @@ extension WindowRules {
             public var page: String
         }
 
+        /// One strict tab history action (cmux-window-rules `tab_history`).
+        public nonisolated struct TabWalk: Decodable, Equatable, Sendable {
+            public var action: String
+            public var step: TabHistory.Step
+            public var scope: TabHistory.Scope
+        }
+
         public var walks: [Walk]
+        /// Absent from an app FFI older than the strict tab history.
+        public var tabWalks: [TabWalk]?
         public var pages: [Page]
         /// The actions that open the History page.
         public var historyPage: [String]

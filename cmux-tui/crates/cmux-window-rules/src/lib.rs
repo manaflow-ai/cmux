@@ -29,6 +29,8 @@
 //!   tab a verb reads, the trail walks, the SSH machine an action names, a
 //!   page fit, Picture in Picture's page, where a file or diff opens, the
 //!   appearance verbs).
+//! - [`tab_history`]: strict per-tab Back and Recent (any workspace or only
+//!   the current one), apart from the location trail.
 //! - [`launch`]: whether the launch snapshot drawn before the daemon answered
 //!   is that daemon's, or stale (the launch then goes on as a bare one), and
 //!   where the launch lands: the last workspace and tab, or Home.
@@ -47,6 +49,7 @@ pub mod notifications;
 pub mod remote;
 pub mod restore;
 pub mod screen_share;
+pub mod tab_history;
 pub mod tabs;
 pub mod targets;
 pub mod update_idle;

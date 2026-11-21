@@ -644,6 +644,15 @@ fn history_actions_and_layout_undo() {
         &json!({"confirmationRequired": true, "revision": 8}),
     );
     assert_eq!(body, json!({"pending": 8, "closesPanes": 1}));
+    let (code, body) = call_json(
+        c"window_history_tab",
+        &json!({"op": "step", "step": "recent", "scope": "workspace",
+                "current": {"tab": "b", "workspace": "w1"},
+                "history": {"visits": [{"tab": "a", "workspace": "w1"}, {"tab": "x", "workspace": "w2"}]}}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body["target"], json!({"tab": "a", "workspace": "w1", "machine": ""}));
+    assert_eq!(body["history"]["visits"][2]["tab"], json!("b"));
 }
 
 #[test]
