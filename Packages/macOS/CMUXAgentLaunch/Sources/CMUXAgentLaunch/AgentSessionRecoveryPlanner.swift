@@ -113,7 +113,12 @@ public struct AgentRecoveryCandidate: Equatable, Sendable {
     }
 
     func launcherResumeArguments(isReadableFile: @escaping (String) -> Bool) -> [String]? {
-        guard let launchCommand,
+        // Codex recovery must use the structured cmux restore path. A raw
+        // launcher prefix can bypass provider routing, writer-lock checks, and
+        // restore admission, which can strand a session as "open elsewhere"
+        // or resurrect it under the wrong provider.
+        guard kind != "codex",
+              let launchCommand,
               launchCommand.externalLauncher == nil,
               !routesThroughSubrouter,
               let prefix = launchCommand.launcherPrefix,
