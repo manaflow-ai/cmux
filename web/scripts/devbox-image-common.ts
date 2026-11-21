@@ -23,6 +23,7 @@ import { CMUX_TUI_SESSION, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector, cmuxTuiRu
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../services/vms/images/workUser";
 import { VM_IMAGE_SIZES, VM_IMAGE_SIZE_NAMES, vmImageSizeRank, type VmImageSizeName } from "../services/vms/images/sizes";
 import { DEVBOX_HOSTNAME, DEVBOX_HOSTNAME_LOOPBACK, DEVBOX_PROVIDER_HOSTNAME } from "../services/vms/images/identity";
+import { devboxEdgeResolverCheckCommand, devboxEdgeResolverInstallCommand } from "../services/vms/images/dns";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const webRoot = path.resolve(__dirname, "..");
@@ -434,13 +435,35 @@ export function devboxImageEpoch(dockerfile = readDevboxDockerfile()): string {
  * adds the Dockerfile's instructions (comments dropped by the Dockerfile
  * grammar) and every non-blank line of the Freestyle bake script, so a step
  * change such as a new apt package can no longer leave the digest unchanged.
+ * Schema 3 adds what the bake installs from generated text
+ * (devboxBakeGeneratedInputs), so an edit to such a module moves it too.
  * Entries keep the schema they were recorded with and are checked with that
  * formula, so a formula change never forces a rebake of an already promoted
  * ladder; new bakes record the current schema, and
  * `upgradeDevboxSourceRecords` moves an entry up only when its provenance is
  * proven from what it already recorded.
  */
-export const DEVBOX_SOURCE_SCHEMA = 2;
+export const DEVBOX_SOURCE_SCHEMA = 3;
+/**
+ * The newest schema `upgradeDevboxSourceRecords` can prove from what an
+ * entry recorded. Schema 3 adds the bake's generated inputs
+ * (devboxBakeGeneratedInputs), which no entry records and no file at its
+ * repoCommit pins without evaluating the module, so only a rebake records it.
+ */
+export const DEVBOX_PROVABLE_SOURCE_SCHEMA = 2;
+
+/**
+ * What the bake installs from text built in TypeScript modules rather than
+ * from this file or the template files: the edge-resolver script, units and
+ * check (services/vms/images/dns.ts, #46670). Schema 3 hashes each, so an
+ * edit to that module moves the digest like an edit to the bake script does.
+ */
+export function devboxBakeGeneratedInputs(): Record<string, string> {
+  return {
+    "edge-resolver-install": devboxEdgeResolverInstallCommand(),
+    "edge-resolver-check": devboxEdgeResolverCheckCommand(),
+  };
+}
 export const bakeScriptPath = path.join(webRoot, "scripts/build-devbox-freestyle.ts");
 
 /**
@@ -495,7 +518,9 @@ export function normalizedBakeScript(source: string): string {
  * their DEVBOX_DESKTOP_INSTALLS path), the pins the Dockerfile ARGs carry
  * (agents, cua-driver, the Ghostty .deb, the desktop apt list), the epoch
  * and, from schema 2, the Dockerfile's instructions and the bake script's
- * non-blank lines (normalizedDockerfileInstructions, normalizedBakeScript).
+ * non-blank lines (normalizedDockerfileInstructions, normalizedBakeScript),
+ * and, from schema 3, what the bake installs from generated text
+ * (devboxBakeGeneratedInputs).
  * Dockerfile prose is deliberately not part of it: a comment cannot change a
  * machine; bake-script prose is, for want of a lexer that could tell it from
  * code.
@@ -508,8 +533,9 @@ export function devboxSourceManifest(
   dockerfile = readDevboxDockerfile(),
   schema: number = DEVBOX_SOURCE_SCHEMA,
   bakeScript = () => readFileSync(bakeScriptPath, "utf8"),
+  generated: () => Record<string, string> = devboxBakeGeneratedInputs,
 ): Record<string, unknown> {
-  if (schema !== 1 && schema !== 2) throw new Error(`unknown devbox source schema ${schema}`);
+  if (schema !== 1 && schema !== 2 && schema !== 3) throw new Error(`unknown devbox source schema ${schema}`);
   const files = Object.fromEntries(
     DEVBOX_TEMPLATE_FILES.filter((name) => name !== "Dockerfile").map((name) => [name, sha256File(path.join(devboxDir, name))]),
   );
@@ -525,6 +551,11 @@ export function devboxSourceManifest(
   if (schema >= 2) {
     shell.dockerfileInstructions = createHash("sha256").update(normalizedDockerfileInstructions(dockerfile)).digest("hex");
     shell.bakeScript = createHash("sha256").update(normalizedBakeScript(bakeScript())).digest("hex");
+  }
+  if (schema >= 3) {
+    shell.bakeGenerated = Object.fromEntries(
+      Object.entries(generated()).sort(([a], [b]) => a.localeCompare(b)).map(([name, text]) => [name, createHash("sha256").update(text).digest("hex")]),
+    );
   }
   if (layers === "base") return shell;
   return {
@@ -542,8 +573,9 @@ export function devboxSourceDigest(
   dockerfile = readDevboxDockerfile(),
   schema: number = DEVBOX_SOURCE_SCHEMA,
   bakeScript?: () => string,
+  generated?: () => Record<string, string>,
 ): string {
-  return createHash("sha256").update(JSON.stringify(devboxSourceManifest(layers, dockerfile, schema, bakeScript))).digest("hex");
+  return createHash("sha256").update(JSON.stringify(devboxSourceManifest(layers, dockerfile, schema, bakeScript, generated))).digest("hex");
 }
 
 /** Which layers an image carries, the digest of the sources they were baked from, and the formula it was computed with (absent: schema 1). */
@@ -1498,8 +1530,8 @@ export function devboxDockerfileAtCommit(commit: string): string | null {
 }
 
 /**
- * Moves default entries recorded at an older source schema to the current
- * one without a rebake, only where every input the newer schema adds is
+ * Moves default entries recorded at an older source schema up to
+ * DEVBOX_PROVABLE_SOURCE_SCHEMA without a rebake, only where every input the newer schema adds is
  * proven from what the entry recorded, never synthesized from the checkout:
  * its digest at its own schema must equal this checkout's (the verbatim
  * files, pins and epoch are the bake's); its `builderScriptVersion` must
@@ -1530,7 +1562,7 @@ export function upgradeDevboxSourceRecords(
     const source = entry.devboxSource;
     if (entry.provider !== provider || !entry.defaultForKind || !source) return entry;
     const schema = source.schema ?? 1;
-    if (schema >= DEVBOX_SOURCE_SCHEMA) return entry;
+    if (schema >= DEVBOX_PROVABLE_SOURCE_SCHEMA) return entry;
     if (source.layers !== "desktop" && source.layers !== "base") {
       skipped.push({ version: entry.version, reason: `devboxSource.layers ${String(source.layers)} is not desktop|base` });
       return entry;
@@ -1555,7 +1587,7 @@ export function upgradeDevboxSourceRecords(
     upgraded.push(entry.version);
     return {
       ...entry,
-      devboxSource: { layers: source.layers, digest: devboxSourceDigest(source.layers, dockerfile, DEVBOX_SOURCE_SCHEMA, bakeScript), schema: DEVBOX_SOURCE_SCHEMA },
+      devboxSource: { layers: source.layers, digest: devboxSourceDigest(source.layers, dockerfile, DEVBOX_PROVABLE_SOURCE_SCHEMA, bakeScript), schema: DEVBOX_PROVABLE_SOURCE_SCHEMA },
     };
   });
   return { manifest: { schemaVersion: manifest.schemaVersion, images }, upgraded, skipped };
@@ -1581,7 +1613,13 @@ export function devboxSourceDriftProblems(
   manifest: DevboxImageManifest,
   provider: DevboxProvider = "freestyle",
   dockerfile = readDevboxDockerfile(),
+  generated: () => Record<string, string> = devboxBakeGeneratedInputs,
 ): string[] {
+  // Schemas 1 and 2 never hashed what the bake installs from generated text,
+  // so while the bake installs any, an entry recorded below schema 3 cannot
+  // show it carries this checkout's version of it (#46670 review: the
+  // promoted defaults kept an older edge-resolver script while dns.ts moved).
+  const generatedNames = Object.keys(generated()).sort();
   const problems: string[] = [];
   const epoch = devboxImageEpoch(dockerfile);
   const digests = new Map<string, string>();
@@ -1598,8 +1636,12 @@ export function devboxSourceDriftProblems(
       continue;
     }
     const schema = source.schema ?? 1;
-    if (schema !== 1 && schema !== 2) {
-      problems.push(`${entry.version}: devboxSource.schema ${String(source.schema)} is not a known formula (1 or 2)`);
+    if (schema !== 1 && schema !== 2 && schema !== 3) {
+      problems.push(`${entry.version}: devboxSource.schema ${String(source.schema)} is not a known formula (1, 2 or 3)`);
+      continue;
+    }
+    if (schema < 3 && generatedNames.length > 0) {
+      problems.push(`${entry.version}: devbox source schema ${schema} does not cover what the bake installs from generated text (${generatedNames.join(", ")}); promote a new bake, which records schema ${DEVBOX_SOURCE_SCHEMA}`);
       continue;
     }
     const key = `${source.layers}/${schema}`;

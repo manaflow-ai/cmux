@@ -147,6 +147,7 @@ import {
   DEVBOX_DESKTOP_UNIT,
 } from "../services/vms/images/desktop";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
+import { devboxEdgeResolverCheckCommand, devboxEdgeResolverInstallCommand } from "../services/vms/images/dns";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -280,6 +281,10 @@ try {
   // The machine's name, before anything records it (host keys, caches, the
   // daemon, the journal): see the identity contract in the header.
   await step("identity", devboxIdentityInstallCommand());
+
+  // The edge's forwarding resolver on IPv6 as well as IPv4, so a machine whose
+  // IPv4 port 53 goes unanswered still resolves (services/vms/images/dns.ts).
+  await step("edge-resolver-ipv6", `${devboxEdgeResolverInstallCommand()} && ${devboxEdgeResolverCheckCommand()}`);
 
   // Then the account, before any layer writes into the home or names it: the
   // base's uid-1000 `ubuntu` becomes `cmux`, home moved with it, its NOPASSWD

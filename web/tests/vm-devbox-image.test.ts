@@ -35,6 +35,7 @@ import {
   devboxGhosttyVersion,
   devboxWaitForDaemonCommand,
   devboxParkDaemonCommand,
+  devboxBakeGeneratedInputs,
   devboxSourceDigest,
   devboxSourceManifest,
   normalizedBakeScript,
@@ -772,8 +773,8 @@ test "$daemon_pid" = fixture
     const desktop = devboxSourceManifest("desktop", dockerfile);
     // Pins, epoch and the verbatim files: a pin bump, an epoch bump, or a
     // template edit each changes the digest; Dockerfile prose does not.
-    expect(DEVBOX_SOURCE_SCHEMA).toBe(2);
-    expect(base).toMatchObject({ schema: 2, layers: "base", agentPins: Object.fromEntries(devboxAgentPins(dockerfile).map((pin) => [pin.pkg, pin.version])) });
+    expect(DEVBOX_SOURCE_SCHEMA).toBe(3);
+    expect(base).toMatchObject({ schema: 3, layers: "base", agentPins: Object.fromEntries(devboxAgentPins(dockerfile).map((pin) => [pin.pkg, pin.version])) });
     expect(typeof base.dockerfileInstructions).toBe("string");
     expect(typeof base.bakeScript).toBe("string");
     expect(Object.keys(base.files as Record<string, string>).sort()).toEqual([...DEVBOX_TEMPLATE_FILES].filter((name) => name !== "Dockerfile").sort());
@@ -807,7 +808,17 @@ test "$daemon_pid" = fixture
     // A comment edit to the bake script moves it too (stated trade-off: no lexer).
     expect(devboxSourceDigest("base", dockerfile, 2, () => `${bake}\n// one more comment\n`)).not.toBe(devboxSourceDigest("base", dockerfile, 2, () => bake));
     expect(devboxSourceDigest("base", dockerfile, 1, withCode)).toBe(devboxSourceDigest("base", dockerfile, 1, () => bake));
-    expect(() => devboxSourceDigest("base", dockerfile, 3)).toThrow(/unknown devbox source schema/);
+    expect(() => devboxSourceDigest("base", dockerfile, 4)).toThrow(/unknown devbox source schema/);
+    // Schema 3 also sees what the bake installs from generated text (the
+    // edge-resolver script and units from dns.ts, #46670): a change there
+    // moves the digest; schema 2, which hashes the bake script's text only,
+    // does not see it.
+    expect(Object.keys(base.bakeGenerated as Record<string, string>).sort()).toEqual(Object.keys(devboxBakeGeneratedInputs()).sort());
+    const generated = devboxBakeGeneratedInputs();
+    const editedResolver = () => ({ ...generated, "edge-resolver-install": `${generated["edge-resolver-install"]} && true` });
+    expect(devboxSourceDigest("base", dockerfile, 3, undefined, editedResolver)).not.toBe(devboxSourceDigest("base", dockerfile, 3));
+    expect(devboxSourceDigest("base", dockerfile, 2, undefined, editedResolver)).toBe(devboxSourceDigest("base", dockerfile, 2));
+    expect(devboxSourceManifest("base", dockerfile, 2)).not.toHaveProperty("bakeGenerated");
     // The normalizers themselves: Dockerfile comments gone by the grammar
     // (a parser directive before the first instruction is kept, a `#` line
     // inside a continued RUN is a comment), bake-script lines kept verbatim

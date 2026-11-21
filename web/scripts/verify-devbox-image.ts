@@ -69,6 +69,7 @@ import {
   DEVBOX_DESKTOP_USER,
 } from "../services/vms/images/desktop";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
+import { devboxEdgeResolverCheckCommand, devboxEdgeResolverSettledCommand, devboxEdgeResolverTlsCheckCommand } from "../services/vms/images/dns";
 import { throwawayVmOptions } from "./cloud-vm/ci-leftovers";
 
 const pins = devboxAgentPins();
@@ -334,6 +335,13 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   "cat /etc/cmux/image-stamp",
 ];
 
+// The edge's forwarding resolver is reachable on IPv6 too
+// (services/vms/images/dns.ts), and a booted clone still resolves.
+const RESOLVER_CHECKS: readonly string[] = [
+  devboxEdgeResolverCheckCommand(),
+  "getent ahosts api.anthropic.com >/dev/null && echo booted-machine-resolves",
+];
+
 // The machine is `cmux`, not the base's `freestyle-vm`
 // (services/vms/images/identity.ts): the shared check covers the static and
 // live hostname, $HOSTNAME, the loopback alias, sudo, the host-key comment
@@ -351,6 +359,40 @@ const IDENTITY_CHECKS: readonly string[] = [
 ];
 
 type Exec = (cmd: string, timeoutMs?: number) => Promise<{ exitCode: number; output: string }>;
+
+/** A name the TLS rule steers through the edge for the resolver check; any public HTTPS name works. */
+const TLS_RULE_PROBE_DOMAIN = "files.cmux.com";
+/** How long the agent and cmux-edge-resolver get to apply a new TLS rule. */
+const TLS_RULE_SETTLE_SECONDS = 60;
+
+/**
+ * Adds a TLS rule to the verify machine, waits for the provider's agent to
+ * write its resolver files, and runs the edge resolver's TLS-rule check. The
+ * rule is deleted again whatever happens.
+ */
+async function verifyEdgeResolverWithTlsRule(
+  fs: { tls: { rules: { create(input: object): Promise<unknown>; delete(id: string): Promise<unknown> } } },
+  vmId: string,
+  exec: Exec,
+): Promise<boolean> {
+  const created = await fs.tls.rules.create({ action: "allow", domain: TLS_RULE_PROBE_DOMAIN, source: { vmId }, destination: { public: true } }) as { id?: string; rule?: { id?: string } };
+  const ruleId = created.id ?? created.rule?.id;
+  // Without an id the rule could not be deleted below; fail loudly instead of leaving it behind.
+  if (!ruleId) throw new Error(`TLS rule for ${TLS_RULE_PROBE_DOMAIN} on ${vmId} came back without an id: ${JSON.stringify(created)}`);
+  try {
+    // Wait for the service's own completion signal (its stamp matches the
+    // agent's files), bounded, instead of a settling delay.
+    const settled = await exec(devboxEdgeResolverSettledCommand(TLS_RULE_SETTLE_SECONDS), (TLS_RULE_SETTLE_SECONDS + 30) * 1000);
+    console.log(`  after the TLS rule: exit=${settled.exitCode} ${settled.output.trim().split("\n").join(" | ")}`);
+    if (settled.exitCode !== 0) {
+      console.log("[freestyle-tls-rule] CHECKS FAILED");
+      return false;
+    }
+    return await runChecks("freestyle-tls-rule", [devboxEdgeResolverTlsCheckCommand(TLS_RULE_PROBE_DOMAIN)], exec);
+  } finally {
+    await fs.tls.rules.delete(ruleId).catch((err) => console.log(`could not delete TLS rule ${ruleId}: ${String(err)}`));
+  }
+}
 
 async function runChecks(label: string, checks: readonly string[], exec: Exec): Promise<boolean> {
   let ok = true;
@@ -533,12 +575,20 @@ if (provider === "freestyle") {
       ...FREESTYLE_BASE_CHECKS,
       ...AGENT_LAUNCH_CHECKS,
       ...IDENTITY_CHECKS,
+      ...RESOLVER_CHECKS,
       ...(desktop
         ? desktopChecks()
         : [`test ! -e ${DEVBOX_DESKTOP_START_SCRIPT} && echo base-image-has-no-desktop`]),
     ], exec) && idleOk && cloneIdentityOk;
     if (!idleOk) console.log("[freestyle] idle-wakeup check FAILED");
     if (!cloneIdentityOk) console.log("[freestyle] clone identity check FAILED (--strict-clone-identity)");
+    // The path the resolver fix exists for (#46670): with a TLS rule, the
+    // provider's agent rewrites resolv.conf and its 61- drop-in to the edge
+    // resolver's IPv4 address. Add one, wait for the agent's files, and prove
+    // the IPv6 listener comes first and lookups (steered ones included) answer.
+    const tlsOk = await verifyEdgeResolverWithTlsRule(fs, vmId, exec);
+    if (!tlsOk) console.log("[freestyle] TLS-rule resolver check FAILED");
+    pass = pass && tlsOk;
   } finally {
     await vm.delete();
     console.log(`deleted ${vmId}`);
