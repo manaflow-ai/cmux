@@ -41,7 +41,8 @@ export type AcpmuxDebug = {
   /// answered an ask, who else is here and typing; multiplayer/sharedFixture.ts) when it is "shared",
   /// or with step `count` (0-5, else 0) of the subagent tray's life (subagentsFixture.ts) when it is
   /// "subagents", or with three steers waiting under a running turn (waitingSteersFixture.ts) when it is
-  /// "waiting-steers", or with two finished subagents whose report cards a capture opens
+  /// "waiting-steers", or with the worked turn under a running goal, the Goal banner over the composer
+  /// (goalFixture.ts), when it is "goal", or with two finished subagents whose report cards a capture opens
   /// (subagentReportFixture.ts) when it is "subagent-report".
   seedRows(count?: number, fixture?: string, agents?: number): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
@@ -198,6 +199,7 @@ export function createAcpmuxDebug(
         subagentReportRows,
         subagentReportLog,
         CAPPED_ID,
+        goalSnapshot,
       } = await import("./debugFixtures");
       const trayStep = (count: number) =>
         Number.isInteger(count) && count > 0 && count < SUBAGENT_TRAY_STEPS ? count : 0;
@@ -209,7 +211,7 @@ export function createAcpmuxDebug(
       const rows =
         fixture === "subagents"
           ? subagentTrayRows(trayStep(count), trayOrigin(count), agents ?? 2)
-          : fixture === "worked-turn"
+          : fixture === "worked-turn" || fixture === "goal"
             ? workedTurnRows(Date.now() - 60_000)
             : fixture === "incoming"
               ? incomingRows(Date.now() - 120_000)
@@ -230,7 +232,14 @@ export function createAcpmuxDebug(
                             : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
-      host.replaceRows(rows, fixture === "waiting-steers" ? WAITING_STEERS_SNAPSHOT : undefined);
+      host.replaceRows(
+        rows,
+        fixture === "waiting-steers"
+          ? WAITING_STEERS_SNAPSHOT
+          : fixture === "goal"
+            ? goalSnapshot(Date.now())
+            : undefined,
+      );
       if (fixture === "subagent-report") {
         // The capped card's Show more reads its subagent's own records: on the showcase's mock
         // daemon only (`live` is unset on a real one), seeded into the chat the rows replaced.
