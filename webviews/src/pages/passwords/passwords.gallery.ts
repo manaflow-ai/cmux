@@ -175,7 +175,12 @@ export default passwordsPageEntry({
       note: "Native confirmation declined; the saved entry remains.",
     }),
     "delete-completed": variant({
-      steps: [click(action(4)), wait('[data-site="atlas.example.test"]:not(:has([data-id="atlas"]))')],
+      // The list is windowed: a site's header and its logins are siblings, so "the site still shows, its
+      // deleted login does not" is asked of the list, not of a site element that holds its rows.
+      steps: [
+        click(action(4)),
+        wait('.pw-list:has(.pw-site-head[data-site="atlas.example.test"]):not(:has(.pw-row[data-id="atlas"]))'),
+      ],
     }),
     "reveal-completed": variant({
       steps: [click(action(1))],
