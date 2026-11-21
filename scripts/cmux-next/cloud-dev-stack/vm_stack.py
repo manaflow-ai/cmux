@@ -953,8 +953,9 @@ def cmd_prepare(args) -> dict[str, Any]:
     return {"dir": str(d), "state": entry["state"], "token": token}
 
 
-def wait_healthy(tag: str, port: int, host: str, timeout: float) -> tuple[bool, str]:
-    """Wait until every Worker of the stack answers /v1/health on wrangler's port (as its own authority)."""
+def wait_healthy(tag: str, port: int, host: str, timeout: float, local: int | None = None) -> tuple[bool, str]:
+    """Wait until every Worker of the stack answers /v1/health on wrangler's port (local; port for a stack from
+    before local ports), each asked as its own tailnet authority (host:port, host:port+1, ...)."""
     authorities = [f"{host}:{p}" for p in stack_ports(port)]
     deadline, healthy, last = time.time() + timeout, set(), ""
     while time.time() < deadline:
@@ -962,7 +963,7 @@ def wait_healthy(tag: str, port: int, host: str, timeout: float) -> tuple[bool, 
             return False, "its unit stopped"
         for a in authorities:
             if a not in healthy:
-                ok, body = probe(port, a)
+                ok, body = probe(local or port, a)
                 if ok:
                     healthy.add(a)
                 else:
@@ -1037,7 +1038,7 @@ def cmd_wake(args) -> dict[str, Any]:
             t = int(time.time())
             if ok:
                 e.update({"state": "running", "started_at": t, "last_request_at": t, "woke_at": t, "log_offset": log_offset})
-                for k in ("wake_failed_at", "wake_error", *WAKE_KEYS):
+                for k in ("wake_failed_at", "wake_error", "reason", "stopped_at", *WAKE_KEYS):
                     e.pop(k, None)
             else:
                 stop_unit(tag)
@@ -1055,7 +1056,7 @@ def cmd_wake(args) -> dict[str, Any]:
         systemctl("reset-failed", unit(tag), check=False)
         systemctl("start", unit(tag))
         (stack_dir(tag) / "heartbeat").touch()
-        ok, why = wait_healthy(tag, local_port(entry), entry["host"], args.wait)
+        ok, why = wait_healthy(tag, entry["port"], entry["host"], args.wait, local=local_port(entry))
     except BaseException as err:  # noqa: BLE001 - killed or failed: back to stopped
         settle(False, f"the wake was interrupted: {type(err).__name__}: {err}")
         raise
@@ -1417,7 +1418,8 @@ def cmd_start(args) -> dict[str, Any]:
         entry = read_entry(tag) or entry
         entry.update({"state": "running", "started_at": int(time.time()), "log_offset": log.stat().st_size if log.exists() else 0,
                       "last_request_at": int(time.time())})
-        entry.pop("reup_at", None)
+        for k in ("reup_at", "reason", "stopped_at"):  # a running stack carries no stop reason from before
+            entry.pop(k, None)
         write_entry(entry)
     health = {}
     for svc, body in healthy.items():

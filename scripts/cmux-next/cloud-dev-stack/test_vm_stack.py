@@ -591,8 +591,9 @@ class LifetimeTests(unittest.TestCase):
         self.assertEqual(v.read_entry("s2")["state"], "stopped")
 
     def test_wake_starts_the_same_unit_and_port_and_marks_it_running(self):
-        self.stack("w", "stopped", 100, port=4710, ports=[4710, 4711, 4712])
-        v.wait_healthy = lambda tag, port, host, timeout: (port == 4710 and host == "vm.ts.net", "")
+        self.stack("w", "stopped", 100, port=4710, ports=[4710, 4711, 4712], local_port=23810)
+        # Asked as its tailnet authorities (vm.ts.net:4710-4712), on wrangler's local port.
+        v.wait_healthy = lambda tag, port, host, timeout, local=None: (port == 4710 and local == 23810 and host == "vm.ts.net", "")
         out = v.cmd_wake(types.SimpleNamespace(tag="w", wait=5))
         self.assertTrue(out["woke"])
         e = v.read_entry("w")
@@ -602,7 +603,7 @@ class LifetimeTests(unittest.TestCase):
 
     def test_a_failed_wake_stays_stopped_and_is_not_retried_at_once(self):
         self.stack("f", "stopped", 100)
-        v.wait_healthy = lambda *a: (False, "mobile: connection refused")
+        v.wait_healthy = lambda *a, **kw: (False, "mobile: connection refused")
         with self.assertRaises(v.Refused):
             v.cmd_wake(types.SimpleNamespace(tag="f", wait=1))
         e = v.read_entry("f")
@@ -669,7 +670,7 @@ class LifetimeTests(unittest.TestCase):
         self.stack("w", "stopped", 100)
         seen = {}
 
-        def healthy(tag, port, host, timeout):
+        def healthy(tag, port, host, timeout, local=None):
             seen.update(v.read_entry(tag))
             return True, ""
         v.wait_healthy = healthy
@@ -691,7 +692,7 @@ class LifetimeTests(unittest.TestCase):
     def test_a_wake_that_lost_the_stack_to_an_up_leaves_its_unit_alone(self):
         self.stack("l", "stopped", 100)
 
-        def taken_by_start(tag, port, host, timeout):
+        def taken_by_start(tag, port, host, timeout, local=None):
             e = v.read_entry(tag)  # cmd_start takes the stack and restarts its unit while the wake waits
             for k in v.WAKE_KEYS:
                 e.pop(k, None)
