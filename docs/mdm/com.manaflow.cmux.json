@@ -5156,7 +5156,7 @@
       "type" : "boolean"
     },
     "sidebar.showSpaces" : {
-      "default" : true,
+      "default" : false,
       "description" : "sidebar.showSpaces",
       "title" : "Show Spaces",
       "type" : "boolean"
