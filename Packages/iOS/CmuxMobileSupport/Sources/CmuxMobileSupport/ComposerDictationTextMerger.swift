@@ -80,6 +80,11 @@ public struct ComposerDictationTextMerger: Sendable {
         var isFinal: Bool
     }
 
+    private struct PhraseMatch {
+        var index: Int
+        var range: Range<String.Index>
+    }
+
     private var phrases: [Phrase] = []
 
     /// Reset speech history when starting a new recording.
@@ -94,15 +99,77 @@ public struct ComposerDictationTextMerger: Sendable {
         isUtteranceFinal: Bool = false
     ) -> String {
         guard !transcript.allSatisfy(\.isWhitespace) else {
-            return merged(base: base, transcript: phrases.map(\.text).joined(separator: " "))
+            return merged(base: base, transcript: phraseTranscript)
         }
         let validTiming = startTime.map { $0.isFinite && $0 >= 0 } == true
             && endTime.map { $0.isFinite && $0 > (startTime ?? 0) } == true
         if validTiming, let startTime {
-            // Retain only phrases wholly before this result. Speech may send a
-            // cumulative final covering multiple previously separate phrases.
-            while let last = phrases.last, last.endTime.map({ $0 > startTime }) ?? true {
-                phrases.removeLast()
+            var removedIndices = Set<Int>()
+            var replacementText = String(transcript.drop(while: \.isWhitespace))
+            var insertionAfterIndex: Int?
+            // A cumulative result can include a finalized phrase whose own
+            // result had no segment timing. A final replaces that committed
+            // phrase; a partial keeps it and contributes only its new tail.
+            let allMatches = phraseMatches(in: transcript, startTime: startTime)
+            let untimedFinalMatches = allMatches.filter { match in
+                let phrase = phrases[match.index]
+                return phrase.isFinal && phrase.endTime == nil
+            }
+            if isUtteranceFinal {
+                removedIndices.formUnion(untimedFinalMatches.map(\.index))
+            }
+            // Remove every overlapping timed hypothesis, even when an
+            // untimed finalized phrase sits between it and the new result.
+            // Insert the replacement where the first removed phrase lived so
+            // committed untimed phrases stay in their original order.
+            for (index, phrase) in phrases.enumerated() {
+                if let endTime = phrase.endTime {
+                    if endTime > startTime && (isUtteranceFinal || !phrase.isFinal) {
+                        removedIndices.insert(index)
+                    }
+                } else if !phrase.isFinal {
+                    removedIndices.insert(index)
+                }
+            }
+            if !isUtteranceFinal, !allMatches.isEmpty {
+                let survivingMatches = allMatches.filter { !removedIndices.contains($0.index) }
+                replacementText = transcriptWithoutMatches(survivingMatches, in: transcript)
+                insertionAfterIndex = survivingMatches.last(where: { match in
+                    let phrase = phrases[match.index]
+                    return phrase.isFinal && phrase.endTime == nil
+                })?.index
+            }
+            if !replacementText.isEmpty {
+                let replacement = Phrase(
+                    text: replacementText,
+                    endTime: endTime,
+                    isFinal: isUtteranceFinal
+                )
+                if let insertionAfterIndex {
+                    let insertionIndex = phrases[..<(insertionAfterIndex + 1)]
+                        .indices
+                        .filter { !removedIndices.contains($0) }
+                        .count
+                    phrases = phrases.enumerated().compactMap { index, phrase in
+                        removedIndices.contains(index) ? nil : phrase
+                    }
+                    phrases.insert(replacement, at: insertionIndex)
+                } else if let firstRemoved = removedIndices.min() {
+                    let insertionIndex = phrases[..<firstRemoved]
+                        .indices
+                        .filter { !removedIndices.contains($0) }
+                        .count
+                    phrases = phrases.enumerated().compactMap { index, phrase in
+                        removedIndices.contains(index) ? nil : phrase
+                    }
+                    phrases.insert(replacement, at: insertionIndex)
+                } else {
+                    phrases.append(replacement)
+                }
+            } else if !removedIndices.isEmpty {
+                phrases = phrases.enumerated().compactMap { index, phrase in
+                    removedIndices.contains(index) ? nil : phrase
+                }
             }
         } else if phrases.last?.isFinal == false {
             // Untimed partials revise only the provisional phrase. A finished
@@ -111,12 +178,82 @@ public struct ComposerDictationTextMerger: Sendable {
             // this provisional text rather than append a duplicate of it.
             phrases.removeLast()
         }
-        phrases.append(Phrase(
-            text: String(transcript.drop(while: \.isWhitespace)),
-            endTime: validTiming ? endTime : nil,
-            isFinal: isUtteranceFinal
-        ))
-        return merged(base: base, transcript: phrases.map(\.text).joined(separator: " "))
+        if !validTiming {
+            phrases.append(Phrase(
+                text: String(transcript.drop(while: \.isWhitespace)),
+                endTime: nil,
+                isFinal: isUtteranceFinal
+            ))
+        }
+        return merged(base: base, transcript: phraseTranscript)
+    }
+
+    private var phraseTranscript: String {
+        phrases.reduce(into: "") { result, phrase in
+            guard !phrase.text.isEmpty else { return }
+            if result.isEmpty || phrase.text.first?.isPunctuation == true {
+                result += phrase.text
+            } else {
+                result += " " + phrase.text
+            }
+        }
+    }
+
+    private func phraseMatches(in transcript: String, startTime: Double) -> [PhraseMatch] {
+        let candidate = String(transcript.drop(while: \.isWhitespace))
+        var searchStart = candidate.startIndex
+        var matches: [PhraseMatch] = []
+        for (index, phrase) in phrases.enumerated() {
+            if let endTime = phrase.endTime, endTime <= startTime {
+                continue
+            }
+            guard let range = phraseRange(
+                for: phrase.text,
+                in: candidate,
+                from: searchStart
+            ) else { continue }
+            matches.append(PhraseMatch(index: index, range: range))
+            searchStart = range.upperBound
+        }
+        return matches
+    }
+
+    private func phraseRange(
+        for text: String,
+        in transcript: String,
+        from start: String.Index
+    ) -> Range<String.Index>? {
+        guard !text.isEmpty else { return nil }
+        var searchStart = start
+        while searchStart < transcript.endIndex,
+              let range = transcript.range(of: text, range: searchStart..<transcript.endIndex) {
+            let startsAtBoundary = range.lowerBound == transcript.startIndex
+                || transcript[transcript.index(before: range.lowerBound)].isWhitespace
+                || transcript[transcript.index(before: range.lowerBound)].isPunctuation
+            let endsAtBoundary = range.upperBound == transcript.endIndex
+                || transcript[range.upperBound].isWhitespace
+                || transcript[range.upperBound].isPunctuation
+            if startsAtBoundary && endsAtBoundary {
+                return range
+            }
+            searchStart = transcript.index(after: range.lowerBound)
+        }
+        return nil
+    }
+
+    private func transcriptWithoutMatches(
+        _ matches: [PhraseMatch],
+        in transcript: String
+    ) -> String {
+        let candidate = String(transcript.drop(while: \.isWhitespace))
+        var result = ""
+        var cursor = candidate.startIndex
+        for match in matches {
+            result += candidate[cursor..<match.range.lowerBound]
+            cursor = match.range.upperBound
+        }
+        result += candidate[cursor...]
+        return result.trimmingCharacters(in: .whitespaces)
     }
 
     /// Creates a merger.
