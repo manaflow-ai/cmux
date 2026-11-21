@@ -7,6 +7,7 @@ and the sample stays installed. `cmux ext remove ID` uninstalls it.
 
 | Sample | What it shows | Install |
 | --- | --- | --- |
+| [Widgets](widgets) | Clock, weather, calendar and to-do cards in small, medium and large sizes, each added on its own | `examples/extensions/widgets/install.sh` |
 | [Weather](weather) | The current conditions for a place you choose | `cmux ext dev examples/extensions/weather` |
 | [World clock](world-clock) | The time in the places you work with | `cmux ext dev examples/extensions/world-clock` |
 | [Changes](changes) | A live pull request list: lines added and removed, checks, review; your branch, yours, mentions or a saved search | `cmux ext dev examples/extensions/changes` |

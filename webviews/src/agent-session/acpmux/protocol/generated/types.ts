@@ -48,6 +48,7 @@ export interface AcpmuxRequestMeta {
   parent?: unknown;
   peer?: unknown;
   peerHops?: unknown;
+  peerRowBatches?: unknown;
   personDecision?: unknown;
   personKey?: unknown;
   personStop?: unknown;
@@ -833,6 +834,20 @@ export interface PeerReconnectParams {
   name?: unknown;
   wait?: unknown;
 }
+
+/**
+ * To a watcher that asked for batches (`initialize` `_meta.acpmux.peerRowBatches`), in place of
+ * one `_acpmux/session_changed` per row: `count` rows of `peer` changed or left at once (a peer's
+ * list). Their list positions are consecutive, after `afterSeq` and up to `listSeq`; a client
+ * reads them with `_acpmux/watch {afterSeq, listEpoch}` from a cursor no higher than `afterSeq`,
+ * and keeps its cursor at most `afterSeq` until a list or follow current to `listSeq` is in.
+ */
+export type PeerRowsChanged = {
+  afterSeq: number;
+  count: number;
+  listSeq: number;
+  peer: string;
+} & Record<string, unknown>;
 
 export interface PeerSnapshotParams {
   _meta?: RequestMeta;
