@@ -429,6 +429,34 @@ def write_stamp(head_sha: str, groups: list[str], skipped: list[str], seconds: f
     return stamp
 
 
+# Each step's last time on this machine. The pool sorts its tasks longest first by it, so a
+# long step starts with the first workers instead of whenever its place in ci-guards.yml comes
+# up and runs past every other one. A step with no time yet counts as UNTIMED_SECONDS.
+TIMES = Path(os.environ.get("CMUX_GUARDS_TIMES")
+             or Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "cmux-guards/step-seconds.json")
+UNTIMED_SECONDS = 10.0
+
+
+def read_times() -> dict[str, float]:
+    try:
+        body = json.loads(TIMES.read_text())
+    except (OSError, ValueError):
+        return {}
+    return {k: float(v) for k, v in body.items() if isinstance(v, (int, float))} if isinstance(body, dict) else {}
+
+
+def write_times(results: list[StepResult]) -> None:
+    times = read_times()
+    times.update({f"{r.unit.label}: {r.step.name}": round(r.seconds, 1) for r in results if r.ok is not None})
+    try:
+        TIMES.parent.mkdir(parents=True, exist_ok=True)
+        scratch = TIMES.with_name(f"{TIMES.name}.{os.getpid()}")
+        scratch.write_text(json.dumps(times, indent=0, sort_keys=True) + "\n")
+        os.replace(scratch, TIMES)
+    except OSError as error:  # a read-only home only loses the ordering
+        print(f"run_ci_guards.py: could not write step times to {TIMES}: {error}", file=sys.stderr)
+
+
 def write_results(path: str, head_sha: str, base_sha: str, units: list[Unit],
                   results: list[StepResult], seconds: float) -> None:
     body = {
@@ -546,7 +574,13 @@ def main(argv: list[str]) -> int:
             tasks.append((unit, unit.steps))
         else:
             tasks.extend((unit, [step]) for step in unit.steps)
-    tasks.sort(key=lambda task: -len(task[1]))
+    times = read_times()
+
+    def expected(task: tuple[Unit, list[Step]]) -> float:
+        unit, steps = task
+        return sum(times.get(f"{unit.label}: {step.name}", UNTIMED_SECONDS) for step in steps)
+
+    tasks.sort(key=lambda task: (-expected(task), -len(task[1])))
     results: list[StepResult] = []
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
     futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going) for unit, steps in tasks]
@@ -566,6 +600,9 @@ def main(argv: list[str]) -> int:
         return 130
     pool.shutdown()
     seconds = time.monotonic() - started
+    write_times(results)
+    slowest = sorted((r for r in results if r.ok is not None), key=lambda r: -r.seconds)[:5]
+    print("cmux guards: slowest " + "; ".join(f"{r.seconds:.1f}s {r.step.name}" for r in slowest), flush=True)
     failed = [r for r in results if r.ok is False]
     skipped = sorted({r.step.name for r in results if r.ok is None})
     passed = sum(1 for r in results if r.ok)
