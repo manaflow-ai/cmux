@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import WebSocket from "ws";
+import { deleteProbeUser } from "./probeTeams.mjs";
 import {
   loadTargetEnv,
   optionValue,
@@ -242,8 +243,10 @@ async function cleanupRun({ getVmId, getAuthHeaders, getUser, cleanup }) {
 
   if (user && (!vmId || cleanup.vmDeleted)) {
     try {
-      await user.delete();
+      const teams = await deleteProbeUser(stack, user);
       cleanup.userDeleted = true;
+      cleanup.teamsDeleted = teams.teamsDeleted;
+      if (teams.teamsKept.length > 0) cleanup.teamsKept = teams.teamsKept;
     } catch (error) {
       cleanup.userDeleteError = error instanceof Error ? error.message : String(error);
     }

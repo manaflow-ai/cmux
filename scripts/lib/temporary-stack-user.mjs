@@ -254,6 +254,9 @@ export async function cleanupTemporaryStackUser({
   now = () => new Date(),
 }) {
   const state = readState(stateFile);
+  // Read before any delete: the account's personal team outlives it with no
+  // members, so it is deleted below once the account is gone.
+  const teamIds = await accountTeamIds(stackApp, state.userId);
   let apiStatus = null;
   let apiErrorCode = null;
   let apiCleanupSucceeded = false;
@@ -304,6 +307,7 @@ export async function cleanupTemporaryStackUser({
   // also covers transient API failures followed by direct administrative
   // deletion, without allowing an account that still exists to pass.
   const passed = accountAbsent;
+  const teams = accountAbsent ? await deleteEmptyTeams(stackApp, teamIds) : { deleted: 0, kept: teamIds };
   const report = {
     schemaVersion: 1,
     passed,
@@ -315,6 +319,8 @@ export async function cleanupTemporaryStackUser({
     accountAbsentAfterAPI,
     accountAbsent,
     manualRecoveryRequired: !accountAbsent,
+    teamsDeleted: teams.deleted,
+    teamsKept: teams.kept,
     completedAt: now().toISOString(),
   };
   writeRecoveryReport(recoveryFile, report);
@@ -324,6 +330,35 @@ export async function cleanupTemporaryStackUser({
     rmSync(stateFile, { force: true });
   }
   return report;
+}
+
+async function accountTeamIds(stackApp, userId) {
+  try {
+    const user = await stackApp.getUser(userId);
+    return user ? (await user.listTeams()).map((team) => team.id) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Deletes each team that has no members left; a team someone still belongs to is kept. */
+async function deleteEmptyTeams(stackApp, teamIds) {
+  const result = { deleted: 0, kept: [] };
+  for (const id of teamIds) {
+    try {
+      const team = await stackApp.getTeam(id);
+      if (!team) continue;
+      if ((await team.listUsers()).length > 0) {
+        result.kept.push(id);
+        continue;
+      }
+      await team.delete();
+      result.deleted += 1;
+    } catch {
+      result.kept.push(id);
+    }
+  }
+  return result;
 }
 
 function parsedArguments(argv) {

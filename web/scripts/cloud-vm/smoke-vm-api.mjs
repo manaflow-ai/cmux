@@ -13,6 +13,7 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 import { classifyCodexCanaryOutcome, edgeCanaryProblems } from "./canaryOutcome.mjs";
+import { deleteProbeUser } from "./probeTeams.mjs";
 
 const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--sweep-this-run] [--result-file <path>]";
 const args = process.argv.slice(2);
@@ -123,6 +124,8 @@ const stackModule = await import(pathToFileURL(requireFromWeb.resolve("@hexclave
 const { StackServerApp } = stackModule;
 
 let user;
+// The run's server client, kept for the finally block's account cleanup.
+let stackApp;
 let vmId;
 let authHeaders;
 // Set when a VM may still exist; the user then stays for the next sweep.
@@ -260,8 +263,9 @@ async function sweepLeftovers(app, emailPrefix, olderThanMinutes) {
       swept.kept.push(leftover.id);
       continue;
     }
-    await leftover.delete();
+    const { teamsDeleted } = await deleteProbeUser(app, leftover);
     swept.users += 1;
+    swept.teams = (swept.teams ?? 0) + teamsDeleted;
   }
   return swept;
 }
@@ -299,6 +303,7 @@ try {
   const secretServerKey = env.STACK_SECRET_SERVER_KEY;
 
   const app = new StackServerApp({ projectId, publishableClientKey, secretServerKey });
+  stackApp = app;
   const emailPrefix = `cmux-${project.stackLabel}-smoke+`;
   if (sweepThisRun) {
     stage = "sweep";
@@ -595,7 +600,8 @@ try {
     console.error(`cleanup_kept_user_for_sweep=${user.id}`);
   } else if (user) {
     try {
-      await user.delete();
+      const { teamsKept } = await deleteProbeUser(stackApp, user);
+      if (teamsKept.length > 0) console.error(`cleanup_kept_team=${teamsKept.join(",")}`);
     } catch (cleanupError) {
       console.error(
         `cleanup_delete_user_failed error=${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,

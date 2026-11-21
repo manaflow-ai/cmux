@@ -14,6 +14,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { elapsedMs, formatSummary, ownerNetworkSlug, parseServerTiming, pollBoundedFetch, providerCredentialsFromEnv, summarizeFields, summarizeStages } from "./benchStats.mjs";
 import { loadTargetEnv, optionValue, parseWebDirAndTarget, requireEnvKeys, runVercel } from "./projects.mjs";
+import { deleteProbeUser } from "./probeTeams.mjs";
 
 const usage = "Usage: bench-vm-startup.mjs [web-dir] <staging|production> [--trials N] [--concurrency K] [--url https://preview.example] [--allow-preview] [--allow-any-url] [--skip-initial-list] [--skip-pause] [--skip-exec] [--edge-check] [--edge-alias <host>] [--label <text>] [--out <file.json>]";
 const { webDir, target, project, rest } = parseWebDirAndTarget(process.argv.slice(2), usage);
@@ -821,7 +822,7 @@ async function runCleanup() {
     cleanup.abandonedProviderRequests = reportAbandonedProviderRequests();
     if (cleanup.providerClean && cleanup.abandonedProviderRequests.length === 0 && (await reapOwnerNetwork(user.id))) {
       try {
-        await withTimeout(user.delete(), STACK_TIMEOUT_MS, "Stack user delete");
+        await withTimeout(deleteProbeUser(app, user), STACK_TIMEOUT_MS, "Stack user delete");
         cleanup.accountDeleted = true;
         cleanup.accountOutcome = "no_session";
       } catch (cleanupError) {
