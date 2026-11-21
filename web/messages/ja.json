@@ -17,6 +17,12 @@
     "title": "認証を受け取りました",
     "description": "ターミナルに戻ってセットアップを完了してください。"
   },
+  "emailSignInCallback": {
+    "title": "cmux アプリでサインインを完了してください",
+    "body": "cmux アプリに戻り、このメールに記載された 6 文字のコードを入力してください。このリンクを開いてもアプリはサインインされません。",
+    "browserPrompt": "このブラウザで cmux を使いますか？",
+    "browserSignIn": "cmux.com でサインイン"
+  },
   "guestCLI": {
     "openURLUsage": "使い方: cmux open-url <http-or-https-url>",
     "openURLInvalid": "有効な HTTP または HTTPS の URL が必要です。",
