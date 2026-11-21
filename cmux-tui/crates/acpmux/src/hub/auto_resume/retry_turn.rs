@@ -26,7 +26,10 @@
 //! - A sub-session whose last turn was stopped (`cancelled`) is continued instead, in the same
 //!   chat: `hub/subsession_resume.rs`.
 
-use super::{Mark, SUFFIX, continue_text, split_attempt, still_cut};
+use super::{
+    Mark, SUFFIX, continue_text, split_attempt, still_cut, stopped_at_usage_limit,
+    with_paused_workflows,
+};
 use crate::hub::digest::DIGEST_KIND;
 use crate::hub::{Control, Hub, PromptOptions, Session};
 use crate::protocol::session::{RetryKind, RetryResult};
@@ -245,7 +248,13 @@ impl Hub {
                 let reason = crate::hub::turn_errors::resume_cause(&error, &error)
                     .filter(|r| *r != "context")
                     .unwrap_or("error");
-                vec![json!({"type": "text", "text": continue_text(&error, reason)})]
+                let mut text = continue_text(&error, reason);
+                // After a usage limit, the chat's paused workflows go on with it (auto_resume.rs).
+                if stopped_at_usage_limit(&error, reason, session.meta().usage_limits.as_ref()) {
+                    text =
+                        with_paused_workflows(text, &self.workflow_index.paused_runs(&session.id));
+                }
+                vec![json!({"type": "text", "text": text})]
             }
         };
         let held = self.held_by(session, &root, &cut_turn);
@@ -518,5 +527,32 @@ mod tests {
     fn a_continuation_names_the_error_it_continues_after() {
         assert!(continue_text("x", "transport").contains("a connection error (x)"));
         assert!(continue_text("simulated internal error", "error").contains("cut off by an error"));
+    }
+
+    #[test]
+    fn a_continuation_after_a_limit_names_the_paused_workflows() {
+        let text = continue_text("You've hit your limit", "capacity");
+        assert_eq!(with_paused_workflows(text.clone(), &[]), text);
+        let named = with_paused_workflows(text, &["wf_1".into(), "wf_2".into()]);
+        assert!(named.contains("(wf_1, wf_2)"), "{named}");
+        assert!(named.contains("resumeFromRunId"), "{named}");
+    }
+
+    /// Review of #46229: a capacity or rate-limit wait whose window is spent is a usage limit
+    /// too, as the pane's hold reads it; a window past its reset is not.
+    #[test]
+    fn a_spent_window_makes_a_capacity_wait_a_usage_limit() {
+        let now = (crate::store::now_ms() / 1000) as i64;
+        let spent =
+            json!({"windows": [{"id": "five_hour", "usedPercent": 100, "resetsAt": now + 3600}]});
+        let reset =
+            json!({"windows": [{"id": "five_hour", "usedPercent": 100, "resetsAt": now - 60}]});
+        let overloaded = "API Error: 529 overloaded";
+        assert!(stopped_at_usage_limit("You've hit your limit", "error", None));
+        assert!(stopped_at_usage_limit(overloaded, "capacity", Some(&spent)));
+        assert!(stopped_at_usage_limit(overloaded, "rate_limit", Some(&spent)));
+        assert!(!stopped_at_usage_limit(overloaded, "capacity", Some(&reset)));
+        assert!(!stopped_at_usage_limit(overloaded, "capacity", None));
+        assert!(!stopped_at_usage_limit(overloaded, "transport", Some(&spent)));
     }
 }

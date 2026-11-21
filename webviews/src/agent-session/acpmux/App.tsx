@@ -108,7 +108,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -117,6 +116,7 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
@@ -140,7 +140,7 @@ import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from ".
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
-import { githubFolder, githubFolderRepo } from "./githubRepos";
+import { githubFolderRepo, githubFolder } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
@@ -345,7 +345,13 @@ import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.exper
 import { settleTrayExit } from "./subagents/trayMotionModel";
 import { runRetry, type RetryTarget } from "./subagents/retryState";
 import { runResume as runSubagentResume } from "./subagents/resumeState";
-import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
+import {
+  configureUsageLimitHold,
+  configureWorkflowCardOpen,
+  configureWorkflowCardSideTab,
+  configureWorkflowLabs,
+  usageLimitHold,
+} from "./summary/workflowCardModel";
 import {
   type DoneLineCache,
   finishedTrayItems,
@@ -932,7 +938,7 @@ declare global {
       /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
       applyShortcuts?(labels: Record<string, string>): void;
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
-      /// default): the session coverage label.
+      /// default): the session coverage label, the workflow approval card and the usage-limit pause line.
       applyPreview?(on: boolean): void;
       /// The default-off live-tree status card (Settings > Advanced > Labs, `labs.liveTree`).
       applyLiveTree?(on: boolean): void;
@@ -1634,6 +1640,7 @@ export type InitialChat = {
   snapshot: AcpmuxSnapshot;
   machineName?: string;
   workflowLabs?: boolean;
+  previewFeatures?: boolean;
   liveTree?: boolean;
 };
 
@@ -1696,6 +1703,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// default, not behind Labs: Leo asked for them (2026-10-24, "leo dynamic workflows ... idk how we
   /// wanna display but here"). A host `workflowLabs` push of false still turns them off.
   const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(initialChat?.workflowLabs !== false);
+  /// Settings > Advanced > Labs (`labs.previewFeatures`, off by default; `applyPreview`). The workflow
+  /// approval card and the usage-limit pause line are newer than the workflow card and stay behind it.
+  const [previewFeatures, setPreviewFeatures] = useState(initialChat?.previewFeatures === true);
+  const workflowPreview = workflowLabsEnabled && previewFeatures;
   /// The first live-tree slice is opt-in from Settings > Advanced > Labs; the default pane stays unchanged.
   const [liveTreeEnabled, setLiveTreeEnabled] = useState(initialChat?.liveTree === true);
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
@@ -6187,6 +6198,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     configureWorkflowCardSideTab(workflowLabsEnabled ? openWorkflowSideTab : undefined);
     return () => configureWorkflowCardSideTab(undefined);
   }, [openWorkflowSideTab, workflowLabsEnabled]);
+  useEffect(() => configureWorkflowLabs(workflowPreview), [workflowPreview]);
+  // The workflow card's "Paused at usage limit" line follows the shown chat's retry wait.
+  const autoResumeRetry = snapshot.autoResume?.retry;
+  const usageLimits = snapshot.summary?.usageLimits;
+  useEffect(
+    () => configureUsageLimitHold(workflowPreview ? usageLimitHold(autoResumeRetry, usageLimits) : undefined),
+    [workflowPreview, autoResumeRetry, usageLimits],
+  );
   // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
   // the subagents still running, the background commands that have not ended and the started chats
   // that run. A count of one opens its subagent, the command's row or the chat; of several, the
@@ -8289,6 +8308,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // Cloud's own checks stay: Cloud allowed by policy, a signed-in account, and an explicit
         // pick; nothing creates a paid VM without one.
         setPromptSurfaces(on === true);
+        setPreviewFeatures(on === true);
         // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
       },
       applyLiveTree(on) {

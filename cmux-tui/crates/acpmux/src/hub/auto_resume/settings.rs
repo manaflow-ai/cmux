@@ -10,6 +10,21 @@ use serde_json::Value;
 pub const SETTING_ENABLED: &str = "agents.autoRetry.enabled";
 pub const SETTING_INTERVAL: &str = "agents.autoRetry.intervalSeconds";
 pub const SETTING_ATTEMPTS: &str = "agents.autoRetry.attempts";
+pub const SETTING_USAGE_LIMIT_FALLBACK: &str = "agents.autoRetry.usageLimitFallback";
+
+/// Whether a usage limit moves the chat onto its profile's fallback (`turns.rs`) instead of
+/// waiting for the reset on the same account. Off unless the settings file says true.
+pub(in crate::hub) fn usage_limit_fallback() -> bool {
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => usage_limit_fallback_in(&doc),
+        _ => false,
+    }
+}
+
+fn usage_limit_fallback_in(doc: &Value) -> bool {
+    crate::user_settings::value(doc, SETTING_USAGE_LIMIT_FALLBACK).and_then(|v| v.as_bool())
+        == Some(true)
+}
 
 /// The waits in force, one per attempt: `configured` (config.json's `autoResumeDelaysMs`) when
 /// set, else the settings file's, else the default. A settings file that cannot be read keeps
@@ -73,6 +88,11 @@ mod tests {
         assert_eq!(row(SETTING_INTERVAL)["range"]["max"], json!(MAX_DELAY_MS / 1000));
         assert_eq!(row(SETTING_ATTEMPTS)["default"], json!(DEFAULT_DELAYS_MS.len()));
         assert_eq!(row(SETTING_ATTEMPTS)["range"]["max"], json!(MAX_CONFIGURED_ATTEMPTS));
+        assert_eq!(row(SETTING_USAGE_LIMIT_FALLBACK)["default"], json!(false));
+        assert!(!usage_limit_fallback_in(&json!({})));
+        assert!(usage_limit_fallback_in(
+            &json!({"agents": {"autoRetry": {"usageLimitFallback": true}}})
+        ));
         // The defaults give exactly the waits a file without the keys gives.
         let defaults = json!({"agents": {"autoRetry": {"enabled": true, "intervalSeconds": 0, "attempts": 4}}});
         assert_eq!(settings_delays(&defaults), DEFAULT_DELAYS_MS.to_vec());

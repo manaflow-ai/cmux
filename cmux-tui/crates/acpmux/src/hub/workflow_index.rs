@@ -160,6 +160,33 @@ impl WorkflowIndex {
         rows.bound();
     }
 
+    /// The run ids of chat `session_id`'s paused workflows, oldest pause first: each run whose
+    /// latest task (a resume is a new task with the same `runId`) ended paused. A run a resume
+    /// took up, running or ended since, is not one. What a continue after a usage limit names,
+    /// so Claude resumes them (`auto_resume.rs`).
+    pub fn paused_runs(&self, session_id: &str) -> Vec<String> {
+        let rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        let mut latest: HashMap<&str, &Row> = HashMap::new();
+        for row in rows.by_id.values().filter(|row| row.session_id == session_id) {
+            let Some(run) = row.fields.get("runId").and_then(Value::as_str) else { continue };
+            let newer = latest.get(run).is_none_or(|seen| {
+                (row.started_at, row.ended_at.is_none(), row.ended_at)
+                    > (seen.started_at, seen.ended_at.is_none(), seen.ended_at)
+            });
+            if newer {
+                latest.insert(run, row);
+            }
+        }
+        let mut paused: Vec<(u64, String)> = latest
+            .into_iter()
+            .filter(|(_, row)| row.fields.get("reason").and_then(Value::as_str) == Some("paused"))
+            .filter(|(_, row)| row.fields.get("state").and_then(Value::as_str) == Some("cancelled"))
+            .filter_map(|(run, row)| Some((row.ended_at?, run.to_owned())))
+            .collect();
+        paused.sort();
+        paused.into_iter().map(|(_, run)| run).collect()
+    }
+
     /// Forgets the workflows of chats that are gone.
     pub fn forget(&self, sessions: &HashSet<String>) {
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
@@ -356,6 +383,34 @@ mod tests {
             index.list(false).iter().find(|row| row["subagentSessionId"] == "a/w1").unwrap()["duplicateOf"],
             Value::Null
         );
+    }
+
+    /// A usage limit's continue names the chat's paused runs, until a resume takes one up.
+    #[test]
+    fn paused_runs_are_named_until_resumed() {
+        let index = WorkflowIndex::default();
+        let run = |id: &str, run: &str| json!({"id": id, "kind": "workflow", "state": "running", "runId": run});
+        let paused = |id: &str| json!({"id": id, "state": "cancelled", "reason": "paused"});
+        index.observe(
+            "chat-1",
+            &[run("a/w1", "wf_1"), run("a/w2", "wf_2"), run("a/w3", "wf_3")],
+            1,
+        );
+        index.observe("chat-1", &[paused("a/w2")], 2);
+        index.observe("chat-1", &[paused("a/w1"), json!({"id": "a/w3", "state": "completed"})], 3);
+        index.observe("chat-2", &[run("b/w9", "wf_9"), paused("b/w9")], 3);
+        assert_eq!(index.paused_runs("chat-1"), ["wf_2", "wf_1"]);
+        // Resumed: a new task of the same run id runs.
+        index.observe("chat-1", &[run("a/w4", "wf_2")], 4);
+        assert_eq!(index.paused_runs("chat-1"), ["wf_1"]);
+        // The resumed run ends: still not paused. Paused again: named again.
+        index.observe("chat-1", &[json!({"id": "a/w4", "state": "completed"})], 5);
+        assert_eq!(index.paused_runs("chat-1"), ["wf_1"]);
+        index.observe("chat-1", &[run("a/w5", "wf_1"), paused("a/w5")], 6);
+        assert_eq!(index.paused_runs("chat-1"), ["wf_1"]);
+        index.observe("chat-1", &[json!({"id": "a/w5", "state": "completed"})], 7);
+        assert_eq!(index.paused_runs("chat-1"), Vec::<String>::new());
+        assert_eq!(index.paused_runs("chat-3"), Vec::<String>::new());
     }
 
     /// A chat's agent exited: its workflows ran in that process, so they end.

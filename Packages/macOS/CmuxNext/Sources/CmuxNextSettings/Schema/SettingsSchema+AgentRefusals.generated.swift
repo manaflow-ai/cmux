@@ -157,7 +157,7 @@ extension SettingsSchema {
         "agents.guidance.otherAgents": .userOnly, "agents.guidance.userSkills": .userOnly,
         // Whether and how often a failed turn is sent again spends the person's usage: their call, as `sessions.resumeAgents` is.
         "agents.autoRetry.enabled": .userOnly, "agents.autoRetry.intervalSeconds": .userOnly,
-        "agents.autoRetry.attempts": .userOnly,
+        "agents.autoRetry.attempts": .userOnly, "agents.autoRetry.usageLimitFallback": .userOnly,
         // Whether new chats get the person's saved MCP servers opens their connected services (Linear, Slack and others) to agents: the person's call.
         "agents.mcpServers.enabled": .network,
         // Compacting on a timer spends the person's usage (one model call each): their call.
