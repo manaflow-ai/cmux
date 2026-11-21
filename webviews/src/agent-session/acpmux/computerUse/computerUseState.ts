@@ -36,9 +36,7 @@ export function readComputerUseState(value: unknown): ComputerUseState | undefin
 /// Whether a send that names `@computer-use` waits (Lucas 2026-11-21: "do not let the user do
 /// @computer-use if it is not working/enabled"): every answer but `ready`. Only an app too old to
 /// answer (unknown) sends, since nothing here can tell; the agent's own tool then says what is wrong.
-export function holdsForComputerUse(
-  state: ComputerUseState | undefined,
-): state is Exclude<ComputerUseState, "ready"> {
+export function holdsForComputerUse(state: ComputerUseState | undefined): state is Exclude<ComputerUseState, "ready"> {
   return state !== undefined && state !== "ready";
 }
 

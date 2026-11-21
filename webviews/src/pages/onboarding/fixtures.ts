@@ -381,12 +381,7 @@ export function computerUseState(kind: ComputerUseFixture = "fresh"): Onboarding
   const rows: ComputerUseState["rows"] = [
     {
       pane: "accessibility",
-      control:
-        kind === "oneGranted" || allOn
-          ? "done"
-          : kind === "helperFailed"
-            ? "hidden"
-            : "allowPrimary",
+      control: kind === "oneGranted" || allOn ? "done" : kind === "helperFailed" ? "hidden" : "allowPrimary",
       icon: accessibilityIcon,
     },
     {
