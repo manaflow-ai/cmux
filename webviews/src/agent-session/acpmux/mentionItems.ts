@@ -365,9 +365,10 @@ export function mentionItems({
 }
 
 /// The row Return or Tab picks: the one the person moved to (by key, so it stays put when the
-/// files land around it), else the first. While the files for the word are still on their way, a
-/// chat is not picked unasked: a quick `@app⏎` means the file, which lists a moment later. Nor is an
-/// extension's item, unless the word named its provider (`@pr`, `providerAsked`). -1: none.
+/// files land around it), else the first. While the files for the word are still on their way, the
+/// first row that is not a chat (a quick `@app⏎` means the file) nor an extension's item, unless the
+/// word named its provider (`@pr`, `providerAsked`), else the first: a listed row is always chosen,
+/// so Return never falls through to send. -1: no rows.
 export function mentionSelection(
   items: readonly MentionItem[],
   activeKey: string | undefined,
@@ -376,28 +377,11 @@ export function mentionSelection(
 ) {
   const chosen = activeKey === undefined ? -1 : items.findIndex((item) => item.key === activeKey);
   if (chosen >= 0) return chosen;
-  if (!pending) return items.length > 0 ? 0 : -1;
-  return items.findIndex((item) => item.kind !== "session" && (item.kind !== "extension" || providerAsked));
-}
-
-/// What a pick writes in place of the `@word`: a file's or folder's `@path ` (a folder's with its
-/// slash), which the agent CLIs read as a path in the chat's folder; a chat's title, quoted as a
-/// JSON string so a `"` in it does not end it, and full id, which an agent can look up with cmux
-/// and the transcript links (#22055).
-export function mentionInsert(item: MentionItem): { markdown: string; shown: string } {
-  if (item.kind === "harness") return mentionText(item.harnessId);
-  // An extension's item writes its own text (a PR's link and title, a ticket), not an `@` path.
-  if (item.kind === "extension") {
-    const shown = `${item.mention.insert.replace(/\s+/g, " ").trim()} `;
-    // Inline marks are escaped as a chat's are; a start that reads as a block (`> `, `- `, `1. `,
-    // `# `, `+ `) is escaped too, since the pick can sit at the start of a line.
-    const markdown = shown
-      .replace(/[\\`*_[\]~<&]/g, "\\$&")
-      .replace(/^(#{1,6}|[>+-])(?= )/, "\\$1")
-      .replace(/^(\d+)([.)])(?= )/, "$1\\$2");
-    return { markdown, shown };
-  }
-  if (item.kind !== "session") return mentionText(item.kind === "folder" ? `${item.path}/` : item.path);
-  const shown = `cmux session ${JSON.stringify(item.title)} (${item.sessionId}) `;
-  return { markdown: shown.replace(/[\\`*_[\]~<&]/g, "\\$&"), shown };
+  if (items.length === 0) return -1;
+  return pending
+    ? Math.max(
+        0,
+        items.findIndex((item) => item.kind !== "session" && (item.kind !== "extension" || providerAsked)),
+      )
+    : 0;
 }

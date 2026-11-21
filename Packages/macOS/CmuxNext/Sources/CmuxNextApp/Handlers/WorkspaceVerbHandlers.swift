@@ -53,22 +53,21 @@ enum WorkspaceVerbHandlers {
         // menu says so ("Move to Top of Group", u2418); a multi-selection moves as one block.
         registry.bind("palette.moveWorkspaceToTop", run: { try place(context, $0) { .top(anchor: $0.id) } })
         registry.bind("workspace.moveToBottom", run: { try place(context, $0) { .bottom(anchor: $0.id) } })
-        ActionTargetTitles.set("palette.moveWorkspaceToTop", in: registry) { invocation in
-            isGrouped(invocation, context) ? WorkspaceVerbStrings.moveToTopOfGroup : nil
-        }
-        ActionTargetTitles.set("workspace.moveToBottom", in: registry) { invocation in
-            isGrouped(invocation, context) ? WorkspaceVerbStrings.moveToBottomOfGroup : nil
-        }
+        ActionTargetTitles.set("palette.moveWorkspaceToTop", in: registry) { isGrouped($0, context) ? WorkspaceVerbStrings.moveToTopOfGroup : nil }
+        ActionTargetTitles.set("workspace.moveToBottom", in: registry) { isGrouped($0, context) ? WorkspaceVerbStrings.moveToBottomOfGroup : nil }
         // Move Workspace Above/Below: next to the anchor row, in its group or loose, by the `.reorder` a row drag sends.
         for (id, below) in [("workspace.moveAbove", false), ("workspace.moveBelow", true)] as [(ActionID, Bool)] {
             registry.bindEffect(id, requires: nil) { invocation in
                 let workspace = try context.workspace(invocation).model, ref = invocation["anchor"]?.targetValue
                 guard let anchor = ref.flatMap({ context.services.workspace(id: $0.id) }) else { throw ActionFailure.notFound(RefusalStrings.noWorkspace(ref?.id ?? "")) }
-                let bridge = try sidebar(showing: anchor, context)
-                switch WorkspaceSlot.beside(anchor.id, below: below, moving: workspace.id, in: bridge.model.sections, onDocument: context.services.sidebarDoc.isActive) {
-                case .success(let position): bridge.handle(.reorder([SidebarWorkspaceID(workspace.id)], to: position)); return .done
+                let bridge = try? sidebar(showing: anchor, context)
+                let beside = bridge.map { WorkspaceSlot.beside(anchor.id, below: below, moving: workspace.id, in: $0.model.sections, onDocument: context.services.sidebarDoc.isActive) } ?? .failure(.elsewhere)
+                if case .success(let position) = beside { bridge?.handle(.reorder([SidebarWorkspaceID(workspace.id)], to: position)); return .done }
+                if workspace.id != anchor.id, try AppActions.moveBandWorkspace(workspace, context.services, origin: invocation.origin, { $0(anchor.id).map { below ? .below($0) : .above($0) } }) { return .done } // both pinned
+                switch beside {
+                case .success: return .done
                 case .failure(.needsDocument): throw ActionFailure.invalidTarget(context.services.sidebarLayout.unavailableReason ?? RefusalStrings.workspaceNotInSidebar)
-                case .failure(.elsewhere): throw ActionFailure.invalidTarget(WorkspaceVerbStrings.anchorElsewhere)
+                case .failure(.elsewhere): _ = try sidebar(showing: anchor, context); throw ActionFailure.invalidTarget(WorkspaceVerbStrings.anchorElsewhere)
                 }
             }
         }
@@ -204,12 +203,12 @@ enum WorkspaceVerbHandlers {
     // MARK: Place
 
     /// Moves the target workspace, or the multi-selection it belongs to, to
-    /// `slot` in its window's sidebar, with the sidebar's optimistic update.
+    /// `slot` in its window's sidebar, with the sidebar's optimistic update (pinned, no list row: Pinned's top, under Home, or bottom).
     private static func place(_ context: AppActionContext, _ invocation: ActionInvocation, _ slot: (WorkspaceModel) -> WorkspaceSlot) throws {
-        let workspace = try context.workspace(invocation).model
-        let ids = try WindowMembershipHandlers.workspaces(invocation, context)
-        guard place(ids, anchor: workspace, slot(workspace), in: try sidebar(showing: workspace, context), services: context.services)
-        else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
+        let workspace = try context.workspace(invocation).model, to = slot(workspace), bridge = Result { try sidebar(showing: workspace, context) }
+        if let shown = try? bridge.get(), place(try WindowMembershipHandlers.workspaces(invocation, context), anchor: workspace, to, in: shown, services: context.services) { return }
+        let edge: SidebarBandPlacement? = if case .top = to { .top } else if case .bottom = to { .bottom } else { nil }
+        guard let edge, try AppActions.moveBandWorkspace(workspace, context.services, origin: invocation.origin, { _ in edge }) else { _ = try bridge.get(); throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
     }
 
     /// Moves `workspace` to `slot` in `bridge`'s sidebar, as the Move
