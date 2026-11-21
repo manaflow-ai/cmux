@@ -79,7 +79,7 @@ impl Surface {
             let mut taps = pty.taps.lock().unwrap();
             if taps.is_empty() {
                 let live = TerminalColors::from_pty_output(&term, defaults);
-                let mut last = pty.last_attach_colors.lock().unwrap();
+                let mut last = pty.last_attach_colors.lock().recover_poison();
                 // A color change while nobody was attached: a viewer that
                 // resumes by offset must not skip it.
                 if last.as_deref() != Some(&live) {
@@ -120,7 +120,7 @@ impl Surface {
     ) -> Option<ResumeAttach> {
         let held = resume_ring::StreamStamp::parse_generation(generation)?;
         let pty = self.as_pty()?;
-        let term = pty.term.lock().unwrap();
+        let term = pty.term.lock().recover_poison();
         if pty.dead.load(Ordering::Acquire) {
             return None;
         }
@@ -129,12 +129,12 @@ impl Surface {
         }
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let live_colors = TerminalColors::from_pty_output(&term, defaults);
-        let mut taps = pty.taps.lock().unwrap();
+        let mut taps = pty.taps.lock().recover_poison();
         // With no viewer attached nothing announced a color change since the
         // last one sent: compare it here.
         taps.retain(|tap| !tap.lifecycle.is_canceled());
         if taps.is_empty()
-            && pty.last_attach_colors.lock().unwrap().as_deref() != Some(&live_colors)
+            && pty.last_attach_colors.lock().recover_poison().as_deref() != Some(&live_colors)
         {
             return None;
         }
