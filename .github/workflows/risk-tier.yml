@@ -81,10 +81,13 @@ jobs:
         run: |
           history="$RUNNER_TEMP/base-history"
           git init -q "$history"
-          if timeout 120 git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
+          # Blobless: commits and trees only (16 MB in 5 s, against 681 MB in 115 s with every blob, 11-21; the fetch
+          # was 179 of risk tier's 251 runner-min). risk_tier.py fetches the versions of the files it blames in one
+          # round trip (prefetch_blobs, cmux#48946); merge-base reads commits only.
+          if timeout 120 git -C "$history" fetch -q --no-tags --filter=blob:none --shallow-since="9 days ago" "https://github.com/$REPO.git" \
               "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"; then
             echo "BASE_HISTORY=$history" >> "$GITHUB_ENV"
-            timeout 60 git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
+            timeout 60 git -C "$history" fetch -q --no-tags --filter=blob:none --shallow-since="9 days ago" "https://github.com/$REPO.git" \
               "+refs/pull/$NUMBER/head:refs/remotes/pull/head" || echo "head not fetched; the merge base comes from compare"
           else
             echo "::warning::recent-revert check skipped: base history unavailable"
