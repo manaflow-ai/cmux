@@ -244,5 +244,49 @@ class WiringTest(unittest.TestCase):
             self.assertIn("inputs.sha", (WORKFLOW.parent / suite.workflow).read_text(), key)
 
 
+class GuardTest(unittest.TestCase):
+    """A probe's inputs are checked against the batch run that found the red; a teammate's culprit gets a held revert."""
+
+    COMMITS = ["c1", "c2", "c3", "c4"]
+    ORIGIN = {"id": 50, "display_title": "batch schedule", "path": ".github/workflows/cmux-next-post-merge.yml", "head_branch": "feat-cmux-next", "head_sha": "c4"}
+    FOUND = [("s / j", "s", "g")]
+
+    def refusal(self, probe, origin=ORIGIN, found=FOUND) -> str:
+        return pmb.probe_refusal(probe, "feat-cmux-next", origin, found, lambda good, head: self.COMMITS if (good, head) == ("g", "c4") else [])
+
+    def test_the_bisect_the_batch_started_passes(self) -> None:
+        self.assertEqual(self.refusal(pmb.Probe("s", "s / j", "j", "c4", "g", "", "50")), "")
+        self.assertEqual(self.refusal(pmb.Probe("s", "s / j", "j", "c2", "g", "c4", "50")), "")
+        self.assertEqual(self.refusal(pmb.Probe("s", "s / j", "j", "c3", "c2", "c4", "50")), "")
+
+    def test_a_forged_range_is_refused(self) -> None:
+        # bad=X, good=X^ naming any X: X is not in the batch's covered commits.
+        self.assertIn("sha", self.refusal(pmb.Probe("s", "s / j", "j", "x", "x0", "x", "50")))
+        self.assertIn("bad", self.refusal(pmb.Probe("s", "s / j", "j", "c2", "g", "x", "50")))
+        self.assertIn("good", self.refusal(pmb.Probe("s", "s / j", "j", "c3", "x0", "c4", "50")))
+        self.assertIn("confirming", self.refusal(pmb.Probe("s", "s / j", "j", "c2", "g", "", "50")))
+
+    def test_a_job_that_was_not_a_new_red_is_refused(self) -> None:
+        self.assertIn("not a new red", self.refusal(pmb.Probe("s", "s / k", "k", "c4", "g", "", "50")))
+        self.assertIn("not a new red", self.refusal(pmb.Probe("s", "s / j", "j", "c4", "g", "", "50"), found=[]))
+
+    def test_an_origin_that_is_not_our_batch_run_is_refused(self) -> None:
+        probe = pmb.Probe("s", "s / j", "j", "c4", "g", "", "50")
+        self.assertIn("unreadable", self.refusal(probe, origin=None))
+        for change in ({"display_title": "probe s j at c4"}, {"path": ".github/workflows/other.yml"}, {"head_branch": "lane/x"}):
+            self.assertIn("not a batch run", self.refusal(probe, origin={**self.ORIGIN, **change}))
+
+    def test_a_teammates_culprit_is_held(self) -> None:
+        self.assertEqual(pmb.merged_by_teammate("o/r", "7", api=lambda path: {"user": {"login": "lawrencecchen"}}), "lawrencecchen")
+        self.assertEqual(pmb.merged_by_teammate("o/r", "7", api=lambda path: {"user": {"login": "some-agent"}}), "")
+        self.assertEqual(pmb.merged_by_teammate("o/r", "", api=lambda path: 1 / 0), "")
+
+        def unreadable(path):
+            raise RuntimeError("gh api: 403")
+
+        self.assertTrue(pmb.merged_by_teammate("o/r", "7", api=unreadable))
+        self.assertTrue(pmb.TEAMMATE_HOLD.format(login="x").startswith("HOLD: "))
+
+
 if __name__ == "__main__":
     unittest.main()
