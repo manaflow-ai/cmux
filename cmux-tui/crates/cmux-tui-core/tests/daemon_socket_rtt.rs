@@ -216,7 +216,8 @@ fn start_daemon(workspaces: usize) -> Result<Daemon> {
 fn start_streams(daemon: &mut Daemon, count: usize) -> Result<()> {
     for _ in 0..count {
         let argv = vec!["/bin/sh".to_string(), "-c".to_string(), STREAM_LINE.to_string()];
-        let placed = daemon.mux.run_command_surface(argv, None, false, None, None, Some((80, 24)))?;
+        let placed =
+            daemon.mux.run_command_surface(argv, None, false, None, None, Some((80, 24)))?;
         daemon.surfaces.push(placed.surface);
     }
     Ok(())
@@ -279,7 +280,12 @@ fn row(stats: &Stats) -> Value {
 }
 
 /// Runs one daemon at `workspaces` through every load; returns its rows.
-fn run_scale(workspaces: usize, samples: usize, streams: usize, clients: usize) -> Result<Map<String, Value>> {
+fn run_scale(
+    workspaces: usize,
+    samples: usize,
+    streams: usize,
+    clients: usize,
+) -> Result<Map<String, Value>> {
     let mut daemon = start_daemon(workspaces)?;
     let subscriber = Subscriber::start(&daemon.socket)?;
     let mut client = Client::connect(&daemon.socket)?;
@@ -312,7 +318,10 @@ fn run_scale(workspaces: usize, samples: usize, streams: usize, clients: usize) 
             Some(h) => format!(", background list-workspaces {:.0}/s", h.finish()? as f64 / secs),
             None => String::new(),
         };
-        table.push(format!("{workspaces:>3} ws  {load:<9} subscriber events {:.0}/s{background}", pushed as f64 / secs));
+        table.push(format!(
+            "{workspaces:>3} ws  {load:<9} subscriber events {:.0}/s{background}",
+            pushed as f64 / secs
+        ));
     }
     drop(subscriber);
     for line in table {
@@ -336,7 +345,9 @@ fn daemon_socket_round_trip() -> Result<()> {
     for (key, value) in &rows {
         let Some(base) = key.strip_suffix(".ws1") else { continue };
         let at = |k: &str| rows.get(k).and_then(|r| r.get("p50")).and_then(Value::as_f64);
-        if let (Some(one), Some(thirty)) = (value.get("p50").and_then(Value::as_f64), at(&format!("{base}.ws30"))) {
+        if let (Some(one), Some(thirty)) =
+            (value.get("p50").and_then(Value::as_f64), at(&format!("{base}.ws30")))
+        {
             let ratio = (thirty / one.max(0.1) * 100.0).round() / 100.0;
             println!("scale {base}: p50 {one:.1} -> {thirty:.1} us at 30 workspaces ({ratio}x)");
             ratios.insert(
