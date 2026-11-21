@@ -16,8 +16,11 @@ const REGISTRY_TIMEOUT_MS = 8_000;
 /** A registry answer larger than this is refused before it is buffered (a page is PAGE_LIMIT listings with READMEs). */
 const MAX_REGISTRY_BYTES = 16 * 1024 * 1024;
 const PAGE_LIMIT = 100;
-/** Bound on pages walked for the sitemap and author pages: 50 x 100 listings. */
-const MAX_PAGES = 50;
+/**
+ * Bound on pages walked for the sitemap and author pages: 500 x 100 listings, a sitemap file's 50,000-URL limit.
+ * The walk stops early when the registry has no next page; reaching the bound is logged, never silent.
+ */
+const MAX_PAGES = 500;
 
 export function registryBaseUrl(env: Record<string, string | undefined> = process.env): string {
   const configured = env.CMUX_REGISTRY_URL?.trim();
@@ -282,16 +285,17 @@ export async function fetchListingPage(
   return parseListingPage(body, kind);
 }
 
-/** Every approved listing of a kind, bounded by MAX_PAGES. */
-export async function fetchAllListings(kind: ListingKind): Promise<Listing[]> {
+/** Every approved listing of a kind, bounded by MAX_PAGES (a truncated walk is logged). */
+export async function fetchAllListings(kind: ListingKind, maxPages = MAX_PAGES): Promise<Listing[]> {
   const listings: Listing[] = [];
   let cursor: string | undefined;
-  for (let page = 0; page < MAX_PAGES; page += 1) {
+  for (let page = 0; page < maxPages; page += 1) {
     const result = await fetchListingPage(kind, { cursor });
     listings.push(...result.items);
-    if (!result.next || result.next === cursor) break;
+    if (!result.next || result.next === cursor) return listings;
     cursor = result.next;
   }
+  console.error(`extension registry: ${kind} listings truncated at ${maxPages} pages (${listings.length} listings); more remain`);
   return listings;
 }
 
