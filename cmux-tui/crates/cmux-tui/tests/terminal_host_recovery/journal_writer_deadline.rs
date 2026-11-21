@@ -8,8 +8,11 @@
 //!
 //! This test holds the journal writer the way the stalled disk did (the
 //! `CMUX_TUI_TEST_HOLD_TERMINAL_JOURNAL` hook), lets a terminal exit while it
-//! is held so the exit's journal fence times out, then releases the writer.
-//! The exit must still be committed and the tab detached.
+//! is held so the exit's journal fence times out in the queue, then releases
+//! the writer. The writer then reaches that fence after its deadline (the
+//! held batch itself commits: the hook runs before its deadline is taken).
+//! That expiry used to stop the writer for good. The exit's retry must still
+//! commit and the tab detach.
 
 use super::*;
 
@@ -39,6 +42,12 @@ fn exited_terminal_detaches_after_a_journal_stall_past_the_deadline() {
     // A geometry change is a terminal-lane journal record: the writer takes
     // it and waits on the hold, as a writer behind a stalled disk does.
     attach_claim_and_resize_surface(&harness.socket, surface, 100, 30, 2);
+    let receipts_before = request(
+        &harness.socket,
+        serde_json::json!({"id":9,"cmd":"server-stats"}),
+    )["journal_writer"]["receipt_wait_us"]["count"]
+        .as_u64()
+        .unwrap_or(0);
     request(
         &harness.socket,
         serde_json::json!({"id":10,"cmd":"send-key","surface":surface,"keys":["ctrl+d"]}),
@@ -49,8 +58,10 @@ fn exited_terminal_detaches_after_a_journal_stall_past_the_deadline() {
     let deadline = Instant::now() + test_timeout(Duration::from_secs(60));
     loop {
         let stats = request(&harness.socket, serde_json::json!({"id":11,"cmd":"server-stats"}));
-        let waited = stats["journal_writer"]["receipt_wait_us"]["max"].as_u64().unwrap_or(0);
-        if waited >= (DURABLE_WAIT_MS - 100) * 1_000 {
+        let receipts = &stats["journal_writer"]["receipt_wait_us"];
+        let waited = receipts["max"].as_u64().unwrap_or(0);
+        let count = receipts["count"].as_u64().unwrap_or(0);
+        if count > receipts_before && waited >= (DURABLE_WAIT_MS - 100) * 1_000 {
             break;
         }
         assert!(
