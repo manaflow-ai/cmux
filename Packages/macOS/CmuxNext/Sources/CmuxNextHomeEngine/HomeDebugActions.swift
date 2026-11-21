@@ -56,6 +56,11 @@ public struct HomeDebugActions {
                                          dark: invocation["dark"]?.boolValue)
             return .done
         })
+        // Debug > Chief Without Home Prototype: three live layouts of cmux with no Home (Lawrence, 2026-11-20).
+        registry.bindEffect("home.chiefNoHomePlayground", effect: { invocation in
+            ChiefNoHomePlayground.show(variant: invocation["variant"]?.intValue)
+            return .done
+        })
         // Debug > Chief Teleport Playground: the location chip variants in every state, light and dark.
         registry.bindEffect("home.chiefTeleportPlayground", effect: { invocation in
             ChiefTeleportPlayground.show(state: invocation["state"]?.intValue)
