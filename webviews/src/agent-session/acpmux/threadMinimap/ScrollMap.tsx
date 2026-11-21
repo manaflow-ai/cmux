@@ -28,6 +28,7 @@ import {
   type MinimapTurn,
   replyMore,
 } from "./model";
+import { writeScrollTop } from "../conversation/scrollController";
 import {
   MAP_MARGIN,
   MAP_MIN_PROMPTS,
@@ -189,7 +190,11 @@ export function ScrollMap({
     const node = scroller.current;
     if (!node) return;
     stopScroll(node);
-    node.scrollTop = physicalScrollTop(node, scrollTopAt(y, height, layout.totalHeight, node.clientHeight));
+    writeScrollTop(
+      node,
+      physicalScrollTop(node, scrollTopAt(y, height, layout.totalHeight, node.clientHeight)),
+      "minimap",
+    );
   };
   const point = (y: number) => {
     const at = keyOf(marks[markAt(marks, y) ?? -1]);
