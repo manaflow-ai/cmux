@@ -121,6 +121,16 @@
 :root[data-cmux-see-through] :where(.ui-positioner:has(> .nt-popover)) {
   --acpmux-composer-surface: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-chrome-tint), transparent);
 }
+/* Over art the pane's quiet controls (the header's tools, the context ring, the composer's chips
+   and pickers) draw three quarters of the way from the secondary ink to the primary one. The window
+   tint floor keeps primary text at 4.5:1 over the art, but the secondary ink fell to 2.2:1 there
+   (control-contrast audit: a header tool #aaaaaa on the busy picture's #786e12, the Mode chip
+   #828282 on a light picture's #e3e9dc). The step keeps them quieter than the prompt. Reduce
+   Transparency draws an opaque window, where the secondary ink holds. */
+:root[data-cmux-see-through]:not([data-reduce-transparency])
+  :is(.acpmux-header-tool, .acpmux-context-ring, .acpmux-picker-button, .acpmux-access-trigger) {
+  --agent-muted: color-mix(in srgb, var(--agent-text) 75%, var(--cmux-text-secondary, var(--agent-text)));
+}
 /* All cards in the bottom stack use the input's material. Extra text washes on individual
    cards otherwise change the wallpaper's tint at every seam. */
 .acpmux-shell {

@@ -12,14 +12,14 @@
       "rows": [
         {
           "key": "labs.previewFeatures",
-          "note": "Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.",
+          "note": "Surfaces still being shaped (the App Store, the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.",
           "title": {
             "key": "settings.labs.previewFeatures",
             "text": "Show Preview Features"
           },
           "help": {
             "key": "settings.labs.previewFeatures.help",
-            "text": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
+            "text": "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view."
           },
           "kind": "toggle",
           "default": false,
@@ -28,7 +28,33 @@
             "preview",
             "experimental",
             "beta",
-            "prototype"
+            "prototype",
+            "app store",
+            "apps",
+            "extensions"
+          ]
+        },
+        {
+          "key": "labs.liveTree",
+          "note": "Read-only live-tree compiler snapshot in the agent pane. Off by default; only opening or refreshing the popover reads status. Turning it off unmounts the experiment.",
+          "title": {
+            "key": "settings.labs.liveTree",
+            "text": "Live Tree"
+          },
+          "help": {
+            "key": "settings.labs.liveTree.help",
+            "text": "Show live-tree compiler status in the agent pane."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "live",
+            "tree",
+            "shared",
+            "compile",
+            "lanes",
+            "experiment"
           ]
         },
         {

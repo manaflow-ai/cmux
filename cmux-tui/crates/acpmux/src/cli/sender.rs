@@ -47,7 +47,7 @@ impl Subagent {
 
 /// The subagent this process runs in, when it runs in an acpmux session and the hook marked it.
 pub fn subagent_of_this_process() -> Option<Subagent> {
-    subagent_in(|key| std::env::var(key).ok())
+    subagent_in(crate::tool_env::var)
 }
 
 fn subagent_in(env: impl Fn(&str) -> Option<String>) -> Option<Subagent> {
