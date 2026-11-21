@@ -54,11 +54,11 @@ impl Pair {
         for event in events {
             match event {
                 EndpointEvent::Link(Event::Datagram(_)) if to_host => {
-                    self.host_heard = Some(self.now)
+                    self.host_heard = Some(self.now);
                 }
                 EndpointEvent::Link(Event::Datagram(_)) => self.viewer_heard = Some(self.now),
                 EndpointEvent::Link(Event::Control(record)) if to_host => {
-                    self.host_controls.push(record)
+                    self.host_controls.push(record);
                 }
                 EndpointEvent::Link(Event::Control(record)) => self.viewer_controls.push(record),
                 EndpointEvent::Link(Event::Closed) => self.ended.push("closed".into()),
