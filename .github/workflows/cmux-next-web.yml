@@ -14,9 +14,14 @@ name: cmux-next web
 # request tripped over them, and a pull request's new web red passed as a base red
 # (#20633). Leo, 2026-10-19: the base stays green by construction. The routing keeps
 # unrelated Swift-only work cheap while retaining the base React signal.
+#
+# 2026-11-21: the base's web verdict moved to the post-merge batch tier (cmux-next-post-merge.yml, suite `web`, which
+# calls ci-web.yml with the same `web / ...` job names); this file no longer runs on feat-cmux-next pushes. Leo,
+# 2026-11-21: "id rather we simply cut shit now and revisit later." It stays for its dispatch: next_batch.py's web
+# lane dispatches it on a stack head (WEB_WORKFLOW), where coalesce runs at once (`wait --off`) and web bisect, a
+# push-only job, never starts. The batch tier's own bisect replaces web bisect and the 120-minute coalescing below.
+# post_merge_batch.py tick no longer dispatches its coalescing tick (the `tick` input stays for a hand dispatch).
 on:
-  push:
-    branches: [feat-cmux-next]
   workflow_dispatch:
     inputs:
       tick:
