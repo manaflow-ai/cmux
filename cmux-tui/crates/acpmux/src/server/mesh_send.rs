@@ -91,6 +91,7 @@ pub(super) async fn relay(
         None => {
             let to = down_peer_recipient(hub, &delivery.target)?;
             let carried = carried(&delivery.request, &delivery.target).ok()?;
+            let class_dropped = carried.class_dropped;
             let message = OutMessage {
                 to,
                 from: sender(hub, delivery.caller.as_deref(), carried.named, carried.claim),
@@ -101,7 +102,7 @@ pub(super) async fn relay(
                 idempotency_key: idempotency_key(&carried.prompt_id),
             };
             hub.outbox.update(&delivery.id, |d| d.relay_post = Some(message.clone()));
-            (message, carried.class_dropped)
+            (message, class_dropped)
         }
     };
     Some(mesh.send(&message).await.map(|receipt| {
@@ -294,12 +295,14 @@ pub(super) async fn status(
             }
         }
     }
-    let target =
-        receipt.to.team_address.clone().or_else(|| origin.map(|d| d.target)).unwrap_or_else(|| {
-            match (&receipt.to.host, &receipt.to.name) {
-                (Some(host), Some(name)) => format!("{host}/{name}"),
-                (_, name) => name.clone().unwrap_or_default(),
-            }
+    let target = receipt
+        .to
+        .team_address
+        .clone()
+        .or_else(|| origin.as_ref().map(|d| d.target.clone()))
+        .unwrap_or_else(|| match (&receipt.to.host, &receipt.to.name) {
+            (Some(host), Some(name)) => format!("{host}/{name}"),
+            (_, name) => name.clone().unwrap_or_default(),
         });
     Ok(status_of(&receipt, &target, warning))
 }
