@@ -36,8 +36,11 @@ pub fn running() -> bool {
     HOST.get().is_some()
 }
 
+/// Off in this crate's unit tests: they run the host (`host_recovery_tests`), and a real mesh
+/// would bind UDP 7421, write `lan.key` to the user's state dir and, being process-global, add
+/// its capability to every other test's `version`.
 fn enabled() -> bool {
-    std::env::var("CMUX_MOBILE_LAN").map_or(true, |v| v.trim() != "0")
+    !cfg!(test) && std::env::var("CMUX_MOBILE_LAN").map_or(true, |v| v.trim() != "0")
 }
 
 /// Start the mesh and serve the links it accepts; `None` when it is off or
