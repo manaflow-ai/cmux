@@ -28,8 +28,9 @@
 //                (the 100k-row chat of chat-100k-flat.bench.ts, stopped after 24 older pages)
 // STEP scales the wheel's steps (1: about 80 px a frame, a trackpad flick; 0.4 a reading scroll). Prints one
 // summary line per engine and PERF_ROW lines; exits 1 when a goal is missed (0 blank frames, drift under 1 px,
-// p95 frame under 16.7 ms, thumb size change under 5 %, thumb never moving down). Run it yourself, never as a CI
-// gate (`cmux-ci test -- 'cd webviews && bun bench/transcript-scroll-up.bench.ts'`).
+// p95 frame under 16.7 ms, thumb size change under 5 %, thumb never moving down). Run it yourself; it is not a CI
+// gate (written under the 2026-10-23 no-new-CI rule, since lifted):
+// `cmux-ci test -- 'cd webviews && bun bench/transcript-scroll-up.bench.ts'`.
 /// <reference types="bun" />
 import { chromium, webkit } from "./browsers";
 import type { Browser, BrowserType } from "playwright";
