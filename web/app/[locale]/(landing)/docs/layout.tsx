@@ -1,6 +1,6 @@
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages, getTranslations } from "next-intl/server";
-import { pruneClientMessages } from "@/i18n/client-messages";
+import { docsClientMessages } from "@/i18n/client-messages";
 import { buildAlternates, openGraphDefaults } from "@/i18n/seo";
 import { DocsNav } from "./docs-nav";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
@@ -35,8 +35,9 @@ export default async function DocsLayout({
 }) {
   const channel = docsChannel();
   // Docs client components read the `docs` namespace, which the shared
-  // catalog omits. A nested provider replaces the catalog for this subtree.
-  const messages = pruneClientMessages(await getMessages());
+  // catalog omits. A nested provider replaces the catalog for this subtree
+  // with the client sections only; page bodies render on the server.
+  const messages = docsClientMessages(await getMessages());
   return (
     <NextIntlClientProvider messages={messages}>
       <div className="min-h-screen">
