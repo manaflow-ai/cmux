@@ -213,7 +213,16 @@ extension ScreenContentView {
     /// docked column after the strip's end, so every strip column stays
     /// reachable and nothing ties with a docked column by screen position.
     /// Top and bottom docks keep their height and stretch across the strip.
-    var navigationFrames: [PaneID: CGRect] {
+    var navigationFrames: [PaneID: CGRect] { navigationFrames(geometry, base: baseGeometry) }
+
+    /// ``navigationFrames`` of `layout` at this view's size, scroll areas and row offsets: the frames it would
+    /// show, computed without laying it out.
+    func navigationFrames(showing layout: ScreenLayout) -> [PaneID: CGRect] {
+        let base = ScreenGeometry.compute(layout, viewport: bounds.size, style: context.style, scale: scale)
+        return navigationFrames(base.shiftingAreas(areaOffsets).shiftingRows(rowOffsets), base: base)
+    }
+
+    private func navigationFrames(_ geometry: ScreenGeometry, base baseGeometry: ScreenGeometry) -> [PaneID: CGRect] {
         let gap = context.style.stripGap
         var result: [PaneID: CGRect] = [:]
         for (pane, shown) in geometry.panes {
