@@ -1,124 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "mobile.cloud.action.restart": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restart"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neu starten"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Redémarrer"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إعادة التشغيل"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reiniciar"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新啟動"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新启动"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "재시작"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再起動"
-          }
-        }
-      }
-    },
-    "mobile.cloud.action.restartFailedFormat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't restart: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neustart nicht möglich: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de redémarrer : %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّرت إعادة التشغيل: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo reiniciar: %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法重新啟動：%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法重新启动：%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "재시작할 수 없음: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再起動できませんでした: %@"
-          }
-        }
-      }
-    },
     "mobile.workspace.newOnMachine": {
       "extractionState": "manual",
       "localizations": {
@@ -104038,11 +103920,6 @@
     "mobile.billing.awaitingServer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Purchase complete. Your plan updates as soon as cmux confirms it. You don't need to buy again."}},"de":{"stringUnit":{"state":"translated","value":"Kauf abgeschlossen. Dein Tarif wird aktualisiert, sobald cmux ihn bestätigt. Du musst nicht erneut kaufen."}},"fr":{"stringUnit":{"state":"translated","value":"Achat terminé. Votre forfait sera mis à jour dès que cmux l’aura confirmé. Inutile d’acheter à nouveau."}},"ar":{"stringUnit":{"state":"translated","value":"اكتملت عملية الشراء. سيتم تحديث خطتك فور تأكيد cmux لها. لا داعي للشراء مرة أخرى."}},"es":{"stringUnit":{"state":"translated","value":"Compra completada. Tu plan se actualizará en cuanto cmux la confirme. No necesitas comprar de nuevo."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"購買完成。cmux 確認後就會更新你的方案，不需要再次購買。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"购买完成。cmux 确认后会立即更新你的方案，无需再次购买。"}},"ko":{"stringUnit":{"state":"translated","value":"구입이 완료되었습니다. cmux가 확인하는 즉시 플랜이 업데이트됩니다. 다시 구입할 필요가 없습니다."}},"ja":{"stringUnit":{"state":"translated","value":"購入が完了しました。cmux が確認するとすぐにプランが更新されます。再購入は不要です。"}}}},
     "mobile.billing.completed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"You're on %@ now."}},"de":{"stringUnit":{"state":"translated","value":"Du nutzt jetzt %@."}},"fr":{"stringUnit":{"state":"translated","value":"Vous avez maintenant le forfait %@."}},"ar":{"stringUnit":{"state":"translated","value":"أنت الآن على خطة %@."}},"es":{"stringUnit":{"state":"translated","value":"Ya tienes el plan %@."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你現在使用 %@ 方案。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"你现在使用 %@ 方案。"}},"ko":{"stringUnit":{"state":"translated","value":"이제 %@ 플랜을 사용 중입니다."}},"ja":{"stringUnit":{"state":"translated","value":"%@ プランになりました。"}}}},
     "mobile.billing.currentPlan": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Current plan"}},"de":{"stringUnit":{"state":"translated","value":"Aktueller Tarif"}},"fr":{"stringUnit":{"state":"translated","value":"Forfait actuel"}},"ar":{"stringUnit":{"state":"translated","value":"الخطة الحالية"}},"es":{"stringUnit":{"state":"translated","value":"Plan actual"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"目前方案"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"当前方案"}},"ko":{"stringUnit":{"state":"translated","value":"현재 플랜"}},"ja":{"stringUnit":{"state":"translated","value":"現在のプラン"}}}},
-    "mobile.billing.period": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Billing period"}},"de":{"stringUnit":{"state":"translated","value":"Abrechnungszeitraum"}},"fr":{"stringUnit":{"state":"translated","value":"Période de facturation"}},"ar":{"stringUnit":{"state":"translated","value":"فترة الفوترة"}},"es":{"stringUnit":{"state":"translated","value":"Periodo de facturación"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"計費週期"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"计费周期"}},"ko":{"stringUnit":{"state":"translated","value":"결제 주기"}},"ja":{"stringUnit":{"state":"translated","value":"請求期間"}}}},
-    "mobile.billing.period.monthly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Monthly"}},"de":{"stringUnit":{"state":"translated","value":"Monatlich"}},"fr":{"stringUnit":{"state":"translated","value":"Mensuel"}},"ar":{"stringUnit":{"state":"translated","value":"شهري"}},"es":{"stringUnit":{"state":"translated","value":"Mensual"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"每月"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"每月"}},"ko":{"stringUnit":{"state":"translated","value":"월간"}},"ja":{"stringUnit":{"state":"translated","value":"月額"}}}},
-    "mobile.billing.period.yearly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Yearly"}},"de":{"stringUnit":{"state":"translated","value":"Jährlich"}},"fr":{"stringUnit":{"state":"translated","value":"Annuel"}},"ar":{"stringUnit":{"state":"translated","value":"سنوي"}},"es":{"stringUnit":{"state":"translated","value":"Anual"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"每年"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"每年"}},"ko":{"stringUnit":{"state":"translated","value":"연간"}},"ja":{"stringUnit":{"state":"translated","value":"年額"}}}},
-    "mobile.billing.monthlyEquivalent": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ / month, billed yearly"}},"de":{"stringUnit":{"state":"translated","value":"%@ / Monat, jährliche Abrechnung"}},"fr":{"stringUnit":{"state":"translated","value":"%@ / mois, facturé annuellement"}},"ar":{"stringUnit":{"state":"translated","value":"%@ / شهريًا، يُدفع سنويًا"}},"es":{"stringUnit":{"state":"translated","value":"%@ / mes, facturado anualmente"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"每月 %@，按年計費"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"每月 %@，按年计费"}},"ko":{"stringUnit":{"state":"translated","value":"월 %@, 연간 결제"}},"ja":{"stringUnit":{"state":"translated","value":"月額 %@（年払い）"}}}},
-    "mobile.billing.refund": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Request a Refund"}},"de":{"stringUnit":{"state":"translated","value":"Rückerstattung anfordern"}},"fr":{"stringUnit":{"state":"translated","value":"Demander un remboursement"}},"ar":{"stringUnit":{"state":"translated","value":"طلب استرداد المبلغ"}},"es":{"stringUnit":{"state":"translated","value":"Solicitar un reembolso"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"申請退款"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"申请退款"}},"ko":{"stringUnit":{"state":"translated","value":"환불 요청"}},"ja":{"stringUnit":{"state":"translated","value":"返金をリクエスト"}}}},
     "mobile.billing.disclosure": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Subscriptions renew automatically at the end of each month or year, as shown, at the price shown until cancelled. Payment is charged to your Apple Account when you confirm the purchase. Your account is charged for renewal within 24 hours before the current period ends unless auto-renew is turned off at least 24 hours before then. Manage or cancel your subscription in your Apple Account settings."}},"de":{"stringUnit":{"state":"translated","value":"Abos verlängern sich am Ende jedes Monats oder Jahres, wie angezeigt, automatisch zum angezeigten Preis, bis sie gekündigt werden. Die Zahlung wird bei Bestätigung des Kaufs deinem Apple Account belastet. Die Verlängerung wird innerhalb von 24 Stunden vor Ende des aktuellen Zeitraums belastet, sofern die automatische Verlängerung nicht mindestens 24 Stunden vorher deaktiviert wird. Verwalte oder kündige dein Abo in den Einstellungen deines Apple Accounts."}},"fr":{"stringUnit":{"state":"translated","value":"Les abonnements se renouvellent automatiquement à la fin de chaque mois ou de chaque année, comme indiqué, au prix indiqué jusqu’à leur résiliation. Le paiement est débité de votre compte Apple lorsque vous confirmez l’achat. Le renouvellement est facturé dans les 24 heures précédant la fin de la période en cours, sauf si le renouvellement automatique est désactivé au moins 24 heures avant. Gérez ou résiliez votre abonnement dans les réglages de votre compte Apple."}},"ar":{"stringUnit":{"state":"translated","value":"تتجدد الاشتراكات تلقائيًا في نهاية كل شهر أو سنة، كما هو معروض، بالسعر المعروض حتى يتم إلغاؤها. يتم تحصيل الدفعة من حساب Apple الخاص بك عند تأكيد الشراء. يتم تحصيل رسوم التجديد خلال 24 ساعة قبل نهاية الفترة الحالية ما لم يتم إيقاف التجديد التلقائي قبل ذلك بـ 24 ساعة على الأقل. يمكنك إدارة اشتراكك أو إلغاؤه من إعدادات حساب Apple."}},"es":{"stringUnit":{"state":"translated","value":"Las suscripciones se renuevan automáticamente al final de cada mes o año, según se indica, al precio indicado hasta que se cancelen. El pago se carga en tu cuenta de Apple al confirmar la compra. La renovación se cobra en las 24 horas anteriores al final del periodo actual, salvo que desactives la renovación automática al menos 24 horas antes. Gestiona o cancela tu suscripción en los ajustes de tu cuenta de Apple."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"訂閱會依顯示的週期在每月或每年結束時，以顯示的價格自動續訂，直到取消為止。確認購買時，款項將從你的 Apple 帳號扣款。除非在目前期間結束前至少 24 小時關閉自動續訂，否則將在目前期間結束前 24 小時內收取續訂費用。你可以在 Apple 帳號設定中管理或取消訂閱。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"订阅会按显示的周期在每月或每年结束时，以显示的价格自动续订，直至取消。确认购买时，款项将从你的 Apple 账户扣除。除非在当前周期结束前至少 24 小时关闭自动续订，否则将在当前周期结束前 24 小时内收取续订费用。你可以在 Apple 账户设置中管理或取消订阅。"}},"ko":{"stringUnit":{"state":"translated","value":"구독은 취소할 때까지 표시된 대로 매월 또는 매년 말에 표시된 가격으로 자동 갱신됩니다. 구매를 확인하면 Apple 계정으로 결제됩니다. 현재 기간이 끝나기 최소 24시간 전에 자동 갱신을 끄지 않으면 현재 기간이 끝나기 전 24시간 이내에 갱신 요금이 청구됩니다. Apple 계정 설정에서 구독을 관리하거나 취소하세요."}},"ja":{"stringUnit":{"state":"translated","value":"サブスクリプションは、解約されるまで、表示どおり毎月末または毎年末に表示価格で自動更新されます。購入を確定すると Apple アカウントに請求されます。現在の期間が終了する 24 時間前までに自動更新をオフにしない限り、現在の期間の終了前 24 時間以内に更新料金が請求されます。サブスクリプションの管理や解約は Apple アカウントの設定で行えます。"}}}},
     "mobile.billing.done": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Done"}},"de":{"stringUnit":{"state":"translated","value":"Fertig"}},"fr":{"stringUnit":{"state":"translated","value":"OK"}},"ar":{"stringUnit":{"state":"translated","value":"تم"}},"es":{"stringUnit":{"state":"translated","value":"OK"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"完成"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"完成"}},"ko":{"stringUnit":{"state":"translated","value":"완료"}},"ja":{"stringUnit":{"state":"translated","value":"完了"}}}},
     "mobile.billing.error.accountMismatch": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This subscription belongs to another cmux account. Sign in with that account to use it."}},"de":{"stringUnit":{"state":"translated","value":"Dieses Abo gehört zu einem anderen cmux-Konto. Melde dich mit diesem Konto an, um es zu nutzen."}},"fr":{"stringUnit":{"state":"translated","value":"Cet abonnement appartient à un autre compte cmux. Connectez-vous à ce compte pour l’utiliser."}},"ar":{"stringUnit":{"state":"translated","value":"ينتمي هذا الاشتراك إلى حساب cmux آخر. سجّل الدخول باستخدام ذلك الحساب لاستخدامه."}},"es":{"stringUnit":{"state":"translated","value":"Esta suscripción pertenece a otra cuenta de cmux. Inicia sesión con esa cuenta para usarla."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"此訂閱屬於另一個 cmux 帳號。請使用該帳號登入以使用此訂閱。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此订阅属于另一个 cmux 账户。请使用该账户登录以使用此订阅。"}},"ko":{"stringUnit":{"state":"translated","value":"이 구독은 다른 cmux 계정에 속해 있습니다. 해당 계정으로 로그인하여 사용하세요."}},"ja":{"stringUnit":{"state":"translated","value":"このサブスクリプションは別の cmux アカウントに属しています。利用するにはそのアカウントでサインインしてください。"}}}},
@@ -107023,7 +106900,248 @@
           }
         }
       }
-    }
+    },
+    "mobile.settings.keyboardCorrections": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autocomplete and Autocorrect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オートコンプリートと自動修正"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autovervollständigung und Autokorrektur"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisie prédictive et correction automatique"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإكمال التلقائي والتصحيح التلقائي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autocompletado y autocorrección"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動完成與自動更正"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动完成与自动纠正"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 완성 및 자동 수정"
+          }
+        }
+      }
+    },
+    "mobile.settings.keyboardCorrectionsFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow iOS to suggest, autocorrect, and spell-check text in the message composer. Direct terminal typing is still sent exactly as typed. Off by default because corrections can change commands."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージ作成欄でのiOSによる候補表示、自動修正、スペルチェックを許可します。ターミナルへの直接入力は入力したとおりに送信されます。コマンドが変わる可能性があるため、デフォルトではオフです。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erlaubt iOS, Text im Nachrichtenfeld vorzuschlagen, automatisch zu korrigieren und auf seine Schreibweise zu prüfen. Direkte Terminaleingaben werden weiterhin genau wie getippt gesendet. Standardmäßig deaktiviert, da Korrekturen Befehle ändern können."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser iOS à suggérer, corriger automatiquement et vérifier l’orthographe du texte dans le champ de message. La saisie directe dans le terminal reste envoyée telle quelle. Désactivé par défaut, car les corrections peuvent modifier les commandes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح لـ iOS باقتراح النص في محرر الرسائل وتصحيحه تلقائيًا والتحقق من إملائه. تُرسل الكتابة المباشرة في الطرفية كما كُتبت تمامًا. يكون متوقفًا افتراضيًا لأن التصحيحات قد تغيّر الأوامر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que iOS sugiera, corrija automáticamente y revise la ortografía del texto en el editor de mensajes. Lo que escribes directamente en el terminal se sigue enviando tal cual. Está desactivado por defecto porque las correcciones pueden cambiar los comandos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許 iOS 在訊息編輯器中提供建議、自動更正及拼字檢查。直接在終端機中輸入的內容仍會依原樣送出。預設關閉，因為更正可能會改變指令。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 iOS 在消息编辑器中提供建议、自动纠正和拼写检查。直接在终端中输入的内容仍会按原样发送。默认关闭，因为纠正可能会更改命令。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 작성기에서 iOS가 텍스트를 제안하고 자동 수정하며 맞춤법을 검사하도록 허용합니다. 터미널에 직접 입력한 내용은 입력한 그대로 전송됩니다. 수정으로 명령어가 바뀔 수 있어 기본적으로 꺼져 있습니다."
+          }
+        }
+      }
+    },
+    "mobile.cloud.action.restart": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neu starten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redémarrer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة التشغيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reiniciar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新啟動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新启动"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재시작"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再起動"
+          }
+        }
+      }
+    },
+    "mobile.cloud.action.restartFailedFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't restart: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neustart nicht möglich: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de redémarrer : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت إعادة التشغيل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo reiniciar: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法重新啟動：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法重新启动：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재시작할 수 없음: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再起動できませんでした: %@"
+          }
+        }
+      }
+    },
+    "mobile.billing.period": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Billing period"}},"de":{"stringUnit":{"state":"translated","value":"Abrechnungszeitraum"}},"fr":{"stringUnit":{"state":"translated","value":"Période de facturation"}},"ar":{"stringUnit":{"state":"translated","value":"فترة الفوترة"}},"es":{"stringUnit":{"state":"translated","value":"Periodo de facturación"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"計費週期"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"计费周期"}},"ko":{"stringUnit":{"state":"translated","value":"결제 주기"}},"ja":{"stringUnit":{"state":"translated","value":"請求期間"}}}},
+    "mobile.billing.period.monthly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Monthly"}},"de":{"stringUnit":{"state":"translated","value":"Monatlich"}},"fr":{"stringUnit":{"state":"translated","value":"Mensuel"}},"ar":{"stringUnit":{"state":"translated","value":"شهري"}},"es":{"stringUnit":{"state":"translated","value":"Mensual"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"每月"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"每月"}},"ko":{"stringUnit":{"state":"translated","value":"월간"}},"ja":{"stringUnit":{"state":"translated","value":"月額"}}}},
+    "mobile.billing.period.yearly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Yearly"}},"de":{"stringUnit":{"state":"translated","value":"Jährlich"}},"fr":{"stringUnit":{"state":"translated","value":"Annuel"}},"ar":{"stringUnit":{"state":"translated","value":"سنوي"}},"es":{"stringUnit":{"state":"translated","value":"Anual"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"每年"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"每年"}},"ko":{"stringUnit":{"state":"translated","value":"연간"}},"ja":{"stringUnit":{"state":"translated","value":"年額"}}}},
+    "mobile.billing.monthlyEquivalent": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ / month, billed yearly"}},"de":{"stringUnit":{"state":"translated","value":"%@ / Monat, jährliche Abrechnung"}},"fr":{"stringUnit":{"state":"translated","value":"%@ / mois, facturé annuellement"}},"ar":{"stringUnit":{"state":"translated","value":"%@ / شهريًا، يُدفع سنويًا"}},"es":{"stringUnit":{"state":"translated","value":"%@ / mes, facturado anualmente"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"每月 %@，按年計費"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"每月 %@，按年计费"}},"ko":{"stringUnit":{"state":"translated","value":"월 %@, 연간 결제"}},"ja":{"stringUnit":{"state":"translated","value":"月額 %@（年払い）"}}}},
+    "mobile.billing.refund": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Request a Refund"}},"de":{"stringUnit":{"state":"translated","value":"Rückerstattung anfordern"}},"fr":{"stringUnit":{"state":"translated","value":"Demander un remboursement"}},"ar":{"stringUnit":{"state":"translated","value":"طلب استرداد المبلغ"}},"es":{"stringUnit":{"state":"translated","value":"Solicitar un reembolso"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"申請退款"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"申请退款"}},"ko":{"stringUnit":{"state":"translated","value":"환불 요청"}},"ja":{"stringUnit":{"state":"translated","value":"返金をリクエスト"}}}}
   },
   "version": "1.0"
 }
