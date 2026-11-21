@@ -788,8 +788,9 @@ export function ModelPicker(props: ModelPickerProps) {
       registerPicker(modelText, () => {
         // A picker parked under a New Tab page (inert, unseen) is not the one to open.
         if (root.current?.closest("[inert]")) return;
-        if (quick !== undefined) open ? close() : setQuickOpen(true);
-        else showRef.current();
+        if (quick === undefined) showRef.current();
+        else if (open) close();
+        else setQuickOpen(true);
       }),
     [modelText, quick, open, close],
   );
