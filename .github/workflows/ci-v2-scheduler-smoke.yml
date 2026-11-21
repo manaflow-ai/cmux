@@ -9,10 +9,20 @@ permissions:
   contents: read
 
 jobs:
+  placement:
+    runs-on: ubuntu-24.04
+    outputs:
+      label: ${{ steps.label.outputs.label }}
+    steps:
+      - name: Compute scheduler label
+        id: label
+        run: echo "label=cmux-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-linux" >> "$GITHUB_OUTPUT"
+
   linux:
+    needs: placement
     # The scheduler grants this exact label to this run and attempt. A
     # one-job runner cannot accept work for another run.
-    runs-on: ${{ vars.CI_V2_SCHEDULER_RUNNER || format('cmux-{0}-{1}-linux', github.run_id, github.run_attempt) }}
+    runs-on: ${{ needs.placement.outputs.label }}
     timeout-minutes: 10
     steps:
       - name: Record scheduler grant
