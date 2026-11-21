@@ -239,7 +239,7 @@ import Testing
             defer { window.contentView = nil; window.close() }
             let dot = try #require(Self.node("dot", in: root))
             let pulse = try #require(dot.layer?.animation(forKey: "scene.loop"))
-            #expect(pulse.isAdditive, "a loop adds to the node's own transform")
+            #expect((pulse as? CAPropertyAnimation)?.isAdditive == true, "a loop adds to the node's own transform")
             #expect(pulse.repeatCount == .infinity)
             #expect((pulse as? CAPropertyAnimation)?.keyPath == "transform")
             let bar = try #require(Self.node("bar", in: root))
@@ -321,7 +321,7 @@ import Testing
             let keys = Self.keys(dot.layer)
             #expect(keys.contains { $0.hasPrefix("scene.opacity.") })
             #expect(keys.contains { $0.hasPrefix("scene.transform.") })
-            #expect(keys.compactMap { dot.layer?.animation(forKey: $0) }.allSatisfy(\.isAdditive))
+            #expect(keys.compactMap { dot.layer?.animation(forKey: $0) }.allSatisfy { ($0 as? CAPropertyAnimation)?.isAdditive == true })
             #expect(Self.layers(under: dot.layer).contains { $0.animation(forKey: "scene.fillColor") != nil }, "the fill eases to its new tone")
             #expect(!Self.keys(still.layer).contains { $0.hasPrefix("scene.") }, "no `animation`, no motion")
             #expect(abs((dot.layer?.opacity ?? 0) - 0.4) < 0.001, "the model holds the new value")
