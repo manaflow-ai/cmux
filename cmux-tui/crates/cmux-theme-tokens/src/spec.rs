@@ -21,8 +21,9 @@ use crate::Rgb;
 
 /// The spec file, relative to this source file (repo root
 /// `plans/cmux-next/spec-proposals/visuals/design-tokens.json`).
-pub const DESIGN_TOKENS: &str =
-    include_str!("../../../../plans/cmux-next/spec-proposals/visuals/design-tokens.json");
+pub static DESIGN_TOKENS: cmux_embed::PackedStr = cmux_embed::packed_str!(include_str!(
+    "../../../../plans/cmux-next/spec-proposals/visuals/design-tokens.json"
+));
 
 /// A color source in a formula.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -71,7 +72,7 @@ pub(crate) struct Spec {
 pub(crate) fn spec() -> &'static Spec {
     static SPEC: OnceLock<Spec> = OnceLock::new();
     SPEC.get_or_init(|| {
-        Spec::parse(DESIGN_TOKENS).unwrap_or(Spec {
+        Spec::parse(&DESIGN_TOKENS.inflate()).unwrap_or(Spec {
             formulas: Vec::new(),
             minimum_text_contrast: crate::MINIMUM_TEXT_CONTRAST,
             minimum_mark_contrast: crate::MINIMUM_MARK_CONTRAST,
