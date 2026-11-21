@@ -207,6 +207,8 @@ import "./jumpPair.css";
 import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { jumpPairLook } from "./jumpPair.experiment";
+import { stickyPrompt } from "./stickyPrompt/stickyPrompt.experiment";
+import { StickyPromptMemo } from "./stickyPrompt/StickyPrompt";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade, SHOWN_INK_PROPERTIES } from "../../scrollers";
 import { thumbMotion } from "./conversation/thumbMotion.experiment";
@@ -3838,7 +3840,9 @@ function TranscriptView({
   // (https://github.com/manaflow-ai/cmux/issues/40021). Observed: a header that resizes, or a
   // scroller that resizes (a line under the header pushes it down and shortens it, in a stage of
   // fixed height), moves the line before the frame paints.
-  const overTop = pinned || (sinceKey !== undefined && onJumpToSince !== undefined);
+  // PROTOTYPE (stickyPrompt.experiment.ts): the arm is read once per mount.
+  const [stickyArm] = useState(() => experimentArm(stickyPrompt));
+  const overTop = pinned || (sinceKey !== undefined && onJumpToSince !== undefined) || stickyArm !== "off";
   const [clearTop, setClearTop] = useState(topInset);
   useLayoutEffect(() => {
     const scroller = ref.current;
@@ -6491,6 +6495,20 @@ function TranscriptView({
       return (index >= 0 ? placed.geometry.topAt(index) + place.offset : top) - node.clientHeight / 3;
     });
   };
+  // PROTOTYPE (sticky-prompt experiment, default off): a prompt's row placed just under the top zone.
+  const placeViewRef = useRef(placeView);
+  placeViewRef.current = placeView;
+  const jumpToPrompt = React.useCallback((index: number) => {
+    const node = ref.current;
+    const id = latestLayout.current.rows[index]?.id;
+    if (!node || id === undefined) return;
+    const hint = { current: index };
+    placeViewRef.current(() => {
+      const { layout: placed, rows: shown } = latestLayout.current;
+      const at = indexOfRow(shown, id, hint);
+      return at >= 0 ? placed.geometry.topAt(at) - 12 : node.scrollTop;
+    });
+  }, []);
   const pressUpRef = useRef(pressUp);
   pressUpRef.current = pressUp;
   // Esc goes back while Jump up holds a way back, unless something before it took the key (the
@@ -7366,7 +7384,11 @@ function TranscriptView({
                   ? 0
                   : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
                 ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
-                ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
+                ...(pinnedPill
+                  ? {
+                      "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px`,
+                    }
+                  : {}),
                 // The live line's box and the gap over it in a run, from their one source (transcriptGrid.ts).
                 ...LIVE_STEP_VARS,
               } as React.CSSProperties
@@ -7477,6 +7499,17 @@ function TranscriptView({
               />
             </div>
           )}
+          <StickyPromptMemo
+            arm={stickyArm}
+            rows={rows}
+            geometry={layout.geometry}
+            totalHeight={layout.totalHeight}
+            viewTop={renderScroll.top - origin}
+            viewHeight={height - room}
+            zoneTop={topZoneOffset({ clearTop, pinnedBottom: undefined })}
+            lift={dockSpace}
+            onJump={jumpToPrompt}
+          />
           {jumpUp && <JumpUp shown={upShown} back={jumpBackHeld} onJump={() => pressUp()} lift={dockSpace} />}
           {jumpButton && (
             <JumpToLatestMemo

@@ -1,0 +1,202 @@
+/* PROTOTYPE: the sticky prompt arms (stickyPrompt.experiment.ts). Over the transcript, outside the
+   scroller, like the unread banner (conversation/unread.css .acpmux-over-top). */
+.acpmux-sticky-prompt {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: var(--layer-sticky);
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--ds-space-2);
+  padding-inline: var(--cv-inset, var(--ds-space-4))
+    var(--cv-inset-end, var(--cv-inset, var(--ds-space-4)));
+  pointer-events: none;
+  opacity: 0;
+  /* Pushed out by the next prompt's row: the header slides up out of its own zone, clipped at the
+     zone's top so it never draws over the pane's header (the shadow below stays). */
+  clip-path: inset(0 -24px -48px -24px);
+}
+.acpmux-sticky-prompt > * {
+  transform: translateY(var(--sticky-push, 0px));
+}
+.acpmux-sticky-prompt[data-shown] {
+  opacity: var(--sticky-fade, 1);
+}
+.acpmux-sticky-prompt[data-shown] > * {
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-sticky-prompt:not([data-arm="fade"]) {
+    transition: opacity var(--agent-motion-in) var(--agent-ease-out);
+  }
+}
+.acpmux-sticky-prompt__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-sticky-prompt button {
+  margin: 0;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* chip: the bubble's look, small, at the top end where your prompts sit. */
+.ui-glass.acpmux-sticky-prompt__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  max-width: min(70%, 520px);
+  height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-3);
+  border-radius: 999px;
+  --glass-edge: color-mix(in srgb, var(--agent-text) 18%, transparent);
+  --glass-elevation: var(--elevation-2);
+  --glass-tint: color-mix(in srgb, var(--agent-user-bubble, var(--agent-page-bg)) 80%, transparent);
+  color: var(--agent-text);
+  font-size: var(--text-detail);
+}
+.acpmux-sticky-prompt__chip svg {
+  flex: none;
+  color: var(--agent-muted);
+}
+
+/* line: full width one line, opens to the whole prompt. */
+.acpmux-sticky-prompt[data-arm="line"] {
+  justify-content: stretch;
+}
+.ui-glass.acpmux-sticky-prompt__line {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  border-radius: var(--ds-radius-control);
+  --glass-edge: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  --glass-elevation: var(--elevation-2);
+  --glass-tint: color-mix(in srgb, var(--agent-page-bg) 94%, transparent);
+  font-size: var(--text-detail);
+  color: var(--agent-text);
+}
+.acpmux-sticky-prompt__line-body {
+  display: flex;
+  gap: var(--ds-space-2);
+  flex: 1;
+  min-width: 0;
+  padding: 7px var(--ds-space-3);
+  background: none;
+  text-align: start;
+}
+.acpmux-sticky-prompt[data-open] .acpmux-sticky-prompt__line .acpmux-sticky-prompt__text {
+  white-space: pre-wrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+}
+.acpmux-sticky-prompt__turn {
+  flex: none;
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-sticky-prompt__toggle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--ds-control-compact);
+  height: 30px;
+  background: none;
+  color: var(--agent-muted);
+}
+
+/* fade: flat, the terminal's pinned prompt; opacity and push follow the scroll. */
+.acpmux-sticky-prompt[data-arm="fade"] {
+  justify-content: stretch;
+  padding: 0;
+}
+.acpmux-sticky-prompt__flat {
+  display: flex;
+  gap: var(--ds-space-2);
+  width: 100%;
+  padding: 8px var(--cv-inset, var(--ds-space-4));
+  background: var(--agent-page-bg);
+  box-shadow: 0 10px 12px -2px var(--agent-page-bg);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+  text-align: start;
+  color: var(--agent-text);
+}
+.acpmux-sticky-prompt__caret {
+  color: var(--cmux-app-accent, var(--agent-muted));
+}
+
+/* jump: a labeled pill over the composer, beside Jump to latest. */
+.acpmux-sticky-prompt-jump {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: var(--layer-sticky);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.ui-glass.acpmux-sticky-prompt-jump__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  height: 32px;
+  padding: 0 var(--ds-space-3);
+  margin: 0;
+  border: 0;
+  border-radius: 999px;
+  --glass-edge: color-mix(in srgb, var(--agent-text) 18%, transparent);
+  --glass-elevation: var(--elevation-2);
+  --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-detail);
+  opacity: 0;
+  cursor: pointer;
+}
+.acpmux-sticky-prompt-jump__pill[data-shown] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.acpmux-sticky-prompt-jump__pill kbd {
+  font: inherit;
+  color: var(--agent-muted);
+  padding-inline-start: var(--ds-space-1);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-sticky-prompt-jump__pill {
+    transition: opacity var(--agent-motion-in) var(--agent-ease-out);
+  }
+}
+
+/* rail: prompt ticks over the scrollbar's track. */
+.acpmux-sticky-prompt-rail {
+  position: absolute;
+  right: 2px;
+  width: 12px;
+  z-index: var(--layer-sticky);
+}
+.acpmux-sticky-prompt-rail__tick {
+  position: absolute;
+  right: 0;
+  width: 10px;
+  height: 3px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--agent-text) 35%, transparent);
+  cursor: pointer;
+}
+.acpmux-sticky-prompt-rail__tick:hover {
+  width: 12px;
+  background: var(--agent-text);
+}
+.acpmux-sticky-prompt-rail__tick[data-current] {
+  background: var(--cmux-app-accent, var(--agent-text));
+  height: 4px;
+}
