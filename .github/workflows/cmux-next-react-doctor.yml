@@ -1,9 +1,14 @@
 name: cmux-next React Doctor
 
 # React Doctor (https://www.react.doctor/) on cmux-next's React projects, as a
-# ratchet: scripts/ci/react_doctor_gate.py fails when a change adds a React
-# Doctor error over scripts/ci/react-doctor-baseline.json. Old findings never
-# fail; warnings are reported only. Local run: `bun run react-doctor`.
+# reporting ratchet: scripts/ci/react_doctor_gate.py reports, as ::warning
+# annotations and a step-summary table, each React Doctor error a change adds
+# over scripts/ci/react-doctor-baseline.json. React Doctor is lint, and lint
+# never stops a merge (Leo, 2026-11-20: "WHY IS LINT EVEN STOPPING SHIT INSTEAD
+# OF JUST BEING OOPS"), so the step exits 0 on findings and fixes go forward;
+# the projects' own type-check and build jobs fail a broken tree. The job still
+# fails when its gate tests fail or setup breaks. Local run: `bun run react-doctor`
+# (`--strict` for the old failing verdict).
 #
 # Every pull request (no paths): feat-cmux-next requires `React Doctor (changed
 # React projects)`, and a required check must report. The gate scans only the
@@ -68,7 +73,9 @@ jobs:
   react-doctor:
     name: React Doctor (changed React projects)
     needs: fast-check-route
-    if: ${{ !cancelled() && needs.fast-check-route.outputs.react_doctor != 'false' }}
+    # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it, and its few misses are fixed forward.
+    if: ${{ !cancelled() && needs.fast-check-route.outputs.react_doctor != 'false' && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     # Blacksmith, never GitHub-hosted; fork pull requests get a fixed Blacksmith label.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 30
