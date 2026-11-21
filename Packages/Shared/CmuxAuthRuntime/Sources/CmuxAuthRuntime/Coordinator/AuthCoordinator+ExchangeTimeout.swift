@@ -15,7 +15,7 @@ extension AuthCoordinator {
     /// is forwarded to the child task.
     func runExchange(
         _ phase: AuthPhase,
-        flow: SignInFlowContext,
+        attempt: UInt64,
         timeout: Duration,
         _ operation: @escaping @Sendable () async throws -> Void
     ) async throws {
@@ -41,12 +41,12 @@ extension AuthCoordinator {
         let completion = Task {
             _ = await exchange.result
         }
-        activeSignInExchanges[flow.attempt] = AuthTrackedSignInExchange(
+        activeSignInExchanges[attempt] = AuthTrackedSignInExchange(
             id: exchangeID,
             task: exchange,
             completion: completion
         )
-        Task { [weak self, registry, attempt = flow.attempt, exchangeID, phase] in
+        Task { [weak self, registry, attempt, exchangeID, phase] in
             await completion.value
             await registry.end(phase, id: exchangeID)
             await MainActor.run {
@@ -55,7 +55,7 @@ extension AuthCoordinator {
             }
         }
         try await withTaskCancellationHandler {
-            try await waitForExchange(exchange, id: exchangeID, attempt: flow.attempt, phase: phase, timeout: timeout)
+            try await waitForExchange(exchange, id: exchangeID, attempt: attempt, phase: phase, timeout: timeout)
         } onCancel: {
             Task { await registry.markTimedOut(phase, id: exchangeID) }
             exchange.cancel()
@@ -83,7 +83,6 @@ extension AuthCoordinator {
                         return
                     }
                     await phaseTimeoutRegistry.end(phase, id: id)
-                    tokenStoreWriteHighWater = max(tokenStoreWriteHighWater, attempt)
                     latestSignInRefreshToken = refreshToken
                     continuation.yield(())
                     continuation.finish()

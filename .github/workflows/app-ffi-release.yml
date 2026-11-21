@@ -60,6 +60,9 @@ on:
       - "cmux-tui/crates/cmux-daemon-conn-core/**"
       - "cmux-tui/crates/cmux-daemon-launch-core/**"
       - "cmux-tui/crates/cmux-health-core/**"
+      - "cmux-tui/crates/cmux-auth-coordinator/**"
+      # cmux-auth-coordinator's harness dev-depends on it (check-app-ffi-pin.sh --list-inputs).
+      - "cmux-tui/crates/cmux-stack-auth/**"
       - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-imessage/**"
       - "cmux-tui/crates/cmux-launch-record/**"
