@@ -163,6 +163,7 @@ public final class NativeNewTabModel {
             used()
             actions.action(action.id, action.title)
         case .chat(let chat): actions.openChat(chat.key)
+        case .cloud: actions.action("palette.newCloudChat", "New Cloud Chat")
         case .start(let start): actions.start(start.harness, start.folder)
         }
     }

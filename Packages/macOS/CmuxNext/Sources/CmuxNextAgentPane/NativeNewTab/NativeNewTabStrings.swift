@@ -25,6 +25,7 @@ nonisolated struct NativeNewTabStrings {
     }
     var startHint: String { String(localized: "agentPane.nativeNewTab.startHint", defaultValue: "Start", bundle: .module) }
     var openChat: String { String(localized: "agentPane.nativeNewTab.openChat", defaultValue: "Open chat", bundle: .module) }
+    var newCloudChat: String { String(localized: "agentPane.nativeNewTab.newCloudChat", defaultValue: "New Cloud Chat", bundle: .module) }
     var command: String { String(localized: "agentPane.nativeNewTab.command", defaultValue: "Command", bundle: .module) }
 
     func title(_ kind: AgentPaneTabKind) -> String {

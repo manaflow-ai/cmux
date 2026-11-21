@@ -1837,6 +1837,17 @@
         }
       }
     },
+    "agentPane.nativeNewTab.newCloudChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Cloud Chat"
+          }
+        }
+      }
+    },
     "agentPane.nativeNewTab.start": {
       "extractionState": "manual",
       "localizations": {
