@@ -18,9 +18,9 @@ a pull request runs:
     imports a changed webviews file (one hop of webviews_affected.py's import graph, not its closure, and not its
     always-run set: the browser, Vite and file-reading tests that run on nearly every change are what the 0% above
     measured skipping; the closure put a test of every shard behind any shared module);
-    A picked shard from 2 to N runs only those touched tests (--direct-out), not its whole share of the affected
-    closure: the shard was picked for them, and the closure share is what the 0% above measured. Shard 1 keeps its
-    whole share;
+    the picked shards from 2 to N become one job that runs only those touched tests (--direct-out), not each shard's
+    whole share of the affected closure: the shards were picked for them, and the closure share is what the 0%
+    above measured. Shard 1 keeps its whole share;
   - every shard for a build or runner input (webviews_affected.EVERYTHING: package.json, bun.lock, vite configs, the
     runner scripts, ci-web.yml, this file) or a deleted source.
 A shard's files come from the very split it makes itself (run-webviews-tests.sh CMUX_WEB_TEST_LIST_ONLY with the
@@ -98,12 +98,15 @@ def pick(repo: Path, base: str, head: str, count: int) -> tuple[list[int], str, 
     if not direct:
         return [1], "the change touches no webviews test", {}
     selected, _ = selector.select(files)  # what each shard runs (None: every file), as the shards pick it
-    own: dict[int, list[str]] = {}
-    for shard in everything[1:]:
-        hit = shard_files(repo, shard, count, selected) & direct
-        if hit:
-            own[shard] = sorted(f.removeprefix(wa.WEB) for f in hit)
-    return [1, *own], f"{len(direct)} touched tests", own
+    hits = {shard: shard_files(repo, shard, count, selected) & direct for shard in everything[1:]}
+    hits = {shard: hit for shard, hit in hits.items() if hit}
+    if not hits:
+        return [1], f"{len(direct)} touched tests, all in shard 1", {}
+    # One job carries every touched test outside shard 1: a dozen files do not need a runner each, and each shard
+    # job pays its own checkout, install and engines before its first test. It takes the lowest picked number.
+    first = min(hits)
+    own = {first: sorted(f.removeprefix(wa.WEB) for hit in hits.values() for f in hit)}
+    return [1, first], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 in one job", own
 
 
 def files_of(repo: Path, base: str, head: str, count: int, shards: list[int]) -> list[str]:
@@ -124,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--all", action="store_true", help="every shard (a push, full-ci): print the whole matrix")
     ap.add_argument("--files-of", help="comma-separated shards: print the test files they run, one a line")
     ap.add_argument("--direct-out", type=Path,
-                    help="write {shard: [touched test files]} for the picked shards from 2 to N (JSON)")
+                    help="write {shard: [touched test files]} for the one picked shard past 1 (JSON)")
     args = ap.parse_args(argv)
     if args.files_of:
         if not args.base:

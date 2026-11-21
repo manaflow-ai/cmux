@@ -776,9 +776,9 @@ jobs:
           # or an unmapped path); empty output runs every file. A feat-cmux-next push and full-ci run all.
           if [ -n "$BASE_REF" ] && [ "$FULL_CI" != true ]; then
             CMUX_WEB_TEST_FILES="$(python3 ../scripts/ci/webviews_affected.py --base "$BASE_REF" --head HEAD)" || CMUX_WEB_TEST_FILES=""
-            # A shard from 2 to N was picked for the tests the change touches (webviews_pr_shards.py --direct-out):
-            # it runs just those, as one unsplit list, not its share of the closure above. No entry (an every-shard
-            # pick, a failed pick, no file) keeps the closure share.
+            # The one shard past 1 a pull request picks carries every touched test outside shard 1
+            # (webviews_pr_shards.py --direct-out): it runs just those, as one unsplit list, not its share of the
+            # closure above. No entry (an every-shard pick, a failed pick, no file) keeps the closure share.
             own="$(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1])).get(sys.argv[2], [])))' \
               "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" "$CMUX_WEB_TEST_SHARD" 2>/dev/null)" || own=""
             if [ "$CMUX_WEB_TEST_SHARD" != 1 ] && [ -n "$own" ]; then

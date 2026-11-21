@@ -298,18 +298,22 @@ class PullRequestShardsTest(unittest.TestCase):
         self.assertEqual(seen, [1, 2])
 
     def test_a_picked_shard_past_1_owns_only_its_touched_tests(self) -> None:
-        """--direct-out: shards 2..N run the touched tests they were picked for, not their closure share."""
+        """--direct-out: one job past shard 1 runs the touched tests the pick found, not any shard's closure share."""
         import webviews_pr_shards as ps  # noqa: PLC0415
         self.touched("webviews/src/leaf.ts")
-        split = {2: {"webviews/test/leaf.test.ts", "webviews/test/a.test.ts"}, 3: {"webviews/test/other.test.ts"}}
+        split = {2: {"webviews/test/leaf.test.ts", "webviews/test/a.test.ts"}, 3: {"webviews/test/other.test.ts"},
+                 4: set()}
         real = ps.shard_files
         ps.shard_files = lambda repo, shard, count, selected: split[shard]
         try:
-            shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 3)
+            shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 4)
+            self.assertEqual((shards, own), ([1, 2], {2: ["test/leaf.test.ts"]}))
+            # Touched tests in several shards past 1 become one job, under the lowest of them.
+            self.touched("webviews/test/other.test.ts", "webviews/test/leaf.test.ts")
+            shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 4)
+            self.assertEqual((shards, own), ([1, 2], {2: ["test/leaf.test.ts", "test/other.test.ts"]}))
         finally:
             ps.shard_files = real
-        self.assertEqual(shards, [1, 2])
-        self.assertEqual(own, {2: ["test/leaf.test.ts"]})
         self.touched("webviews/package.json")
         self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 3)[2], {})  # every shard runs its whole split
 
