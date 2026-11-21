@@ -26,11 +26,13 @@ Both commands print, for HQ's spend publisher (cmuxterm-hq tools/fleet-reconcile
 where N = used at end - used at start. The pool is the installation's, shared by every job that holds its token at
 once, so N is an upper bound on this job's spend (a following `app-spend-note:` line says so).
 
-`start --floor F` (F: `pass` = DEFAULT_FLOOR, `landing` = LANDING_FLOOR, or a number, never under
-APP_BUDGET_NOW_RESERVE): when R < the floor it
-writes `low=true` to GITHUB_OUTPUT and a notice; the job's spending steps are gated on
-`steps.<id>.outputs.low != 'true'`, so the pass is skipped, the last state is kept and the job exits 0. A failed
-read is never low. The floor is lower for callers that land, dispatch a build or post a required status.
+`start --floor F` (F: `pass` = DEFAULT_FLOOR, or a number, never under DEFAULT_FLOOR): when R < the floor it
+writes `low=true` to GITHUB_OUTPUT and a warning; the job's spending steps are gated on
+`steps.<id>.outputs.low != 'true'`, so the pass is skipped, the last state is kept and the job ends green. A failed
+read is never low. No cmux caller goes under DEFAULT_FLOOR: the hour's last calls (DEFAULT_FLOOR down to the NOW
+reserve) belong to HQ's next-autoland and NOW (cmuxterm-hq app_budget.py). On 2026-11-20 the pool was spent within
+about 18 minutes of every reset and next-autoland stopped on "the cmux-bot REST pool is spent". `landing` is kept
+as an alias of DEFAULT_FLOOR so a pinned checkout that passes it still parses.
 """
 
 from __future__ import annotations
@@ -54,9 +56,10 @@ APP_BUDGET_NOW_RESERVE = 1500
 # Below this many calls left a pass that only watches or rescues keeps its last state; the hour's rest goes to the
 # callers that land and post statuses. The same default as cmuxterm-hq's app_budget.py (DEFAULT_FLOOR).
 DEFAULT_FLOOR = 2500
-# A caller that keeps the nightly moving (nightly-next tick's unstick job), dispatches a build or posts a required
-# status runs longest, down to the NOW reserve and never below it.
-LANDING_FLOOR = APP_BUDGET_NOW_RESERVE
+# The lowest floor any cmux caller may take. Callers that land, dispatch or post statuses stop here too: the band
+# below it (down to the NOW reserve) is next-autoland's (cmuxterm-hq app_budget.py NEXT_AUTOLAND floor, 1,500).
+MIN_FLOOR = DEFAULT_FLOOR
+LANDING_FLOOR = MIN_FLOOR
 POOL_MARK = "app-spend-pool: "
 SPEND_MARK = "app-spend: "
 
@@ -101,8 +104,8 @@ def parse_floor(raw: str) -> int:
     if raw in FLOORS:
         return FLOORS[raw]
     if raw.isdigit():
-        # Never under the NOW reserve, whatever a workflow asks for.
-        return max(int(raw), APP_BUDGET_NOW_RESERVE)
+        # Never under the default floor, whatever a workflow asks for.
+        return max(int(raw), MIN_FLOOR)
     raise argparse.ArgumentTypeError(f"--floor takes {', '.join(FLOORS)} or a number, not {raw!r}")
 
 
@@ -146,7 +149,7 @@ def start(tag: str, floor: int | None, env: Mapping[str, str], *, read: Callable
     write_output(env, low="true" if low else "false", remaining=str(pool["remaining"]))
     if low:
         reset = time.strftime("%H:%MZ", time.gmtime(pool["reset"]))
-        out(f"::notice title=App budget::{tag}: {pool['remaining']} of {pool['limit']} calls left, under the floor "
+        out(f"::warning title=App budget::{tag}: {pool['remaining']} of {pool['limit']} calls left, under the floor "
             f"of {floor}, until {reset}; this pass is skipped and keeps its last state")
     return 0
 

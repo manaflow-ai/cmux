@@ -76,7 +76,7 @@ class Mark(unittest.TestCase):
         mark.start("wf/job", mark.DEFAULT_FLOOR, run.env, read=lambda token: {**POOL, "remaining": 2499},
                    out=run.lines.append)
         self.assertEqual(run.outputs(), {"low": "true", "remaining": "2499"})
-        self.assertTrue(any(line.startswith("::notice title=App budget::wf/job") and "keeps its last state" in line
+        self.assertTrue(any(line.startswith("::warning title=App budget::wf/job") and "keeps its last state" in line
                             for line in run.lines))
         run = Run()
         mark.start("wf/job", mark.DEFAULT_FLOOR, run.env, read=lambda token: {**POOL, "remaining": 2500},
@@ -112,9 +112,13 @@ class Mark(unittest.TestCase):
     def test_no_floor_is_under_hq_nows_reserve(self) -> None:
         # Coordinator, 2026-11-18: no cmux caller spends below NOW_RESERVE in hq#13472's app_budget.py.
         self.assertEqual(mark.APP_BUDGET_NOW_RESERVE, 1500)
-        self.assertEqual(mark.parse_floor("landing"), mark.APP_BUDGET_NOW_RESERVE)
-        self.assertGreater(mark.parse_floor("pass"), mark.APP_BUDGET_NOW_RESERVE)
-        self.assertEqual(mark.parse_floor("100"), mark.APP_BUDGET_NOW_RESERVE)
+        # 2026-11-20: the cmux-bot pool was spent ~18 min after every reset and next-autoland (hq floor 1,500)
+        # never ran; no cmux caller may go under HQ's default floor (2,500), so that band stays HQ's.
+        self.assertEqual(mark.DEFAULT_FLOOR, 2500)
+        self.assertEqual(mark.parse_floor("pass"), mark.DEFAULT_FLOOR)
+        self.assertEqual(mark.parse_floor("landing"), mark.DEFAULT_FLOOR)
+        self.assertEqual(mark.parse_floor("100"), mark.DEFAULT_FLOOR)
+        self.assertEqual(mark.parse_floor("1500"), mark.DEFAULT_FLOOR)
         self.assertEqual(mark.parse_floor("4000"), 4000)
 
 
@@ -131,13 +135,13 @@ class Workflows(unittest.TestCase):
     MARKED = [
         ("ci-cloud-overflow-probe.yml", "watch", "scripts/ci/app_spend_mark.py", "pass"),
         ("ci-hosted-backlog-rescue.yml", "backlog", "scripts/ci/app_spend_mark.py", "pass"),
-        ("nightly-next-tick.yml", "unstick", ".tick-tooling/scripts/ci/app_spend_mark.py", "landing"),
-        ("ci-failure-attribution.yml", "attribute", "scripts/ci/app_spend_mark.py", "landing"),
-        ("ci-guard-attribution.yml", "analyze", "scripts/ci/app_spend_mark.py", "landing"),
-        ("ci-guard-attribution.yml", "report", "scripts/ci/app_spend_mark.py", "landing"),
-        ("ci-compile-attribution.yml", "analyze", "scripts/ci/app_spend_mark.py", "landing"),
-        ("ci-compile-attribution.yml", "report", "scripts/ci/app_spend_mark.py", "landing"),
-        ("ci-compile-attribution.yml", "fix", "scripts/ci/app_spend_mark.py", "landing"),
+        ("nightly-next-tick.yml", "unstick", ".tick-tooling/scripts/ci/app_spend_mark.py", "pass"),
+        ("ci-failure-attribution.yml", "attribute", "scripts/ci/app_spend_mark.py", "pass"),
+        ("ci-guard-attribution.yml", "analyze", "scripts/ci/app_spend_mark.py", "pass"),
+        ("ci-guard-attribution.yml", "report", "scripts/ci/app_spend_mark.py", "pass"),
+        ("ci-compile-attribution.yml", "analyze", "scripts/ci/app_spend_mark.py", "pass"),
+        ("ci-compile-attribution.yml", "report", "scripts/ci/app_spend_mark.py", "pass"),
+        ("ci-compile-attribution.yml", "fix", "scripts/ci/app_spend_mark.py", "pass"),
         ("ci-owned-pool-rescue.yml", "rescue", "scripts/ci/app_spend_mark.py", None),
     ]
 
@@ -251,12 +255,12 @@ class ConditionalReads(unittest.TestCase):
 
 
 class RescueReserve(unittest.TestCase):
-    def test_the_cmux_bot_pool_keeps_hq_nows_reserve(self) -> None:
+    def test_the_cmux_bot_pool_stops_at_hqs_default_floor(self) -> None:
         client = rescue.GitHub("bot", "o/r", fallback="workflow")
-        client.pools["primary"].remaining = mark.APP_BUDGET_NOW_RESERVE
+        client.pools["primary"].remaining = mark.DEFAULT_FLOOR
         client.pools["primary"].reset = 2_000_000_000
         self.assertEqual(client.read_pool(now=1_900_000_000), "fallback")
-        client.pools["primary"].remaining = mark.APP_BUDGET_NOW_RESERVE + 1
+        client.pools["primary"].remaining = mark.DEFAULT_FLOOR + 1
         self.assertEqual(client.read_pool(now=1_900_000_000), "primary")
         # A lone token (no fallback, so not necessarily the App) keeps the old reserve.
         alone = rescue.GitHub("only", "o/r")

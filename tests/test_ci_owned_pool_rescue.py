@@ -6451,7 +6451,7 @@ class NightlySigningStall(unittest.TestCase):
         code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
         self.assertEqual(code, 0)
         self.assertEqual(mutations(api), [])
-        self.assertIn("past the 600s Blacksmith stall time, and every other job of the run has finished", summary)
+        self.assertIn("past the 600s Blacksmith wait time, and every other job of the run has finished", summary)
         self.assertIn("started delivery work", summary)
 
     def test_another_job_in_progress_holds_the_rescue_until_it_finishes(self):
@@ -7422,10 +7422,12 @@ class Workflow(unittest.TestCase):
 
     def test_polls_from_an_ephemeral_runner(self):
         # Never from an owned pool it may rescue, and never only from
-        # GitHub-hosted: a GitHub billing block must not stop the rescue.
+        # GitHub-hosted: a GitHub billing block must not stop the rescue. The
+        # scheduled sweeper leads with the fleet's one-job label, off the pools
+        # it rescues from; per-run watches keep the ephemeral selector.
         self.assertEqual(
             self.doc["jobs"]["rescue"]["runs-on"],
-            '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
+            '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || (github.event_name == \'schedule\' || github.event_name == \'workflow_dispatch\' && !inputs.run_id) && vars.CI_REPAIR_SKIP_FLEET != \'1\' && \'cmux-fleet-linux-x64\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
         )
 
     def test_marker_steps_never_fail_the_changes_job(self):
@@ -7515,6 +7517,35 @@ class BotRerunRouteTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertIn(path, rescue.SIDE_WORKFLOW_PATHS)
                 self.assertFalse(rescue.bot_rerun_leaves_owned(path, 5))
+
+    def test_the_bound_s_escape_leaves_the_minis_with_blacksmith_macos_off(self):
+        """past_wait_bound() moves a job only where bot_rerun_leaves_owned() says the bot's re-run leaves the owned
+        labels: test-ios.yml from attempt 1 (its picker's retry_runs_on), ci.yml from LAST_OWNED_ATTEMPT (its
+        picker's retry_runner, which attempt 3 reads). With vars.CI_BLACKSMITH_MACOS off both must still be the paid
+        label, or the move lands in the owned queue it left and no owned wait is bounded."""
+        import ios_runner_pool
+        import simple_pool_picker
+        off = {"CI_BLACKSMITH_MACOS": ""}
+        # test-ios.yml: a run on the full owned pool with runners online waits there, and re-runs on the paid label.
+        live = ios_runner_pool.IOSLoad(None, live=ios_runner_pool.LiveFree(pool=0, sim=0, online=4, sim_online=2))
+        route = ios_runner_pool.resolve(
+            "test-ios", "auto", "", ios_owned="1", owned="1",
+            owned_slots=json.dumps({"glaeda-std-xcode-26.6": 40, "glaeda-ios-sim": 2}),
+            pr_xcode_app="/Applications/Xcode_26.6.app", order="", max_queued="",
+            measure=lambda: live, now=dt.datetime(2026, 11, 17, tzinfo=dt.timezone.utc),
+            blacksmith_on=ios_runner_pool.blacksmith_allowed(off))
+        self.assertTrue(route.persistent)
+        self.assertTrue(rescue.bot_rerun_leaves_owned(rescue.IOS_TEST_WORKFLOW_PATH, 1))
+        self.assertEqual(json.loads(route.retry_runs_on), rescue.PICKED_PERSISTENT_RETRY[rescue.IOS_TEST_WORKFLOW_PATH])
+        # ci.yml: an owned pick's retry_runner, attempt 3's label.
+        light = simple_pool_picker.Pool("glaeda-light-xcode-26.6", 4, 3, 0, free=1)
+        choice = simple_pool_picker.pick(simple_pool_picker.State(
+            jobs=8, owned=(light,), blacksmith=(), owned_enabled=True, wait_on_owned=True,
+            blacksmith_on=simple_pool_picker.blacksmith_allowed(off)))
+        self.assertTrue(choice.owned)
+        self.assertTrue(rescue.bot_rerun_leaves_owned(rescue.CI_WORKFLOW_PATH, rescue.LAST_OWNED_ATTEMPT))
+        retry = simple_pool_picker.write_outputs(choice, 8, env=off)["retry_runner"]
+        self.assertRegex(retry, rescue.BLACKSMITH_MACOS_LABEL)
 
     def test_cmux_tui_macos_legs_take_blacksmith_on_any_later_attempt(self):
         # The route bot_rerun_leaves_owned() relies on: every macOS runner expression in cmux-tui.yml takes

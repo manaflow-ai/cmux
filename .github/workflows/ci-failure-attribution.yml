@@ -105,7 +105,7 @@ jobs:
           sparse-checkout: scripts/ci
 
       # The cmux-bot installation's hour before this job spends any of it (GET /rate_limit is free), as an
-      # `app-spend-pool:` line HQ's spend publisher sums, and the floor (HQ's NOW reserve, 1,500): below it
+      # `app-spend-pool:` line HQ's spend publisher sums, and the floor (HQ's default floor, 2,500): below it
       # this job's calls go out on the token a failed mint leaves (scripts/ci/app_spend_mark.py).
       - name: Read the cmux-bot budget before this job
         id: app-spend
@@ -113,7 +113,7 @@ jobs:
         timeout-minutes: 1
         env:
           APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
-        run: python3 scripts/ci/app_spend_mark.py start ci-failure-attribution/attribute --floor landing
+        run: python3 scripts/ci/app_spend_mark.py start ci-failure-attribution/attribute --floor pass
 
       # The glaeda-route App installation's budget around the reads below (a free
       # rate_limit read): the installation is shared, so the delta between `before`

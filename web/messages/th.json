@@ -380,6 +380,7 @@
     "typingCodingAgents": "เอเจนต์เขียนโค้ด",
     "typingMultitasking": "มัลติทาสกิ้ง",
     "subtitle": "แอป macOS เนทีฟที่เป็นโอเพนซอร์สและใช้งานได้ฟรี สร้างบน Ghostty แท็บแนวตั้ง, วงแหวนแจ้งเตือนเมื่อ agent ต้องการความสนใจ, แยกหน้าจอ และ <cliLink>CLI</cliLink> สำหรับการเขียนโปรแกรม",
+    "nextCallout": "ใหม่: ลองใช้ <link>cmux NEXT</link> เวอร์ชันพรีวิวของ cmux รุ่นถัดไป",
     "features": "ฟีเจอร์",
     "faq": "คำถามที่พบบ่อย",
     "communitySection": "ชุมชน",

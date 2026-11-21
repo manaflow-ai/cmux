@@ -98,11 +98,31 @@ jobs:
     # every 20-25 minutes instead of every pass (cmuxterm-hq#6671). It needs no macOS
     # (Python and gh only).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds the App key that writes runner variables; never a probed size
-    timeout-minutes: 25
+    timeout-minutes: 40
     permissions:
       actions: write
       contents: read
+    env:
+      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
+      GH_BUDGET_WAIT_MAX_SECONDS: "900"
     steps:
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
+      # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
+      # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
       - name: Check out trusted switch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -229,6 +249,7 @@ jobs:
       # 2026-11-04 (14:03-15:02Z) at about 54 GITHUB_TOKEN requests a run, six runs an hour. Variable writes stay
       # on SWITCH_TOKEN; a failed mint falls back to the workflow token.
       - name: Point the runner pools at live members
+        id: pools
         if: always() && steps.switch.outcome != 'skipped' && steps.app-spend.outputs.low != 'true'
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
@@ -254,6 +275,49 @@ jobs:
             echo "::warning title=Runner pools::no linux pool spill checkout; main's runner_pools.py runs alone"
             python3 scripts/ci/runner_pools.py
           fi
+
+      # A job already queued on a label the step above marked dead keeps that label: the pools
+      # moved, the job did not, and it waits until someone cancels it (2026-11-18: 4, 8 and 16
+      # vCPU dead from 09:32Z while 2 and 32 vCPU served, an outcome the switch leaves alone, and
+      # the cmux-tui tree owners queued there held the NEXT nightly for hours). Re-run every run
+      # stuck PROBE_MINUTES on a dead label no pool names any more, so it picks a live one
+      # (cloud_overflow_switch.dead_labels). Reads RUNNER_POOLS live, after the step above wrote it.
+      # Each run gets one try, and signing, deploy, promotion, rollback and nightly runs are left
+      # alone (DEAD_PROTECTED_WORKFLOW). It runs before the step that ends this run (which would
+      # skip it), so it stays short: at most 10 runs and a 120 s cancel wait in a 5-minute limit,
+      # which with the switch's probe and health waits keeps the job under its 25 minutes.
+      # Only after the pools step succeeded: it writes RUNNER_POOLS before LINUX_RUNNER, and a
+      # half-done pass could leave a variable the re-run reads on the dead label.
+      # A label a move left with no dead mark (linux_pool_spill.py's spill and return, or a hand
+      # edit of RUNNER_POOLS) strands its queued jobs the same way (2026-11-19: cmux#45502 run
+      # 44476854382 queued on 16 vCPU from 07:04Z), so any label no pool and no raw runner variable
+      # names counts too, after MOVED_MINUTES (cloud_overflow_switch.stranded_labels).
+      - name: Re-run runs stranded on a dead label
+        if: always() && steps.switch.outcome != 'skipped' && steps.pools.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SWITCH_TOKEN: ${{ steps.switch-token.outputs.token }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}
+          PROBE_MINUTES: ${{ vars.CI_CLOUD_PROBE_MINUTES }}
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
+          # runner_pools.RAW_LABEL_VARS: a label one of these names is routed, so it is never rescued.
+          RAW_RUNNER_VARIABLES: |
+            CI_CLASSIC_NIGHTLY_MINI=${{ vars.CI_CLASSIC_NIGHTLY_MINI }}
+            CI_COMPILE_CHECK_GATEWAY=${{ vars.CI_COMPILE_CHECK_GATEWAY }}
+            CI_CONTROL_RUNNER=${{ vars.CI_CONTROL_RUNNER }}
+            CI_LINUX_GATE_OWNED_RUNNER=${{ vars.CI_LINUX_GATE_OWNED_RUNNER }}
+            CI_NIGHTLY_NEXT_BUILD_RUNNER=${{ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
+            CI_TEST_COMPILE_GATEWAY=${{ vars.CI_TEST_COMPILE_GATEWAY }}
+            CI_TRUSTED_RUNNER=${{ vars.CI_TRUSTED_RUNNER }}
+            LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
+            LINUX_BUILD_RUNNER=${{ vars.LINUX_BUILD_RUNNER }}
+            LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
+            LINUX_RUNNER_DARWIN_CROSS=${{ vars.LINUX_RUNNER_DARWIN_CROSS }}
+        run: bash scripts/ci/python-with-yaml.sh scripts/ci/cloud_overflow_switch.py --rescue-dead
 
       # This job's spend: the pool again and the difference from the reading above (an upper bound, since every
       # job holding a cmux-bot token spends the same pool). Before the stuck-probe cancel, which ends the run.
