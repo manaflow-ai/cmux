@@ -423,6 +423,13 @@ jobs:
         id: inspect
         env:
           EVENT_NAME: ${{ github.event_name }}
+          # A no-input dispatch on feat-cmux-next (request-nightly-next.sh's
+          # backfill, publish-bot-head-tree.sh) publishes the branch tree like a
+          # push: it takes the key's claim and the ready-tree skip. Two backfills
+          # at successive tips with one key built it twice (eca1745577,
+          # 2026-11-21, runs 44911031500 and 44911765041). A dispatch with
+          # macos_runner or include_windows still builds what it asked for.
+          BRANCH_DISPATCH: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' && inputs.macos_runner == '' && !inputs.include_windows }}
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
           SOURCE_COMMIT: ${{ github.sha }}
@@ -577,7 +584,8 @@ jobs:
           claimed=false
           elect=true
           [[ "${STALE:-}" == true ]] && elect=false
-          if [[ "$elect" == true && "$tree_ready" != true && "$EVENT_NAME" == push && "$REF" != refs/heads/main ]]; then
+          if [[ "$elect" == true && "$tree_ready" != true && ( "$EVENT_NAME" == push || "${BRANCH_DISPATCH:-}" == true ) &&
+                "$REF" != refs/heads/main ]]; then
             if claim="$(scripts/ci/cmux-tui-tree-claim.sh "$key")"; then
               claimed=true
               claim_owner="${claim#owner=}"; claim_owner="${claim_owner%% *}"
@@ -793,7 +801,7 @@ jobs:
           # tree's bytes (the tree key covers every cmux-tui input) and
           # attests it as this commit's. #42574 rebuilt such a tip on macOS.
           if [[ "$tree_ready" == true && "$REF" != refs/heads/main &&
-                "$EVENT_NAME" != workflow_dispatch &&
+                ( "$EVENT_NAME" != workflow_dispatch || "${BRANCH_DISPATCH:-}" == true ) &&
                 ( "$REF" != refs/heads/cmux-tui-pin-* || "$pin_duplicate" == true ) ]]; then
             run_macos=false
             if [[ "$EVENT_NAME" == push && "$REF" != refs/heads/cmux-tui-pin-* && "$commit_manifest_ready" != true ]]; then
