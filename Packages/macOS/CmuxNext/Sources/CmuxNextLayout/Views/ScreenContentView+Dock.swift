@@ -34,13 +34,18 @@ extension ScreenContentView {
     /// their headers are see-through, so what is under them is masked out.
     /// Computed once per presentation pass, not once per host (which walked
     /// every subview per host).
+    ///
+    /// A pane that a close or a zoom took out (`isLeaving`) covers nothing: it shows under every other pane until the
+    /// change's motion ends (`PaneCommitMotion.keepUnder`), whatever its place among the subviews, and then hides with
+    /// no pass to clip again. A docked Home's pane, stacked above the strip, cut the pane zoomed beside it to the part
+    /// outside the dock for good (Lawrence 2026-11-19).
     func panesAbove() -> [ObjectIdentifier: [CGRect]] {
         var covers: [ObjectIdentifier: [CGRect]] = [:]
         var front: [CGRect] = []
         for case let host as PaneHostView in subviews.reversed() {
             let overlapping = front.filter { $0.intersection(host.frame).width > 0.5 && $0.intersection(host.frame).height > 0.5 }
             if !overlapping.isEmpty { covers[ObjectIdentifier(host)] = overlapping.reversed() }
-            guard !host.isHidden && host.alphaValue > 0.99 else { continue }
+            guard !host.isHidden, !host.isLeaving, host.alphaValue > 0.99 else { continue }
             // A floating pane covers what is under its whole card (the card, not the resize band around it).
             front.append(floatState.cards[host.pane]?.cardFrame ?? host.frame)
         }

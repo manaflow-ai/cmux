@@ -2,10 +2,18 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloud
 import { callCapability } from "./automation-caps.ts"
 import { brainName } from "./chief-brain/brain-do.ts"
 import type { JobDelivery } from "./chief-brain-cc/jobs.ts"
-import { awaitMachine, runMachineStep, stepFailureReport, type MachineExec, type MachinePower, type StepOutcome } from "./automation-machine.ts"
+import {
+  runMachineStep,
+  type MachineExec,
+  type StepOutcome,
+  awaitMachine,
+  stepFailureReport,
+  type MachinePower,
+} from "./automation-machine.ts";
 import type { Principal } from "@cmux/ownership"
 import { CodeRunError, runCode } from "./code-run.ts"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
+import { parseBuildSpace, spacedEnv } from "./build-space.ts"
 import { UNATTRIBUTED_USER } from "./usage-user.ts"
 import type { AutomationRunParams, RunReport } from "./scheduler-do.ts"
 import { platformCloud } from "./platform-cloud.ts"
@@ -16,12 +24,16 @@ import { declared } from "./do-stub.ts"
  * waits, retries). Progress goes back to the owner SchedulerDO as `run.report`
  * system ops inside durable steps, so a replayed step reports with the same key.
  */
-export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRunParams> {
+export class AutomationRunWorkflow extends WorkflowEntrypoint<RawEnv, AutomationRunParams> {
   override async run(event: Readonly<WorkflowEvent<AutomationRunParams>>, step: WorkflowStep): Promise<void> {
     const p = event.payload
+    // The run reaches its scheduler's build space (SchedulerDO puts a dev space in the params; build-space.ts).
+    const space = parseBuildSpace(p.space)
+    if (space === null) throw new Error("automation run: params name no build space")
+    const env: Env = spacedEnv(this.env, space)
     const report = async (name: string, r: Omit<RunReport, "run">) => {
       const res = await step.do(name, async () => {
-        const stub = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(p.owner))
+        const stub = env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(p.owner))
         const out = (await stub.reportRun(p.owner, { run: p.run, ...r })) as { ok: boolean; code?: string; stopped?: boolean }
         // A pruned or unknown run cannot take reports; retrying would not help.
         if (!out.ok && out.code !== "selector.not_found") throw new Error(`run.report refused: ${out.code}`)
@@ -47,7 +59,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
         // (journaled; the brain keys it by run). The Chief's own turn does the work and posts the result.
         const body = p.body
         const r: JobDelivery = await step.do("cmux:chief", { retries: { limit: 5, delay: 2000, backoff: "exponential" } }, async () => {
-          const brain = declared(this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(brainName(body.chief, body.conversation))))
+          const brain = declared(env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(body.chief, body.conversation))))
           const out = await brain.chiefJob({ run: p.run, automation: p.automation, chief: body.chief, conversation: body.conversation, prompt: body.prompt, ...(body.destination ? { destination: body.destination } : {}), trigger: p.trigger.type, ...(p.input === undefined ? {} : { input: p.input }), charged_user: p.charged_user ?? null })
           if (!out.ok && out.retry) throw new Error(`${out.code}: ${out.message}`)
           return out
@@ -62,7 +74,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
       if (p.body.type === "code") {
         // Tier 1: the tenant's Workflows code in a Dynamic Worker, metered and capped (code-run.ts).
         try {
-          await runCode(this.env, step, { team: p.owner, run: p.run, automation: p.automation, ref: p.body.ref, egress: p.body.egress ?? [], input: p.input, user: p.charged_user ?? UNATTRIBUTED_USER }, event.timestamp)
+          await runCode(env, step, { team: p.owner, run: p.run, automation: p.automation, ref: p.body.ref, egress: p.body.egress ?? [], input: p.input, user: p.charged_user ?? UNATTRIBUTED_USER }, event.timestamp)
         } catch (e) {
           // Only harness refusals carry a code; a tenant error name never chooses the run's error code.
           const code = e instanceof CodeRunError ? e.code : "run.failed"
@@ -90,7 +102,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
           case "op": {
             // One capability op as the automation; the key makes a replayed or retried step happen once.
             const r = await step.do(`cmux:op-${i}`, { retries: { limit: 3, delay: 1000, backoff: "exponential" } }, async () => {
-              const out = await callCapability(this.env, { team: p.owner, run: p.run, automation: p.automation }, s.op, s.params, `step:${p.run}:${i}`)
+              const out = await callCapability(env, { team: p.owner, run: p.run, automation: p.automation }, s.op, s.params, `step:${p.run}:${i}`)
               // A retryable refusal (owner unreachable, rate limit) throws so the engine retries; others end the run.
               if (!out.ok && (out.code === "owner.unreachable" || out.code === "rate.limited")) throw new Error(`${out.code}: ${out.message}`)
               return out.ok ? { ok: true as const } : { ok: false as const, code: out.code, message: out.message }
@@ -108,7 +120,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
             // prove the command did not start (run.retry makes a new run).
             if (!awake.has(s.machine)) {
               // A stopped machine is started first (as the automation's creator); one that does not come up skips the run.
-              if (!(await awaitMachine(journal, machinePowerFor(this.env, p.owner, p.charged_user ?? null), s.machine, p.run))) {
+              if (!(await awaitMachine(journal, machinePowerFor(env, p.owner, p.charged_user ?? null), s.machine, p.run))) {
                 await report(`cmux:${s.type}-not-running-${i}`, { state: "skipped", step: i - 1, error: { code: "machine_not_running", message: `step ${i}: ${s.machine} is not running and did not start` } })
                 return
               }
@@ -117,7 +129,8 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
             const input = s.input_from === undefined ? null : (outputs.get(s.input_from) ?? null)
             const r: StepOutcome = await step.do(`cmux:${s.type}-${i}`, { retries: { limit: 0, delay: 1000, backoff: "constant" }, timeout: (s.timeout_seconds + 60) * 1000 }, async () =>
               // The automation's secrets are opened here, inside the step, and go on its stdin: never in the journal.
-              runMachineStep(machineExecFor(this.env, p.owner, p.charged_user ?? null), s, { run: p.run, index: i }, input, await runSecretsFor(this.env, p.owner, p.run))
+              // Both reach the run's build space through `env` (spacedEnv), not the raw `this.env`.
+              runMachineStep(machineExecFor(env, p.owner, p.charged_user ?? null), s, { run: p.run, index: i }, input, await runSecretsFor(env, p.owner, p.run))
             )
             if (!r.ok) {
               const end = stepFailureReport(r)

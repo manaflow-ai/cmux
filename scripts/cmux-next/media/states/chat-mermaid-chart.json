@@ -1,0 +1,89 @@
+{
+  "title": "A ```mermaid chart in a chat draws (user, Nov 20: the nightly's chat showed \"Couldn't draw this chart: ondine library failed to load\" and the raw source): the user's front-door chart, seeded by debug seed_rows fixture \"mermaid\" (webviews mermaidFixture.ts). Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/chat-mermaid-chart.json",
+  "launch_args": [
+    "--showcase"
+  ],
+  "frameInterval": 0.5,
+  "steps": [
+    {
+      "title": "Open a main workspace",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--name",
+        "Mermaid chart capture",
+        "--focus",
+        "--cwd",
+        "/tmp"
+      ]
+    },
+    {
+      "title": "Open a chat",
+      "cmux": [
+        "agent",
+        "new-chat",
+        "--cwd",
+        "/tmp"
+      ]
+    },
+    {
+      "title": "Wait for the chat page",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "chat_state"
+        }
+      }
+    },
+    {
+      "title": "Start the chat's session (the showcase mock answers)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "send_prompt",
+          "text": "Draw the front door"
+        }
+      },
+      "wait": 4
+    },
+    {
+      "title": "A reply with the user's chart",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "seed_rows",
+          "fixture": "mermaid"
+        }
+      },
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "The chart block from its top: drawn, or the error line over the raw source",
+      "rpc": {
+        "method": "debug.page",
+        "params": {
+          "page": "cmux.agent",
+          "action": "scroll",
+          "selector": ".cv-diagram[data-language='mermaid']",
+          "block": "start"
+        }
+      },
+      "wait": 1.5,
+      "optional": "the block already fits the window"
+    },
+    {
+      "title": "What the block shows",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "query",
+          "selector": ".cv-diagram[data-language='mermaid'] .cv-diagram__chart svg, .cv-diagram[data-language='mermaid'] .cv-diagram__error"
+        }
+      },
+      "wait": 0.5,
+      "shot": false
+    }
+  ]
+}

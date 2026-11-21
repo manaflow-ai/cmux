@@ -48,6 +48,7 @@ export interface AcpmuxRequestMeta {
   parent?: unknown;
   peer?: unknown;
   peerHops?: unknown;
+  peerRowBatches?: unknown;
   personDecision?: unknown;
   personKey?: unknown;
   personStop?: unknown;
@@ -834,6 +835,20 @@ export interface PeerReconnectParams {
   wait?: unknown;
 }
 
+/**
+ * To a watcher that asked for batches (`initialize` `_meta.acpmux.peerRowBatches`), in place of
+ * one `_acpmux/session_changed` per row: `count` rows of `peer` changed or left at once (a peer's
+ * list). Their list positions are consecutive, after `afterSeq` and up to `listSeq`; a client
+ * reads them with `_acpmux/watch {afterSeq, listEpoch}` from a cursor no higher than `afterSeq`,
+ * and keeps its cursor at most `afterSeq` until a list or follow current to `listSeq` is in.
+ */
+export type PeerRowsChanged = {
+  afterSeq: number;
+  count: number;
+  listSeq: number;
+  peer: string;
+} & Record<string, unknown>;
+
 export interface PeerSnapshotParams {
   _meta?: RequestMeta;
   host?: unknown;
@@ -1065,6 +1080,7 @@ export interface ProcessListParams {
   _meta?: RequestMeta;
   cursor?: unknown;
   limit?: unknown;
+  recent?: unknown;
   sessionId?: unknown;
 }
 
@@ -1287,11 +1303,12 @@ export interface RetryParams {
 
 /**
  * Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
- * capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, the
- * agent process died mid-turn, or the chat outgrew its model's context window (`context`: it
- * is compacted, then continued at once).
+ * capacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate
+ * limit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),
+ * the connection dropped, the agent process died mid-turn, or the chat outgrew its model's
+ * context window (`context`: it is compacted, then continued at once).
  */
-export type RetryReason = "capacity" | "transport" | "agent_exited" | "context";
+export type RetryReason = "capacity" | "rate_limit" | "transport" | "agent_exited" | "context";
 
 /**
  * What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next
@@ -1316,6 +1333,24 @@ export type RetrySummary = {
   promptId: string;
   reason: RetryReason;
   turnId: string;
+} & Record<string, unknown>;
+
+/**
+ * A chat's rolling summary (`hub/rolling_summary.rs`): one short line on where it stands and
+ * the next action, kept current after each turn a person started (or one that ended on a
+ * `wrap_up`). The sidebar and the chat header draw it.
+ */
+export type RollingSummary = {
+  /** When it was written, Unix ms. */
+  at: number;
+  /** The next action, for the person or the agent; absent when there is none. */
+  next?: (string | null);
+  /** Who wrote it: `wrap_up` (the agent's own recap and ask, no model call) or `model`. */
+  source: string;
+  /** Where the chat stands, one or two short sentences. */
+  text: string;
+  /** The chat's turn count it covers. */
+  turn: number;
 } & Record<string, unknown>;
 
 export interface RouteListParams {
@@ -1501,6 +1536,13 @@ export type SessionDetail = {
   family?: (string | null);
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
+  /**
+   * The names it had before its renames, oldest first: each still names it where no session
+   * has it as its current name. Absent when it was never renamed, and from an older acpmux.
+   */
+  formerNames?: string[];
+  /** The session's spoken handle, independent of its task name and ids. Older peers omit it. */
+  handle?: (string | null);
   harness: string;
   /**
    * Unix milliseconds when its harness first refused a command because the harness's own
@@ -1512,6 +1554,12 @@ export type SessionDetail = {
    * harness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.
    */
   harnessSandboxFailing?: boolean;
+  /**
+   * Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
+   * that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
+   * a peer on an older acpmux.
+   */
+  hasDraft?: boolean;
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
@@ -1595,6 +1643,19 @@ export type SessionDetail = {
   queuePaused: boolean;
   queued: number;
   /**
+   * Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on
+   * it, or Stop came while the limit had it, so it starts nothing by itself until `acpmux
+   * retry` or the person's own prompt (`hub/rate_hold.rs`). Absent otherwise, and from a peer
+   * on an older acpmux.
+   */
+  rateLimitParked?: (number | null);
+  /**
+   * The account's rate limit holds every turn of this chat until this time (Unix ms): what
+   * comes in queues and goes in as one turn at the reset (`hub/rate_hold.rs`). `acpmux ls` shows
+   * "rate-limited until HH:MMZ". Absent otherwise, and from a peer on an older acpmux.
+   */
+  rateLimitedUntil?: (number | null);
+  /**
    * The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
    * a Codex chat's earlier roots, which its older records still name, so a client folding
    * them never reads one as a subagent. Absent when none, and from a peer on an older acpmux.
@@ -1612,6 +1673,12 @@ export type SessionDetail = {
    * settled. Absent otherwise, and from a peer on an older acpmux.
    */
   retryDeciding?: boolean;
+  /**
+   * Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar
+   * and the chat header. Absent before the first turn that makes one, and from a peer on an
+   * older acpmux.
+   */
+  rollingSummary?: (RollingSummary | null);
   /**
    * The root of its lineage tree: the first ancestor no agent started; its own
    * id for a root. Absent from a peer on an older acpmux.
@@ -1671,6 +1738,12 @@ export type SessionDetail = {
   /** Tags that have not expired. */
   tags: Record<string, string>;
   /**
+   * What is done and what is next across the chat's turns (`task_list.rs`): its harness's
+   * latest plan (TodoWrite, update_plan) or the list its agent or Chief keeps
+   * (`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux.
+   */
+  taskList?: (TaskListSummary | null);
+  /**
    * Incremental wall-time and token attribution for the chat. This is seeded by a detail or
    * attach read and omitted from census rows until then (`hub/time_breakdown.rs`).
    */
@@ -1725,6 +1798,13 @@ export type SessionDetail = {
   waitsForSlot?: boolean;
   /** The family of a conversation another app runs that this chat only shows; null otherwise. */
   watching?: (string | null);
+  /**
+   * Work runs below it with no turn open: a background subagent, a harness background process,
+   * or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
+   * update that installs when idle waits for it. Absent otherwise, and from a peer on an older
+   * acpmux.
+   */
+  workingBelow?: boolean;
 } & Record<string, unknown>;
 
 /** One record of a session's log (`server::event_value`). */
@@ -1828,6 +1908,13 @@ export type SessionSummary = {
   family?: (string | null);
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
+  /**
+   * The names it had before its renames, oldest first: each still names it where no session
+   * has it as its current name. Absent when it was never renamed, and from an older acpmux.
+   */
+  formerNames?: string[];
+  /** The session's spoken handle, independent of its task name and ids. Older peers omit it. */
+  handle?: (string | null);
   harness: string;
   /**
    * Unix milliseconds when its harness first refused a command because the harness's own
@@ -1839,6 +1926,12 @@ export type SessionSummary = {
    * harness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.
    */
   harnessSandboxFailing?: boolean;
+  /**
+   * Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
+   * that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
+   * a peer on an older acpmux.
+   */
+  hasDraft?: boolean;
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
@@ -1917,6 +2010,19 @@ export type SessionSummary = {
   queuePaused: boolean;
   queued: number;
   /**
+   * Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on
+   * it, or Stop came while the limit had it, so it starts nothing by itself until `acpmux
+   * retry` or the person's own prompt (`hub/rate_hold.rs`). Absent otherwise, and from a peer
+   * on an older acpmux.
+   */
+  rateLimitParked?: (number | null);
+  /**
+   * The account's rate limit holds every turn of this chat until this time (Unix ms): what
+   * comes in queues and goes in as one turn at the reset (`hub/rate_hold.rs`). `acpmux ls` shows
+   * "rate-limited until HH:MMZ". Absent otherwise, and from a peer on an older acpmux.
+   */
+  rateLimitedUntil?: (number | null);
+  /**
    * The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
    * a Codex chat's earlier roots, which its older records still name, so a client folding
    * them never reads one as a subagent. Absent when none, and from a peer on an older acpmux.
@@ -1934,6 +2040,12 @@ export type SessionSummary = {
    * settled. Absent otherwise, and from a peer on an older acpmux.
    */
   retryDeciding?: boolean;
+  /**
+   * Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar
+   * and the chat header. Absent before the first turn that makes one, and from a peer on an
+   * older acpmux.
+   */
+  rollingSummary?: (RollingSummary | null);
   /**
    * The root of its lineage tree: the first ancestor no agent started; its own
    * id for a root. Absent from a peer on an older acpmux.
@@ -1991,6 +2103,12 @@ export type SessionSummary = {
   /** Tags that have not expired. */
   tags: Record<string, string>;
   /**
+   * What is done and what is next across the chat's turns (`task_list.rs`): its harness's
+   * latest plan (TodoWrite, update_plan) or the list its agent or Chief keeps
+   * (`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux.
+   */
+  taskList?: (TaskListSummary | null);
+  /**
    * Incremental wall-time and token attribution for the chat. This is seeded by a detail or
    * attach read and omitted from census rows until then (`hub/time_breakdown.rs`).
    */
@@ -2044,6 +2162,13 @@ export type SessionSummary = {
   waitsForSlot?: boolean;
   /** The family of a conversation another app runs that this chat only shows; null otherwise. */
   watching?: (string | null);
+  /**
+   * Work runs below it with no turn open: a background subagent, a harness background process,
+   * or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
+   * update that installs when idle waits for it. Absent otherwise, and from a peer on an older
+   * acpmux.
+   */
+  workingBelow?: boolean;
 } & Record<string, unknown>;
 
 /** Also the page fields of `_acpmux/watch` (`hub::session_pages`). */
@@ -2167,6 +2292,42 @@ export interface SubsessionLimitsParams {
   sessionId?: unknown;
   workspaceId?: unknown;
 }
+
+/** One step of the list. */
+export type TaskItem = {
+  /** The step's words, masked and cut to [`ITEM_CHARS`]. */
+  content: string;
+  status: TaskStatus;
+} & Record<string, unknown>;
+
+/** Who keeps a chat's task list. */
+export type TaskListSource = ("harness" | "agent" | "chief");
+
+/**
+ * What a summary carries of a chat's task list (`SessionSummary::task_list`): the steps, and the
+ * counts and lines a sidebar row or a chat strip draws without counting again.
+ */
+export type TaskListSummary = {
+  /** The first step in progress; null when none is. */
+  current: (string | null);
+  /** The steps completed. */
+  done: number;
+  items: TaskItem[];
+  /**
+   * The first step still pending after the current one (or the first pending one when none is
+   * in progress); null when none is left.
+   */
+  next: (string | null);
+  /** Who keeps it: `harness` (its own plan events), `agent` or `chief` (`_acpmux/task_list/set`). */
+  source: TaskListSource;
+  /** Every step. */
+  total: number;
+  /** When it last changed, Unix ms. */
+  updatedAt: number;
+} & Record<string, unknown>;
+
+/** Where one step stands. */
+export type TaskStatus = "pending" | "in_progress" | "completed";
 
 export type TimeBreakdown = {
   categories: TimeCategory[];

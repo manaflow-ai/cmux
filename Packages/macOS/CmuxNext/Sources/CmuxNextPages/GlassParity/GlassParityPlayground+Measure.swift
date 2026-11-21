@@ -66,8 +66,18 @@ extension GlassParityPlayground {
             var previous: [UInt8]?
             var reply: JSONValue = .null
             var captures = 0
+            var keyAtCapture = true
             while captures < Self.maximumCaptures {
                 captures += 1
+                // An active cell is the key window's glass: in an active app whose key window is another one, the
+                // glass's key look (ActiveLookScope) holds only through its own updates, so two glass views drifted
+                // apart by when each last updated (fleet step 8bf3dbb6: every failing tooltip cell, none other).
+                // The app's main window may take key at any time after activation; take it back before each capture.
+                if scenario.active, !window.isKeyWindow {
+                    window.makeKeyAndOrderFront(nil)
+                    await settle()
+                }
+                keyAtCapture = keyAtCapture && (!scenario.active || window.isKeyWindow)
                 // `chromium_pages: false`: the window server's composite already holds the Chromium page (its child
                 // window); painting Chromium's own image over it again drew its text and row fills twice.
                 reply = await capture(["window": .string(String(window.windowNumber)), "path": .string(png.path),
@@ -79,6 +89,8 @@ extension GlassParityPlayground {
             }
             if case .object(var members) = reply {
                 members["captures"] = .number(Double(captures))
+                members["key"] = .bool(window.isKeyWindow)
+                members["key_at_capture"] = .bool(keyAtCapture)
                 reply = .object(members)
             }
             snapshots[column.rawValue] = reply
@@ -109,7 +121,7 @@ extension GlassParityPlayground {
         // backdrop: fleet steps 368e35ec, 339c069f).
         var trees: [String: JSONValue] = [:]
         if let native = nativeLayer?.subviews.first(where: { $0.frame == Self.surfaceRect(.tooltip) }) { trees["native"] = glassParityTree(native) }
-        for (column, host) in hosts { if let view = host.surface(Kind.tooltip.rawValue) { trees[column.rawValue] = glassParityTree(view) } }
+        for (column, host) in hosts { if let view = host.tooltipSurface { trees[column.rawValue] = glassParityTree(view) } }
         members["tooltip_tree"] = .object(trees)
         return .object(members)
     }
