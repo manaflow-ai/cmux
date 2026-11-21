@@ -14,7 +14,7 @@
   margin: 0 calc(var(--cv-inset-end, var(--cv-inset, var(--ds-space-4))) - var(--acpmux-stack-outset, 0px)) 0
     calc(var(--cv-inset, var(--ds-space-4)) - var(--acpmux-stack-outset, 0px));
   overflow: clip;
-  border-radius: var(--acpmux-composer-radius, 11px);
+  border-radius: var(--acpmux-composer-radius);
   background: var(--acpmux-stack-tint);
   box-shadow: var(--acpmux-stack-shadow);
   color: var(--agent-text);
@@ -85,7 +85,7 @@
   flex: none;
   color: var(--agent-muted);
   transform: rotate(180deg);
-  transition: transform var(--agent-motion-move, 180ms) ease-out;
+  transition: transform var(--agent-motion-move) var(--agent-ease-out);
 }
 .acpmux-surge[data-open] .acpmux-surge-chevron { transform: none; }
 
@@ -93,7 +93,7 @@
   flex: none;
   margin: 0;
   padding: 0 var(--ds-space-2);
-  min-height: calc(var(--acpmux-surge-row) - 8px);
+  min-height: 20px;
   border: 0;
   border-radius: var(--ds-radius-control);
   background: color-mix(in srgb, var(--agent-warning, var(--agent-accent)) 14%, transparent);
@@ -143,7 +143,7 @@ button.acpmux-surge-need:hover {
 .acpmux-surge-filters button {
   margin: 0;
   padding: 0 var(--ds-space-2);
-  min-height: 22px;
+  min-height: 24px;
   border: 0;
   border-radius: var(--ds-radius-control);
   background: transparent;
@@ -192,7 +192,7 @@ button.acpmux-surge-need:hover {
   align-self: flex-start;
   margin: 0;
   padding: 0 var(--ds-space-2);
-  min-height: 22px;
+  min-height: 24px;
   border: 0;
   border-radius: var(--ds-radius-control);
   background: transparent;

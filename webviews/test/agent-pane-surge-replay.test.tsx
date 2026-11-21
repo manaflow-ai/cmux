@@ -6,6 +6,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { teardownDom } from "./support/domTeardown";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "cmux-agent://pane/index.html",
@@ -71,7 +72,7 @@ async function replay(sessionId: string, events: EventRecord[], held: number, vi
     expect(snapshot?.surge?.held).toBe(held);
     await act(async () => root.render(<AcpmuxApp initialChat={{ snapshot: snapshot! }} />));
     expect(host.querySelectorAll(".acpmux-surge-line").length).toBe(1);
-    const rows = host.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]");
+    const rows = host.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW);
     expect(rows.length).toBeGreaterThan(0);
     const count = Number(rows[0].getAttribute("aria-setsize"));
     expect(count).toBeGreaterThanOrEqual(rows.length);

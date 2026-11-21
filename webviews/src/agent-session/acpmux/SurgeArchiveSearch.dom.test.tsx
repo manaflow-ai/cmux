@@ -60,6 +60,8 @@ afterEach(async () => {
 
 const wait = (ms: number) =>
   act(async () => {
+    // fixed-wait: the archive search's debounce (ARCHIVE_DEBOUNCE_MS) is the behavior under test,
+    // and its reads resolve on real promises the component awaits, which fake timers do not drive.
     await new Promise((resolve) => setTimeout(resolve, ms));
   });
 

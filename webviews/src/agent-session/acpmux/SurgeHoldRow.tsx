@@ -77,6 +77,20 @@ export function SurgeHoldRow({
   // counts, direct.ts), and never a snapshot arriving while the panel is open.
   const [wanted, setWanted] = useState(initiallyOpen ? 1 : 0);
   const panelId = useId();
+  const sectionRef = useRef<HTMLElement>(null);
+  // Escape anywhere in the open row folds it (the line, the search field, a thread's buttons).
+  useEffect(() => {
+    const section = sectionRef.current;
+    if (!open || !section) return;
+    const fold = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      setOpen(false);
+      setOnlyNeed(false);
+    };
+    section.addEventListener("keydown", fold);
+    return () => section.removeEventListener("keydown", fold);
+  }, [open]);
   const field = useRef<HTMLInputElement>(null);
   const held = surge?.held ?? 0;
   const needYou = surge?.needYou ?? 0;
@@ -142,12 +156,7 @@ export function SurgeHoldRow({
       data-need={needYou > 0 || undefined}
       data-look={look}
       aria-label={t("surge.title")}
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && open) {
-          event.stopPropagation();
-          toggle(false);
-        }
-      }}
+      ref={sectionRef}
     >
       {open && (
         <section id={panelId} className="acpmux-surge-panel" aria-label={t("surge.title")}>
