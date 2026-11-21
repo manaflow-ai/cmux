@@ -2,7 +2,7 @@
 // rows the list draws (OWNERSHIP-PRINCIPLES "Clients are projections": visible = mirror + pending
 // intents; an intent leaves the log on its echo or its reject). No I/O, no timers.
 import { format, L, type StringKey } from "./strings";
-import type { CloudMachine, CloudPlan, MachineEvent, MachineSize, MachineStatus } from "./ops";
+import type { CloudDiskHealth, CloudMachine, CloudPlan, MachineEvent, MachineSize, MachineStatus } from "./ops";
 
 /** The machine list layout (Debug setting `cloud.machines.layout`, README.md). */
 export type MachineLayout = "rows" | "cards";
@@ -11,7 +11,17 @@ export function parseLayout(value: string | null | undefined): MachineLayout {
   return value === "cards" ? "cards" : "rows";
 }
 
-export type IntentKind = "create" | "start" | "pause" | "rename" | "resize" | "delete" | "idle" | "upgrade";
+export type IntentKind =
+  | "create"
+  | "start"
+  | "pause"
+  | "rename"
+  | "resize"
+  | "delete"
+  | "idle"
+  | "upgrade"
+  | "keep"
+  | "archive";
 
 /** One typed intent the page sent and the owner has not echoed or rejected yet. */
 export interface PendingIntent {
@@ -21,6 +31,8 @@ export interface PendingIntent {
   name?: string;
   memoryMb?: number;
   idle?: number | null;
+  /** The pin a Keep toggle set (`cloud.machine.keep`). */
+  keep?: boolean;
   /** The machine id the owner answered for a create (or a restore). */
   result_id?: string;
   /** The owner answered; its next event for the machine is the echo. */
@@ -40,6 +52,8 @@ export interface MachineRow {
    * place of the mirror's; undefined while none is waiting.
    */
   idle?: number | null;
+  /** The pin the newest unanswered Keep toggle set, shown at once in place of the mirror's. */
+  keep?: boolean;
   /** Imported from cmux Cloud classic: read-only until upgraded (contract 4). */
   classic?: boolean;
 }
@@ -98,6 +112,11 @@ export function settled(intent: PendingIntent, machines: CloudMachine[], revisio
       return (machine.idle_policy?.idle_seconds ?? 0) === (intent.idle ?? 0);
     case "upgrade":
       return !machine.classic;
+    case "keep":
+      return !!machine.keep === !!intent.keep;
+    case "archive":
+      // The platform marks it (`delete_reason: requested`), archives it, then removes it.
+      return machine.delete_reason === "requested";
   }
 }
 
@@ -106,7 +125,7 @@ export function settled(intent: PendingIntent, machines: CloudMachine[], revisio
  * value at once, with no pending label and nothing held; a refusal drops the intent, which puts the
  * mirror's value back, and the page's one error line says why.
  */
-export const QUICK_INTENTS = new Set<IntentKind>(["rename", "idle"]);
+export const QUICK_INTENTS = new Set<IntentKind>(["rename", "idle", "keep"]);
 
 /** The rows the list draws: every mirrored machine with its newest pending intent, then creates. */
 export function visibleRows(machines: CloudMachine[], pending: PendingIntent[]): MachineRow[] {
@@ -115,6 +134,7 @@ export function visibleRows(machines: CloudMachine[], pending: PendingIntent[]):
     const intents = pending.filter((intent) => intent.machine === machine.id).reverse();
     const rename = intents.find((intent) => intent.kind === "rename");
     const idle = intents.find((intent) => intent.kind === "idle");
+    const keep = intents.find((intent) => intent.kind === "keep");
     return {
       id: machine.id,
       title: rename?.name ?? machineTitle(machine),
@@ -122,6 +142,7 @@ export function visibleRows(machines: CloudMachine[], pending: PendingIntent[]):
       machine,
       pending: intents.find((intent) => !QUICK_INTENTS.has(intent.kind))?.kind,
       ...(idle ? { idle: idle.idle ?? null } : {}),
+      ...(keep ? { keep: !!keep.keep } : {}),
       ...(machine.classic ? { classic: true } : {}),
     };
   });
@@ -153,6 +174,8 @@ export const IntentLabel: Record<IntentKind, StringKey> = {
   delete: L.pendingDelete,
   idle: L.pendingIdle,
   upgrade: L.pendingUpgrade,
+  keep: L.pendingKeep,
+  archive: L.pendingArchive,
 };
 
 /** A status between two steady states: the dot shows it as in progress. */
@@ -186,6 +209,38 @@ export function formatMegabytes(mb: number, t: (key: string) => string, language
   const gb = mb / 1024;
   const value = new Intl.NumberFormat(language, { maximumFractionDigits: gb < 10 ? 1 : 0 }).format(gb);
   return format(t(L.gigabytes), { value });
+}
+
+export const DISK_HEALTH_MAX_AGE_MS = 15 * 60_000;
+
+export type DiskHealthState = "healthy" | "warning" | "stale" | "unknown";
+
+/** A report is actionable only while all capacity values are finite and non-negative. */
+export function diskHealthState(health: CloudDiskHealth | null | undefined, now = Date.now()): DiskHealthState {
+  if (!health) return "unknown";
+  if (!Number.isFinite(now) || !Number.isFinite(health.observed_at)) return "unknown";
+  if (health.observed_at > now) return "unknown";
+  if (now - health.observed_at > DISK_HEALTH_MAX_AGE_MS) return "stale";
+  if (
+    ![health.free_mb, health.used_mb, health.total_mb, health.floor_mb].every(
+      (value) => Number.isFinite(value) && value >= 0,
+    ) ||
+    health.total_mb < health.free_mb ||
+    health.total_mb < health.used_mb ||
+    health.free_mb + health.used_mb > health.total_mb ||
+    !Array.isArray(health.top_users) ||
+    health.top_users.some(
+      (user) =>
+        !user ||
+        typeof user.path !== "string" ||
+        user.path.length === 0 ||
+        !Number.isFinite(user.used_mb) ||
+        user.used_mb < 0,
+    )
+  ) {
+    return "unknown";
+  }
+  return health.free_mb <= health.floor_mb ? "warning" : "healthy";
 }
 
 /** "4 CPU · 8 GB memory · 64 GB disk" from the machine record's size. */

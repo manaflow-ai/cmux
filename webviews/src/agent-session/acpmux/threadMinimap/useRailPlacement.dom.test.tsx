@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { JSDOM } from "jsdom";
 import { act, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -15,15 +16,19 @@ let root: Root | undefined;
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
-  for (const [key, value] of saved) scope[key] = value;
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   saved.clear();
 });
 
 test("an Interface Scale change places the rail again", async () => {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
-  for (const key of KEYS) saved.set(key, scope[key]);
+  for (const key of KEYS) if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,

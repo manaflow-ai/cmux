@@ -16,13 +16,6 @@ enum DaemonRecoveryStrings {
     static var retrying: String { String(localized: "daemon.retrying", defaultValue: "Still retrying in the background.", bundle: .module) }
     static var retryNow: String { String(localized: "daemon.recovery.retryNow", defaultValue: "Retry Now", bundle: .module) }
     static var restart: String { String(localized: "daemon.recovery.restart", defaultValue: "Restart Background Service", bundle: .module) }
-    static var confirmTitle: String { String(localized: "daemon.recovery.confirmTitle", defaultValue: "Restart cmux's background service?", bundle: .module) }
-    static var confirmBody: String {
-        String(localized: "daemon.recovery.confirmBody",
-               defaultValue: "cmux's background service isn't responding. Restarting it stops the stuck process and starts a new one. Terminals running in it may be lost.",
-               bundle: .module)
-    }
-    static var confirmButton: String { String(localized: "daemon.recovery.confirmButton", defaultValue: "Restart", bundle: .module) }
     static var restarting: String { String(localized: "daemon.recovery.restarting", defaultValue: "Restarting the background service…", bundle: .module) }
     static var failed: String {
         String(localized: "daemon.recovery.failed", defaultValue: "Couldn't restart the background service. Try again in a moment.", bundle: .module)
@@ -46,28 +39,15 @@ enum DaemonRecoveryStrings {
     }
 }
 
-/// Restart cmux-tui's question and the App Store banner's controls, one path
-/// for both surfaces (cx-jniyz.1). The question is the cmux dialog every
-/// destructive confirm uses, so the debug socket can answer it.
-enum DaemonRestartPrompt {
-    static let confirmID = "restart"
-    static let identifier = "cmux.dialog.restartDaemon"
-
-    /// Asks before Restart cmux-tui (terminals of a stuck owner may be lost),
-    /// then runs it. `window` scopes the question; none asks app-wide.
-    /// `cancelled` runs when the person answered no (the window's notice shows again).
-    static func confirm(_ recovery: DaemonRecovery, in window: NSWindow?, cancelled: (@MainActor () -> Void)? = nil) {
-        let spec = CmuxDialogSpec(title: DaemonRecoveryStrings.confirmTitle, lines: [DaemonRecoveryStrings.confirmBody],
-                                  buttons: [.cancel(), CmuxDialogButton(id: confirmID, title: DaemonRecoveryStrings.confirmButton, role: .default)],
-                                  identifier: identifier)
-        CmuxDialogCenter.shared.present(spec, in: window.map(CmuxDialogScope.window) ?? .app) { answer in
-            guard answer.button == confirmID else {
-                cancelled?()
-                return
-            }
-            // task-owner: one restart per confirm; DaemonRecovery ignores another while one runs
-            Task { await recovery.restart() }
-        }
+/// Restart cmux-tui from the launch window's button and the App Store banner, one path for both
+/// surfaces (cx-jniyz.1). No question first: the terminal hosts are separate processes that
+/// outlive the stuck owner and the next owner adopts them (`DaemonRecovery.restart`), so nothing
+/// is lost, and the automatic restart already runs the same replace without asking.
+enum DaemonRestart {
+    /// Runs Restart cmux-tui.
+    static func restart(_ recovery: DaemonRecovery) {
+        // task-owner: one restart per click; DaemonRecovery ignores another while one runs
+        Task { await recovery.restart() }
     }
 
     /// What the restart shows while it runs or after it failed, or that the start failed on a
@@ -103,7 +83,7 @@ final class DaemonRecoveryControls: NSStackView {
         statusLabel.focusRingType = .none
         statusLabel.setAccessibilityIdentifier("daemon.recoveryStatus")
         Self.configure(retryButton, title: DaemonRecoveryStrings.retryNow, identifier: "daemon.retryNow", target: self, action: #selector(retryNow))
-        Self.configure(restartButton, title: DaemonRecoveryStrings.restart, identifier: "daemon.restart", target: self, action: #selector(confirmRestart))
+        Self.configure(restartButton, title: DaemonRecoveryStrings.restart, identifier: "daemon.restart", target: self, action: #selector(restart))
         let row = NSStackView(views: [retryButton, restartButton])
         row.orientation = .horizontal
         row.spacing = Metrics.space2
@@ -144,7 +124,7 @@ final class DaemonRecoveryControls: NSStackView {
         retryButton.isEnabled = !restarting
         restartButton.isHidden = !(recovery.offersRestart || restarting)
         restartButton.isEnabled = !restarting
-        statusLabel.stringValue = DaemonRestartPrompt.status(recovery) ?? ""
+        statusLabel.stringValue = DaemonRestart.status(recovery) ?? ""
         statusLabel.isHidden = statusLabel.stringValue.isEmpty
     }
 
@@ -152,7 +132,7 @@ final class DaemonRecoveryControls: NSStackView {
         recovery.retryNow()
     }
 
-    @objc private func confirmRestart() {
-        DaemonRestartPrompt.confirm(recovery, in: window)
+    @objc private func restart() {
+        DaemonRestart.restart(recovery)
     }
 }

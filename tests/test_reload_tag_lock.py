@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Behavior checks for concurrent tagged reloads without invoking Xcode."""
 
+import importlib.util
 import os
 from pathlib import Path
 import selectors
@@ -14,6 +15,10 @@ import uuid
 
 
 HELPER = Path(__file__).resolve().parents[1] / "scripts/lib/tagged-reload-lock.py"
+# tests/process_gone.py by path: `python3 -I` puts no script folder on sys.path.
+_process_gone_spec = importlib.util.spec_from_file_location("process_gone", Path(__file__).resolve().parent / "process_gone.py")
+process_gone = importlib.util.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
 
 
 class ReloadTagLockTests(unittest.TestCase):
@@ -126,19 +131,8 @@ class ReloadTagLockTests(unittest.TestCase):
 
     @staticmethod
     def group_alive(group):
-        try:
-            os.killpg(group, 0)
-        except ProcessLookupError:
-            return False
-        return True
-
-    @staticmethod
-    def process_alive(pid):
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        return True
+        """The group has a member now (a zombie not reaped yet counts)."""
+        return not process_gone.group_died(group, within=0)
 
     def test_killing_supervisor_group_ends_reload_session(self):
         # The grandchild ignores SIGTERM, so only the SIGKILL after the grace ends it.
@@ -158,7 +152,7 @@ class ReloadTagLockTests(unittest.TestCase):
         supervisor.wait(timeout=10)
 
         self.assertTrue(
-            self.wait_until(lambda: not self.group_alive(session), 10),
+            process_gone.group_died(session, within=10),
             f"Reload session {session} (grandchild {grandchild}) outlived its supervisor",
         )
         # The watcher never held the lease: the next reload of the tag runs.
@@ -180,7 +174,7 @@ class ReloadTagLockTests(unittest.TestCase):
         session = int(pid_file.read_text())
         self.addCleanup(self.kill_group, session)
         self.assertTrue(
-            self.wait_until(lambda: not self.group_alive(session), 10),
+            process_gone.group_died(session, within=10),
             f"Reload session {session} outlived a supervisor killed before the pid handoff",
         )
 
@@ -195,10 +189,11 @@ class ReloadTagLockTests(unittest.TestCase):
         session, _grandchild, watcher = self.read_pids()
         self.assertTrue(watcher.isdigit(), "Supervisor started no session watcher")
         self.assertTrue(
-            self.wait_until(lambda: not self.process_alive(int(watcher)), 5),
+            process_gone.died(int(watcher), within=5),
             f"Session watcher {watcher} outlived a normal reload",
         )
-        self.assertFalse(self.group_alive(session))
+        # The watcher has exited, but may not be reaped yet: wait for the group to empty.
+        self.assertTrue(process_gone.group_died(session), f"Reload session {session} outlived a normal reload")
 
 
 if __name__ == "__main__":

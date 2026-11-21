@@ -53,6 +53,8 @@ fn hub(d: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "bridge": {"argv": [codex.clone(), "app-server"]},
+            "bridge-held": {"argv": [codex.clone(), "app-server"],
+                            "env": {"FAKE_CODEX_HOLD_SUGGESTIONS": "1"}},
             "bridge-placeholder": {"argv": [d.join("missing/codex"), "app-server"]},
             "adapter": {"argv": ["python3", FAKE_AGENT, "codex-acp"], "family": "codex"},
         },
@@ -158,6 +160,47 @@ fn err(v: &Value) -> String {
 async fn bridge_chat(c: &mut Client, d: &Path) -> String {
     let created = c.new_on(d, "bridge").await;
     created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}")).to_owned()
+}
+
+/// A bridge chat on `harness` whose log a test compares before and after a step: its prompt
+/// suggestions off. The bridge asks the app-server for a suggestion once each turn completes
+/// (`codex_app_server.rs` `translator`), and that answer lands in the chat's log whenever the
+/// app-server sends it, after the prompt's own answer on a loaded machine (CI 43016464077: a
+/// `thread/fork`'s answer between the snapshot and its compare). Off, nothing the chat asked is
+/// still in flight once its prompt answers. Settings that turn suggestions off answer so. `c`
+/// starts the chat; the person turns them off (a chat's option is the person's to change).
+async fn compared_bridge_chat(
+    c: &mut Client,
+    person: &mut Client,
+    d: &Path,
+    harness: &str,
+) -> String {
+    let created = c.new_on(d, harness).await;
+    let id = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
+    let off = json!({"sessionId": id, "configId": "prompt-suggestions", "value": "off"});
+    let r = person.call("session/set_config_option", off).await;
+    assert!(r.get("error").is_none() || err(&r).contains("off in settings"), "{r}");
+    id.to_owned()
+}
+
+/// What `id`'s chat asked its app-server that the app-server has not answered: the ids of its
+/// requests (`codex.stdin` lines with a method and an id) without a `codex.response`.
+fn unanswered(hub: &Hub, id: &str) -> Vec<Value> {
+    let log = hub.events(id, 0, 10_000).unwrap();
+    let mut asked = Vec::new();
+    let mut answered = Vec::new();
+    for event in &log {
+        let line = &event.msg["params"];
+        match event.kind.as_str() {
+            "codex.stdin" if line.get("method").is_some() && line.get("id").is_some() => {
+                asked.push(line["id"].clone())
+            }
+            "codex.response" => answered.push(line["id"].clone()),
+            _ => {}
+        }
+    }
+    asked.retain(|id| !answered.contains(id));
+    asked
 }
 
 fn prompt(s: &str) -> Value {
@@ -471,18 +514,26 @@ async fn only_the_person_turns_the_setting_on_for_a_client_machine() {
 /// splices the phone's `acpmux` channel to this daemon. With the phone's own
 /// `phone` credential in place of the shared dashboard token, the connection
 /// is still the Web's (remote, every Web rule), but it names that phone, so
-/// the per-device setting covers it: off, the phone is refused Full access;
-/// on, it is allowed. A request the mobile host marks (what its phone filter
-/// refused before) runs only when the setting covers it, whatever the chat.
+/// the per-device setting covers it. A new phone starts with it on; once the
+/// person turns it off, the phone is refused Full access; on again, it is
+/// allowed. A request the mobile host marks (what its phone filter refused
+/// before) runs only when the setting covers it, whatever the chat.
 #[tokio::test]
 async fn a_paired_phone_is_refused_full_access_without_its_setting_and_allowed_with_it() {
     let d = dir("phone");
     let hub = hub(&d);
     let mut person = Client::person(&hub).await;
     let (id, token) = issue_phone(&mut person, "phone-a").await;
-    let (_, other_token) = issue_phone(&mut person, "phone-b").await;
+    let (other_id, other_token) = issue_phone(&mut person, "phone-b").await;
     let mut phone = Client::device(&hub, &token, false);
     let mut other = Client::device(&hub, &other_token, false);
+    // A phone the person paired is on by default.
+    let init = phone.call("initialize", json!({"protocolVersion": 1})).await;
+    assert_eq!(init["result"]["_meta"]["acpmux"]["fullAccess"], true, "on by default: {init}");
+    assert!(hub.pairing.full_access(&id) && hub.pairing.full_access(&other_id));
+    for phone_id in [&id, &other_id] {
+        assert!(set_full_access(&mut person, phone_id, false).await.get("error").is_none());
+    }
     let init = phone.call("initialize", json!({"protocolVersion": 1})).await;
     let meta = &init["result"]["_meta"]["acpmux"];
     assert_eq!(meta["origin"], "remote", "served as the Web, not as a peer: {init}");
@@ -540,9 +591,10 @@ async fn canonical_fork_boundaries_keep_the_phones_full_access_requirement() {
     let mut person = Client::person(&hub).await;
     let (device, token) = issue_phone(&mut person, "fork-phone").await;
     let mut phone = Client::device(&hub, &token, false);
+    assert!(set_full_access(&mut person, &device, false).await.get("error").is_none());
     assert!(!hub.pairing.full_access(&device));
     let mut local = Client::new(&hub, Origin::Local, ConnAuth::LocalSocket);
-    let source = bridge_chat(&mut local, &d).await;
+    let source = compared_bridge_chat(&mut local, &mut person, &d, "bridge").await;
     assert_ne!(mode_now(&hub, &source), "ask");
     for id in ["first", "second"] {
         let mut params = prompt(&source);
@@ -569,6 +621,30 @@ async fn canonical_fork_boundaries_keep_the_phones_full_access_requirement() {
         assert_eq!(hub.sessions().len(), count, "refusal creates no child: {boundary}");
         assert_eq!(hub.events(&source, 0, 10_000).unwrap(), original);
     }
+    hub.shutdown_all().await;
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+/// The race behind CI 43016464077, forced: the app-server holds every suggestion's answer, as a
+/// loaded machine delays one past the prompt's. A chat a test compares asks nothing the
+/// app-server still owes it once its prompts answered, so its log is final.
+#[tokio::test]
+async fn a_compared_bridge_chat_owes_no_answer_once_its_prompts_answer() {
+    let d = dir("held-suggestions");
+    let hub = hub(&d);
+    let mut person = Client::person(&hub).await;
+    let mut local = Client::new(&hub, Origin::Local, ConnAuth::LocalSocket);
+    let source = compared_bridge_chat(&mut local, &mut person, &d, "bridge-held").await;
+    for id in ["first", "second"] {
+        let mut params = prompt(&source);
+        params["_meta"] = json!({"acpmux": {"promptId": id}});
+        let reply = local.call("session/prompt", params).await;
+        assert_eq!(reply["result"]["stopReason"], "end_turn", "{reply}");
+    }
+    // Checked where the compare snapshots, after the last prompt: the title the first turn asks
+    // for is answered before the app-server takes the next turn, a suggestion never is.
+    let open = unanswered(&hub, &source);
+    assert!(open.is_empty(), "still in flight once the prompts answered: {open:?}");
     hub.shutdown_all().await;
     std::fs::remove_dir_all(d).unwrap();
 }
@@ -671,6 +747,50 @@ async fn a_peer_deny_all_bridge_start_settles_in_read_only_and_the_web_in_ask() 
         let s = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
         assert_eq!(mode_now(&hub, s), "ask", "{who}: {created}");
     }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A Codex lane the owner's peer daemon starts on one of its own lane VMs, at the VM boundary
+/// with approve-all, settles in full access on a Linux machine that takes the boundary: in `ask`,
+/// Codex's workspace-write sandbox kept the host's wt mirrors, `~/.local/state` and the daemon's
+/// socket out of reach, so the lane could not run `wt new` or `acpmux send`. The same start
+/// without the boundary, or with a narrower policy, still settles in `ask`, and so does one a
+/// peer forwards for a Web client.
+#[tokio::test]
+async fn the_owners_peer_at_its_vm_boundary_starts_the_codex_bridge_in_full_access() {
+    let d = dir("vm-boundary");
+    let hub = hub(&d);
+    let start = |policy: &str, vm: bool| {
+        let mut meta = json!({"harness": "bridge"});
+        if vm {
+            meta["vmBoundary"] = json!(true);
+        }
+        json!({"cwd": d.join("work"), "mcpServers": [], "policy": policy,
+            "_meta": {"acpmux": meta}})
+    };
+    let mut peer = Client::new(&hub, Origin::Peer, ConnAuth::PeerToken);
+    let created = peer.call("session/new", start("approve-all", true)).await;
+    let s = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
+    let want = if cfg!(target_os = "linux") { "agent-full-access" } else { "ask" };
+    assert_eq!(mode_now(&hub, s), want, "{created}");
+    // No policy asked: the vmHost approve-all grant comes first, so it settles the same way.
+    let mut unasked = start("approve-all", true);
+    unasked.as_object_mut().unwrap().remove("policy");
+    let created = peer.call("session/new", unasked).await;
+    let s = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
+    assert_eq!(mode_now(&hub, s), want, "no policy asked: {created}");
+    for (who, params) in
+        [("no boundary", start("approve-all", false)), ("policy ask", start("ask", true))]
+    {
+        let created = peer.call("session/new", params).await;
+        let s = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
+        assert_eq!(mode_now(&hub, s), "ask", "{who}: {created}");
+    }
+    let mut for_web = Client::new(&hub, Origin::Peer, ConnAuth::PeerToken);
+    for_web.3 = Some("web");
+    let created = for_web.call("session/new", start("ask", true)).await;
+    let s = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
+    assert_eq!(mode_now(&hub, s), "ask", "peer via web: {created}");
     let _ = std::fs::remove_dir_all(&d);
 }
 

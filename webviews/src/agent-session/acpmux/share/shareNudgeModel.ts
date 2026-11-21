@@ -34,14 +34,15 @@ export function ownChats(sessions: readonly AcpmuxSessionEntry[]): AcpmuxSession
   );
 }
 
-/** The chat's ended turns (their footers), oldest first. */
-const turnSummaries = (rows: readonly AcpmuxRow[]) => rows.filter((row) => row.kind === "turnSummary");
-
-/** The chat's first reply has just ended well: one ended turn, completed, with no error. */
+/** The chat's first reply has just ended well: one ended turn, completed, with no error. Read up
+ * to the second ended turn at most: a long chat's every row was filtered on each event. */
 export function firstReplyCompleted(rows: readonly AcpmuxRow[]): boolean {
-  const ended = turnSummaries(rows);
-  if (ended.length !== 1) return false;
-  const [only] = ended;
+  let only: AcpmuxRow | undefined;
+  for (const row of rows) {
+    if (row.kind !== "turnSummary") continue;
+    if (only) return false;
+    only = row;
+  }
   return only !== undefined && (only.status ?? "completed") === "completed" && !only.error && !only.failed;
 }
 

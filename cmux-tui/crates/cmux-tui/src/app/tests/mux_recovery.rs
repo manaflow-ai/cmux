@@ -951,11 +951,7 @@ fn single_surface_mux_forwarder_drops_unrelated_output_titles_and_agents() {
     let titles = MuxTitleIngress::default();
 
     assert!(matches!(
-        forward_mux_event(
-            MuxEvent::TitleChanged { surface: 42, title: "other".into() },
-            &tx,
-            &titles,
-        ),
+        forward_mux_event(MuxEvent::terminal_title(42, "other".into()), &tx, &titles),
         ForwardMuxOutcome::Continue
     ));
     assert!(matches!(
@@ -1020,11 +1016,7 @@ fn title_wake_waits_for_app_capacity_without_triggering_recovery() {
     let forwarded_titles = titles.clone();
     let forwarder = std::thread::spawn(move || {
         let tx = SessionEventSender::unscoped(tx);
-        forward_mux_event(
-            MuxEvent::TitleChanged { surface: 41, title: "latest".into() },
-            &tx,
-            &forwarded_titles,
-        )
+        forward_mux_event(MuxEvent::terminal_title(41, "latest".into()), &tx, &forwarded_titles)
     });
 
     assert!(matches!(rx.recv().unwrap(), AppEvent::Mux(MuxEvent::Bell(1))));

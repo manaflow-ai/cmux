@@ -10,6 +10,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CHAT, connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -58,12 +59,8 @@ const { translate } = await import("../src/agent-session/acpmux/i18n");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { takeBackSteer } = await import("../src/agent-session/acpmux/conversation/pendingSteerModel");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const takeBackButtons = () =>

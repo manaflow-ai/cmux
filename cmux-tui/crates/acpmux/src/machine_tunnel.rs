@@ -15,7 +15,11 @@
 //!   `busy`; a key lock another process holds (the cmux link) is refused `key_held` with its
 //!   pid. A new rotation while a configured WireGuard peer or the hub carrier's registration
 //!   reaches this machine by its current key is refused `machine.rotate_strands_peers`, naming
-//!   them: peers have no way yet to learn a rotated key from the platform.
+//!   them: peers have no way yet to learn a rotated key from the platform. Any rekey, a pending
+//!   one included, is refused `node_key.adopted` while the cmux link's adoption, current or
+//!   archived with a signed-out install, depends on the key (`mesh_node_key::adoption_depends`,
+//!   asked under the key lock): the link's paired peers know it by that key alone, and until the
+//!   link rekeys them itself a rotation would cut them all off.
 //!
 //! The person's cmux access token comes in the app's call (`server/machine_tunnel.rs`: the unix
 //! socket with the person proof only). It is the bearer of that one request, never stored,
@@ -35,8 +39,6 @@ use crate::wireguard::Transport;
 
 /// The longest token the app may send (a Stack access token is far shorter).
 const MAX_TOKEN_BYTES: usize = 16 * 1024;
-/// The longest platform answer read.
-const MAX_REPLY_BYTES: usize = 64 * 1024;
 
 /// The one rekey this daemon runs at a time.
 pub(crate) static REKEYS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -236,6 +238,14 @@ pub(crate) async fn rekey(
             "this Mac could not write a new WireGuard key; its key is unchanged",
         )
     };
+    // Before a candidate is written or sent: the lock is held from here to the rename, so no
+    // adoption begins in between (`promote_pending_held` asks again under it).
+    let depends = holder
+        .with_lock(|lock| Ok(crate::cli::mesh_node_key::adoption_depends_held(state_dir, lock)))
+        .map_err(|_| unwritten())?;
+    if depends {
+        return Err(adopted());
+    }
     let private = match holder
         .with_lock(|lock| crate::cli::mesh_node_key::read_pending_held(state_dir, lock))
         .map_err(|_| unwritten())?
@@ -281,7 +291,7 @@ pub(crate) async fn rekey(
             return Err(error);
         }
     };
-    // A success that names no key (a body that is not JSON, cut short, too long, or without
+    // A success that names no key (a body that is not JSON, cut short, or without
     // `wgPublicKey`) is as unsettled as a lost answer: the platform said yes, so it may hold
     // this candidate now, and only the candidate's private half can match it.
     match answer.get("wgPublicKey").and_then(Value::as_str) {
@@ -353,6 +363,17 @@ fn refuse_stranding(state_dir: &Path, stranded: &[String]) -> Result<(), RpcErro
     })))
 }
 
+/// The refusal of a rekey while the cmux link's adoption depends on this machine's node key.
+fn adopted() -> RpcError {
+    let code = crate::cli::mesh_node_key::ADOPTED;
+    RpcError::new(
+        -32000,
+        "the cmux link serves this Mac's WireGuard key, and the Macs paired with it know it by \
+         that key alone; it is not rotated until the link can tell them a new one",
+    )
+    .with_data(json!({"reason": code, "code": code}))
+}
+
 /// Whether a refused platform call may still have happened there: no answer at all, or a 500,
 /// 502 or 504 (a gateway or the platform failing after its write).
 fn ambiguous(error: &RpcError) -> bool {
@@ -409,11 +430,8 @@ async fn post(
     let response = request.send().await.map_err(|_| unreachable())?;
     let status = response.status().as_u16();
     let bytes = response.bytes().await.map_err(|_| unreachable())?;
-    let answer: Value = if bytes.len() <= MAX_REPLY_BYTES {
-        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-    } else {
-        Value::Null
-    };
+    // The whole answer is read: a long one that names the key still settles the rekey.
+    let answer: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
     if (200..300).contains(&status) {
         return Ok(answer);
     }

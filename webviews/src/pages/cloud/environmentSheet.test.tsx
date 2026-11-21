@@ -5,6 +5,7 @@ import { EnvironmentStore } from "./environmentStore";
 import type { CloudEnvironment, EnvironmentPatch, EnvironmentSection } from "./environmentModel";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
+import { teardownDom } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/",
@@ -35,12 +36,8 @@ const settle = async () => {
   for (let i = 0; i < 12; i++) await Promise.resolve();
 };
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) globals[key] = value;
-    else delete globals[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope: globals });
 });
 
 const sample: CloudEnvironment = {

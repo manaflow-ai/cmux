@@ -125,17 +125,21 @@ public struct ConversationTabSplit: Encodable, Sendable, Hashable {
     public var paneID: String
     /// Nil for a daemon without `split-client-split-id-v1`.
     public var splitID: String?
+    /// The split the new pane wraps whole (`split-around-v1`, Insert New at a divider); nil splits `pane` alone.
+    public var around: SplitID?
 
-    public init(direction: SplitDirection, paneID: String, splitID: String?) {
+    public init(direction: SplitDirection, paneID: String, splitID: String?, around: SplitID? = nil) {
         self.direction = direction
         self.paneID = paneID
         self.splitID = splitID
+        self.around = around
     }
 
     enum CodingKeys: String, CodingKey {
         case direction
         case paneID = "pane_id"
         case splitID = "split_id"
+        case around
     }
 }
 

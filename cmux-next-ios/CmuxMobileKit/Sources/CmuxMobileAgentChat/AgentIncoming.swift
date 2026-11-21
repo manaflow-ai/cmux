@@ -44,15 +44,20 @@ public struct AgentIncoming: Hashable, Sendable, Codable {
     public var unverified: Bool
     /// A person edited it while it waited (acpmux `editedBy`): still the sender's message.
     public var edited: Bool
+    /// The Chief whose turn sent it (acpmux `fromChief`, its participant id, `agent_…`): the
+    /// transcript draws it as the Chief's blue bubble, never the person's own (CMUX-51). Nil for
+    /// every other sender and in older payloads.
+    public var chief: String?
 
     public init(messages: [Message], harness: String? = nil, messageID: String? = nil, raw: String,
-                unverified: Bool = false, edited: Bool = false) {
+                unverified: Bool = false, edited: Bool = false, chief: String? = nil) {
         self.messages = messages
         self.harness = harness
         self.messageID = messageID
         self.raw = raw
         self.unverified = unverified
         self.edited = edited
+        self.chief = chief
     }
 
     /// The card's title: its one sender, or the first three and a count.
@@ -81,8 +86,20 @@ extension AgentIncoming {
     public static func parse(text: String, provenance: JSONValue?, client: String? = nil, fromHarness: String? = nil) -> AgentIncoming? {
         var incoming = card(text: text, provenance: provenance, client: client, fromHarness: fromHarness)
         if provenance?["editedBy"] != nil { incoming?.edited = true }
+        if incoming?.unverified == false, incoming?.messages.count == 1 { incoming?.chief = chiefID(provenance) }
         return incoming
     }
+
+    /// The Chief whose turn sent a message (acpmux `prompt_provenance::stamp_chief`): its participant
+    /// id, only on the two kinds acpmux stamps (`agent_message`, `session_message`) and only in the
+    /// id's shape, as the Mac's `incomingMessage.ts` `chiefOf`.
+    static func chiefID(_ provenance: JSONValue?) -> String? {
+        guard ["agent_message", "session_message"].contains(provenance?["kind"]?.stringValue ?? ""),
+              let chief = provenance?["fromChief"]?.nonEmpty, match(chief, chiefPattern) else { return nil }
+        return chief
+    }
+
+    static let chiefPattern = #"^agent_[A-Za-z0-9_-]{1,58}$"#
 
     private static func card(text: String, provenance: JSONValue?, client: String?, fromHarness: String?) -> AgentIncoming? {
         // Only a record acpmux keeps as another agent's has its broker label read: anyone can type
@@ -261,7 +278,7 @@ extension AgentIncoming {
     /// no chat.
     static func senderSession(_ provenance: JSONValue?) -> String? {
         guard let from = provenance?["from"]?.nonEmpty else { return nil }
-        if let chief = provenance?["fromChief"]?.nonEmpty, match(chief, #"^agent_[A-Za-z0-9_-]{1,58}$"#) { return nil }
+        if let chief = provenance?["fromChief"]?.nonEmpty, match(chief, chiefPattern) { return nil }
         switch provenance?["kind"]?.stringValue {
         case "subsession_message", "session_message", "task_result", "lane_report":
             return from.hasPrefix("acp:") ? sessionID(from) : from

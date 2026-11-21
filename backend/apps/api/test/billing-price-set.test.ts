@@ -20,11 +20,12 @@ describe("usage price set v2 (Team 25 USD per seat)", () => {
     expect(USAGE_INCLUDED_USD).toEqual({ go: 5, pro: 20, max: 100, team: 20 })
   })
 
-  it("is in force only on development or staging that ask for it; production stays v1", () => {
+  it("is in force only where the Worker asks for it: v2 on development, staging or production, e2e on development", () => {
     const at = (ENVIRONMENT: string, BILLING_USAGE_PRICE_SET?: string) => usagePriceSet({ ENVIRONMENT, BILLING_USAGE_PRICE_SET })
     expect(at("development", "v2")).toBe("v2")
     expect(at("staging", "v2")).toBe("v2")
-    expect(at("production", "v2")).toBe("v1")
+    // Production asks for nothing today (wrangler.jsonc): v1 until the founders' go sets v2.
+    expect(at("production", "v2")).toBe("v2")
     expect(at("production", "e2e")).toBe("v1")
     expect(at("production")).toBe("v1")
     expect(at("test", "v2")).toBe("v1")
@@ -44,6 +45,7 @@ describe("usage price set v2 (Team 25 USD per seat)", () => {
     const staging = { ENVIRONMENT: "staging", BILLING_USAGE_PRICE_SET: "v2" } as any
     expect(includedModeFor(staging, { plan: "team" })).toBe("per_seat")
     expect(includedModeFor(staging, { plan: "founders" })).toBe("per_team")
-    expect(includedModeFor({ ENVIRONMENT: "production", BILLING_USAGE_PRICE_SET: "v2" } as any, { plan: "team" })).toBe("per_team")
+    expect(includedModeFor({ ENVIRONMENT: "production" } as any, { plan: "team" })).toBe("per_team")
+    expect(includedModeFor({ ENVIRONMENT: "production", BILLING_USAGE_PRICE_SET: "v2" } as any, { plan: "team" })).toBe("per_seat")
   })
 })

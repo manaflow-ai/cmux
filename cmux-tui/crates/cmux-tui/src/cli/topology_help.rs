@@ -3,7 +3,7 @@
 
 pub(super) const WORKSPACE_HELP: &str = "\
 USAGE
-  cmux workspace list [--order session|personal] [--name <name>] [--cwd <path>]
+  cmux workspace list [--order session|personal] [--name <name>] [--cwd <path>] [--id <id,...>] [--tree]
   cmux --machine <cloud machine> workspace list
   cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--top] [--correlation-key <value>]
     [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
@@ -82,7 +82,11 @@ its id or exact name. list --name <name> keeps the workspaces named exactly
 inside it (relative to the current folder; links resolved too). Both together
 keep rows that match both; no match is an empty list and exit 0, so
 `list --name api --json` finds every workspace a `name:api` selector calls
-ambiguous. list --order session gives the session's workspace
+ambiguous. list --id <id>[,<id>...] keeps the workspaces with those ids (an
+id prefix matches too). list --tree gives each workspace its panes, each
+pane its tabs (name, kind, terminal folder), and created_by: the person,
+agent session or script that made it; `list --id ws_a,ws_b --tree --json`
+reads two workspaces whole in one call. list --order session gives the session's workspace
 order: creation order unless a workspace was moved. list --order personal
 gives the cmux app's sidebar order: loose workspaces, and each group's
 workspaces where the group shows. Without --order, list gives the sidebar
@@ -93,8 +97,8 @@ order. The app's
 snapshot.get windows[].workspaces lists the order each window shows. In the
 cmux app's session, list also gives each connected Cloud machine's
 workspaces after this Mac's, marked origin cloud with machine_id (the vm-…
-id cloud new-workspace answers), machine_name and target machine:<id>;
---machine <vm-…|machine:vm-…|name> lists one Cloud machine's. --top-index
+id cloud new-workspace answers), machine_name and target vm:<id>;
+--machine <vm-…|vm:vm-…|name> lists one Cloud machine's. --top-index
 puts a group right before the workspace at that placement index;
 --clear-top-index puts it after every loose workspace. --icon sets a group's
 icon (one emoji, an SF Symbol name, or a stored image:sha256-<hex> or
@@ -122,7 +126,7 @@ USAGE
   cmux pane <selector> close --others|--all
   cmux pane <selector> rename <name>|--name <name>
   cmux pane <selector> split [--right|--down] [--ratio <value>]
-    [--viewport-width <fraction>] [--focus] [--correlation-key <value>]
+    [--fit | --viewport-width <fraction>] [--focus] [--correlation-key <value>]
     [--shell <script> | -- <argv...>]
   cmux pane <selector> focus direction <left|right|up|down>
   cmux pane <selector> neighbor <left|right|up|down>
@@ -141,6 +145,14 @@ USAGE
 
 list --name <name> keeps the panes named exactly <name>; list --cwd <path>
 keeps those with a terminal in <path> or a folder inside it.
+
+split --right --fit makes a new column that shares the window: when the
+screen's columns fit it, the new one takes an equal share and the others are
+scaled to fill the rest, so nothing scrolls sideways. Use it to open a pane
+beside a chat. --viewport-width <fraction> makes a column of exactly that
+share of the window, and the row scrolls sideways when the columns are wider
+than the window.
+
 split keeps the focus where it is unless --focus is given. With --shell or
 -- argv the new pane (of split or create) runs that command instead of a
 shell. To add a terminal
@@ -260,6 +272,7 @@ USAGE
   cmux terminal <selector> move|project --workspace <selector> --screen <selector>
     --pane <selector> --index <n>
   cmux terminal <selector> attach|close [OPTIONS]
+  cmux terminal <selector> close --if-unplaced
   cmux terminal <selector> resume [--cmd <launcher>] [--pane <selector>]
     [--split right|down|left|up] [--cwd <dir>] [--no-focus] [--no-wait]
   cmux terminal <term_id> keep on|off
@@ -274,6 +287,8 @@ scrollback. screen wait prints its result either way; when the timeout passes
 without a match it says timed_out: true and exits 124. --new matches only output printed below the
 cursor's line after the call, never a typed command's echo or older output. keep on stops the owner from ending the terminal
 when it has no tab; keep off lets it end after the reap grace period.
+close --if-unplaced ends the terminal only when it has no tab, no keep mark
+and no attach stream; otherwise it fails and changes nothing.
 status prints the program status records (OSC 7501) the terminal's
 programs reported: state, progress, kind, app, title and msg per record id.
 STATE is the word list --agents shows (a finished turn somebody viewed is

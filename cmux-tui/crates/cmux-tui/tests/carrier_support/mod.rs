@@ -101,7 +101,8 @@ pub const SLOW: u16 = 598;
 /// The platform's carrier route: checks the bearer, answers a Connect
 /// ticket for the open relay, a grant for the asked key, and the daemon key.
 /// `status` other than 200 (read at each request) refuses it; [`HANG`]
-/// answers nothing for a minute.
+/// answers nothing for a minute. The Cloud exec route (a parked dial's look
+/// at the machine) is always refused.
 // A stand-in's wiring: one argument per thing a test reads back.
 #[allow(clippy::too_many_arguments)]
 pub async fn platform(
@@ -167,6 +168,23 @@ pub async fn platform(
                     let body = ssh.endpoint(&request).to_string();
                     let reply = format!(
                         "HTTP/1.1 200 X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(reply.as_bytes()).await;
+                    return;
+                }
+                // A dial that stays parked looks at the machine (carrier/adopt.rs): an
+                // exec. This stand-in runs no command, so it refuses the look, which the
+                // dial reads as `look_refused`. It is no carrier request: `asked`, `teams`
+                // and `keys` get nothing for it. Its bearer is in `bearers`, as every
+                // request's is (above).
+                if path.ends_with("/exec") {
+                    assert_eq!(path, format!("/v1/cloud/machines/{MACHINE}/exec"));
+                    let body =
+                        json!({"ok": false, "error": {"code": "auth.forbidden", "message": "no"}})
+                            .to_string();
+                    let reply = format!(
+                        "HTTP/1.1 403 X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                         body.len()
                     );
                     let _ = stream.write_all(reply.as_bytes()).await;
@@ -329,12 +347,25 @@ pub struct World {
     /// What the platform answers next (200 grants, anything else refuses).
     pub status: Arc<AtomicU16>,
     pub dir: tempfile::TempDir,
+    /// What the parking proxy saw of the links it held ([`world_parked`];
+    /// nothing in every other world).
+    pub parked: Arc<Parked>,
     /// The daemon's registration (set late in [`world_parked`]).
     _registration: Registration,
     _runtime: tokio::runtime::Runtime,
 }
 
 type Registration = Arc<Mutex<Option<cmux_remote::provider::RelayDaemonRegistration>>>;
+
+/// The links the parking proxy held: each is one relay socket of a dial whose
+/// Connect waited for the daemon.
+#[derive(Default)]
+pub struct Parked {
+    /// The links held so far.
+    pub held: AtomicUsize,
+    /// The held links their client closed before the daemon registered.
+    pub closed: AtomicUsize,
+}
 
 /// A relay, a registered daemon with a grant verifier and a mux socket, and
 /// the platform route answering `status` with grants for `service`.
@@ -412,6 +443,7 @@ fn world_with(
     let bearers = Bearers::default();
     let shared_status = Arc::new(AtomicU16::new(status));
     let answered = shared_status.clone();
+    let parked = Arc::new(Parked::default());
     let (platform, registration, relay, signer, daemon_key) = runtime.block_on(async {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let relay_address = listener.local_addr().unwrap();
@@ -458,7 +490,7 @@ fn world_with(
             Some(after) => {
                 let (registered, open) = watch::channel(false);
                 let held = Arc::new(Notify::new());
-                let proxy = parking_proxy(relay_address, open, held.clone()).await;
+                let proxy = parking_proxy(relay_address, open, held.clone(), parked.clone()).await;
                 let late = registration.clone();
                 tokio::spawn(async move {
                     held.notified().await;
@@ -506,6 +538,7 @@ fn world_with(
         signer,
         status: shared_status,
         dir,
+        parked,
         _registration: registration,
         _runtime: runtime,
     }
@@ -513,18 +546,21 @@ fn world_with(
 
 /// A proxy to `relay` that holds each connection's client bytes after its
 /// WebSocket upgrade until `open` is true, and notifies `held` when it
-/// holds one. The relay's bytes to the client always flow.
+/// holds one. The relay's bytes to the client always flow. `parked` counts
+/// the links held and those of them their client closed while held; a closed
+/// link's held bytes never reach the relay: the client gave that link up.
 async fn parking_proxy(
     relay: SocketAddr,
     open: watch::Receiver<bool>,
     held: Arc<Notify>,
+    parked: Arc<Parked>,
 ) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     tokio::spawn(async move {
         loop {
             let Ok((client, _)) = listener.accept().await else { return };
-            let (mut open, held) = (open.clone(), held.clone());
+            let (mut open, held, parked) = (open.clone(), held.clone(), parked.clone());
             tokio::spawn(async move {
                 let Ok(upstream) = TcpStream::connect(relay).await else { return };
                 let (mut client_read, mut client_write) = client.into_split();
@@ -549,9 +585,27 @@ async fn parking_proxy(
                     return;
                 }
                 if !*open.borrow() {
+                    parked.held.fetch_add(1, Ordering::SeqCst);
                     held.notify_one();
-                    if open.wait_for(|open| *open).await.is_err() {
-                        return;
+                    let opened = async { open.wait_for(|open| *open).await.is_ok() };
+                    tokio::pin!(opened);
+                    loop {
+                        tokio::select! {
+                            is_open = &mut opened => {
+                                if !is_open {
+                                    return;
+                                }
+                                break;
+                            }
+                            read = client_read.read(&mut chunk) => match read {
+                                // The client closed the link it could not use.
+                                Ok(0) | Err(_) => {
+                                    parked.closed.fetch_add(1, Ordering::SeqCst);
+                                    return;
+                                }
+                                Ok(read) => request.extend(chunk.iter().take(read).copied()),
+                            },
+                        }
                     }
                 }
                 if upstream_write.write_all(&request[end..]).await.is_err() {

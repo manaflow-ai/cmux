@@ -368,8 +368,10 @@ def problems(found: dict[str, list[tuple[int, str]]], allow: dict) -> list[str]:
     return out
 
 
-def grown(base: dict, allow: dict) -> list[str]:
-    """Entries added or raised since the base whose reason is debt; and a send path that shrank."""
+def grown(base: dict, allow: dict, tracked=lambda prefix: True) -> list[str]:
+    """Entries added or raised since the base whose reason is debt; and a send path that shrank.
+
+    An include dropped because the code under it was deleted (``tracked`` finds no file) is not a shrink."""
     out = []
     old, now = base.get("files", {}), allow.get("files", {})
     for rel, entry in sorted(now.items()):
@@ -384,7 +386,7 @@ def grown(base: dict, allow: dict) -> list[str]:
                        f"(remove it, or give a reason starting \"platform:\" or \"safe:\" that names why)")
     before, after = config(base), config(allow)
     for prefix in before.get("include", []):
-        if prefix not in after.get("include", []):
+        if prefix not in after.get("include", []) and tracked(prefix):
             out.append(f"paths.include: {prefix} was dropped since the base; the send path only grows")
     for prefix, pattern in before.get("include_named", {}).items():
         if after.get("include_named", {}).get(prefix) != pattern:
@@ -413,7 +415,8 @@ class SendPathCaps(unittest.TestCase):
         bad = problems(found, allow)
         base = base_allowlist()
         if base is not None:
-            bad += grown(base, allow)
+            bad += grown(base, allow, tracked=lambda prefix: bool(subprocess.run(
+                ["git", "-C", str(ROOT), "ls-files", "--", prefix + "*"], capture_output=True, text=True).stdout.strip()))
         self.assertEqual(bad, [], f"send-path cap guard ({HOW}):\n  " + "\n  ".join(bad))
 
     def test_paths_are_declared(self):
@@ -542,6 +545,7 @@ class Matcher(unittest.TestCase):
         self.assertEqual(grown(base, now({"a/y.rs": {"count": 1, "reason": "safe: DoS guard on unauthenticated input"}})), [])
         self.assertEqual(grown(base, now({"a/y.rs": {"count": 1, "reason": "platform: Cloudflare 100 MB body"}})), [])
         self.assertEqual(len(grown(base, now({}, include=()))), 1)  # the send path shrank
+        self.assertEqual(grown(base, now({}, include=()), tracked=lambda prefix: False), [])  # its code was deleted
         self.assertEqual(len(grown(base, now({}, exclude=("a/x",)))), 1)
         moved = {"a/z.rs": {"count": 2, "reason": "debt: pre-existing; moved from a/x.rs with its rules"}}
         self.assertEqual(grown(base, now(moved)), [], "debt that moved with its code is not new")

@@ -4,6 +4,7 @@
 // `cmux.editor.flush`, and a save whose text equals the text on disk is skipped. A disk change reloads
 // the file when there are no local edits and raises the conflict banner when there are.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { markUnsavedEdits } from "../shared/pageHealth";
 import type { DiffViewerAppearance } from "../../appearance";
 import {
   EDITOR_CHANGES,
@@ -194,7 +195,15 @@ export class EditorStore {
 
   private set(patch: Partial<EditorState>): void {
     this.state = { ...this.state, ...patch };
+    // Text not on disk holds the page against app health's repair reloads (pageHealth.ts).
+    if ("status" in patch) markUnsavedEdits(this.state.status !== "saved");
     for (const listener of this.listeners) listener();
+  }
+
+  /** The host reports the owner link: back up while the page is disconnected, it reads again (a
+   * launch or a daemon restart drops the link for a few seconds; the page never said so). */
+  linkChanged(connected: boolean): void {
+    if (connected && this.state.phase === "disconnected") void this.start();
   }
 
   /** Loads the config and starts watching the file. */

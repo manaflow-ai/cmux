@@ -51,6 +51,15 @@ package final class LegacyHistoryFile: Sendable, Equatable {
         Darwin.close(parentDescriptor)
     }
 
+    /// Where an older build kept a browser profile's page visits (the app's own visit log, before the
+    /// daemon owned them): `<Application Support>/<bundle id>/BrowserProfiles/<profile>/History.sqlite`.
+    /// The daemon imports it (`history.visit.import`) and the app then deletes it.
+    package nonisolated static func visitLogURL(profile: String, supportDirectory: URL) -> URL {
+        supportDirectory.appending(path: "BrowserProfiles", directoryHint: .isDirectory)
+            .appending(path: profile, directoryHint: .isDirectory)
+            .appending(path: "History.sqlite")
+    }
+
     package static func == (lhs: LegacyHistoryFile, rhs: LegacyHistoryFile) -> Bool {
         lhs.url == rhs.url && lhs.parentIdentity == rhs.parentIdentity && lhs.identity == rhs.identity
     }
