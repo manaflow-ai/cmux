@@ -53,40 +53,21 @@ class TickTest(unittest.TestCase):
 
 
 class WebTickTest(unittest.TestCase):
-    """The tick also dispatches cmux-next-web.yml's coalescing tick, so no coalesce job sleeps out its window."""
+    """The batch's `web` suite replaced cmux-next-web.yml's coalescing tick: a tick dispatches no web run."""
 
-    def tick(self, branch: str = "feat-cmux-next", dry_run: bool = False, web_fails: bool = False) -> list:
+    def test_a_tick_dispatches_no_web_workflow(self) -> None:
         calls = []
 
         def api(path, method="GET", fields=None, **_):
             calls.append((method, path, fields))
-            if method == "POST" and pmb.WEB_WORKFLOW in path and web_fails:
-                raise RuntimeError("gh api POST: 502")
-            return {"sha": "a" * 40} if path.endswith(f"/commits/{branch}") else None
+            return {"sha": "a" * 40} if path.endswith("/commits/feat-cmux-next") else None
 
-        args = Namespace(repo="o/r", branch=branch, window_minutes="120", dry_run=dry_run)
+        args = Namespace(repo="o/r", branch="feat-cmux-next", window_minutes="120", dry_run=True)
         with unittest.mock.patch.object(pmb, "gh_api", api), \
                 unittest.mock.patch.object(pmb, "list_runs", lambda repo, branch: [run(1, "a" * 40, "2026-11-21T11:00:00Z")]), \
                 unittest.mock.patch("sys.stdout"):
             self.assertEqual(pmb.cmd_tick(args), 0)
-        return calls
-
-    def test_each_tick_dispatches_the_web_tick_on_the_branch(self) -> None:
-        posts = [call for call in self.tick() if call[0] == "POST"]
-        self.assertEqual(posts, [("POST", "repos/o/r/actions/workflows/cmux-next-web.yml/dispatches",
-                                  {"ref": "feat-cmux-next", "inputs": {"tick": "true"}})])
-
-    def test_a_dry_run_or_another_branch_dispatches_nothing(self) -> None:
-        self.assertFalse([call for call in self.tick(dry_run=True) if call[0] == "POST"])
-        self.assertFalse([call for call in self.tick(branch="main") if pmb.WEB_WORKFLOW in call[1]])
-
-    def test_a_failed_web_tick_never_skips_the_batch_tick(self) -> None:
-        calls = self.tick(web_fails=True)
-        self.assertIn(("GET", "repos/o/r/commits/feat-cmux-next", None), calls)
-
-    def test_the_web_workflow_takes_the_tick_input(self) -> None:
-        web = yaml.safe_load((ROOT / ".github" / "workflows" / pmb.WEB_WORKFLOW).read_text())
-        self.assertEqual(web[True]["workflow_dispatch"]["inputs"]["tick"]["type"], "boolean")
+        self.assertFalse([call for call in calls if "cmux-next-web.yml" in call[1]])
 
 
 class PlanAndJudgeTest(unittest.TestCase):
