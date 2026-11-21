@@ -51,6 +51,21 @@ import Testing
         #expect(Self.laidOut(.divider, waits).divider == nil)
     }
 
+    /// Don't Show Again keeps its hover fill in every style: the resting chip fill never clears or covers it
+    /// (review of 2ca3e204, F1: the quiet branch set the layer's background, which is the hover's fill).
+    @Test func theQuietButtonsKeepTheirHoverFill() throws {
+        for row in CmuxToastButtonRow.allCases {
+            let button = try #require(Self.laidOut(row).neverShowButton)
+            let resting = button.layer?.backgroundColor
+            button.showHover(true)
+            let lit = try #require(button.layer?.backgroundColor, "\(row): no fill under the pointer")
+            #expect(lit.alpha > 0, "\(row): the hover fill was cleared")
+            #expect(resting.map { !CFEqual($0, lit) } ?? true, "\(row): the hover shows the resting fill")
+            button.showHover(false)
+            #expect(((button.layer?.backgroundColor?.alpha ?? 0) > 0) == (row == .chips), "\(row): the resting fill is wrong")
+        }
+    }
+
     /// The toast is as tall with the hairline as without: it never grows a row for it.
     @Test func theHairlineKeepsTheToastsHeight() {
         #expect(abs(Self.laidOut(.divider).frame.height - Self.laidOut(.plain).frame.height) < 0.5)
