@@ -3,8 +3,8 @@
 Status: design for the first slice, 2026-11-21. Lane `lane/remote-browser-vm`.
 
 Leo, 2026-11-21: "99 if not 100% of what I need from Cosmic Gray is essentially just some sort of interface to
-talk to you guys and then to browse the fucking web. ... we have VMs, right? Like the VMs, the whole point is
-that, well, we can also potentially browse the web, offload our shit, our fucking web browsing, our fucking RAM
+talk to you guys and then to browse the f***ing web. ... we have VMs, right? Like the VMs, the whole point is
+that, well, we can also potentially browse the web, offload our s***, our f***ing web browsing, our f***ing RAM
 usage, our CPU usage, all of that onto the VMs themselves. That's the feature"
 
 Goal: a browser tab in a cmux NEXT pane whose Chromium runs on a cloud machine. The Mac pays for H.264 decode
