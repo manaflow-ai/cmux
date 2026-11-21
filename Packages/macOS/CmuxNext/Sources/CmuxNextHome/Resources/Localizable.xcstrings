@@ -12551,6 +12551,270 @@
         }
       }
     },
+    "home.list.hideChats": {
+      "comment": "The Chief chat's top-left button: folds the conversation list.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Chats"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを非表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء الدردشات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakrij razgovore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul chats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats ausblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar chats"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer les discussions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់ការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul chatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukryj czaty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar conversas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть чаты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetleri Gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховати чати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ẩn cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏聊天"
+          }
+        }
+      }
+    },
+    "home.list.showChats": {
+      "comment": "The Chief chat's top-left button: shows the conversation list beside the chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Chats"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار الدردشات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži razgovore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis chats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats einblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar chats"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les discussions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis chatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż czaty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar conversas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать чаты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetleri Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати чати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示聊天"
+          }
+        }
+      }
+    },
     "home.list.newMessage": {
       "extractionState": "manual",
       "localizations": {
@@ -28368,127 +28632,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "What Chief can do on this Mac"
+            "value": "What Chief can do"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما يمكن لـ Chief فعله على هذا الـ Mac"
+            "value": "ما يمكن لـ Chief فعله"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Šta Chief može raditi na ovom Macu"
+            "value": "Šta Chief može raditi"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvad Chief kan gøre på denne Mac"
+            "value": "Hvad Chief kan gøre"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Was Chief auf diesem Mac tun kann"
+            "value": "Was Chief tun kann"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lo que Chief puede hacer en este Mac"
+            "value": "Lo que Chief puede hacer"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce que Chief peut faire sur ce Mac"
+            "value": "Ce que Chief peut faire"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cosa può fare Chief su questo Mac"
+            "value": "Cosa può fare Chief"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このMacでChiefができること"
+            "value": "Chiefができること"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អ្វីដែល Chief អាចធ្វើនៅលើ Mac នេះ"
+            "value": "អ្វីដែល Chief អាចធ្វើ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac에서 Chief가 할 수 있는 일"
+            "value": "Chief가 할 수 있는 일"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hva Chief kan gjøre på denne Macen"
+            "value": "Hva Chief kan gjøre"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Co Chief może robić na tym Macu"
+            "value": "Co Chief może robić"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O que o Chief pode fazer neste Mac"
+            "value": "O que o Chief pode fazer"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Что Chief может делать на этом Mac"
+            "value": "Что может Chief"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สิ่งที่ Chief ทำได้บน Mac เครื่องนี้"
+            "value": "สิ่งที่ Chief ทำได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief bu Mac’te neler yapabilir"
+            "value": "Chief neler yapabilir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Що Chief може робити на цьому Mac"
+            "value": "Що може Chief"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Những gì Chief có thể làm trên máy Mac này"
+            "value": "Những gì Chief có thể làm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief 能在这台 Mac 上做什么"
+            "value": "Chief 能做什么"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief 能在這台 Mac 上做什麼"
+            "value": "Chief 能做什麼"
           }
         }
       }
