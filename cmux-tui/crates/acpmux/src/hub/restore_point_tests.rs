@@ -264,3 +264,108 @@ fn a_restore_point_moves_only_at_a_quiet_load_and_matches_its_log() {
     hub.store.save_restore_point(ID, &serde_json::to_vec(&point).unwrap()).unwrap();
     assert!(hub.read_restore_point(&s).is_none(), "a point that does not match its log was used");
 }
+
+/// What a chat logs while it runs, quiet at its end: turns, a branch, a move begun and aborted.
+fn while_running(hub: &Hub, s: &Arc<Session>) {
+    for n in 60..64 {
+        turn(hub, s, n);
+    }
+    hub.append(s, "mux", "git", json!({"gitBranch": "feature/mid"}));
+    hub.append(s, "mux", "transfer_out", json!({"transferId": "x3", "epoch": 4}));
+    hub.append(s, "mux", "transfer_aborted", json!({"transferId": "x3", "epoch": 4}));
+    turn(hub, s, 64);
+}
+
+/// A point moved while the chat ran gives what a whole-log fold gives: the same chat is started
+/// over a point the running daemon moved and over none, and loads the same.
+#[test]
+fn a_restore_point_moved_while_running_loads_as_a_whole_log_does() {
+    let (pointed, whole) = (PointStore::new(true), PointStore::new(false));
+    let mut rolled = 0;
+    for store in [&pointed, &whole] {
+        let (hub, s) = store.start();
+        history(&hub, &s);
+        hub.save_meta(&s);
+        let (hub, s) = store.start();
+        hub.load_session_log(&s);
+        while_running(&hub, &s);
+        if store.keeps {
+            let first = hub.read_restore_point(&s).expect("the load's point").seq;
+            assert!(hub.roll_restore_point(&s, 0), "a quiet chat did not move its point");
+            let point = hub.read_restore_point(&s).expect("a moved point");
+            assert!(point.seq > first, "the point did not move");
+            assert_eq!(point.seq, s.seq.load(Ordering::SeqCst), "it is not at the log's end");
+            assert_eq!(point.ownership_epoch, 4);
+            assert_eq!(point.queue.git_branch.as_deref(), Some("feature/mid"));
+            rolled = point.seq;
+        }
+        after(&hub, &s);
+        hub.save_meta(&s);
+    }
+    let (a_hub, a) = pointed.start();
+    let (b_hub, b) = whole.start();
+    let last = a.seq.load(Ordering::SeqCst);
+    assert_eq!(last, b.seq.load(Ordering::SeqCst), "the two logs differ before the loads");
+    pointed.from.lock().unwrap().clear();
+    a_hub.load_session_log(&a);
+    b_hub.load_session_log(&b);
+    assert!(pointed.from.lock().unwrap().contains(&rolled), "the load did not begin at the point");
+    let (a, b) = (restored(&a_hub, &a, last), restored(&b_hub, &b, last));
+    assert_eq!(a, b, "a load from a moved point differs from a whole-log load");
+    assert_eq!(a["epoch"], 5, "{a:#}");
+    assert_eq!(a["branch"], "feature/two", "{a:#}");
+}
+
+/// A chat that is not quiet never moves its point: a prompt waits, a turn is open, or a move is
+/// begun; the point it has stays.
+#[test]
+fn a_chat_that_is_not_quiet_never_moves_its_point() {
+    let waiting = |hub: &Hub, s: &Arc<Session>| {
+        hub.append(
+            s,
+            "mux",
+            "queued",
+            json!({"promptId": "w", "turnId": "tw", "text": "w",
+            "prompt": [{"type": "text", "text": "w"}]}),
+        );
+    };
+    let open = |hub: &Hub, s: &Arc<Session>| {
+        waiting(hub, s);
+        hub.append(s, "mux", "dequeued", json!({"promptId": "w", "turnId": "tw"}));
+        hub.append(s, "in", "user_message", json!({"promptId": "w", "turnId": "tw", "text": "w"}));
+        hub.append(s, "mux", "turn_started", json!({"promptId": "w", "turnId": "tw"}));
+    };
+    let moving = |hub: &Hub, s: &Arc<Session>| {
+        hub.append(s, "mux", "transfer_out", json!({"transferId": "x9", "epoch": 9}));
+    };
+    let cases: [(&str, &dyn Fn(&Hub, &Arc<Session>)); 3] =
+        [("a waiting prompt", &waiting), ("an open turn", &open), ("a move", &moving)];
+    for (name, make) in cases {
+        let store = PointStore::new(true);
+        let (hub, s) = store.start();
+        history(&hub, &s);
+        hub.save_meta(&s);
+        let (hub, s) = store.start();
+        hub.load_session_log(&s);
+        let first = hub.read_restore_point(&s).expect("the load's point");
+        make(&hub, &s);
+        assert!(!hub.roll_restore_point(&s, 0), "{name}: the point moved");
+        assert_eq!(hub.read_restore_point(&s), Some(first), "{name}: the point changed");
+    }
+}
+
+/// A chat whose log is not far enough past its point leaves it, and a store that cannot say how
+/// far reads as not far.
+#[test]
+fn a_chat_with_a_short_log_past_its_point_leaves_it() {
+    let store = PointStore::new(true);
+    let (hub, s) = store.start();
+    history(&hub, &s);
+    hub.save_meta(&s);
+    let (hub, s) = store.start();
+    hub.load_session_log(&s);
+    let first = hub.read_restore_point(&s).unwrap();
+    while_running(&hub, &s);
+    assert!(!hub.roll_restore_point(&s, 1), "a store that cannot size its log moved the point");
+    assert_eq!(hub.read_restore_point(&s), Some(first));
+}

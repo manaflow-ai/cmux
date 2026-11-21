@@ -2024,6 +2024,7 @@ impl Hub {
         self.save_meta(session);
         // The chat's settled view, for the shape its pane opens with (`settled_view.rs`).
         self.settle_view_at_turn_end(session);
+        self.roll_restore_point_soon(session);
         self.send_offer_result(session);
         self.lane_turn_ended(session, true, turn);
         self.inbox_turn_ended(session, turn_id, turn, true);
@@ -2115,6 +2116,7 @@ impl Hub {
             }
             self.save_meta(session);
             self.settle_view_at_turn_end(session);
+            self.roll_restore_point_soon(session);
             self.lane_turn_ended(session, false, turn);
             self.inbox_turn_ended(session, turn_id, turn, false);
             return;
@@ -2142,6 +2144,7 @@ impl Hub {
         }
         self.save_meta(session);
         self.settle_view_at_turn_end(session);
+        self.roll_restore_point_soon(session);
         // The turn was counted: its lane's parent hears it failed, with no reply of its own
         // (`lane_reports.rs`).
         self.lane_turn_ended(session, false, turn);

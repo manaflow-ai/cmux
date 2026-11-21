@@ -565,6 +565,14 @@ impl Store for ForkView {
     ) -> Result<()> {
         self.back(id, after, before, skip, visit, true)
     }
+    /// A fork's view keeps no restore point (below), so no bytes are measured for one.
+    fn log_bytes_after(&self, id: &str, after: u64) -> Option<u64> {
+        let _held = self.shared();
+        match self.reference(id) {
+            Ok(None) => self.inner.log_bytes_after(id, after),
+            _ => None,
+        }
+    }
     /// A fork's view joins two logs: it keeps no restore point, and its load reads it whole.
     fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
         let _held = self.shared();

@@ -329,7 +329,7 @@ impl Hub {
 
     /// Whether `session` holds records apart from its journal (`kept_unstored`): a restore point
     /// saved then would carry what they changed, and they would be read again past it.
-    fn keeps_unstored(session: &Session) -> bool {
+    pub(super) fn keeps_unstored(session: &Session) -> bool {
         !session.unparked.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
             || session
                 .parked
@@ -681,7 +681,7 @@ impl Hub {
 
     /// The turn `session`'s log has started and not settled, read from the records past
     /// `after`; none when the log did not read.
-    fn open_turn(&self, session: &Session, after: u64) -> Option<Option<OpenTurn>> {
+    pub(super) fn open_turn(&self, session: &Session, after: u64) -> Option<Option<OpenTurn>> {
         // Scan the whole log (or all of it past a restore point): a long turn can stream far
         // more records than any fixed tail window after its `turn_started`.
         let mut open: Option<(u64, Value, Value, bool)> = None;
@@ -839,7 +839,7 @@ pub(crate) fn test_hold(var: &str) {
 /// A turn a log started and never settled (`Hub::open_turn`): its `turn_started` seq, turn id,
 /// prompt id, whether a trigger ran it, and whether a prompt with a hidden context went into it.
 #[derive(Debug, Clone)]
-struct OpenTurn {
+pub(super) struct OpenTurn {
     seq: u64,
     turn_id: Value,
     prompt_id: Value,
