@@ -550,14 +550,13 @@ fn delete_machine(b: &mut dyn Backend, id: &str) -> Result<(), Value> {
 
 /// Until VM `id` is gone, never past `deadline`: `Err` with the last status it had.
 fn wait_gone(b: &mut dyn Backend, id: &str, deadline: Instant) -> Result<(), Value> {
-    let mut last = Value::Null;
     loop {
-        match b.machine_status(id) {
+        let last = match b.machine_status(id) {
             Ok(None) => return Ok(()),
             Err(error) if is_not_found(&error) => return Ok(()),
-            Ok(Some(status)) => last = json!(status),
-            Err(error) => last = error,
-        }
+            Ok(Some(status)) => json!(status),
+            Err(error) => error,
+        };
         if b.now() >= deadline {
             return Err(refusal(
                 "vm.wait_timeout",
@@ -757,7 +756,7 @@ pub(super) fn snapshot_rm(
             match listed.iter().find(|row| &row.id == id) {
                 None => gone.push(id.clone()),
                 Some(row) => {
-                    batch.push((id.clone(), via_machine(&machines, row.machine.as_deref())))
+                    batch.push((id.clone(), via_machine(&machines, row.machine.as_deref())));
                 }
             }
         }
