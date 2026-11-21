@@ -28,7 +28,7 @@ the fleet step for the evidence a PR cites.
 ## Build and test on the fleet
 
 - Nothing builds or boots a simulator on the person's Mac. The fleet's `cmux-ci build ios` builds the classic app, not this one.
-- Simulator run: `cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg MODE --artifact artifacts/ios-sim/evidence.zip`. Modes: `release-build` (compile only), `build` (install, launch, screenshot), `test`, `bench`, `all`.
+- Simulator run: `cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg MODE --artifact artifacts/ios-sim/evidence.zip`. Modes: `release-build` (compile only), `build` (install, launch, screenshot), `test`, `bench`, `all`, and `pair-e2e`, `shots`, `clips`, `listperf`, `energy`, `chief-live-perf`, `chief-live-perf-baseline`, `handoff` (sent as `shots handoff=TAG`); the script's header describes each.
 - `test` takes more `--arg`s, comma-separated without spaces: `only=TARGET/SUITE`, `ui=SUITE`, `video` (before/after video, with a small copy for PR media), `profile` (Time Profiler, needs `ui=`). The script's header is the reference.
 - Swift Testing suites: `scripts/ci/run-swift-testing-suites.sh <package>` with `--env CMUX_SWIFT_TEST_SUITES=Suite[,Suite]` ([example](../cmux-testing/references/local-vs-ci-validation.md)).
 - Name only real suites of that package. `scripts/ci/swift_suite_names_precheck.py <package> <name>...` refuses a name its tests never mention, before a build that takes 11 to 58 minutes.
