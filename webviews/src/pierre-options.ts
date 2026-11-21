@@ -5,11 +5,12 @@ import type { CodeViewOptions } from "@pierre/diffs";
 import type { WorkerInitializationRenderOptions } from "@pierre/diffs/worker";
 import {
   appearanceBackgroundColor,
+  syntaxColorsFor,
   readableColor,
   type DiffChangeColors,
   type DiffViewerAppearance,
 } from "./appearance";
-import { pageSyntaxVariable, syntaxRoleColors, syntaxTokenRules, type SyntaxRoleName } from "./syntax-theme";
+import { pageSyntaxVariable, syntaxTokenRules, type SyntaxRoleName } from "./syntax-theme";
 import { MOTION_MS } from "./motion/scale.generated";
 
 export type DiffViewerOptions = {
@@ -242,6 +243,14 @@ export function codeViewUnsafeCSS(): string {
     [data-utility-button]:hover {
       transform: scale(1.1);
     }
+    /* Pierre hangs the comment button 1lh - 1ch past the line numbers, which clears the code only
+       behind classic signs' 2ch: behind the bars or no signs (1ch; Pierre writes no data-indicators
+       for none) it covered the first characters, and a drag
+       from there began a comment instead of selecting the code. It ends where the code text
+       begins, 1 px short so its hover scale stays clear too. */
+    pre:not([data-indicators='classic']) [data-utility-button] {
+      margin-right: calc(1px - 1ch);
+    }
     [data-utility-button] [data-icon] {
       width: 12px;
       height: 12px;
@@ -427,7 +436,8 @@ function syntaxTokenColors(
   variables: boolean,
 ) {
   const type = theme.type === "light" ? "light" : "dark";
-  const colors = syntaxRoleColors(theme.palette ?? {}, type, contrastBackground, foreground);
+  // The same colors applyDiffViewerAppearance sets as the page variables (over a see-through window too).
+  const colors = syntaxColorsFor({ ...theme, background: contrastBackground, foreground }, type);
   const color = (role: SyntaxRoleName) =>
     variables ? `var(${pageSyntaxVariable(type, role)}, ${colors[role]})` : colors[role];
   // Plain text reads the `variable` role (the foreground), so it follows a theme change too.
