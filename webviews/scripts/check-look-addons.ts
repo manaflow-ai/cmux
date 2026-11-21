@@ -13,8 +13,15 @@
  *                 stylesheet can beat: it belongs to the theme file's colors, not this contract.
  * Every look add-on (examples/looks/looks.json, `addon`), its agent-pane/theme.css:
  *   selector      a rule on anything but `:root`: class names are not public, and renames break it.
- *   private-token a declaration of anything but a contract token (a property, or an internal variable).
+ *   private-token a declaration of anything but a contract token (a property, or an internal variable). A
+ *                 token in the contract's `pending` list (an open PR adds it) is accepted: inert until it lands.
  *   remote        `@import` or `url(`: a look draws nothing from outside.
+ *   literal-color a color token set to a literal color (`#hex`, `rgb()`, `oklch()`, a named color) instead
+ *                 of one made from the theme's own (`var(--agent-text)`, `color-mix(in srgb, var(--agent-accent)
+ *                 12%, transparent)`): a literal is right for one appearance only, so the look breaks over
+ *                 the other (Studio's grey bubble under black text in light, 2.9:1; Paper's beige under
+ *                 white text in dark, 1.4:1, cmux#46049). test/browser/look-addons.test.ts holds the
+ *                 drawn text of every look to WCAG contrast in both appearances.
  * Built-in looks (COMPOSER_LOOKS in composerLook.ts, TRANSCRIPT_LOOKS in conversation/transcriptLook.ts
  * once it exists):
  *   no-twin       a built-in look id has no entry in looks.json: nobody proved an outsider can make it.
@@ -31,7 +38,16 @@ export const CONTRACT_PATH = path.join(repo, "schemas/agent-pane/style-tokens.js
 export const LOOKS_PATH = path.join(repo, "examples/looks/looks.json");
 
 export type Token = { name: string; kind: string; owner: string; alsoScopedIn?: string[]; about: string };
-export type Contract = { interface: string; selectors: string[]; tokens: Token[] };
+/** A token an open PR adds: a look may set it ahead (inert until that PR lands). `--prefix-*` names a family. */
+export type PendingToken = { name: string; pr: string; about: string };
+export type Contract = { interface: string; selectors: string[]; tokens: Token[]; pending?: PendingToken[] };
+
+/** Whether `name` is a pending token of the contract (by exact name or `--prefix-*` family). */
+export function pendingToken(contract: Contract, name: string): boolean {
+  return (contract.pending ?? []).some((token) =>
+    token.name.endsWith("-*") ? name.startsWith(token.name.slice(0, -1)) : token.name === name,
+  );
+}
 export type Look = { id: string; addon: string | null; builtIn: unknown; pending?: string };
 export type Problem = { kind: string; where: string; message: string };
 
@@ -145,10 +161,44 @@ export function checkContract(contract: Contract, sheets: Map<string, string>, p
   return problems;
 }
 
+/** Words a color made from the theme's own may hold besides `var(--name)`: the color-mix grammar. */
+const MIX_WORDS = new Set([
+  "color-mix",
+  "in",
+  "srgb",
+  "srgb-linear",
+  "oklab",
+  "oklch",
+  "lab",
+  "lch",
+  "hsl",
+  "hwb",
+  "display-p3",
+  "xyz",
+  "shorter",
+  "longer",
+  "increasing",
+  "decreasing",
+  "hue",
+  "transparent",
+  "currentcolor",
+]);
+
+/** Whether a color value is made only from other variables (the theme's, the chat's), so it follows the
+ * appearance: `var()`, `color-mix()` over them, `transparent`, `currentColor` and percentages. */
+export function themeDerived(value: string): boolean {
+  // `oklch(`, `rgb(` and the rest as functions are literals; as color-mix's space (`in oklch`) they are words.
+  if (/#[0-9a-f]{3,8}\b/i.test(value) || /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\s*\(/i.test(value))
+    return false;
+  const rest = value.replace(/var\(\s*--[A-Za-z0-9_-]+/g, " ").toLowerCase();
+  return (rest.match(/[a-z][a-z0-9-]*/g) ?? []).every((word) => MIX_WORDS.has(word));
+}
+
 /** A look's agent-pane/theme.css against the contract. */
 export function checkAddonCss(file: string, css: string, contract: Contract): Problem[] {
   const problems: Problem[] = [];
   const allowed = new Set(contract.tokens.map((token) => token.name));
+  const colors = new Set(contract.tokens.filter((token) => token.kind === "color").map((token) => token.name));
   const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
   if (/@import\b|url\(/i.test(text))
     problems.push({ kind: "remote", where: file, message: "a look loads nothing: no @import or url()" });
@@ -159,11 +209,19 @@ export function checkAddonCss(file: string, css: string, contract: Contract): Pr
     buffer = "";
     if (!line) return;
     const name = /^([A-Za-z0-9_-]+)\s*:/.exec(line)?.[1];
+    if (name && !allowed.has(name) && pendingToken(contract, name)) return;
     if (!name || !allowed.has(name))
       problems.push({
         kind: "private-token",
         where: `${file} ${stack.join(" >> ")}`,
         message: `${name ?? line} is not a ${contract.interface} token (schemas/agent-pane/style-tokens.json)`,
+      });
+    else if (colors.has(name) && !themeDerived(line.slice(line.indexOf(":") + 1)))
+      problems.push({
+        kind: "literal-color",
+        where: `${file} ${stack.join(" >> ")} ${name}`,
+        message:
+          "a look's colors come from the theme's (var(--agent-text), color-mix(in srgb, var(--agent-accent) 12%, transparent)), so it reads in light and dark; set literal colors in the theme file",
       });
   };
   for (const char of text) {

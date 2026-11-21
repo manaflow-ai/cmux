@@ -13,8 +13,11 @@ It is built only from public surfaces, so you can copy any part of it:
 | `customize/` | A terse hover card and plain sidebar rows with a dot while work runs |
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/studio@feat-cmux-next
+cmux setup install github.com/manaflow-ai/cmux-studio-look
 cmux setup remove manaflow-ai/studio-look
 ```
+
+Studio's source is its own repo, [manaflow-ai/cmux-studio-look](https://github.com/manaflow-ai/cmux-studio-look): install from it and change it there.
+This folder is a copy that cmux's tests check: its setup, theme, stylesheet and view are the repo's.
 
 How looks like this one are written: [docs/cmux-next/look-addons.md](../../../docs/cmux-next/look-addons.md).

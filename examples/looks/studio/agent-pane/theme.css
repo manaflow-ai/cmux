@@ -1,14 +1,14 @@
 /* Studio's chat: a boxed prompt with a hairline, square-ish corners, and quiet cards.
    Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
-   nothing in the transcript moves when this applies or reloads. */
+   nothing in the transcript moves when this applies or reloads. Every color is made from the
+   theme's own (--agent-text), so the stylesheet reads over a light theme as well as a dark one;
+   Studio's theme file picks the near-black. Links keep the chat's blue. */
 :root {
-  --cv-user-bubble-tint: rgb(39 39 42 / 0.72);
-  --cv-user-bubble-edge: rgb(63 63 70 / 0.9);
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  --cv-user-bubble-edge: color-mix(in srgb, var(--agent-text) 18%, transparent);
   --cv-user-bubble-radius: 8px;
-  --cv-card-fill: rgb(24 24 27 / 0.9);
-  --cv-card-ring: rgb(63 63 70 / 0.7);
-  --cv-text-muted: #a1a1aa;
-  --cv-text-dim: #71717a;
-  --cv-link: #93c5fd;
-  --agent-link: #93c5fd;
+  --cv-card-fill: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  --cv-card-ring: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  --cv-text-muted: color-mix(in srgb, var(--agent-text) 78%, transparent);
+  --cv-text-dim: color-mix(in srgb, var(--agent-text) 68%, transparent);
 }

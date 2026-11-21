@@ -34,8 +34,7 @@ fn addons() -> Vec<String> {
 const MINE: &str = "{\n  // my settings\n  \"appearance\": { \"accent\": \"blue\" },\n  \"terminal\": { \"fontSize\": 15 }\n}\n";
 
 fn receipt(read: &setup::Setup, installed: &setup::Installed, name: &str) -> Receipt {
-    let reference =
-        Reference::parse(&format!("github.com/manaflow-ai/cmux/examples/looks/{name}")).unwrap();
+    let reference = Reference::parse(&format!("github.com/manaflow-ai/cmux-{name}-look")).unwrap();
     Receipt {
         id: read.manifest.id.clone(),
         name: read.manifest.name.clone(),
@@ -60,7 +59,9 @@ fn every_folder_is_listed_and_every_listed_addon_is_a_folder() {
     let mut folders: Vec<String> = fs::read_dir(looks())
         .unwrap()
         .map(|entry| entry.unwrap().path())
-        .filter(|path| path.is_dir())
+        // A whole look holds its own cmux-setup.json; `looks/APP/` groups one app's feature
+        // looks (`looks/APP/FEATURE/`), which the gallery test covers.
+        .filter(|path| path.join(setup::SETUP_FILE).is_file())
         .map(|path| path.file_name().unwrap().to_str().unwrap().to_owned())
         .collect();
     folders.sort();
@@ -111,6 +112,14 @@ fn every_look_is_a_whole_look_on_public_surfaces() {
             file.corrected.is_empty(),
             "{name}: the contrast guard raised {:?}",
             file.corrected
+        );
+        // The window is the look too: without this, a person's own App Theme keeps the window,
+        // sidebar and pages in its colors (a dark look in a light window).
+        let text = cmux_config::jsonc::parse(&files[&theme]).unwrap();
+        assert_eq!(
+            text["appearance.appTheme"],
+            json!("followTerminal"),
+            "{name}: {theme} leaves the window on the person's App Theme"
         );
     }
 }

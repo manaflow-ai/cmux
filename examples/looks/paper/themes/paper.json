@@ -5,6 +5,8 @@
   "description": "Warm paper, ink text, a sepia accent and a soft sidebar.",
 
   "appearance.theme": "Builtin Light",
+  // The window, sidebar and pages take that theme too, over an App Theme of your own.
+  "appearance.appTheme": "followTerminal",
   "colors": { "background": "#faf8f3", "foreground": "#2d2a26", "selection": "#e8e1d3", "accent": "#8a5a2b" },
   "appearance.accent": "theme",
 
