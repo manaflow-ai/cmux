@@ -46,11 +46,9 @@ struct ControlClientCompletionWaitTests {
             close(client)
         }
         pair.client = -1
-        let started = DispatchTime.now()
-        let outcome = wait.wait(timeoutSeconds: 60)
-        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1e9
-        #expect(outcome == .clientClosed)
-        #expect(elapsed < 5)
+        // The limit only bounds a broken run; `.timedOut` here would mean the
+        // close went unseen.
+        #expect(wait.wait(timeoutSeconds: 600) == .clientClosed)
     }
 
     @Test("a client already gone before the wait starts is seen at once")
@@ -84,11 +82,24 @@ struct ControlClientCompletionWaitTests {
     func halfCloseKeepsWaiting() throws {
         // `printf '{...}' | nc -U` style clients shut down writing after the
         // request and still read the reply; that is not leaving.
-        let pair = try SocketPair()
+        var pair = try SocketPair()
         defer { pair.closeAll() }
         shutdown(pair.client, SHUT_WR)
         let wait = ControlClientCompletionWait(clientSocket: pair.server)
-        #expect(wait.wait(timeoutSeconds: 0.3) == .timedOut)
+        // A zero limit reports the state the kernel already holds, without
+        // waiting on the clock.
+        #expect(wait.wait(timeoutSeconds: 0) == .timedOut)
+        // The same descriptor still reports a later full close.
+        pair.closeClient()
+        #expect(wait.wait(timeoutSeconds: 600) == .clientClosed)
+    }
+
+    @Test("a zero limit still reports a client that already left")
+    func zeroLimitSeesClose() throws {
+        var pair = try SocketPair()
+        defer { pair.closeAll() }
+        pair.closeClient()
+        #expect(ControlClientCompletionWait(clientSocket: pair.server).wait(timeoutSeconds: 0) == .clientClosed)
     }
 
     @Test("a pipelined request does not end the wait")
@@ -98,13 +109,23 @@ struct ControlClientCompletionWaitTests {
         let byte: [UInt8] = [0x7B]
         _ = byte.withUnsafeBytes { write(pair.client, $0.baseAddress, 1) }
         let wait = ControlClientCompletionWait(clientSocket: pair.server)
-        #expect(wait.wait(timeoutSeconds: 0.3) == .timedOut)
+        #expect(wait.wait(timeoutSeconds: 0) == .timedOut)
+    }
+
+    @Test("a non-finite limit neither traps nor ends the wait early")
+    func nonFiniteLimits() throws {
+        let pair = try SocketPair()
+        defer { pair.closeAll() }
+        #expect(ControlClientCompletionWait(clientSocket: pair.server).wait(timeoutSeconds: .nan) == .timedOut)
+        let done = ControlClientCompletionWait(clientSocket: pair.server)
+        done.complete()
+        #expect(done.wait(timeoutSeconds: .infinity) == .completed)
     }
 
     @Test("an in-process call with no client socket waits for completion or its limit")
     func noClientSocket() {
         let wait = ControlClientCompletionWait(clientSocket: nil)
-        #expect(wait.wait(timeoutSeconds: 0.2) == .timedOut)
+        #expect(wait.wait(timeoutSeconds: 0) == .timedOut)
         let done = ControlClientCompletionWait(clientSocket: nil)
         DispatchQueue.global().async { done.complete() }
         #expect(done.wait(timeoutSeconds: nil) == .completed)

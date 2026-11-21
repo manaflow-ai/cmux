@@ -34,6 +34,7 @@ public final class ControlClientCompletionWait: @unchecked Sendable {
     }
 
     private static let completionIdent: UInt = 1
+    private static let maximumTimeoutSeconds: Double = 1_000_000_000
     private let queue: Int32
     private let watchesClient: Bool
     /// Signalled by ``complete()`` alongside the kqueue trigger; the fallback.
@@ -75,17 +76,26 @@ public final class ControlClientCompletionWait: @unchecked Sendable {
 
     /// Blocks until completion, the limit, or the client closing.
     ///
+    /// A limit of zero checks once without blocking: the outcome reflects
+    /// what has already happened (completion, a closed client) at the call.
+    ///
     /// - Parameter timeoutSeconds: The limit, or `nil` to wait without one.
+    ///   Negative and NaN limits count as zero; limits beyond about 31 years
+    ///   are capped there.
     public func wait(timeoutSeconds: Double?) -> Outcome {
-        let deadline = timeoutSeconds.map { DispatchTime.now().uptimeNanoseconds &+ UInt64(max(0, $0) * 1_000_000_000) }
+        let deadline = timeoutSeconds.map { seconds -> UInt64 in
+            let bounded = seconds.isNaN ? 0 : min(max(0, seconds), Self.maximumTimeoutSeconds)
+            return DispatchTime.now().uptimeNanoseconds &+ UInt64(bounded * 1_000_000_000)
+        }
         guard queue >= 0 else { return waitWithoutClientWatch(until: deadline) }
         var events = Array(repeating: Darwin.kevent(), count: 2)
         while true {
             var timeout = timespec()
             if let deadline {
+                // Past the deadline, still poll once with a zero timeout so
+                // an event that already arrived is reported, not dropped.
                 let now = DispatchTime.now().uptimeNanoseconds
-                guard now < deadline else { return .timedOut }
-                let remaining = deadline - now
+                let remaining = now < deadline ? deadline - now : 0
                 timeout.tv_sec = Int(remaining / 1_000_000_000)
                 timeout.tv_nsec = Int(remaining % 1_000_000_000)
             }
