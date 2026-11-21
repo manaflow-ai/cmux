@@ -15910,7 +15910,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Send Message…",
+      "title" : "Ask Chief About This…",
       "title_key" : "action.home.messageAbout",
       "title_table" : "HomeActions"
     },
