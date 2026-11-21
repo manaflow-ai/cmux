@@ -28,7 +28,7 @@ public struct UIPointerNativeElement: Equatable {
             if view === content { break }
             next = view.superview
         }
-        let inPane = chain.contains { $0.accessibilityIdentifier().hasPrefix(Prefix.pane) }
+        let inPane = chain.contains { $0.accessibilityIdentifier().hasPrefix(Self.paneID) }
         var found: [Self] = []
         for view in chain {
             let identifier = view.accessibilityIdentifier()
@@ -52,7 +52,7 @@ public struct UIPointerNativeElement: Equatable {
         switch target.kind {
         case .tab:
             // Every pane has its own strip (and may show a vertical list): the tab is in whichever names it.
-            let wanted: Set = [Prefix.tab + target.id, Prefix.verticalTab + target.id]
+            let wanted: Set = [Self.tabID + target.id, Self.verticalTabID + target.id]
             var child: NSAccessibilityElement?
             _ = descendant(of: content) { view in
                 guard isTabList(view, identifier: view.accessibilityIdentifier()), !view.isHiddenOrHasHiddenAncestor else { return false }
@@ -62,7 +62,7 @@ public struct UIPointerNativeElement: Equatable {
             }
             return child.map { tab($0, window: window) }
         case .pane, .workspace, .sidebarItem:
-            let prefix = target.kind == .pane ? Prefix.pane : target.kind == .workspace ? Prefix.workspace : Prefix.item
+            let prefix = target.kind == .pane ? Self.paneID : target.kind == .workspace ? Self.workspaceID : Self.itemID
             let wanted = prefix + target.id
             guard let view = descendant(of: content, where: { $0.accessibilityIdentifier() == wanted && !$0.isHiddenOrHasHiddenAncestor })
             else { return nil }
@@ -85,26 +85,25 @@ public struct UIPointerNativeElement: Equatable {
         return lines.joined(separator: "\n")
     }
 
-    public enum Prefix {
-        public static let strip = "cmux.tabs.strip"
-        public static let tab = "cmux.tabs.tab."
-        public static let verticalTab = "cmux.tabs.vertical."
-        public static let pane = "cmux.layout.pane."
-        public static let workspace = "cmux.sidebar.workspace."
-        public static let item = "cmux.sidebar.item."
-        public static let toolbar = "cmux.pane.toolbar."
-        public static let nativeToolbar = "cmux.pane.native-toolbar."
-    }
+    /// The accessibility identifiers (and identifier prefixes) cmux's native views carry.
+    static let stripID = "cmux.tabs.strip"
+    static let tabID = "cmux.tabs.tab."
+    static let verticalTabID = "cmux.tabs.vertical."
+    static let paneID = "cmux.layout.pane."
+    static let workspaceID = "cmux.sidebar.workspace."
+    static let itemID = "cmux.sidebar.item."
+    static let toolbarID = "cmux.pane.toolbar."
+    static let nativeToolbarID = "cmux.pane.native-toolbar."
 
     private static func element(for view: NSView, identifier: String, inPane: Bool) -> Self? {
         let kind: Kind
         switch identifier {
-        case let id where id.hasPrefix(Prefix.pane): kind = .pane
+        case let id where id.hasPrefix(Self.paneID): kind = .pane
         // A row's own buttons extend its identifier (`cmux.sidebar.workspace.<id>.close`): those are controls.
-        case let id where id.hasPrefix(Prefix.workspace): kind = view is NSControl ? .control : .workspace
-        case let id where id.hasPrefix(Prefix.item): kind = view is NSControl ? .control : .sidebarItem
-        case let id where id.hasPrefix(Prefix.toolbar) || id.hasPrefix(Prefix.nativeToolbar): kind = .paneToolbar
-        case Prefix.strip: kind = .tabStrip
+        case let id where id.hasPrefix(Self.workspaceID): kind = view is NSControl ? .control : .workspace
+        case let id where id.hasPrefix(Self.itemID): kind = view is NSControl ? .control : .sidebarItem
+        case let id where id.hasPrefix(Self.toolbarID) || id.hasPrefix(Self.nativeToolbarID): kind = .paneToolbar
+        case Self.stripID: kind = .tabStrip
         case let id where id.hasPrefix("cmux."): kind = .control
         default:
             // Inside a pane only cmux's own named views count; a terminal's or page's insides are not ours to name.
@@ -126,7 +125,7 @@ public struct UIPointerNativeElement: Equatable {
     private static func tab(_ element: NSAccessibilityElement, window: NSWindow) -> Self {
         let identifier = element.accessibilityIdentifier()
         let title = element.accessibilityLabel() ?? element.accessibilityTitle() ?? Kind.tab.rawValue
-        let isTab = identifier.hasPrefix(Prefix.tab) || identifier.hasPrefix(Prefix.verticalTab)
+        let isTab = identifier.hasPrefix(Self.tabID) || identifier.hasPrefix(Self.verticalTabID)
         return Self(kind: isTab ? .tab : .control, title: title, identifier: identifier,
                     frame: window.convertFromScreen(element.accessibilityFrame()),
                     role: element.accessibilityRole()?.rawValue, viewType: String(describing: type(of: element)))
@@ -134,7 +133,7 @@ public struct UIPointerNativeElement: Equatable {
 
     /// A tab strip or the vertical tab list: tabs are its accessibility children, not views.
     private static func isTabList(_ view: NSView, identifier: String) -> Bool {
-        identifier == Prefix.strip || view.accessibilityRole() == .tabGroup
+        identifier == Self.stripID || view.accessibilityRole() == .tabGroup
     }
 
     private static func label(of view: NSView) -> String? {
