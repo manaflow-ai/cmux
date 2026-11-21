@@ -29,3 +29,8 @@ def test_cli_limits_issue_queue_to_top_five(tmp_path):
     assert data["issue_count"] == 5
     assert len(json.loads(issues.read_text())) == 5
     assert "| Scenario | Metric |" in markdown.read_text()
+
+
+def test_zero_baseline_flags_new_hangs():
+    rows = report.build_rows([(Path("system.json"), {"scenario": "system", "metrics": {"main_thread_hangs": 1}})], {("system", "main_thread_hangs"): 0}, 10)
+    assert rows[0].status == "regression"

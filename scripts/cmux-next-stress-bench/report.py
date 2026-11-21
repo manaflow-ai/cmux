@@ -128,10 +128,15 @@ def _delta(value: float, baseline: float | None) -> float | None:
 def _is_regression(metric: str, value: float, baseline: float | None, threshold: float) -> bool:
     if baseline is None:
         return False
+    direction = next((prefix for prefix in LOWER_IS_BETTER if metric == prefix or metric.startswith(prefix + ".")), None)
+    # Zero is a meaningful clean baseline for hangs and disk growth. A ratio
+    # cannot represent a positive value relative to zero, so treat any new
+    # lower-is-better activity as a regression.
+    if baseline == 0:
+        return bool(direction) and value > 0
     delta = _delta(value, baseline)
     if delta is None:
         return False
-    direction = next((prefix for prefix in LOWER_IS_BETTER if metric == prefix or metric.startswith(prefix + ".")), None)
     return delta > threshold if direction else delta < -threshold
 
 
