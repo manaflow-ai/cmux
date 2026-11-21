@@ -2,7 +2,8 @@
 //! one session that hold every word of `query`, newest first: `{sessionId, hits: [{seq, at, role,
 //! snippet}], entries, tookMs}`. `role` is `user` (a prompt), `assistant` (the agent's reply text,
 //! its chunks joined into one message) or `tool` (a tool call's title); `seq` is the log record the
-//! message starts at.
+//! message starts at. With `withTurnTime: true`, a hit also carries `turnStartedAt`, the opening
+//! prompt's timestamp.
 //!
 //! Words match as `_acpmux/chats_search`'s do ([`Needle`]): every word, any case and order, within
 //! one message. Raw grep over the log cannot find a sentence: the agent's text is logged a few
@@ -159,6 +160,7 @@ pub struct Query {
     pub role: Option<Role>,
     pub since_ms: Option<u64>,
     pub limit: usize,
+    pub with_turn_time: bool,
 }
 
 impl Query {
@@ -183,7 +185,11 @@ impl Query {
                 usize::try_from(n).unwrap_or(MAX_LIMIT).min(MAX_LIMIT)
             }
         };
-        Ok(Self { needle, role, since_ms, limit })
+        let with_turn_time = match params.get("withTurnTime") {
+            None | Some(Value::Null) => false,
+            Some(value) => value.as_bool().ok_or("withTurnTime must be a boolean")?,
+        };
+        Ok(Self { needle, role, since_ms, limit, with_turn_time })
     }
 }
 
@@ -261,7 +267,7 @@ pub(crate) fn search_messages(
                 at: entry.at,
                 role: entry.role,
                 snippet: snippet(&flat, at),
-                turn_time: (view != TextView::Session)
+                turn_time: (view != TextView::Session || query.with_turn_time)
                     .then(|| crate::clock_text::iso(turn_at.unwrap_or(entry.at))),
             });
         }
