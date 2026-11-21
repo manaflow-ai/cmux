@@ -75,6 +75,10 @@ import CmuxNextWakeups
     private var lastCall: TimeInterval = -.infinity
     /// Calls made (tests).
     private(set) var calls = 0
+    /// Told whether nobody can see the pane, on each change its probe sees (``AgentPaneTransport/pageUnseen``).
+    public var onSightChange: (@MainActor (_ unseen: Bool) -> Void)?
+    /// What ``onSightChange`` was last told; nil before the first report.
+    private var reportedUnseen: Bool?
 
     public init(frames: any AgentPaneFrameTicks, fallback: any AgentPaneFallbackDeadline,
                 now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -192,8 +196,17 @@ import CmuxNextWakeups
         probe = nil
     }
 
+    /// Tells ``onSightChange`` whether nobody can see the pane now, when that changed.
+    public func reportSight() {
+        let unseen = isHidden()
+        guard unseen != reportedUnseen else { return }
+        reportedUnseen = unseen
+        onSightChange?(unseen)
+    }
+
     /// The pane may have come into sight: frames held while it was hidden go now.
     func visibilityChanged() {
+        reportSight()
         guard held || waitingWhileHidden, !isHidden() else { return }
         held = false
         if waitingWhileHidden {

@@ -33,6 +33,9 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         /// (``AcpmuxPaneShedding``); nil while none is. `shedEnding`: its end is queued.
         var shed: Int?
         var shedEnding = false
+        /// The page is frozen (``setAsleep(_:)``): list notices are left out, and counted here.
+        var asleep = false
+        var sparedAsleep = 0
         var questionNotificationQueued = false
         var signaled = false
         var outstanding = 0
@@ -218,6 +221,17 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// queue, and only past the ceiling does the connection close.
     private func arrived(_ frame: String) {
         let received = Self.nativeUTF8(frame)
+        // A page nobody sees hears no other chat's row (``setAsleep(_:)``). The scans run only while
+        // it sleeps; the count is taken under the lock that a wake reads it under.
+        if wire == nil, state.withLock({ $0.asleep }), AcpmuxPaneShedding.sparedWhileAsleep(received),
+           !sessions.named(in: received),
+           state.withLock({ state -> Bool in
+               guard state.closed == nil, state.asleep else { return false }
+               state.sparedAsleep += 1
+               return true
+           }) {
+            return
+        }
         let bytes = received.utf8.count
         // The plain path: nothing shed and room left, one lock and no scan.
         let decided = state.withLock { state -> Bool? in
@@ -263,6 +277,43 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         state.processing = true
         return true
     }
+
+    /// Nobody sees the page, or it is frozen (true), or it shows again (false): ``AgentPaneTransport/pageUnseen``
+    /// and ``AgentPaneTransport/beforePageWork``.
+    ///
+    /// While it sleeps, the local daemon's list notices (``AcpmuxPaneShedding/listNotices``: every chat's
+    /// row change, about 4.5 a second and up to 80 KB each on Leo's Mac, 184 KB/s a page) are left out
+    /// instead of queued, except a change of the pane's own chat (``AcpmuxPaneSessions/named(in:)``).
+    /// Queued, they reached the hidden page anyway: 4 MB of them is a backlog (``pageWaits``), which
+    /// a hidden page gets, so every hidden chat page parsed and folded 4 MB of other chats' rows about
+    /// every 22 s on the renderer's one JavaScript thread, and a frozen one thawed for it and stayed
+    /// awake 30 s (`browser.freezeHiddenTabs`). When it shows it gets one `_acpmux/lagged`
+    /// (``AcpmuxPaneShedding/wakeMarker(dropped:)``) and reads the rows changed since its list cursor
+    /// (direct.ts `resyncAfterLag`, `SessionPager.first`). Its own chat's stream, replies, requests
+    /// and observed notices are never left out. A remote wire's page keeps its notices.
+    func setAsleep(_ asleep: Bool) {
+        let woke = state.withLock { state -> Bool in
+            guard state.asleep != asleep else { return false }
+            state.asleep = asleep
+            return !asleep && state.sparedAsleep > 0 && state.closed == nil
+        }
+        guard woke else { return }
+        // After the pass over frames that came before the wake, as a shed episode's end is.
+        inbound.async { [self] in
+            let spared = state.withLock { state -> Int in
+                // Asleep again before this ran: the count waits for the next wake.
+                guard !state.asleep else { return 0 }
+                defer { state.sparedAsleep = 0 }
+                return state.sparedAsleep
+            }
+            guard spared > 0 else { return }
+            AgentPaneTransport.logger.debug("agent pane transport woke page spared=\(spared, privacy: .public) connection=\(self.connection, privacy: .public)")
+            enqueue([AcpmuxPaneShedding.wakeMarker(dropped: spared)], awaited: 1)
+        }
+    }
+
+    /// List notices left out while the page slept, not yet told to it (tests).
+    var sparedWhileAsleep: Int { state.withLock { $0.sparedAsleep } }
 
     /// Queues the end of a shed episode once the page caught up: on the inbound queue, after the
     /// pass over frames that came before it, so the page reads what it missed from where they end.
