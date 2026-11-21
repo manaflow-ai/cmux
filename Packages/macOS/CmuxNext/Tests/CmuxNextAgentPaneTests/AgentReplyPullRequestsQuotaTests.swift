@@ -453,6 +453,37 @@ struct AgentReplyPullRequestsQuotaTests {
         open.finish()
     }
 
+    /// A login's avatar link that changes while the old link loads starts the new link's load at
+    /// once, and the old load's late result does not replace the new image (issue 37852).
+    @Test func aChangedAvatarLinkLoadsWhileTheOldLinkIsLoading() async {
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        let newer = Data([0xFF, 0xD8, 0xFF, 0xE0, 9])
+        let avatars = AgentReplyAvatars(fetch: { url in
+            if url.absoluteString.hasSuffix("v=1") {
+                for await _ in gate { break }
+                return Self.png
+            }
+            return newer
+        })
+        let old = "https://avatars.githubusercontent.com/u/1?s=48&v=1"
+        let new = "https://avatars.githubusercontent.com/u/1?s=48&v=2"
+        #expect(avatars.image(login: "octocat", address: old) == nil)
+        #expect(avatars.loading("octocat"))
+        // The link changes while the old load still waits: this one ask starts the new load.
+        #expect(avatars.image(login: "octocat", address: new) == nil)
+        await avatars.loaded("octocat")
+        let expected = AgentReplyAvatars.dataURL(newer)
+        #expect(expected != nil)
+        #expect(avatars.image(login: "octocat", address: new) == expected)
+        #expect(!avatars.loading("octocat"))
+        // The old load ends late and records nothing.
+        open.yield()
+        open.finish()
+        await Task.yield()
+        for _ in 0..<10 { await Task.yield() }
+        #expect(avatars.image(login: "octocat", address: new) == expected)
+    }
+
     /// One load in flight per login, and a failed one is not tried again for ten minutes.
     @Test func anAvatarLoadsOncePerLoginAndWaitsAfterAFailure() async {
         let fetches = OSAllocatedUnfairLock(initialState: 0)
