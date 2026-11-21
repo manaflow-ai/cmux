@@ -66,7 +66,8 @@ compile stages the count of changed Swift and Rust files by top-level directory.
 
 `issue` opens or updates the one open cmuxterm-hq issue titled ISSUE_TITLE that carries ISSUE_MARK (the pattern of
 scripts/cmux-next/quality-report.py's sticky): the verdict, the diff, the bisect, a table of the newest TABLE_ROWS
-nightlies, the unpublished sign runs, and the history as a hidden comment that `record` and the quality report read:
+nightlies, the unpublished sign runs, the PR merge-to-NIGHTLY summary (pr_summary: counts, p50/p90, reasons, at
+most PR_SUMMARY_ROWS rows; every row is in `check --json`), and the history as a hidden comment that `record` and the quality report read:
 its JSON document, zlib-compressed and base64 on one line (HISTORY_Z_RE; the plain JSON of HISTORY_RE, the first
 form, is still read). It holds the newest HISTORY_KEEP records with the body under BODY_LIMIT: when it is over, the
 oldest records go down to TRAILING + BISECT_AFTER, then every record's per-job detail, then older records below that
@@ -159,7 +160,15 @@ TOP_STAGES = [k for k, _, nested in STAGES if not nested]
 COMPILE_STAGES = {"c_build", "c1_compile"}
 PIPELINE_PATHS = [".github/workflows/nightly.yml", "scripts/ci/", "scripts/cmux-next/"]
 CODE_SUFFIXES = (".swift", ".rs")
-PR_NUMBER_RE = re.compile(r"(?:Merge pull request\s+#?|\(#|\bPR\s*#?)(\d+)", re.I)
+# A squash merge's subject ends in "(#N)", its own PR; a number earlier in the subject ("PR 1 of ...", "after #40")
+# is not. A merge commit's subject starts "Merge pull request #N". Anything else carries no PR number.
+PR_TRAILING_RE = re.compile(r"\(#(\d+)\)\s*$")
+PR_MERGE_RE = re.compile(r"^Merge pull request #(\d+)\b")
+# The issue shows at most this many attribution rows (the worst and the unattributed); the history keeps none. A
+# week is ~2,500 first-parent merges: one row each was a 279 KB body against BODY_LIMIT.
+PR_SUMMARY_ROWS = 20
+PR_SUBJECT_SHOWN = 80
+BEFORE_FEEDS = "before the oldest observed feed"
 
 
 class SourceError(Exception):
@@ -242,28 +251,47 @@ def landing_times(git_dir: str, base_ref: str, run: Callable = subprocess.run) -
     return times
 
 
+def pr_number(subject: str) -> Optional[int]:
+    """The PR a first-parent commit landed: the trailing "(#N)" of a squash merge, else "Merge pull request #N"."""
+    match = PR_TRAILING_RE.search(subject or "") or PR_MERGE_RE.match(subject or "")
+    return int(match.group(1)) if match else None
+
+
 def first_parent_pr_merges(git_dir: str, base_ref: str, since: float,
                            run: Callable = subprocess.run) -> List[Dict[str, Any]]:
-    """Return first-parent merge commits newer than ``since``.
+    """Return the PR landings on ``base_ref``'s first-parent line committed at or after ``since``, newest first.
 
-    Merge subjects normally carry GitHub's ``Merge pull request #N`` text. A
-    merge without that metadata is retained with a missing PR number so the
-    report can show it as unattributed instead of silently dropping it.
+    ``--since-as-filter``, not ``--since``: ``--since`` stops the walk at the first commit older than the date, so one
+    commit with an old committer date hides every landing behind it. A merge without a PR number on the first-parent
+    line is kept as an unattributed row, and when it is a sync merge ("Merge origin/feat-cmux-next into
+    feat-cmux-next", pushed from a local branch) the landings it brought in on its second parent are walked too: the
+    first-parent line then runs down the local branch, and the PRs that landed meanwhile (#48675 under c3d5d5742ca0 on
+    2026-11-21) sit only on the second parent.
     """
-    out = git(git_dir, ["log", "--first-parent", "--format=%H%x09%P%x09%ct%x09%s",
-                        f"--since={iso(since)}", base_ref], run) or ""
     rows: List[Dict[str, Any]] = []
-    for line in out.splitlines():
-        parts = line.split("\t", 3)
-        if len(parts) != 4 or not parts[2].isdigit():
-            continue
-        sha, parents, stamp, subject = parts
-        match = PR_NUMBER_RE.search(subject)
-        number = int(match.group(1)) if match else None
-        if number is None and len(parents.split()) < 2:
-            continue
-        rows.append({"sha": sha, "merged_at": iso(float(stamp)), "merged_ts": float(stamp),
-                     "pr": number, "subject": subject})
+    seen = set()
+    walks: List[Tuple[str, Optional[str]]] = [(base_ref, None)]
+    while walks:
+        tip, stop = walks.pop(0)
+        args = ["log", "--first-parent", "--format=%H%x09%P%x09%ct%x09%s", f"--since-as-filter={iso(since)}", tip]
+        out = git(git_dir, args + ([f"^{stop}"] if stop else []), run) or ""
+        for line in out.splitlines():
+            parts = line.split("\t", 3)
+            if len(parts) != 4 or not parts[2].isdigit():
+                continue
+            sha, parents, stamp, subject = parts
+            if sha in seen:
+                continue
+            seen.add(sha)
+            number = pr_number(subject)
+            parent_list = parents.split()
+            if number is None and len(parent_list) < 2:
+                continue
+            if number is None and len(walks) < 50:
+                walks.append((parent_list[1], parent_list[0]))
+            rows.append({"sha": sha, "merged_at": iso(float(stamp)), "merged_ts": float(stamp),
+                         "pr": number, "subject": subject})
+    rows.sort(key=lambda r: r["merged_ts"], reverse=True)
     return rows
 
 
@@ -289,9 +317,11 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
                    window_days: int = PR_WINDOW_DAYS) -> Dict[str, Any]:
     """Associate recent first-parent PR merges with the first nightly feed containing them.
 
-    Every merge gets a row, including merges without a PR number and merges for
-    which no published nightly head can be proven. Only rows with a matched
-    feed contribute to the p50/p90 summary.
+    Every merge gets a row, including merges without a PR number and merges for which no published nightly head can
+    be proven. A merge older than the oldest observed feed is unattributed (BEFORE_FEEDS): the feed that first held
+    it may be one no record covers, so charging it to the oldest observed feed would inflate its time. Only rows with
+    a matched feed contribute to the p50/p90 summary. The full rows are the detail (`check --json`); the issue and its
+    history carry pr_summary.
     """
     end = time.time() if now is None else now
     since = end - window_days * 86400
@@ -309,6 +339,8 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
                                "merge_to_nightly": None, "status": "unattributed", "reason": None}
         if merge["pr"] is None:
             row["reason"] = "no PR number in merge metadata"
+        elif feeds and merge["merged_ts"] < feeds[0][0]:
+            row["reason"] = BEFORE_FEEDS
         else:
             for feed_ts, record in feeds:
                 if feed_ts <= merge["merged_ts"]:
@@ -327,9 +359,47 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
         rows.append(row)
     durations = [r["merge_to_nightly"] for r in rows if r["status"] == "attributed"
                  and isinstance(r["merge_to_nightly"], (int, float))]
+    reasons: Dict[str, int] = {}
+    for r in rows:
+        if r["status"] != "attributed":
+            reasons[r["reason"] or "unattributed"] = reasons.get(r["reason"] or "unattributed", 0) + 1
     return {"window": window_days, "window_days": window_days, "since": iso(since), "until": iso(end), "count": len(rows),
             "attributed": len(durations), "p50": quantile(durations, 0.5), "p90": quantile(durations, 0.9),
-            "rows": rows}
+            "oldest_feed": iso(feeds[0][0]) if feeds else None, "reasons": reasons, "rows": rows}
+
+
+def pr_summary(data: Optional[Dict[str, Any]], shown: int = PR_SUMMARY_ROWS) -> Dict[str, Any]:
+    """The compact attribution the issue shows: the counts, p50/p90, counts per unattributed reason and at most
+    ``shown`` rows, half the slowest attributed merges and the rest the newest unattributed ones (BEFORE_FEEDS last,
+    it is expected at the window's old end). ``shown=0`` is the history's copy, no rows at all."""
+    data = data or {}
+    keys = ("window", "window_days", "since", "until", "count", "attributed", "p50", "p90", "oldest_feed")
+    out: Dict[str, Any] = {k: data.get(k) for k in keys if k in data}
+    out.setdefault("window", PR_WINDOW_DAYS)
+    out.setdefault("count", 0)
+    out.setdefault("attributed", 0)
+    rows = [r for r in data.get("rows") or [] if isinstance(r, dict)]
+    reasons = data.get("reasons")
+    if not isinstance(reasons, dict):
+        reasons = {}
+        for r in rows:
+            if r.get("status") != "attributed":
+                reasons[r.get("reason") or "unattributed"] = reasons.get(r.get("reason") or "unattributed", 0) + 1
+    out["reasons"] = reasons
+    if shown <= 0:
+        return out
+    slow = sorted((r for r in rows if r.get("status") == "attributed" and is_num(r.get("merge_to_nightly"))),
+                  key=lambda r: -r["merge_to_nightly"])
+    newest = lambda rs: sorted(rs, key=lambda r: r.get("merged_at") or "", reverse=True)
+    odd = newest(r for r in rows if r.get("status") != "attributed" and r.get("reason") != BEFORE_FEEDS)
+    early = newest(r for r in rows if r.get("status") != "attributed" and r.get("reason") == BEFORE_FEEDS)
+    pick = slow[:shown // 2] + odd[:shown - min(len(slow), shown // 2)]
+    for rest in (slow[shown // 2:], odd, early):
+        pick += [r for r in rest if r not in pick][:shown - len(pick)]
+    out["rows"] = [{**{k: r.get(k) for k in ("sha", "pr", "merged_at", "feed_at", "build", "merge_to_nightly",
+                                               "status", "reason")},
+                    "subject": (r.get("subject") or "")[:PR_SUBJECT_SHOWN]} for r in pick[:shown]]
+    return out
 
 
 # One record
@@ -536,8 +606,8 @@ def parse_history(body: str) -> Dict[str, Any]:
 
     out = {"records": rows("records", sound_record), "unpublished": rows("unpublished", sound_unpublished)}
     attribution = doc.get("pr_attribution") if isinstance(doc, dict) else None
-    if isinstance(attribution, dict) and isinstance(attribution.get("rows"), list):
-        out["pr_attribution"] = attribution
+    if isinstance(attribution, dict):
+        out["pr_attribution"] = pr_summary(attribution, 0)
     return out
 
 
@@ -755,11 +825,13 @@ def bisect(records: List[Dict[str, Any]], verdicts: List[Dict[str, Any]], i: int
 
 
 def check(records: List[Dict[str, Any]], git_dir: str, run: Callable = subprocess.run,
-          base_ref: str = BASE_REF, pr_now: Optional[float] = None) -> Dict[str, Any]:
-    """The verdict of the newest record."""
+          base_ref: str = BASE_REF, pr_now: Optional[float] = None,
+          pr_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """The verdict of the newest record. ``pr_data`` is an attribution already made (record's), else one is made."""
     if not records:
         return {"build": None, "verdict": "no record", "over": None, "slow": {}, "diff": None, "bisect": [],
-                "rows": [], "pr_attribution": pr_attribution([], git_dir, base_ref, run=run, now=pr_now)}
+                "rows": [], "pr_attribution": pr_data if pr_data is not None
+                else pr_attribution([], git_dir, base_ref, run=run, now=pr_now)}
     verdicts = judge(records)
     i = len(records) - 1
     cur, v = records[i], verdicts[i]
@@ -781,7 +853,7 @@ def check(records: List[Dict[str, Any]], git_dir: str, run: Callable = subproces
              "over": verdicts[j]["over"], "slow": sorted(verdicts[j]["slow"])}
             for j, r in enumerate(records)][-TABLE_ROWS:]
     over_now = [r["merge_to_feed"] for r in records[-TRAILING:] if r.get("merge_to_feed") is not None]
-    prs = pr_attribution(records, git_dir, base_ref, run=run, now=pr_now)
+    prs = pr_data if pr_data is not None else pr_attribution(records, git_dir, base_ref, run=run, now=pr_now)
     return {"build": cur["build"], "sha": cur.get("sha"), "feed_at": cur.get("feed_at"), "verdict": verdict,
             "merge_to_feed": cur.get("merge_to_feed"), "budget_min": BUDGET_MIN, "over": v["over"], "slow": v["slow"],
             "ref_kind": ref_kind if ref_i is not None else None,
@@ -819,15 +891,20 @@ def render_verdict(c: Dict[str, Any], repo: str = REPO) -> str:
             f"`{STAGE_LABEL.get(k, k)}` {val:.1f} min (median {m:.1f})" for k, (val, m) in sorted(c["slow"].items()))]
     if c["verdict"] == "in budget":
         out += ["", "In budget, no slow stage."]
-    prs = c.get("pr_attribution") or {}
+    prs = c.get("pr_attribution")
     if prs:
-        out += ["", f"## PR merge to NIGHTLY (newest {prs.get('window', prs.get('window_days', PR_WINDOW_DAYS))} days)",
+        prs = pr_summary(prs)
+        reasons = "; ".join(f"{why}: {n}" for why, n in sorted(prs["reasons"].items(), key=lambda kv: -kv[1]))
+        out += ["", f"## PR merge to NIGHTLY (newest {prs.get('window') or PR_WINDOW_DAYS} days)",
                 f"Attributed {prs.get('attributed', 0)} of {prs.get('count', 0)} first-parent merges. "
-                f"p50 {num(prs.get('p50'), ' min')}, p90 {num(prs.get('p90'), ' min')}."]
+                f"p50 {num(prs.get('p50'), ' min')}, p90 {num(prs.get('p90'), ' min')}."
+                + (f" Unattributed: {reasons}." if reasons else "")]
         if prs.get("rows"):
-            out += ["", "| Merge (UTC) | PR | Nightly | Merge to NIGHTLY | Status |", "| --- | --- | --- | --- | --- |"]
+            out += ["", f"Slowest and unattributed {len(prs['rows'])} of {prs.get('count', 0)} (every row: "
+                        "`nightly_speed.py check --json`).", "",
+                    "| Merge (UTC) | PR | Nightly | Merge to NIGHTLY | Status |", "| --- | --- | --- | --- | --- |"]
             for row in prs["rows"]:
-                label = f"#{row['pr']}" if row.get("pr") is not None else "unattributed"
+                label = f"#{row['pr']}" if row.get("pr") is not None else f"`{short(row.get('sha'))}`"
                 nightly = row.get("build") or "—"
                 duration = num(row.get("merge_to_nightly"), " min")
                 status = row.get("status") if row.get("status") == "attributed" else row.get("reason") or "unattributed"
@@ -900,8 +977,7 @@ def history_doc(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]]
     keep_jobs = {r["sign_run"] for r in records[-jobs_keep:]} if jobs_keep else set()
     recs = [r if r["sign_run"] in keep_jobs else {k: v for k, v in r.items() if k != "jobs"} for r in records]
     doc = {"schema": SCHEMA, "budget_min": BUDGET_MIN, "top_stages": TOP_STAGES, "records": recs,
-           "unpublished": unpublished, "pr_attribution": pr_data or {"window": PR_WINDOW_DAYS, "window_days": PR_WINDOW_DAYS,
-           "count": 0, "attributed": 0, "p50": None, "p90": None, "rows": []}}
+           "unpublished": unpublished, "pr_attribution": pr_summary(pr_data, 0)}
     return json.dumps(doc, separators=(",", ":"))
 
 
@@ -918,12 +994,13 @@ def issue_body(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]],
     floor every record's per-job detail goes, then the oldest records again, and only with no record left the oldest
     unpublished lines (a line is 150 bytes; it is never dropped to make room for a record), so it is never over."""
     floor = TRAILING + BISECT_AFTER
+    if pr_data is None:
+        pr_data = pr_attribution(records, git_dir, run=run)
     while len(records) > floor and len(history_comment(records, unpublished)) > BODY_LIMIT - VISIBLE_RESERVE:
         records = records[1:]
     jobs_keep = JOBS_KEEP
     while True:
-        c = check(records, git_dir, run)
-        current_pr_data = pr_data if pr_data is not None else c.get("pr_attribution")
+        c = check(records, git_dir, run, pr_data=pr_data)
         unp = list(reversed(unpublished))[:10]
         lines = [f"{ISSUE_MARK}\nWritten on each push to nightly-next by cmux `.github/workflows/nightly-speed.yml` "
                  f"(`scripts/ci/nightly_speed.py`). Do not edit: the next run replaces this body.\n", render_verdict(c),
@@ -934,7 +1011,7 @@ def issue_body(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]],
             lines += [f"| {(u.get('created_at') or '')[5:16].replace('T', ' ')} | {u['sign_run']} | {u.get('push_run')} | "
                       f"{u.get('conclusion')} | {num(u.get('held_min'))} |" for u in unp]
             lines.append("")
-        body = "\n".join(lines) + f"\n{history_comment(records, unpublished, jobs_keep, current_pr_data)}\n"
+        body = "\n".join(lines) + f"\n{history_comment(records, unpublished, jobs_keep, pr_data)}\n"
         if len(body) <= BODY_LIMIT or not (records or unpublished):
             return body
         if len(records) <= floor and jobs_keep:
@@ -1001,7 +1078,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     with open(args.state, encoding="utf-8") as f:
         state = json.load(f)
     if args.cmd == "check":
-        c = check(state.get("records") or [], args.git_dir)
+        c = check(state.get("records") or [], args.git_dir, pr_data=state.get("pr_attribution"))
         md = render_verdict(c)
         for path, text in ((args.json, json.dumps(c, indent=1, sort_keys=True) + "\n"), (args.md, md)):
             if path:

@@ -193,6 +193,7 @@ class PrAttribution(unittest.TestCase):
 
     def test_merges_map_to_the_first_later_feed_and_keep_missing_rows(self):
         feeds = [
+            {"build": "n0", "sha": "h0", "feed_at": "2026-11-13T12:00:00Z"},
             {"build": "n1", "sha": "h1", "feed_at": "2026-11-14T01:00:00Z"},
             {"build": "n2", "sha": "h2", "feed_at": "2026-11-16T00:00:00Z"},
         ]
@@ -224,6 +225,113 @@ class PrAttribution(unittest.TestCase):
                                   "pr_attribution": data})
         self.assertIn("PR merge to NIGHTLY", text)
         self.assertIn("no later published nightly contains merge", text)
+
+    def test_the_pr_number_is_the_trailing_one_then_merge_pull_request_then_none(self):
+        cases = {
+            "PR 1 of 3: split the sidebar (#43168)": 43168,
+            "after #40 landed, retry the feed (#43170)  ": 43170,
+            "Merge pull request #101 from x/fast": 101,
+            "Merge pull request #101 from x/after-#99": 101,
+            "Revert \"fix (#5)\" for PR 7": None,
+            "fix: see #12 and PR 13": None,
+            "Merge origin/feat-cmux-next (a584889f871f) into feat-cmux-next": None,
+        }
+        for subject, want in cases.items():
+            self.assertEqual(ns.pr_number(subject), want, subject)
+
+    def test_a_merge_before_the_oldest_observed_feed_is_unattributed_and_out_of_the_quantiles(self):
+        class Git:
+            def __call__(self, cmd, **kw):
+                if "log" in cmd:
+                    return subprocess.CompletedProcess(cmd, 0, "\n".join([
+                        "m3\tp1\t1794787200\tlate (#3)",      # 2026-11-16T00:00Z
+                        "m2\tp1\t1794700800\tmiddle (#2)",    # 2026-11-15T00:00Z
+                        "m1\tp1\t1794614400\tearly (#1)",     # 2026-11-14T00:00Z
+                    ]) + "\n", "")
+                if "merge-base" in cmd:
+                    return subprocess.CompletedProcess(cmd, 0, "", "")  # every feed holds every merge
+                raise AssertionError(cmd)
+
+        feeds = [{"build": "n1", "sha": "h1", "feed_at": "2026-11-14T12:00:00Z"},
+                 {"build": "n2", "sha": "h2", "feed_at": "2026-11-16T01:00:00Z"}]
+        result = ns.pr_attribution(feeds, ".", run=Git(), now=ns.ts("2026-11-20T00:00:00Z"))
+        rows = {row["pr"]: row for row in result["rows"]}
+        self.assertEqual((rows[1]["status"], rows[1]["reason"], rows[1]["build"]),
+                         ("unattributed", ns.BEFORE_FEEDS, None))
+        self.assertEqual((rows[2]["build"], rows[3]["build"]), ("n2", "n2"))
+        self.assertEqual(result["attributed"], 2)
+        self.assertEqual(result["reasons"], {ns.BEFORE_FEEDS: 1})
+        self.assertEqual((result["p50"], result["p90"]), (ns.quantile([1500.0, 60.0], 0.5), ns.quantile([1500.0, 60.0], 0.9)))
+        self.assertIn(f"{ns.BEFORE_FEEDS}: 1", ns.render_verdict({
+            "build": "n2", "sha": "h2", "merge_to_feed": 20.0, "verdict": "in budget", "budget_min": 30.0, "window": 1,
+            "over": False, "p50": 20.0, "p95": 20.0, "feed_at": "2026-11-16T01:00:00Z", "slow": {}, "diff": None,
+            "bisect": [], "pr_attribution": result}))
+
+    def test_a_sync_merge_brings_its_second_parent_landings_and_an_old_date_does_not_stop_the_walk(self):
+        """c3d5d5742ca0 on 2026-11-21: a local branch merged origin/feat-cmux-next and was pushed, so the first-parent
+        line ran down the local branch and #48675 sat only on the second parent. And one commit with an old committer
+        date in the middle of the line must not end the walk (git log --since stops there)."""
+        with tempfile.TemporaryDirectory() as repo:
+            git_fixture_env.init_repo(repo, "-b", "main")
+            env = git_fixture_env.fixture_env()
+            env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@e")
+
+            def g(*args, when=None):
+                e = dict(env, **({"GIT_COMMITTER_DATE": when, "GIT_AUTHOR_DATE": when} if when else {}))
+                return subprocess.run(["git", "-C", repo, *args], env=e, check=True, capture_output=True,
+                                      text=True).stdout.strip()
+
+            g("commit", "--allow-empty", "-qm", "start", when="2026-11-10T00:00:00Z")
+            g("commit", "--allow-empty", "-qm", "first landing (#100)", when="2026-11-18T00:00:00Z")
+            g("commit", "--allow-empty", "-qm", "old-dated landing (#101)", when="2026-11-01T00:00:00Z")
+            g("commit", "--allow-empty", "-qm", "behind the old date (#102)", when="2026-11-18T02:00:00Z")
+            fork = g("rev-parse", "HEAD")
+            g("commit", "--allow-empty", "-qm", "cmux-next: pin (#48675)", when="2026-11-19T01:10:00Z")
+            remote = g("rev-parse", "HEAD")
+            g("checkout", "-q", "-b", "local", fork)
+            g("commit", "--allow-empty", "-qm", "local work, pushed directly", when="2026-11-19T01:00:00Z")
+            g("merge", "-q", "--no-ff", "-m", "Merge origin/feat-cmux-next into feat-cmux-next", remote,
+              when="2026-11-19T01:11:00Z")
+            merges = ns.first_parent_pr_merges(repo, "local", ns.ts("2026-11-15T00:00:00Z"))
+        self.assertEqual([m["pr"] for m in merges], [None, 48675, 102, 100])
+        self.assertEqual(merges[1]["merged_at"], "2026-11-19T01:10:00Z")
+
+    def test_a_week_of_merges_leaves_every_record_in_the_body(self):
+        """The readback of 2026-11-21: ~2,500 first-parent merges in the window made a 279 KB body even with every
+        record dropped. The body and the history carry the summary; the 40 records and 40 unpublished lines stay."""
+        recs = Issue.records(ns.HISTORY_KEEP)
+        unp = [ns.unpublished_line({**one_job_run(100 + i), "conclusion": "cancelled",
+                                    "created_at": f"2026-11-11T{i % 24:02d}:{i % 60:02d}:00Z"})
+               for i in range(ns.UNPUBLISHED_KEEP)]
+        rnd = random.Random(11)
+        start, end = ns.ts("2026-11-09T00:00:00Z"), ns.ts("2026-11-12T00:00:00Z")
+        lines = []
+        for i in range(2500):
+            stamp = int(start + (end - start) * i / 2500)
+            subject = (f"area-{i % 37}: a realistic subject line of some length, step {rnd.getrandbits(32):x} "
+                       + (f"(#{40000 + i})" if i % 50 else "with no number"))
+            lines.append(f"{rnd.getrandbits(160):040x}\tp{i} q{i}\t{stamp}\t{subject}")
+        log = "\n".join(reversed(lines)) + "\n"
+
+        def git(cmd, **kw):
+            if "log" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, log if "^" not in cmd[-1] else "", "")
+            if "merge-base" in cmd:
+                return subprocess.CompletedProcess(cmd, 0 if rnd.random() < 0.8 else 1, "", "")
+            raise AssertionError(cmd)
+
+        data = ns.pr_attribution(recs, ".", run=git, now=end, window_days=4)
+        self.assertEqual(data["count"], 2500)
+        self.assertGreater(data["reasons"][ns.BEFORE_FEEDS], 0)
+        body = ns.issue_body(recs, unp, ".", run=FakeGh(), pr_data=data)
+        self.assertLess(len(body), ns.BODY_LIMIT)
+        back = ns.parse_history(body)
+        self.assertEqual((len(back["records"]), len(back["unpublished"])), (ns.HISTORY_KEEP, ns.UNPUBLISHED_KEEP))
+        self.assertEqual(back["pr_attribution"]["count"], 2500)
+        self.assertNotIn("rows", back["pr_attribution"], "the history stores no per-merge rows")
+        table = [ln for ln in body.splitlines() if ln.startswith("| 2026-11-")
+                 and ln.rstrip().endswith(("attributed |", "contains merge |", "metadata |", "feed |"))]
+        self.assertLessEqual(len(table), ns.PR_SUMMARY_ROWS)
 
 
 def one_job_run(run_id=43300000001, conclusion="success", status="completed"):
