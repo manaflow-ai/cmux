@@ -38,6 +38,9 @@ name: cmux-next
 on:
   pull_request:
     branches: [feat-cmux-next]
+    # ready_for_review: a draft head runs only the Linux tiers (scripts/ci/head_tier.py); marking it ready
+    # runs the rest on the same head.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - App/**
       - cmux.xcodeproj/**
@@ -908,6 +911,7 @@ jobs:
           PR_BASE_REF: ${{ github.base_ref }}
           SAME_REPO_PR: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
           BASE_MERGE_CARRY: ${{ format('{0}', vars.CMUX_NEXT_BASE_MERGE_CARRY) != '0' }}
+          CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
         run: |
           set -euo pipefail
           changed="$RUNNER_TEMP/changed-files.txt"
@@ -1097,6 +1101,13 @@ jobs:
                 --base-ref "$PR_BASE_REF" --labels "$labels" --github-output "$GITHUB_OUTPUT" \
                 --summary "$GITHUB_STEP_SUMMARY" || true
             fi
+          fi
+          # A draft head runs the cheap tier: the Linux checks and the cargo fast tier, no Mac tier
+          # (scripts/ci/head_tier.py; a later line of an output wins). Marking it ready runs the rest.
+          if [[ "$EVENT_NAME" == pull_request && -f scripts/ci/head_tier.py ]] \
+            && [[ "$(python3 -I scripts/ci/head_tier.py tier 2>/dev/null)" == cheap ]]; then
+            printf '%s=false\n' native swift_canary cmuxnext_swift mac_release macos scheme generated swift daemon full fast_tier >> "$GITHUB_OUTPUT"
+            echo '- draft pull request: cheap tier only (Linux checks, cargo fast tier); the Mac tiers run when it is marked ready for review or labeled full-ci.' >> "$GITHUB_STEP_SUMMARY"
           fi
           # Whether this pull request changes the cmux-tui it would test against:
           # any v2 tree-key input (cmux-tui-tree-inputs.txt), such as cmux-tui/,
