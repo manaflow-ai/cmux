@@ -19,7 +19,7 @@ import { fenceStep } from "./fenceRule";
 /// Complete dollar candidates and explicit math on one line. This mask deliberately includes
 /// candidates the renderer rejects (such as `$x$word`): rejected math must remain literal while
 /// streaming rather than be mistaken for an unfinished equation.
-const INLINE_MATH =
+export const INLINE_MATH =
   /`[^`]*`|\\[\\$]|\$\$[^$\n]+?\$\$|(?<![\\$])\$(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`]\$(?!\d)|\\\(.+?\\\)/g;
 /// An opener with no closer yet: `$$`, `\(`, `$` before something that is not a digit or
 /// space (`$5` is a price), or a backslash at the very end (`\(`, `\[` or `\$` arriving).
@@ -27,8 +27,8 @@ const OPEN_MATH = /\$\$|\\\(|(?<!\\)\$(?![({])(?=[^\s\d$]|$)|\\$/;
 
 /// The index of the line that opens a display equation not yet closed (-1 when none), and
 /// whether the last line closes one (it is the equation's, not inline math).
-function openDisplay(lines: string[]): { open: number; closesLast: boolean } {
-  let fence = 0;
+function openDisplay(lines: string[], fenceAt: number): { open: number; closesLast: boolean } {
+  let fence = fenceAt;
   let open = -1;
   let closer: RegExp = /\$\$/;
   for (let index = 0; index < lines.length; index += 1) {
@@ -54,11 +54,11 @@ function openDisplay(lines: string[]): { open: number; closesLast: boolean } {
 /// What it opens is known only from the next character that is not one of them.
 const MARKER_LINE = /^\s*(?:[-*+]|\d{1,9}[.)]?|#{1,6})\s*$|^\s*[-*_][-*_\s]*$/;
 /// A thematic break (Markdown.tsx), whose stars are not a bold or italic run.
-const RULE_LINE = /^\s*([-*_])(\s*\1){2,}\s*$/gm;
+export const RULE_LINE = /^\s*([-*_])(\s*\1){2,}\s*$/gm;
 /// Complete emphasis on a line, as Markdown.tsx's INLINE_RE matches it, and an opener with no
 /// closer yet. An opener is closed for now only after a space, `(` or a quote, stricter than
 /// INLINE_RE's "not after a word": `src/*.ts` and `/_next` open nothing that will close.
-const ITALIC = {
+export const ITALIC = {
   "*": { whole: /(?<![\w*])\*[^*\s][^*]*\*(?![\w*])/g, open: /(?<=^|[\s(["'])\*(?=[^*\s])[^*]*$/ },
   _: { whole: /(?<![\w_])_[^_\s][^_]*_(?![\w_])/g, open: /(?<=^|[\s(["'])_(?=[^_\s])[^_]*$/ },
 } as const;
@@ -83,10 +83,16 @@ function closedMath(line: string): string {
   return open < 0 ? line : line.slice(0, open);
 }
 
-export function safeTail(tail: string): string {
-  const display = openDisplay(tail.split("\n"));
+/// What came before a tail that starts inside a reply (incrementalMarkdown.ts splits a long block
+/// there): the fence the tail starts in, and the parity of the `**` and backtick counts of the
+/// paragraph text before it, for a tail with no paragraph break of its own.
+export type TailBefore = { fence: number; stars: number; ticks: number };
+const START: TailBefore = { fence: 0, stars: 0, ticks: 0 };
+
+export function safeTail(tail: string, before: TailBefore = START): string {
+  const display = openDisplay(tail.split("\n"), before.fence);
   const lines = display.open >= 0 ? tail.split("\n").slice(0, display.open).concat("") : tail.split("\n");
-  let fence = 0;
+  let fence = before.fence;
   for (let index = 0; index < lines.length - 1; index += 1) fence = fenceStep(fence, lines[index]!);
   let last = lines.at(-1) ?? "";
   if (fence > 0 && new RegExp(`^\\s*(?:\`{1,${fence}}[^\`]*)?$`).test(last)) {
@@ -119,14 +125,17 @@ export function safeTail(tail: string): string {
   let text = lines.join("\n");
   if (fence > 0) return text;
   const paragraph = (value: string) => value.slice(value.lastIndexOf("\n\n") + 1).replace(RULE_LINE, "");
-  const odd = (pattern: RegExp, value: string) => (value.match(pattern)?.length ?? 0) % 2 === 1;
-  if (odd(/\*\*/g, paragraph(text))) {
+  // A value with no paragraph break of its own continues the paragraph before the tail.
+  const carried = (value: string, carry: number) => (!value.startsWith("\n") && !value.includes("\n\n") ? carry : 0);
+  const odd = (pattern: RegExp, value: string, carry: number) =>
+    ((value.match(pattern)?.length ?? 0) + carry) % 2 === 1;
+  if (odd(/\*\*/g, paragraph(text), carried(text, before.stars))) {
     const stripped = text.replace(/\*{1,2}\s*$/, "");
-    text = odd(/\*\*/g, paragraph(stripped)) ? `${stripped}**` : stripped;
+    text = odd(/\*\*/g, paragraph(stripped), carried(stripped, before.stars)) ? `${stripped}**` : stripped;
   }
-  if (odd(/`/g, paragraph(text).replace(/\*\*/g, ""))) {
+  if (odd(/`/g, paragraph(text).replace(/\*\*/g, ""), carried(text, before.ticks))) {
     const stripped = text.replace(/`\s*$/, "");
-    text = odd(/`/g, paragraph(stripped)) ? `${stripped}\`` : stripped;
+    text = odd(/`/g, paragraph(stripped), carried(stripped, before.ticks)) ? `${stripped}\`` : stripped;
   }
   // A lone `*` or `_` at the very end opens bold, italic or a word (`2*3`, `snake_case`): its next
   // character tells which.
