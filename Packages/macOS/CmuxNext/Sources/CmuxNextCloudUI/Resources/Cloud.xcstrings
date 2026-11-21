@@ -10679,6 +10679,137 @@
         }
       }
     },
+    "cloud.move.credentialFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat moved to %@, but your agent sign-in didn't reach it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نُقلت المحادثة إلى %@، لكن تسجيل دخول وكيلك لم يصل إليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat je premješten na %@, ali prijava tvog agenta nije stigla do njega."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten blev flyttet til %@, men din agents login nåede ikke frem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chat wurde nach %@ verschoben, aber die Anmeldung deines Agenten kam dort nicht an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat se movió a %@, pero el inicio de sesión de tu agente no llegó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La discussion a été déplacée sur %@, mais la connexion de ton agent n’y est pas parvenue."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La chat è stata spostata su %@, ma l’accesso del tuo agente non è arrivato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットは %@ に移動しましたが、エージェントのサインイン情報が届きませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកបានផ្លាស់ទីទៅ %@ ប៉ុន្តែការចូលគណនីភ្នាក់ងាររបស់អ្នកមិនបានទៅដល់ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅이 %@(으)로 이동했지만 에이전트 로그인 정보가 전달되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten ble flyttet til %@, men agentens pålogging kom ikke fram."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat przeniesiono na %@, ale logowanie Twojego agenta tam nie dotarło."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O chat foi movido para %@, mas o login do seu agente não chegou lá."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат перенесён на %@, но вход вашего агента туда не дошёл."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ย้ายแชทไปยัง %@ แล้ว แต่การลงชื่อเข้าใช้ของเอเจนต์ไปไม่ถึง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet %@ makinesine taşındı ancak ajanının oturum bilgisi oraya ulaşmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат перенесено на %@, але вхід вашого агента туди не дійшов."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện đã được chuyển lên %@, nhưng thông tin đăng nhập của tác tử không đến được."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对话已移至 %@，但你的智能体登录信息未能送达。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對話已移至 %@，但你的代理程式登入資訊未能送達。"
+          }
+        }
+      }
+    },
     "cloud.move.teamMachine": {
       "extractionState": "manual",
       "localizations": {

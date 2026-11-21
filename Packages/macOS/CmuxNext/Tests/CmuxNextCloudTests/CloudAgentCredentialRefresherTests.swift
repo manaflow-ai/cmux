@@ -208,6 +208,45 @@ struct CloudAgentCredentialRefresherTests {
         #expect(asked.last == "route-claude")
     }
 
+    /// Move to Cloud (and Move to Another Machine): the moved chat's agent gets the credential a new chat on that machine
+    /// starts on, pushed to its tab there; a ChatGPT plan token is then kept fresh like a started chat's.
+    @Test func aMovedChatGetsTheCredentialANewChatThereStartsOn() async throws {
+        var asked: [String] = []
+        let credentials = CloudAgentCredentials { id in
+            asked.append(id)
+            return Data(#"{"family":"codex","kind":"chatgpt-plan","env":{"CMUX_CHATGPT_ACCESS_TOKEN":"tok-1"},"expires_at":4000000000}"#.utf8)
+        }
+        credentials.setup = CloudSetup(read: {
+            CloudSetup.Snapshot(personal: [CloudSetup.Connection(id: "chatgpt", families: ["codex"])], organization: nil)
+        })
+        let machine = Machine()
+        #expect(await credentials.moved(chat: "moved-tab", machine: "m1", harness: "codex", push: machine.push))
+        #expect(asked == ["chatgpt"])
+        #expect(machine.pushes == [["CMUX_CHATGPT_ACCESS_TOKEN": "tok-1"]], "the credential reached the moved chat's tab")
+        #expect(credentials.refresher.trackedCount == 1, "a ChatGPT plan token is kept fresh on that machine")
+    }
+
+    /// A move whose credential did not reach the machine says so; a daemon that takes no credential, or nothing that
+    /// serves the chat's agent, leaves the machine's own route without a push or a failure, as a start there does.
+    @Test func aMovedChatsCredentialThatDoesNotReachTheMachineFails() async {
+        let credentials = CloudAgentCredentials { _ in
+            Data(#"{"family":"claude","kind":"claude-token","env":{"CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-oat01-abc"},"expires_at":null}"#.utf8)
+        }
+        let machine = Machine()
+        #expect(await credentials.moved(chat: "t", machine: "m1", harness: "claude", push: machine.push), "no rule: nothing to send")
+        #expect(machine.pushes.isEmpty)
+        credentials.setup = CloudSetup(read: {
+            CloudSetup.Snapshot(personal: [CloudSetup.Connection(id: "claude-token", families: ["claude"])], organization: nil)
+        })
+        machine.answer = .failed
+        #expect(await credentials.moved(chat: "t", machine: "m1", harness: "claude", push: machine.push) == false)
+        machine.answer = .gone
+        #expect(await credentials.moved(chat: "t", machine: "m1", harness: "claude", push: machine.push), "a daemon that takes none")
+        #expect(machine.pushes.count == 2 && credentials.refresher.trackedCount == 0)
+        #expect(await credentials.moved(chat: "t", machine: "m1", harness: "codex", push: machine.push) && machine.pushes.count == 2,
+                "nothing serves codex: no push")
+    }
+
     /// The Cloud start hands its choice to the launch: a `.connection` names its id, every other choice
     /// none, and a tab that got another key than the start planned keeps the choice.
     @Test func theStartsChoiceReachesTheLaunchUnderTheTabsKey() {
