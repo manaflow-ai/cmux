@@ -45,6 +45,11 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, Lawrence 2026-10-23). Checks that every job of
+    # each workflow in its GATED set carries the draft-head condition and that its trigger lists ready_for_review (the
+    # draft tier, scripts/ci/head_tier.py); it reads the workflows as data. Run it by hand when a workflow is added to
+    # or removed from GATED. Exit: as below.
+    "tests/test_head_tier.py",
     # lane = "manual" in tests/test-execution.d/other.toml (no new CI tests, CLAUDE.md). Proves cmux Files (dev) never
     # reaches a shipped build; it needs macOS ditto and codesign, and reads the workflows only as data. Run it by hand on
     # a fleet Mac when the embed phase, FilesHost or the pin changes. Exit: as below.
