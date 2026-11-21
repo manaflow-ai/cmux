@@ -182,13 +182,81 @@ import Testing
         #expect(model.importer.kinds == [.cookies], "Import checks cookies only: \(model.importer.kinds)")
     }
 
-    @Test func notNowClosesItOnlyForThisLaunch() {
+    /// David Beyer, Nov 20 call: no nagging. Not Now keeps the card away across relaunches too (a
+    /// nightly relaunches every day for its update), not only for this launch.
+    @Test func notNowKeepsTheCardAwayAfterARelaunch() {
         let defaults = Self.freshDefaults()
         let offer = BrowserImportOfferService(services: nil, defaults: defaults, locate: { [] })
         #expect(offer.state.offers(Self.personalPage))
         offer.answer(.notNow)
         let nextLaunch = BrowserImportOfferService(services: nil, defaults: defaults, locate: { [] })
-        #expect(nextLaunch.state.offers(Self.personalPage), "Not Now is not a dismissal: the next launch offers again")
+        #expect(!nextLaunch.state.offers(Self.personalPage), "Not Now is kept: the next launch does not ask again")
+    }
+
+    /// A browser tab on a live page, wired to `offer` as the app wires a new page
+    /// (`TabContentCache.onBrowserEntryCreated` calls `attach`), with the keyboard.
+    struct OfferedPage {
+        let page = Page()
+        let entry: BrowserEntry
+        let offer: BrowserImportOfferService
+
+        init() {
+            entry = BrowserEntry(tab: page.tab)
+            page.chrome.bind(page.tab, state: entry.state)
+            entry.followKeyboard(focusedTab: "browser-1", key: "browser-1", window: page.window)
+            offer = BrowserImportOfferService(services: nil, defaults: BrowserCookieBannerTests.freshDefaults(),
+                                              locate: { [(browser: .chrome, app: URL(fileURLWithPath: "/System/Applications/Safari.app"))] })
+            offer.enabledOverride = true
+            offer.attach(entry)
+        }
+
+        /// Shows `html` as the page at `url`, as a site would serve it.
+        func show(_ html: String, at url: String) throws {
+            page.tab.webView.loadHTMLString(html, baseURL: try #require(URL(string: url)))
+        }
+
+        /// Waits for the card, or the deadline: the page's own script runs on its own time.
+        func waitForCard(within timeout: Duration = .seconds(10)) async -> Bool {
+            let deadline = ContinuousClock.now + timeout
+            while page.chrome.currentCookieImportCard == nil, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+            return page.chrome.currentCookieImportCard != nil
+        }
+    }
+
+    /// David Beyer, Nov 20 call: "no prompt to import cookies". Most sign-in pages are apps that draw
+    /// their form after the page loads (Discord, Figma, Cloudflare: no sign-in field at load, one a
+    /// moment later), so a check made only when the load ends never saw a sign-in page there.
+    @Test func aSignInFormDrawnAfterTheLoadOffersTheCard() async throws {
+        let p = OfferedPage()
+        defer { p.page.tearDown() }
+        try p.show("""
+            <!doctype html><body><div id=app></div><script>
+            setTimeout(() => { document.getElementById('app').innerHTML =
+              '<form><input type=text autocomplete="username"><input type=password></form>' }, 400)
+            </script></body>
+            """, at: "https://app.example.com/")
+        #expect(await p.waitForCard(), "a sign-in form drawn after the load offers the card")
+    }
+
+    /// An email-first sign-in page (ChatGPT's /auth/login: one email field, no password yet, no
+    /// username hint) asks the person to sign in too.
+    @Test func anEmailFirstSignInPageOffersTheCard() async throws {
+        let p = OfferedPage()
+        defer { p.page.tearDown() }
+        try p.show("<!doctype html><form><input type=email name=email autocomplete=email><button>Continue</button></form>",
+                   at: "https://chat.example.com/auth/login")
+        #expect(await p.waitForCard(), "an email field on a sign-in address offers the card")
+    }
+
+    /// An ordinary page never offers it, also once its scripts ran: a newsletter's email field is no sign-in.
+    @Test func anOrdinaryPageWithAnEmailFieldDoesNotOfferTheCard() async throws {
+        let p = OfferedPage()
+        defer { p.page.tearDown() }
+        try p.show("<!doctype html><h1>News</h1><form><input type=email autocomplete=email><button>Subscribe</button></form>",
+                   at: "https://news.example.com/articles/today")
+        #expect(!(await p.waitForCard(within: .seconds(2))), "a newsletter field is not a sign-in page")
     }
 
     @Test func dontShowAgainTurnsTheSettingOffInCmuxJSON() async throws {
