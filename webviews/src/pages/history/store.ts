@@ -52,6 +52,9 @@ export interface HistoryStoreOptions {
   /** The pasteboard write the page can do itself; falls back to the host op when it rejects. */
   writeClipboard?: (text: string) => Promise<void>;
   newKey?: () => string;
+  /** The least time between two reads that `history-changed` starts (tests shorten it). */
+  changeReadGapMs?: number;
+  clock?: () => number;
 }
 
 export class HistoryStore {
@@ -74,6 +77,9 @@ export class HistoryStore {
   private pendingAttempt = 0;
   /** Ends the wait for a hidden page to show again (its `visibilitychange` listener). */
   private unshown?: () => void;
+  /** The one trailing read for the changes that came within the gap after the last change read. */
+  private changeTimer?: ReturnType<typeof setTimeout>;
+  private lastChangeRead = Number.NEGATIVE_INFINITY;
 
   constructor(
     private readonly client: PageClient | null,
@@ -193,6 +199,7 @@ export class HistoryStore {
     this.unpage?.();
     this.unpage = undefined;
     this.clearPending();
+    this.clearChangeTimer();
   }
 
   /** A list that is not complete (`pending_kinds`) is read again by itself: after 1 s, 2 s, 4 s, then
@@ -210,21 +217,67 @@ export class HistoryStore {
     this.pendingAttempt += 1;
     this.pendingTimer = setTimeout(() => {
       this.pendingTimer = undefined;
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
-        const shown = () => {
-          if (document.visibilityState === "hidden") return;
-          this.unshown?.();
-          void this.reload();
-        };
-        document.addEventListener("visibilitychange", shown);
-        this.unshown = () => {
-          document.removeEventListener("visibilitychange", shown);
-          this.unshown = undefined;
-        };
+      if (pageHidden()) {
+        this.readWhenShown();
         return;
       }
       void this.reload();
     }, wait);
+  }
+
+  /** A hidden page reads nothing: it reads once when it shows again, however many changes came. */
+  private readWhenShown(): void {
+    if (this.unshown) return;
+    const shown = () => {
+      if (pageHidden()) return;
+      this.unshown?.();
+      void this.reload();
+    };
+    document.addEventListener("visibilitychange", shown);
+    this.unshown = () => {
+      document.removeEventListener("visibilitychange", shown);
+      this.unshown = undefined;
+    };
+  }
+
+  /** `history-changed`: re-reads only when it changed a kind the page shows, never while the page
+   * is hidden (once on show instead), and at most once per `changeReadGapMs` (one trailing read
+   * takes every change that came in the gap). At ~4 changes a second each one re-read the whole
+   * first window (1,000 entries), most for a hidden page or a kind its filter leaves out. */
+  private onChanged(event: HistoryChanged | undefined): void {
+    const shown = filterKinds(this.snapshot.filter);
+    const kinds = event?.kinds ?? [];
+    if (shown.length > 0 && kinds.length > 0 && !kinds.some((kind) => shown.includes(kind))) return;
+    if (pageHidden()) {
+      this.readWhenShown();
+      return;
+    }
+    if (this.changeTimer !== undefined) return;
+    const gap = this.options.changeReadGapMs ?? CHANGE_READ_GAP_MS;
+    const wait = this.lastChangeRead + gap - this.now();
+    if (wait <= 0) {
+      this.changeReadNow();
+      return;
+    }
+    this.changeTimer = setTimeout(() => {
+      this.changeTimer = undefined;
+      if (pageHidden()) this.readWhenShown();
+      else this.changeReadNow();
+    }, wait);
+  }
+
+  private changeReadNow(): void {
+    this.lastChangeRead = this.now();
+    void this.reload();
+  }
+
+  private now(): number {
+    return this.options.clock?.() ?? Date.now();
+  }
+
+  private clearChangeTimer(): void {
+    if (this.changeTimer !== undefined) clearTimeout(this.changeTimer);
+    this.changeTimer = undefined;
   }
 
   private clearPending(): void {
@@ -247,8 +300,8 @@ export class HistoryStore {
     this.subscribingChanges = true;
     const epoch = this.linkEpoch;
     try {
-      const unsubscribe = await this.client.subscribe<HistoryChanged>(HistoryOps.changed, () => {
-        if (alive()) void this.reload();
+      const unsubscribe = await this.client.subscribe<HistoryChanged>(HistoryOps.changed, (event) => {
+        if (alive()) this.onChanged(event);
       });
       if (!alive()) {
         unsubscribe();
@@ -436,6 +489,11 @@ export class HistoryStore {
     for (const listener of this.listeners) listener();
   }
 }
+
+/** The least time between two reads that `history-changed` starts. */
+const CHANGE_READ_GAP_MS = 1000;
+
+const pageHidden = (): boolean => typeof document !== "undefined" && document.visibilityState === "hidden";
 
 /** The waits before each re-read of a list that is not complete; the last repeats. */
 const PENDING_WAITS_MS = [1000, 2000, 4000, 8000];

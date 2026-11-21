@@ -11,7 +11,9 @@ use cmux_history::{HistoryEntry, HistoryKind};
 
 use super::merged::LOCAL_MACHINE;
 use crate::Mux;
-use crate::state::command_history_store::{CommandDeletion, MAX_COMMAND_LIST_LIMIT};
+use crate::state::command_history_store::{
+    CommandDeletion, MAX_COMMAND_LIST_LIMIT, terminal_command_rows,
+};
 use crate::workspace_registry::unix_epoch_ms;
 
 pub(super) enum Selection {
@@ -33,17 +35,24 @@ pub(super) fn ids(ids: &[&str]) -> Vec<u64> {
     ids.iter().filter_map(|id| row_id(id)).collect()
 }
 
-/// The newest unexpired rows (at most the store's page) as entries.
+/// The newest unexpired rows (at most the store's page) as entries. Read on
+/// one of the registry's committed readers, so a History read (up to 1,000
+/// rows, once per page change) never holds the registry lock every state
+/// commit takes; an in-memory registry has none and reads under the lock.
 pub(super) fn entries(mux: &Mux) -> anyhow::Result<Vec<HistoryEntry>> {
     let limit = MAX_COMMAND_LIST_LIMIT;
     let now = unix_epoch_ms()?;
-    let page = mux
-        .workspace_registry
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .list_terminal_commands(None, limit, now)?;
-    Ok(page
-        .commands
+    let read = |connection: &rusqlite::Connection| {
+        terminal_command_rows(connection, None, limit, now).map(|rows| rows.commands)
+    };
+    let commands = match mux.registry_connection.read_committed(read) {
+        Some(commands) => commands?,
+        None => {
+            let registry = mux.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            registry.list_terminal_commands(None, limit, now)?.commands
+        }
+    };
+    Ok(commands
         .iter()
         .map(|row| {
             let at_ms = i64::try_from(row.started_at_ms).unwrap_or(i64::MAX);

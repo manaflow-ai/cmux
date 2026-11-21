@@ -9,6 +9,7 @@
 //! only after a method returns, so no event ever describes an uncommitted
 //! write. Typing indicators are never stored.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -128,6 +129,20 @@ pub(crate) struct ConversationStore {
     connection: Connection,
     /// Attachment bytes (`attachments/` beside the store) and uploads in flight.
     attachments: attachments::Attachments,
+    /// Each conversation's summary as [`Self::list`] last built it, with the
+    /// head's stamp it was built at ([`SummaryStamp`]).
+    summaries: HashMap<String, (SummaryStamp, Summary)>,
+}
+
+/// What every committed change of a conversation moves: each op bumps `rev`
+/// (cmux_conversation::apply), an import bumps it too, and every write of
+/// the head goes through `write_head`. A summary built at the same stamp is
+/// the same summary.
+#[derive(Clone, PartialEq, Eq)]
+struct SummaryStamp {
+    rev: i64,
+    last_seq: i64,
+    updated_at: String,
 }
 
 impl std::fmt::Debug for ConversationStore {
@@ -252,7 +267,7 @@ impl ConversationStore {
             params![SCHEMA_VERSION.to_string()],
         )?;
         transaction.commit()?;
-        Ok(Self { connection, attachments })
+        Ok(Self { connection, attachments, summaries: HashMap::new() })
     }
 
     /// Mints the credential of `participant` (an agent, or a person other than
@@ -312,22 +327,50 @@ impl ConversationStore {
         })
     }
 
-    /// Every conversation, newest `updated_at` first.
+    /// Every conversation, newest `updated_at` first. One query reads every
+    /// conversation's stamp; only a conversation whose stamp moved since the
+    /// last list is read again (its head, cursors, guards and last message).
+    /// Every `conversation-changed` makes the app list again (`home-inbox`),
+    /// and each list read every conversation at about five queries each.
     pub(crate) fn list(&mut self) -> anyhow::Result<Vec<Summary>> {
         let transaction = self.connection.transaction()?;
-        let ids = {
-            let mut statement = transaction
-                .prepare("SELECT id FROM conversation ORDER BY updated_at DESC, id DESC")?;
+        let stamps = {
+            let mut statement = transaction.prepare_cached(
+                "SELECT id, rev, last_seq, updated_at FROM conversation
+                 ORDER BY updated_at DESC, id DESC",
+            )?;
             statement
-                .query_map([], |row| row.get::<_, String>(0))?
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        SummaryStamp {
+                            rev: row.get(1)?,
+                            last_seq: row.get(2)?,
+                            updated_at: row.get(3)?,
+                        },
+                    ))
+                })?
                 .collect::<Result<Vec<_>, _>>()?
         };
-        let mut summaries = Vec::with_capacity(ids.len());
-        for id in ids {
-            let head = load_head(&transaction, &id)?.context("conversation vanished")?;
-            let last = load_message_by_seq(&transaction, &id, head.last_seq)?;
-            summaries.push(summary(&head, last.as_ref()));
+        let mut kept = HashMap::with_capacity(stamps.len());
+        let mut summaries = Vec::with_capacity(stamps.len());
+        for (id, stamp) in stamps {
+            let built = match self.summaries.remove(&id) {
+                Some((at, built)) if at == stamp => built,
+                _ => {
+                    #[cfg(test)]
+                    SUMMARY_READS.with(|reads| reads.set(reads.get() + 1));
+                    let head = load_head(&transaction, &id)?.context("conversation vanished")?;
+                    let last = load_message_by_seq(&transaction, &id, head.last_seq)?;
+                    summary(&head, last.as_ref())
+                }
+            };
+            summaries.push(built.clone());
+            kept.insert(id, (stamp, built));
         }
+        transaction.commit()?;
+        // A conversation no longer listed leaves the cache with this list.
+        self.summaries = kept;
         Ok(summaries)
     }
 
@@ -960,3 +1003,13 @@ pub(crate) struct ConversationHost {
 #[cfg(test)]
 #[path = "conversation_spill_tests.rs"]
 mod spill_tests;
+
+#[cfg(test)]
+thread_local! {
+    /// Conversations [`ConversationStore::list`] read again on this thread.
+    static SUMMARY_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+#[path = "conversation_list_tests.rs"]
+mod list_tests;
