@@ -171,26 +171,124 @@ pub(crate) fn job_running(target: &str, budget: std::time::Duration) -> bool {
 }
 
 /// Start `daemon run` for `home` as a job in the user's GUI domain when this
-/// process is outside the login session and the user has one.
+/// process is outside the login session and the user has one, or when it runs below the
+/// daemon's CPU tier (`qos::lowered_priority`): a daemon it started in place would inherit that.
 pub(crate) fn start_in_login_session(
     this: &crate::self_command::SelfCommand,
     home: &Path,
     log: &Path,
     keyed: bool,
 ) -> Result<Started> {
-    use super::login_placement::{Placement, own_home, placement};
+    use super::login_placement::{Placement, own_home, placement_lowered};
     let (here, own) = (in_login_session(), own_home(home, &crate::config::default_home()));
+    let lowered = crate::qos::lowered_priority().is_some();
     let domain = gui_domain();
     // Only asked when it decides anything (one `launchctl print`).
-    let domain_print =
-        (here != Some(true) && own && !keyed).then(|| gui_domain_print(&domain)).flatten();
+    let domain_print = ((here != Some(true) || lowered) && own && !keyed)
+        .then(|| gui_domain_print(&domain))
+        .flatten();
     let gui_login = domain_print.is_some();
-    match placement(here, own, gui_login, keyed) {
+    match placement_lowered(here, own, gui_login, keyed, lowered) {
         Placement::InPlace => return Ok(Started::No),
         Placement::KeyedInPlace => return Ok(Started::KeyedInPlace),
         Placement::NoGuiLogin => return Ok(Started::NoGuiLogin),
         Placement::LoginJob => {}
     }
+    let mut argv = vec![this.exe.to_string_lossy().into_owned()];
+    argv.extend(this.args_lossy(&["daemon", "run"]));
+    bootstrap_job(home, log, argv, &domain, domain_print.as_deref())
+}
+
+/// Set in a login-session job this module bootstrapped for a lowered `daemon run`
+/// ([`leave_lowered_run`]): that job's daemon never moves again, whatever its priority reads.
+const UNLOWERED_ENV: &str = "ACPMUX_DAEMON_UNLOWERED";
+
+/// A `daemon run` whose own process runs below the daemon's CPU tier, with no descriptor to carry
+/// (`--ready-fd`, `--person-key-fd`: those starts come from the app or a command, which place the
+/// daemon themselves): it starts again as a login-session job with the same arguments, which
+/// launchd runs at `Interactive`, and this process ends. So an update's `--take-over` successor of
+/// a lowered daemon (`exe_swap.rs` starts it, and it inherits the old daemon's clamp) comes up at
+/// the daemon's tier. The job's daemon asks the old one to hand over as this one would have; this
+/// process waits for that, at most `wait`, so the swap that started it sees the hand-over.
+///
+/// The job label, `job_running` and the per-home lock are [`start_in_login_session`]'s: one start
+/// per home. Returns whether a job took the start; false: this process starts the daemon in place.
+pub(crate) async fn leave_lowered_run(home: &Path, log: &Path, wait: std::time::Duration) -> bool {
+    use super::login_placement::own_home;
+    let Some(priority) = crate::qos::lowered_priority() else { return false };
+    if std::env::var_os(UNLOWERED_ENV).is_some() {
+        tracing::warn!(
+            priority,
+            "this daemon runs below its CPU tier although launchd started it as a login-session job"
+        );
+        return false;
+    }
+    if !own_home(home, &crate::config::default_home()) {
+        return false;
+    }
+    let (home, log) = (home.to_path_buf(), log.to_path_buf());
+    let pid_file = home.join("daemon.pid");
+    let holder_before = std::fs::read_to_string(&pid_file).unwrap_or_default();
+    let placed = tokio::task::spawn_blocking(move || {
+        let domain = gui_domain();
+        let print = gui_domain_print(&domain)?;
+        let exe = std::env::current_exe().ok()?;
+        let mut argv = vec![exe.to_string_lossy().into_owned()];
+        argv.extend(std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()));
+        bootstrap_job_with(&home, &log, argv, &domain, Some(&print), &[(UNLOWERED_ENV, "1")]).ok()
+    })
+    .await
+    .ok()
+    .flatten();
+    let target = match placed {
+        Some(Started::Job(target)) => target,
+        // This home's job runs already: that start is the daemon's, this one ends as a second
+        // start does.
+        Some(Started::Running) => return true,
+        _ => {
+            tracing::warn!(
+                priority,
+                "this daemon runs below its CPU tier and could not start as a login-session job; it starts here"
+            );
+            return false;
+        }
+    };
+    tracing::warn!(priority, job = %target, "this daemon's start ran below its CPU tier (an inherited clamp or nice); it starts again as a login-session job");
+    // The job's daemon took the home once the pid file names another process than before. Every
+    // pass reads one small file; the wait ends at `wait` whatever happened.
+    // timeout: the caller's bound on a wait it only reports on; the job's daemon serves either way
+    let deadline = tokio::time::Instant::now() + wait;
+    while tokio::time::Instant::now() < deadline {
+        let now = std::fs::read_to_string(&pid_file).unwrap_or_default();
+        if !now.trim().is_empty() && now != holder_before {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    true
+}
+
+/// Bootstraps `argv` as this home's login-session job (`gui/<uid>/<label>`), unless that job
+/// runs already. `domain_print`: the domain's `launchctl print`, for the stale-job sweep.
+fn bootstrap_job(
+    home: &Path,
+    log: &Path,
+    argv: Vec<String>,
+    domain: &str,
+    domain_print: Option<&str>,
+) -> Result<Started> {
+    bootstrap_job_with(home, log, argv, domain, domain_print, &[])
+}
+
+/// [`bootstrap_job`] with `extra` set in the job's environment.
+fn bootstrap_job_with(
+    home: &Path,
+    log: &Path,
+    argv: Vec<String>,
+    domain: &str,
+    domain_print: Option<&str>,
+    extra: &[(&str, &str)],
+) -> Result<Started> {
     // One start per home at a time, from the check below through the bootstrap: a
     // second command waits here, then finds the first one's job and waits for it.
     let lock = crate::config::private_state_rw(&home.join("daemon-login-session.lock"))?;
@@ -213,11 +311,9 @@ pub(crate) fn start_in_login_session(
         }
         let _ = launchctl(&["bootout", &legacy_target], LAUNCHCTL_BUDGET);
     }
-    if let Some(print) = &domain_print {
-        sweep_stale_jobs(&domain, print, &[&label, &legacy]);
+    if let Some(print) = domain_print {
+        sweep_stale_jobs(domain, print, &[&label, &legacy]);
     }
-    let mut argv = vec![this.exe.to_string_lossy().into_owned()];
-    argv.extend(this.args_lossy(&["daemon", "run"]));
     // The job's environment is launchd's, not this ssh login's: only what the
     // daemon needs to find its home and the agent CLIs (no secrets on disk).
     // Both against this command's folder: launchd starts the job in `/`.
@@ -234,6 +330,7 @@ pub(crate) fn start_in_login_session(
             env.push((key.to_owned(), v));
         }
     }
+    env.extend(extra.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
     let plist = home.join("daemon-login-session.plist");
     {
         use std::io::Write;
@@ -246,7 +343,7 @@ pub(crate) fn start_in_login_session(
     // running one never gets here, and none can start meanwhile (`lock`).
     let _ = launchctl(&["bootout", &target], LAUNCHCTL_BUDGET);
     let plist_arg = plist.to_string_lossy();
-    let (answered, said) = match launchctl(&["bootstrap", &domain, &plist_arg], LAUNCHCTL_BUDGET) {
+    let (answered, said) = match launchctl(&["bootstrap", domain, &plist_arg], LAUNCHCTL_BUDGET) {
         Ok((ok, out)) => (Some(ok), out.trim().to_owned()),
         Err(e) => (None, format!("{e:#}")),
     };
