@@ -214,7 +214,7 @@ impl Supervisor {
             };
             server.generation
         };
-        if !matches!(line["type"].as_str(), Some("result" | "event")) {
+        if !matches!(line.get("type").and_then(Value::as_str), Some("result" | "event")) {
             return Err(ApiError::new(
                 "bad-request",
                 "an external server sends result and event lines only",
