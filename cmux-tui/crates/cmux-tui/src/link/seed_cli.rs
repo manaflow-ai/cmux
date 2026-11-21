@@ -647,6 +647,7 @@ fn project_first(socket: &Path, local: &Path, remote: &str) -> Option<Pushed> {
             Some(projected(&answer))
         }
         Ok(Err(why)) => {
+            sync_cli::project::forget(remote);
             eprintln!(
                 "cmux link seed push: {} is not projected ({why:?}); seeding or copying it",
                 local.display()
@@ -654,6 +655,7 @@ fn project_first(socket: &Path, local: &Path, remote: &str) -> Option<Pushed> {
             None
         }
         Err(error) => {
+            sync_cli::project::forget(remote);
             eprintln!(
                 "cmux link seed push: projecting {} failed: {error:#}; seeding or copying it",
                 local.display()
@@ -704,7 +706,7 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
     let canonical = std::fs::canonicalize(local).map_err(|error| {
         SeedError::new("sync_failed", format!("cannot open {}: {error}", local.display()))
     })?;
-    if sync_cli::project::projected_from(socket, remote).as_deref() == Some(canonical.as_path()) {
+    if sync_cli::project::projected_from(remote).as_deref() == Some(canonical.as_path()) {
         return project_again(socket, &canonical, remote);
     }
     let machine = Machine::read(socket)?;

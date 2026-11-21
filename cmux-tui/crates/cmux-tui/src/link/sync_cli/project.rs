@@ -309,16 +309,25 @@ impl Served {
     }
 }
 
-/// The folder of this Mac a running server projects at `remote` on the machine at `socket`; None
-/// when no server [`start`] left is on record for it there.
-pub(crate) fn projected_from(socket: &Path, remote: &str) -> Option<PathBuf> {
+/// The folder of this Mac a server [`start`] left projects at `remote`; None when none is on
+/// record. Read by the folder, not the link socket: the app's link to the machine may have been
+/// made again between a move's push and its push once the chat is frozen.
+pub(crate) fn projected_from(remote: &str) -> Option<PathBuf> {
     let dir = servers_dir().ok()?;
     let server = name_of(remote);
     if !dir.join(format!("{server}.pid")).exists() {
         return None;
     }
     let served = Served::decode(&std::fs::read(dir.join(format!("{server}.served"))).ok()?)?;
-    (served.socket == socket).then_some(served.local)
+    Some(served.local)
+}
+
+/// Forgets what the server at `remote` serves (it runs on): a push that seeded or copied the
+/// folder there instead is never projected again by a later `--since-last`.
+pub(crate) fn forget(remote: &str) {
+    if let Ok(dir) = servers_dir() {
+        let _ = std::fs::remove_file(dir.join(format!("{}.served", name_of(remote))));
+    }
 }
 
 /// The projection name of a chat that moves to a machine (Move to Cloud's `cmux link seed push`):
@@ -329,8 +338,8 @@ pub(crate) fn move_key(remote: &str) -> String {
     format!("move-{}", name_of(remote))
 }
 
-/// [`start`] after ending the server already projecting a folder at `remote` on the same machine
-/// (an earlier push of this move, or of an earlier move to that folder). The new server lists the
+/// [`start`] after ending the server already projecting `local` at `remote` (an earlier push of
+/// this move, or of an earlier move of the folder there). The new server lists the
 /// folder as it is now: the machine mounts that manifest in place of the older one, which it would
 /// otherwise answer every read of a changed file from as `changed`, and never list a new one.
 pub(crate) fn restart(
@@ -339,7 +348,7 @@ pub(crate) fn restart(
     remote: &str,
     chat: &str,
 ) -> anyhow::Result<Result<Value, NotProjected>> {
-    if enabled() && projected_from(socket, remote).is_some() {
+    if enabled() && projected_from(remote).as_deref() == Some(local) {
         stop_server(remote)?;
     }
     start(socket, local, remote, chat)
