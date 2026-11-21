@@ -1,3 +1,4 @@
+#if os(iOS)
 import Testing
 @testable import CmuxMobileLive
 
@@ -22,3 +23,4 @@ import Testing
         #expect(!LiveCoordinator.chatSessionChanged(built: nil, listed: nil))
     }
 }
+#endif
