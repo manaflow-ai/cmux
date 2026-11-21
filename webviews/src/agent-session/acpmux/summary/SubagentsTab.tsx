@@ -5,7 +5,7 @@
 // own beside the chat, or in this pane when none opens. The chats the agent started (`sessions`,
 // session-info/ChildSessionRows.tsx) follow the subagents in each list, a waiting or running one under
 // Active and the rest under Done; a row opens that chat (`onOpenSession`).
-import React from "react";
+import React, { useRef } from "react";
 import { useT } from "../i18n";
 import { ChildSessionRows } from "../session-info/ChildSessionRows";
 import { sessionStatus } from "../session-info/childSessionRowsModel";
@@ -17,18 +17,31 @@ import { TurnActionsContext } from "../conversation/turnActions";
 import type { ResumeActions } from "../subagents/ResumeControl";
 import type { Subagent } from "../subagents/subagentFold";
 import { SUBAGENT_ROW } from "../subagents/subagentRows";
+import { sameSubagentLook } from "../subagents/subagentLook";
 import { subagentStatus } from "./subagentStatusListModel";
 
-/// Subagent rows as SubagentListRow draws them; each carries its place in its list (`status`).
-function listRows(agents: readonly Subagent[]): AcpmuxRow[] {
-  return agents.map((agent, index) => ({
-    id: `summary-subagent:${agent.id}`,
-    version: 1,
-    at: agent.startedAt,
-    kind: SUBAGENT_ROW,
-    subagents: [agent],
-    status: agents.length === 1 ? "only" : index === 0 ? "first" : index === agents.length - 1 ? "last" : "middle",
-  }));
+/// Subagent rows as SubagentListRow draws them; each carries its place in its list (`status`). A row
+/// whose place and drawn fields did not change (subagentLook.ts: every snapshot is new objects) is
+/// the one `kept` drew last time, so its memo holds and only the changed agent's row draws again.
+function listRows(agents: readonly Subagent[], kept: Map<string, AcpmuxRow>): AcpmuxRow[] {
+  const rows = agents.map((agent, index): AcpmuxRow => {
+    const status =
+      agents.length === 1 ? "only" : index === 0 ? "first" : index === agents.length - 1 ? "last" : "middle";
+    const last = kept.get(agent.id);
+    const was = last?.subagents?.[0];
+    if (last && was && last.status === status && sameSubagentLook(was, agent)) return last;
+    return {
+      id: `summary-subagent:${agent.id}`,
+      version: 1,
+      at: agent.startedAt,
+      kind: SUBAGENT_ROW,
+      subagents: [agent],
+      status,
+    };
+  });
+  kept.clear();
+  for (const row of rows) kept.set(row.subagents![0]!.id, row);
+  return rows;
 }
 
 const NO_SESSIONS: readonly StartedSession[] = [];
@@ -44,12 +57,13 @@ function List({
   sessions: readonly StartedSession[];
   onOpenSession?: (sessionId: string) => void;
 }) {
+  const kept = useRef(new Map<string, AcpmuxRow>());
   return (
     <section className="acpmux-summary-section" aria-label={title}>
       <h3 className="acpmux-summary-title">{title}</h3>
       {agents.length > 0 && (
         <div className="acpmux-summary-subagent-rows">
-          {listRows(agents).map((row) => (
+          {listRows(agents, kept.current).map((row) => (
             <SubagentListRow key={row.id} row={row} />
           ))}
         </div>
@@ -89,12 +103,14 @@ export function SubagentsTab({
     const status = subagentStatus(agent, waiting);
     return status === "running" || status === "waiting";
   });
-  const done = newest.filter((agent) => !active.includes(agent));
+  const activeSet = new Set(active);
+  const done = newest.filter((agent) => !activeSet.has(agent));
   const liveSessions = sessions.filter((child) => {
     const status = sessionStatus(child);
     return status === "running" || status === "waiting";
   });
-  const endedSessions = sessions.filter((child) => !liveSessions.includes(child));
+  const liveSet = new Set(liveSessions);
+  const endedSessions = sessions.filter((child) => !liveSet.has(child));
   const activeCount = active.length + liveSessions.length;
   const doneCount = done.length + endedSessions.length;
   return (
