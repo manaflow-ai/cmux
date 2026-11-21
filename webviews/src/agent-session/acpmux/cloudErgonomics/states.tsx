@@ -307,6 +307,12 @@ const TURN_FAILURES: readonly TurnFailureFixture[] = [
     error: "Error loading SSO Token: The SSO session associated with this profile has expired or is otherwise invalid.",
   },
   { id: "rate-limited", kind: "rate-limited", error: "API Error: 529 overloaded_error" },
+  {
+    id: "usage-limit",
+    kind: "usage-limit",
+    error:
+      "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Nov 25th, 2026 5:20 PM.",
+  },
   { id: "unreachable", kind: "unreachable", error: "API Error: Connection error." },
   { id: "invalid-key", kind: "invalid-key", error: "invalid x-api-key" },
   { id: "subscription-login", kind: "subscription-login", error: "Not logged in · Please run /login" },
@@ -369,6 +375,7 @@ export const KINDS: { [kind in FailureKind]: true } = {
   "no-credit": true,
   "cloud-auth-expired": true,
   "rate-limited": true,
+  "usage-limit": true,
   unreachable: true,
   "invalid-key": true,
   "subscription-login": true,

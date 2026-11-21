@@ -603,6 +603,14 @@ impl Hub {
         {
             let _parked = self.hold_at_failure(session, turn_id, cut.error, cut.not_before);
         }
+        // A used-up usage window (`turn_errors::is_hard_usage_limit`) is never continued by
+        // itself: every attempt before its reset failed the same way and drew one more error card
+        // (cmux#48665). The hold above still keeps the chat until the reset; the person goes on
+        // with another model, or their own prompt once it resets.
+        let reason = reason.filter(|reason| {
+            *reason != RetryReason::RateLimit
+                || !cut.as_ref().is_some_and(|c| super::turn_errors::is_hard_usage_limit(c.error))
+        });
         let (Some(cut), Some(reason), Some(true)) = (cut, reason, ending) else {
             if ending.is_some() {
                 pending.take();

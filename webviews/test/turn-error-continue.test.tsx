@@ -285,7 +285,11 @@ test("Continue and Retry go through acpmux's turn retry where the chat has one, 
 // works i shouldnt see this dialog again… there should also be a place where i can dismiss this".
 test("a failed turn's card goes once a later turn finishes, and comes back if that turn is gone", async () => {
   const failedTurn = [prompt("p1", 1_000), answer("a1", 30_000), summary("s1", 223_000)];
-  const later = [prompt("p2", 230_000), answer("a2", 240_000), summary("s2", 250_000, { status: "completed", error: undefined })];
+  const later = [
+    prompt("p2", 230_000),
+    answer("a2", 240_000),
+    summary("s2", 250_000, { status: "completed", error: undefined }),
+  ];
   const [failed, done] = footers([...failedTurn, ...later]);
   expect(failed!.recovered).toBe(true);
   expect(done!.recovered).toBeUndefined();
@@ -294,12 +298,16 @@ test("a failed turn's card goes once a later turn finishes, and comes back if th
   // The footer row stays: the turn is history, not gone.
   expect(host.querySelector(".cv-turn-actions")).not.toBeNull();
 
-  // A later turn that is still running or failed too does not clear it.
+  // A later turn that has not answered yet does not clear it (cmux#48665: anything that starts
+  // working does).
+  const waiting = footers([...failedTurn, prompt("p2", 230_000)]);
+  expect(waiting[0]!.recovered).toBeUndefined();
   const running = footers([...failedTurn, prompt("p2", 230_000), answer("a2", 240_000)]);
-  expect(running[0]!.recovered).toBeUndefined();
+  expect(running[0]!.recovered).toBe(true);
+  // A later turn that failed too draws the one card, in place of this one (cmux#48665).
   const failedAgain = footers([...failedTurn, prompt("p2", 230_000), summary("s2", 250_000)]);
-  expect(failedAgain.map((row) => row.recovered)).toEqual([undefined, undefined]);
-  // A stopped later turn is not a success either.
+  expect(failedAgain.map((row) => row.recovered)).toEqual([true, undefined]);
+  // A stopped later turn that said nothing is not a success either.
   const stopped = footers([...failedTurn, prompt("p2", 230_000), summary("s2", 250_000, { status: "cancelled" })]);
   expect(stopped[0]!.recovered).toBeUndefined();
 });
@@ -319,6 +327,7 @@ test("a failed turn paged in without its prompt is recovered by a later turn too
 test("a recovered mark follows incremental snapshots: it lands when the later turn completes", async () => {
   const { turnViewFrom } = await import("../src/agent-session/acpmux/conversation/turns");
   const base = [prompt("p1", 1_000), answer("a1", 30_000), summary("s1", 223_000), prompt("p2", 230_000)];
+  // The later turn's prompt alone keeps the card; its answer (below) is the chat going on.
   const folds = new Set<string>();
   const first = turnViewFrom(base, folds, { now: 300_000, working: true });
   expect(first.rows.find((row) => row.id === "s1")!.recovered).toBeUndefined();
@@ -357,4 +366,58 @@ test("the card's × closes it for good, and only that chat's turn", async () => 
   // Another chat's turn with the same row id (row ids are unique only within a chat) keeps its card.
   await act(async () => root.render(inChat("chat-b", row!)));
   expect(host.querySelector(".cv-turn-error")).not.toBeNull();
+});
+
+// cmux#48665: a Codex chat out of its usage window showed the same "rate limited or out of capacity"
+// card three times, once per automatic retry. A chat shows one error card at a time; a used-up usage
+// window is never retried, and its card says when it resets.
+const CODEX_USAGE =
+  "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Nov 25th, 2026 5:20 PM.";
+
+test("a turn and its retries that fail the same way draw one card, the latest", async () => {
+  const usage = { error: CODEX_USAGE };
+  const rows = turnView(
+    [
+      prompt("p1", 1_000, { promptId: "p1" }),
+      summary("s1", 2_000, usage),
+      prompt("p1r1", 70_000, { promptId: "p1~resume-1" }),
+      summary("s2", 71_000, usage),
+      prompt("p1r2", 400_000, { promptId: "p1~resume-2" }),
+      summary("s3", 401_000, usage),
+    ],
+    new Set(),
+    { now: 500_000 },
+  ).filter((row) => row.kind === "turnSummary");
+  expect(rows.map((row) => [row.id, row.recovered === true])).toEqual([
+    ["s1", true],
+    ["s2", true],
+    ["s3", false],
+  ]);
+  // Drawn, the chat holds one card.
+  await act(async () =>
+    root.render(
+      <>
+        {rows.map((row) => (
+          <TurnFooter key={row.id} row={row} />
+        ))}
+      </>,
+    ),
+  );
+  expect(host.querySelectorAll(".cv-turn-error")).toHaveLength(1);
+});
+
+test("a used-up usage window's card says when it resets and offers Switch model, never Retry", async () => {
+  const [row] = footers([prompt("p1", 1_000), summary("s1", 2_000, { error: CODEX_USAGE })]);
+  let retried = 0;
+  await render(row!, {
+    resume: async () => void (retried += 1),
+    retry: () => void (retried += 1),
+    switchModel: () => undefined,
+  });
+  expect(card().dataset.failureKind).toBe("usage-limit");
+  expect(card().querySelector(".cv-turn-error__cause")!.textContent).toContain("Nov 25, 2026 5:20 PM");
+  expect(actionLabels()).not.toContain("Retry");
+  expect(actionLabels()).not.toContain("Continue");
+  expect(actionLabels()).toContain("Switch model");
+  expect(retried).toBe(0);
 });

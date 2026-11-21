@@ -239,6 +239,67 @@ fn retry_after(text: &str, now_ms: u64) -> Option<u64> {
     None
 }
 
+/// Codex's own reset of a used-up usage window: "… purchase more credits or try again at Nov 25th,
+/// 2026 5:20 PM." or "… try again at 4:05 AM.", in the machine's local time, which Codex formats it
+/// in (cmux#48665: with none of it read, the chat's hold ended a minute later and every attempt
+/// failed the same way).
+fn try_again_at(error: &str, now_ms: u64) -> Option<u64> {
+    try_again_at_in(error, now_ms, &chrono::Local)
+}
+
+fn try_again_at_in<Z: TimeZone>(error: &str, now_ms: u64, zone: &Z) -> Option<u64> {
+    const MONTHS: [&str; 12] =
+        ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+    let lower = error.to_ascii_lowercase();
+    let at = lower.find("try again at ")? + "try again at ".len();
+    let words: Vec<&str> = lower.get(at..)?.split_whitespace().take(5).collect();
+    let month = words.first().and_then(|w| MONTHS.iter().position(|m| w.starts_with(m)));
+    let (date, clock) = match month {
+        Some(month) => {
+            // "25th," and "2026": the ordinal and the commas go.
+            let day = words.get(1)?.trim_end_matches(',');
+            let day =
+                day.trim_end_matches(|c: char| c.is_ascii_alphabetic()).parse::<u32>().ok()?;
+            let year = words.get(2)?.trim_end_matches(',').parse::<i32>().ok()?;
+            let month = u32::try_from(month).ok()? + 1;
+            (Some(chrono::NaiveDate::from_ymd_opt(year, month, day)?), words.get(3..)?)
+        }
+        None => (None, &words[..]),
+    };
+    let first = *clock.first()?;
+    let digits = first.trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == '.');
+    let meridiem = match first.get(digits.len()..).filter(|m| !m.is_empty()) {
+        Some(m) => m,
+        None => clock.get(1).copied()?,
+    };
+    let (hour, minute) = digits.split_once(':').unwrap_or((digits, "0"));
+    let mut hour = hour.parse::<u32>().ok()?;
+    let minute = minute.parse::<u32>().ok()?;
+    match meridiem.get(..2)? {
+        "am" if hour == 12 => hour = 0,
+        "pm" if hour < 12 => hour += 12,
+        "am" | "pm" => {}
+        _ => return None,
+    }
+    let time = chrono::NaiveTime::from_hms_opt(hour, minute, 0)?;
+    let deadline = |date: chrono::NaiveDate| {
+        let local = zone.from_local_datetime(&date.and_time(time)).earliest()?;
+        u64::try_from(local.timestamp_millis()).ok()
+    };
+    let deadline = match date {
+        Some(date) => deadline(date)?,
+        None => {
+            let now = zone.timestamp_millis_opt(i64::try_from(now_ms).ok()?).single()?;
+            let today = now.date_naive();
+            match deadline(today)? {
+                d if d > now_ms => d,
+                _ => deadline(today.succ_opt()?)?,
+            }
+        }
+    };
+    bounded_deadline(deadline, now_ms)
+}
+
 /// Finds an absolute reset deadline in an agent error or saved Claude usage windows.
 pub(in crate::hub) fn reset_at(
     error: &str,
@@ -255,6 +316,7 @@ pub(in crate::hub) fn reset_at(
             })
         })
         .or_else(|| clock_reset(error, now_ms))
+        .or_else(|| try_again_at(error, now_ms))
         .or_else(|| {
             // Saved Claude usage windows only describe a usage-limit failure.  A later
             // transport/gateway error must not inherit a stale weekly reset deadline.
@@ -431,5 +493,30 @@ mod tests {
             ),
             Some(200_000)
         );
+    }
+
+    #[test]
+    fn reads_codex_try_again_at_in_local_time() {
+        let la: Tz = "America/Los_Angeles".parse().unwrap();
+        let ms = |y, mo, d, h, mi| {
+            la.with_ymd_and_hms(y, mo, d, h, mi, 0).single().unwrap().timestamp_millis() as u64
+        };
+        let now = ms(2026, 11, 20, 23, 0);
+        let codex = "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to \
+            purchase more credits or try again at Nov 25th, 2026 5:20 PM.";
+        assert_eq!(try_again_at_in(codex, now, &la), Some(ms(2026, 11, 25, 17, 20)));
+        // A clock alone is its next time.
+        assert_eq!(
+            try_again_at_in("… or try again at 4:05 AM.", now, &la),
+            Some(ms(2026, 11, 21, 4, 5))
+        );
+        assert_eq!(
+            try_again_at_in("try again at 11:30pm", now, &la),
+            Some(ms(2026, 11, 20, 23, 30))
+        );
+        // A date gone by, past the hint bound, or no time at all: no deadline.
+        assert_eq!(try_again_at_in("try again at Nov 2nd, 2026 5:20 PM.", now, &la), None);
+        assert_eq!(try_again_at_in("try again at Mar 1st, 2027 5:20 PM.", now, &la), None);
+        assert_eq!(try_again_at_in("try again at a later time.", now, &la), None);
     }
 }
