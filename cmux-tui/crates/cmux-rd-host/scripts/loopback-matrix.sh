@@ -9,7 +9,8 @@ OUT=${OUT:-${FAST_CHECKS_OUT:-/tmp/rd-matrix}}
 mkdir -p "$OUT"
 exec > >(tee "$OUT/matrix.txt") 2>&1
 command -v Xvfb >/dev/null || sudo apt-get install -y -qq xvfb >/dev/null 2>&1
-cargo build --release --features bench -q || exit 1
+# The feature set CI builds (.github/rust-workspaces.toml): bench without libpipewire.
+cargo build --release --no-default-features --features bench,link,portal-dbus -q || exit 1
 B=$PWD/target/release/cmux-rd
 fails=0
 $B --help >/dev/null && echo "cmux-rd --help: exit 0" || { echo "FAIL cmux-rd --help"; fails=1; }
