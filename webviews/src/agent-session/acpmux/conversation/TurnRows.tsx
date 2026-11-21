@@ -45,6 +45,7 @@ import { AlertCircle, ChevronRight, Close, Retry } from "./icons";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { dismissFailure, useFailureDismissed } from "./dismissedFailures";
+import { SteerChatContext } from "./pendingSteerModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
@@ -403,6 +404,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const automaticRecoveryAttempted = useRef<string | undefined>(undefined);
   const automaticRecoveryRow =
     failed &&
+    !row.recovered &&
     !teamMachine &&
     row.retryable === true &&
     row.retryRowId &&
@@ -461,7 +463,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // A failed turn's card goes once the chat went on and a later turn finished (turns.ts
   // `markRecovered`), or once the person closed it with its × (cmux#48434). The footer's own Retry
   // stays for the turn that is still the chat's last.
-  const dismissed = useFailureDismissed(row.id);
+  const chat = useContext(SteerChatContext);
+  const dismissed = useFailureDismissed(chat, row.id);
   const showsCard = failed && !row.recovered && !dismissed;
   const promptOnly = row.toolCount === 0 && !text && !copy && !row.turnWork?.length && !row.changedFiles;
   if (!failed && promptOnly && !stoppedWord) return null;
@@ -473,7 +476,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     <>
       {showsCard && (
         <TurnFailure
-          onDismiss={() => dismissFailure(row.id)}
+          onDismiss={() => dismissFailure(chat, row.id)}
           message={row.error}
           code={row.errorCode}
           route={route}

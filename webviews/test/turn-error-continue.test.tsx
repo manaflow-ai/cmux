@@ -322,19 +322,27 @@ test("a recovered mark follows incremental snapshots: it lands when the later tu
   expect(next.reusedRows ?? 0).toBeLessThanOrEqual(next.rows.indexOf(marked));
 });
 
-test("the card's × closes it for good, and only that turn's", async () => {
+test("the card's × closes it for good, and only that chat's turn", async () => {
   const { isFailureDismissed } = await import("../src/agent-session/acpmux/conversation/dismissedFailures");
-  const [row] = footers([prompt("p1", 1_000), answer("a1", 30_000), summary("s-dismiss", 223_000)]);
-  await act(async () => root.render(<TurnFooter row={row!} />));
+  const { SteerChatContext } = await import("../src/agent-session/acpmux/conversation/pendingSteerModel");
+  const [row] = footers([prompt("p1", 1_000), answer("a1", 30_000), summary("summary-12", 223_000)]);
+  const inChat = (chat: string, footer: AcpmuxRow) => (
+    <SteerChatContext.Provider value={chat}>
+      <TurnFooter row={footer} />
+    </SteerChatContext.Provider>
+  );
+  await act(async () => root.render(inChat("chat-a", row!)));
   const dismiss = card().querySelector<HTMLButtonElement>(".cv-turn-error__dismiss")!;
   expect(dismiss.getAttribute("aria-label")).toBe("Dismiss");
   // The × is not one of the card's ways on.
   expect(actionLabels()).not.toContain("Dismiss");
   await act(async () => dismiss.click());
   expect(host.querySelector(".cv-turn-error")).toBeNull();
-  expect(isFailureDismissed("s-dismiss")).toBe(true);
-  expect(JSON.parse(globalThis.localStorage?.getItem("cmux.agent.dismissedFailures") ?? "[]")).toContain("s-dismiss");
-  const [other] = footers([prompt("p9", 1_000), answer("a9", 30_000), summary("s-other", 223_000)]);
-  await act(async () => root.render(<TurnFooter row={other!} />));
+  expect(isFailureDismissed("chat-a", "summary-12")).toBe(true);
+  expect(JSON.parse(globalThis.localStorage?.getItem("cmux.agent.dismissedFailures") ?? "[]")).toContain(
+    "chat-a:summary-12",
+  );
+  // Another chat's turn with the same row id (row ids are unique only within a chat) keeps its card.
+  await act(async () => root.render(inChat("chat-b", row!)));
   expect(host.querySelector(".cv-turn-error")).not.toBeNull();
 });
