@@ -3,6 +3,10 @@
   "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+HangReports.generated.swift",
   "type": "HangReportsSettingsSchema",
   "lists": {
+    "anonymousTelemetry": [
+      "anonymousTelemetryRows",
+      null
+    ],
     "hangReports": [
       "hangReportRows",
       null

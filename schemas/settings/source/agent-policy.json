@@ -1344,6 +1344,13 @@
     },
     {
       "agent": "privacy",
+      "why": "Whether this Mac sends crash reports and anonymous performance timing to cmux: the person's choice only.",
+      "keys": [
+        "app.sendAnonymousTelemetry"
+      ]
+    },
+    {
+      "agent": "privacy",
       "why": "Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.",
       "keys": [
         "diagnostics.hangReports"

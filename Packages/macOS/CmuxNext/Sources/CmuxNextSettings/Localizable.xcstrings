@@ -185882,6 +185882,530 @@
         }
       }
     },
+    "settings.group.anonymousTelemetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "القياس عن بُعد المجهول"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonimna telemetrija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonym telemetri"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonyme Telemetrie"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonymous Telemetry"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telemetría anónima"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Télémétrie anonyme"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telemetria anonima"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名テレメトリ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទិន្នន័យ​តេឡេម៉ែត្រី​អនាមិក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "익명 원격 분석"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonym telemetri"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonimowa telemetria"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telemetria anônima"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Анонимная телеметрия"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การวัดระยะไกลแบบไม่ระบุตัวตน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonim telemetri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Анонімна телеметрія"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dữ liệu đo từ xa ẩn danh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名遥测"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名遙測"
+          }
+        }
+      }
+    },
+    "settings.diagnostics.anonymousTelemetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إرسال القياس عن بُعد المجهول"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šalji anonimnu telemetriju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send anonym telemetri"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonyme Telemetrie senden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Anonymous Telemetry"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar telemetría anónima"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer la télémétrie anonyme"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia telemetria anonima"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名テレメトリを送信"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើ​ទិន្នន័យ​តេឡេម៉ែត្រី​អនាមិក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "익명 원격 분석 보내기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send anonym telemetri"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wysyłaj anonimową telemetrię"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar telemetria anônima"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправлять анонимную телеметрию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งการวัดระยะไกลแบบไม่ระบุตัวตน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonim telemetri gönder"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надсилати анонімну телеметрію"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gửi dữ liệu đo từ xa ẩn danh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送匿名遥测"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送匿名遙測"
+          }
+        }
+      }
+    },
+    "settings.diagnostics.anonymousTelemetry.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تقارير الأعطال وتوقيت الأداء المجهول، مثل مدة التشغيل. لا يشمل أبدًا ملفاتك أو عناوين URL أو نصوصك. يُطبَّق من التشغيل التالي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izvještaji o padovima i anonimna mjerenja performansi, npr. koliko traje pokretanje. Nikad vaše datoteke, URL-ovi ili tekst. Primjenjuje se od sljedećeg pokretanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nedbrudsrapporter og anonym ydelsestiming, f.eks. hvor lang tid start tager. Aldrig dine filer, URL'er eller tekst. Gælder fra næste start."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Absturzberichte und anonyme Leistungsmessungen, etwa wie lange der Start dauert. Nie deine Dateien, URLs oder Texte. Gilt ab dem nächsten Start."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crash reports and anonymous performance timing, such as how long launch takes. Never your files, URLs or text. Applies from the next launch."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informes de fallos y tiempos de rendimiento anónimos, como cuánto tarda el inicio. Nunca tus archivos, URL ni texto. Se aplica desde el próximo inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rapports de plantage et mesures de performance anonymes, comme la durée du lancement. Jamais vos fichiers, URL ni textes. S'applique au prochain lancement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rapporti sugli arresti anomali e tempi di prestazione anonimi, come la durata dell'avvio. Mai i tuoi file, URL o testi. Si applica dal prossimo avvio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラッシュレポートと、起動にかかる時間などの匿名のパフォーマンス計測。ファイル、URL、テキストは送信しません。次回の起動から適用されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របាយការណ៍​គាំង និង​ការ​វាស់​ពេល​ដំណើរការ​អនាមិក ដូចជា​រយៈពេល​បើក។ មិន​ដែល​មាន​ឯកសារ URL ឬ​អត្ថបទ​របស់​អ្នក​ទេ។ អនុវត្ត​ចាប់ពី​ការ​បើក​លើក​ក្រោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "충돌 보고서와 실행 시간 같은 익명 성능 측정값입니다. 파일, URL, 텍스트는 절대 포함되지 않습니다. 다음 실행부터 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krasjrapporter og anonym ytelsestiming, for eksempel hvor lang tid oppstart tar. Aldri filene, URL-ene eller teksten din. Gjelder fra neste oppstart."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raporty awarii i anonimowe pomiary wydajności, np. czas uruchamiania. Nigdy Twoje pliki, adresy URL ani tekst. Obowiązuje od następnego uruchomienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relatórios de falhas e medições anônimas de desempenho, como quanto tempo leva a abertura. Nunca seus arquivos, URLs ou textos. Vale a partir da próxima abertura."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отчёты о сбоях и анонимные замеры производительности, например длительность запуска. Никогда ваши файлы, URL или текст. Действует со следующего запуска."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รายงานข้อขัดข้องและการจับเวลาประสิทธิภาพแบบไม่ระบุตัวตน เช่น เวลาที่ใช้ในการเปิด ไม่มีไฟล์ URL หรือข้อความของคุณ มีผลตั้งแต่การเปิดครั้งถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çökme raporları ve açılışın ne kadar sürdüğü gibi anonim performans ölçümleri. Dosyalarınız, URL'leriniz veya metniniz asla gönderilmez. Bir sonraki açılıştan itibaren geçerlidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звіти про збої та анонімні заміри продуктивності, як-от тривалість запуску. Ніколи ваші файли, URL чи текст. Діє з наступного запуску."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Báo cáo sự cố và số đo hiệu năng ẩn danh, như thời gian khởi động. Không bao giờ gồm tệp, URL hay văn bản của bạn. Áp dụng từ lần khởi động sau."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "崩溃报告和匿名性能计时，例如启动耗时。绝不包含你的文件、URL 或文本。下次启动时生效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當機報告和匿名效能計時，例如啟動耗時。絕不包含你的檔案、URL 或文字。下次啟動時生效。"
+          }
+        }
+      }
+    },
+    "settings.diagnostics.anonymousTelemetry.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تقارير الأعطال وتوقيت التشغيل. بلا محتوى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izvještaji o padovima i vrijeme pokretanja. Bez sadržaja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nedbrudsrapporter og starttid. Intet indhold."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Absturzberichte und Startzeit. Keine Inhalte."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crash reports and launch timing. No content."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informes de fallos y tiempo de inicio. Sin contenido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rapports de plantage et durée de lancement. Aucun contenu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rapporti sugli arresti e tempo di avvio. Nessun contenuto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラッシュレポートと起動時間。内容は含みません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របាយការណ៍​គាំង និង​ពេល​បើក។ គ្មាន​ខ្លឹមសារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "충돌 보고서와 실행 시간. 콘텐츠 없음."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krasjrapporter og oppstartstid. Ikke noe innhold."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raporty awarii i czas uruchamiania. Bez treści."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relatórios de falhas e tempo de abertura. Sem conteúdo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отчёты о сбоях и время запуска. Без содержимого."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รายงานข้อขัดข้องและเวลาเปิด ไม่มีเนื้อหา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çökme raporları ve açılış süresi. İçerik yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звіти про збої та час запуску. Без вмісту."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Báo cáo sự cố và thời gian khởi động. Không có nội dung."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "崩溃报告和启动耗时。不含内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當機報告和啟動耗時。不含內容。"
+          }
+        }
+      }
+    },
     "settings.diagnostics.hangReports": {
       "extractionState": "manual",
       "localizations": {

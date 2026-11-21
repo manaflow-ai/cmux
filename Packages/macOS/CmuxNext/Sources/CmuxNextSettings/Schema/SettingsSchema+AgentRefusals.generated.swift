@@ -4,8 +4,6 @@
 extension SettingsSchema {
     /// Keys an agent may not set or reset, with the reason.
     public static let agentRefusedKeys: [String: AgentRefusal] = [
-        // On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.
-        "home.chiefPanel.seesScreen": .userOnly,
         // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
         "freeModel.enabled": .privacy,
         // The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.
@@ -118,6 +116,8 @@ extension SettingsSchema {
         // On, cmux restarts into a downloaded update by itself once idle: the person's call.
         "updates.installWhenIdle": .userOnly, "updates.installWhenIdleMinutes": .userOnly,
         "announcements.fetch": .network,
+        // Whether this Mac sends crash reports and anonymous performance timing to cmux: the person's choice only.
+        "app.sendAnonymousTelemetry": .privacy,
         // Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.
         "diagnostics.hangReports": .privacy,
         // Whether this computer counts how the person uses cmux: the person's choice only.

@@ -333,6 +333,8 @@ extension SettingsPageLayout {
         groups: [
             GroupSpec(keys: ["history.terminalCommands", "home.attachments.keepLocation"], title: SettingsText.keyed("settings.pageGroup.localData", "Data on This Mac")),
             GroupSpec(keys: ["browser.omnibar.remoteSuggestions", "announcements.fetch"], title: SettingsText.keyed("settings.pageGroup.network", "Network Requests")),
+            // Crash reports and launch timing (CrashReportingPolicy), on until the person turns it off.
+            GroupSpec(group: "settings.group.anonymousTelemetry"),
             GroupSpec(group: "settings.group.hangReports"),
             // Opt-in local usage patterns (cmux-usage-patterns); `cmux usage-patterns` reads them.
             GroupSpec(group: "settings.group.usagePatterns"),

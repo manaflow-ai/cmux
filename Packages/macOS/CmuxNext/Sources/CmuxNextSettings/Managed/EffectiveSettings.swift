@@ -60,6 +60,8 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
         var managed = managed
         managed.forced = aliasingLegacyKeys(managed.forced)
         managed.recommended = aliasingLegacyKeys(managed.recommended)
+        // `DisableTelemetry` turns telemetry off whatever the person chose, so it locks the row off.
+        if AnonymousTelemetrySetting.managedDisables(managed.forced) { managed.forced[AnonymousTelemetrySetting.key] = .bool(false) }
         var managedKeys: [String: ManagedSource] = [:]
         var policy: [String: JSONValue] = [:]
         var diagnostics: [SettingsDiagnostic] = []

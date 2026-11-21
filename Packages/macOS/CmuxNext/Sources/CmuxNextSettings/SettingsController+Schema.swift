@@ -32,6 +32,7 @@ extension SettingsController {
         var legacy: [String]?
         if let old = RenamedSettingKeys.legacyPath(for: descriptor.path), try await file.value(at: old) != nil { legacy = old }
         if let value, !descriptor.accepts(value) { throw SettingRefused(key: descriptor.id, value: value) }
+        let requested = value
         // A write never copies the theme file's own entries into cmux-next.json (Theme Studio writes
         // the whole edits map it shows, which holds the file's colors).
         // The default's own value removes the key instead of storing it, so the key keeps following
@@ -91,6 +92,8 @@ extension SettingsController {
             undo?()
             throw error
         }
+        // The crash reporter reads the consent from the app's defaults at launch (`AnonymousTelemetrySetting`).
+        if descriptor.path == AnonymousTelemetrySetting.configPath { AnonymousTelemetrySetting.mirror(requested, into: telemetryDefaults) }
         validatedWrites[descriptor.id, default: 0] += 1
     }
 
