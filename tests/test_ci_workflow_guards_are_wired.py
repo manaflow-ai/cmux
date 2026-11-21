@@ -81,6 +81,13 @@ UNWIRED: set[str] = {
     # lane = "manual" (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It checks pool reads against .github/runners.json and that
     # copy against main's; run it by hand when a pool read or the pools change. Exit: as below.
     "tests/test_ci_runner_pools_copy.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (kept manual under the 2026-10-23 no-new-CI rule,
+    # lifted 2026-11-18). Both read every workflow only as data: a job whose need runs past a skipped
+    # ancestor has a status function in its if (tree-owner-wait, runs 44818589673, 44834489171), and a
+    # fleet-reachable job sources ensure-gh-attestation.sh before
+    # `gh attestation` (#48350). Run them by hand when a job's needs/if or a gh attestation step changes. Exit: as below.
+    "tests/test_ci_needs_skip_propagation.py",
+    "tests/test_ci_gh_attestation_has_gh.py",
     # lane = "manual" (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It reads workflows and scripts only as data: which callers
     # read reload.sh's App path after --build-only without --keep-app. Run it after adding such a caller. Exit: as below.
     "tests/test_reload_build_only_app_path_readers.py",
