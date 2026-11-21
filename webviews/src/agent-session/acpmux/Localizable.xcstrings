@@ -239681,6 +239681,270 @@
         }
       }
     },
+    "turn.failure.usageLimit": {
+      "comment": "Agent pane: a failed turn's note when the account's usage window (a plan's 5-hour, daily or weekly limit) is used up and its error names no reset time (cmux#48665)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بلغ {harness} حد الاستخدام. بدّل النموذج للمتابعة الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} je dostigao ograničenje korištenja. Promijenite model da nastavite sada."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} har nået sin forbrugsgrænse. Skift model for at fortsætte nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} hat sein Nutzungslimit erreicht. Wechsle das Modell, um jetzt weiterzumachen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} hit its usage limit. Switch model to go on now."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} alcanzó su límite de uso. Cambia de modelo para seguir ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} a atteint sa limite d’utilisation. Changez de modèle pour continuer maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ha raggiunto il limite di utilizzo. Cambia modello per continuare ora."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} は使用量の上限に達しました。今すぐ続けるにはモデルを切り替えてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} បានដល់ដែនកំណត់ការប្រើប្រាស់។ ប្តូរម៉ូដែលដើម្បីបន្តឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness}이(가) 사용 한도에 도달했습니다. 지금 계속하려면 모델을 전환하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} har nådd bruksgrensen. Bytt modell for å fortsette nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} osiągnął limit użycia. Zmień model, aby kontynuować teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} atingiu o limite de uso. Troque de modelo para continuar agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} исчерпал лимит использования. Смените модель, чтобы продолжить сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ใช้งานถึงขีดจำกัดแล้ว เปลี่ยนโมเดลเพื่อทำต่อตอนนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} kullanım sınırına ulaştı. Şimdi devam etmek için modeli değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} вичерпав ліміт використання. Змініть модель, щоб продовжити зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} đã đạt giới hạn sử dụng. Đổi mô hình để tiếp tục ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 已达到使用上限。切换模型即可立即继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 已達使用上限。切換模型即可立即繼續。"
+          }
+        }
+      }
+    },
+    "turn.failure.usageLimitResets": {
+      "comment": "Agent pane: a failed turn's note when the account's usage window is used up; {reset} is the reset time as the provider wrote it, e.g. 'Nov 25, 2026 5:20 PM' (cmux#48665)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بلغ {harness} حد الاستخدام حتى {reset}. بدّل النموذج للمتابعة الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} je dostigao ograničenje korištenja do {reset}. Promijenite model da nastavite sada."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} har nået sin forbrugsgrænse indtil {reset}. Skift model for at fortsætte nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} hat sein Nutzungslimit bis {reset} erreicht. Wechsle das Modell, um jetzt weiterzumachen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} hit its usage limit. It resets {reset}. Switch model to go on now."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} alcanzó su límite de uso hasta {reset}. Cambia de modelo para seguir ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} a atteint sa limite d’utilisation jusqu’à {reset}. Changez de modèle pour continuer maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ha raggiunto il limite di utilizzo fino a {reset}. Cambia modello per continuare ora."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} は {reset} まで使用量の上限に達しています。今すぐ続けるにはモデルを切り替えてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} បានដល់ដែនកំណត់ការប្រើប្រាស់រហូតដល់ {reset}។ ប្តូរម៉ូដែលដើម្បីបន្តឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness}이(가) {reset}까지 사용 한도에 도달했습니다. 지금 계속하려면 모델을 전환하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} har nådd bruksgrensen frem til {reset}. Bytt modell for å fortsette nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} osiągnął limit użycia do {reset}. Zmień model, aby kontynuować teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} atingiu o limite de uso até {reset}. Troque de modelo para continuar agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} исчерпал лимит использования до {reset}. Смените модель, чтобы продолжить сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ใช้งานถึงขีดจำกัดจนถึง {reset} เปลี่ยนโมเดลเพื่อทำต่อตอนนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} {reset} tarihine kadar kullanım sınırına ulaştı. Şimdi devam etmek için modeli değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} вичерпав ліміт використання до {reset}. Змініть модель, щоб продовжити зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} đã đạt giới hạn sử dụng đến {reset}. Đổi mô hình để tiếp tục ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 已达到使用上限，{reset} 重置。切换模型即可立即继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 已達使用上限，{reset} 重設。切換模型即可立即繼續。"
+          }
+        }
+      }
+    },
     "turn.failure.signedOut": {
       "comment": "Agent pane: a failed turn's note (cx-w10a)",
       "extractionState": "manual",

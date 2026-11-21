@@ -24,8 +24,12 @@ export function errorRecovery(
   actions: Pick<TurnActions, "resume" | "retry" | "retryFailed">,
 ): ErrorRecovery | undefined {
   if (!isFailed(row)) return undefined;
-  const way = failureRecovery(failureKind(row.error, route, row.errorCode));
+  const kind = failureKind(row.error, route, row.errorCode);
+  const way = failureRecovery(kind);
   if (way === undefined || way === "sign-in") return undefined;
+  // A used-up usage window fails the same way on every try before its reset: no Retry or
+  // Continue, on the card or from the palette, CLI and MCP (cmux#48665: "never retry usage limits").
+  if (kind === "usage-limit") return undefined;
   const { resume, retry, retryFailed } = actions;
   const label = row.continuable ? "continue" : "retry";
   if (retryFailed && row.retryable) return { label, run: () => retryFailed(row.retryRowId, row.prompt) };

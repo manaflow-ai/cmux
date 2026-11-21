@@ -156,10 +156,10 @@ async fn a_limit_is_resumed_even_when_the_agent_dies_of_it() {
             method::SESSION_PROMPT,
             // Keep this integration test fast; the real Claude clock hint is covered by
             // reset_hint unit tests, while this exercises the same usage-limit recovery path.
-            prompt(&died, "die: You've hit your limit · retry after 20ms", None),
+            prompt(&died, "die: API Error: 429 rate_limit_error · retry after 20ms", None),
         )
         .await;
-    assert!(r.unwrap_err().contains("hit your limit"));
+    assert!(r.unwrap_err().contains("rate_limit_error"));
     until("the limit continuation completes", || records(&hub, &died, "turn_result").len() >= 2)
         .await;
     assert!(kinds(&hub, &died).iter().any(|k| k == "auto_resume_scheduled"));

@@ -55,6 +55,26 @@ pub(crate) fn is_usage_limit_error(message: &str) -> bool {
         || m.contains("session limit")
 }
 
+/// An account's usage window is used up (a plan's 5-hour, daily or weekly limit, or credits to
+/// buy more), not a per-minute rate limit: Codex's "You've hit your usage limit. Visit … to
+/// purchase more credits or try again at Nov 25th, 2026 5:20 PM.", Claude Code's "You've hit
+/// your limit · resets 3pm" and "Claude AI usage limit reached|<epoch>". Trying again before its
+/// reset fails the same way every time, so acpmux never continues it by itself (cmux#48665:
+/// "never retry usage limits"); the chat holds until the reset and the person switches model.
+pub fn is_hard_usage_limit(message: &str) -> bool {
+    let m = message.to_lowercase();
+    // "hit your usage limit", "hit your limit", "hit your weekly usage limit"; not a rate limit.
+    (m.contains("hit your") && m.contains("limit") && !m.contains("rate limit"))
+        || m.contains("usage limit reached")
+        || (m.contains("reached your") && m.contains("usage limit"))
+        || m.contains("weekly limit")
+        || m.contains("weekly usage limit")
+        || m.contains("session limit")
+        || m.contains("purchase more credits")
+        || m.contains("out of credits")
+        || m.contains("usage_limit_exceeded")
+}
+
 /// Does an agent error mean the provider or the gateway had no capacity for the request a
 /// moment ago: HTTP 503 or 529, `overloaded_error`, the SR2 gateway's "no non-exhausted ...
 /// accounts", Codex's "Selected model is at capacity"? Usage limits and sign-in failures are
@@ -233,6 +253,29 @@ pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// cmux#48665: a used-up usage window is told from a per-minute rate limit, which passes.
+    #[test]
+    fn a_used_up_usage_window_is_told_from_a_rate_limit() {
+        for m in [
+            "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Nov 25th, 2026 5:20 PM.",
+            "You've hit your limit · resets 3pm (America/Los_Angeles)",
+            "Claude AI usage limit reached|1760000000",
+            "You've reached your usage limit for this account",
+            "You've hit your weekly usage limit",
+        ] {
+            assert!(is_hard_usage_limit(m), "{m}");
+            assert_eq!(resume_cause(m, m), Some("rate_limit"), "{m}");
+        }
+        for m in [
+            "API Error: 429 rate_limit_error",
+            "API Error: Request rejected (429) · This request would exceed your account's rate limit",
+            "Too Many Requests",
+            "API Error: 529 overloaded_error",
+        ] {
+            assert!(!is_hard_usage_limit(m), "{m}");
+        }
+    }
 
     #[test]
     fn transport_errors_are_told_from_limits_and_bugs() {

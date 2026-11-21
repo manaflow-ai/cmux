@@ -596,6 +596,7 @@ function TurnFailure({
     switchModel &&
     [
       "rate-limited",
+      "usage-limit",
       "unreachable",
       "invalid-key",
       "proxy-auth",

@@ -12,6 +12,7 @@ export type FailureKind =
   | "team-cap"
   | "no-credit"
   | "cloud-auth-expired"
+  | "usage-limit"
   | "rate-limited"
   | "unreachable"
   | "invalid-key"
@@ -104,6 +105,39 @@ const ADC_WORDS = /application[ _-]default|aiplatform\.googleapis|\bvertex\b|CLA
 /// (Leo's sustained chats hit it by definition). Not "too many tokens", which is a per-minute limit.
 const CONTEXT_FULL =
   /prompt is too long|input is too long|context[ _-]?length[ _-]?exceeded|maximum context length|exceeds? (?:the )?(?:model's )?(?:maximum )?context(?: window| length| limit)?|context (?:window|limit) (?:is )?(?:full|exceeded)/i;
+/// The account's usage window is used up (a plan's 5-hour, daily or weekly limit), not a per-minute
+/// rate limit: Codex's "You've hit your usage limit. Visit … to purchase more credits or try again
+/// at Nov 25th, 2026 5:20 PM.", Claude Code's "You've hit your limit · resets 3pm" and "Claude AI
+/// usage limit reached|<epoch>". Trying again before the reset fails the same way, so acpmux never
+/// retries it by itself (turn_errors.rs `is_hard_usage_limit`, cmux#48665) and its card offers no
+/// Retry: it says when the window resets, and Switch model goes on now.
+const USAGE_LIMIT =
+  /hit your (?:usage )?limit|usage limit reached|reached your (?:\w+ )?usage limit|weekly (?:usage )?limit|session limit|purchase more credits|out of credits|usage_limit_exceeded/i;
+/// When a used-up usage window resets, as its error says it: Codex's "try again at Nov 25th, 2026
+/// 5:20 PM", Claude Code's "resets 3pm (America/Los_Angeles)", or Claude's "|<epoch seconds>".
+const RESET_AT = /\btry again at ([^\n]+?)\.?(?:\s*$|\.\s)/i;
+const RESETS = /\bresets (?:at )?([^\n·|]+?)\.?(?:\s*$|\.\s|\s*[·|])/i;
+const RESET_EPOCH = /\|(\d{10})\s*$/;
+
+/// The reset a used-up usage window's error names, as words to show ("Nov 25, 2026 5:20 PM"), or
+/// undefined. Ordinals go ("25th" reads "25"); an epoch is shown in the reader's own time.
+export function usageLimitReset(message: string | undefined, locale?: string): string | undefined {
+  if (!message) return undefined;
+  const epoch = RESET_EPOCH.exec(message)?.[1];
+  if (epoch) {
+    const date = new Date(Number(epoch) * 1000);
+    return new Intl.DateTimeFormat(locale, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(date);
+  }
+  const said = (RESET_AT.exec(message) ?? RESETS.exec(message))?.[1]?.trim();
+  if (!said || said.length > 48) return undefined;
+  return said.replace(/\b(\d{1,2})(?:st|nd|rd|th)\b/gi, "$1");
+}
+
 const RATE =
   /\b(?:429|529)\b|rate.?limit|too many requests|overloaded|at capacity|no non-exhausted|usage limit|quota|\b503\b|service unavailable/i;
 const UNREACHABLE =
@@ -215,6 +249,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   const typed = code ? TYPED.find(([words]) => words.test(code))?.[1] : undefined;
   // The router types its own limits `insufficient_quota` too: its code in the text makes it a limit.
   if (typed === "no-credit" && message && ROUTER_CODE.test(message)) return "rate-limited";
+  // acpmux types every account limit `rate_limit`; a used-up usage window's own words tell it apart.
+  if (typed === "rate-limited" && message && USAGE_LIMIT.test(message)) return "usage-limit";
   if (typed) return typed;
   if (!message) return "other";
   if (/\btrust\.pending\b/i.test(message)) return "trust-pending";
@@ -233,6 +269,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   )
     return "no-credit";
   if (cloudSignIn(message)) return "cloud-auth-expired";
+  // Before capacity: a used-up usage window is a limit too, but no retry passes it before its reset.
+  if (USAGE_LIMIT.test(message)) return "usage-limit";
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (RATE.test(message)) return "rate-limited";
   // Connection words count only outside addresses: a URL's path or query (`…/oauth/token`,
@@ -296,6 +334,7 @@ export function offersOwnRoute(kind: FailureKind, route?: FailureRoute): boolean
     kind === "subscription-login" ||
     kind === "auth" ||
     kind === "rate-limited" ||
+    kind === "usage-limit" ||
     kind === "no-credit"
   );
 }
@@ -313,6 +352,8 @@ export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "
     case "invalid-key":
     case "proxy-auth":
     case "no-credit":
+    // A used-up usage window fails the same way until its reset (cmux#48665): no Retry.
+    case "usage-limit":
     // At the team's cap every cmux-routed call is refused until an admin raises it: a model on the
     // person's own account is the way on.
     case "team-cap":
@@ -360,6 +401,10 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
       return found?.sso
         ? t("turn.failure.cloudSsoExpired", { harness })
         : t("turn.failure.cloudCredentialsExpired", { harness });
+    }
+    case "usage-limit": {
+      const reset = usageLimitReset(message);
+      return reset ? t("turn.failure.usageLimitResets", { harness, reset }) : t("turn.failure.usageLimit", { harness });
     }
     case "rate-limited":
       return t("turn.failure.rateLimited", { harness });
