@@ -242,32 +242,32 @@ struct EventInspectorScreen: View {
     let sessionID: String
     @State private var filter = ""
     @State private var copied = false
+    @State private var memo = EventInspectorRows()
 
     var body: some View {
         Group {
             if let journal {
-                let rows = journal.events.filter { $0.matches(filter) }
+                // Kept as records arrive (one redraw per frame; a record costs one match, a
+                // drop costs itself), not filtered and reversed over every record per redraw.
+                let rows = memo.rows(journal)
+                let total = journal.count
                 List {
                     Section {
                         ForEach(rows.reversed()) { event in
                             NavigationLink {
                                 EventInspectorDetail(event: event)
                             } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(event.title).font(.subheadline.monospaced()).lineLimit(2)
-                                    Text("\(event.dir) · \(event.kind) · \(event.at.formatted(.dateTime.hour().minute().second()))")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
+                                EventInspectorRow(event: event)
                             }
                             .accessibilityIdentifier("chat.inspector.row")
                         }
                     } header: {
-                        Text(summary(shown: rows.count, total: journal.events.count, dropped: journal.dropped))
+                        Text(summary(shown: rows.count, total: total, dropped: journal.dropped, filtering: memo.isFiltering))
                             .accessibilityIdentifier("chat.inspector.count")
                     }
                 }
                 .overlay {
-                    if journal.events.isEmpty {
+                    if total == 0 {
                         ContentUnavailableView("No events yet", systemImage: "list.bullet.rectangle",
                                                description: Text("Records from the Mac show here as they arrive."))
                     }
@@ -278,42 +278,65 @@ struct EventInspectorScreen: View {
                             Button("Copy as JSON Lines", systemImage: "doc.on.doc") {
                                 // Raw tool output: kept on this iPhone (no Universal Clipboard) and
                                 // gone from the pasteboard after ten minutes.
-                                UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: journal.jsonLines(rows)]],
+                                UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: journal.jsonLines(Array(memo.rows(journal)))]],
                                                               options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(600)])
                                 copied = true
                             }
-                            .disabled(rows.isEmpty)
+                            // While a new filter runs the rows are the last filter's: copy waits for it.
+                            .disabled(rows.isEmpty || memo.isFiltering)
                             Button("Clear", systemImage: "trash", role: .destructive) { journal.clear() }
-                                .disabled(journal.events.isEmpty)
+                                .disabled(total == 0)
                         } label: {
                             Label("More", systemImage: "ellipsis")
                         }
                         .accessibilityIdentifier("chat.inspector.more")
                     }
                 }
+                .onChange(of: filter, initial: true) { memo.setQuery(filter, journal: journal) }
             } else {
                 ContentUnavailableView("No events for this chat", systemImage: "list.bullet.rectangle",
                                        description: Text("This chat's records don't come from a Mac."))
             }
         }
         .searchable(text: $filter, prompt: "Filter")
+        #if DEBUG
+        // The list rig types the filter (verify/listperf/, `events-filter`).
+        .onChange(of: DemoDirector.shared.serial) {
+            if case .inspectorFilter(let text)? = DemoDirector.shared.command { filter = text }
+        }
+        #endif
         .sensoryFeedback(.success, trigger: copied)
         .navigationTitle("Event Inspector")
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func summary(shown: Int, total: Int, dropped: Int) -> String {
+    private func summary(shown: Int, total: Int, dropped: Int, filtering: Bool) -> String {
         var text = shown == total ? String(localized: "\(total) events") : String(localized: "\(shown) of \(total) events")
         if dropped > 0 { text += " · " + String(localized: "\(dropped) older dropped") }
+        if filtering { text += " · " + String(localized: "mobile.agentChat.inspector.filtering", defaultValue: "Filtering…", bundle: .module) }
         return text
+    }
+}
+
+/// One record's row: plain values, so a redraw for other records skips it.
+private struct EventInspectorRow: View {
+    let event: AgentInspectorEvent
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(event.title).font(.subheadline.monospaced()).lineLimit(2)
+            Text("\(event.dir) · \(event.kind) · \(event.at.formatted(.dateTime.hour().minute().second()))")
+                .font(.caption).foregroundStyle(.secondary)
+        }
     }
 }
 
 struct EventInspectorDetail: View {
     let event: AgentInspectorEvent
+    @State private var memo = EventJSONMemo()
 
     var body: some View {
-        let json = event.json
+        let json = memo.json(for: event)
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 if let total = json.total {
