@@ -5,7 +5,7 @@
 //! is) and opens it through `open` as a Markdown deck (`md_deck`, served by `pptx_view`),
 //! whatever its file is named. A later call for a deck this server already shows only
 //! writes the file: the open tab's watch reloads it, so the person keeps their place.
-//! The page has the slide strip, Present (full screen) and Export PDF / .pptx.
+//! The page has the slide strip, Present (full screen where the page may go full screen, else its pane) and Export PDF / .pptx.
 
 use serde_json::{Map, Value, json};
 
@@ -19,7 +19,7 @@ pub(super) fn descriptor() -> Value {
     json!({
         "name": NAME,
         "title": "Make or update a slide deck",
-        "description": "Write a slide deck as Markdown and show it beside the chat as slides: a slide strip, Present (full screen; F, Esc exits), Export PDF (one slide per page) and Export .pptx (editable text). path: the deck's .md file (absolute, or relative to this chat's folder), for example slides/topic.slides.md. markdown: the whole deck; it replaces the file (leave it out to show a deck already on disk). Format: optional front matter with title:, then slides separated by a line of ---. A slide with only headings is a title slide; <!-- _class: center --> centers a quote or one number; any other <!-- comment --> (or a Notes: line) is speaker notes. Raw HTML works: <div class=\"cols\"><div>left</div><div>right</div></div> for two columns, inline <svg> for a chart (currentColor follows the theme), <img src=\"picture.png\"> for a picture in the deck's folder. A slide is 1280 x 720: one idea, about 40 words, 3 to 5 bullets. Call again with the same path to change the deck: the open tab updates in place. open: true opens another tab (after the person closed it).",
+        "description": "Write a slide deck as Markdown and show it beside the chat as slides: a slide strip, Present (F, Esc exits), Export PDF (one slide per page) and Export .pptx (editable text). path: the deck's .md file (absolute, or relative to this chat's folder), for example slides/topic.slides.md. markdown: the whole deck; it replaces the file (leave it out to show a deck already on disk). Format: optional front matter with title:, then slides separated by a line of ---. A slide with only headings is a title slide; <!-- _class: center --> centers a quote or one number; any other <!-- comment --> (or a Notes: line) is speaker notes. Raw HTML works: <div class=\"cols\"><div>left</div><div>right</div></div> for two columns, inline <svg> for a chart (currentColor follows the theme), <img src=\"picture.png\"> for a picture in the deck's folder. A slide is 1280 x 720: one idea, about 40 words, 3 to 5 bullets. Call again with the same path to change the deck: the open tab updates in place. open: true opens another tab (after the person closed it).",
         "inputSchema": {
             "type": "object",
             "additionalProperties": false,
@@ -31,7 +31,7 @@ pub(super) fn descriptor() -> Value {
                 "pane": {"type": "string", "description": "As in open."},
                 "workspace": {"type": "string", "description": "As in open."},
                 "edge": {"type": "string", "enum": ["right", "left", "top", "bottom"], "description": "As in open."},
-                "focus": {"type": "boolean", "description": "true moves the person's view to the deck. Default false."},
+                "focus": {"type": "boolean", "description": "A new deck tab is shown and takes the person's view, since showing it is what they asked for; false opens it behind the tab its pane shows. An update in place never moves their view. Default true."},
                 "open": {"type": "boolean", "description": "Open a tab even when this deck is already shown. Default: open only when it is not."}
             }
         },
@@ -62,6 +62,13 @@ impl<B: Backend> Server<B> {
             None => false,
             Some(Value::Bool(open)) => *open,
             Some(_) => return invalid("slides open must be true or false"),
+        };
+        // A new deck tab is shown: opened behind a pane's terminal, the person asked for a deck
+        // and saw none.
+        let focus = match arguments.get("focus") {
+            None => true,
+            Some(Value::Bool(focus)) => *focus,
+            Some(_) => return invalid("slides focus must be true or false"),
         };
         let path = self.chat_path(path);
         let file = std::path::Path::new(&path);
@@ -111,11 +118,12 @@ impl<B: Backend> Server<B> {
         open.insert("kind".into(), json!("file"));
         open.insert("path".into(), json!(path));
         open.insert("live".into(), json!(true));
-        for key in ["where", "pane", "workspace", "edge", "focus"] {
+        for key in ["where", "pane", "workspace", "edge"] {
             if let Some(value) = arguments.get(key) {
                 open.insert(key.into(), value.clone());
             }
         }
+        open.insert("focus".into(), json!(focus));
         let mut answer = self.open_as(&open, Some(pptx_view::Kind::Markdown));
         let opened = answer.get("isError").and_then(Value::as_bool) != Some(true);
         if let Some(receipt) = answer.get_mut("structuredContent").and_then(Value::as_object_mut)
@@ -125,7 +133,7 @@ impl<B: Backend> Server<B> {
             receipt.insert("slides".into(), json!(count));
             receipt.insert(
                 "next".into(),
-                json!("Tell the person the deck is open beside the chat: Present (F) shows it full screen, Export PDF and Export .pptx are in its bar. Call slides again with the same path to change it."),
+                json!("Tell the person the deck is open beside the chat: Present (F) shows one slide at a time, Export PDF and Export .pptx are in its bar. Call slides again with the same path to change it."),
             );
         }
         answer

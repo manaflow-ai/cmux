@@ -143,6 +143,11 @@ fn slides_writes_opens_and_updates_a_deck_in_place() {
     assert_eq!(result["structuredContent"]["slides"], 5, "{result}");
     assert_eq!(result["structuredContent"]["live_browser"], NEW_BROWSER, "{result}");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), DECK);
+    // A new deck tab takes the person's view: they asked for a deck.
+    let shown = server.backend.sent.borrow().iter().any(|sent| {
+        sent["method"] == "action.run" && sent["params"].to_string().contains("\"focus\":true")
+    });
+    assert!(shown, "{:?}", server.backend.sent.borrow());
     let url = result["structuredContent"]["deck_viewer"].as_str().expect("a viewer url").to_owned();
     let rest = url.strip_prefix("http://127.0.0.1:").unwrap();
     let (port, rest) = rest.split_once('/').unwrap();
@@ -205,6 +210,7 @@ fn slides_refuses_what_it_cannot_show() {
         json!({"path": "/no/such/deck.md"}),
         json!({"path": "deck.md", "markdown": 3}),
         json!({"path": "deck.md", "open": "yes"}),
+        json!({"path": "deck.md", "focus": "yes"}),
         json!({"path": "deck.md", "extra": true}),
     ] {
         let result =
