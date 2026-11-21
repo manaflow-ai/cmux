@@ -282,6 +282,14 @@ pub(super) fn queue_waits(session: &Session) -> bool {
     queue.iter().any(|q| !q.aside())
 }
 
+/// [`queue_waits`] for a prompt about to start; the person's (`agent` false) does not count
+/// another agent's message waiting out its gather window (`digest.rs` `AGENT_GATHER_MS`).
+fn queue_waits_for(session: &Session, agent: bool) -> bool {
+    let gather = if agent { None } else { super::digest::open_gather(session) };
+    let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    queue.iter().any(|q| !q.aside() && gather.as_ref().is_none_or(|t| *t != q.turn_id))
+}
+
 impl Hub {
     /// Gets a prompt its turn: at once when nothing runs or waits, else after it joins the queue
     /// (and `accept` hears `queued`) and reaches its head. A family prompt to a sub-session whose
@@ -369,7 +377,12 @@ impl Hub {
                     // Prompts a failed turn holds (`pause_queue`) or that wait for the owner do
                     // not hold up a new one. A prompt that waits for the owner (its provenance's
                     // `approval`, `author.rs`) always queues.
-                    let held = session.queue().iter().filter(|q| q.aside()).count() as u64;
+                    let mut held = session.queue().iter().filter(|q| q.aside()).count() as u64;
+                    // The person's prompt never waits out another agent's gather window
+                    // (`digest.rs` `AGENT_GATHER_MS`): it does not count the message that waits.
+                    if p.agent.is_none() && super::digest::open_gather(session).is_some() {
+                        held += 1;
+                    }
                     // A rate limit's compaction goes ahead of what the hold queued: those go in
                     // after it, with the continuation (`rate_hold.rs`, `compact_first.rs`).
                     let rate_compaction =
@@ -387,12 +400,24 @@ impl Hub {
                     if p.no_queue && waiting {
                         return Err(Err(super::auto_resume::retry_turn::busy()));
                     }
+                    // Another agent's message to an idle chat waits in the queue for the ones
+                    // right after it, to go in with them (`digest.rs` `gathers`).
+                    let gather = !waiting && super::digest::gathers(session, &p);
+                    if gather {
+                        let until = tokio::time::Instant::now()
+                            + std::time::Duration::from_millis(super::digest::AGENT_GATHER_MS);
+                        *session.gathering.lock().unwrap_or_else(|e| e.into_inner()) =
+                            Some((turn_id.clone(), until));
+                    }
                     session.queued.fetch_add(1, Ordering::SeqCst);
-                    break waiting;
+                    break waiting || gather;
                 };
                 let withdraw = if waiting {
-                    let (waits, position) =
-                        self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
+                    let (waits, position) = self
+                        .enqueue_or_refuse(session, &p, &turn_id, limits)
+                        .inspect_err(|_| {
+                        super::digest::end_gather(session, &turn_id);
+                    })?;
                     let mut accepted = json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position});
                     if awaiting_owner {
                         accepted.set("awaitingOwner", json!(true));
@@ -423,7 +448,7 @@ impl Hub {
                     // 4dcbe192, F3).
                     let free = |_: &_| {
                         session.turn().is_none()
-                            && !queue_waits(session)
+                            && !queue_waits_for(session, p.agent.is_some())
                             && !Self::rate_holds(session, p.provenance)
                             && (!self.restore_holds(session) || self.at_4dcb())
                     };
@@ -458,7 +483,7 @@ impl Hub {
                     // only its compaction goes ahead of what the hold queued.
                     let rate_compaction =
                         p.after_turn && super::auto_resume::rate_compaction_runs(session);
-                    if (queue_waits(session) && !rate_compaction)
+                    if (queue_waits_for(session, p.agent.is_some()) && !rate_compaction)
                         || Self::rate_holds(session, p.provenance)
                     {
                         drop(guard);
@@ -951,6 +976,19 @@ impl Hub {
             // A chat being moved sends nothing into its turn; an abort lets it steer again.
             if steer && session.moving().is_none() {
                 return Wait::Steer;
+            }
+            // Another agent's message to an idle chat waits out its gather window first
+            // (`digest.rs` `gathers`); the agent messages that come meanwhile queue behind it.
+            if let Some(until) = super::digest::gather_until(session, turn_id) {
+                tokio::select! {
+                    () = tokio::time::sleep_until(until) => {}
+                    () = withdraw.notified() => {
+                        super::digest::end_gather(session, turn_id);
+                        return Wait::Withdrawn;
+                    }
+                    () = moved.as_mut() => {}
+                }
+                continue;
             }
             let guard = tokio::select! {
                 guard = session.turn_lock.lock() => guard,
