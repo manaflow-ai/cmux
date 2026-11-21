@@ -324,7 +324,10 @@ impl Hub {
             Some(transfer_out::IMPORTING.to_owned());
         // The source's subagent retries stayed there (`subagent_retry.rs`).
         self.settle_subagent_retries(&session);
-        self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
+        self.insert_local_session(
+            &mut self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+            &session,
+        );
         self.update_live_session_index(&session);
         // A session that came may be another row's parent: every closed row is built again.
         self.session_came(&session);

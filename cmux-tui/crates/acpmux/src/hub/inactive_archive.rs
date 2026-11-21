@@ -23,20 +23,20 @@ fn live_tag<'a>(m: &'a SessionMeta, key: &str, now: u64) -> Option<&'a str> {
     m.tags.get(key).filter(|t| t.expires_at.is_none_or(|at| at > now)).map(|t| t.value.as_str())
 }
 
+pub(super) const PARENT_TAGS: [&str; 5] =
+    [super::views::SPAWNED_BY_TAG, "mux.parent", super::lane_reports::TAG, "side", "aside"];
+
 // Older clients recorded links in tags, sometimes without a local parent row.
 fn parents(m: &SessionMeta, now: u64) -> impl Iterator<Item = &str> {
     [
         m.lineage.as_ref().map(|link| link.parent.as_str()),
         m.subsession.as_ref().map(|link| link.started_by.as_str()),
         m.parent_id.as_deref(),
-        live_tag(m, super::views::SPAWNED_BY_TAG, now),
-        live_tag(m, "mux.parent", now),
-        live_tag(m, super::lane_reports::TAG, now),
-        live_tag(m, "side", now),
-        live_tag(m, "aside", now),
+        m.lineage.as_ref().map(|link| link.root.as_str()),
     ]
     .into_iter()
     .flatten()
+    .chain(PARENT_TAGS.into_iter().filter_map(move |key| live_tag(m, key, now)))
 }
 
 fn due(m: &SessionMeta, cutoff: u64, now: u64) -> bool {
@@ -50,24 +50,36 @@ fn due(m: &SessionMeta, cutoff: u64, now: u64) -> bool {
 }
 
 impl Hub {
-    fn inactive_archive_pass(&self, after: Duration, now: u64) -> usize {
-        let cutoff = now.saturating_sub(after.as_millis() as u64);
-        let sessions = self.session_handles();
+    fn inactive_archive_candidates(&self, cutoff: u64, now: u64) -> (u64, Vec<Arc<Session>>) {
+        let revision = self.archive_tree_revision.load(Ordering::SeqCst);
+        let mut sessions = self.session_handles();
         let mut has_children = HashSet::new();
         for session in &sessions {
             session.read_meta(|m| {
-                if live_tag(m, ARCHIVED_TAG, now).is_none() {
-                    has_children.extend(parents(m, now).map(str::to_owned));
-                }
+                has_children.extend(parents(m, now).map(str::to_owned));
             });
         }
+        sessions.retain(|s| !has_children.contains(&s.id) && s.read_meta(|m| due(m, cutoff, now)));
+        (revision, sessions)
+    }
+
+    fn inactive_archive_pass(&self, after: Duration, now: u64) -> usize {
+        let cutoff = now.saturating_sub(after.as_millis() as u64);
+        let (revision, sessions) = self.inactive_archive_candidates(cutoff, now);
+        self.archive_candidates(sessions, revision, cutoff, now)
+    }
+
+    fn archive_candidates(
+        &self,
+        sessions: Vec<Arc<Session>>,
+        revision: u64,
+        cutoff: u64,
+        now: u64,
+    ) -> usize {
         let mut archived = 0;
         for session in sessions {
             if self.shutting_down() || archived == PASS_MAX {
                 break;
-            }
-            if has_children.contains(&session.id) || !session.read_meta(|m| due(m, cutoff, now)) {
-                continue;
             }
             // Take the idle reaper's leases so a turn, fork or start can't begin
             // between checking for work and committing the archive.
@@ -85,6 +97,11 @@ impl Hub {
             }
             {
                 let mut m = session.meta.lock().unwrap_or_else(|error| error.into_inner());
+                // A child may have been added to a candidate after the tree was read.
+                // Each publication or new link advances the revision under its writer's lock.
+                if self.archive_tree_revision.load(Ordering::SeqCst) != revision {
+                    break;
+                }
                 // A recent event, pin or new parent link wins until the tag write.
                 if !due(&m, cutoff, now) {
                     continue;

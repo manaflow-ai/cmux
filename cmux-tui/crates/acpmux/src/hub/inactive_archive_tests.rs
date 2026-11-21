@@ -92,3 +92,25 @@ async fn pass_archives_at_the_deadline_and_keeps_work_and_families() {
     assert!(tag(&idle, ARCHIVED_TAG).is_some());
     hub.shutdown_all().await;
 }
+
+#[tokio::test]
+async fn a_parent_is_protected_when_a_child_is_linked_or_restored_during_the_pass() {
+    let hub = hub();
+    let now = 3 * DAY_MS;
+    let cutoff = now - DAY_MS;
+    let root = chat(&hub, "root", "idle", 1, json!({}));
+    let (revision, candidates) = hub.inactive_archive_candidates(cutoff, now);
+    let child = chat(&hub, "child", "idle", now, json!({}));
+    assert_eq!(hub.archive_candidates(candidates, revision, cutoff, now), 0);
+
+    let (revision, candidates) = hub.inactive_archive_candidates(cutoff, now);
+    let links = json!({"mux.parent": "root", "archived": "1"});
+    hub.set_tags_answered(&child, links.as_object(), &[], None).unwrap();
+    assert_eq!(hub.archive_candidates(candidates, revision, cutoff, now), 0);
+
+    let (revision, candidates) = hub.inactive_archive_candidates(cutoff, now);
+    hub.set_tags_answered(&child, None, &[ARCHIVED_TAG.into()], None).unwrap();
+    assert_eq!(hub.archive_candidates(candidates, revision, cutoff, now), 0);
+    assert!(tag(&root, ARCHIVED_TAG).is_none());
+    hub.shutdown_all().await;
+}

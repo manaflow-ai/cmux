@@ -1,6 +1,6 @@
 # Archive inactive sessions
 
-This profile moves local chats to the archive after seven days of inactivity. Pinned, running, waiting and nested chats stay in place, as do parents with listed children. Archiving preserves the transcript and worktree. Restoring a chat starts its inactivity period again.
+This profile moves local chats to the archive after seven days of inactivity. Pinned, running, waiting and nested chats stay in place, as do parents with local children, including archived children. Archiving preserves the transcript and worktree. Restoring a chat starts its inactivity period again.
 
 From the repository root, preview and apply the profile with
 
