@@ -55,7 +55,7 @@ export default settingsPageEntry({
       mockModels.chatgptError,
       "The ChatGPT sign-in came back without plan access: the reason in plain words and Try Again.",
     ),
-    "add-sheet": variant(mockModels.macLogins, "The Add a Connection sheet: search, Subscriptions and API keys.", [
+    "add-sheet": variant(mockModels.macLogins, "The Add a Connection sheet: search, Subscriptions (with coding plans), API keys and Custom endpoint from acpmux's provider catalog.", [
       shown,
       { selector: '[data-models-action="add"]', action: "click" },
       { selector: "[data-models-sheet]", action: "wait" },
@@ -66,6 +66,36 @@ export default settingsPageEntry({
       { selector: '[data-models-choice="anthropic"]', action: "click" },
       { selector: "[data-models-key-form]", action: "wait" },
     ]),
+    "add-custom-endpoint": variant(
+      mockModels.macLogins,
+      "Add a Connection > Custom endpoint: the base URL, the protocol it speaks, the key and an optional label (cmux#48428).",
+      [
+        shown,
+        { selector: '[data-models-action="add"]', action: "click" },
+        { selector: '[data-models-choice="custom"]', action: "click" },
+        { selector: "[data-models-key-form]", action: "wait" },
+      ],
+    ),
+    "add-bedrock": variant(
+      mockModels.macLogins,
+      "Add a Connection > Amazon Bedrock: the key is checked with Bedrock in the AWS Region given.",
+      [
+        shown,
+        { selector: '[data-models-action="add"]', action: "click" },
+        { selector: '[data-models-choice="bedrock"]', action: "click" },
+        { selector: "[data-models-key-form]", action: "wait" },
+      ],
+    ),
+    "add-sign-in-only": variant(
+      mockModels.macLogins,
+      "Add a Connection > GitHub Copilot: a subscription that signs in only through its own app takes no key here.",
+      [
+        shown,
+        { selector: '[data-models-action="add"]', action: "click" },
+        { selector: '[data-models-choice="github-copilot"]', action: "click" },
+        { selector: '[data-models-way="unavailable"]', action: "wait" },
+      ],
+    ),
     "claude-token": variant(
       mockModels.macLogins,
       "Add a Connection > Claude Code: Open Terminal runs claude setup-token, then paste the token it prints.",

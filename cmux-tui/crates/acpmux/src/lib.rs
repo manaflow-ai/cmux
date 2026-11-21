@@ -285,6 +285,7 @@ pub mod prompts;
 pub mod protected_folders;
 pub mod protocol;
 pub mod provenance_keys;
+pub mod providers;
 mod provider_cloud_auth;
 pub mod qos;
 pub mod question_answer;

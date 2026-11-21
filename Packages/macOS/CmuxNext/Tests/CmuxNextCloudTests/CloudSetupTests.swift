@@ -96,6 +96,10 @@ struct CloudSetupTests {
         #expect(await rule.choose(harness: "claude", model: nil, account: "chatgpt-plan:1") == .connection(id: "claude-token:2", family: "claude"))
         #expect(await rule.choose(harness: "codex-work", model: nil, account: nil) == .connection(id: "chatgpt-plan:1", family: "codex"))
         #expect(await rule.choose(harness: "opencode", model: nil, account: nil) == .fallback)
+        // A provider key that serves OpenCode carries an OpenCode chat (cmux#48428); with none it starts as before.
+        let router = CloudSetup.Connection(id: "api-key:openrouter", families: ["claude", "codex", "opencode"])
+        #expect(await setup(Connections(.init(personal: [router], organization: []))).choose(harness: "opencode", model: nil, account: nil)
+            == .connection(id: "api-key:openrouter", family: "opencode"))
         #expect(await setup(Connections(.init(personal: [login], organization: []))).choose(harness: "claude", model: "m", account: "claude-login")
             == .setup(family: "claude", model: "m"))
         #expect(CloudSetup.isConnectionID("chatgpt-plan:1") && !CloudSetup.isConnectionID("a b") && !CloudSetup.isConnectionID(""))

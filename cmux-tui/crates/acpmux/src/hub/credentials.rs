@@ -88,7 +88,7 @@ impl Hub {
                 .or_else(|| cfg.family(&meta.harness))
                 .unwrap_or_else(|| meta.harness.clone())
         };
-        if Family::of_harness(&family) != Some(credential.family()) {
+        if !Family::of_harness(&family).is_some_and(|f| credential.serves(f)) {
             return Err(RpcError::invalid_params(
                 "this credential does not serve this chat's agent",
             )

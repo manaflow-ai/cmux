@@ -229,3 +229,72 @@ Delivery (`_acpmux/connections/credential {id}` -> `{ "family", "kind", "env": {
   once one is added. Without a credential the machine falls back to today's coderouter path.
 - Organization: team shared keys (`team.agent_key.*`, served by the platform edge) stay listed;
   the team gateway row is removed from the page.
+
+## Revision 3 (2026-11-20, cmux#48428): every provider, validated keys, custom endpoints
+
+Revision 2 served Cloud chats from a Claude token, a ChatGPT plan, and Anthropic or OpenAI keys. This
+revision adds every subscription, coding plan and API key provider of
+https://github.com/manaflow-ai/cmux/issues/48428, and a custom endpoint, on the same storage and
+delivery path. Nothing new holds a secret: the cmux servers still never see a key.
+
+**One catalog** (`cmux-tui/crates/acpmux/src/providers.rs`): every provider's id, name, group
+(`subscription`, `api-key`, `custom`), console URL, the fields it asks for, the check request that
+validates a key, and how each Cloud agent reaches it:
+- `anthropic`: an Anthropic Messages endpoint (base URL, and `x-api-key` or bearer) for Claude Code;
+  Amazon Bedrock runs Claude Code's own Bedrock mode (`CLAUDE_CODE_USE_BEDROCK`, a Bedrock API key as
+  `AWS_BEARER_TOKEN_BEDROCK`, the region the person picked).
+- `responses`: an OpenAI Responses endpoint for Codex (a custom `-c` provider, as the OpenAI key).
+- `opencode`: OpenCode's own built-in provider id and the variable it reads the key from.
+A provider serves Cloud when it has at least one. `_acpmux/connections` lists the catalog
+(`providers`), so Settings draws every provider from the daemon and no client keeps its own list.
+Providers with no key a program can use (SuperGrok, GitHub Copilot) are listed with
+`serves_cloud: false` and a reason; they are not stored.
+
+**Add** (`_acpmux/connections/key.add {provider, secret, label?, baseUrl?, protocol?, region?}`): the
+app stores the key in the login Keychain first (unchanged) and passes only `keychain:ITEM`; it takes
+a key only for a provider the daemon's catalog lists and does not mark unavailable. Before the route
+is written, acpmux resolves the reference in memory and sends the provider's check request (8 s, no
+redirects): a model list, key or credits endpoint, with the key in the header the provider reads. A
+status the provider uses for a bad key (401 or 403, and 400 for Google and xAI) refuses the add with
+`connections.key_rejected`; no answer with `connections.unreachable`; the app then deletes the
+Keychain item it just wrote. Any other status adds it, and the answer's `added.check` says what was
+seen (`accepted`, or `unconfirmed` with the status). A provider whose model list is public (NVIDIA,
+OpenCode Go) has no check. A named endpoint (`custom`, Cloudflare AI Gateway, Neon AI Gateway) takes
+an `https://` base URL with no user info, query or fragment, of URL-safe characters only, and the
+protocol it speaks (`anthropic`, `anthropic-bearer`, `responses`). Amazon Bedrock takes its AWS
+Region, kept in the route's `health_url` (no new route field), and is checked against Bedrock's
+model list in that region.
+
+**Delivery** (`_acpmux/connections/credential {id}`): Revision 2's four kinds keep their one
+variable. Any other key connection answers
+`{CMUX_PROVIDER_API_KEY, CMUX_PROVIDER_ID, CMUX_PROVIDER_ANTHROPIC_URL?, CMUX_PROVIDER_ANTHROPIC_AUTH?,
+CMUX_PROVIDER_RESPONSES_URL?, CMUX_PROVIDER_REGION?}`: one secret and its endpoints, every value
+token-shaped. The machine's cmux-tui takes that set only beside the new capability
+`agent-session-start-provider-credentials-v1`, and the app refuses to send it (or any OpenCode
+start's credential) to a machine without it, with the code that updates the machine and starts
+again. acpmux on the machine checks the set again (known names, a provider of its own catalog, URLs
+that pass the same rules, a region of AWS's shape), keeps it in memory for that agent alone
+(Revision 2) and turns it into the agent's own variables at the spawn: Claude Code gets
+`ANTHROPIC_BASE_URL` with `ANTHROPIC_API_KEY` (x-api-key) or `ANTHROPIC_AUTH_TOKEN` (bearer), or the
+Bedrock switches; Codex gets a custom `cmux_provider` on the Responses URL that reads
+`CMUX_PROVIDER_API_KEY`; OpenCode gets the provider's own variable, looked up by `CMUX_PROVIDER_ID` in
+the machine's own catalog (a wire value never names a variable). An Anthropic or OpenAI key also runs
+OpenCode as it is. Every credentialed spawn pins `CMUX_<AGENT>_AUTH=own`, so the image's launcher
+never layers the CodeRouter route over it. A family the connection does not serve keeps the
+machine's own route.
+
+**Families**: Cloud first use now chooses for `claude`, `codex` and `opencode`. An OpenCode chat
+with nothing to serve it still starts on the machine's own path (no Set up Cloud card).
+
+**Where a key is** (threat model): on the Mac, in the login Keychain (encrypted at rest by the
+system; the route file holds only the reference). In flight, only over the owner's authenticated
+link to their own Cloud machine (Revision 2's owner check). On the machine, in acpmux's memory and in
+the one agent process's environment, recovered after a daemon restart from that process's own
+environment. Never in a route file, a log line, the page's state, a GitHub surface or the cmux
+servers. The agent itself can read its own key from its environment; Revision 2 accepted that for
+the four kinds, and this revision keeps it.
+
+**Follow-up**: the vault's egress proxy (`vault/egress.rs`) can put a `cmux-secret://` placeholder in
+the agent's environment and add the key to the provider request on the way out, so the agent never
+holds it. It is not used yet: the proxy listens on a port per daemon run, and an agent started
+before a daemon restart would lose its route. Moving the proxy to a stable socket comes first.

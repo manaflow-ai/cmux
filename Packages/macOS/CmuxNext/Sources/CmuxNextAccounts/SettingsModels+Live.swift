@@ -136,13 +136,22 @@ extension SettingsModels {
         setChatGPT(attempt: nil, error: error)
     }
 
-    /// Add an API key: into the Keychain first, then `connections/key.add` with its reference only.
-    /// A refused add takes the stored item back out.
-    func addKey(provider: String, key: String, label: String?) async throws {
-        guard Self.providers.contains(provider) else { throw PageError.invalidParams("addKey needs a known provider") }
+    /// Add an API key: into the Keychain first, then `connections/key.add` with its reference only and
+    /// the provider's other fields (a named endpoint's base URL and protocol, Bedrock's region), which
+    /// acpmux checks. acpmux checks the key with its provider before it keeps it; a refused add (a key the
+    /// provider refused, a provider not reached) takes the stored item back out. Answers what the check saw.
+    func addKey(provider: String, key: String, label: String?, fields: [String: String?] = [:]) async throws -> JSONValue {
+        guard takesKey(provider) else { throw PageError.invalidParams("addKey needs a known provider") }
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard Self.isOneWord(key) else { throw PageError.invalidParams("addKey needs a key of printable characters with no spaces") }
-        try await addSecret(key, store: provider, method: .connectionsKeyAdd, params: ["provider": provider], label: label)
+        var params: [String: any Sendable] = ["provider": provider]
+        for (name, value) in fields {
+            guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { continue }
+            guard value.utf8.count <= 2048 else { throw PageError.invalidParams("addKey's \(name) is too long") }
+            params[name] = value
+        }
+        let reply = try await addSecret(key, store: provider, method: .connectionsKeyAdd, params: params, label: label)
+        return ["check": reply?["added"]?["check"] ?? .null]
     }
 
     /// Add a Claude setup token (`claude setup-token`'s `sk-ant-oat…`, pasted after the terminal tab ran
@@ -153,7 +162,7 @@ extension SettingsModels {
         guard token.hasPrefix(Self.claudeTokenPrefix), Self.isOneWord(token) else {
             throw PageError.invalidParams("addClaudeToken needs the sk-ant-oat token claude setup-token printed, with no spaces")
         }
-        try await addSecret(token, store: "claude-token", method: .claudeTokenAdd, params: [:], label: label)
+        _ = try await addSecret(token, store: "claude-token", method: .claudeTokenAdd, params: [:], label: label)
     }
 
     nonisolated static let claudeTokenPrefix = "sk-ant-oat"
@@ -164,8 +173,9 @@ extension SettingsModels {
     }
 
     /// SECRET into the Keychain (as STORE), then METHOD with its reference only; a refused add takes it back out.
+    /// Answers the daemon's reply.
     private func addSecret(_ secret: String, store: String, method: AcpmuxHarnessMethod,
-                           params base: [String: any Sendable], label: String?) async throws {
+                           params base: [String: any Sendable], label: String?) async throws -> JSONValue? {
         let environment = try requireDaemonEnvironment()
         let reference = try await storeKey(secret, provider: store)
         var params = base
@@ -174,6 +184,7 @@ extension SettingsModels {
         do {
             let reply = try JSONValue.parse(try await daemon(environment, method, params))
             if reply["connections"] != nil { apply(reply) } else { await refresh() }
+            return reply
         } catch {
             await deleteKey(reference)
             throw error

@@ -63,7 +63,9 @@ public final class CloudSetup {
                 if let pick = serving.first(where: { $0.id == account }) ?? serving.first { return .connection(id: pick.id, family: family) }
             }
             if organization?.contains(family) == true { return .organization(family: family) }
-            return personal == nil ? .fallback : .setup(family: family, model: model)
+            // An OpenCode chat runs on a provider key when one serves it (cmux#48428), else on the machine's own path
+            // as before: nothing holds it back.
+            return personal == nil || !CloudSetup.setupFamilies.contains(family) ? .fallback : .setup(family: family, model: model)
         }
 
         /// Whether a connection serves `family`; nil when this Mac's connections were not read.
@@ -99,8 +101,11 @@ public final class CloudSetup {
         }
     }
 
-    /// The families a Cloud chat runs (the picker's agent, as the gateway names them).
-    public nonisolated static let families = ["claude", "codex"]
+    /// The families a Cloud chat runs on a connection (the picker's agent, as the gateway names them). OpenCode runs
+    /// on a provider key's connection (cmux#48428).
+    public nonisolated static let families = ["claude", "codex", "opencode"]
+    /// The families a start with nothing to serve it holds back with Set up Cloud; an OpenCode one starts as before.
+    public nonisolated static let setupFamilies: Set<String> = ["claude", "codex"]
 
     /// The family of the picker's agent (`claude`, `codex`, or a harness profile named after one);
     /// nil for an agent Cloud's gateway does not serve, which the rule never holds back.

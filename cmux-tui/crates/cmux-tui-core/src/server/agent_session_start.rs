@@ -131,9 +131,26 @@ pub const AGENT_SESSION_START_CREDENTIALS_CAPABILITY: &str = "agent-session-star
 pub const AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY: &str =
     "agent-session-start-codex-credentials-v1";
 
-/// The names a credential may set (acpmux `agent_credentials::NAMES`).
+/// A provider credential (an OpenRouter, GLM, Bedrock, … key with its endpoints, cmux#48428,
+/// cmux-tui/docs/model-connections.md "Revision 3") on `agent-session-start` and its refresh: acpmux
+/// turns it into each agent's own variables. The app updates a machine that lacks this before a
+/// start carries one. Advertised beside [`AGENT_SESSION_START_CREDENTIALS_CAPABILITY`].
+pub const AGENT_SESSION_START_PROVIDER_CREDENTIALS_CAPABILITY: &str =
+    "agent-session-start-provider-credentials-v1";
+
+/// The names a credential may set (acpmux `agent_credentials::NAMES`): exactly one of them.
 const CREDENTIAL_NAMES: [&str; 4] =
     ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CMUX_CHATGPT_ACCESS_TOKEN"];
+/// The names a provider credential may set (acpmux `providers::wire::NAMES`), the key and the
+/// provider always among them.
+const PROVIDER_CREDENTIAL_NAMES: [&str; 6] = [
+    "CMUX_PROVIDER_API_KEY",
+    "CMUX_PROVIDER_ID",
+    "CMUX_PROVIDER_ANTHROPIC_URL",
+    "CMUX_PROVIDER_ANTHROPIC_AUTH",
+    "CMUX_PROVIDER_RESPONSES_URL",
+    "CMUX_PROVIDER_REGION",
+];
 const MAX_CREDENTIAL_BYTES: usize = 16 * 1024;
 
 /// A launch credential as the caller sends it. Never printed: no `Debug`.
@@ -144,14 +161,25 @@ pub(super) struct StartCredentials {
 }
 
 impl StartCredentials {
-    /// One known name, a token-shaped value (acpmux checks the same again).
+    /// One known name, or a provider credential's names with its key and provider; token-shaped
+    /// values (acpmux checks the same again, and the endpoints and provider besides).
     pub(super) fn valid(&self) -> bool {
-        self.env.len() == 1
-            && self.env.iter().all(|(name, value)| {
-                CREDENTIAL_NAMES.contains(&name.as_str())
-                    && (1..=MAX_CREDENTIAL_BYTES).contains(&value.len())
-                    && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~+/=:".contains(&b))
-            })
+        let names: &[&str] = if self.env.contains_key("CMUX_PROVIDER_API_KEY") {
+            if !self.env.contains_key("CMUX_PROVIDER_ID") {
+                return false;
+            }
+            &PROVIDER_CREDENTIAL_NAMES
+        } else {
+            if self.env.len() != 1 {
+                return false;
+            }
+            &CREDENTIAL_NAMES
+        };
+        self.env.iter().all(|(name, value)| {
+            names.contains(&name.as_str())
+                && (1..=MAX_CREDENTIAL_BYTES).contains(&value.len())
+                && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~+/=:".contains(&b))
+        })
     }
 
     pub(super) fn wire(&self) -> Value {
