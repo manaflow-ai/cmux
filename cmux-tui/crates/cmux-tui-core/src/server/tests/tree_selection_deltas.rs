@@ -90,7 +90,7 @@ fn identify_lists_tree_selection_deltas() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify { machine_metadata: false, revisions: false, restore_progress: false },
         &test_writer(),
     )
     .unwrap();

@@ -83,6 +83,7 @@ MODEL_BY_PATH = {
     'types/HostSizePolicy': models.HostSizePolicy,
     'types/HostSizePolicyRequest': models.HostSizePolicyRequest,
     'types/IdMapping': models.IdMapping,
+    'types/IdentifyRestore': models.IdentifyRestore,
     'types/IdentifyResult': models.IdentifyResult,
     'types/IdsResult': models.IdsResult,
     'types/KittyGraphicsState': models.KittyGraphicsState,

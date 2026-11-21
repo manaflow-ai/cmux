@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9e23695456a61db1d4ae9aa726f4287919ff5a51a8c001cf11da3b30c1555dd2. */
+/* cmux-tui mux protocol 12, IR b231c3906624018920662ea5364427b640d254ce70030f822a84745d5c061a66. */
 
 
 import type * as T from "./types.js";
@@ -1410,6 +1410,7 @@ export type HomeInboxResult = {
 export interface IdentifyRequest extends CmuxRequestBase {
   cmd: "identify";
   "machine_metadata"?: boolean;
+  "restore_progress"?: boolean;
   "revisions"?: boolean;
 }
 
@@ -2434,6 +2435,7 @@ export type SendKeyResult = T.EmptyResult;
 export interface ServerStatsRequest extends CmuxRequestBase {
   cmd: "server-stats";
   "include"?: (Array<string>) | null;
+  "restore_progress"?: boolean;
 }
 
 /** Protocol v12; authority: frontend. */

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9e23695456a61db1d4ae9aa726f4287919ff5a51a8c001cf11da3b30c1555dd2. */
+/* cmux-tui mux protocol 12, IR b231c3906624018920662ea5364427b640d254ce70030f822a84745d5c061a66. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -598,6 +598,14 @@ export type IdMapping = {
   "short_id": string;
 };
 
+export type IdentifyRestore = {
+  "done": (bigint) | null;
+  "elapsed_ms": bigint;
+  "last_advance_ms": bigint;
+  "phase": string;
+  "total": (bigint) | null;
+};
+
 export type IdentifyResult = {
   "api_revision"?: (number) | null;
   "app": "cmux-tui";
@@ -623,6 +631,7 @@ export type IdentifyResult = {
   "pid": number;
   "protocol": number;
   "registry_id": string;
+  "restore"?: IdentifyRestore;
   "screen_device_id"?: (string) | null;
   "session": string;
   "session_id"?: string;

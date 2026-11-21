@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "9e23695456a61db1d4ae9aa726f4287919ff5a51a8c001cf11da3b30c1555dd2";
+inline constexpr std::string_view kProtocolIrSha256 = "b231c3906624018920662ea5364427b640d254ce70030f822a84745d5c061a66";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -101,6 +101,7 @@ struct HostSizePolicy;
 struct HostSizePolicyRequest;
 struct Id;
 struct IdMapping;
+struct IdentifyRestore;
 struct IdentifyResult;
 struct IdsResult;
 struct JsonValue;
@@ -3473,8 +3474,18 @@ struct IdMapping {
 
 struct IdentifyRequest {
     std::optional<bool> machine_metadata{};
+    std::optional<bool> restore_progress{};
     std::optional<bool> revisions{};
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
+};
+
+struct IdentifyRestore {
+    std::optional<std::uint64_t> done{};
+    std::uint64_t elapsed_ms{};
+    std::uint64_t last_advance_ms{};
+    std::string phase{};
+    std::optional<std::uint64_t> total{};
+    friend bool operator==(const IdentifyRestore&, const IdentifyRestore&) = default;
 };
 
 struct MachinePlatform {
@@ -3506,6 +3517,7 @@ struct IdentifyResult {
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
+    std::optional<IdentifyRestore> restore{};
     Field<std::string> screen_device_id{};
     std::string session{};
     std::optional<std::string> session_id{};
@@ -5460,6 +5472,7 @@ struct ServerStatsRegistryLock {
 
 struct ServerStatsRequest {
     Field<std::vector<std::string>> include{};
+    std::optional<bool> restore_progress{};
     friend bool operator==(const ServerStatsRequest&, const ServerStatsRequest&) = default;
 };
 
@@ -7222,6 +7235,12 @@ template <>
 struct Codec<IdMapping> {
     static Result<Json> encode(const IdMapping& value);
     static Result<IdMapping> decode(const Json& value);
+};
+
+template <>
+struct Codec<IdentifyRestore> {
+    static Result<Json> encode(const IdentifyRestore& value);
+    static Result<IdentifyRestore> decode(const Json& value);
 };
 
 template <>
