@@ -133,7 +133,7 @@ import Testing
         var testDescription: String { name }
     }
 
-    static let cases = [
+    nonisolated static let cases = [
         Case(name: "all, newest first", scope: .all, query: "", macOrder: false),
         Case(name: "search", scope: .all, query: "agent 1", macOrder: false),
         Case(name: "one Mac", scope: .mac("m1"), query: "", macOrder: false),
