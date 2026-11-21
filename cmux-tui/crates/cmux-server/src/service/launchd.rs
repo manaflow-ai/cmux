@@ -85,7 +85,7 @@ pub fn check_log(log: &Path) -> Result<()> {
             log.display()
         )));
     }
-    Ok(())
+    super::check_no_acl_grants(log, "the service log")
 }
 
 /// Makes the service log folder 0700 and creates `server.log` in it, or
@@ -124,6 +124,9 @@ fn private_log(logs: &Path) -> Result<()> {
     }
     dir.set_permissions(std::fs::Permissions::from_mode(0o700))
         .map_err(|e| Error::io(logs.display(), e))?;
+    // The mode does not reach macOS ACL entries: drop any that allow
+    // another account to write here (crate::acl).
+    crate::acl::strip_write_grants(&dir).map_err(|e| Error::io(logs.display(), e))?;
     let log = logs.join("server.log");
     // SAFETY: a valid descriptor and a constant C string.
     let log_fd = unsafe {
@@ -150,6 +153,7 @@ fn private_log(logs: &Path) -> Result<()> {
     }
     file.set_permissions(std::fs::Permissions::from_mode(0o600))
         .map_err(|e| Error::io(log.display(), e))?;
+    crate::acl::strip_write_grants(&file).map_err(|e| Error::io(log.display(), e))?;
     Ok(())
 }
 
@@ -186,7 +190,7 @@ pub fn check_source(s: &Services<'_>) -> Result<()> {
         return Ok(());
     }
     Err(Error::rejected(format!(
-        "launchd runs {LAUNCHD_LABEL} from {}, not from {} (the plist cmux writes), so cmux leaves it, and everything it may use, alone; nothing was changed. Remove that job yourself (launchctl bootout {}), then run the command again",
+        "launchd runs {LAUNCHD_LABEL} from {}, not from {} (the plist cmux writes), so cmux leaves it, and everything it may use, alone. Remove that job yourself (launchctl bootout {}), then run the command again",
         path.unwrap_or("a plist it does not name"),
         ours.display(),
         target(s)
@@ -216,7 +220,24 @@ pub fn stop(s: &Services<'_>) -> Result<()> {
 }
 
 pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
+    // launchd has no bootout bound to a plist (`bootout DOMAIN PATH` reads
+    // the label from the file and unloads by label): check the job's source
+    // right before the bootout by label, so the gap is that one command
+    // (Codex R-005), which only root or this same account can use.
+    check_source(s).map_err(|e| super::outcome(e, "nothing was changed"))?;
     let _ = s.runner.run(&launchctl().args(["bootout", &target(s)]));
+    // A bootout that failed must not let uninstall remove what the job
+    // still uses: launchd must say it has no such job now.
+    let print = launchctl().args(["print", &target(s)]);
+    let out = s.runner.run(&print).map_err(|e| Error::io(print.display(), e))?;
+    if out.code != Some(NOT_LOADED) {
+        return Err(Error::rejected(format!(
+            "launchd still has {LAUNCHD_LABEL} after cmux booted it out (`{}` exited {}), so cmux removed nothing it may still use. Boot it out (`launchctl bootout {}`), then run the command again",
+            print.display(),
+            out.code.map_or_else(|| "by a signal".to_owned(), |c| c.to_string()),
+            target(s)
+        )));
+    }
     s.remove_unit_files()
 }
 
