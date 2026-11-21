@@ -87,10 +87,13 @@ writes):
   comments are intentionally part of the digest, because telling a comment
   from code in TypeScript needs a full lexer and any line heuristic can hide
   a code change, so a comment-only edit to the bake script also asks for a
-  re-promotion) was baked from exactly this checkout's sources. An entry is checked with the schema it was recorded
+  re-promotion; schema 3 adds what the bake installs from generated text,
+  the edge-resolver script and units from `services/vms/images/dns.ts`) was
+  baked from exactly this checkout's sources. An entry is checked with the schema it was recorded
   with (absent: 1), so a formula change never forces a rebake; new bakes
   record `DEVBOX_SOURCE_SCHEMA`, and `bun run devbox:promote -- freestyle
-  --upgrade-source-schema` moves older defaults up without a bake only where
+  --upgrade-source-schema` moves older defaults up (to schema 2: no record
+  proves the generated inputs, so schema 3 comes only from a bake) only where
   every input the newer schema adds is proven from what the entry recorded:
   its digest at its own schema, its `builderScriptVersion` against this
   checkout's bake script, and the Dockerfile's instructions at its

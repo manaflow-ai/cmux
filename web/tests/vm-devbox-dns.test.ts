@@ -18,7 +18,7 @@ import {
   devboxEdgeResolverServiceUnit,
   devboxEdgeResolverTlsCheckCommand,
 } from "../services/vms/images/dns";
-import { createHash } from "node:crypto";
+import { DEVBOX_SOURCE_SCHEMA, devboxBakeGeneratedInputs, devboxSourceManifest } from "../scripts/devbox-image-common";
 import { egressDestinations, freestyleEdgeAddresses } from "../services/vms/drivers/freestyleNetworkPolicy";
 
 // manaflow-ai/cmux#46670: with a TLS rule, the Freestyle agent points the
@@ -26,7 +26,7 @@ import { egressDestinations, freestyleEdgeAddresses } from "../services/vms/driv
 // port 53 to it went unanswered on most of the fleet while the same resolver
 // answered on IPv6. These tests run the guest fixer against scratch copies of
 // the agent's files (byte for byte as seen on vm-a9c9b81f… and a fresh clone,
-// 2026-11-18) and pin the bake and verify wiring. The live proof is a machine
+// 2026-11-18) and pin the bake, digest and verify wiring. The live proof is a machine
 // booted from the image (verify-devbox-image.ts).
 
 const BASE_DROP_IN = [
@@ -384,12 +384,20 @@ describe("cmux-edge-resolver (services/vms/images/dns.ts)", () => {
     });
   });
 
-  test("the baked script is pinned: changing it needs a new image bake and a new pin", () => {
-    // The image source digest covers the bake script's text, not dns.ts, so an
-    // edit here would not otherwise fail the manifest contract. Promote a new
-    // bake (cloud-vm-image-contract.yml, promote=true), then update this hash.
-    expect(createHash("sha256").update(devboxEdgeResolverInstallCommand()).digest("hex"))
-      .toBe("07deeae2e9d3b3d108453581244773212b45e5c5c3282d8a88a219e61d26adf5");
+  test("the image source digest covers what the bake installs from dns.ts", () => {
+    // Every dns.ts helper the bake calls is a schema-3 generated input, so an
+    // edit to the installed script, units or check moves the digest and the
+    // manifest contract asks for a new bake (cloud-vm-image-contract.yml,
+    // promote=true) instead of accepting an older image as current.
+    const bake = readFileSync(path.join(import.meta.dirname, "../scripts/build-devbox-freestyle.ts"), "utf8");
+    const imported = /import \{([^}]*)\} from "\.\.\/services\/vms\/images\/dns";/.exec(bake)?.[1]?.split(",").map((name) => name.trim()).filter(Boolean).sort();
+    expect(imported).toEqual(["devboxEdgeResolverCheckCommand", "devboxEdgeResolverInstallCommand"]);
+    expect(devboxBakeGeneratedInputs()).toEqual({
+      "edge-resolver-install": devboxEdgeResolverInstallCommand(),
+      "edge-resolver-check": devboxEdgeResolverCheckCommand(),
+    });
+    expect(DEVBOX_SOURCE_SCHEMA).toBeGreaterThanOrEqual(3);
+    expect(devboxSourceManifest("base")).toHaveProperty("bakeGenerated");
   });
 
   test("the bake installs and checks it before the stamp; the verifier proves it on a booted clone", () => {

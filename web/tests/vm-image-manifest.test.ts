@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { runChild } from "./helpers/run-child";
 import {
+  DEVBOX_PROVABLE_SOURCE_SCHEMA,
   DEVBOX_SOURCE_SCHEMA,
   appendImageManifestEntries,
   bakeMetadata,
@@ -354,7 +355,8 @@ describe("upgradeDevboxSourceRecords (promote --upgrade-source-schema)", () => {
     expect(result.upgraded).toEqual(["freestyle-desktop-v1", "freestyle-base-v1"]);
     expect(result.skipped).toEqual([]);
     for (const entry of result.manifest.images) {
-      expect(entry.devboxSource).toEqual({ layers: entry.kind, digest: devboxSourceDigest(entry.kind!, dockerfile, DEVBOX_SOURCE_SCHEMA), schema: DEVBOX_SOURCE_SCHEMA });
+      // Up to schema 2 only: schema 3's generated bake inputs are in no record, so only a bake records it.
+      expect(entry.devboxSource).toEqual({ layers: entry.kind, digest: devboxSourceDigest(entry.kind!, dockerfile, DEVBOX_PROVABLE_SOURCE_SCHEMA), schema: DEVBOX_PROVABLE_SOURCE_SCHEMA });
     }
     expect(devboxSourceDriftProblems(result.manifest)).toEqual([]);
     // Idempotent: nothing left to upgrade.
