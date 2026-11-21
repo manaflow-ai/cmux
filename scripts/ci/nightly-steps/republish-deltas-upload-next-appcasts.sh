@@ -28,6 +28,14 @@ for feed in nightly-deltas/appcast*.xml; do
   python3 "$r2" rewrite --feed "$feed" --if-public
   python3 "$check" prune "$feed" --base "$CHANNEL_FEED_BASE/"
   python3 .publish-tooling/scripts/ci/nightly-next-guard.py appcast "$feed"
+  # The post-feed part of nightly-next-one (DELTAS_ONLY_WHILE_NEWEST=1): only while this build is still the newest
+  # item of the feed it writes. merge keeps the live feed's newest item, so a newer build that went live after the
+  # build step's check would make this write carry its item as read here (review of d3ecf2031a7). The tail keeps
+  # adding an older build's deltas, as before.
+  if [ "${DELTAS_ONLY_WHILE_NEWEST:-}" = 1 ] && ! python3 "$check" newest --feed-file "$feed" --build "$NIGHTLY_BUILD"; then
+    echo "::notice::A newer build is live; its own publication owns its deltas, so $(basename "$feed") is left as is"
+    continue
+  fi
   # Only while the live feed still serves this build (If-Match on the bytes read).
   python3 "$r2" write-feed --feed "$feed" --same-build
 done

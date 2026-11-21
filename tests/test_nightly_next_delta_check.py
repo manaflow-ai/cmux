@@ -178,6 +178,16 @@ except FileNotFoundError:
 mod.fetch = lambda url: feed(TWO).encode()
 expect(mod.main(["newest", "--feed-url", "x", "--build", "300"]) == 0 and mod.main(["newest", "--feed-url", "x", "--build", "200"]) == 1,
        "newest passes only for the feed's newest build")
+merged_file = tmp / "merged.xml"
+merged_file.write_text(feed(TWO), encoding="utf-8")
+expect(mod.main(["newest", "--feed-file", str(merged_file), "--build", "300"]) == 0
+       and mod.main(["newest", "--feed-file", str(merged_file), "--build", "200"]) == 1,
+       "newest --feed-file checks the feed about to be written")
+upload = (ROOT / "scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh").read_text(encoding="utf-8")
+expect(upload.index('newest --feed-file "$feed"') < upload.index("write-feed --feed"),
+       "the after-feed write checks this build is still the newest before write-feed")
+expect('DELTAS_ONLY_WHILE_NEWEST: "1"' in (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"),
+       "nightly-next-one's post-feed upload asks for the still-newest check")
 expect(previous.main(["--save", str(tmp / "missing.dmg"), "--cache-dir", str(cache), "--prefix", "cmux-x", "--variant", "arm64"]) == 0,
        "a failed cache save never fails the build")
 

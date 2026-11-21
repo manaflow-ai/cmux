@@ -7570,6 +7570,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          DELTAS_ONLY_WHILE_NEWEST: "1"
         run: |
           set -euo pipefail
           if ! compgen -G 'nightly-deltas/*.delta' >/dev/null; then
