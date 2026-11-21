@@ -10,6 +10,10 @@
 // a new `*.rollback-all` undoes them all, and the app keeps `status.json` (what is applied) and
 // `live-code.log` there. All of it runs on the engine actor, never on the main thread; only the
 // redraw after a change is the app's, which sends it to the main thread without waiting for it.
+// Shipped iPhone builds (Release, TestFlight, App Store) compile none of it: on iOS only a DEBUG
+// build (Debug, or ios-sim.sh's Demo with DEBUG) has the engine, so a Release binary holds no
+// loader, no interposer and no private dyld symbol name. The macOS app keeps it in every build.
+#if os(macOS) || DEBUG
 import Darwin
 import Foundation
 
@@ -321,3 +325,4 @@ public struct LiveFolder: Sendable {
         return true
     }
 }
+#endif

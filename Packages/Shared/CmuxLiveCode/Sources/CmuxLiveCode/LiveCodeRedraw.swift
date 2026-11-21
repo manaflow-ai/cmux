@@ -7,7 +7,8 @@
 // `body` would not run until then. After each change the root (`liveCodeRedraw(_:)`) takes a new
 // identity, and SwiftUI builds the whole tree again with the new code. Its state below the root
 // starts over, as after a relaunch, but the process, its connections and the app's models stay.
-#if os(iOS)
+// Only a DEBUG build has it (LiveEngine.swift): shipped iPhone builds compile none of it.
+#if os(iOS) && DEBUG
 import Foundation
 import Observation
 import SwiftUI

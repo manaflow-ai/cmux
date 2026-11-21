@@ -2,6 +2,10 @@
 // executable's and repointed there. Proven first in the view shell
 // (Prototypes/ViewShell/Sources/ViewShell/LiveCode.swift), then in the macOS app; the iPhone app in
 // the iOS Simulator runs the same code (a simulator app is a macOS process).
+// Shipped iPhone builds (Release, TestFlight, App Store) compile none of it: on iOS only a DEBUG
+// build (Debug, or ios-sim.sh's Demo with DEBUG) has the engine, so a Release binary holds no
+// loader, no interposer and no private dyld symbol name. The macOS app keeps it in every build.
+#if os(macOS) || DEBUG
 import Darwin
 import Foundation
 import MachO
@@ -349,3 +353,4 @@ enum Interposer {
 @_silgen_name("swift_getTypeByMangledNameInContext")
 private func typeByMangledName(_ name: UnsafePointer<UInt8>, _ length: UInt, _ context: UnsafeRawPointer?,
                                _ arguments: UnsafeRawPointer?) -> UnsafeRawPointer?
+#endif

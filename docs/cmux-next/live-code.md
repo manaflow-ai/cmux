@@ -209,7 +209,9 @@ is this one (Packages/Shared/CmuxLiveCode). `scripts/live-code/ios-sim.sh` is th
 and every CmuxMobileKit module, plus `-enable-private-imports`: most of the app's views are
 `private struct`s, whose functions are otherwise local to their file and could never be repointed.
 Only a DEBUG configuration is built this way, and only the app's DEBUG code starts the watcher
-(`LiveCodeRedraw`), so Release, TestFlight and App Store builds are as before.
+(`LiveCodeRedraw`), so Release, TestFlight and App Store builds are as before. On iOS the engine's
+sources compile only with DEBUG, so a Release binary holds no `CmuxLiveCode` symbol, no loader and
+no private dyld symbol name, though `project.yml` links the package into every configuration.
 
 The redraw: SwiftUI calls a `body` again only when something it read changed, so after each patch
 the app's root (`liveCodeRedraw(_:)`) takes a new identity and SwiftUI builds the whole tree again
