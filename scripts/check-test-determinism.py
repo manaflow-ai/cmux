@@ -784,28 +784,63 @@ _JAVASCRIPT_TYPE_LOOKAHEAD = 2000
 _JAVASCRIPT_CLOSERS = {"(": ")", "[": "]", "{": "}", "<": ">"}
 
 
+# Whether a type-parameter lookahead is running: the lookahead lexes its window, and a `<Name extends` in that window
+# must not start another lookahead, or n generic arrows in a row cost 2^n - 1 of them (review of #41464, F1). Inside a
+# lookahead such a `<` is unresolved: an arrow nested in another's lookahead leaves the outer one undecided.
+_JAVASCRIPT_LOOKAHEAD_ACTIVE = False
+# What the parameter walk returns when a closer does not match its opener: no parameter list TypeScript would parse.
+_JAVASCRIPT_PARAMETERS_MISMATCH = -2
+
+
+def _javascript_expression_starts_after(
+    source: str, index: int, executable: bytes, comments: bytes
+) -> bool:
+    """Whether an expression starts at INDEX: the code token before it is an operator or an opener, not an operand
+    (a name, a literal or a closer)."""
+    previous = index - 1
+    while previous >= 0 and (comments[previous] or _javascript_is_blank(source[previous])):
+        previous -= 1
+    if previous < 0:
+        return True
+    if not executable[previous]:
+        return False  # a literal's end
+    return source[previous] in "=(,?:[{!&|+-*%^~;<>"
+
+
 def _javascript_angle_is_type_parameters(source: str, index: int) -> Optional[bool]:
     """Whether the `<` at INDEX opens a generic arrow's type parameters, the way TypeScript reads a .tsx file: the
-    list closes with `>`, then a parenthesized parameter list, then `=>` or a `:` return type. A slash token the lexer
-    cannot resolve inside the `<...>` makes it no type parameter list (a type holds no regex and no division:
-    `<Tile extends {...p} />` is a tag); one inside the parameter list makes the answer None (where the list closes
-    is undecided).
+    list closes with `>`, then a parenthesized parameter list, then `=>` or a `:` return type. None when the text
+    cannot tell.
 
-    The text within reach is read by the lexer itself, as TypeScript (no JSX in a type or a parameter list), so a
-    `//`, `/*`, quote or bracket inside a regex, string, template or comment there is that literal's text: in
-    `<T extends U>(x = /[//]/) => x` the regex's `//` hides no `)`. Only its code tokens count as brackets."""
-    window = source[index : index + _JAVASCRIPT_TYPE_LOOKAHEAD]
-    executable, comments, unresolved = _lexical_positions_and_unresolved(window, ".ts")
+    The text within reach after the `<` is read by the lexer itself, as .tsx, so a `//`, `/*`, quote or bracket inside
+    a regex, string, template, comment or JSX element there is that literal's text: in `<T extends U>(x = /[//]/) => x`
+    the regex's `//` hides no `)`, and in `(x = <div></div>)` the closing tag's slash opens no regex. Only code tokens
+    count as brackets. That lex starts no lookahead of its own (`_JAVASCRIPT_LOOKAHEAD_ACTIVE`): each `<` costs one
+    lex of a bounded window, so a file costs time linear in its size.
+
+    In the type parameter list `<` and `>` are brackets (a type holds no comparison), and an unresolved slash makes it
+    no list (a type holds no regex and no division: `<Tile extends {...p} />` is a tag). In the parameter list `<` and
+    `>` inside a default value (after `=`, up to its `,`) compare (`${a < b}`) or delimit JSX, and close nothing;
+    elsewhere (a type annotation, a binding pattern) they are a type's brackets. A closer that does not match its
+    opener (`({a < b})`: no parameter list), an unresolved token, or a nested arrow's `<`, makes the answer None."""
+    global _JAVASCRIPT_LOOKAHEAD_ACTIVE
+    # The `<` itself is left out (a blank in its place keeps the offsets): read, it would ask this lookahead again.
+    window = " " + source[index + 1 : index + _JAVASCRIPT_TYPE_LOOKAHEAD]
+    _JAVASCRIPT_LOOKAHEAD_ACTIVE = True
+    try:
+        executable, comments, unresolved = _lexical_positions_and_unresolved(window, ".tsx")
+    finally:
+        _JAVASCRIPT_LOOKAHEAD_ACTIVE = False
     first_unresolved = min(unresolved, default=len(window))
 
-    def balanced_end(start: int) -> Optional[int]:
-        # Just past the code bracket that closes the one at START; -1 when it is not within reach, or None when an
-        # unresolved slash comes first.
-        stack = [_JAVASCRIPT_CLOSERS[window[start]]]
-        position = start + 1
+    def type_parameters_end() -> Optional[int]:
+        # Just past the `>` that closes the list; -1 when it is not within reach, None when a nested arrow's `<`
+        # (unresolved in this lex) comes first.
+        stack = [">"]
+        position = 1
         while position < len(window):
             if position == first_unresolved:
-                return None
+                return None if window[position] == "<" else -1
             character = window[position]
             if not executable[position]:
                 pass
@@ -821,30 +856,72 @@ def _javascript_angle_is_type_parameters(source: str, index: int) -> Optional[bo
             position += 1
         return -1
 
+    def parameters_end(start: int) -> Optional[int]:
+        # Just past the `)` that closes the list at START; -1 when it is not within reach, None when an unresolved
+        # token comes first, _JAVASCRIPT_PARAMETERS_MISMATCH when a closer does not match its opener.
+        frames = [[")", False]]  # [closer, inside a default value]
+        position = start + 1
+        while position < len(window):
+            if position == first_unresolved:
+                return None
+            character = window[position]
+            if not executable[position]:
+                pass
+            elif window.startswith("=>", position):
+                position += 2
+                continue
+            elif character == "<" and frames[-1][0] != ">" and any(in_default for _, in_default in frames):
+                # In a default value a `<` where an expression starts and that opens no JSX tag opens a nested
+                # arrow's type parameters (`<V,>`, `<V = W>`); after an operand it compares, and closes nothing.
+                # (A nested `<V extends W>` was left unresolved by the lex, so the walk never gets here with one.)
+                if _javascript_expression_starts_after(
+                    window, position, executable, comments
+                ) and not _javascript_jsx_tag_opens_at(window, position):
+                    frames.append([">", False])
+            elif character == ">" and frames[-1][0] != ">" and any(in_default for _, in_default in frames):
+                pass
+            elif character in _JAVASCRIPT_CLOSERS:
+                frames.append([_JAVASCRIPT_CLOSERS[character], False])
+            elif character in ")]}>":
+                if character != frames[-1][0]:
+                    return _JAVASCRIPT_PARAMETERS_MISMATCH
+                frames.pop()
+                if not frames:
+                    return position + 1
+            elif character == "=" and window[position + 1 : position + 2] != "=" and window[position - 1] not in "=!":
+                frames[-1][1] = True
+            elif character == ",":
+                frames[-1][1] = False
+            position += 1
+        return -1
+
     def skip_trivia(position: int) -> int:
         while position < len(window) and (comments[position] or _javascript_is_blank(window[position])):
             position += 1
         return position
 
-    close = balanced_end(0)
+    close = type_parameters_end()
     if close is None or close < 0:
-        return False
+        return None if close is None else False
     params = skip_trivia(close)
     if not window.startswith("(", params):
         return False
-    params_end = balanced_end(params)
-    if params_end is None or params_end < 0:
-        return None if params_end is None else False
+    params_end = parameters_end(params)
+    if params_end is None or params_end == _JAVASCRIPT_PARAMETERS_MISMATCH:
+        return None
+    if params_end < 0:
+        return False
     return window.startswith(("=>", ":"), skip_trivia(params_end))
 
 
-def _javascript_jsx_tag_opens_at(source: str, index: int) -> Optional[bool]:
+def _javascript_jsx_tag_opens_at(source: str, index: int, path_suffix: str = ".tsx") -> Optional[bool]:
     """Whether the `<` at INDEX reads as a JSX open tag or fragment where an expression may start: `<>` or `<Name`,
     unless the name is followed by `=` or `,` (`<T = V>`, `<T,>`: type parameters), or by `extends` that opens a
     generic arrow's type parameters (`<T extends U>(x) => x`). An attribute named `extends`, bare or with a value
     (`<Tile extends {...p} />`, `<div extends="x">`), keeps the tag. Blanks are ECMAScript's (U+00A0 included), and
     a comment between the name and what follows is skipped (`<T /*doc*/ extends U>`). None when the type-parameter
-    lookahead meets an unresolved slash before it can tell."""
+    lookahead cannot tell, or runs inside another one. Only a .tsx file has type parameters: in a .js or .jsx file
+    `<Tile extends U>` is always a tag."""
     after = index + 1
     if after >= len(source):
         return False
@@ -864,6 +941,10 @@ def _javascript_jsx_tag_opens_at(source: str, index: int) -> Optional[bool]:
         rest = _javascript_skip_trivia(source, end + 7)
         if source.startswith("=", rest) and not source.startswith(("==", "=>"), rest):
             return True  # `extends="x"`: an attribute
+        if path_suffix != ".tsx":
+            return True
+        if _JAVASCRIPT_LOOKAHEAD_ACTIVE:
+            return None
         type_parameters = _javascript_angle_is_type_parameters(source, index)
         return None if type_parameters is None else not type_parameters
     return True
@@ -1203,7 +1284,7 @@ def _lexical_positions_and_unresolved(
                 # The closing `>` is no operator: like a string's end, a slash after it divides.
                 contexts.pop()
                 index = close + 1
-            elif (tag_opens := _javascript_jsx_tag_opens_at(line, index)) is not False:
+            elif (tag_opens := _javascript_jsx_tag_opens_at(line, index, path_suffix)) is not False:
                 # Undecided, it is read as a tag (in children a `<` can only open one), but unresolved.
                 if tag_opens is None:
                     unresolved.append(index)
@@ -1413,7 +1494,7 @@ def _lexical_positions_and_unresolved(
             index = comment_end
             continue
 
-        if is_jsx and character == "<" and (tag_opens := _javascript_jsx_tag_opens_at(line, index)) is not False:
+        if is_jsx and character == "<" and (tag_opens := _javascript_jsx_tag_opens_at(line, index, path_suffix)) is not False:
             # Where an expression starts, `<Name` or `<>` opens a JSX element; after a name or a value it is a
             # comparison. Where the text cannot tell (after a `)` or `}` it cannot classify, or a slash in the
             # type-parameter lookahead it cannot), it is unresolved.
@@ -5659,6 +5740,13 @@ _ATTRIBUTION_CONSTRUCTS: list[tuple[str, str, str]] = [
     # A `!` right after a name is TypeScript's postfix non-null assertion: the `<` after it compares (F3).
     ("tsx comparison after a non-null assertion", "web/tests/b32.test.tsx",
      "    const n = value! <limit > floor; const o = {\n      a: 1 };\n"),
+    # The type-parameter lookahead reads `<` and `>` as brackets only in the type parameter list, and JSX in a
+    # parameter default as JSX: a comparison in a template hole, or a closing tag's slash, leaves the arrow an arrow
+    # (review of #41452, F1 and F2).
+    ("tsx generic arrow with a comparison in a default's template hole", "web/tests/b33.test.tsx",
+     "    const f = <T extends U>(x = `${a < b}`) => x; const o = {\n      a: 1 };\n"),
+    ("tsx generic arrow with JSX in a parameter default", "web/tests/b34.test.tsx",
+     "    const f = <T extends U>(x = <div></div>) => x; const o = {\n      a: 1 };\n"),
     ("swift multi-line string", "cmuxTests/A1Tests.swift", "        let json = \"\"\"\n        {\"a\": 1\n        \"\"\"\n"),
     ("swift raw string with quotes", "cmuxTests/A2Tests.swift", "        let s = #\"a \"{\" b\"#\n"),
     ("swift multi-line raw string", "cmuxTests/A3Tests.swift",
@@ -5834,6 +5922,20 @@ ATTRIBUTION_GUARDS: list[tuple[str, str, str, str, dict[int, str]]] = [
      "        time.sleep(0.5)\n"
      "        self.assertTrue(done())\n",
      RULE_SLEEP_THEN_ASSERT, {6: "Waits.test_a"}),
+    # `<Tile extends U>({a < b}): x</Tile>` is a tag: a .jsx file has no type parameters, and in a .tsx file `({a < b})`
+    # is no parameter list TypeScript parses, so it is unresolved there, never a guessed arrow. The sleep after the
+    # tag is in its comment (review of #41464, F2).
+    ("jsx tag named like a generic arrow, a comparison in a hole", "web/tests/g14.test.jsx",
+     _js_attribution_fixture(
+         "    const el = <Tile extends U>({a < b}): x</Tile>; // await new Promise((r) => setTimeout(r, 200));\n"
+         "    expect(drawn).toBe(true);\n"
+     ), RULE_SLEEP_THEN_ASSERT, {7: "pane.b"}),
+    ("tsx tag named like a generic arrow, a comparison in a hole", "web/tests/g15.test.tsx",
+     _js_attribution_fixture(
+         "    const el = <Tile extends U>({a < b}): x</Tile>; // await new Promise((r) => setTimeout(r, 200));\n"
+         "    expect(drawn).toBe(true);\n"
+     ), RULE_SLEEP_THEN_ASSERT,
+     {3: "<unresolved: JSX tag or comparison at 3:16>", 7: "<unresolved: JSX tag or comparison at 3:16>"}),
 ]
 
 
@@ -6034,6 +6136,79 @@ def _regex_after_token_self_test(strict: bool = False) -> tuple[list[str], int, 
         for group, count in counts.items()
     )
     return failures, cases, summary
+
+
+# The review of #41464 (F1) measured 24 generic arrows in a row past 10 s, where the base took 0.07 s.
+_LOOKAHEAD_SCALING_ARROWS = 64
+_LOOKAHEAD_CALLS_PER_ARROW = 2
+_LOOKAHEAD_CLI_SECONDS = 10
+
+
+def _lookahead_scaling_self_test() -> list[str]:
+    """The type-parameter lookahead costs a bounded amount per `<`: for N = 1..64 generic arrows in a row the lexer
+    runs at most 2N lookaheads (counted, never timed; the count stops at its budget, so an exponential lexer fails
+    fast instead of hanging). And the CLI finishes a file of 24 or 200 of them, with its finding, within 10 s: an
+    outcome (the run ends, the finding is reported), not a timing."""
+    import subprocess
+    import tempfile
+
+    failures: list[str] = []
+    module = sys.modules[__name__]
+    original = module._javascript_angle_is_type_parameters
+
+    class OverBudget(Exception):
+        pass
+
+    def arrows(count: int) -> str:
+        return "".join(f"const f{k} = <T extends U>(x: T) => x;\n" for k in range(count))
+
+    for count in range(1, _LOOKAHEAD_SCALING_ARROWS + 1):
+        budget = _LOOKAHEAD_CALLS_PER_ARROW * count
+        calls = 0
+
+        def counted(source: str, index: int) -> Optional[bool]:
+            nonlocal calls
+            calls += 1
+            if calls > budget:
+                raise OverBudget
+            return original(source, index)
+
+        module._javascript_angle_is_type_parameters = counted
+        try:
+            _lexical_positions_and_unresolved(arrows(count), ".tsx")
+        except OverBudget:
+            failures.append(
+                f"LOOKAHEAD scaling: {count} generic arrows in a row ran more than {budget} type-parameter lookaheads "
+                f"({_LOOKAHEAD_CALLS_PER_ARROW} per arrow)"
+            )
+            break
+        finally:
+            module._javascript_angle_is_type_parameters = original
+
+    for count in (24, 200):
+        with tempfile.TemporaryDirectory() as tmp:
+            rel = f"web/tests/arrows{count}.test.tsx"
+            source = arrows(count) + _js_attribution_fixture("    const a = 1;\n")
+            (pathlib.Path(tmp) / "web/tests").mkdir(parents=True)
+            (pathlib.Path(tmp) / rel).write_text(source)
+            want = f"{rel}:{_sleep_line(source)}: {RULE_SLEEP_THEN_ASSERT} in pane.b:"
+            try:
+                result = subprocess.run(
+                    [sys.executable, str(pathlib.Path(__file__).resolve()), "--repo-root", tmp, "--allowlist",
+                     "allow.txt", "--roots", "web/tests", "--strict"],
+                    capture_output=True, text=True, timeout=_LOOKAHEAD_CLI_SECONDS, stdin=subprocess.DEVNULL,
+                )
+            except subprocess.TimeoutExpired:
+                failures.append(
+                    f"LOOKAHEAD {count} generic arrows: the CLI did not finish within {_LOOKAHEAD_CLI_SECONDS} s"
+                )
+                continue
+            if result.returncode != 1 or want not in result.stdout:
+                failures.append(
+                    f"LOOKAHEAD {count} generic arrows: expected exit 1 with {want!r}, got {result.returncode}: "
+                    f"{result.stdout + result.stderr!r}"
+                )
+    return failures
 
 
 def _allowlist_self_test() -> list[str]:
@@ -8288,6 +8463,7 @@ def _self_test(strict: bool = False) -> int:
     failures += _isolated_import_self_test()
     failures += _allowlist_self_test()
     failures += _attribution_self_test()
+    failures += _lookahead_scaling_self_test()
     regex_failures, regex_cases, parser_summary = _regex_after_token_self_test(strict)
     failures += regex_failures
     print(f"regex-after-token against the parser's ranges: {parser_summary}")
