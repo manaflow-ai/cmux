@@ -924,6 +924,7 @@ final class ComposeView: UIView {
             keep = m.starts.count - 2
             from = second
         }
+        heightTypesets += 1  // cmux: tests (a key in a field that shows the draft typesets none of it again)
         let tail = TextLayout.make(u.substring(from: from), runs: [], maxWidth: w, font: ComposeView.font).lines
         let starts = Array((linesMemo?.starts ?? []).prefix(keep)) + tail.map { $0.range.location + from }
         linesMemo = (text, w, starts.count, starts)
@@ -947,6 +948,8 @@ final class ComposeView: UIView {
     /// cmux: the last draft's line count and where each of its lines starts (UTF-16), for the
     /// incremental layout of the next key.
     private var linesMemo: (text: String, width: CGFloat, count: Int, starts: [Int])?
+    /// cmux: how often the height typeset the draft's text (read by tests).
+    private(set) var heightTypesets = 0
     /// The empty draft's one line at any text width from this (a space is about 4 pt wide).
     static let emptyLineMinWidth: CGFloat = 20
     private var emptyLinesMemo: (CGFloat, Int)?
