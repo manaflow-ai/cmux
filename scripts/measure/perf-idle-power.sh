@@ -24,6 +24,12 @@
 #   mode (3 by default; 5 gives 15 relaunches across warm, update and cold).
 #   The log prints the per-process table between PERF-IDLE-CHATS-TABLE-BEGIN and -END;
 #   the JSON keeps it as results[0].markdown.
+# A JS CPU profile of every agent page during a many-chats window (cmuxterm-hq#16576: what the busy renderer main thread
+# runs): jsprofile=1 builds a Debug app (only a Debug build opens a DevTools port), opens port 9333 and profiles all
+# pages from scripts/cmux-next/cdp-pages-profile.mjs for the window; the run's result keeps `js_profile` and the
+# artifact is artifacts/js-profile.tgz (the JSON, the markdown and every page's .cpuprofile):
+#   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/perf-idle-power.sh --ref SHA \
+#     --arg=scenarios=many-chats-heavy --arg=jsprofile=1 --artifact artifacts/js-profile.tgz --timeout 7200
 # Output: PERF-POWER lines; JSON at artifacts/perf-idle-power.json.
 set -euo pipefail
 measure=""
@@ -38,6 +44,7 @@ freeze=""
 neighbors=""
 extension=""
 pages=""
+jsprofile=""
 for arg in "$@"; do
   case "$arg" in
     measure=*) measure="${arg#measure=}"; [[ "$measure" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: measure=SECONDS" >&2; exit 2; } ;;
@@ -52,6 +59,7 @@ for arg in "$@"; do
     neighbors=*) neighbors="${arg#neighbors=}"; [[ "$neighbors" =~ ^[0-3]$ ]] || { echo "perf-idle-power.sh: neighbors=0..3" >&2; exit 2; } ;;
     extension=*) extension="${arg#extension=}"; [[ "$extension" =~ ^[a-z0-9-]+$ ]] || { echo "perf-idle-power.sh: extension=NAME" >&2; exit 2; } ;;
     pages=*) pages="${arg#pages=}"; [[ "$pages" =~ ^(static|busy)$ ]] || { echo "perf-idle-power.sh: pages=static|busy" >&2; exit 2; } ;;
+    jsprofile=*) jsprofile="${arg#jsprofile=}"; [[ "$jsprofile" =~ ^[01]$ ]] || { echo "perf-idle-power.sh: jsprofile=0|1" >&2; exit 2; } ;;
     *) echo "perf-idle-power.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -61,6 +69,7 @@ if sys.argv[2]: b["freezeHiddenTabs"]=int(sys.argv[2])
 if sys.argv[3]: b["keepNeighborTabsAwake"]=int(sys.argv[3])
 print(json.dumps(s))' "$settings" "$freeze" "$neighbors")"
 fi
+[ "$jsprofile" = "1" ] && config=Debug
 cd "$(git rev-parse --show-toplevel)"
 work=".build/perf-idle-power"
 rm -rf "$work"; mkdir -p "$work" artifacts
@@ -92,5 +101,21 @@ extra=()
 [ -n "$budget" ] && extra+=(--process-budget "$budget")
 [ -n "$extension" ] && extra+=(--extension "$extension")
 [ -n "$pages" ] && extra+=(--tab-page "$pages")
+if [ "$jsprofile" = "1" ]; then
+  # Steps run with a per-step HOME; node (22+ for the profile script's WebSocket) lives under the account's real home.
+  account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+  for tool_dir in "$account_home/.local/node/bin" /opt/homebrew/bin /usr/local/bin; do
+    [ -d "$tool_dir" ] && PATH="$tool_dir:$PATH"
+  done
+  export PATH
+  command -v node >/dev/null || { echo "perf-idle-power: jsprofile=1 needs node" >&2; exit 1; }
+  echo "PERF-JS-PROFILE-NODE $(node --version)"
+  extra+=(--env "CMUX_NEXT_CEF_EXTRA_SWITCHES=remote-debugging-port=9333:remote-allow-origins=*" --cdp-profile "9333:$work/js-profile")
+fi
 python3 scripts/cmux-next/bench_power.py --app "$app" --config "$settings" \
   --out artifacts/perf-idle-power.json --md artifacts/perf-idle-power.md ${extra[@]+"${extra[@]}"}
+if [ "$jsprofile" = "1" ]; then
+  tar -czf artifacts/js-profile.tgz -C "$work" js-profile -C "$PWD/artifacts" perf-idle-power.json perf-idle-power.md 2>/dev/null \
+    || tar -czf artifacts/js-profile.tgz -C "$work" js-profile
+  ls -l artifacts/js-profile.tgz
+fi

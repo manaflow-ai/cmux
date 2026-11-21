@@ -882,6 +882,34 @@ def idle_profile(sock: str, pages: list[dict], seconds: float) -> list[dict]:
     return out
 
 
+def start_js_profile(spec: str, measure: float):
+    """--cdp-profile PORT:OUTDIR: a JS CPU profile of every agent page over the app's DevTools port (a Debug build
+    opened with remote-debugging-port=PORT), started as the measured window starts and ended before it does
+    (cdp-pages-profile.mjs connects to each page first, a few seconds). cmuxterm-hq#16576: what the busy renderer runs."""
+    port, _, out_dir = spec.partition(":")
+    script = os.path.join(HERE, "cdp-pages-profile.mjs")
+    seconds = max(10, int(measure) - 12)
+    proc = subprocess.Popen(["node", script, port, str(seconds), out_dir], stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True)
+    return {"proc": proc, "out_dir": out_dir, "seconds": seconds}
+
+
+def finish_js_profile(handle: dict) -> dict:
+    """Waits for the profile started by start_js_profile; prints its PAGES-PROFILE lines and returns summary.json."""
+    try:
+        text, _ = handle["proc"].communicate(timeout=handle["seconds"] + 90)
+    except subprocess.TimeoutExpired:
+        handle["proc"].kill()
+        text, _ = handle["proc"].communicate()
+        text += "\ncdp-pages-profile.mjs timed out"
+    print("PERF-JS-PROFILE-BEGIN\n" + text.strip() + "\nPERF-JS-PROFILE-END", flush=True)
+    try:
+        with open(os.path.join(handle["out_dir"], "summary.json")) as summary:
+            return json.load(summary)
+    except (OSError, ValueError):
+        return {"error": text.strip()[-2000:]}
+
+
 def run_loaded(args):
     """An idle-cost scenario (`loaded` or `idle-chats`, see the module): load, settle, measure, report."""
     label = getattr(args, "scenario", "loaded")
@@ -925,7 +953,10 @@ def run_loaded(args):
         pushes_at = time.monotonic()
         time.sleep(5)  # test script: the debug read's own work ends before the window
         hangs = HangWatch(sock).start() if label.startswith("many-chats") else None
+        js_profile = start_js_profile(args.cdp_profile, args.measure) if args.cdp_profile else None
         result = measure_processes(pid, args.app, label, args.measure, roles, peer.pids())
+        if js_profile:
+            result["js_profile"] = finish_js_profile(js_profile)
         result["load"] = reached
         if hangs:
             result["hangs"] = hangs.finish()
@@ -1029,6 +1060,9 @@ def main():
                         help="load this minimal unpacked extension (CMUX_NEXT_CEF_LOAD_EXTENSIONS)")
     parser.add_argument("--tab-page", choices=("static", "busy"), default="static",
                         help="the page the 20 tabs open: the static article or /busy.html (a timer and an animation loop)")
+    parser.add_argument("--cdp-profile", metavar="PORT:OUTDIR",
+                        help="many-chats: a JS CPU profile of every agent page during the measured window (a Debug build with "
+                             "CMUX_NEXT_CEF_EXTRA_SWITCHES=remote-debugging-port=PORT:remote-allow-origins=* in --env); needs node 22+")
     parser.add_argument("--tunable", action="append", default=[], metavar="KEY=JSON",
                         help="a Debug Settings value for this run (repeatable), e.g. browserPage.sparePage=true: the arms of an A/B")
     parser.add_argument("--neighbor-gap", type=float, default=7, help="seconds before each neighbors-scenario switch")
