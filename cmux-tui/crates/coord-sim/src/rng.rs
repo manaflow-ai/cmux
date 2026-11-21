@@ -1,5 +1,9 @@
 //! A seeded splitmix64: every run with the same seed makes the same chats, byte for byte.
 
+// Shared model of the coord-sim subcommands: each of gen, agent, drive, degen, fanin and report reads its own
+// part (and the coord-shape.v1 schema fields stay whole), so one subcommand's build leaves the rest unread.
+#![allow(dead_code)]
+
 #[derive(Debug, Clone)]
 pub struct Rng(u64);
 
