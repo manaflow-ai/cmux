@@ -57,6 +57,7 @@ SELECTION_INPUTS = frozenset({
     "scripts/ci/run_ci_guards.py",
     "scripts/ci/guards-local.sh",
     "scripts/ci/gh_expressions.py",
+    "scripts/cmux-next/safe_log.py",  # run_ci_guards.py's output helper
 })
 CODE_SUFFIXES = (".py", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".tsx")
 JS_SUFFIXES = (".js", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".tsx")
@@ -223,7 +224,9 @@ class Tree:
             return found
         text = self.read(current)
         if text is None:
-            return found
+            if current in self.files:  # tracked but unreadable here: what it reaches is unknown, so it runs
+                found.whole = f"cannot read {current} (not UTF-8 or not readable)"
+            return found  # a file the change deletes: the path itself is the input
         if current.endswith(".py") or text.startswith(("#!/usr/bin/env python", "#!/usr/bin/python")):
             found.whole = self.python(current, text, found, changed)
             return found

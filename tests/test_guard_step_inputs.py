@@ -229,6 +229,11 @@ class GuardStepInputs(unittest.TestCase):
         self.assertIn("two", self.picked("scripts/ci/data_only.py"))
         self.assertIn("two", self.picked("tests/test_e.py"))
 
+    def test_an_unreadable_tracked_source_runs_its_step(self):
+        tree = g.Tree(self.tree.root)
+        tree.read = lambda path: None if path == "scripts/ci/helper.py" else g.Tree.read(tree, path)
+        self.assertIn("cannot read scripts/ci/helper.py", g.inputs_of(tree, STEPS[0]).whole)
+
     def test_the_selection_itself_and_a_huge_change_run_everything(self):
         self.assertIn("selection itself", g.everything_reason([".github/workflows/ci-guards.yml"]))
         self.assertIn("selection itself", g.everything_reason(["scripts/ci/guard_step_inputs.py"]))
