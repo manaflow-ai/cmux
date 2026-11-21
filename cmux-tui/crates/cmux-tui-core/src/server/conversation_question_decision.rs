@@ -65,12 +65,36 @@ fn stored_question(mux: &Mux, params: &DecisionParams) -> anyhow::Result<Questio
     }
 }
 
-/// The reply: the unsigned decision and the live request it was read from, which the app digests
-/// and compares with its own read of the prompt.
-fn reply(decision: UnsignedDecision, request: &Value) -> anyhow::Result<Value> {
+/// The reply: the unsigned decision, the stored question, and the live request it was read from
+/// with its digest (sha256 of its JSON with keys sorted), which the app compares with its own read
+/// of the prompt. With the person's proof added, the reply's `question`, `request`, `digest`,
+/// `instance`, `option_id` and `decision_nonce` are the `question.answer` op's `decision`.
+fn reply(
+    question: &Question,
+    decision: UnsignedDecision,
+    request: &Value,
+) -> anyhow::Result<Value> {
     let mut value = serde_json::to_value(decision)?;
+    value["question"] = serde_json::to_value(question)?;
     value["request"] = request.clone();
+    value["digest"] = Value::String(request_digest(request));
     Ok(value)
+}
+
+/// Lowercase hex sha256 of `request` as compact JSON with every object's keys sorted.
+pub(in crate::server) fn request_digest(request: &Value) -> String {
+    use sha2::{Digest, Sha256};
+    fn sorted(value: &Value) -> Value {
+        match value {
+            Value::Object(map) => {
+                let keys: std::collections::BTreeMap<_, _> = map.iter().collect();
+                Value::Object(keys.into_iter().map(|(k, v)| (k.clone(), sorted(v))).collect())
+            }
+            Value::Array(items) => Value::Array(items.iter().map(sorted).collect()),
+            other => other.clone(),
+        }
+    }
+    format!("{:x}", Sha256::digest(sorted(request).to_string().as_bytes()))
 }
 
 /// The unsigned decision from `pending`, the prompt's live `_acpmux/info` pending entries.
@@ -82,6 +106,10 @@ pub(in crate::server) fn decide_from(
     if !info.get("peer").is_none_or(Value::is_null) {
         // A peer's prompt is that machine's to decide; its key is not this app's.
         return Err(refused("question.not_local"));
+    }
+    if question_wire::is_native_approval(question) {
+        // A tool-permission card: the app answers acpmux natively and only records the card.
+        return Err(refused("question.native_approval"));
     }
     let permission =
         question.permission.as_deref().ok_or_else(|| refused("question.no_request"))?;
@@ -96,7 +124,7 @@ pub(in crate::server) fn decide_from(
         .ok_or_else(|| refused("question.closed"))?;
     let decision = question_wire::unsigned_decision(question, answer, entry)
         .map_err(|error| anyhow::Error::from(DecisionRefused::from(error)))?;
-    reply(decision, &entry["request"])
+    reply(question, decision, &entry["request"])
 }
 
 #[cfg(unix)]
