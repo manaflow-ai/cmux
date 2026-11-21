@@ -12,6 +12,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -137,7 +138,7 @@ async function mount(kind: "spare" | "direct" | "new") {
   return WORKED_SESSION;
 }
 
-const rows = () => host.querySelectorAll(".acpmux-row[data-row-id]").length;
+const rows = () => host.querySelectorAll(TRANSCRIPT_ROW).length;
 const dock = () => host.querySelector<HTMLElement>(".acpmux-dock");
 const stage = () => host.querySelector<HTMLElement>(".acpmux-stage");
 const shown = (element: HTMLElement | null) => element !== null && element.style.display !== "none";
