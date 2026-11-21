@@ -1960,17 +1960,6 @@ function openSendBody(
   return height;
 }
 
-/// Whether a call sends another agent a message (toolGroups.ts `SentEntry`): cheap checks first.
-const sendsMessage = (tool: NonNullable<AcpmuxActivity["tool"]>): boolean =>
-  Boolean(
-    agentMessage(tool) ||
-    acpmuxSendCalls(tool) ||
-    acpmuxMcpSends(tool) ||
-    (() => {
-      const mcp = mcpCall(tool);
-      return mcp !== undefined && subsessionCall(tool, mcp)?.tool === "send";
-    })(),
-  );
 /// A folded run's lines as ToolRows draws them (TurnRows.tsx, toolGroups.ts `runStretches`): the
 /// work between coordination cards folds under one summary line per stretch, and every card the run
 /// keeps in sight is its own row. A run of agent-to-agent messages ("Sent to lane-a", a command,
@@ -1986,12 +1975,19 @@ const sendsMessage = (tool: NonNullable<AcpmuxActivity["tool"]>): boolean =>
 /// it, read with the same key, default and links ToolRows gives it (TurnRows.tsx): the estimate is what
 /// places the row whenever its drawn height is gone (another width, its fold closed and opened again,
 /// history paged out and back).
-function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: number, sessionId?: string): number {
+/// `live`: the row is the live turn's latest, so its last entry's thought may still stream (TurnRows.tsx).
+function foldedRunSteps(
+  row: AcpmuxRow,
+  groups: readonly ToolGroup[],
+  width: number,
+  sessionId?: string,
+  live = false,
+): number {
   // `.cv-tools` and `.cv-tool-run` stack their lines flush (conversation.css), 22 apart.
   const stretches = runStretches(row, groups);
   // Each entry's thoughts are numbered from the row's earlier ones (TurnRows.tsx `thoughtIds`).
   const thoughts = thoughtIds(groups);
-  return stretches.reduce((height, stretch) => {
+  return stretches.reduce((height, stretch, index) => {
     const start = stretchStart(row, stretch);
     const runKey = runDisclosureKey(stretch, row.id);
     if (stretch.fold) {
@@ -2017,7 +2013,8 @@ function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: num
             members: callDisclosureKeys("items" in group ? group.items : [group.item]),
           });
         const before = thoughts[stretch.from + offset];
-        return sum + foldedGroupHeight(group, width, !open, sessionId, row.id, before);
+        const last = live && index === stretches.length - 1 && offset === stretch.groups.length - 1;
+        return sum + foldedGroupHeight(group, width, !open, sessionId, row.id, before, last);
       }, 0)
     );
   }, 0);
@@ -2037,7 +2034,7 @@ export function openRunBody(steps: number): number {
 /// Open (`closed` false), a group is its line over its calls, but an edits group stays closed
 /// (ToolGroupRow.tsx).
 /// `sessionId`, `rowId` and `thoughts` (the row's thoughts before it) read the lines in it the reader
-/// opened (`stepsHeight`).
+/// opened (`stepsHeight`); `live`, its last thought may still stream.
 function foldedGroupHeight(
   group: ToolGroup,
   width: number,
@@ -2045,6 +2042,7 @@ function foldedGroupHeight(
   sessionId?: string,
   rowId = "",
   thoughts = 0,
+  live = false,
 ): number {
   if (group.type === "group" && !closed && group.kind !== "edits")
     return toolRowHeight() + openRunBody(stepsHeight(group.items, width, sessionId, rowId, thoughts));
@@ -2059,7 +2057,7 @@ function foldedGroupHeight(
   if (group.type === "group") return toolRowHeight();
   // `.cv-tool-group` lists its calls flush too.
   const items = "items" in group ? group.items : [group.item];
-  return stepsHeight(items, width, sessionId, rowId, thoughts);
+  return stepsHeight(items, width, sessionId, rowId, thoughts, live);
 }
 
 /// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
@@ -2573,15 +2571,13 @@ function fallbackRowHeight(
       if (row.runOpen || groups.some(staysInSight) || isFoldedRun(items))
         return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width, sessionId));
     }
-    let steps = items.length ? stepsHeight(items, width, sessionId, row.id, 0, row.live === true) : toolRowHeight();
-    // Adjacent calls that each sent a message draw as one closed group's line (toolGroups.ts
-    // `sendGroup`), not a line per call. One call's batch is one step already.
-    if (items.filter((item) => item.tool && sendsMessage(item.tool)).length > 1)
-      for (const group of toolGroups(items))
-        if (group.type === "sendGroup" && group.items.length > 1)
-          steps +=
-            messageRowHeight(true) - group.items.reduce((height, item) => height + activityStepHeight(item, width), 0);
-    return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
+    if (!items.length) return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + toolRowHeight());
+    // Any other row draws its entries as ToolRows does (TurnRows.tsx): one node per group, so a run of
+    // commands is one "Ran N commands" group, open by default in its scroll box (`openRunBody`), not a
+    // line per call (Leo, 2026-11-17: a gap under the row, and rows shifting when it was measured).
+    return finish(
+      TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, toolGroups(items), width, sessionId, row.live === true),
+    );
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
   // subagent, the last with the list's 8px below (subagents/SubagentGroup.tsx).
@@ -4125,7 +4121,6 @@ import { cardOpen } from "./turnChanges/openStore";
 import { editedFilesSettings } from "./turnChanges/settings";
 import { runScroll } from "./conversation/runScroll.experiment";
 import { acpmuxSendCalls } from "./conversation/acpmuxSends";
-import { acpmuxMcpSends } from "./conversation/acpmuxMcpSends";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { isQuietThought, isThought, mergeThoughts, thoughtParts } from "./conversation/thoughts";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
