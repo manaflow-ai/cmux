@@ -805,10 +805,10 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
 
 
 def grant_outputs(env: Mapping[str, str], jobs: int) -> dict[str, str] | None:
-    """The outputs when this run's Mac jobs take the controller's grant label (mac_grants.py), else None.
+    """The outputs when this run's Mac jobs take the controller-granted cmux-mac label (mac_grants.py), else None.
 
     With scripts/ci/mac-grants.json on, a same-repository pull request picks no pool: `grant` is the
-    runs-on every Mac job of the run reads first (`["cmux-<run>-<attempt>-mac","xcode-<version>"]`), and
+    runs-on every Mac job of the run reads first (`["cmux-mac","xcode-<version>"]`), and
     every pool output is empty, so no marker claims owned machines, admission-placement and late-placement
     place nothing, and no runner list is read. `xcode_app` keeps the lane's pin, which names the Xcode the
     grant asks for. Off, or any other run: None, and the pick and its outputs are what they were.

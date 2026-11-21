@@ -2,7 +2,7 @@
 """The Mac grant switch (CI v2 step 9, cmuxterm-hq#16502).
 
 With scripts/ci/mac-grants.json on, every same-repository Mac pull request job asks for
-`cmux-<run_id>-<run_attempt>-mac` (plus `xcode-<version>`); off, every route is what it was.
+`cmux-mac` (plus `xcode-<version>`); off, every route is what it was.
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from test_seed_derived_data import evaluate, github_context, load  # noqa: E402
 REPO = "manaflow-ai/cmux"
 PR_ENV = {"EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": REPO, "GITHUB_REPOSITORY_OWNER": "manaflow-ai",
           "HEAD_REPO": REPO, "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "2"}
-GRANT = '["cmux-123-2-mac","xcode-26.6"]'
+GRANT = '["cmux-mac","xcode-26.6"]'
 
 # Every Mac pull request job the switch moves, and the expression it reads the grant from.
 PICKER_TERM = "github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant) || "
@@ -74,9 +74,10 @@ class Switch(unittest.TestCase):
         self.assertEqual(mac_grants.grant_labels(PR_ENV, ['["glaeda-side","glaeda-side-xcode-26.6"]'], path=on),
                          GRANT)
         self.assertEqual(mac_grants.grant_labels(PR_ENV, ["", None, "glaeda-std-xcode-26.6"], path=on), GRANT)
-        self.assertEqual(mac_grants.grant_labels(PR_ENV, ["glaeda-std"], path=on), '["cmux-123-2-mac"]')
+        self.assertEqual(mac_grants.grant_labels(PR_ENV, ["glaeda-std"], path=on), '["cmux-mac"]')
         self.assertTrue(mac_grants.is_grant_label("cmux-123-2-mac"))
         self.assertFalse(mac_grants.is_grant_label("cmux-linux"))
+        self.assertEqual(mac_grants.grant_label(123, 2), "cmux-123-2-mac")
 
     def test_forks_other_events_and_other_owners_get_no_grant(self):
         on = switch(True)
@@ -205,9 +206,10 @@ class Workflows(unittest.TestCase):
 
 class Watchers(unittest.TestCase):
     def test_the_rescue_and_the_starvation_alarm_leave_a_granted_job_to_the_controller(self):
-        job = {"name": "app-host-unit-tests (1)", "labels": ["cmux-123-2-mac", "xcode-26.6"], "status": "queued"}
-        self.assertIsNone(owned_pool_rescue.job_pool(job))
-        self.assertEqual(starved_labels.fleet_key(job), "")
+        for labels in (["cmux-mac", "xcode-26.6"], ["cmux-123-2-mac", "xcode-26.6"]):
+            job = {"name": "app-host-unit-tests (1)", "labels": labels, "status": "queued"}
+            self.assertIsNone(owned_pool_rescue.job_pool(job), labels)
+            self.assertEqual(starved_labels.fleet_key(job), "", labels)
 
 
 if __name__ == "__main__":
