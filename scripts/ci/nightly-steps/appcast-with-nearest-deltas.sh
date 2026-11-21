@@ -105,6 +105,7 @@ fi
 
 # After the feed: nothing here may fail the build (the workflow steps are continue-on-error too).
 if [ "$mode" = after-feed ]; then
+  rm -rf nightly-deltas  # first: a kept workspace's stale deltas must never reach the upload step
   # Keep this build's final DMG for the builds after it: their deltas start from it.
   python3 "$here/nightly_next_previous_dmgs.py" --save "$NIGHTLY_DMG_IMMUTABLE" --cache-dir "$cache_dir" \
     --prefix "$CHANNEL_DMG_PREFIX" --variant "$NIGHTLY_VARIANT" --keep "$dmg_cache_keep" || true
@@ -114,7 +115,6 @@ if [ "$mode" = after-feed ]; then
     echo "nightly-next deltas: skipped, build $NIGHTLY_BUILD is no longer the feed's newest" >> "$summary"
     exit 0
   fi
-  rm -rf nightly-deltas
   mkdir -p nightly-deltas
   NIGHTLY_APPCAST="nightly-deltas/$NIGHTLY_APPCAST"
   delta_dir=nightly-deltas

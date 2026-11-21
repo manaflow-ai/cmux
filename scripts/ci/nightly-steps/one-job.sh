@@ -91,6 +91,10 @@ case "${1:-}" in
   wipe)
     tmp="${RUNNER_TEMP:-}"
     if [ -n "$tmp" ] && [ -d "$tmp" ] && [ "$tmp" != / ] && [ "$tmp" != "$HOME" ]; then
+      # A stopped delta prebuild can leave a DMG mounted under it; rm -rf into a read-only volume fails the job.
+      mount | sed -n "s#^/dev/[^ ]* on \($tmp/.*\) (.*#\1#p" | while IFS= read -r mounted; do
+        hdiutil detach "$mounted" -quiet || hdiutil detach "$mounted" -force -quiet || true
+      done
       find "$tmp" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
     fi
     rm -rf signed signed-app-handoff final-dmg nightly-out nightly-deltas tested cef-runtime
