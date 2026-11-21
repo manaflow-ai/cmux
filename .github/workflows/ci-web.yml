@@ -933,8 +933,12 @@ jobs:
     if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     continue-on-error: true
-    # Under the head shards' 40: a stuck early shard must not hold the base check past what its own replay costs.
-    timeout-minutes: 25
+    # A stuck early shard must not hold the base check past what its own replay costs. Over 11-20..21 (24 h feed,
+    # 1,507 runs of these two shards) 615 successes had a median of 85 s and a p97 of 200 s; 811 runs ended
+    # "cancelled", 349 of them at the old 25 minutes. 8 minutes
+    # holds 98% of successes; a hang now costs 8 minutes, not 25 (a killed shard only loses the early verdict, the
+    # base check replays the reds itself).
+    timeout-minutes: 8
     name: react-apps-base-early (${{ matrix.shard }})
     strategy:
       fail-fast: false
