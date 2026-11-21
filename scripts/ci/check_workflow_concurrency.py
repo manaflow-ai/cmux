@@ -180,6 +180,9 @@ def long_running(job: dict) -> bool:
     timeout = job.get("timeout-minutes")
     if isinstance(timeout, (int, float)):
         return timeout > LONG_MINUTES
+    # An expression (`${{ sweeper && 345 || 195 }}`) counts as its largest number.
+    if isinstance(timeout, str):
+        return any(float(n) > LONG_MINUTES for n in re.findall(r"(?<![\w.'])\d+(?:\.\d+)?(?![\w.'])", timeout))
     return False
 
 
