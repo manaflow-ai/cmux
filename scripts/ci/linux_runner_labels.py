@@ -16,10 +16,11 @@ Two literals stay, because the places they run read no repository variables:
 - the owner branch, `github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'` (or `-arm`):
   a copy of the repository on another account, where GitHub's own Ubuntu image is the only label;
 - the fork pull request branch, `head.repo.full_name != github.repository && '<label>'`: it must be
-  the first member of its pool: the pool read right after it, else the last Linux pool the
+  an ephemeral member of its pool: the pool read right after it, else the last Linux pool the
   expression reads (the size the job runs at with no overflow). runners.json is its source.
-  `--fix` rewrites a fork label that disagrees, so a pool change is runners.json plus `--fix`,
-  never a hand edit across files.
+  Owned fleet members (`cmux-fleet-linux-*`) never count: a fork's code never runs on our machines.
+  `--fix` rewrites a fork label outside its pool to the pool's first ephemeral member, so a pool
+  change is runners.json plus `--fix`, never a hand edit across files.
 
 Every other Linux label typed in a workflow is refused, except where BASELINE (one line per file,
 `<count> <path>`) still lists it. The baseline only shrinks: a file over its count fails, and
@@ -61,10 +62,14 @@ POOL_READ = re.compile(r"fromJSON\(vars\.RUNNER_POOLS\)\.([a-z][a-z0-9_]*)")
 LINUX_POOL = re.compile(r"^linux(?:_[a-z0-9]+)?$")
 
 
-def pool_defaults(path: Path = RUNNERS) -> dict[str, str]:
-    """Each pool's declared first member: the label a fork pull request takes for that pool."""
+OWNED = re.compile(r"cmux-fleet-")
+
+
+def pool_defaults(path: Path = RUNNERS) -> dict[str, list[str]]:
+    """Each pool's ephemeral members in order: a fork pull request may take any, and `--fix` writes the first."""
     pools = json.loads(path.read_text())["pools"]
-    return {name: spec["members"][0] for name, spec in pools.items() if not name.startswith("$")}
+    return {name: [m for m in spec["members"] if not OWNED.match(m)]
+            for name, spec in pools.items() if not name.startswith("$")}
 
 
 def workflow_files(root: Path = ROOT) -> list[Path]:
@@ -89,8 +94,8 @@ def code_part(line: str) -> str:
 PAIRED_POOL = re.compile(r"\s*\|\|\s*fromJSON\(vars\.RUNNER_POOLS\)\.([a-z][a-z0-9_]*)")
 
 
-def fork_branches(code: str, defaults: dict[str, str]) -> list[tuple[re.Match[str], str]]:
-    """Each fork branch naming a Linux label, with the label its pool says it should name ("" when no pool).
+def fork_branches(code: str, defaults: dict[str, list[str]]) -> list[tuple[re.Match[str], list[str]]]:
+    """Each fork branch naming a Linux label, with the ephemeral members of its pool ([] when no pool).
 
     A fork branch's pool is the pool read right after it (`(fork && '<label>' || fromJSON(vars.RUNNER_POOLS).linux_16)`),
     else the last Linux pool the expression reads after it: the size the job runs at when no overflow is on.
@@ -103,28 +108,29 @@ def fork_branches(code: str, defaults: dict[str, str]) -> list[tuple[re.Match[st
         paired = PAIRED_POOL.match(rest)
         pools = [paired.group(1)] if paired and LINUX_POOL.match(paired.group(1)) else [
             pool for pool in POOL_READ.findall(rest) if LINUX_POOL.match(pool)][-1:]
-        branches.append((fork, defaults.get(pools[0], "") if pools else ""))
+        branches.append((fork, defaults.get(pools[0], []) if pools else []))
     return branches
 
 
-def fork_problems(code: str, defaults: dict[str, str]) -> list[tuple[str, str]]:
-    """(found, wanted) for each fork branch whose label is not the first member of its pool."""
-    return [(fork.group(2), wanted) for fork, wanted in fork_branches(code, defaults) if fork.group(2) != wanted]
+def fork_problems(code: str, defaults: dict[str, list[str]]) -> list[tuple[str, list[str]]]:
+    """(found, members) for each fork branch whose label is not an ephemeral member of its pool."""
+    return [(fork.group(2), members) for fork, members in fork_branches(code, defaults)
+            if fork.group(2) not in members]
 
 
-def hand_typed(code: str, defaults: dict[str, str]) -> list[str]:
+def hand_typed(code: str, defaults: dict[str, list[str]]) -> list[str]:
     """The Linux labels a line types by hand: everything but the owner branch and fork branches that match their pool."""
     if "runner.name" in code:
         # Comparisons against a runner's own name (the ephemeral-machine identity check), not a route.
         return []
     code = OWNER_BRANCH.sub("", code)
-    for fork, wanted in reversed(fork_branches(code, defaults)):
-        if fork.group(2) == wanted:
+    for fork, members in reversed(fork_branches(code, defaults)):
+        if fork.group(2) in members:
             code = code[: fork.start(2)] + code[fork.end(2):]
     return LABEL.findall(code)
 
 
-def scan(root: Path = ROOT, defaults: dict[str, str] | None = None) -> dict[str, list[tuple[int, str]]]:
+def scan(root: Path = ROOT, defaults: dict[str, list[str]] | None = None) -> dict[str, list[tuple[int, str]]]:
     defaults = pool_defaults(root / ".github" / "runners.json") if defaults is None else defaults
     found: dict[str, list[tuple[int, str]]] = {}
     for path in workflow_files(root):
@@ -164,9 +170,9 @@ def fix(root: Path = ROOT) -> int:
         lines = text.splitlines(keepends=True)
         for i, line in enumerate(lines):
             # code_part() is a prefix of the line, so its match offsets are the line's.
-            for fork, wanted in reversed(fork_branches(code_part(line), defaults)):
-                if wanted and fork.group(2) != wanted:
-                    line = line[: fork.start(2)] + wanted + line[fork.end(2):]
+            for fork, members in reversed(fork_branches(code_part(line), defaults)):
+                if members and fork.group(2) not in members:
+                    line = line[: fork.start(2)] + members[0] + line[fork.end(2):]
             lines[i] = line
         new = "".join(lines)
         if new != text:
@@ -182,11 +188,12 @@ def check(root: Path = ROOT, baseline: dict[str, int] | None = None) -> list[str
     for path in workflow_files(root):
         rel = path.relative_to(root).as_posix()
         for number, line in enumerate(path.read_text().splitlines(), 1):
-            for found, wanted in fork_problems(code_part(line), defaults):
-                if wanted:
+            for found, members in fork_problems(code_part(line), defaults):
+                if members:
                     problems.append(
-                        f"{rel}:{number}: fork branch names '{found}', but its pool starts with '{wanted}' "
-                        "(.github/runners.json pools); run python3 scripts/ci/linux_runner_labels.py --fix")
+                        f"{rel}:{number}: fork branch names '{found}', which is not an ephemeral member of its pool "
+                        f"({', '.join(members)}; .github/runners.json pools); run python3 "
+                        "scripts/ci/linux_runner_labels.py --fix")
     for rel, hits in sorted(scan(root, defaults).items()):
         allowed = baseline.get(rel, 0)
         if len(hits) > allowed:

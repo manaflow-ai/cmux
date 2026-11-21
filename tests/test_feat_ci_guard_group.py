@@ -7,6 +7,7 @@ feat-cmux-next, and ci-guards.yml's routed matrix leaves the group to it. So not
 for the branch: test_preflight_trust.py errored in all five tests there unseen (#23006).
 """
 import json
+import re
 import os
 from pathlib import Path
 import sys
@@ -28,6 +29,8 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 import workflow_jobs  # noqa: E402
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import docs_only_paths  # noqa: E402
 WORKFLOWS = ROOT / ".github/workflows"
 
 
@@ -40,7 +43,10 @@ def covers_feat(trigger) -> bool:
     if trigger is None:
         return True
     branches = (trigger or {}).get("branches")
-    return not (trigger or {}).get("paths") and (branches is None or "feat-cmux-next" in branches)
+    # The docs-only block (scripts/ci/docs_only_paths.py) still covers every change the group can judge.
+    paths = (trigger or {}).get("paths")
+    unfiltered = not paths or [str(p) for p in paths] == list(docs_only_paths.DOCS_ONLY_PATHS)
+    return unfiltered and (branches is None or "feat-cmux-next" in branches)
 
 
 def runs_ci_group(job: dict) -> bool:
@@ -264,11 +270,15 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         measured = entry("cmux-next-guards.yml", "ci-guard-group")
         pool_route = (f"vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_{measured['failover']}"
                       f" || fromJSON(vars.RUNNER_POOLS).linux_{measured['size']}")
-        # A fork pull request takes the first member of that size's pool (scripts/ci/linux_runner_labels.py).
+        # A fork pull request takes an ephemeral member of that size's pool (scripts/ci/linux_runner_labels.py).
         pools = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8"))["pools"]
-        fork_label = pools[f"linux_{measured['size']}"]["members"][0]
-        self.assertNotIn("needs", self.job())
-        self.assertEqual(self.job()["if"], "${{ !cancelled() }}")
+        fork_label = re.search(r"head\.repo\.full_name != github\.repository && '([^']+)'",
+                               workflow_jobs.single_runs_on(self.job())).group(1)
+        self.assertIn(fork_label, pools[f"linux_{measured['size']}"]["members"])
+        self.assertFalse(fork_label.startswith("cmux-fleet-"), fork_label)
+        # Only the window gate (base-coalesce.yml): no other job holds it back.
+        self.assertEqual(self.job()["needs"], "coalesce")
+        self.assertEqual(self.job()["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}")
         self.assertEqual(
             workflow_jobs.single_runs_on(self.job()),
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"

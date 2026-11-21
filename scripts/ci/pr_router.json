@@ -1,0 +1,34 @@
+{
+ "about": "One router per push (scripts/ci/pr_router.py, .github/workflows/pr-router.yml, RFD 0023). Each callee: the pull_request activity types and path filter that used to start it on its own, and optionally `affects`, the inputs it reads. Edit this file and pr-router.yml together; `python3 scripts/ci/pr_router.py check` says whether they agree.",
+ "callees": {
+  "cmux-next-size-budget.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "edited",
+    "ready_for_review"
+   ],
+   "affects": [
+    "Resources/**",
+    "Packages/macOS/**",
+    "**/Assets.xcassets/**",
+    "Assets.xcassets/**",
+    "**/Cargo.toml",
+    "**/Cargo.lock",
+    "webviews/**",
+    "web/data/**",
+    "schemas/**",
+    "scripts/cmux-next/**",
+    "release-notes/next/**",
+    "config/vite-plus/**",
+    "clients/ts/**",
+    "scripts/*webviews*",
+    "Native/OptChat/optchat-chief/inspector/**",
+    ".github/workflows/cmux-next-size-budget.yml"
+   ],
+   "affects_why": "bundle-size-pr.py check measures three inputs (scripts/cmux-next/bundle-size-budget.json pull_request): files under tree_paths (Resources, Packages/macOS/*/Sources/*/Resources, Assets.xcassets), the web bundles (inputs: web-bundle-key.py --routed, a superset here by directory), and the crates of shipped Rust binaries (Cargo manifests and lockfiles); plus the tool itself under scripts/cmux-next. A change touching none of them adds nothing to the app.",
+   "skip_docs_only": true
+  }
+ }
+}

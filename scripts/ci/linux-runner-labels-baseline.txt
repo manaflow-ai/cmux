@@ -50,7 +50,7 @@
 1 .github/workflows/nightly-next-train.yml
 1 .github/workflows/nightly-tag-permission-probe.yml
 12 .github/workflows/nightly.yml
-8 .github/workflows/pr-checks.yml
+9 .github/workflows/pr-checks.yml
 5 .github/workflows/pr-red-checks-comment.yml
 3 .github/workflows/pr-status.yml
 3 .github/workflows/published-in.yml

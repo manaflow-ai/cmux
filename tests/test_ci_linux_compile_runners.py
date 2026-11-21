@@ -197,17 +197,21 @@ FORK_PULL_REQUEST = (
     "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
     " != github.repository && '{label}' || "
 )
-# A fork pull request's label is not listed here: it is the first member of the pool the
-# selector reads (.github/runners.json), which scripts/ci/linux_runner_labels.py --fix writes.
+# A fork pull request's label is not listed here: it is an ephemeral member of the pool the
+# selector reads (.github/runners.json), which scripts/ci/linux_runner_labels.py checks and --fix writes.
 POOL_DEFAULTS = linux_runner_labels.pool_defaults()
 FORK_LABEL_PLACEHOLDER = "blacksmith-4vcpu-ubuntu-2404"
 
 
+FORK_LABEL_MASK = "<fork label: a member of its pool>"
+
+
 def with_pool_fork_labels(value: str) -> str:
-    """`value` with each fork pull request label set to its pool's first member (linux_runner_labels.py --fix)."""
-    for fork, wanted in reversed(linux_runner_labels.fork_branches(value, POOL_DEFAULTS)):
-        if wanted:
-            value = value[: fork.start(2)] + wanted + value[fork.end(2):]
+    """`value` with each pool-backed fork pull request label masked: which member it names is
+    linux_runner_labels.fork_problems' call, checked per job below."""
+    for fork, members in reversed(linux_runner_labels.fork_branches(value, POOL_DEFAULTS)):
+        if members:
+            value = value[: fork.start(2)] + FORK_LABEL_MASK + value[fork.end(2):]
     return value
 
 
@@ -223,6 +227,10 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
     ("swift-linux-packages.yml", "swift-linux-packages", "runs-on"): (
         OWNER + FORK_PULL_REQUEST.format(label=FORK_LABEL_PLACEHOLDER), ""),
     ("cmux-tui-artifacts.yml", "macos-cross-shadow", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
+    # Its pull request run is an advisory copy of the push run (post-merge-checks.json, CI v2 step 5): the 4 vCPU
+    # pool, since a compile there only reports, and the 8/16 vCPU sizes stall first.
+    ("cmux-mobile-ffi.yml", "rust", "runs-on"): (
+        OWNER + "github.event_name == 'pull_request' && fromJSON(vars.RUNNER_POOLS).linux_4 || ", ""),
     ("macos-cross-parity.yml", "linux-build", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER"): (
         OWNER + "github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && "
@@ -343,7 +351,7 @@ class LinuxCompileRunners(unittest.TestCase):
                 )
 
     def test_fork_pull_requests_use_the_selected_blacksmith_size(self) -> None:
-        # A fork pull request takes the first member of the pool the job reads
+        # A fork pull request takes an ephemeral member of the pool the job reads
         # (.github/runners.json), as scripts/ci/linux_runner_labels.py --fix writes it.
         for workflow, job_id, where, label in EXPECTED:
             value = selector(load(workflow)["jobs"][job_id], where)
@@ -353,7 +361,8 @@ class LinuxCompileRunners(unittest.TestCase):
                     continue
                 # A pool read a fork could reach is wrapped to keep the fork's old label
                 # (tests/test_ci_no_single_size_pins.py); compare what every other run takes.
-                self.assertEqual(unwrap_fork_pool_reads(value), expected_selector(workflow, job_id, where, label))
+                self.assertEqual(with_pool_fork_labels(unwrap_fork_pool_reads(value)),
+                                 expected_selector(workflow, job_id, where, label))
                 if "repository_owner != 'manaflow-ai'" in value:
                     self.assertRegex(value, r"github\.repository_owner != 'manaflow-ai' && '(ubuntu-24\.04|ubuntu-latest)'")
                 if (workflow, job_id) not in OWNER_ONLY and (workflow, job_id, where) not in PREFIX:

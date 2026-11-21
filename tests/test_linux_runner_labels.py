@@ -20,7 +20,7 @@ POOLS = {
     "pools": {
         "$comment": ["test"],
         "linux_2": {"members": ["blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"]},
-        "linux_8": {"members": ["blacksmith-8vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]},
+        "linux_8": {"members": ["cmux-fleet-linux-x64", "blacksmith-8vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"]},
         "macos_26": {"members": ["blacksmith-6vcpu-macos-26"]},
     }
 }
@@ -67,12 +67,13 @@ class LinuxRunnerLabelsTests(unittest.TestCase):
         self.tree.workflow("ubuntu-latest")
         self.assertEqual(len(self.check()), 1)
 
-    def test_fork_branch_must_be_the_pool_first_member_and_fix_rewrites_it(self) -> None:
+    def test_fork_branch_must_be_a_pool_member_and_fix_rewrites_it_to_the_first(self) -> None:
         path = self.tree.workflow(
-            f"${{{{ {OWNER} || {FORK} && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && "
+            f"${{{{ {OWNER} || {FORK} && 'blacksmith-16vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && "
             "fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}")
         problems = self.check()
-        self.assertTrue(any("starts with 'blacksmith-2vcpu-ubuntu-2404'" in p for p in problems), problems)
+        self.assertTrue(any("not an ephemeral member of its pool (blacksmith-2vcpu-ubuntu-2404," in p
+                            for p in problems), problems)
         self.assertEqual(lrl.fix(self.tree.dir), 1)
         self.assertIn("&& 'blacksmith-2vcpu-ubuntu-2404' ||", path.read_text())
         self.assertEqual(self.check(), [])
@@ -84,11 +85,22 @@ class LinuxRunnerLabelsTests(unittest.TestCase):
             "fromJSON(vars.RUNNER_POOLS).linux_2) }}")
         forks = [p for p in self.check() if "fork branch names" in p]
         self.assertEqual(len(forks), 1, forks)
-        self.assertIn("its pool starts with 'blacksmith-8vcpu-ubuntu-2404'", forks[0])
+        self.assertIn("its pool (blacksmith-8vcpu-ubuntu-2404, blacksmith-4vcpu-ubuntu-2404;", forks[0])
         lrl.fix(self.tree.dir)
         text = path.read_text()
         self.assertIn("'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8", text)
         self.assertIn("'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2", text)
+        self.assertEqual(self.check(), [])
+
+    def test_a_later_ephemeral_member_passes_and_an_owned_member_never_does(self) -> None:
+        # feat-cmux-next sends forks to 4 vCPU while linux_8 lists 8 vCPU first, and every Linux pool now starts
+        # with owned fleet Linux, which a fork must never run on.
+        self.tree.workflow(f"${{{{ {OWNER} || {FORK} && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8 }}}}")
+        self.assertEqual(self.check(), [])
+        path = self.tree.workflow(f"${{{{ {OWNER} || {FORK} && 'cmux-fleet-linux-x64' || fromJSON(vars.RUNNER_POOLS).linux_8 }}}}")
+        self.assertTrue(any("fork branch names 'cmux-fleet-linux-x64'" in p for p in self.check()))
+        lrl.fix(self.tree.dir)
+        self.assertIn("&& 'blacksmith-8vcpu-ubuntu-2404' ||", path.read_text())
         self.assertEqual(self.check(), [])
 
     def test_fork_branch_reads_the_last_linux_pool_not_a_macos_one(self) -> None:
