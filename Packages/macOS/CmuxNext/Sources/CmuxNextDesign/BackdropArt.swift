@@ -170,6 +170,15 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     case jeongSeonInwang = "jeong-seon-inwang"
     case jeongSeonGeumgang = "jeong-seon-geumgang"
     case kimHongDoSamgong = "kim-hong-do-samgong"
+    case kuniyoshiTakiyasha = "kuniyoshi-takiyasha"
+    case kuniyoshiHoryukaku = "kuniyoshi-horyukaku"
+    case hiroshigeGotenyama = "hiroshige-gotenyama"
+    case hiroshigeAsukayama = "hiroshige-asukayama"
+    case hokusaiYoshino = "hokusai-yoshino"
+    case sesshuWinterLandscape = "sesshu-winter-landscape"
+    case maYuanSpringPath = "ma-yuan-spring-path"
+    case kimHongDoChuseongbu = "kim-hong-do-chuseongbu"
+    case sinYunBokMoonlitLovers = "sin-yun-bok-moonlit-lovers"
 
     /// The work's title in the user's language.
     public var title: String {
@@ -338,6 +347,15 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
         case .jeongSeonInwang: String(localized: "backdrop.jeong-seon-inwang.title", defaultValue: "Clearing after Rain on Mount Inwang", bundle: .module)
         case .jeongSeonGeumgang: String(localized: "backdrop.jeong-seon-geumgang.title", defaultValue: "General View of Mount Geumgang", bundle: .module)
         case .kimHongDoSamgong: String(localized: "backdrop.kim-hong-do-samgong.title", defaultValue: "Nature Better than the Official Ranks", bundle: .module)
+        case .kuniyoshiTakiyasha: String(localized: "backdrop.kuniyoshi-takiyasha.title", defaultValue: "Takiyasha the Witch and the Skeleton Spectre", bundle: .module)
+        case .kuniyoshiHoryukaku: String(localized: "backdrop.kuniyoshi-horyukaku.title", defaultValue: "Fight atop the Hōryūkaku", bundle: .module)
+        case .hiroshigeGotenyama: String(localized: "backdrop.hiroshige-gotenyama.title", defaultValue: "Evening Cherry Blossoms at Gotenyama", bundle: .module)
+        case .hiroshigeAsukayama: String(localized: "backdrop.hiroshige-asukayama.title", defaultValue: "Cherry-Blossom Viewing at Asukayama", bundle: .module)
+        case .hokusaiYoshino: String(localized: "backdrop.hokusai-yoshino.title", defaultValue: "Cherry Blossoms at Yoshino", bundle: .module)
+        case .sesshuWinterLandscape: String(localized: "backdrop.sesshu-winter-landscape.title", defaultValue: "Winter Landscape", bundle: .module)
+        case .maYuanSpringPath: String(localized: "backdrop.ma-yuan-spring-path.title", defaultValue: "Walking on a Mountain Path in Spring", bundle: .module)
+        case .kimHongDoChuseongbu: String(localized: "backdrop.kim-hong-do-chuseongbu.title", defaultValue: "The Sound of Autumn", bundle: .module)
+        case .sinYunBokMoonlitLovers: String(localized: "backdrop.sin-yun-bok-moonlit-lovers.title", defaultValue: "Lovers under the Moon", bundle: .module)
         }
     }
 }

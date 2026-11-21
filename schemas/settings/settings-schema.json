@@ -27594,7 +27594,16 @@
         "wang-ximeng-thousand-li",
         "jeong-seon-inwang",
         "jeong-seon-geumgang",
-        "kim-hong-do-samgong"
+        "kim-hong-do-samgong",
+        "kuniyoshi-takiyasha",
+        "kuniyoshi-horyukaku",
+        "hiroshige-gotenyama",
+        "hiroshige-asukayama",
+        "hokusai-yoshino",
+        "sesshu-winter-landscape",
+        "ma-yuan-spring-path",
+        "kim-hong-do-chuseongbu",
+        "sin-yun-bok-moonlit-lovers"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -28753,6 +28762,69 @@
             "text" : "Nature Better than the Official Ranks — Kim Hong-do"
           },
           "value" : "kim-hong-do-samgong"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Takiyasha the Witch and the Skeleton Spectre — Utagawa Kuniyoshi"
+          },
+          "value" : "kuniyoshi-takiyasha"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fight atop the Hōryūkaku — Utagawa Kuniyoshi"
+          },
+          "value" : "kuniyoshi-horyukaku"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Evening Cherry Blossoms at Gotenyama — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-gotenyama"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cherry-Blossom Viewing at Asukayama — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-asukayama"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cherry Blossoms at Yoshino — Katsushika Hokusai"
+          },
+          "value" : "hokusai-yoshino"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Winter Landscape — Sesshū Tōyō"
+          },
+          "value" : "sesshu-winter-landscape"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Walking on a Mountain Path in Spring — Ma Yuan"
+          },
+          "value" : "ma-yuan-spring-path"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Sound of Autumn — Kim Hong-do"
+          },
+          "value" : "kim-hong-do-chuseongbu"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Lovers under the Moon — Sin Yun-bok"
+          },
+          "value" : "sin-yun-bok-moonlit-lovers"
         }
       ],
       "consumers" : [
@@ -30221,6 +30293,69 @@
             "text" : "Nature Better than the Official Ranks — Kim Hong-do"
           },
           "value" : "kim-hong-do-samgong"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Takiyasha the Witch and the Skeleton Spectre — Utagawa Kuniyoshi"
+          },
+          "value" : "kuniyoshi-takiyasha"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fight atop the Hōryūkaku — Utagawa Kuniyoshi"
+          },
+          "value" : "kuniyoshi-horyukaku"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Evening Cherry Blossoms at Gotenyama — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-gotenyama"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cherry-Blossom Viewing at Asukayama — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-asukayama"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cherry Blossoms at Yoshino — Katsushika Hokusai"
+          },
+          "value" : "hokusai-yoshino"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Winter Landscape — Sesshū Tōyō"
+          },
+          "value" : "sesshu-winter-landscape"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Walking on a Mountain Path in Spring — Ma Yuan"
+          },
+          "value" : "ma-yuan-spring-path"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Sound of Autumn — Kim Hong-do"
+          },
+          "value" : "kim-hong-do-chuseongbu"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Lovers under the Moon — Sin Yun-bok"
+          },
+          "value" : "sin-yun-bok-moonlit-lovers"
         },
         {
           "title" : {
@@ -31708,6 +31843,69 @@
         },
         {
           "title" : {
+            "key" : null,
+            "text" : "Takiyasha the Witch and the Skeleton Spectre — Utagawa Kuniyoshi"
+          },
+          "value" : "kuniyoshi-takiyasha"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fight atop the Hōryūkaku — Utagawa Kuniyoshi"
+          },
+          "value" : "kuniyoshi-horyukaku"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Evening Cherry Blossoms at Gotenyama — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-gotenyama"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cherry-Blossom Viewing at Asukayama — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-asukayama"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cherry Blossoms at Yoshino — Katsushika Hokusai"
+          },
+          "value" : "hokusai-yoshino"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Winter Landscape — Sesshū Tōyō"
+          },
+          "value" : "sesshu-winter-landscape"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Walking on a Mountain Path in Spring — Ma Yuan"
+          },
+          "value" : "ma-yuan-spring-path"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Sound of Autumn — Kim Hong-do"
+          },
+          "value" : "kim-hong-do-chuseongbu"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Lovers under the Moon — Sin Yun-bok"
+          },
+          "value" : "sin-yun-bok-moonlit-lovers"
+        },
+        {
+          "title" : {
             "key" : "settings.choice.desktopWallpaper",
             "text" : "Desktop Wallpaper"
           },
@@ -33008,6 +33206,69 @@
             "text" : "Nature Better than the Official Ranks — Kim Hong-do"
           },
           "value" : "kim-hong-do-samgong"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Takiyasha the Witch and the Skeleton Spectre — Utagawa Kuniyoshi"
+          },
+          "value" : "kuniyoshi-takiyasha"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fight atop the Hōryūkaku — Utagawa Kuniyoshi"
+          },
+          "value" : "kuniyoshi-horyukaku"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Evening Cherry Blossoms at Gotenyama — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-gotenyama"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cherry-Blossom Viewing at Asukayama — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-asukayama"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cherry Blossoms at Yoshino — Katsushika Hokusai"
+          },
+          "value" : "hokusai-yoshino"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Winter Landscape — Sesshū Tōyō"
+          },
+          "value" : "sesshu-winter-landscape"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Walking on a Mountain Path in Spring — Ma Yuan"
+          },
+          "value" : "ma-yuan-spring-path"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Sound of Autumn — Kim Hong-do"
+          },
+          "value" : "kim-hong-do-chuseongbu"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Lovers under the Moon — Sin Yun-bok"
+          },
+          "value" : "sin-yun-bok-moonlit-lovers"
         },
         {
           "title" : {
