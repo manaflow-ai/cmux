@@ -439,9 +439,14 @@ async fn direction(
     mut epoch: watch::Receiver<u64>,
 ) {
     let (send, mut receive) = mpsc::channel::<(Instant, Vec<u8>)>(QUEUE_SEGMENTS);
+    let writer_link = link.clone();
     let writer = async move {
         while let Some((at, segment)) = receive.recv().await {
             tokio::time::sleep_until(at).await;
+            // Still on the air when the address changed: it goes to the old address too.
+            if index < lock(&writer_link).orphaned_below {
+                continue;
+            }
             if to.write_all(&segment).await.is_err() {
                 return;
             }
