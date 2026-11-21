@@ -520,6 +520,10 @@ export function applyChatDisplay(
     if (value === null) root.style.removeProperty(name);
     else root.style.setProperty(name, value);
   }
+  for (const name of Object.keys(HIGH_CONTRAST_CHAT_VARIABLES) as HighContrastChatVariable[]) {
+    if (look === "high") root.style.setProperty(name, HIGH_CONTRAST_CHAT_VARIABLES[name]);
+    else root.style.removeProperty(name);
+  }
   // The look's choices the stylesheet draws by selector (data-transcript-*); none for cmux. A
   // style-only root (a test's shim) has no attributes to set.
   if (typeof root.setAttribute !== "function") return;
@@ -541,10 +545,6 @@ export function chatPartAttributes(display: ChatDisplay): Record<string, string 
     "data-transcript-prompt-font": display.promptFont === null ? null : display.promptFont,
     "data-transcript-prompt-size": display.promptFontSize === null ? null : "",
   };
-  for (const name of Object.keys(HIGH_CONTRAST_CHAT_VARIABLES) as HighContrastChatVariable[]) {
-    if (look === "high") root.style.setProperty(name, HIGH_CONTRAST_CHAT_VARIABLES[name]);
-    else root.style.removeProperty(name);
-  }
 }
 
 /// The host's `display` event: the page follows at once.
