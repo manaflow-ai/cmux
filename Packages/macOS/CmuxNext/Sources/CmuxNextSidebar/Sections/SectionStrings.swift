@@ -2,7 +2,7 @@ import Foundation
 
 /// Localized strings of sidebar sections (Resources/Localizable.xcstrings).
 enum SectionStrings {
-    static var home: String { String(localized: "sidebar.builtin.home", defaultValue: "Home", bundle: .localizedModule) }
+    static var home: String { String(localized: "sidebar.builtin.home", defaultValue: "Chief", bundle: .localizedModule) }
     /// The Channels entry after Home (`SidebarTransientItem.channels`).
     static var channels: String { String(localized: "sidebar.builtin.channels", defaultValue: "Channels", bundle: .localizedModule) }
     static var settings: String { String(localized: "sidebar.builtin.settings", defaultValue: "Settings", bundle: .localizedModule) }
@@ -16,7 +16,7 @@ enum SectionStrings {
     static var newBrowser: String { String(localized: "sidebar.builtin.newBrowser", defaultValue: "New Browser Tab", bundle: .localizedModule) }
     static var newAgentChat: String { String(localized: "sidebar.builtin.newAgentChat", defaultValue: "New Agent Chat", bundle: .localizedModule) }
     static var searchChats: String { String(localized: "sidebar.builtin.searchChats", defaultValue: "Search Chats", bundle: .localizedModule) }
-    static var chief: String { String(localized: "sidebar.builtin.chief", defaultValue: "Chief", bundle: .localizedModule) }
+    static var chief: String { String(localized: "sidebar.builtin.chief", defaultValue: "Chief Activity", bundle: .localizedModule) }
     /// Short tile captions (a tiles section's items, Safari's favorites).
     static var appStoreCaption: String { String(localized: "sidebar.builtin.appStore.caption", defaultValue: "Apps", bundle: .localizedModule) }
     /// The rail's button for items that do not fit.

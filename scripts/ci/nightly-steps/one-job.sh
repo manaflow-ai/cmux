@@ -4,7 +4,13 @@
 #                        job left (the job holds the whole Mac, so a build.keychain-db now is a leftover)
 #   one-job.sh inputs    after the build: the build number, the Ghostty helper and license trees for prepare
 #   one-job.sh signed    after notarization: the verify steps read the signed app restored from its tarball
-#   one-job.sh final     the final DMG and appcast where verify-final-dmg.sh reads them
+#   one-job.sh deltas-start   after notarization, with no key and no token: in the background, the keyless
+#                        nearest deltas (appcast-with-nearest-deltas.sh prebuild) and the git fetch of the span
+#                        the release notes cover, beside the verify steps, the launch smoke and the size budget
+#   one-job.sh deltas-join    after them: waits for both; a failed or late one only leaves its work to the
+#                        steps that did it before (the keyed appcast step, the release notes step)
+#   one-job.sh final-dmg the final DMG where verify-final-dmg.sh, the launch smoke and the size budget read it
+#   one-job.sh final-feed after the keyed appcast step: this build's appcast and deltas beside it
 #   one-job.sh source    publish-nightly's "Select the build to publish", for this job's own build only
 #   one-job.sh wipe      last: this job's temp files and copies, and its hold on the kept tree; the workspace
 #                        stays for the next warm build
@@ -30,9 +36,36 @@ case "${1:-}" in
   signed)
     { echo "CHANNEL_APP_PATH=signed/$APP_NAME.app"; echo "STAPLED_APP_FALLBACK_ID=$FALLBACK"; } >> "$GITHUB_ENV"
     ;;
-  final)
+  deltas-start)
+    state="$RUNNER_TEMP/nightly-helper-builds"
+    [ -z "${SPARKLE_PRIVATE_KEY:-}${NEXT_SPARKLE_PRIVATE_KEY:-}${GH_TOKEN:-}${GITHUB_TOKEN:-}" ] \
+      || { echo "error: the background work beside the bundle's checks gets no key and no token" >&2; exit 1; }
+    # A build tree from before the keyless prebuild builds its deltas in the keyed step, as before.
+    if [ "$TRACK" = nightly-next ] && grep -q '"${1:-}" = prebuild' scripts/ci/nightly-steps/appcast-with-nearest-deltas.sh 2>/dev/null; then
+      python3 "$PUBLISH_TOOLING/ci/background_build.py" start --state "$state" nearest-deltas -- \
+        bash scripts/ci/nightly-steps/appcast-with-nearest-deltas.sh prebuild
+    fi
+    if [ "$SHOULD_PUBLISH" = true ] && [[ "$NOTES_HEAD" =~ ^[0-9a-f]{40}$ ]] && [ -f scripts/cmux-next/fetch-release-notes-span.sh ]; then
+      python3 "$PUBLISH_TOOLING/ci/background_build.py" start --state "$state" notes-span -- \
+        bash "$PUBLISH_TOOLING/ci/nightly-steps/publish-prepare-release-notes.sh" prefetch
+    fi
+    ;;
+  deltas-join)
+    state="$RUNNER_TEMP/nightly-helper-builds"
+    for name in nearest-deltas notes-span; do
+      [ -f "$state/$name.pid" ] || continue
+      if ! python3 "$PUBLISH_TOOLING/ci/background_build.py" join --state "$state" "$name" --timeout "${DELTAS_JOIN_SECONDS:-900}"; then
+        python3 "$PUBLISH_TOOLING/ci/background_build.py" stop --state "$state" "$name"
+        echo "::warning title=nightly-next $name::the background $name did not finish; the step that did it before does it"
+      fi
+    done
+    ;;
+  final-dmg)
     mkdir -p final-dmg
-    cp "$CHANNEL_DMG_PREFIX"-*.dmg appcast*.xml final-dmg/
+    cp "$CHANNEL_DMG_PREFIX"-*.dmg final-dmg/
+    ;;
+  final-feed)
+    cp appcast*.xml final-dmg/
     # This build's deltas (appcast-with-nearest-deltas.sh), never one a past build left in the kept workspace.
     for delta in "$CHANNEL_DMG_PREFIX"-*-"$NIGHTLY_BUILD"-*.delta; do
       if [ -f "$delta" ]; then cp "$delta" final-dmg/; fi

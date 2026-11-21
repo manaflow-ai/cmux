@@ -379,6 +379,8 @@ pub struct PtyTerminalRuntime {
     pub(super) command_tracker: Mutex<crate::shell_history::CommandTracker>,
     pub(super) mouse_encoders: RankedMutex<Box<MouseEncoders>>,
     pub(super) runtime: RankedMutex<PtyRuntime>,
+    /// A local PTY's paste pacer (`paste_pacing`): taken before `runtime`, never while holding it.
+    pub(super) paste_pacer: Mutex<crate::paste_pacing::PastePacer>,
     /// Explicit lifecycle authority for this process. Session content may
     /// survive a daemon replacement through a durable host; daemon-owned
     /// auxiliaries must terminate with the backend that created them.

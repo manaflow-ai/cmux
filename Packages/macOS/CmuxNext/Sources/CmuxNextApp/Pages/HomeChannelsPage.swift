@@ -234,7 +234,6 @@ extension HomeService {
         let usage = services.registry.unavailableReason(for: ChiefUsagePageTab.actionID) == nil
         return HomeConversationMenu(registry: services.registry, directory: directory, groupActions: groupActions,
                                     deletableChief: { [weak self] in self?.deletableChief(of: $0)?.id },
-                                    usage: usage ? (ChiefUsagePageTab.actionID, ChiefUsagePageTab.menuTitle) : nil,
-                                    importMemories: ChiefMemoryImportHandlers.actionID)
+                                    usage: usage ? (ChiefUsagePageTab.actionID, ChiefUsagePageTab.menuTitle) : nil)
     }
 }

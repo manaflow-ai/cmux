@@ -9,7 +9,7 @@ public enum HomeDockMode: String, CaseIterable, Sendable {
 
     /// Refusals of `home.switchView` and of the page's `cmux.host.home.switchView`.
     public static var invalidViewMessage: String {
-        String(localized: "homeDock.switch.invalidView", defaultValue: "Home has two views: messages and channels.", bundle: .localizedModule)
+        String(localized: "homeDock.switch.invalidView", defaultValue: "Chief has two views: messages and channels.", bundle: .localizedModule)
     }
 
     public static var channelsOffMessage: String {

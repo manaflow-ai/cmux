@@ -54,10 +54,18 @@ public struct CloudStartSessionStrings {
         String(format: String(localized: "cloud.startSession.needsMachine", defaultValue: "Say which Cloud machine to start %1$@ on: `cmux cloud start-session --target machine:<id> --agent %1$@`, or `--name <name>` to take that machine or create it. `cmux cloud list-machines` lists your machines.", table: "CloudSessions", bundle: .localizedModule), agent)
     }
 
-    /// Cloud first use refused the run (``CloudSetup/decide(harness:model:)`` answered setup, as the composer's
-    /// Set up Cloud card): no connection on this Mac or the team serves `agent`'s family, so no machine was taken.
-    public static func setupRequired(agent: String, command: String) -> String {
-        String(format: String(localized: "cloud.startSession.setupRequired", defaultValue: "No Cloud connection serves %1$@ yet. Add one in Settings > Cloud (ChatGPT, Claude or an API key), then run `%2$@` again.", table: "CloudSessions", bundle: .localizedModule), agent, command)
+    /// Cloud first use refused the run (``CloudSetup/refusal(harness:model:)``, as the composer's Set up Cloud card): no
+    /// connection on this Mac or the team serves `agent`'s family, so no machine was taken. `link` opens the Settings >
+    /// Cloud row that sets it up (`cmux://settings/cloud/claude` or `/chatgpt`, the running build's scheme). With
+    /// `localLogin` (a Claude Code or Codex login on this Mac, which serves only this Mac) it says why that one does not count.
+    public static func setupRequired(agent: String, family: String, localLogin: Bool, link: String, command: String) -> String {
+        let text = String(format: String(localized: "cloud.startSession.setupRequired", defaultValue: "No Cloud connection serves %1$@ yet. Add one in Settings > Cloud (ChatGPT, Claude or an API key), then run `%2$@` again.", table: "CloudSessions", bundle: .localizedModule), agent, command)
+        let open = String(format: String(localized: "cloud.startSession.setupRequired.open", defaultValue: "`cmux link open --url %@` opens it there.", table: "CloudSessions", bundle: .localizedModule), link)
+        guard localLogin else { return text + " " + open }
+        let login = family == "codex"
+            ? String(localized: "cloud.startSession.setupRequired.codexLogin", defaultValue: "Your Codex login on this Mac works only on this Mac; Cloud needs a ChatGPT connection (or an API key).", table: "CloudSessions", bundle: .localizedModule)
+            : String(localized: "cloud.startSession.setupRequired.claudeLogin", defaultValue: "Your Claude Code login on this Mac works only on this Mac; Cloud needs a Claude setup token (or an API key).", table: "CloudSessions", bundle: .localizedModule)
+        return login + " " + text + " " + open
     }
 
     public static func noSuchMachine(id: String, agent: String) -> String {

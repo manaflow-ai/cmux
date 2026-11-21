@@ -10,8 +10,6 @@ name: cmux-next perf bench
 # which only hands the step to the controller with `cmux-ci run`.
 
 on:
-  schedule:
-    - cron: "17 9 * * *"
   workflow_dispatch:
     inputs:
       rounds:

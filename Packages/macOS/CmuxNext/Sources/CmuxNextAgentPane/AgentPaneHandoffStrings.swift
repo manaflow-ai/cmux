@@ -14,7 +14,7 @@ public struct AgentPaneHandoffStrings: Sendable {
             "fromTo": String(localized: "agentPane.handoff.fromTo", defaultValue: "Continue from %@ in %@", bundle: .localizedModule),
             "context": String(localized: "agentPane.handoff.context", defaultValue: "Context to carry forward", bundle: .localizedModule),
             "checkpoint": String(localized: "agentPane.handoff.checkpoint", defaultValue: "Repository checkpoint", bundle: .localizedModule),
-            "checkpointPlaceholder": String(localized: "agentPane.handoff.checkpointPlaceholder", defaultValue: "A saved commit, stash, or backup reference", bundle: .localizedModule),
+            "checkpointPlaceholder": String(localized: "agentPane.handoff.checkpointPlaceholder", defaultValue: "Commit, stash or backup", bundle: .localizedModule),
             "checkpointConfirm": String(localized: "agentPane.handoff.checkpointConfirm", defaultValue: "I saved the working changes, including the files I need to keep.", bundle: .localizedModule),
             "memory": String(localized: "agentPane.handoff.memory", defaultValue: "Approved memory references", bundle: .localizedModule),
             "memoryHelp": String(localized: "agentPane.handoff.memoryHelp", defaultValue: "Share only the references you approve for this chat, one per line.", bundle: .localizedModule),

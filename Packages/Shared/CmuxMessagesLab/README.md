@@ -24,8 +24,11 @@ and render-server field animation, blurred header and native scrolling.
     Messages' key-window glass rims over the system glass; dark, 2x, macOS 27
     only), LabGlass (system glass on macOS 26
     and newer, an NSVisualEffectView stand-in on 14 and 15), NativeScroll,
-    HeaderBar, HeaderBackdrop, TranscriptAccess, SwipeReply (installed only when the
-    owner can take a reply: `ChatIntents.canReply`; Home sends the reply as
+    HeaderBar, HeaderBackdrop, TranscriptAccess, SwipeReply (its own pin, 5946526; installed only when the
+    owner can take a reply: `ChatIntents.canReply`; cmux's patch holds a gesture that starts on a message
+    until 3 pt of motion show its direction, claims only a near-horizontal swipe to the right and hands
+    anything else back to the window in order, fits the row's travel and arrow to the swipe-full reference,
+    and opens the reply on a flick; `HomeSwipeReplyTests`; Home sends the reply as
     `HomeOp.sendMessage(threadRoot:)`, the thread view's Esc and clicks are `Cmux/PaneHost+Thread.swift`),
     FlightRecorder (off until the app's policy, `HomeFlightRecorder`, turns it
     on: a Debug Settings opt-in in DEV and NIGHTLY until it costs at most 0.3 ms a

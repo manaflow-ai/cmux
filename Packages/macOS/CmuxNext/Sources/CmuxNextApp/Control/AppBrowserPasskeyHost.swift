@@ -11,9 +11,7 @@ final class AppBrowserPasskeyHost: BrowserPasskeyHost, Sendable {
 
     private weak var services: AppServices?
 
-    init(services: AppServices) {
-        self.services = services
-    }
+    init(services: AppServices) { self.services = services }
 
     /// The request id a passkey banner names, nil for any other banner.
     nonisolated static func requestID(banner id: String) -> String? {
@@ -34,11 +32,13 @@ final class AppBrowserPasskeyHost: BrowserPasskeyHost, Sendable {
         let context = AppActionContext(services: services)
         TabHandlers.reveal(tabID: tabID, ctx: context)
         if !services.environment.noActivate { NSApp.activate() }
-        if let (_, pane) = services.locateTabOnAnyMachine(tabID), let window = services.paneController(for: pane)?.view.window {
-            window.makeKeyAndOrderFront(nil)
-        }
+        services.locateTabOnAnyMachine(tabID).flatMap { services.paneController(for: $0.1)?.view.window }?.makeKeyAndOrderFront(nil)
         // WebKit starts WebAuthn only in a focused document (`Document::hasFocus`).
         services.cache.existingBrowser(tabID)?.tab.setFocused(true)
+    }
+
+    func handOver(tabID: String, during trigger: @Sendable () async throws -> Void) async throws {
+        if let tab = services?.cache.existingBrowser(tabID)?.tab { try await tab.handOverWebAuthn(during: trigger) } else { try await trigger() }
     }
 
     func post(_ request: BrowserPasskeyRequest) async {

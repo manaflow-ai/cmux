@@ -42,7 +42,7 @@ enum MiscHandlerStrings {
     static var noTerminal: String { String(localized: "handlers.misc.failed.noTerminal", defaultValue: "No terminal tab is focused.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     /// A shortcut the key window's kind does not support (`WindowKeyTable`).
     static var notInThisWindow: String { String(localized: "handlers.misc.unavailable.windowKind", defaultValue: "Not available in this window.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
-    static var noPane: String { String(localized: "handlers.misc.failed.noPane", defaultValue: "No pane is focused.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var noPane: String { String(localized: "handlers.misc.failed.noPane", defaultValue: "Click a tab first, then try again.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     /// The sheet that asks for a terminal's resume command (Set/Edit Resume Command).
     /// A pane verb on a pane still opening (`PaneNotReady`, P0 2026-10-30): it was not sent.
     static var paneNotReady: String { String(localized: "handlers.misc.failed.paneNotReady", defaultValue: "This pane is still opening; try again in a moment.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
