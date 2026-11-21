@@ -9,7 +9,6 @@ import type { CliReference, PaletteReference, SettingsReference } from "@/script
 import {
   headingId,
   nextDocHref,
-  repoSourceHref,
   nextDocPage,
   nextDocPublicPath,
   repoSourceHref,
