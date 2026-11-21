@@ -8,9 +8,15 @@
   display: flex;
   justify-content: flex-end;
   padding-top: var(--ds-space-2);
-  padding-inline: var(--cv-inset, var(--ds-space-4)) var(--cv-inset-end, var(--cv-inset, var(--ds-space-4)));
+  padding-inline: var(--cv-inset, var(--ds-space-4))
+    var(--cv-inset-end, var(--cv-inset, var(--ds-space-4)));
   pointer-events: none;
   opacity: 0;
+  /* Pushed out by the next prompt's row: the header slides up out of its own zone, clipped at the
+     zone's top so it never draws over the pane's header (the shadow below stays). */
+  clip-path: inset(0 -24px -48px -24px);
+}
+.acpmux-sticky-prompt > * {
   transform: translateY(var(--sticky-push, 0px));
 }
 .acpmux-sticky-prompt[data-shown] {
@@ -39,7 +45,7 @@
 }
 
 /* chip: the bubble's look, small, at the top end where your prompts sit. */
-.acpmux-sticky-prompt__chip {
+.ui-glass.acpmux-sticky-prompt__chip {
   display: inline-flex;
   align-items: center;
   gap: var(--ds-space-1);
@@ -62,14 +68,14 @@
 .acpmux-sticky-prompt[data-arm="line"] {
   justify-content: stretch;
 }
-.acpmux-sticky-prompt__line {
+.ui-glass.acpmux-sticky-prompt__line {
   display: flex;
   align-items: flex-start;
   width: 100%;
   border-radius: var(--ds-radius-control);
   --glass-edge: color-mix(in srgb, var(--agent-text) 14%, transparent);
   --glass-elevation: var(--elevation-2);
-  --glass-tint: color-mix(in srgb, var(--agent-page-bg) 80%, transparent);
+  --glass-tint: color-mix(in srgb, var(--agent-page-bg) 94%, transparent);
   font-size: var(--text-detail);
   color: var(--agent-text);
 }
@@ -113,7 +119,8 @@
   gap: var(--ds-space-2);
   width: 100%;
   padding: 8px var(--cv-inset, var(--ds-space-4));
-  background: linear-gradient(var(--agent-page-bg) 70%, transparent);
+  background: var(--agent-page-bg);
+  box-shadow: 0 10px 12px -2px var(--agent-page-bg);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--text-detail);
   text-align: start;
@@ -133,7 +140,7 @@
   justify-content: center;
   pointer-events: none;
 }
-.acpmux-sticky-prompt-jump__pill {
+.ui-glass.acpmux-sticky-prompt-jump__pill {
   display: inline-flex;
   align-items: center;
   gap: var(--ds-space-1);

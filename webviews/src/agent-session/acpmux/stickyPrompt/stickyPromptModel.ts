@@ -3,7 +3,11 @@
 // (appends extend them), and each scroll is one binary search over their tops.
 import type { AcpmuxRow } from "../model";
 
-export type PromptScanState = { length: number; lastId?: string; indexes: number[] };
+export type PromptScanState = {
+  length: number;
+  lastId?: string;
+  indexes: number[];
+};
 
 /// A prompt row the reader typed (not a hidden or incoming notice).
 export function isPrompt(row: AcpmuxRow): boolean {
@@ -48,7 +52,10 @@ export type StickyState = {
 
 export function stickyState(
   indexes: readonly number[],
-  geometry: { topAt: (index: number) => number; heightAt: (index: number) => number },
+  geometry: {
+    topAt: (index: number) => number;
+    heightAt: (index: number) => number;
+  },
   viewTop: number,
   viewHeight: number,
 ): StickyState {
@@ -58,5 +65,10 @@ export function stickyState(
   const bottom = geometry.topAt(index) + geometry.heightAt(index);
   const next = indexes[slot + 1];
   const nextTop = next === undefined ? Infinity : geometry.topAt(next) - viewTop;
-  return { slot, index, pinned: bottom < viewTop, room: nextTop > viewHeight ? Infinity : nextTop };
+  return {
+    slot,
+    index,
+    pinned: bottom < viewTop,
+    room: nextTop > viewHeight ? Infinity : nextTop,
+  };
 }

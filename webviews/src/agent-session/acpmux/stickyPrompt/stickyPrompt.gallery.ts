@@ -56,8 +56,16 @@ const turns = (count: number, ago: number): AcpmuxRow[] =>
         at - 0.4,
         { id: `sticky-tools-${n}` },
       ),
-      assistant(answer(n), at - 1, { id: `sticky-answer-${n}`, assistantPhase: "final_answer" }),
-      summary(at - 1, { id: `sticky-summary-${n}`, status: "completed", durationMs: 40_000, toolCount: 2 }),
+      assistant(answer(n), at - 1, {
+        id: `sticky-answer-${n}`,
+        assistantPhase: "final_answer",
+      }),
+      summary(at - 1, {
+        id: `sticky-summary-${n}`,
+        status: "completed",
+        durationMs: 40_000,
+        toolCount: 2,
+      }),
     ];
   }).flat();
 
@@ -104,9 +112,16 @@ export default agentPaneEntry({
     "agent-session/acpmux/stickyPrompt/stickyPrompt.css",
   ],
   keywords: ["sticky", "pinned prompt", "last prompt", "jump to prompt", "terminal", "minimap"],
-  experiment: { definition: stickyPrompt, script: [{ name: "Park inside a long answer", run: park }] },
+  experiment: {
+    definition: stickyPrompt,
+    script: [{ name: "Park inside a long answer", run: park }],
+  },
   variants: {
-    compare: { note: "In the app's arm; View Compare arms puts every look side by side.", snapshot, play: park },
+    compare: {
+      note: "In the app's arm; View Compare arms puts every look side by side.",
+      snapshot,
+      play: park,
+    },
     chip: arm("chip", "Sticky chip: the prompt's first line at the top end in a glass chip; click goes back to it."),
     line: arm("line", "Collapsed line: full-width one-line bar; click opens the whole prompt, a second click jumps."),
     fade: arm("fade", "Scroll-linked fade: the terminal's flat pinned prompt, fading in and pushed out by the next."),

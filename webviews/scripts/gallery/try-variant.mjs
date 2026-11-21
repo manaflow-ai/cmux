@@ -10,7 +10,8 @@
 // VARIANT is one of the entry's variants (default: every one). `exp:ARM` picks an arm of the entry's
 // experiment on its first variant. After the variant's play, the video scrolls the transcript by each
 // --scroll step (px, negative is up; default a sweep up then back down), presses each --keys key and
-// clicks --click, a beat apart. Writes DIR/<variant>.png (after the play) and DIR/<variant>.webm, and
+// clicks --click, a beat apart. Writes DIR/<variant>.png (after the play), DIR/<variant>-after.png (after
+// the keys and click) and DIR/<variant>.webm, and
 // prints one JSON line per capture with its time.
 import fs from "node:fs";
 import path from "node:path";
@@ -68,14 +69,23 @@ for (const pick of variants) {
     const id = await page.evaluate(() => globalThis.cmuxGalleryExperimentId).catch(() => undefined);
     if (id) await page.goto(`${url}&exp=${encodeURIComponent(id)}`);
   }
-  // The frame marks the end of a variant's play (gallery/frame/playRunner.ts) on the root.
+  // The pane is mounted once its scroller exists; the play then runs within the settle beat.
   await page
-    .waitForFunction(
-      () => document.documentElement.dataset.playDone !== undefined || document.querySelector(".acpmux-scroll"),
-      null,
-      { timeout: 30_000 },
-    )
+    .waitForFunction(() => document.querySelector(".acpmux-scroll"), null, {
+      timeout: 30_000,
+    })
     .catch(() => {});
+  // A save that lands mid-run makes the dev server rebuild under the frame's dynamic imports: load
+  // once more rather than capture a stage that never mounted.
+  if (errors.some((error) => error.includes("failed to mount"))) {
+    errors.length = 0;
+    await page.reload();
+    await page
+      .waitForFunction(() => document.querySelector(".acpmux-scroll"), null, {
+        timeout: 30_000,
+      })
+      .catch(() => {});
+  }
   await page.waitForTimeout(1_200);
   await page.screenshot({ path: path.join(out, `${name}.png`) });
   const scroller = ".acpmux-scroll";
@@ -92,6 +102,7 @@ for (const pick of variants) {
     await page.waitForTimeout(900);
   }
   await page.waitForTimeout(400);
+  if (keys.length || click) await page.screenshot({ path: path.join(out, `${name}-after.png`) });
   const video = page.video();
   await context.close();
   const file = path.join(out, `${name}.webm`);

@@ -3754,7 +3754,9 @@ function TranscriptView({
   // (https://github.com/manaflow-ai/cmux/issues/40021). Observed: a header that resizes, or a
   // scroller that resizes (a line under the header pushes it down and shortens it, in a stage of
   // fixed height), moves the line before the frame paints.
-  const overTop = pinned || (sinceKey !== undefined && onJumpToSince !== undefined);
+  // PROTOTYPE (stickyPrompt.experiment.ts): the arm is read once per mount.
+  const [stickyArm] = useState(() => experimentArm(stickyPrompt));
+  const overTop = pinned || (sinceKey !== undefined && onJumpToSince !== undefined) || stickyArm !== "off";
   const [clearTop, setClearTop] = useState(topInset);
   useLayoutEffect(() => {
     const scroller = ref.current;
@@ -6386,7 +6388,6 @@ function TranscriptView({
     });
   };
   // PROTOTYPE (sticky-prompt experiment, default off): a prompt's row placed just under the top zone.
-  const [stickyArm] = useState(() => experimentArm(stickyPrompt));
   const placeViewRef = useRef(placeView);
   placeViewRef.current = placeView;
   const jumpToPrompt = React.useCallback((index: number) => {
@@ -7251,7 +7252,11 @@ function TranscriptView({
                   ? 0
                   : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
                 ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
-                ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
+                ...(pinnedPill
+                  ? {
+                      "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px`,
+                    }
+                  : {}),
                 // The live line's box and the gap over it in a run, from their one source (transcriptGrid.ts).
                 ...LIVE_STEP_VARS,
               } as React.CSSProperties

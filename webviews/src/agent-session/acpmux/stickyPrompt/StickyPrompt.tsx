@@ -4,7 +4,7 @@
 // Cost per scroll: one binary search (stickyPromptModel.ts `stickyState`); the prompt indexes are
 // rebuilt only when rows change, appends incrementally. No observers per row.
 import React, { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowDown, ChevronDown } from "../conversation/icons";
 import type { AcpmuxRow } from "../model";
 import { promptIndexes, stickyState, type PromptScanState } from "./stickyPromptModel";
 import type { StickyPromptArm } from "./stickyPrompt.experiment";
@@ -12,11 +12,16 @@ import "./stickyPrompt.css";
 
 /// The pinned header's own height for the push (one line plus padding), px.
 const HEADER_PX = 34;
+/// How far under the view's top a prompt's row counts as the one being read (a jump puts it 12 px under).
+const PROBE_PX = 16;
 
 export type StickyPromptProps = {
   arm: StickyPromptArm;
   rows: readonly AcpmuxRow[];
-  geometry: { topAt: (index: number) => number; heightAt: (index: number) => number };
+  geometry: {
+    topAt: (index: number) => number;
+    heightAt: (index: number) => number;
+  };
   totalHeight: number;
   /// The view's top in layout coordinates, and its height.
   viewTop: number;
@@ -36,7 +41,8 @@ export function StickyPrompt(props: StickyPromptProps) {
   const scan = useRef<PromptScanState>({ length: 0, indexes: [] });
   scan.current = promptIndexes(rows, scan.current);
   const indexes = scan.current.indexes;
-  const state = stickyState(indexes, geometry, viewTop, viewHeight);
+  // Probed a little under the view's top: a prompt jumped to sits PROBE_PX under it and is "here".
+  const state = stickyState(indexes, geometry, viewTop + PROBE_PX, viewHeight);
   const [open, setOpen] = useState(false);
   const pinnedIndex = state.pinned ? state.index : -1;
   // Another prompt pinned: the expanded line closes.
@@ -108,7 +114,7 @@ export function StickyPrompt(props: StickyPromptProps) {
             title={`${text}\n\nClick: back to this prompt`}
             onClick={() => onJump(state.index)}
           >
-            <ArrowUp size={12} aria-hidden="true" />
+            <ArrowDown size={12} style={{ transform: "rotate(180deg)" }} />
             <span className="acpmux-sticky-prompt__text">{firstLine(text)}</span>
           </button>
         )}
@@ -130,7 +136,7 @@ export function StickyPrompt(props: StickyPromptProps) {
               aria-label={open ? "Collapse" : "Expand"}
               onClick={() => setOpen(!open)}
             >
-              {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              <ChevronDown size={12} style={{ transform: open ? "rotate(180deg)" : undefined }} />
             </button>
           </div>
         )}
@@ -161,10 +167,11 @@ export function StickyPrompt(props: StickyPromptProps) {
           onClick={() => onJump(last)}
           title={firstLine(rows[last]?.text)}
         >
-          <ArrowUp
+          <ArrowDown
             size={12}
-            aria-hidden="true"
-            style={{ transform: lastTop > viewHeight ? "rotate(180deg)" : undefined }}
+            style={{
+              transform: lastTop > viewHeight ? undefined : "rotate(180deg)",
+            }}
           />
           <span>Last prompt</span>
           <kbd>⌥↑</kbd>
@@ -183,7 +190,9 @@ export function StickyPrompt(props: StickyPromptProps) {
           type="button"
           className="acpmux-sticky-prompt-rail__tick"
           data-current={slot === state.slot ? "" : undefined}
-          style={{ top: `${(geometry.topAt(index) / Math.max(1, totalHeight)) * 100}%` }}
+          style={{
+            top: `${(geometry.topAt(index) / Math.max(1, totalHeight)) * 100}%`,
+          }}
           title={firstLine(rows[index]!.text)}
           onClick={() => onJump(index)}
         />
