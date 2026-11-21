@@ -4,7 +4,8 @@ public import CmuxNextDaemon
 /// What an open of an existing session's chat answers (`agent.openSessionTab`, `agent.openSessionWorkspace`): the
 /// session and the ids of the tab, pane and workspace that show it, also when the chat was already open, so a script
 /// can tell where the chat is (ask-a0466e9c05: an open of a shown session answered success with nothing).
-public enum AgentSessionOpenAnswer {
+public struct AgentSessionOpenAnswer {
+    public init() {}
     /// The answer's fields; a nil tab or pane (a keyed workspace whose first tab is still in flight) is left out.
     @MainActor public static func fields(session: String, tab: TabModel?, tabID: String? = nil, pane: PaneModel?,
                                          workspace: WorkspaceModel?) -> [String: ActionResultValue] {
