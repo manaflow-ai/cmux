@@ -320,6 +320,9 @@ export async function measureTickJumps(
 export async function measureUnloadedTickJumps(
   open: () => Promise<Page>,
   samples: number,
+  /// How long the pointer is on the rail before the click: 0 clicks at once, as a script does; a person
+  /// reaches the rail and aims at a tick first (a few hundred ms).
+  aimMs = 0,
 ): Promise<{ firstPaint: number[]; settled: number[]; movedPx: number[]; samples: unknown[] }> {
   const all = [];
   for (let sample = 0; sample < samples; sample++) {
@@ -344,6 +347,11 @@ export async function measureUnloadedTickJumps(
       }, index);
       const tick = rail.locator(`[data-tick="${index}"]`);
       await tick.waitFor();
+      if (aimMs > 0) {
+        const box = (await rail.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + 4);
+        await page.waitForTimeout(aimMs);
+      }
       await page.evaluate((index) => {
         const probe = window as unknown as { railJump: unknown };
         probe.railJump = null;
@@ -891,6 +899,8 @@ async function main() {
     if (process.env.RAIL_BENCH_UNLOADED !== "0") {
       const endpoint = `ws://127.0.0.1:${daemon.port}/?paged=1&indexDelayMs=150`;
       const url = `http://127.0.0.1:${server.port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${PAPERCUT_CHAT}`;
+      const aimMs = Number(process.env.RAIL_BENCH_AIM_MS ?? 0);
+      const aim = aimMs > 0 ? `_aim${aimMs}` : "";
       const unloaded = await measureUnloadedTickJumps(
         async () => {
           const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
@@ -902,15 +912,24 @@ async function main() {
           return page;
         },
         Math.min(samples, 8),
+        aimMs,
       );
       console.log("RAIL_BENCH_UNLOADED " + JSON.stringify(unloaded));
       const first = distribution(unloaded.firstPaint);
       const settled = distribution(unloaded.settled);
-      perfRow({ name: `thread_rail.tick_click.unloaded_${turns}.first_paint`, ...first, target: TARGET_MS.response });
-      perfRow({ name: `thread_rail.tick_click.unloaded_${turns}.settled`, ...settled, target: TARGET_MS.response });
+      perfRow({
+        name: `thread_rail.tick_click.unloaded_${turns}${aim}.first_paint`,
+        ...first,
+        target: TARGET_MS.response,
+      });
+      perfRow({
+        name: `thread_rail.tick_click.unloaded_${turns}${aim}.settled`,
+        ...settled,
+        target: TARGET_MS.response,
+      });
       // Pixels the prompt moved after it first showed; the target is 0.
       perfRow({
-        name: `thread_rail.tick_click.unloaded_${turns}.moved_px`,
+        name: `thread_rail.tick_click.unloaded_${turns}${aim}.moved_px`,
         ...distribution(unloaded.movedPx),
         unit: "px",
       });
