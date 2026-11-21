@@ -534,11 +534,13 @@ fn shared_shim_of_a_gone_build_starts_claude_through_the_terminals_own_cmux() {
         session_start.contains(&exe_a.display().to_string()),
         "the older terminal's claude ran no hooks of this build: {session_start}"
     );
-    // The shared shims name no build any more, so no last writer decides.
+    // The rewritten shims never name the daemon that wrote them, so no last
+    // writer decides; the older shim's own target stays only as a checked
+    // fallback.
     for name in ["claude", "codex"] {
         let script = fs::read_to_string(shared.join(name)).unwrap();
-        assert!(!script.contains(&gone.display().to_string()), "{name}: {script}");
         assert!(!script.contains(&exe_a.display().to_string()), "{name}: {script}");
+        assert!(script.contains(&format!("if [ -x '{}' ]", gone.display())), "{name}: {script}");
     }
     drop(a);
     let _ = fs::remove_dir_all(&root);
@@ -559,13 +561,19 @@ fn shared_shims_follow_the_terminals_own_cmux() {
     }
     let shared = data.join("cmux-tui/shims");
     fs::create_dir_all(&shared).unwrap();
+    // The older shims name a writer that is still installed (a classic app's
+    // or an npm install's `cmux-tui` at a fixed path).
+    let writer = root.join("writer dir/cmux-tui");
     for (name, marker, verb) in [
         ("claude", "# cmux-tui-claude-shim", "claude-wrapper"),
         ("codex", "# cmux-tui-codex-shim", "codex-wrapper"),
     ] {
         write_executable(
             &shared.join(name),
-            &format!("#!/bin/sh\n{marker}\nexec /gone/cmux agent {verb} \"$@\"\n"),
+            &format!(
+                "#!/bin/sh\n{marker}\nif [ -x '{w}' ]; then\n  exec '{w}' agent {verb} \"$@\"\nfi\nexec {name} \"$@\"\n",
+                w = writer.display()
+            ),
         );
     }
     let exe = install_build(&root.join("build-s"), "build-s", &root.join("hook.log"));
@@ -611,8 +619,15 @@ fn shared_shims_follow_the_terminals_own_cmux() {
         [("CMUX_TUI_CLI", gone.as_path()), ("CMUX_BUNDLED_CLI_PATH", bundle_cli.as_path())];
     assert_eq!(run("claude", &bundled), "bundle|agent claude-wrapper hi\n");
     assert_eq!(run("codex", &bundled), "bundle|agent codex-wrapper hi\n");
+    // A classic bundled CLI is never run; the older shim's own writer is,
+    // while it exists, else the agent itself.
     let classic = [("CMUX_BUNDLED_CLI_PATH", classic_cli.as_path())];
     assert_eq!(run("claude", &classic), format!("real hi|{}\n", real.display()));
     assert_eq!(run("codex", &[]), format!("real hi|{}\n", real.display()));
+    fs::create_dir_all(writer.parent().unwrap()).unwrap();
+    write_executable(&writer, &echo("writer"));
+    assert_eq!(run("claude", &classic), "writer|agent claude-wrapper hi\n");
+    assert_eq!(run("codex", &[]), "writer|agent codex-wrapper hi\n");
+    assert_eq!(run("claude", &both), "tui|agent claude-wrapper hi\n");
     let _ = fs::remove_dir_all(&root);
 }
