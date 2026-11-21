@@ -1,4 +1,7 @@
 import { getStackServerApp } from "../../app/lib/stack";
+import { cloudDb } from "../../db/client";
+import { withTeamMetadataMutation } from "../teams/mutationLease";
+import type { ProMetadataJson } from "../billing/pro";
 import type {
   CodeRouterCredential,
   CodeRouterVault,
@@ -21,31 +24,41 @@ export async function readTeamVault(teamId: string): Promise<CodeRouterVault> {
   return parseVault(team.serverMetadata?.[METADATA_KEY]);
 }
 
+type StackTeamMetadata = Record<string, unknown>;
+
+/**
+ * Read-modify-write of the team's serverMetadata under the team lease, so a
+ * vault write cannot store a stale copy over an operator key (a VM deal's
+ * label and price, admin grant and change records) saved meanwhile. The team
+ * is read inside the lease. `change` returns the new metadata, or null to
+ * leave the team untouched.
+ */
+async function mutateTeamServerMetadata(
+  teamId: string,
+  change: (metadata: StackTeamMetadata) => StackTeamMetadata | null,
+): Promise<void> {
+  await withTeamMetadataMutation(cloudDb(), teamId, async (lease) => {
+    const team = await getStackServerApp().getTeam(teamId);
+    if (!team) throw new CodeRouterVaultUnavailable("coderouter team not found");
+    await lease.refresh();
+    const current = isRecord(team.serverMetadata) ? { ...team.serverMetadata } : {};
+    const next = change(current);
+    if (next) await team.update({ serverMetadata: next as ProMetadataJson });
+  });
+}
+
 export async function writeTeamVault(
   teamId: string,
   vault: CodeRouterVault,
 ): Promise<void> {
-  const team = await getStackServerApp().getTeam(teamId);
-  if (!team) throw new CodeRouterVaultUnavailable("coderouter team not found");
-  const metadata = isRecord(team.serverMetadata)
-    ? { ...team.serverMetadata }
-    : {};
-  await team.update({
-    serverMetadata: {
-      ...metadata,
-      [METADATA_KEY]: vault,
-    },
-  });
+  await mutateTeamServerMetadata(teamId, (metadata) => ({ ...metadata, [METADATA_KEY]: vault }));
 }
 
 export async function clearTeamVault(teamId: string): Promise<void> {
-  const team = await getStackServerApp().getTeam(teamId);
-  if (!team) throw new CodeRouterVaultUnavailable("coderouter team not found");
-  const metadata = isRecord(team.serverMetadata)
-    ? { ...team.serverMetadata }
-    : {};
-  delete metadata[METADATA_KEY];
-  await team.update({ serverMetadata: metadata });
+  await mutateTeamServerMetadata(teamId, (metadata) => {
+    delete metadata[METADATA_KEY];
+    return metadata;
+  });
 }
 
 export async function putVaultCredential(
@@ -54,21 +67,22 @@ export async function putVaultCredential(
   credential: CodeRouterCredential,
   expectedRevision?: number,
 ): Promise<number> {
-  const vault = await readTeamVault(teamId);
-  const current = vault.accounts[accountId];
-  if (
-    expectedRevision !== undefined &&
-    current?.revision !== expectedRevision
-  ) {
-    throw new CodeRouterVaultUnavailable("vault revision changed");
-  }
-  const revision = (current?.revision ?? 0) + 1;
-  await writeTeamVault(teamId, {
-    version: 1,
-    accounts: {
-      ...vault.accounts,
-      [accountId]: { revision, credential },
-    },
+  let revision = 0;
+  await mutateTeamServerMetadata(teamId, (metadata) => {
+    const vault = parseVault(metadata[METADATA_KEY]);
+    const current = vault.accounts[accountId];
+    if (
+      expectedRevision !== undefined &&
+      current?.revision !== expectedRevision
+    ) {
+      throw new CodeRouterVaultUnavailable("vault revision changed");
+    }
+    revision = (current?.revision ?? 0) + 1;
+    const next: CodeRouterVault = {
+      version: 1,
+      accounts: { ...vault.accounts, [accountId]: { revision, credential } },
+    };
+    return { ...metadata, [METADATA_KEY]: next };
   });
   return revision;
 }
@@ -77,11 +91,13 @@ export async function deleteVaultCredential(
   teamId: string,
   accountId: string,
 ): Promise<void> {
-  const vault = await readTeamVault(teamId);
-  if (!(accountId in vault.accounts)) return;
-  const accounts = { ...vault.accounts };
-  delete accounts[accountId];
-  await writeTeamVault(teamId, { version: 1, accounts });
+  await mutateTeamServerMetadata(teamId, (metadata) => {
+    const vault = parseVault(metadata[METADATA_KEY]);
+    if (!(accountId in vault.accounts)) return null;
+    const accounts = { ...vault.accounts };
+    delete accounts[accountId];
+    return { ...metadata, [METADATA_KEY]: { version: 1, accounts } };
+  });
 }
 
 export function parseVault(value: unknown): CodeRouterVault {

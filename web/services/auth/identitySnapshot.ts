@@ -4,6 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { stackIdentitySnapshots } from "../../db/schema";
 import type { AuthedTeam, AuthedUser } from "../vms/auth";
+import { teamEntitlementOverrideFromUnknown, withEntitlementOverride } from "../vms/teamEntitlementOverride";
 
 /**
  * How long a stored identity snapshot may answer for Stack.
@@ -74,6 +75,7 @@ function authedUserFromSnapshotRow(
     displayName: team.displayName ?? null,
     billingPlanId: team.billingPlanId ?? null,
     billingSeats: team.billingSeats ?? null,
+    ...withEntitlementOverride("entitlementOverride", teamEntitlementOverrideFromUnknown(team.entitlementOverride)),
   }));
   return {
     id: row.userId,
@@ -87,6 +89,14 @@ function authedUserFromSnapshotRow(
     userBillingPlanId: row.userBillingPlanId,
     billingPlanId: row.billingPlanId,
     billingSeats: row.billingSeats,
+    // The billing team is always one of the stored teams, so its deal rides
+    // in the teams column and needs no column of its own.
+    ...withEntitlementOverride(
+      "billingEntitlementOverride",
+      row.billingCustomerType === "team"
+        ? teams.find((team) => team.id === row.billingTeamId)?.entitlementOverride
+        : null,
+    ),
   };
 }
 
@@ -109,6 +119,7 @@ export async function writeIdentitySnapshot(
     displayName: team.displayName,
     billingPlanId: team.billingPlanId,
     billingSeats: team.billingSeats,
+    ...withEntitlementOverride("entitlementOverride", team.entitlementOverride),
   }));
   try {
     await (db ?? cloudDb())

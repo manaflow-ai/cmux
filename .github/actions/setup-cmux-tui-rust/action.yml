@@ -79,3 +79,9 @@ runs:
         PY
         cargo --version
         rustc --version
+    # Last, so rustup installs with the host's CARGO_HOME. Every later step
+    # (rust-cache restore and its post-step cleanup among them) then uses a
+    # CARGO_HOME that no other runner instance on the host can delete from.
+    - name: Give this runner instance its own CARGO_HOME
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/../runner-cargo-home/runner-cargo-home.sh"

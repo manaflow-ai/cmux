@@ -129,8 +129,15 @@ class ClassicApiGuardTests(unittest.TestCase):
         self.assertIn("--listed-records", text)
         self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", text)
         self.assertIn("scripts/ci/classic_api_guard.py", text)
-        for head_ref in ("head.sha", "head.ref", "refs/pull", "merge_commit_sha", "${{ secrets"):
+        for head_ref in ("head.sha", "head.ref", "refs/pull", "merge_commit_sha"):
             self.assertNotIn(head_ref, text)
+        # The one secret is the cmux-bot App key, and only the pinned mint action reads it.
+        self.assertEqual(text.count("${{ secrets"), 1)
+        mint = text.split("- name: Mint the cmux-bot read token", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("private-key: ${{ secrets.CMUX_BOT_APP_KEY }}", mint)
+        self.assertIn("uses: actions/create-github-app-token@", mint)
+        self.assertNotIn("permission-", mint.replace("permission-contents: read", "").replace(
+            "permission-pull-requests: read", ""))
 
 
 if __name__ == "__main__":
