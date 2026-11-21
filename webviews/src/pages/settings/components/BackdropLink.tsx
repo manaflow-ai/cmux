@@ -6,6 +6,7 @@ import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
 import { t } from "../strings";
+import { intl } from "../../../ui/intl";
 
 const REFUSALS: Record<string, string> = {
   "cmux.settings.backdrop.not_https": "settingsWindow.backdropPicker.notHttps",
@@ -65,9 +66,11 @@ export function BackdropLink({ onClose }: { onClose: () => void }) {
 /** Bytes as the person reads them: megabytes, or gigabytes past a thousand of them. */
 export function formatBytes(bytes: number, locale?: string): string {
   const giga = bytes >= 1e9;
-  return new Intl.NumberFormat(locale, {
-    style: "unit",
-    unit: giga ? "gigabyte" : "megabyte",
-    maximumFractionDigits: 1,
-  }).format(giga ? bytes / 1e9 : bytes / 1e6);
+  return intl
+    .NumberFormat(locale, {
+      style: "unit",
+      unit: giga ? "gigabyte" : "megabyte",
+      maximumFractionDigits: 1,
+    })
+    .format(giga ? bytes / 1e9 : bytes / 1e6);
 }

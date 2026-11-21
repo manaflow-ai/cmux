@@ -3,6 +3,7 @@ import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { Checkpoint, CheckpointList } from "./protocol";
 import type { CheckpointStrings } from "./strings";
 import "./styles.css";
+import { intl } from "../../../ui/intl";
 
 /** The checked list is the Create intent. All receipts and omissions come from the Git owner. */
 export function CheckpointReview({
@@ -63,7 +64,7 @@ export function CheckpointReview({
   const date = (value: string) => {
     const timestamp = new Date(value);
     return Number.isFinite(timestamp.getTime())
-      ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp)
+      ? intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp)
       : s.unavailable;
   };
   const pins = record?.pins ?? [];

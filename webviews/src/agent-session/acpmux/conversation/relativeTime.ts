@@ -3,6 +3,7 @@
 // "last week", "2 months ago", "last year" (it never switches to a date there), and on hover
 // "Oct 20, 2026, 10:16 PM". Intl words both in the pane's language.
 import { hasTimestamp } from "./timestamps";
+import { intl } from "../../../ui/intl";
 
 /// Claude's units, largest first, in seconds: the age reads in the largest one it has reached.
 const UNITS: readonly (readonly [Intl.RelativeTimeFormatUnit, number])[] = [
@@ -19,7 +20,7 @@ const UNITS: readonly (readonly [Intl.RelativeTimeFormatUnit, number])[] = [
 let lastWords: { locale: string; formatter: Intl.RelativeTimeFormat; englishNow: boolean } | undefined;
 function relativeWords(locale?: string) {
   if (locale !== undefined && lastWords?.locale === locale) return lastWords;
-  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  const formatter = intl.RelativeTimeFormat(locale, { numeric: "auto" });
   const words = { formatter, englishNow: formatter.resolvedOptions().locale.toLowerCase().startsWith("en") };
   if (locale !== undefined && Intl.RelativeTimeFormat.supportedLocalesOf(locale).length)
     lastWords = { locale, ...words };
@@ -87,9 +88,9 @@ export function replyMenuTime(at: number, now: number, locale?: string): string 
   const delta = Math.round((day - current) / 86_400_000);
   if (delta !== 0 && delta !== -1) return exactTime(at, locale);
   try {
-    const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(delta, "day");
+    const relative = intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(delta, "day");
     const label = relative.charAt(0).toLocaleUpperCase(locale) + relative.slice(1);
-    return `${label}, ${new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }).format(date)}`;
+    return `${label}, ${intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }).format(date)}`;
   } catch {
     return exactTime(at, locale);
   }
