@@ -145,8 +145,9 @@ fn a_failed_part_tries_again_by_itself_once_the_cap_window_allows() {
         "one deadline: the first attempt leaves the window"
     );
 
-    // Another op before then changes nothing: still failed, the same deadline.
+    // Input and ticks before then repair nothing: still failed until the window frees an attempt.
     h.input(ID, 1, 0, 300_000);
+    assert!(run(&mut h, 609_999).is_empty());
     assert_eq!(part(&h, ID).map(|p| p.state), Some(State::Failed));
     assert_eq!(h.next_tick_ms(), Some(610_000));
 
