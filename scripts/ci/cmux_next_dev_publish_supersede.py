@@ -12,13 +12,15 @@ holds a Mac queue slot.
 The rule, run by the publisher's `supersede` job once its own run has a signed app:
 
 - A candidate is an open publish run of this workflow on main (workflow_dispatch), other than this run,
-  whose source run id is lower than this run's, that has a Mac job not yet finished and no job running.
-  A Mac job a runner has taken (queued, with a runner name) counts as running.
+  whose source run id is lower than this run's, that has a Mac job before its publish (verify, the tip DMG
+  build) not yet finished and no job running. A Mac job a runner has taken (queued, with a runner name)
+  counts as running. The tip deltas never make a run a candidate: a run that waits only for them has
+  published and written the tip feed, and a cancel would only cost that feed entry its deltas.
 - The OLDEST candidate is kept: its queued Mac job is closest to a runner. "Oldest" is the earliest
   creation time of its unfinished Mac jobs (the queue position), then the run's own creation time, then
   the lower source run id. This run is kept as well. Every other candidate is cancelled.
-- A run with a running job, a run with a newer (or the same) source run id, a run whose Mac jobs are all
-  finished, a run whose jobs cannot be read, and every run of another workflow, branch or title are left
+- A run with a running job, a run with a newer (or the same) source run id, a run whose verify and tip DMG
+  build are both finished (one waiting only for its tip deltas too), a run whose jobs cannot be read, and every run of another workflow, branch or title are left
   alone. Each run's jobs are read again right before its cancel.
 
 Why the oldest stays: no concurrency group (see the comment on the workflow's sign job). A group keeps one
@@ -50,11 +52,12 @@ WORKFLOW = "cmux-next-dev-daily.yml"
 WORKFLOW_PATH = f".github/workflows/{WORKFLOW}"
 BRANCH = "main"
 TITLE = re.compile(r"^cmux NEXT DEV daily · publish ([0-9]+)$")
-# The Mac jobs of cmux-next-dev-daily.yml (verify, tip-dmg-build, tip-deltas), by their rendered names.
+# The Mac jobs of cmux-next-dev-daily.yml that come before its publish and tip feed write (verify,
+# tip-dmg-build), by their rendered names: one of them waiting makes a run a candidate. Its third Mac job,
+# tip-deltas, runs only once the tip feed has this build; a run waiting for it alone is never cancelled.
 MAC_JOBS = (
     "Verify signed cmux NEXT DEV",
     "Build the unsigned cmux NEXT DEV tip DMG",
-    "Add deltas to the cmux NEXT DEV tip feed",
 )
 # The run statuses listed. A run whose Mac jobs wait is in_progress (its Linux jobs ran), or queued after
 # a re-run of failed jobs; a run still waiting, pending or requested has not signed, so it has no Mac job.
@@ -137,7 +140,7 @@ def why_not_candidate(jobs: Sequence[Mapping[str, Any]] | None) -> str:
     if busy:
         return f"{busy} is running"
     if not unfinished_mac_jobs(jobs):
-        return "no Mac job of it waits"
+        return "no Mac job before its publish waits"
     return ""
 
 
