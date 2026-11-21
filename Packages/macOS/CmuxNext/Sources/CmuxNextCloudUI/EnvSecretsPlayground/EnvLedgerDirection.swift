@@ -95,7 +95,8 @@ struct EnvLedgerDirection: View {
             ForEach(rows) { entry in
                 line(entry, open: entry.name == open)
                 if entry.name == open {
-                    detail(entry).padding(.leading, 28).padding(.trailing, 12).padding(.vertical, 12)
+                    detail(entry).frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 28).padding(.trailing, 12).padding(.vertical, 12)
                         .background(EnvInk.fill.opacity(0.6))
                 }
                 Divider()
@@ -379,12 +380,9 @@ struct EnvLedgerDirection: View {
                         Text("Value").foregroundStyle(EnvInk.secondary)
                         SecureField("Paste or type the value", text: .constant("")).textFieldStyle(.roundedBorder).frame(width: 320)
                     }
-                    GridRow {
+                    GridRow(alignment: .top) {
                         Text("Keep in").foregroundStyle(EnvInk.secondary)
-                        Picker("Keep in", selection: .constant(EnvSecretsEntry.Scope.chat)) {
-                            ForEach(EnvSecretsEntry.Scope.allCases) { Text($0.title).tag($0) }
-                        }
-                        .pickerStyle(.segmented).labelsHidden().frame(width: 230)
+                        EnvRequestScopePicker(model: model).frame(width: 360, alignment: .leading)
                     }
                 }
                 .font(.system(size: TypeScale.detail))
@@ -393,7 +391,7 @@ struct EnvLedgerDirection: View {
                 HStack {
                     Spacer()
                     Button("Decline") {}
-                    Button("Save secret") {}.buttonStyle(.borderedProminent)
+                    Button(model.requestSaveTitle) {}.buttonStyle(.borderedProminent)
                 }
                 .controlSize(.small)
             }
