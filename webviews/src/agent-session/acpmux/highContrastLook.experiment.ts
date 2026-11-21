@@ -13,7 +13,7 @@ export const highContrastLook = defineExperiment({
     high: {
       label: "High contrast",
       description:
-        "18-point system text, 1.6 line height and full-strength theme foreground transcript tokens (white on dark, black on light) with the theme link accent.",
+        "18-point system text, 1.6 line height and full-strength theme foreground transcript tokens (white on dark, black on light) with the theme link color.",
     },
   },
   defaultArm: "off",
@@ -56,7 +56,8 @@ export const HIGH_CONTRAST_CHAT_VARIABLES = {
   "--cv-faint-rule": FG,
   "--cv-fg": FG,
   "--cv-footer-ink": strength(90),
-  "--cv-link": "var(--agent-accent-text)",
+  // The link color, not `--agent-accent-text` (labels on the accent fill, white): that one vanishes on light.
+  "--cv-link": "var(--agent-link)",
   "--cv-rule": FG,
   "--cv-strong-rule": FG,
   "--cv-text": FG,

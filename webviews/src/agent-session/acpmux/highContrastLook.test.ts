@@ -29,7 +29,7 @@ describe("high contrast chat experiment", () => {
       "agentPane.display.width": 640,
     });
     expect(HIGH_CONTRAST_CHAT_VARIABLES["--cv-text"]).toBe("var(--agent-text)");
-    expect(HIGH_CONTRAST_CHAT_VARIABLES["--cv-link"]).toBe("var(--agent-accent-text)");
+    expect(HIGH_CONTRAST_CHAT_VARIABLES["--cv-link"]).toBe("var(--agent-link)");
   });
 
   test("the high arm holds no literal colors, so it follows the theme in light and dark", () => {
