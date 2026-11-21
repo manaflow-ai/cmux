@@ -8082,10 +8082,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func cloudTerminalReconnectOverlayPresentation(forSurfaceId surfaceId: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {
         if let status = terminalPanel(for: surfaceId)?.deviceAttachment { return status.presentation }
         if let failure = cloudMaterializationFailures[surfaceId] {
-            return Self.cloudMaterializationFailurePresentation(
+            var presentation = Self.cloudMaterializationFailurePresentation(
                 detail: failure.detail,
                 reference: failure.reference
             )
+            if let reservation = cloudPendingCreations[surfaceId],
+               reservation.isShowingRestoredMachineUnavailable, reservation.retry == nil {
+                presentation.showsReconnectButton = false
+            }
+            return presentation
         }
         // A reserved pane still waiting for its terminal shows nothing but its
         // tab spinner; only a recorded failure (above) puts a card on it.

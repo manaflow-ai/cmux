@@ -563,9 +563,11 @@ final class CmuxTuiSurfaceProviderRegistry {
                 } else if Self.endsRestoredMachine(loss) {
                     // No provider ever reached this machine; its restored
                     // panes leave like any machine outside the user's reach.
-                    adoptedOwnerTeams[target.id] = nil
-                    unregisterMachine(target.id)
-                } // A revoked sign-in keeps the owning team for the next sign-in.
+                    endRestoredMachine(target.id)
+                } else {
+                    // A revoked sign-in keeps the owning team for the next sign-in.
+                    showRestoredMachineUnavailable(target.id, reason: CloudTuiManualMirrorStopReason(accessLoss: loss))
+                }
                 continue
             }
             guard !isRetired, epoch == accessEpoch, generation == refreshGeneration else { return }
@@ -587,6 +589,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 portForwards: portForwards, portAccessStore: portAccess
             )
             providers[summary.id] = provider
+            clearRestoredMachineUnavailableIfAwake(provider)
             catalog.register(provider)
         }
     }
@@ -743,9 +746,17 @@ final class CmuxTuiSurfaceProviderRegistry {
         // The page belongs to the team selected when the read started. The
         // client cancels the read if the selection changes before it returns.
         let pageTeamID = activeTeamID()
-        guard !isRetired, let catalog, let page = await listPage() else { return nil }
+        guard !isRetired, let catalog else { return nil }
+        let listedPage = await listPage()
         guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled,
               pageTeamID == activeTeamID() else { return nil }
+        guard let page = listedPage else {
+            // No read of a restored machine can run, so its panes would wait in silence.
+            for machineID in catalog.pendingRestoredMachineIDs where providers[machineID] == nil {
+                showRestoredMachineUnavailable(machineID, reason: cloudReadUnavailableReason)
+            }
+            return nil
+        }
         if allowsBackgroundWork() { await wireGuardHub?.prepareForCloudUse() }
         guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled else { return nil }
         let seen = Set(page.vms.map(\.id))
@@ -822,6 +833,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                     portForwards: portForwards, portAccessStore: portAccess
                 )
                 providers[summary.id] = provider
+                clearRestoredMachineUnavailableIfAwake(provider)
                 catalog.register(provider)
             }
         }
@@ -834,8 +846,8 @@ final class CmuxTuiSurfaceProviderRegistry {
     ///
     /// A `404 vm_not_found` is no proof: the server answers it for a deleted
     /// machine and for a read made with a team that does not own the machine,
-    /// or with an incomplete team list. Those panes stay restoring and are
-    /// read again on the next refresh
+    /// or with an incomplete team list. Those panes keep their links, show a card
+    /// with Reconnect, and are read again on the next refresh
     /// (https://github.com/manaflow-ai/cmux/issues/21820).
     nonisolated static func endsRestoredMachine(_ loss: CloudMachineAccessLoss) -> Bool {
         loss.isMachineScoped && loss != .notFound
@@ -844,18 +856,58 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Access is gone: the restored panes leave instead of reconnecting
     /// through a provider built from persisted metadata.
     private func endRestoredMachine(_ machineID: String) {
+        // Terminal panes stay open when their machine is unregistered. Nothing
+        // reads this machine again, so the card offers no Reconnect.
+        catalog?.showRestoredMachineUnavailable(
+            .cloud(machineID),
+            detail: CloudTuiManualMirrorStopReason.accessLost.endedPresentation?.detail ?? "",
+            retry: nil
+        )
         adoptedOwnerTeams[machineID] = nil
         unregisterMachine(machineID)
+    }
+
+    /// Nothing will attach these terminals until the machine is found. Each pane
+    /// says so and offers Reconnect instead of staying blank. After a 404 the
+    /// saved link stays, so a later read that finds the machine reconnects it.
+    private func showRestoredMachineUnavailable(
+        _ machineID: String,
+        reason: CloudTuiManualMirrorStopReason = .accessLost
+    ) {
+        // Reading again cannot help until the user signs in.
+        let canReconnect = reason != .signedOut && reason != .signInRevoked
+        let reconnect: @MainActor () -> Void = { [weak self] in
+            Task { @MainActor [weak self] in _ = await self?.refresh(force: true) }
+        }
+        catalog?.showRestoredMachineUnavailable(
+            .cloud(machineID),
+            detail: reason.endedPresentation?.detail ?? "",
+            retry: canReconnect ? reconnect : nil
+        )
+    }
+
+    /// Why no read of a restored machine could run.
+    private var cloudReadUnavailableReason: CloudTuiManualMirrorStopReason {
+        hasCloudSession() ? .cloudUnavailable : .signedOut
+    }
+
+    /// A read found the machine. A sleeping one still cannot attach, so its
+    /// first refresh replaces the card with the reason instead.
+    private func clearRestoredMachineUnavailableIfAwake(_ provider: CmuxTuiSurfaceProvider) {
+        guard provider.isAwake else { return }
+        catalog?.clearRestoredMachineUnavailable(provider.machine)
     }
 
     private func registerPendingRestoredMachines(pageTeamID: String?, generation: UInt64) async {
         guard let catalog else { return }
         for machineID in catalog.pendingRestoredMachineIDs where providers[machineID] == nil {
             let info = catalog.machineInfo(for: .cloud(machineID))
-            guard var ownerTeamID = adoptedOwnerTeams[machineID] ?? pageTeamID,
-                  !ownerTeamID.isEmpty,
-                  !isRetired, generation == refreshGeneration,
+            guard !isRetired, generation == refreshGeneration,
                   isCloudEnabled(), !Task.isCancelled else { continue }
+            guard var ownerTeamID = adoptedOwnerTeams[machineID] ?? pageTeamID, !ownerTeamID.isEmpty else {
+                showRestoredMachineUnavailable(machineID, reason: cloudReadUnavailableReason)
+                continue
+            }
             let fetchedSummary: VMSummary?
             do {
                 fetchedSummary = try await loadMachineStatus(machineID, ownerTeamID)
@@ -863,7 +915,10 @@ final class CmuxTuiSurfaceProviderRegistry {
                 guard !isRetired, generation == refreshGeneration else { return }
                 // The saved team may be a guess: a legacy pane adopts the
                 // selected team. The selected team's read can still find it.
-                guard let pageTeamID, !pageTeamID.isEmpty, pageTeamID != ownerTeamID else { continue }
+                guard let pageTeamID, !pageTeamID.isEmpty, pageTeamID != ownerTeamID else {
+                    showRestoredMachineUnavailable(machineID)
+                    continue
+                }
                 do {
                     let summary = try await loadMachineStatus(machineID, pageTeamID)
                     guard !isRetired, generation == refreshGeneration else { return }
@@ -873,9 +928,15 @@ final class CmuxTuiSurfaceProviderRegistry {
                 } catch {
                     guard !isRetired, generation == refreshGeneration else { return }
                     // The same rule as the saved team's read: only a definite
-                    // loss ends the panes; another 404 keeps them restoring.
-                    if CloudMachineAccessLoss(error: error).map(Self.endsRestoredMachine) == true {
+                    // loss ends the panes; anything else keeps them restoring.
+                    let loss = CloudMachineAccessLoss(error: error)
+                    if loss.map(Self.endsRestoredMachine) == true {
                         endRestoredMachine(machineID)
+                    } else {
+                        showRestoredMachineUnavailable(
+                            machineID,
+                            reason: loss.map(CloudTuiManualMirrorStopReason.init(accessLoss:)) ?? .cloudUnavailable
+                        )
                     }
                     continue
                 }
@@ -909,6 +970,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 portForwards: portForwards, portAccessStore: portAccess
             )
             providers[machineID] = provider
+            clearRestoredMachineUnavailableIfAwake(provider)
             catalog.register(provider)
             Task { [weak provider] in _ = await provider?.refreshCurrentGraph(force: true) }
         }
@@ -940,11 +1002,15 @@ final class CmuxTuiSurfaceProviderRegistry {
         refreshInFlight = nil
         featureResumeTask?.cancel()
         featureResumeTask = nil
+        // Restored panes with no provider wait for the next sign-in, and say so.
+        for id in catalog?.pendingRestoredMachineIDs ?? [] where providers[id] == nil {
+            showRestoredMachineUnavailable(id, reason: .signedOut)
+        }
         // Suspend before unregistering so terminal callbacks cannot race a
         // catalog removal during account teardown.
         for provider in providers.values { provider.suspendForFeatureFlag(stopReason: .signedOut) }
         let retiredIDs = Set(providers.keys).union(catalog?.machines.keys.compactMap(\.cloudMachineID) ?? [])
-        for id in retiredIDs { catalog?.unregister(machine: .cloud(id)) }
+        for id in retiredIDs { catalog?.unregister(machine: .cloud(id), keepingRestoredLinks: true) }
     }
 
     func accessDidEnd() async {
