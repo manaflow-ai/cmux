@@ -1,0 +1,197 @@
+{
+  "version": 1,
+  "build": "4487759453601",
+  "notes": "notes/4487759453601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 48503,
+      "title": "ci: fold cmux-next-guards' hot-only route job into portable-placement",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48527,
+      "title": "base_red_excuse: cap the source cache and the jobs cache",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48523,
+      "title": "NEXT: keep titlebar icons pixel-fixed while resizing the sidebar (#48495)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33580,
+      "title": "fix(acpmux): keep capped remote turn openers across restart",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48533,
+      "title": "cmux NEXT palette: footer text and keycaps share one center line (#48512)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48513,
+      "title": "ci: acpmux simulation sweep no longer runs on pull requests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48537,
+      "title": "fix(next): clicking or focusing a ringing pane always blinks its ring out, independent of chat loading",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48554,
+      "title": "Agent chat: a fold's text is gone before anything moves; no entrance replay on scroll back; no reveal sprint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47475,
+      "title": "iOS Panes page: drag a terminal to a new place or pane in one touch (brainstorm bs-c8e76373)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48515,
+      "title": "ci: cmux-next tab switch (advisory) no longer runs on pull requests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46872,
+      "title": "Sidebar: Studio's settled chats, behind sidebar.settleFinished (Rust rule, native fold, Archive Settled Chats)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47759,
+      "title": "Docs and cmux setup: one prompt to paste into an agent for cmux Cloud",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48476,
+      "title": "ci: fleet test-compile runs on a PR only with full-ci; the tip compile catches the rest",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48570,
+      "title": "ci: make nightly train dispatch resilient",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48561,
+      "title": "ci(web): a pull request runs react-apps-check shard 1 and only the shards holding a touched test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44515,
+      "title": "Home diagnostics: masked screenshots name their areas, no false Home blank pane, Chief step follows the owner",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48404,
+      "title": "perf(next): keep terminal launch frames as deltas, off the files lane",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44017,
+      "title": "Agent chat: a tab switch keeps the chat's last laid-out frame (no blank pane, no shift)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48565,
+      "title": "cmux NEXT: keep parked Chromium page windows out of Mission Control (#48535)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48464,
+      "title": "NEXT: clear stale 'ran into a problem' card once the chat goes on, add ×; sidebar ignores superseded failures",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48546,
+      "title": "Model menu: model, reasoning and Fast stay independent (#48444)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48553,
+      "title": "ci: gallery health renders feat-cmux-next pushes and dispatches, not pull requests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48544,
+      "title": "NEXT composer: Cmd+Z no longer crashes, and undo brings back deleted pictures and text (#48500)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48478,
+      "title": "ci: batch cmux-tui tree key lookups",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48550,
+      "title": "ci: PR autofix waits 10 minutes for the generated-files pack, not 2 hours",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47457,
+      "title": "acpmux: a Codex chat's log keeps a resumed thread's answer without its history",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48016,
+      "title": "cmux-tui: inline unit test modules move to their own _tests.rs files",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48328,
+      "title": "perf cron: Linux parts ask the build controller first, the runner job only as fallback",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42068,
+      "title": "cmux ext add / share / search: anyone makes, shares and installs extensions (supersedes #41914)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48543,
+      "title": "ci: cmux-next web push runs coalesce to a 120-minute window, not 30",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40971,
+      "title": "cmux-process: spawned children die with their parent (ChildGroup, spawn_owned)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
