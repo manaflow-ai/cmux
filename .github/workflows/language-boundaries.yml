@@ -74,13 +74,19 @@ jobs:
             --jq '.[] | {status, path: .filename, old: (.previous_filename // "")} | tojson' > "$files"; then
             # The REST listing shares the installation's rate limit. Read the same files from the PR's merge
             # commit (classic-frozen-guard.yml's fallback): its first parent is the base.
+            # Its second parent must be this event's head (a merge ref that lags a push lists another head's
+            # files), but its first may be any base commit: the event's base.sha is the base when the PR was last
+            # synced, often many merges behind the base GitHub merges with on a busy feat-cmux-next, so requiring it
+            # left this fallback unusable and every rate-limited run red (cmux#41500 at d059d7bd, 2026-11-11: base.sha
+            # a43ad0c0, over 30 min behind the tip). The diff from whichever base GitHub merged with is still exactly
+            # what the PR changes there.
             echo "::warning::The REST file listing failed; reading the changed files from refs/pull/$PR/merge."
             export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader
             GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
             export GIT_CONFIG_VALUE_0
             if git fetch --no-tags --filter=blob:none --depth=2 \
                  origin "+refs/pull/$PR/merge:refs/guard/merge" \
-               && [ "$(git rev-parse refs/guard/merge^1)" = "$BASE_SHA" ] \
+               && git rev-parse --verify --quiet refs/guard/merge^1 > /dev/null \
                && [ "$(git rev-parse refs/guard/merge^2)" = "$HEAD_SHA" ] \
                && git diff -z --name-status -M refs/guard/merge^1 refs/guard/merge > "$RUNNER_TEMP/files.z"; then
               # -z: NUL-separated, every path byte for byte, nothing quoted.
