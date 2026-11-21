@@ -1,7 +1,6 @@
 {
   // A look's own thinking dots: a cmux.particles/1 document kept as a file of the look and named
-  // with {"$file": PATH}. Installing the look (or `cmux customize try PATH/cmux-setup.json`)
-  // reads the file into agentPane.display.thinking.glyph. Needs cmux#47525.
+  // with {"$file": PATH}. Installing the look reads the file into agentPane.display.thinking.glyph. Needs cmux#47525.
   "cmuxSetup": 1,
   "id": "manaflow-ai/starter-thinking-dots",
   "name": "Starter Thinking Dots",

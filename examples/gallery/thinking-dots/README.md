@@ -24,7 +24,6 @@ refuses an invalid document and names the first bad path, such as
 `phases.trade.frames[1].dots[0][2]: must be from 0 to 4`.
 
 ```sh
-cmux customize try examples/gallery/thinking-dots/cmux-setup.json --minutes 5
 cmux setup install github.com/manaflow-ai/cmux/examples/gallery/thinking-dots@feat-cmux-next
 cmux setup remove manaflow-ai/starter-thinking-dots
 ```

@@ -15,12 +15,19 @@ publish, so a gallery page or `cmux customize` can list it.
 | [Starter Thinking Dots](thinking-dots) | A `cmux.particles/1` thinking glyph kept as a file (`{"$file": PATH}`); needs cmux#47525 | `cmux setup install github.com/manaflow-ai/cmux/examples/gallery/thinking-dots@feat-cmux-next` |
 
 `cmux setup install` shows what the look changes before it applies anything. `cmux setup remove
-OWNER/NAME` (the look's `id`) puts back what you had. To try a look from a checkout without
-installing it, point `cmux customize try` at its `cmux-setup.json`:
+OWNER/NAME` (the look's `id`) puts back what you had. To try a look you are still writing, push
+its folder to a branch and install from that branch: `@REF` takes any branch, tag or commit, and
+the install fetches only the look's folder.
 
 ```sh
-cmux customize try examples/gallery/chat-style/cmux-setup.json --minutes 5
+cmux setup install github.com/manaflow-ai/cmux/examples/gallery/chat-style@lane/my-branch
+cmux setup remove manaflow-ai/starter-chat-style
 ```
+
+`cmux customize use FILE` (then `apply` or `discard`) takes a profile file, not a look folder. A
+look's `cmux-setup.json` has comments and keeps its files beside it, so `use` cannot read it
+directly. [`../customize-showcase/bundle.py`](../customize-showcase/bundle.py) shows how a folder
+becomes one profile file.
 
 ## Make your own
 

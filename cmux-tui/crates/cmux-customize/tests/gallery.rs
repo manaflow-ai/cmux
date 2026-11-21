@@ -133,55 +133,89 @@ fn every_look_reads_names_its_surfaces_and_has_its_screenshots() {
     }
 }
 
+/// Every folder holding a cmux-setup.json under `dir`, at any depth
+/// (`looks/NAME`, `looks/APP/FEATURE`).
+fn setup_folders(dir: &Path, found: &mut Vec<PathBuf>) {
+    if dir.join(setup::SETUP_FILE).is_file() {
+        found.push(dir.to_path_buf());
+        return;
+    }
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    for entry in entries {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            setup_folders(&path, found);
+        }
+    }
+}
+
+/// Plans, installs on a fresh machine with nothing to fix, and removes back to nothing.
+fn round_trip(dir: &Path, rel: &str) {
+    let read = setup::read_dir(dir).unwrap_or_else(|error| panic!("{rel}: {error}"));
+    let home = tempfile::tempdir().unwrap();
+    let customize = Customize::open(Roots::under(home.path()));
+    customize
+        .plan_setup(&read, "manaflow-ai", "0.0.0")
+        .unwrap_or_else(|error| panic!("{rel} does not plan: {error}"));
+    let installed = customize
+        .install_setup(&read, &format!("setup {}", read.manifest.id), "cli", 10)
+        .unwrap_or_else(|error| panic!("{rel} does not install: {error}"));
+    let status = customize.status().unwrap();
+    assert!(status.problems.is_empty(), "{rel} would not apply: {:?}", status.problems);
+    for (file, text) in &read.profile.files {
+        let live = fs::read_to_string(home.path().join("config").join(file)).unwrap();
+        assert_eq!(&live, text, "{rel}: {file} is not what the look carries");
+    }
+    let reference =
+        Reference::parse(&format!("github.com/manaflow-ai/cmux/examples/{rel}")).unwrap();
+    customize
+        .record_setup(setup::Receipt {
+            id: read.manifest.id.clone(),
+            name: read.manifest.name.clone(),
+            repository: reference.repository(),
+            reference,
+            commit: "0".repeat(40),
+            sha256: read.sha256.clone(),
+            version: read.manifest.version.clone(),
+            generation: installed.applied.as_ref().map(|applied| applied.generation.n),
+            before: installed.before,
+            library: installed.applied.as_ref().and_then(|applied| applied.library.clone()),
+            library_created: installed.library_created,
+            actions: read.actions().clone(),
+            prior_actions: installed.prior_actions.clone(),
+            extensions: Vec::new(),
+            installed_ms: 10,
+        })
+        .unwrap();
+    let found = customize.setup(&read.manifest.id).unwrap().unwrap();
+    customize.remove_setup(&found, "cli", 20).unwrap();
+    for file in read.profile.files.keys() {
+        assert!(
+            !home.path().join("config").join(file).exists(),
+            "{rel}: remove left {file} behind"
+        );
+    }
+}
+
+/// Every setup folder under examples/looks and examples/gallery, listed in the index or not
+/// (`looks/APP/FEATURE` included), but one whose index entry `needs` an unmerged change.
 #[test]
 fn every_look_installs_on_a_fresh_machine_and_removes_to_nothing() {
-    for entry in entries("look") {
-        let path = entry["path"].as_str().unwrap();
-        if entry.get("needs").is_some() {
-            continue;
-        }
-        let read = setup::read_dir(&examples().join(path)).unwrap();
-        let home = tempfile::tempdir().unwrap();
-        let customize = Customize::open(Roots::under(home.path()));
-        customize
-            .plan_setup(&read, "manaflow-ai", "0.0.0")
-            .unwrap_or_else(|error| panic!("{path} does not plan: {error}"));
-        let installed = customize
-            .install_setup(&read, &format!("setup {}", read.manifest.id), "cli", 10)
-            .unwrap_or_else(|error| panic!("{path} does not install: {error}"));
-        let status = customize.status().unwrap();
-        assert!(status.problems.is_empty(), "{path} would not apply: {:?}", status.problems);
-        for (file, text) in &read.profile.files {
-            let live = fs::read_to_string(home.path().join("config").join(file)).unwrap();
-            assert_eq!(&live, text, "{path}: {file} is not what the look carries");
-        }
-        let reference = Reference::parse(&install_reference(&entry)).unwrap();
-        customize
-            .record_setup(setup::Receipt {
-                id: read.manifest.id.clone(),
-                name: read.manifest.name.clone(),
-                repository: reference.repository(),
-                reference,
-                commit: "0".repeat(40),
-                sha256: read.sha256.clone(),
-                version: read.manifest.version.clone(),
-                generation: installed.applied.as_ref().map(|applied| applied.generation.n),
-                before: installed.before,
-                library: installed.applied.as_ref().and_then(|applied| applied.library.clone()),
-                library_created: installed.library_created,
-                actions: read.actions().clone(),
-                prior_actions: installed.prior_actions.clone(),
-                extensions: Vec::new(),
-                installed_ms: 10,
-            })
-            .unwrap();
-        let found = customize.setup(&read.manifest.id).unwrap().unwrap();
-        customize.remove_setup(&found, "cli", 20).unwrap();
-        for file in read.profile.files.keys() {
-            assert!(
-                !home.path().join("config").join(file).exists(),
-                "{path}: remove left {file} behind"
-            );
+    let waiting: Vec<String> = entries("look")
+        .iter()
+        .filter(|entry| entry.get("needs").is_some())
+        .map(|entry| entry["path"].as_str().unwrap().to_owned())
+        .collect();
+    let mut folders = Vec::new();
+    for group in ["looks", "gallery"] {
+        setup_folders(&examples().join(group), &mut folders);
+    }
+    folders.sort();
+    assert!(folders.len() >= 15, "found only {} setup folders", folders.len());
+    for dir in folders {
+        let rel = dir.strip_prefix(examples()).unwrap().to_str().unwrap().replace('\\', "/");
+        if !waiting.contains(&rel) {
+            round_trip(&dir, &rel);
         }
     }
 }
