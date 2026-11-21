@@ -137,6 +137,43 @@ import CmuxNextWakeupsTestSupport
         #expect(presenter.shown?.text == "Back")
     }
 
+    /// a1315's cut 2: a control that shows its own text gets no tooltip, even one that says more than its label
+    /// (a titled button, a label). A shortcut still shows, as a page's `data-tooltip-shortcut` does.
+    @Test func aControlThatShowsItsOwnTextShowsNoTooltip() async throws {
+        let clock = ManualClock()
+        let (window, _, presenter) = Self.toolbar(clock: clock)
+        defer {
+            presenter.dismiss()
+            window.closeAfterTest()
+        }
+        let button = NSButton(title: "Reload", target: nil, action: nil)
+        button.frame = NSRect(x: 160, y: 18, width: 80, height: 24)
+        window.contentView?.addSubview(button)
+        button.themedToolTip = "Run the script again from its saved files"
+        let label = ChromeLabel(labelWithString: "main")
+        label.frame = NSRect(x: 250, y: 18, width: 60, height: 20)
+        window.contentView?.addSubview(label)
+        label.themedToolTip = "~/fun/cmux on main"
+        for view in [button, label] as [NSView] {
+            presenter.enter(try Self.tracker(view))
+            for _ in 0..<10 {
+                try await Self.settle()
+                clock.advance(by: .milliseconds(100))
+            }
+            try await Self.settle()
+            #expect(presenter.shown == nil, "\(type(of: view)) showing its own text showed \(presenter.shown?.text ?? "")")
+            presenter.exit(try Self.tracker(view))
+        }
+        // A titled control's shortcut is no text it shows: that tooltip stays.
+        button.themedToolTip = "Reload"
+        button.themedToolTipShortcut = "⌘R"
+        presenter.enter(try Self.tracker(button))
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(2_000))
+        try await Self.settle(until: { presenter.shown != nil })
+        #expect(presenter.shown?.shortcut == "⌘R")
+    }
+
     /// A titled button inside a view with its own tooltip: the button's label
     /// names it, so nothing shows, not the container's tooltip instead.
     @Test func aLabeledControlInsideATooltipViewShowsNeither() async throws {
