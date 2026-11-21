@@ -41,8 +41,9 @@ import Testing
     }
 
     /// One supervisor line, through the stand-in's `say` pipe (opened without waiting for its reader, asked again
-    /// until the stand-in reads).
-    private static func say(_ cli: URL, _ line: String) async throws {
+    /// until the stand-in reads). The caller closes the returned pipe after the line took effect: a writer still
+    /// open when the reader wakes is what every FIFO implementation hands the line to.
+    private static func say(_ cli: URL, _ line: String) async throws -> Int32 {
         let path = cli.deletingLastPathComponent().appendingPathComponent("say").path
         let deadline = ContinuousClock.now + .seconds(5)
         var pipe = open(path, O_WRONLY | O_NONBLOCK)
@@ -51,9 +52,9 @@ import Testing
             pipe = open(path, O_WRONLY | O_NONBLOCK)
         }
         try #require(pipe >= 0, "the stand-in reads its say pipe")
-        defer { close(pipe) }
         let bytes = Array((line + "\n").utf8)
         #expect(write(pipe, bytes, bytes.count) == bytes.count)
+        return pipe
     }
 
     /// The dial is one connection on the serving socket; the serve's connected line is its answer; the connection
@@ -67,7 +68,8 @@ import Testing
         async let dialed = serve.dialAhead(limit: .seconds(5), keep: .seconds(60))
         let connection = try #require(await listener.accepted())
         defer { close(connection) }
-        try await Self.say(cli, #"{"publish":"owner"}"#)
+        let said = try await Self.say(cli, #"{"publish":"owner"}"#)
+        defer { close(said) }
         #expect(await dialed)
         #expect(await serve.answer == .owner)
         #expect(!Listener.isClosed(connection), "held open after the dial")
@@ -89,7 +91,8 @@ import Testing
         defer { close(connection) }
         _ = try await serve.socketPath()
         #expect(await Listener.closed(connection), "dropped at the session's connect")
-        try await Self.say(cli, #"{"state":{"refusal":null,"answer":"owner"}}"#)
+        let said = try await Self.say(cli, #"{"state":{"refusal":null,"answer":"owner"}}"#)
+        defer { close(said) }
         #expect(await dialed)
         await serve.stop()
     }
@@ -104,7 +107,8 @@ import Testing
         async let dialed = serve.dialAhead(limit: .seconds(5), keep: .seconds(60))
         let connection = try #require(await listener.accepted())
         defer { close(connection) }
-        try await Self.say(cli, #"{"state":{"refusal":{"kind":"not_up","state":"parked_timeout"},"answer":null}}"#)
+        let said = try await Self.say(cli, #"{"state":{"refusal":{"kind":"not_up","state":"parked_timeout"},"answer":null}}"#)
+        defer { close(said) }
         #expect(await dialed == false)
         #expect(await serve.refusal == .notUp(state: "parked_timeout"))
         #expect(await Listener.closed(connection), "nothing is held after a refusal")
@@ -121,7 +125,8 @@ import Testing
         async let dialed = serve.dialAhead(limit: .seconds(5), keep: .milliseconds(50))
         let connection = try #require(await listener.accepted())
         defer { close(connection) }
-        try await Self.say(cli, #"{"publish":"owner"}"#)
+        let said = try await Self.say(cli, #"{"publish":"owner"}"#)
+        defer { close(said) }
         #expect(await dialed)
         #expect(await Listener.closed(connection), "dropped at the end of its keep")
         // The serve is still the session's to take: a connect answers its socket.
