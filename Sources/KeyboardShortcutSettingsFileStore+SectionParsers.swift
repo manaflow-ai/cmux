@@ -303,6 +303,18 @@ extension CmuxSettingsFileStore {
            ) {
             snapshot.managedUserDefaults[SidebarCatalogSection().notificationBadgeColorHex.userDefaultsKey] = .nullableString(value)
         }
+        // Stored as an array so the `DefaultsKey<[String]>` decodes it; the
+        // browser keys' newline-joined string form would read back as empty.
+        if section.keys.contains("hiddenStatusKeys") {
+            if let rawKeys = jsonStringArray(section["hiddenStatusKeys"]) {
+                let keys = rawKeys
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                snapshot.managedUserDefaults[SidebarCatalogSection().hiddenStatusKeys.userDefaultsKey] = .stringArray(keys)
+            } else {
+                logInvalid(SidebarCatalogSection().hiddenStatusKeys.id, sourcePath: sourcePath)
+            }
+        }
     }
 
     private func parseCanonicalNullableHex(
