@@ -60,10 +60,12 @@ impl App {
                     // One row changed: it moves to its place, and the list is not sorted again
                     // (a sort per change read every row's `updatedAt`, ~3,000 of them).
                     let same = |x: &Value| session_route_id(x).as_ref() == Some(&id);
-                    match self.sessions.iter_mut().enumerate().find(|(_, x)| same(x)) {
-                        Some((at, row)) => {
-                            let moved = updated_at(row) != updated_at(s);
-                            *row = s.clone();
+                    // Found by position and set by index, so the sidebar follows this one row
+                    // (`Sessions`' log) instead of grouping every row again.
+                    match self.sessions.iter().position(same) {
+                        Some(at) => {
+                            let moved = updated_at(&self.sessions[at]) != updated_at(s);
+                            self.sessions[at] = s.clone();
                             if moved {
                                 self.move_into_place(at);
                             }
@@ -181,7 +183,7 @@ impl App {
             AppMsg::Sessions(list) => {
                 let had = !self.sessions.is_empty();
                 let selected_id = self.selected_id();
-                self.sessions = list;
+                self.sessions = list.into();
                 self.sort_sessions_preserving(selected_id);
                 if !had && !self.sessions.is_empty() && self.drafts.is_empty() {
                     self.select(0);
@@ -383,7 +385,7 @@ mod peer_route_tests {
         app.drafts.clear();
         let local = json!({"sessionId": "raw", "name": "local", "updatedAt": 2});
         let remote = json!({"sessionId": "raw", "peer": "worker", "qualifiedSessionId": "worker/raw", "name": "worker/remote", "updatedAt": 1});
-        app.sessions = vec![local.clone(), remote.clone()];
+        app.sessions = vec![local.clone(), remote.clone()].into();
         app.selected = 1;
         app.transcripts.insert("worker/raw".into(), Transcript::default());
         app.on_notification(method::SESSION_UPDATE, json!({
@@ -446,7 +448,7 @@ mod update_cost_tests {
     async fn a_changed_row_takes_the_place_a_sort_gives_it() {
         let (mut app, _requests) = interaction_tests::app().await;
         app.drafts.clear();
-        app.sessions = rows(40);
+        app.sessions = rows(40).into();
         app.sort_sessions();
         app.selected = 7;
         let selected = app.selected_id();
@@ -474,7 +476,7 @@ mod update_cost_tests {
         for n in [100, 1_000, 3_000] {
             let (mut app, _requests) = interaction_tests::app().await;
             app.drafts.clear();
-            app.sessions = rows(n);
+            app.sessions = rows(n).into();
             app.sort_sessions();
             app.selected = n / 2;
             let rounds = 200;

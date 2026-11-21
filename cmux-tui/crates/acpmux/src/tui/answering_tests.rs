@@ -15,7 +15,7 @@ fn number_item(options: Value) -> Value {
 async fn asking(question: Value) -> (App, mpsc::UnboundedReceiver<Value>) {
     let (mut app, requests) = super::interaction_tests::app().await;
     let id = "test-session";
-    app.sessions = vec![json!({"sessionId": id})];
+    app.sessions = vec![json!({"sessionId": id})].into();
     app.selected = app.drafts.len();
     let mut transcript = Transcript::default();
     transcript.items.push(Item::Permission {
