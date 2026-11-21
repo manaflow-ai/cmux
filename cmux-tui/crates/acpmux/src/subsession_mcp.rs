@@ -33,8 +33,8 @@ pub const CMUX_APP_TAB_TOOL: &str = "app_agent_open_tab";
 
 /// What the server tells the agent once, at `initialize` (MCP `instructions`).
 pub fn instructions() -> String {
-    "Call start_session (a child agent session) only when the user asked for a new session, a \
-parallel task or a handoff; otherwise offer the work. A new one has none of your history: its \
+    "Use start_session only when the user asked for a new session, a parallel task or a handoff \
+(it starts a child agent session); otherwise offer the work. A new one has none of your history: its \
 prompt must be the whole task, with files, constraints and how to check the result. fork: true \
 instead branches this chat with all its history (a second approach, a side task needing this \
 context); say in its prompt what the fork does that this chat does not. After starting one, tell \
