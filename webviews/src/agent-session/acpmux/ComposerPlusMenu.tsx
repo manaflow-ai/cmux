@@ -17,7 +17,7 @@ import { composerPlusCommands } from "./composerPlusCommands.experiment";
 import { composerPlusMenuSections } from "./composerPlusMenuModel";
 import { acpmuxPerf } from "./perf";
 import { useStableHandlers } from "./stableHandlers";
-import { memo, useEffect } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { PLAN_TOGGLE_OPENER } from "./composerControls";
 import { registerPicker } from "./pickerOpeners";
 
@@ -57,6 +57,15 @@ const MemoPlusMenu = memo(function PlusMenu({
 }: ComposerPlusMenuProps) {
   acpmuxPerf.render("composer:plus");
   const t = useT();
+  // A picked row's action can change the rows (an attached screenshot takes away Run on several
+  // agents): the closing menu keeps the rows it was picked from, so none drops out under the
+  // pointer and the rows below it don't jump; the next open lists the composer's rows again.
+  const [held, setHeld] = useState<readonly ComposerPlusEntry[] | null>(null);
+  const opened = useCallback(() => {
+    setHeld(null);
+    onOpen?.();
+  }, [onOpen]);
+  const shown = held ?? entries;
   const addShortcut = useShortcut(SHORTCUT_ACTIONS.composerAddMenu);
   const planShortcut = useShortcut(SHORTCUT_ACTIONS.composerTogglePlan);
   // Toggle Plan Mode (composerControls.ts) runs the Plan/Build row's own action, the path a click
@@ -76,7 +85,7 @@ const MemoPlusMenu = memo(function PlusMenu({
   );
   // Untitled groups: a hairline splits them (styles.css), with no header band between.
   const sections: Section[] = composerPlusMenuSections(
-    entries,
+    shown,
     planning,
     experimentArm(composerPlusCommands),
     planShortcut,
@@ -90,6 +99,7 @@ const MemoPlusMenu = memo(function PlusMenu({
         ...(onExtension ? { extension: onExtension } : {}),
         slash: onSlash,
       });
+      if (handled) setHeld(shown);
       return handled ? undefined : "keep";
     },
   }));
@@ -103,7 +113,7 @@ const MemoPlusMenu = memo(function PlusMenu({
       button={<PlusIcon />}
       align="start"
       sections={sections}
-      {...(onOpen ? { onOpen } : {})}
+      onOpen={opened}
     />
   );
 });

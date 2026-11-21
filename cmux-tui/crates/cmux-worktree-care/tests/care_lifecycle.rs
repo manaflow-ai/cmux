@@ -142,6 +142,7 @@ fn care_unpushed_and_uncommitted_work_survives_reclaim_and_restore() {
         &store,
         &*nothing(),
         &*closed(),
+        None,
     )
     .unwrap();
     assert!(!wt.exists(), "the folder is gone");
@@ -180,6 +181,7 @@ fn care_a_restore_takes_the_archive_from_its_bundle_when_the_ref_is_gone() {
         &store,
         &*nothing(),
         &*closed(),
+        None,
     )
     .unwrap();
     let reference = manifest.archive_ref.clone().unwrap();
@@ -214,6 +216,7 @@ fn care_a_pushed_clean_worktree_goes_without_an_archive() {
         &store,
         &*nothing(),
         &*closed(),
+        None,
     )
     .unwrap();
     assert!(manifest.archive_ref.is_none() && !wt.exists());
@@ -244,6 +247,7 @@ fn care_a_worktree_a_program_has_open_stays() {
         &store,
         &*nothing(),
         &*held,
+        None,
     )
     .unwrap_err();
     assert!(error.contains("4242"), "{error}");
@@ -257,10 +261,28 @@ fn care_a_worktree_a_program_has_open_stays() {
         &store,
         &*nothing(),
         &*failing,
+        None,
     )
     .unwrap_err();
     assert!(error.contains("could not check"), "{error}");
-    // The folder, its work and no archive: both checks left it as it was.
+    // The caller's own check, the last before the folder goes: a folder that is no longer the
+    // one it meant (another made at its path) stays, and its archive is dropped.
+    let other: Arc<cmux_worktree_care::procs::Still> =
+        Arc::new(|_, _| Err("not the worktree that was made".into()));
+    let error = archive::reclaim(
+        &repo,
+        worktree,
+        facts,
+        Action::Archive,
+        "test",
+        &store,
+        &*nothing(),
+        &*closed(),
+        Some(&*other),
+    )
+    .unwrap_err();
+    assert!(error.contains("not the worktree that was made"), "{error}");
+    // The folder, its work and no archive: the checks left it as it was.
     assert_eq!(std::fs::read_to_string(wt.join("notes.txt")).unwrap(), "not pushed\n");
     assert!(store.list().is_empty());
     assert_eq!(git(&main, &["for-each-ref", "refs/cmux/archive"]).trim(), "");
@@ -365,6 +387,7 @@ fn care_a_sparse_worktree_comes_back_sparse() {
         &store,
         &*nothing(),
         &*closed(),
+        None,
     )
     .unwrap();
     restore(&store, &manifest, None).unwrap();
@@ -401,6 +424,7 @@ fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
         open: closed(),
         apply: true,
         pressure: Some(Pressure::Critical),
+        still: None,
         only: Vec::new(),
         measure: true,
     };
@@ -434,6 +458,7 @@ fn care_a_restore_over_a_branch_that_moved_on_detaches_at_the_archive() {
         &store,
         &*nothing(),
         &*closed(),
+        None,
     )
     .unwrap();
     // Someone commits on the branch while the worktree is archived.
@@ -472,6 +497,7 @@ fn care_a_restore_that_cannot_find_its_archive_adds_nothing() {
         &store,
         &*nothing(),
         &*closed(),
+        None,
     )
     .unwrap();
     git(&main, &["update-ref", "-d", manifest.archive_ref.as_deref().unwrap()]);
@@ -517,6 +543,7 @@ fn care_an_archive_goes_after_its_keep_time() {
         &store,
         &*nothing(),
         &*closed(),
+        None,
     )
     .unwrap();
     let day = 24 * 60 * 60 * 1000;
@@ -548,6 +575,7 @@ fn care_a_worktree_whose_folder_is_missing_keeps_its_git_state() {
         open: closed(),
         apply: true,
         pressure: Some(Pressure::Critical),
+        still: None,
         only: Vec::new(),
         measure: false,
     };
@@ -600,6 +628,7 @@ fn care_a_claude_session_registered_in_a_worktree_keeps_it() {
         },
         apply: true,
         pressure: Some(Pressure::Critical),
+        still: None,
         only: Vec::new(),
         measure: false,
     };
@@ -608,4 +637,209 @@ fn care_a_claude_session_registered_in_a_worktree_keeps_it() {
     let item = report.items.iter().find(|i| i.path == wt).unwrap();
     assert_eq!(item.verdict.action, Action::Keep, "{}", item.verdict.reason);
     assert!(wt.exists());
+}
+
+/// The inode of the folder at `path`, as a caller's record of a worktree it made holds it.
+#[cfg(unix)]
+fn inode(path: &Path) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path).unwrap().ino()
+}
+
+#[cfg(unix)]
+#[test]
+fn care_a_folder_swapped_in_after_the_last_check_is_never_the_one_that_goes() {
+    let (base, main) = repository("swapped");
+    let wt = base.join("wt-s");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/s", wt.to_str().unwrap()]);
+    write(&wt.join("notes.txt"), "the run's work\n");
+    let repo = scan(&main);
+    let (worktree, facts) = facts_of(&repo, &wt);
+    let store = Store::open(base.join("store")).unwrap();
+    let made = inode(&wt);
+    let still: Arc<cmux_worktree_care::procs::Still> =
+        Arc::new(
+            move |_, at| {
+                if inode(at) == made { Ok(()) } else { Err("another folder".into()) }
+            },
+        );
+    // The last check before the folder goes (what has it open) passes, and then another folder
+    // takes the worktree's path: the worktree moved away, someone's folder put in its place.
+    let moved = base.join("wt-s-moved");
+    let (from, to) = (wt.clone(), moved.clone());
+    let swap: Arc<Open> = Arc::new(move |_| {
+        std::fs::rename(&from, &to).unwrap();
+        std::fs::create_dir(&from).unwrap();
+        std::fs::write(from.join("MINE"), "someone else's\n").unwrap();
+        Ok(None)
+    });
+    let error = archive::reclaim(
+        &repo,
+        worktree,
+        facts,
+        Action::Archive,
+        "test",
+        &store,
+        &*nothing(),
+        &*swap,
+        Some(&*still),
+    )
+    .unwrap_err();
+    assert!(error.contains("another folder"), "{error}");
+    // The folder put there stays where it was put, the worktree's work stays, no archive.
+    assert_eq!(std::fs::read_to_string(wt.join("MINE")).unwrap(), "someone else's\n");
+    assert_eq!(std::fs::read_to_string(moved.join("notes.txt")).unwrap(), "the run's work\n");
+    assert!(store.list().is_empty());
+    assert_eq!(git(&main, &["for-each-ref", "refs/cmux/archive"]).trim(), "");
+    let left: Vec<_> = std::fs::read_dir(&base)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().contains("cmux-discard"))
+        .collect();
+    assert!(left.is_empty(), "nothing is left aside");
+}
+
+#[cfg(unix)]
+#[test]
+fn care_a_worktree_its_caller_still_knows_goes_from_aside_and_comes_back() {
+    let (base, main) = repository("aside");
+    let wt = base.join("wt-k");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/k", wt.to_str().unwrap()]);
+    write(&wt.join("notes.txt"), "not pushed\n");
+    let repo = scan(&main);
+    let (worktree, facts) = facts_of(&repo, &wt);
+    let store = Store::open(base.join("store")).unwrap();
+    let made = inode(&wt);
+    let checked = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = Arc::clone(&checked);
+    let still: Arc<cmux_worktree_care::procs::Still> = Arc::new(move |path, at| {
+        seen.lock().unwrap().push((path.to_path_buf(), at.to_path_buf()));
+        if inode(at) == made { Ok(()) } else { Err("another folder".into()) }
+    });
+    let manifest = archive::reclaim(
+        &repo,
+        worktree,
+        facts,
+        Action::Archive,
+        "test",
+        &store,
+        &*nothing(),
+        &*closed(),
+        Some(&*still),
+    )
+    .unwrap();
+    // Checked where it was moved to, not at its path.
+    let checked = checked.lock().unwrap().clone();
+    assert_eq!(checked.len(), 1, "{checked:?}");
+    assert_eq!(checked[0].0, wt);
+    assert!(checked[0].1.to_string_lossy().contains("cmux-discard"), "{checked:?}");
+    assert!(!wt.exists() && !checked[0].1.exists(), "it went");
+    assert!(!git(&main, &["worktree", "list", "--porcelain"]).contains("cmux-discard"));
+    // Its archive brings it back at its own path.
+    restore(&store, &manifest, None).unwrap();
+    assert_eq!(std::fs::read_to_string(wt.join("notes.txt")).unwrap(), "not pushed\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn care_a_worktree_git_cannot_remove_from_aside_goes_back_to_its_path() {
+    let (base, main) = repository("aside-back");
+    let wt = base.join("wt-b");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/b", wt.to_str().unwrap()]);
+    write(&wt.join("notes.txt"), "not pushed\n");
+    let repo = scan(&main);
+    let (worktree, facts) = facts_of(&repo, &wt);
+    let store = Store::open(base.join("store")).unwrap();
+    let made = inode(&wt);
+    let still: Arc<cmux_worktree_care::procs::Still> =
+        Arc::new(
+            move |_, at| {
+                if inode(at) == made { Ok(()) } else { Err("another folder".into()) }
+            },
+        );
+    // Locked after the scan, so git refuses `worktree remove --force` once it is aside.
+    let (repo_dir, path) = (main.clone(), wt.clone());
+    let lock: Arc<Open> = Arc::new(move |_| {
+        git(&repo_dir, &["worktree", "lock", path.to_str().unwrap()]);
+        Ok(None)
+    });
+    let error = archive::reclaim(
+        &repo,
+        worktree,
+        facts,
+        Action::Archive,
+        "test",
+        &store,
+        &*nothing(),
+        &*lock,
+        Some(&*still),
+    )
+    .unwrap_err();
+    assert!(error.contains("; it stays;"), "{error}");
+    // Back at its own path, with its work, and git knows it there: nothing hidden aside.
+    assert_eq!(std::fs::read_to_string(wt.join("notes.txt")).unwrap(), "not pushed\n");
+    let listed = git(&main, &["worktree", "list", "--porcelain"]);
+    assert!(listed.contains(&format!("worktree {}", wt.display())), "{listed}");
+    assert!(!listed.contains("cmux-discard"), "{listed}");
+    // git began its removal: whether it deleted anything is not known, so the archive stays.
+    let kept = store.list();
+    assert_eq!(kept.len(), 1);
+    assert!(error.contains(&format!("its archive {}", kept[0].id)), "{error}");
+}
+
+#[cfg(unix)]
+#[test]
+fn care_a_worktree_git_removes_only_part_of_keeps_its_archive_and_comes_back() {
+    use std::os::unix::fs::PermissionsExt;
+    let (base, main) = repository("aside-partial");
+    let wt = base.join("wt-c");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/c", wt.to_str().unwrap()]);
+    for i in 0..20 {
+        write(&wt.join(format!("work/{i:02}/notes.txt")), &format!("draft {i}\n"));
+    }
+    // A read-only folder deep in the tree: git deletes what it can reach, then fails here.
+    let stuck = wt.join("work/zz/deep/ro");
+    write(&stuck.join("kept.txt"), "deep draft\n");
+    let repo = scan(&main);
+    let (worktree, facts) = facts_of(&repo, &wt);
+    let store = Store::open(base.join("store")).unwrap();
+    let made = inode(&wt);
+    let still: Arc<cmux_worktree_care::procs::Still> =
+        Arc::new(
+            move |_, at| {
+                if inode(at) == made { Ok(()) } else { Err("another folder".into()) }
+            },
+        );
+    let lock = stuck.clone();
+    let read_only: Arc<Open> = Arc::new(move |_| {
+        std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o555)).unwrap();
+        Ok(None)
+    });
+    let error = archive::reclaim(
+        &repo,
+        worktree,
+        facts,
+        Action::Archive,
+        "test",
+        &store,
+        &*nothing(),
+        &*read_only,
+        Some(&*still),
+    )
+    .unwrap_err();
+    let rest = std::fs::read_dir(wt.join("work")).map(|d| d.count()).unwrap_or(0);
+    assert!(rest < 21, "git deleted part of it first ({rest} of 21 left)");
+    // Its archive is the only copy of what went: it stays, and the error names it.
+    let manifest = store.find("feat/c").expect("its archive stays");
+    assert!(error.contains(&format!("its archive {}", manifest.id)), "{error}");
+    // What is left goes, and the archive puts all of it back.
+    std::fs::set_permissions(&stuck, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::remove_dir_all(&wt).unwrap();
+    git(&main, &["worktree", "prune"]);
+    restore(&store, &manifest, None).unwrap();
+    for i in 0..20 {
+        let notes = std::fs::read_to_string(wt.join(format!("work/{i:02}/notes.txt"))).unwrap();
+        assert_eq!(notes, format!("draft {i}\n"));
+    }
+    assert_eq!(std::fs::read_to_string(stuck.join("kept.txt")).unwrap(), "deep draft\n");
 }

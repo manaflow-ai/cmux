@@ -44,6 +44,8 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         "_acpmux/permission_respond": ["sessionId", "permissionId", "optionId"],
         // The person's Build pick on a plan approval: which ask, and here, worktree or compare.
         "_acpmux/plan/build": ["permissionId", "target"],
+        // Run on N agents: the prompt typed, and the agents in ``objectKeys``.
+        "_acpmux/plan/fanout": ["prompt"],
     ]
 
     /// Optional scalar launch selections still participate in exact ticket matching.
@@ -55,6 +57,13 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     /// question's answers and annotations, so a ticket taken for one answer never redeems another.
     public static let objectKeys: [String: Set<String>] = [
         "_acpmux/permission_respond": ["answers", "annotations"],
+        // The run's agents, a list (``listKeys``): a ticket for three agents never starts four.
+        "_acpmux/plan/fanout": ["variants"],
+    ]
+
+    /// The ``objectKeys`` that hold a list, not an object.
+    public static let listKeys: [String: Set<String>] = [
+        "_acpmux/plan/fanout": ["variants"],
     ]
 
     /// Intent params a method may add that bind the ticket without being part of its pick: a
@@ -64,6 +73,7 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     public static let bindingKeys: [String: Set<String>] = [
         "session/prompt": ["sessionId"],
         "_acpmux/plan/build": ["sessionId"],
+        "_acpmux/plan/fanout": ["sessionId"],
     ]
 
     /// How long a ticket waits for its frame: a pick held while a harness starts, or a prompt held
@@ -99,8 +109,10 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
                 continue
             }
             if !keys.contains(key) && Self.optionalKeys[method]?.contains(key) != true {
-                // A question's answers or annotations: an object, by its canonical digest.
-                guard value is [String: Any], let digest = AcpmuxSecretKey.canonicalDigest(value) else { return nil }
+                // A question's answers or annotations, or a run's agents: an object (or a list
+                // where ``listKeys`` says so), by its canonical digest.
+                let list = Self.listKeys[method]?.contains(key) == true
+                guard list ? value is [Any] : value is [String: Any], let digest = AcpmuxSecretKey.canonicalDigest(value) else { return nil }
                 params[key] = .string(digest)
                 continue
             }
@@ -231,6 +243,17 @@ public nonisolated struct AgentPaneGesturePick: Equatable, Sendable {
                 pick[key] = .string(digest)
             }
             self.params = pick
+            return
+        }
+        // Run on N agents picks its prompt and its agents, by their canonical digest (the
+        // ticket binds its chat as a send's does).
+        if method == "_acpmux/plan/fanout" {
+            guard let prompt = params["prompt"] as? String, let variants = params["variants"] as? [Any],
+                  let digest = AcpmuxSecretKey.canonicalDigest(variants) else {
+                self.params = nil
+                return
+            }
+            self.params = ["prompt": .string(prompt), "variants": .string(digest)]
             return
         }
         var scalars: [String: AgentPaneJSONScalar] = [:]

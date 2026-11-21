@@ -145,6 +145,7 @@ fn sweep(scope: &Scope, apply: bool, store: &Store, json_out: bool) -> Result<()
             PressureArg::Critical => Pressure::Critical,
         }),
         only: scope.only.clone(),
+        still: None,
         measure: !apply,
     };
     // Acting takes the machine's pass (`schedule`), which a daemon's pass

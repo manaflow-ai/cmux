@@ -2,6 +2,9 @@
 /// worktree as a sub-session, or on two harnesses in two worktrees to compare.
 export type PlanBuildTarget = "here" | "worktree" | "compare";
 
+/// One agent of the composer's Run on N agents (`_acpmux/plan/fanout`).
+export type PlanFanoutVariant = { harness: string; model?: string; effort?: string };
+
 /// A target the card's build menu offers beside Approve plan, which is `here`.
 export type PlanBuildElsewhere = Exclude<PlanBuildTarget, "here">;
 
@@ -35,6 +38,8 @@ export type PlanCompareReply = {
   target: PlanBuildTarget;
   keptSessionId: string | null;
   builds: PlanCompareBuild[];
+  /// Keep with removeOthers: each other build, and whether its worktree went.
+  removed?: { sessionId: string; removed: boolean; error?: string }[];
 };
 
 const HARNESS_NAMES: Record<string, string> = {
@@ -64,4 +69,22 @@ export function planBuildTarget(value: unknown): PlanBuildTarget {
   if (value === "here" || value === "worktree" || value === "compare") return value;
   // l10n-allow: refuses a malformed host action; never shown.
   throw new Error(`unknown plan build target ${String(value)}`);
+}
+
+/// A host action's `variants` as `_acpmux/plan/fanout` takes them; anything else is refused before
+/// it is sent (acpmux checks the count).
+export function planFanoutVariants(value: unknown): PlanFanoutVariant[] {
+  const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+  const list = Array.isArray(value) ? value : [];
+  const variants = list.flatMap((raw) => {
+    const row = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+    const harness = text(row.harness);
+    if (!harness) return [];
+    const model = text(row.model);
+    const effort = text(row.effort);
+    return [{ harness, ...(model ? { model } : {}), ...(effort ? { effort } : {}) }];
+  });
+  // l10n-allow: refuses a malformed host action; never shown.
+  if (variants.length !== list.length || !variants.length) throw new Error("variants must be harness picks");
+  return variants;
 }

@@ -90,12 +90,12 @@ import {
   shownName,
   slashMatches,
   useSlashNames,
-  insertsText,
   pickedSkillsOf,
   withSkillDollars,
   withoutSkillDollars,
   type SlashCommand,
   type SlashTrigger,
+  insertsText,
 } from "./slashCommands";
 import { commandWaitsForTurn } from "./cliOnlyCommands";
 import { localCommand, type LocalCommand } from "./localCommands";
@@ -184,6 +184,10 @@ import {
   type EmojiShortcodes,
 } from "./emojiShortcodes";
 import { COMPOSER_LABELS } from "./composerModel";
+import { Popover } from "../../ui/Popover";
+import { RunOnAgentsPanel } from "./runOnAgents/RunOnAgentsPanel";
+import type { RunVariant } from "./runOnAgents/runOnAgents";
+import type { PickerCatalog } from "./modelCatalogData";
 import { attachmentViewMenu } from "./composer/attachmentViewMenu";
 import { focusRoute } from "../../ui/focusRoute";
 
@@ -489,6 +493,10 @@ type Props = {
   /// ⌘Return on an empty prompt while no turn runs (where it does nothing else): a waiting tagged
   /// ask's first answer (NextStepCard.tsx).
   onEmptyCommandReturn?(): void;
+  /// Run on N agents (runOnAgents/RunOnAgentsPanel.tsx): the + menu's row, `/run-on` and ⌘⌥Return
+  /// open its panel over the composer; `run` starts the prompt on the picked agents and the prompt
+  /// clears once it resolves. Absent where a chat cannot start sub-sessions (New Tab, Quick Composer).
+  runOnAgents?: { catalog: PickerCatalog | undefined; run(text: string, variants: RunVariant[]): Promise<unknown> };
   /// A concrete `reason` keeps the prompt while the folder's trust question is open. An empty
   /// object only means the trust read is in flight; the daemon still authorizes each send.
   blocked?: SendBlock;
@@ -599,6 +607,7 @@ function ComposerFrame({
   onMode,
   onOpenInWindow,
   onEmptyCommandReturn,
+  runOnAgents,
   handle,
   onUnplacedQuotes,
   sessionId,
@@ -631,6 +640,9 @@ function ComposerFrame({
   /// Where the open Search files palette draws (the composer form's parent); null while closed.
   const [findingFiles, setFindingFiles] = useState<HTMLElement | null>(null);
   const openFileSearch = () => setFindingFiles(form.current?.parentElement ?? null);
+  /// The Run on N agents panel is open over the composer.
+  const [runningOn, setRunningOn] = useState(false);
+  const runOnButton = useRef<HTMLButtonElement>(null);
   // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
   useEffect(() => setFindingFiles(null), [searchFiles]);
   // Search Files… (the app's command palette, cx-ncc.69) opens the same search the + menu does.
@@ -671,6 +683,14 @@ function ComposerFrame({
   // The handle is made once: its notices read the current locale's strings.
   const tRef = useRef(t);
   const field = useRef<MarkdownFieldHandle>(null);
+  const closeRunOn = () => {
+    setRunningOn(false);
+    field.current?.focus();
+  };
+  /// The composer's box, read when the Run on N agents popover is placed.
+  const composerAnchor = {
+    getBoundingClientRect: () => form.current?.getBoundingClientRect() ?? new DOMRect(),
+  };
   const fieldRef = useCallback(
     (handle: MarkdownFieldHandle | null) => {
       field.current = handle;
@@ -1334,6 +1354,13 @@ function ComposerFrame({
     if (cloudStarting) unsentDraft.current?.flush();
   }, [text, sessionId, onUnsentDraft, cloudStarting]);
   const commands = snapshot.commands;
+  // The / menu offers `/run-on` only while nothing is staged: a run's prompt is text alone, as the +
+  // menu's row is (sendMenuModel.ts). Typed with files staged, the composer keeps them for a send.
+  const textOnly = attachments.length === 0 && pending.length === 0;
+  const offered = useMemo(
+    () => (textOnly ? commands : commands?.filter((c) => !(c.source === "cmux" && c.name === "run-on"))),
+    [commands, textOnly],
+  );
   const remote = remoteComposer(snapshot);
   // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.
   const permissionModes = (snapshot.summary?.modes?.availableModes ?? []).filter(
@@ -1366,7 +1393,7 @@ function ComposerFrame({
   // match: mid-prompt, `/tmp` with nothing to offer is the person's text, not an empty menu.
   const typedSlash = slash !== undefined && dismissed !== text && !recalling ? slash : undefined;
   const query = typedSlash?.query;
-  const matches = useMemo(() => (typedSlash ? slashMatches(commands ?? [], typedSlash) : []), [commands, typedSlash]);
+  const matches = useMemo(() => (typedSlash ? slashMatches(offered ?? [], typedSlash) : []), [offered, typedSlash]);
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
   const slashNames = useSlashNames(commands);
 
@@ -1526,6 +1553,12 @@ function ComposerFrame({
     attachmentsRef.current.some((chip) => chip.id === id) || pendingRef.current.some((chip) => chip.id === id);
   /// The person's words: the draft without its attachments' places, for reading a command from.
   const typedWords = () => withoutInlineTokens(unwrapped(), attachmentId);
+  /// typedWords for render, from state alone (render reads no ref): a "/" the command list wrote
+  /// over the draft still counts here, so Run rereads the words when pressed.
+  const shownWords = withoutInlineTokens(
+    text,
+    (id) => attachments.some((chip) => chip.id === id) || pending.some((chip) => chip.id === id),
+  );
   /// Writes the picked chat, folder or file over the `@word` being typed.
   const pickMention = (item: MentionItem) => {
     if (!mentionAt) return;
@@ -1620,6 +1653,15 @@ function ComposerFrame({
       plusDraft.current = undefined;
       edit("", 0);
       sentAt.current = Date.now();
+      return true;
+    }
+    // `/run-on <prompt>`: the prompt stays in the composer and the Run on N agents panel opens for it.
+    if (owned?.action === "runOn" && runOnAgents) {
+      // A run's prompt is text alone (sendMenuModel.ts): staged files stay here for a send.
+      if (attachments.length > 0 || pending.length > 0) return false;
+      const rest = ownedArgs?.trim() ?? "";
+      edit(rest, rest.length);
+      setRunningOn(true);
       return true;
     }
     if (owned) {
@@ -2368,9 +2410,12 @@ function ComposerFrame({
         draft: hasDraft && !(authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend),
         sendSteers: returnSteers && !steersAlways && !onOpenInWindow,
         side: Boolean(sendsToSide) && remote.canSend && !onOpenInWindow,
+        files: attachments.length > 0 || pending.length > 0,
+        runOn: Boolean(runOnAgents),
       });
   const chooseSend = (choice: SendChoice) => {
-    if (choice === "side") send(false, false, undefined, "side");
+    if (choice === "runOn") setRunningOn(true);
+    else if (choice === "side") send(false, false, undefined, "side");
     // Queue for later is ⌘Return; Send is the button's own send.
     else send(false, choice === "queue" ? steersAlways : steersAlways || returnSteers || steersUnseen);
   };
@@ -2741,6 +2786,7 @@ function ComposerFrame({
   const plusPlanId = planChoice && plan ? plan.id : undefined;
   const plusPlanName = planChoice?.name;
   const plusSearchesFiles = Boolean(searchFiles);
+  const plusCanRunOnAgents = Boolean(runOnAgents) && !shell && attachments.length === 0 && pending.length === 0;
   const plusEntries = useMemo(
     () =>
       composerPlusRegistry({
@@ -2751,6 +2797,7 @@ function ComposerFrame({
         canCapture: plusCanCapture,
         canRecord: plusCanRecord,
         canChooseProject: plusCanChooseProject,
+        canRunOnAgents: plusCanRunOnAgents,
         ...(plusPlanId !== undefined && plusPlanName !== undefined
           ? { planMode: { id: plusPlanId, name: plusPlanName, description: t("picker.planHint") } }
           : {}),
@@ -2767,6 +2814,7 @@ function ComposerFrame({
       plusCanCapture,
       plusCanRecord,
       plusCanChooseProject,
+      plusCanRunOnAgents,
       plusPlanId,
       plusPlanName,
       plusSearchesFiles,
@@ -2801,6 +2849,47 @@ function ComposerFrame({
       onBlur={blur}
       onContextMenuCapture={openChipMenu}
     >
+      {runOnAgents && (
+        // Over the composer, away from the chat; Escape or a press outside closes it.
+        <Popover
+          open={runningOn}
+          onOpenChange={(open) => {
+            if (!open) closeRunOn();
+          }}
+          anchor={composerAnchor}
+          side="top"
+          align="start"
+          label={t("runOn.title")}
+          initialFocus={runOnButton}
+        >
+          <RunOnAgentsPanel
+            catalog={runOnAgents.catalog}
+            prompt={shownWords}
+            runRef={runOnButton}
+            onRun={(variants) => {
+              // As Send sends it: the field's markdown escapes what was typed; the agents get the text.
+              const prompt = (field.current?.agentText(typedWords()) ?? typedWords()).trim();
+              if (!prompt) return Promise.reject(new Error(t("runOn.emptyPrompt")));
+              const session = persistedSession.current;
+              const written = field.current?.value() ?? textRef.current;
+              return runOnAgents.run(prompt, variants).then(() => {
+                closeRunOn();
+                // The prompt went to the runs: it is no draft any more, as a send's. Read the
+                // editor now, not this render's text: words typed after it while the runs started
+                // stay, as a send keeps them; another chat's draft, or an edit of the prompt, stays.
+                if (persistedSession.current !== session) return;
+                const now = field.current?.value() ?? textRef.current;
+                if (now !== written && !now.startsWith(written)) return;
+                const rest = now.slice(written.length).trimStart();
+                edit(rest, rest.length);
+                noteDraftSent(session);
+                sentAt.current = Date.now();
+              });
+            }}
+            onClose={closeRunOn}
+          />
+        </Popover>
+      )}
       {remote.note && (
         <p className="acpmux-composer-remote-note" role="note">
           {t(remote.note)}
@@ -3070,6 +3159,7 @@ function ComposerFrame({
                   } else if (action === "composer.chooseProject") openPicker("Location");
                   else if (action === "composer.planMode" && modeId) togglePlan(modeId);
                   else if (action === "composer.mention") mention();
+                  else if (action === "composer.runOnAgents") setRunningOn(true);
                   else if (action === "searchFiles") openFileSearch();
                   else if (action === "composer.commands") openCommands();
                 }}
