@@ -120,6 +120,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // census before teardown; wake shares the lane so both verbs route alike.
         "agent.hibernate",
         "agent.wake",
+        "claude_account.switch", // Awaits transcript copies, the old Claude's exit and the new prompt.
         // Agent messages: store reads and appends with at most one
         // main-actor hop for target resolution or the delivery hold.
         "agent.message.send",

@@ -16802,6 +16802,1131 @@
           }
         }
       }
+    },
+    "settings.automation.claudeAccountAutoSwitch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Claude Account on Usage Limit"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Konto bei Nutzungslimit wechseln"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changer de compte Claude à la limite d'utilisation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل حساب Claude عند بلوغ حد الاستخدام"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar cuenta de Claude al llegar al límite de uso"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "達到用量上限時切換 Claude 帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "达到用量上限时切换 Claude 账号"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용량 한도 도달 시 Claude 계정 전환"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用量の上限で Claude アカウントを切り替え"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promijeni Claude račun pri ograničenju korištenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift Claude-konto ved forbrugsgrænse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambia account Claude al raggiungimento del limite di utilizzo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូរគណនី Claude ពេលដល់ដែនកំណត់ការប្រើប្រាស់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bytt Claude-konto ved bruksgrense"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz konto Claude po osiągnięciu limitu użycia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocar conta do Claude ao atingir o limite de uso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключать учётную запись Claude при достижении лимита"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับบัญชี Claude เมื่อถึงขีดจำกัดการใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım sınırında Claude hesabını değiştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемикати обліковий запис Claude у разі досягнення ліміту"
+          }
+        }
+      }
+    },
+    "settings.automation.claudeAccountAutoSwitch.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When a Claude account hits its usage limit, continue the conversation on the next account in agents.claudeAccounts."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erreicht ein Claude-Konto sein Nutzungslimit, wird die Unterhaltung mit dem nächsten Konto aus agents.claudeAccounts fortgesetzt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand un compte Claude atteint sa limite d'utilisation, la conversation continue sur le compte suivant de agents.claudeAccounts."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما يبلغ حساب Claude حد الاستخدام، تتواصل المحادثة على الحساب التالي في agents.claudeAccounts."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando una cuenta de Claude llega a su límite de uso, la conversación continúa en la siguiente cuenta de agents.claudeAccounts."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 帳號達到用量上限時，改用 agents.claudeAccounts 中的下一個帳號繼續對話。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 账号达到用量上限时，改用 agents.claudeAccounts 中的下一个账号继续对话。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 계정이 사용량 한도에 도달하면 agents.claudeAccounts의 다음 계정에서 대화를 이어 갑니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude アカウントが使用量の上限に達したら、agents.claudeAccounts の次のアカウントで会話を続けます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada Claude račun dostigne ograničenje korištenja, razgovor se nastavlja na sljedećem računu iz agents.claudeAccounts."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en Claude-konto når sin forbrugsgrænse, fortsætter samtalen på den næste konto i agents.claudeAccounts."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando un account Claude raggiunge il limite di utilizzo, la conversazione continua sull’account successivo in agents.claudeAccounts."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលគណនី Claude មួយដល់ដែនកំណត់ការប្រើប្រាស់ ការសន្ទនានឹងបន្តនៅលើគណនីបន្ទាប់ក្នុង agents.claudeAccounts។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en Claude-konto når bruksgrensen, fortsetter samtalen på neste konto i agents.claudeAccounts."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy konto Claude osiągnie limit użycia, rozmowa jest kontynuowana na następnym koncie z agents.claudeAccounts."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando uma conta do Claude atinge o limite de uso, a conversa continua na próxima conta de agents.claudeAccounts."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда учётная запись Claude достигает лимита использования, разговор продолжается в следующей учётной записи из agents.claudeAccounts."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อบัญชี Claude ถึงขีดจำกัดการใช้งาน จะดำเนินการสนทนาต่อในบัญชีถัดไปใน agents.claudeAccounts"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir Claude hesabı kullanım sınırına ulaştığında konuşma agents.claudeAccounts içindeki sonraki hesapta sürer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли обліковий запис Claude досягає ліміту використання, розмова продовжується в наступному обліковому записі з agents.claudeAccounts."
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.automation.claude-account-auto-switch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude-Konto wechseln Nutzungslimit Kontingent erschöpft nächstes Konto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts compte Claude changer limite d'utilisation quota épuisé compte suivant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts حساب Claude تبديل حد الاستخدام حصة مستنفدة الحساب التالي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts cuenta de Claude cambiar límite de uso cuota agotada siguiente cuenta"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude 帳號 切換 用量上限 配額 用盡 下一個帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude 账号 切换 用量上限 配额 用尽 下一个账号"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude 계정 전환 사용량 한도 할당량 소진 다음 계정"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude アカウント 切り替え 使用量の上限 クォータ 使い切り 次のアカウント"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude račun promijeni ograničenje korištenja kvota iscrpljen sljedeći račun"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude-konto skift forbrugsgrænse kvote opbrugt næste konto"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts account Claude cambia limite di utilizzo quota esaurito account successivo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts គណនី Claude ប្ដូរ ដែនកំណត់ការប្រើប្រាស់ កូតា អស់ គណនីបន្ទាប់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude-konto bytt bruksgrense kvote brukt opp neste konto"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts konto Claude przełącz limit użycia wyczerpany następne konto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts conta do Claude trocar limite de uso cota esgotada próxima conta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts учётная запись Claude переключить лимит использования квота исчерпана следующая учётная запись"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts บัญชี Claude สลับ ขีดจำกัดการใช้งาน โควตา หมด บัญชีถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts Claude hesabı değiştir kullanım sınırı kota tükendi sonraki hesap"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts обліковий запис Claude перемкнути ліміт використання квота вичерпано наступний обліковий запис"
+          }
+        }
+      }
+    },
+    "settings.automation.sessionPriority": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioritize Claude Sessions by Sidebar Order"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعطاء الأولوية لجلسات Claude حسب ترتيب الشريط الجانبي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Sitzungen nach Seitenleistenreihenfolge priorisieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priorizar las sesiones de Claude según el orden de la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioriser les sessions Claude selon l’ordre de la barre latérale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの順序で Claude セッションに優先度を付ける"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 순서에 따라 Claude 세션 우선순위 지정"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按侧边栏顺序为 Claude 会话排定优先级"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依側邊欄順序為 Claude 工作階段排定優先順序"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daj prioritet Claude sesijama prema redoslijedu u bočnoj traci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioritér Claude-sessioner efter rækkefølgen i sidepanelet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dai priorità alle sessioni Claude in base all'ordine della barra laterale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ដល់អាទិភាពដល់សម័យ Claude តាមលំដាប់នៅក្នុងរបារចំហៀង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioriter Claude-økter etter rekkefølgen i sidefeltet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ustalaj priorytet sesji Claude według kolejności na pasku bocznym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priorizar sessões do Claude pela ordem da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приоритизировать сеансы Claude по порядку в боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จัดลำดับความสำคัญเซสชัน Claude ตามลำดับในแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude oturumlarını kenar çubuğu sırasına göre önceliklendir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пріоритизувати сеанси Claude за порядком у бічній панелі"
+          }
+        }
+      }
+    },
+    "settings.automation.sessionPriority.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux restarts idle Claude terminals to change their effort, more for workspaces higher in the sidebar and less further down, and resumes each conversation."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعيد cmux تشغيل طرفيات Claude الخاملة لتغيير جهدها، فيزيده لمساحات العمل الأعلى في الشريط الجانبي ويقلّله للأدنى، ثم يستأنف كل محادثة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux startet untätige Claude-Terminals neu, um ihren Aufwand zu ändern – mehr für Arbeitsbereiche weiter oben in der Seitenleiste, weniger weiter unten – und setzt jede Unterhaltung fort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux reinicia las terminales de Claude inactivas para cambiar su esfuerzo, más para los espacios de trabajo situados más arriba en la barra lateral y menos para los de más abajo, y reanuda cada conversación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux redémarre les terminaux Claude inactifs pour modifier leur effort, plus élevé pour les espaces de travail situés plus haut dans la barre latérale et plus faible plus bas, puis reprend chaque conversation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はアイドル状態の Claude ターミナルを再起動してエフォートを変更し（サイドバーの上位のワークスペースほど高く、下位ほど低く）、それぞれの会話を再開します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 유휴 상태인 Claude 터미널을 다시 시작해 노력도를 바꾸고(사이드바에서 위쪽 워크스페이스일수록 높게, 아래쪽일수록 낮게) 각 대화를 재개합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 会重新启动空闲的 Claude 终端以更改其投入程度（侧边栏中靠上的工作区更高，靠下的更低），并继续每段对话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 會重新啟動閒置的 Claude 終端機以變更其投入程度（側邊欄中較上方的工作區較高，較下方的較低），並繼續每段對話。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ponovo pokreće neaktivne Claude terminale da im promijeni napor, veći za radne prostore više u bočnoj traci, a manji niže, i nastavlja svaki razgovor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux genstarter inaktive Claude-terminaler for at ændre deres indsats, mere for arbejdsområder højere oppe i sidepanelet og mindre længere nede, og genoptager hver samtale."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux riavvia i terminali Claude inattivi per modificarne l'impegno, maggiore per gli spazi di lavoro più in alto nella barra laterale e minore per quelli più in basso, e riprende ogni conversazione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ចាប់ផ្ដើមទែមីណាល់ Claude ដែលទំនេរឡើងវិញ ដើម្បីប្ដូរកម្រិតប្រឹងប្រែងរបស់វា ខ្ពស់ជាងសម្រាប់កន្លែងធ្វើការនៅខាងលើក្នុងរបារចំហៀង និងទាបជាងសម្រាប់កន្លែងនៅខាងក្រោម ហើយបន្តការសន្ទនានីមួយៗ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux starter inaktive Claude-terminaler på nytt for å endre innsatsen deres, mer for arbeidsområder høyere opp i sidefeltet og mindre lenger ned, og gjenopptar hver samtale."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux uruchamia ponownie bezczynne terminale Claude, aby zmienić ich wysiłek: większy dla obszarów roboczych wyżej na pasku bocznym, mniejszy niżej, i wznawia każdą rozmowę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux reinicia terminais do Claude ociosos para mudar o esforço deles, maior para espaços de trabalho mais acima na barra lateral e menor mais abaixo, e retoma cada conversa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux перезапускает простаивающие терминалы Claude, чтобы изменить их уровень усилий: выше для рабочих пространств выше в боковой панели и ниже для тех, что ниже, — и возобновляет каждый разговор."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux จะเริ่มเทอร์มินัล Claude ที่ว่างอยู่ใหม่เพื่อเปลี่ยนระดับความพยายาม ให้สูงขึ้นสำหรับพื้นที่ทำงานที่อยู่สูงในแถบด้านข้างและต่ำลงสำหรับที่อยู่ด้านล่าง แล้วดำเนินการแต่ละการสนทนาต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, eforlarını değiştirmek için boşta duran Claude terminallerini yeniden başlatır: kenar çubuğunda daha yukarıdaki çalışma alanları için daha yüksek, aşağıdakiler için daha düşük; ardından her konuşmayı sürdürür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux перезапускає неактивні термінали Claude, щоб змінити їхній рівень зусиль: вищий для робочих просторів вище в бічній панелі й нижчий для тих, що нижче, — і відновлює кожну розмову."
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.automation.session-priority": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority جهد أولوية عاجل بطيء صعوبة الشريط الجانبي ترتيب مصفوفة effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority Aufwand Priorität dringend langsam Schwierigkeit Seitenleiste Reihenfolge Matrix effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority esfuerzo prioridad urgente lento dificultad barra lateral orden matriz effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priorité urgent lent difficulté barre latérale ordre matrice effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority エフォート 優先度 緊急 遅い 難易度 サイドバー 順序 マトリクス effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority 노력도 우선순위 긴급 느림 난이도 사이드바 순서 매트릭스 effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority 投入程度 优先级 紧急 缓慢 难度 侧边栏 顺序 矩阵 effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority 投入程度 優先順序 緊急 緩慢 難度 側邊欄 順序 矩陣 effort priority urgent slow difficulty sidebar order matrix"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix napor prioritet hitno sporo težina bočna traka redoslijed matrica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix indsats prioritet haster langsom sværhedsgrad sidepanel rækkefølge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix impegno priorità urgente lento difficoltà barra laterale ordine matrice"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix កម្រិតប្រឹងប្រែង អាទិភាព បន្ទាន់ យឺត កម្រិតលំបាក របារចំហៀង លំដាប់ ម៉ាទ្រីស"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix innsats prioritet haster treg vanskelighetsgrad sidefelt rekkefølge matrise"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix wysiłek priorytet pilne wolne trudność pasek boczny kolejność macierz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix esforço prioridade urgente lento dificuldade barra lateral ordem matriz"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix усилия приоритет срочно медленно сложность боковая панель порядок матрица"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix ความพยายาม ลำดับความสำคัญ ด่วน ช้า ความยาก แถบด้านข้าง ลำดับ เมทริกซ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix efor öncelik acil yavaş zorluk kenar çubuğu sıra matris"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix зусилля пріоритет терміново повільно складність бічна панель порядок матриця"
+          }
+        }
+      }
+    },
+    "settings.automation.sessionPriority.matrix.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effort and model per tier and difficulty are set in cmux.json: automation.sessionPriority.matrix"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتم تحديد الجهد والنموذج لكل مستوى ودرجة صعوبة في cmux.json: automation.sessionPriority.matrix"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufwand und Modell pro Stufe und Schwierigkeitsgrad werden in cmux.json festgelegt: automation.sessionPriority.matrix"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El esfuerzo y el modelo por nivel y dificultad se definen en cmux.json: automation.sessionPriority.matrix"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’effort et le modèle par niveau et par difficulté se définissent dans cmux.json : automation.sessionPriority.matrix"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "階層と難易度ごとのエフォートとモデルは cmux.json で設定します: automation.sessionPriority.matrix"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단계 및 난이도별 노력도와 모델은 cmux.json에서 설정합니다: automation.sessionPriority.matrix"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各层级与难度的投入程度和模型请在 cmux.json 中设置：automation.sessionPriority.matrix"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各層級與難度的投入程度和模型請在 cmux.json 中設定：automation.sessionPriority.matrix"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Napor i model po nivou i težini postavljaju se u cmux.json: automation.sessionPriority.matrix"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indsats og model pr. niveau og sværhedsgrad angives i cmux.json: automation.sessionPriority.matrix"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'impegno e il modello per livello e difficoltà si impostano in cmux.json: automation.sessionPriority.matrix"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្រិតប្រឹងប្រែង និងម៉ូដែលតាមថ្នាក់ និងកម្រិតលំបាក ត្រូវបានកំណត់នៅក្នុង cmux.json: automation.sessionPriority.matrix"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Innsats og modell per nivå og vanskelighetsgrad angis i cmux.json: automation.sessionPriority.matrix"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wysiłek i model dla każdego poziomu i trudności ustawia się w cmux.json: automation.sessionPriority.matrix"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O esforço e o modelo por nível e dificuldade são definidos em cmux.json: automation.sessionPriority.matrix"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уровень усилий и модель для каждого уровня приоритета и сложности задаются в cmux.json: automation.sessionPriority.matrix"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระดับความพยายามและโมเดลตามชั้นและความยากกำหนดไว้ใน cmux.json: automation.sessionPriority.matrix"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Katman ve zorluk başına efor ve model cmux.json içinde ayarlanır: automation.sessionPriority.matrix"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рівень зусиль і модель для кожного рівня пріоритету та складності задаються в cmux.json: automation.sessionPriority.matrix"
+          }
+        }
+      }
+    },
+    "settings.automation.sessionPriority.urgentCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Urgent workspaces"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحات العمل العاجلة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dringende Arbeitsbereiche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacios de trabajo urgentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaces de travail urgents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "緊急ワークスペース"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "긴급 워크스페이스"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "紧急工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "緊急工作區"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hitni radni prostori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hastende arbejdsområder"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spazi di lavoro urgenti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការបន្ទាន់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hastende arbeidsområder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pilne obszary robocze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaços de trabalho urgentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Срочные рабочие пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงานด่วน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acil çalışma alanları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінові робочі простори"
+          }
+        }
+      }
+    },
+    "settings.automation.sessionPriority.urgentCount.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How many workspaces at the top of the sidebar count as urgent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد مساحات العمل في أعلى الشريط الجانبي التي تُعدّ عاجلة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie viele Arbeitsbereiche am Anfang der Seitenleiste als dringend gelten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuántos espacios de trabajo en la parte superior de la barra lateral se consideran urgentes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombre d’espaces de travail en haut de la barre latérale considérés comme urgents."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの先頭から何個のワークスペースを緊急として扱うかを指定します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 맨 위의 몇 개 워크스페이스를 긴급으로 간주할지 정합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏顶部有多少个工作区视为紧急。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄頂端有多少個工作區視為緊急。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koliko radnih prostora na vrhu bočne trake se smatra hitnim."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor mange arbejdsområder øverst i sidepanelet der regnes som hastende."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanti spazi di lavoro in cima alla barra laterale sono considerati urgenti."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនកន្លែងធ្វើការនៅខាងលើរបារចំហៀង ដែលត្រូវរាប់ថាបន្ទាន់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor mange arbeidsområder øverst i sidefeltet som regnes som hastende."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ile obszarów roboczych na górze paska bocznego uznaje się za pilne."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quantos espaços de trabalho no topo da barra lateral contam como urgentes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сколько рабочих пространств в верхней части боковой панели считаются срочными."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนพื้นที่ทำงานที่ด้านบนของแถบด้านข้างที่นับว่าด่วน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğunun en üstündeki kaç çalışma alanının acil sayılacağı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скільки робочих просторів угорі бічної панелі вважаються терміновими."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

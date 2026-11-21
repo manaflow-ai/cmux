@@ -276,6 +276,42 @@ struct CmuxConfigSemanticValidatorTests {
         #expect(contains(future, path: "$.known", message: "expected boolean"))
     }
 
+    @Test("the reserved default Claude account must point at ~/.claude")
+    func reservesTheDefaultClaudeAccountName() throws {
+        func accountIssues(_ name: String, _ configDir: String) throws -> [CmuxConfigSemanticIssue] {
+            try issues(["agents": ["claudeAccounts": [["name": name, "configDir": configDir]]]])
+        }
+        let misplaced = try accountIssues("default", "~/.claude-work")
+        #expect(misplaced.contains { $0.path == "$.agents.claudeAccounts[0].configDir" }, "\(misplaced)")
+        #expect(try accountIssues("default", "~/.claude").isEmpty)
+        #expect(try accountIssues("default", "~/.claude/").isEmpty)
+        #expect(try accountIssues("default", "/Users/me/.claude").isEmpty)
+        #expect(try accountIssues("work", "~/.claude-work").isEmpty)
+    }
+
+    @Test("session priority models must end at the end of the string")
+    func sessionPriorityModelRejectsATrailingLineTerminator() throws {
+        func modelIssues(_ model: String) throws -> [CmuxConfigSemanticIssue] {
+            try issues([
+                "automation": [
+                    "sessionPriority": [
+                        "matrix": ["urgent": ["easy": ["model": model]]],
+                    ],
+                ],
+            ])
+        }
+        let path = "$.automation.sessionPriority.matrix.urgent.easy.model"
+        for model in ["opus\n", "opus\r\n", "opus\r", "opus\u{2028}", "opus\u{85}"] {
+            let result = try modelIssues(model)
+            #expect(contains(result, path: path, message: "must match"), "\(model.debugDescription): \(result)")
+        }
+        for model in ["opus", "claude-opus-4-1", "us.anthropic.claude:1", "a"] {
+            #expect(try modelIssues(model).isEmpty, "\(model)")
+        }
+        #expect(contains(try modelIssues("-opus"), path: path, message: "must match"))
+        #expect(contains(try modelIssues(String(repeating: "a", count: 65)), path: path, message: "must match"))
+    }
+
     @Test("project scope rejects global settings while keeping project hooks legal")
     func enforcesProjectScope() throws {
         let globalOnly = try issues(

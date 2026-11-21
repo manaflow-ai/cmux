@@ -1577,6 +1577,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     /// Explicit recovery state retained when an automatic relaunch could not
     /// start. This prevents the next snapshot from looking like a plain shell.
     var restoreRecovery: SessionRestoreRecoverySnapshot?
+    /// The Claude account keys a switch gave the pane, replayed on restore (spec D9). Nil when it never switched.
+    var claudeAccountEnvironment: ClaudeAccountPaneEnvironment?
 
     init(
         workingDirectory: String? = nil,
@@ -1594,7 +1596,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         wasAgentRunning: Bool? = nil,
         hasReceivedExplicitInput: Bool? = nil,
         claudeBackgroundViewer: ClaudeBackgroundSessionViewer? = nil,
-        restoreRecovery: SessionRestoreRecoverySnapshot? = nil
+        restoreRecovery: SessionRestoreRecoverySnapshot? = nil,
+        claudeAccountEnvironment: ClaudeAccountPaneEnvironment? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.fontSize = fontSize
@@ -1612,6 +1615,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.hasReceivedExplicitInput = hasReceivedExplicitInput
         self.claudeBackgroundViewer = claudeBackgroundViewer
         self.restoreRecovery = restoreRecovery
+        self.claudeAccountEnvironment = claudeAccountEnvironment
     }
 }
 
@@ -1894,6 +1898,14 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var taskStatusInferredAtOverride: String? = nil
     /// `true` when the workspace opted out of the status feature (None); absent for the default (feature engaged), so old manifests decode unchanged.
     var taskStatusHidden: Bool? = nil
+    /// 0-based position in the window's session priority rank; absent in manifests written before the rank, so old manifests decode unchanged.
+    var sessionPriorityIndex: Int? = nil
+    /// Claude task difficulty the user pinned for this workspace; absent for automatic, so old manifests decode unchanged.
+    var claudeDifficultyOverride: String? = nil
+    /// Claude task difficulty assessed at the last turn end; absent before any assessment.
+    var claudeDifficultyAuto: String? = nil
+    /// `true` when the user excluded this workspace from automatic effort adjustment; absent for the default.
+    var sessionPriorityManual: Bool? = nil
     var checklist: [SessionChecklistItemSnapshot]? = nil
     var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
 }

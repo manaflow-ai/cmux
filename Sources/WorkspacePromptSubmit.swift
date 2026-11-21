@@ -268,7 +268,7 @@ extension TabManager {
         guard messageRecorded || reorderWithoutMessage || hasMessage else {
             return (messageRecorded, false, originalIndex)
         }
-        moveTabToTop(workspaceId)
+        moveTabToTop(workspaceId, origin: .automatic)
         let newIndex = tabs.firstIndex(where: { $0.id == workspaceId }) ?? originalIndex
         return (messageRecorded, newIndex != originalIndex, newIndex)
     }

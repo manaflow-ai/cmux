@@ -11,13 +11,13 @@ import Foundation
 extension TerminalController: ControlWorkspaceTodoContext {
     // MARK: - Workspace resolution
 
-    private enum TodoWorkspaceResolution {
+    enum TodoWorkspaceResolution {
         case tabManagerUnavailable
         case notFound
         case found(tabManager: TabManager, workspace: Workspace)
     }
 
-    private func resolveTodoWorkspace(
+    func resolveTodoWorkspace(
         routing: ControlRoutingSelectors,
         workspaceID: UUID?
     ) -> TodoWorkspaceResolution {

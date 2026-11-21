@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 import CmuxWorkspaces
 import Foundation
 
@@ -35,6 +36,8 @@ struct SidebarWorkspaceRowActions {
     let applyColor: (String?, [UUID]) -> Void
     let applyTodoStatus: (WorkspaceTaskStatus?, [UUID]) -> Void
     let hideTodoStatus: ([UUID]) -> Void
+    let applyClaudeDifficulty: (ClaudeSessionDifficulty?, [UUID]) -> Void
+    let setSessionPriorityManual: (Bool, [UUID]) -> Void
     let requestChecklistAdd: () -> Void
     let markRead: ([UUID]) -> Void
     let markUnread: ([UUID]) -> Void

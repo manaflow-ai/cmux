@@ -911,7 +911,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private func configureMetadata(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
         let allEntries = model.settings.visibleAuxiliaryDetails.showsMetadata
             ? model.snapshot.metadataEntries : []
-        let visible = model.isMetadataExpanded ? allEntries : Array(allEntries.prefix(3))
+        let visible = SidebarWorkspaceSnapshotBuilder.visibleMetadataEntries(
+            allEntries,
+            isExpanded: model.isMetadataExpanded
+        )
         Self.pool(&metadataRows, count: visible.count, parent: contentContainer) { SidebarRowIconTextLine() }
         for (index, entry) in visible.enumerated() {
             // Preserve explicit status colors on selected rows when they meet
@@ -939,7 +942,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
         let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
         let toggleColor = palette.secondary(0.9, inactiveOpacity: 0.9)
-        metadataToggleButton.isHidden = allEntries.count <= 3
+        metadataToggleButton.isHidden = allEntries.count <= SidebarWorkspaceSnapshotBuilder.collapsedMetadataEntryLimit
         if !metadataToggleButton.isHidden {
             metadataToggleButton.configure(
                 title: model.isMetadataExpanded
