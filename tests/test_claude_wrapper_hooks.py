@@ -1477,6 +1477,196 @@ def test_live_socket_merges_settings_file_form(failures: list[str]) -> None:
     expect(real_argv[-1] == "hello", f"settings file: positional arg dropped, got {real_argv}", failures)
 
 
+def test_restore_record_keeps_user_settings_after_merge(failures: list[str]) -> None:
+    """A merged launch still records the user's --settings, and a restore replays them.
+
+    The settings merge folds the user's values into cmux's private file, so the
+    launch record has to carry them separately or a restored session starts
+    without them (#34501). Inline JSON is recorded as a durable file path so the
+    record stays small.
+    """
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-restore-settings-") as td:
+        root = Path(td)
+        home = root / "home"
+        home.mkdir()
+        user_file = root / "user-settings.json"
+        user_file.write_text('{"spinnerTipsEnabled": false}', encoding="utf-8")
+        inline = '{"viewMode": "default"}'
+
+        def setup(_tmp: Path, env: dict[str, str]) -> None:
+            env["HOME"] = str(home)
+
+        def hook_group_counts(settings: dict) -> dict[str, int]:
+            hooks = settings.get("hooks", {})
+            return {event: len(groups) for event, groups in hooks.items() if isinstance(groups, list)}
+
+        _, fresh_argv, _, _, *_ = run_wrapper(socket_state="live", argv=["hello"], setup_sandbox=setup)
+        fresh_counts = hook_group_counts(parse_settings_arg(fresh_argv))
+
+        argv = [
+            "--model", "sonnet",
+            "--settings", inline,
+            f"--settings={user_file}",
+            "hello",
+        ]
+        code, real_argv, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
+            socket_state="live",
+            argv=argv,
+            setup_sandbox=setup,
+        )
+        expect(code == 0, f"restore settings: wrapper exited {code}: {stderr}", failures)
+        expect(
+            parse_settings_arg(real_argv).get("viewMode") == "default",
+            f"restore settings: the launch itself lost the user settings, got {real_argv}",
+            failures,
+        )
+        captured = decode_nul_argv(launch_argv_b64)
+        recorded = [captured[index + 1] for index, arg in enumerate(captured[:-1]) if arg == "--settings"]
+        expect(
+            len(recorded) == 2,
+            f"restore settings: expected both user --settings in the launch record, got {captured}",
+            failures,
+        )
+        expect(
+            inline not in captured and not any(arg.startswith("--settings=") for arg in captured),
+            f"restore settings: inline JSON must be recorded as a file path, got {captured}",
+            failures,
+        )
+        if len(recorded) == 2:
+            inline_path = Path(recorded[0])
+            expect(
+                inline_path.parent == home / ".cmuxterm" / "claude-settings"
+                and inline_path.is_file()
+                and json.loads(inline_path.read_text(encoding="utf-8")) == {"viewMode": "default"},
+                f"restore settings: inline value should be a durable private file, got {inline_path}",
+                failures,
+            )
+            expect(
+                recorded[1] == str(user_file),
+                f"restore settings: a settings file path should be recorded as given, got {recorded[1]}",
+                failures,
+            )
+        expect(
+            "--model" in captured and captured[captured.index("--model") + 1] == "sonnet",
+            f"restore settings: other launch flags dropped, got {captured}",
+            failures,
+        )
+        expect(captured[-1] == "hello", f"restore settings: positional arg dropped, got {captured}", failures)
+
+        code, replay_argv, _, stderr, *_ = run_wrapper(
+            socket_state="live",
+            argv=captured[1:],
+            setup_sandbox=setup,
+        )
+        expect(code == 0, f"restore settings replay: wrapper exited {code}: {stderr}", failures)
+        replayed = parse_settings_arg(replay_argv)
+        expect(
+            replayed.get("viewMode") == "default" and replayed.get("spinnerTipsEnabled") is False,
+            f"restore settings replay: user settings missing after restore, got {replayed}",
+            failures,
+        )
+        expect(
+            hook_group_counts(replayed) == fresh_counts,
+            f"restore settings replay: cmux hooks should not be doubled, got {hook_group_counts(replayed)} vs {fresh_counts}",
+            failures,
+        )
+
+
+def test_restore_record_settings_survive_a_different_restore_directory(failures: list[str]) -> None:
+    """Recorded --settings must not depend on how they were spelled at launch.
+
+    A relative path is read from the launch directory, so it is recorded
+    absolute. A BOM before inline JSON still counts as inline (Node's trim()
+    drops it, and any more BOMs or spaces after it), so it goes to a durable
+    file like any other inline value.
+    """
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-restore-spelling-") as td:
+        root = Path(td)
+        home = root / "home"
+        home.mkdir()
+        launch_dir = root / "project"
+        (launch_dir / ".claude").mkdir(parents=True)
+        user_file = launch_dir / ".claude" / "mine.json"
+        user_file.write_text('{"spinnerTipsEnabled": false}', encoding="utf-8")
+        bom_inline = '\ufeff{"viewMode": "default"}'
+        repeated_bom_inline = '\ufeff \ufeff{"includeCoAuthoredBy": false}'
+
+        def setup(_tmp: Path, env: dict[str, str]) -> None:
+            env["HOME"] = str(home)
+            env["FAKE_WRAPPER_CWD"] = str(launch_dir)
+
+        code, _real_argv, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
+            socket_state="live",
+            argv=[
+                "--settings", ".claude/mine.json",
+                "--settings", bom_inline,
+                "--settings", repeated_bom_inline,
+                "hello",
+            ],
+            setup_sandbox=setup,
+        )
+        expect(code == 0, f"restore spelling: wrapper exited {code}: {stderr}", failures)
+        captured = decode_nul_argv(launch_argv_b64)
+        recorded = [captured[index + 1] for index, arg in enumerate(captured[:-1]) if arg == "--settings"]
+        expect(len(recorded) == 3, f"restore spelling: expected three recorded --settings, got {captured}", failures)
+        if len(recorded) != 3:
+            return
+        expect(
+            os.path.isabs(recorded[0]) and os.path.realpath(recorded[0]) == os.path.realpath(user_file),
+            f"restore spelling: a relative path should be recorded absolute, got {recorded[0]}",
+            failures,
+        )
+        bom_path = Path(recorded[1])
+        expect(
+            bom_inline not in captured
+            and bom_path.parent == home / ".cmuxterm" / "claude-settings"
+            and bom_path.is_file(),
+            f"restore spelling: BOM-led inline JSON should be a durable file, got {recorded[1]!r}",
+            failures,
+        )
+        repeated_bom_path = Path(recorded[2])
+        expect(
+            repeated_bom_inline not in captured
+            and repeated_bom_path.parent == home / ".cmuxterm" / "claude-settings"
+            and repeated_bom_path.is_file(),
+            f"restore spelling: inline JSON after repeated BOMs should be a durable file, got {recorded[2]!r}",
+            failures,
+        )
+        for path, expected in (
+            (bom_path, {"viewMode": "default"}),
+            (repeated_bom_path, {"includeCoAuthoredBy": False}),
+        ):
+            # The merge loader reads a settings path with a plain JSON.parse, which rejects a BOM.
+            try:
+                saved = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+            except json.JSONDecodeError as error:
+                saved = f"unparseable: {error}"
+            expect(
+                saved == expected,
+                f"restore spelling: durable file {path.name} should hold plain JSON, got {saved!r}",
+                failures,
+            )
+
+        def replay_setup(_tmp: Path, env: dict[str, str]) -> None:
+            env["HOME"] = str(home)
+            env["FAKE_WRAPPER_CWD"] = str(root)
+
+        code, replay_argv, _, stderr, *_ = run_wrapper(
+            socket_state="live",
+            argv=captured[1:],
+            setup_sandbox=replay_setup,
+        )
+        expect(code == 0, f"restore spelling replay: wrapper exited {code}: {stderr}", failures)
+        replayed = parse_settings_arg(replay_argv)
+        expect(
+            replayed.get("spinnerTipsEnabled") is False
+            and replayed.get("viewMode") == "default"
+            and replayed.get("includeCoAuthoredBy") is False,
+            f"restore spelling replay: user settings missing after restore from another directory, got {replayed}",
+            failures,
+        )
+
+
 def test_live_socket_empty_settings_warns_instead_of_silent_drop(failures: list[str]) -> None:
     # An explicit empty --settings= must not be swallowed in silence: the wrapper
     # surfaces the merge-failure warning instead of dropping the flag with no
@@ -3891,6 +4081,8 @@ def main() -> int:
     test_live_socket_preserves_genuine_user_hook_command(failures)
     test_live_socket_invalid_settings_warns_and_falls_back(failures)
     test_live_socket_merges_settings_file_form(failures)
+    test_restore_record_keeps_user_settings_after_merge(failures)
+    test_restore_record_settings_survive_a_different_restore_directory(failures)
     test_live_socket_empty_settings_warns_instead_of_silent_drop(failures)
     test_large_settings_argument_is_rejected_without_hanging(failures)
     test_multibyte_settings_argument_uses_byte_limit(failures)

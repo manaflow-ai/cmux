@@ -98,6 +98,19 @@ struct ClaudeRestoreSettingsPathTests {
         #expect(elsewhere.arguments == ["claude", "--resume", sessionID])
     }
 
+    /// The Claude wrapper records an inline user `--settings` value as a file in
+    /// `~/.cmuxterm/claude-settings` once it has merged it with cmux's hooks.
+    @Test("A resume plan keeps the wrapper's durable copy of the user's settings")
+    func resumeKeepsWrapperDurableUserSettings() throws {
+        let durable = "/Users/me/.cmuxterm/claude-settings/0123456789abcdef0123456789abcdef.json"
+        let invocation = try #require(plan(
+            mode: .resumeAgent,
+            arguments: ["/opt/homebrew/bin/claude", "--settings", durable, "--model", "sonnet"],
+            readable: [durable]
+        ))
+        #expect(invocation.arguments == ["claude", "--resume", sessionID, "--settings", durable, "--model", "sonnet"])
+    }
+
     @Test("A direct plan replays the recorded argv untouched")
     func directPlanIsNotFiltered() throws {
         let invocation = try #require(AgentRestorePlanner(
