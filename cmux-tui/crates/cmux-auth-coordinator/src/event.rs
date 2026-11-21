@@ -264,6 +264,50 @@ pub enum Event {
     DevAuthAccessTokenFinished {
         got_token: bool,
     },
+    /// A phase run is about to start (`now_nanos`: monotonic). Answered by
+    /// [`Effect::PhaseStarted`] or [`Effect::PhaseRefused`].
+    PhaseStartRequested {
+        phase: AuthPhase,
+        now_nanos: u64,
+    },
+    /// The run's deadline won its race; the caller cancels the run's task.
+    PhaseTimedOut {
+        id: u64,
+        now_nanos: u64,
+    },
+    /// The task waiting on the run was cancelled; the caller cancels the run.
+    PhaseCallerCancelled {
+        id: u64,
+        now_nanos: u64,
+    },
+    /// The run's operation returned (with a value or an error): answered by
+    /// [`Effect::PhaseResultStands`] or the steps that end in
+    /// [`Effect::PhaseResultDropped`].
+    PhaseOperationFinished {
+        id: u64,
+    },
+    /// The sign-out credential capture [`Effect::AwaitSignOutCapture`] waited
+    /// for has ended.
+    PhaseSignOutCaptureAwaited {
+        id: u64,
+    },
+    /// [`Effect::CompareStaleRefreshToken`] ran; `cleared` when the token
+    /// store holds no refresh token after.
+    PhaseStaleRefreshTokenCompared {
+        id: u64,
+        cleared: bool,
+    },
+    /// The run's task finished, whether or not it won its race.
+    PhaseEnded {
+        id: u64,
+    },
+    /// An explicit user action reclaims every timed-out phase.
+    SupersedeTimedOutPhases,
+    /// A token read found no token: answered by [`Effect::FailTokenRead`].
+    TokenReadEmpty {
+        storage_was_available: bool,
+        read_failed: bool,
+    },
     /// A rollback outside the reducer (a token operation or validation that
     /// raced a sign-out) signs the app out locally.
     ClearAuthStateRequested {
@@ -361,8 +405,11 @@ pub enum Effect {
     RestoreFinished,
     SetLoading(bool),
     ClearExternalSignInFailureDetail,
-    /// Cancel and join earlier validation, token and exchange work.
-    QuiesceTokenWork(SignInFlow),
+    /// Cancel and join these earlier validation, token and exchange runs.
+    QuiesceTokenWork {
+        flow: SignInFlow,
+        runs: Vec<u64>,
+    },
     CheckOnline(SignInFlow),
     RunExchange {
         flow: SignInFlow,
@@ -400,9 +447,10 @@ pub enum Effect {
     CancelTeamScopeRecovery {
         id: u64,
     },
-    /// Cancel registered exchanges, validations, post-sign-in hooks and token work.
-    CancelInFlightWork,
-    ClearPhaseDampers(&'static [AuthPhase]),
+    /// Cancel these exchange, validation, post-sign-in and token runs.
+    CancelInFlightWork {
+        runs: Vec<u64>,
+    },
     /// Read the stored access and refresh tokens with no network, forget the
     /// latest sign-in refresh token, clear the local token store, then send
     /// [`Event::SignOutLocalCleared`] with the same epoch.
@@ -410,11 +458,42 @@ pub enum Effect {
         sign_out_epoch: u64,
     },
     EndSignOutCredentialCapture,
-    WaitForPostSignInHooks,
+    /// Join these post-sign-in hook runs, bounded by the network budget.
+    WaitForPostSignInHooks {
+        runs: Vec<u64>,
+    },
     /// The bounded best-effort hook and session revocation with the captured tokens.
     ServerTeardown,
     /// Answer a token read with this failure.
     FailTokenRead(AuthFailure),
     /// Sign in with the DEBUG credentials and read an access token.
     TryDevAuthAccessToken,
+    /// Run `id`'s operation now.
+    PhaseStarted {
+        id: u64,
+        phase: AuthPhase,
+    },
+    /// The phase refuses new runs: fail the call as timed out.
+    PhaseRefused {
+        phase: AuthPhase,
+    },
+    /// Return the run's result to its caller.
+    PhaseResultStands {
+        id: u64,
+    },
+    /// The run outlived its session: fail it as cancelled.
+    PhaseResultDropped {
+        id: u64,
+    },
+    /// Wait for any sign-out credential capture to end, then send
+    /// [`Event::PhaseSignOutCaptureAwaited`].
+    AwaitSignOutCapture {
+        id: u64,
+    },
+    /// Read the stored refresh token; when it is not the latest sign-in's,
+    /// compare-clear the store with it. Then send
+    /// [`Event::PhaseStaleRefreshTokenCompared`].
+    CompareStaleRefreshToken {
+        id: u64,
+    },
 }

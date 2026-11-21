@@ -205,9 +205,9 @@ impl Shell {
                     "reason": payload["reason"],
                 }}));
             }
-            "quiesceTokenWork" => self
-                .coordinator
-                .feed(json!({"tokenWorkQuiesced": {"flow": payload, "result": {"Ok": null}}})),
+            "quiesceTokenWork" => self.coordinator.feed(
+                json!({"tokenWorkQuiesced": {"flow": payload["flow"], "result": {"Ok": null}}}),
+            ),
             "checkOnline" => {
                 self.coordinator.feed(json!({"onlineChecked": {"flow": payload, "online": true}}));
             }
@@ -492,7 +492,7 @@ fn a_stalled_stack_is_not_the_reducers_to_wait_on() {
     let flow = fx
         .iter()
         .find_map(|effect| effect.get("quiesceTokenWork"))
-        .expect("sign-in quiesces token work first")
+        .expect("sign-in quiesces token work first")["flow"]
         .clone();
     shell.coordinator.feed(json!({"tokenWorkQuiesced": {"flow": flow, "result": {"Ok": null}}}));
     shell.coordinator.feed(json!({"onlineChecked": {"flow": flow, "online": true}}));

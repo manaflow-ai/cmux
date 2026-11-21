@@ -11,8 +11,9 @@ use crate::model::{
     AuthState, AuthTeam, AuthUser, CachedTeamIdentity, LaunchOptions, SessionIdentity, TeamScope,
     resolve_team_id,
 };
-use crate::phase::team_scope_recovery_delay;
+use crate::phase::{PhaseDamper, TIMED_OUT_RESET, team_scope_recovery_delay};
 
+mod phases;
 mod restore;
 mod session;
 mod sign_in;
@@ -67,6 +68,11 @@ pub struct Coordinator {
     team_scope_recovery: Option<Recovery>,
     next_recovery_id: u64,
     rng: u64,
+    phase_run_counter: u64,
+    phase_runs: BTreeMap<u64, phases::PhaseRun>,
+    phase_damper: PhaseDamper,
+    token_gates: phases::TokenGates,
+    token_gate_reset_nanos: u64,
 }
 
 impl Coordinator {
@@ -110,6 +116,11 @@ impl Coordinator {
             team_scope_recovery: None,
             next_recovery_id: 0,
             rng: jitter_seed | 1,
+            phase_run_counter: 0,
+            phase_runs: BTreeMap::new(),
+            phase_damper: PhaseDamper::new(TIMED_OUT_RESET),
+            token_gates: phases::TokenGates::new(),
+            token_gate_reset_nanos: u64::try_from(TIMED_OUT_RESET.as_nanos()).unwrap_or(u64::MAX),
         };
         let mut fx = Vec::new();
         coordinator.prime(&mut fx);
@@ -443,6 +454,27 @@ impl Coordinator {
                 if !got_token {
                     self.fail_token_read_unauthorized(TokenReadKind::AccessToken, &mut fx);
                 }
+            }
+            Event::PhaseStartRequested { phase, now_nanos } => {
+                self.on_phase_start_requested(phase, now_nanos, &mut fx);
+            }
+            Event::PhaseTimedOut { id, now_nanos } => {
+                self.on_phase_interrupted(id, false, now_nanos)
+            }
+            Event::PhaseCallerCancelled { id, now_nanos } => {
+                self.on_phase_interrupted(id, true, now_nanos);
+            }
+            Event::PhaseOperationFinished { id } => self.on_phase_operation_finished(id, &mut fx),
+            Event::PhaseSignOutCaptureAwaited { id } => {
+                self.on_phase_sign_out_capture_awaited(id, &mut fx);
+            }
+            Event::PhaseStaleRefreshTokenCompared { id, cleared } => {
+                self.on_phase_stale_refresh_token_compared(id, cleared, &mut fx);
+            }
+            Event::PhaseEnded { id } => self.on_phase_ended(id),
+            Event::SupersedeTimedOutPhases => self.supersede_timed_out_phases(),
+            Event::TokenReadEmpty { storage_was_available, read_failed } => {
+                self.on_token_read_empty(storage_was_available, read_failed, &mut fx);
             }
             Event::ClearAuthStateRequested { reason, preserve_pending_code } => {
                 self.clear_auth_state(&reason, preserve_pending_code, false, &mut fx);
