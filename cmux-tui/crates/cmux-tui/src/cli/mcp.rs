@@ -25,6 +25,7 @@ mod automation_tools;
 mod browser_tools;
 mod caller_scope;
 mod chat_tools;
+mod cloud_connect_tools;
 mod cloud_repo_tools;
 mod code_mode;
 mod config;
@@ -1202,6 +1203,9 @@ impl<B: Backend> Server<B> {
             return Ok(result);
         }
         if let Some(result) = customize_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = cloud_connect_tools::call(name, &arguments) {
             return Ok(result);
         }
         if let Some(result) = device_tools::call(name, &arguments) {
