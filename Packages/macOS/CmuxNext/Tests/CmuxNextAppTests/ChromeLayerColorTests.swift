@@ -64,16 +64,45 @@ import Testing
         return (window, root)
     }
 
-    /// Where each region is sampled, in root coordinates: the sidebar list's leading inset halfway down (no row
-    /// fill or text reaches it), the footer band's leading inset, and the titlebar row over the main column.
+    /// Where each region is sampled, in root coordinates: the sidebar list's leading inset in its longest stretch no
+    /// row covers (``openSidebarY(_:)``), the footer band's leading inset, and the titlebar row over the main column.
     static func points(_ root: WindowRootView) -> [String: CGPoint] {
         let side = root.sidebar.frame
         let x = side.minX + 3
         return [
-            "sidebar": CGPoint(x: x, y: side.midY),
+            "sidebar": CGPoint(x: x, y: openSidebarY(root)),
             "footer": CGPoint(x: x, y: root.isFlipped ? side.maxY - 10 : side.minY + 10),
             "titlebar": CGPoint(x: root.contentHost.frame.midX, y: root.isFlipped ? root.bounds.minY + 1 : root.bounds.maxY - 1),
         ]
+    }
+
+    /// The middle of the sidebar's longest vertical stretch at its leading inset that no row covers, in root
+    /// coordinates: the list's own surface. A group header is a full-width bar in the group's colour, so a fixed
+    /// point is not the list's surface for long: from #44449 (every density Default scaled, Compact rows 20 to 27 pt)
+    /// the window's midpoint, the point this suite sampled first, fell on the cyan "Panes & layout" header and read
+    /// #116A6E (dark) and #A7E5E8 (light) where the list paints #1E1E1E and #FEFFFF.
+    static func openSidebarY(_ root: WindowRootView) -> CGFloat {
+        let side = root.sidebar.frame
+        let x = side.minX + 3
+        var covered: [ClosedRange<CGFloat>] = []
+        func walk(_ view: NSView) {
+            let name = String(describing: type(of: view))
+            if name.hasSuffix("RowView") || name.hasSuffix("HeaderView") {
+                let frame = view.convert(view.bounds, to: root)
+                if frame.minX <= x, frame.maxX >= x, frame.height > 0 { covered.append(frame.minY...frame.maxY); return }
+            }
+            view.subviews.forEach(walk)
+        }
+        walk(root.sidebar)
+        // The open stretches between the covered ones, inside the sidebar, past a row's own rounding.
+        var best = (length: CGFloat(-1), middle: side.midY)
+        var start = side.minY
+        for range in covered.sorted(by: { $0.lowerBound < $1.lowerBound }) + [side.maxY...side.maxY] {
+            let length = range.lowerBound - start
+            if length > best.length { best = (length, start + length / 2) }
+            start = max(start, range.upperBound)
+        }
+        return best.middle.rounded()
     }
 
     static func rgb(_ color: CGColor, opacity: Float) -> ThemeRGB? {
@@ -85,23 +114,27 @@ import Testing
     /// `layer` and its sublayers painted over `color` at `point` (layer coordinates): each background and
     /// shape fill that covers the point, in drawing order, at its opacity; `picture` (the backdrop's art layer)
     /// paints ``pictureStandIn``.
-    static func paint(_ layer: CALayer, at point: CGPoint, over color: inout ThemeRGB, opacity: Float = 1, picture: CALayer?) {
+    static func paint(_ layer: CALayer, at point: CGPoint, over color: inout ThemeRGB, opacity: Float = 1, picture: CALayer?,
+                      trace: ((CALayer, ThemeRGB) -> Void)? = nil) {
         let alpha = opacity * layer.opacity
         guard !layer.isHidden, alpha > 0.001 else { return }
         let inside = layer.bounds.contains(point)
         if inside, let background = layer.backgroundColor, let fill = rgb(background, opacity: alpha) {
             color = fill.composited(over: color)
+            trace?(layer, fill)
         }
         if inside, let picture, layer === picture, layer.contents != nil {
             color = pictureStandIn.withAlpha(Double(alpha)).composited(over: color)
+            trace?(layer, pictureStandIn.withAlpha(Double(alpha)))
         }
         if let shape = layer as? CAShapeLayer, let path = shape.path, let shapeFill = shape.fillColor,
            path.contains(point, using: shape.fillRule == .evenOdd ? .evenOdd : .winding), let fill = rgb(shapeFill, opacity: alpha) {
             color = fill.composited(over: color)
+            trace?(layer, fill)
         }
         if layer.masksToBounds, !inside { return }
         for sublayer in layer.sublayers ?? [] {
-            paint(sublayer, at: layer.convert(point, to: sublayer), over: &color, opacity: alpha, picture: picture)
+            paint(sublayer, at: layer.convert(point, to: sublayer), over: &color, opacity: alpha, picture: picture, trace: trace)
         }
     }
 
@@ -111,6 +144,28 @@ import Testing
         let art = root.backdropView.artView
         if let layer = root.layer { paint(layer, at: point, over: &color, picture: art.isHidden ? nil : art.layer) }
         return color
+    }
+
+    /// The layers that paint at `point`, in drawing order, each with its view (or layer name) and its fill: what a
+    /// failure names, so a changed colour points at the layer that changed it.
+    static func painters(at point: CGPoint, in root: WindowRootView) -> [String] {
+        var color = root.themeTokens.surfaceBackground.withAlpha(1)
+        var lines: [String] = []
+        let art = root.backdropView.artView
+        root.layer.map { top in
+            paint(top, at: point, over: &color, picture: art.isHidden ? nil : art.layer) { layer, fill in
+                var chain: [String] = []
+                var walk: CALayer? = layer
+                while let current = walk, current !== top, chain.count < 6 {
+                    if let owner = current.delegate.map({ String(describing: type(of: $0)) }) ?? current.name { chain.append(owner) }
+                    walk = current.superlayer
+                }
+                let frame = layer.convert(layer.bounds, to: top).integral
+                lines.append("\(chain.isEmpty ? String(describing: type(of: layer)) : chain.joined(separator: "<")) \(ChromeLayerHex.hex(fill.withAlpha(1))) "
+                             + "at \(Int((fill.alpha * 100).rounded())) % in \(frame)")
+            }
+        }
+        return lines
     }
 
     static func hex(_ color: ThemeRGB) -> String { ChromeLayerHex.hex(color) }
@@ -178,7 +233,15 @@ import Testing
                 if item.art != nil {
                     #expect(!root.backdropView.artView.isHidden, "\(item.name): the window never showed its picture")
                 }
-                return sample()
+                let row = sample()
+                if let recorded = try? Self.fileRows()[item.name], recorded != row {
+                    for region in Self.regions where recorded[region] != row[region] {
+                        print("ChromeLayerColorTests \(item.name) \(region) at \(spots[region]!) (sidebar \(root.sidebar.frame), window \(root.window?.frame ?? .zero), "
+                              + "screen \(root.window?.screen?.frame ?? .zero)): \(recorded[region] ?? "none") -> \(row[region] ?? "none"), painted by: "
+                              + Self.painters(at: spots[region]!, in: root).joined(separator: " | "))
+                    }
+                }
+                return row
             }
         }
     }

@@ -44,6 +44,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "cmd_workspaces::KnownTree": "ListWorkspacesKnown",
     "frontend_browser_history::FirstTabParams": "WorkspaceFirstTab",
     "crate::command_context::Intent": "TerminalCommandContextIntent",
+    "crate::remote_host::AppPermissions": "RemoteHostAppPermissions",
 }
 
 # Request fields the server takes as raw JSON and then decodes element by

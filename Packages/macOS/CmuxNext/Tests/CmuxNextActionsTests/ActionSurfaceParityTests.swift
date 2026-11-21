@@ -103,13 +103,13 @@ import Testing
     /// some of its catalog rows is counted where it is built (``countedAtItsBuilder``), with
     /// the rows that builder hides; its catalog list here is longer than any menu it shows.
     /// A row the registry leaves out of every menu is not counted either: a catalog row whose App
-    /// handler has not landed is bound unavailable and hidden (``TerminalToChatPlaceholders``,
+    /// handler has not landed is bound unavailable and hidden (``HandlerPlaceholders``,
     /// #44082), so it is never seen. The catalog's own test (cmux-action-catalog
     /// `swift_parity.rs`, `menus_keep_a_short_top_level`) counts every row the crate places, so
     /// the next pin cannot bring them back over the cap once their handlers land.
     @Test func everyMenuKeepsAShortTopLevel() {
         let registry = ActionRegistry.standard()
-        TerminalToChatPlaceholders.bind(into: registry)
+        HandlerPlaceholders.bind(into: registry)
         for context in ActionMenuContext.allCases {
             let entries = ContextMenuCatalog.shared.entries(for: context)
             let target = ActionInvocation(target: context.targetKind.map { ActionTargetRef(kind: $0, id: "t1") })

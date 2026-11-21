@@ -32,7 +32,7 @@ pub use roots::{
     RootSpec, default_roots, discover, discover_on,
 };
 pub use scan::{AdapterConfig, FileRead, RootScan, read_file, scan_root};
-pub use stamp::{Change, FileStamp, FileState, HeadPrint, Tally};
+pub use stamp::{Change, FileStamp, FileState, HeadPrint, KeptRead, Tally};
 /// A private state file (0600, written whole and renamed into place), as the index saves its own.
 pub use store_file::{write_json_private, write_private};
 pub use text::{title_line, without_client_context};

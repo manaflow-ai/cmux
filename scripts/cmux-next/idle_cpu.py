@@ -51,8 +51,10 @@ import fresh_home_launch_smoke as smoke  # noqa: E402  (scripts/ci: the first-in
 
 CONTROLLER = os.environ.get("CMUX_CI_CONTROLLER") or "http://100.89.225.106:18765"
 # The processes the verdict judges: the daemons that must rest. The app and its helpers are reported too.
-DAEMON_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|terminal-host)$")
-SAMPLE_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*)$")
+# optchat-chief is the Chief host, a daemon that runs while the app does (row 9 of perf-lead.md, 2026-11-21:
+# 3.49 wakeups/s at idle passed unjudged because no pattern named it).
+DAEMON_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|terminal-host|optchat-chief)$")
+SAMPLE_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|optchat-chief)$")
 
 
 def log(message: str) -> None:
@@ -485,8 +487,11 @@ def main(argv: list[str] | None = None) -> int:
     smoke.READY = lambda snap: smoke.visible_windows(snap) > 0
     state: dict = {}
     writer_dir = (out or Path(tempfile.mkdtemp(prefix="idle-cpu-"))) / "writers"
+    # A person's home has a login keychain: without one Chromium's Safe Storage dialog sits there (cmuxterm-hq#11994).
+    smoke.PREPARE_HOME = smoke.login_keychain
     if args.history > 0:
         def prepare(env):
+            smoke.login_keychain(env)
             result["history"] = seed_history(Path(env["HOME"]), args.history, args.history_prompt_kb)
             log(f"idle-cpu: home seeded: {json.dumps(result['history'])}")
             if args.writers > 0:

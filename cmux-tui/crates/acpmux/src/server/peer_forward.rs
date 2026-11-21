@@ -45,6 +45,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_HUNK_SUMMARY,
     method::MUX_RELOAD_CONFIG,
     method::MUX_WATCH,
+    super::controls::METHOD,
     method::MUX_HARNESS_INVENTORY_WATCH,
     method::MUX_HARNESS_INVENTORY_REFRESH,
     method::MUX_HARNESS_UPDATE_PLAN,
@@ -75,6 +76,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // A registration is for the caller's own session on this daemon (`hub/register.rs`): its
     // NAME is the name to take, never a peer session to forward to, and its token stays here.
     method::MUX_REGISTER,
+    // So is an inbox relay: it serves the Claude Code session it runs under, on this machine.
+    method::MUX_INBOX_RELAY,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
     method::MUX_SEND_QUEUE,
     method::MUX_SEND_STATUS,
@@ -113,6 +116,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // answered here while the peer is down too.
     "_acpmux/peer_snapshot",
     "_acpmux/peer_snapshots_clear",
+    // A launch credential is for this daemon's own session only (`agent_credentials.rs`).
+    crate::agent_credentials::UPDATE_METHOD,
     // The machine's own journal takes records only from its owner's link or its own socket
     // (`hub/journal_restore.rs`): never one this daemon passes on for a client, whose origin the
     // peer would read as this daemon's.
@@ -897,7 +902,13 @@ async fn forward_inner(
             }
             on = Some(epoch);
         }
-        let result = if matches!(m, method::MUX_INFO | method::MUX_EVENTS | method::MUX_HISTORY) {
+        let result = if matches!(
+            m,
+            method::MUX_INFO
+                | method::MUX_EVENTS
+                | method::MUX_HISTORY
+                | method::MUX_SESSION_SEARCH
+        ) {
             // History reads answer from the current snapshot, even during a running turn.
             // A connected link can still have a stuck handler; do not inherit its ten-minute
             // generic deadline. Dropping this future releases its pending reply entry. Attach
@@ -1205,6 +1216,8 @@ pub(super) fn strip_new_meta(p: &mut Value) {
         m.remove("promptFileText");
         // Only this daemon decides the VM boundary, never its caller.
         m.remove(crate::hub::vm_boundary::FIELD);
+        // A launch credential never leaves this daemon (`agent_credentials.rs`).
+        m.remove(crate::agent_credentials::FIELD);
     }
 }
 
