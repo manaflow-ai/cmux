@@ -484,12 +484,13 @@ impl Hub {
         params: Value,
         control: Control,
         person: bool,
+        device: Option<&str>,
     ) -> Result<Value, RpcError> {
         // The Web's asking rule, at the answer: a deny only narrows
         // (`Hub::web_answer_check`). A group allow carries no proof of the person's; an
         // approver's signature (below) is held to the Web's control rule like none.
         let narrows = params["decision"].as_str() == Some("deny");
-        self.web_answer_check(session, control, narrows, false)?;
+        self.web_answer_check(session, control, narrows, false, device)?;
         let text = |key: &str| -> Result<String, RpcError> {
             params[key]
                 .as_str()

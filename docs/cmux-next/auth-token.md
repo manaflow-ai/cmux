@@ -62,7 +62,8 @@ to stderr, or a JSON error with `--json`, and exits non-zero.
 | 1 | `managed` | Your organization limits cmux on this Mac to its managed team. Ask for that team only. |
 | 1 | `forbidden` | The API refused that team. Check that your account belongs to it. |
 | 1 | `client_too_old` | The team needs a newer cmux. Update it. |
-| 1 | `unavailable` | The cmux API didn't answer. Try again. |
+| 1 | `unavailable` | The cmux API didn't answer, or sent an answer cmux can't use (the message names which). Try again. |
+| 1 | `local_failure` | This Mac couldn't make the token, for example the Keychain refused the install key. The message names the cause, such as `keychain(-25244: …)`. |
 
 ## Who can get one
 

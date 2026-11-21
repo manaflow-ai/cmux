@@ -13,6 +13,7 @@ import { mergedView, titleKey } from "../src/pages/changelog/model";
 import { placeholderAreas, placeholderRows, sheetRows } from "../src/pages/changelog/SheetPage";
 import { parseSheetLayout } from "../src/pages/changelog/store";
 import { dayOfNightlies } from "../src/pages/changelog/whatsNewFixtures";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "location", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -31,11 +32,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const expected = [

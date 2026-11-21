@@ -9,6 +9,7 @@ import { JSDOM } from "jsdom";
 import { ProjectBadge } from "./ProjectBadge";
 import { GLYPHS } from "./projectGlyphs";
 import { setProjectIconHost } from "./projectIcon";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const ICON = "data:image/png;base64,iVBORw0KGgo=";
 
@@ -33,10 +34,11 @@ function installDom(): HTMLElement {
   return dom.window.document.getElementById("root")!;
 }
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
   setProjectIconHost(undefined);
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -141,6 +143,13 @@ test("no badge draws a corner dot, whatever its kind", async () => {
   const { readFileSync } = await import("node:fs");
   const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
   expect(css).not.toMatch(/\.acpmux-project-badge[^{,]*::(?:after|before)\s*\{/);
+});
+
+// Leo 2026-11-06: "This folder shouldn't have that circle. It's unnecessary. In the new tab page."
+test("the plain folder draws bare, with no tile behind it", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+  expect(css).toMatch(/\.acpmux-project-badge\[data-project-folder\]\{[^}]*background:none/);
 });
 
 test("a remote project never asks this Mac for an icon", async () => {

@@ -29,7 +29,7 @@ import Testing
         // One workspace record, its screen, its pane and its 3 tabs.
         #expect(indexed <= 6, "a one-workspace change indexed \(indexed) records in a \(sessionSize)-workspace session")
         #expect(store.workspaces.count == sessionSize)
-        #expect(store.workspaces[7].screens.first?.panes.first?.tabs.first?.title == "renamed 0")
+        #expect(store.workspaces[7].screens.first?.panes.first?.tabs.first?.titleText == "renamed 0")
         #expect(store.index.tabsBySurface.count == sessionSize * 3)
     }
 
@@ -48,9 +48,9 @@ import Testing
         // or the event was not the daemon's): the snapshot wins for that workspace.
         let surface = SurfaceID(rawValue: 3 * 100 + 10)
         _ = store.apply(.titleChanged(surface: surface, title: "from an event"))
-        #expect(store.index.tabsBySurface[surface]?.title == "from an event")
+        #expect(store.index.tabsBySurface[surface]?.titleText == "from an event")
         store.apply(snapshot: session(20))
-        #expect(store.index.tabsBySurface[surface]?.title == "t 0")
+        #expect(store.index.tabsBySurface[surface]?.titleText == "t 0")
     }
 
     @Test func aNewConnectionsFirstSnapshotAppliesInFull() {
@@ -67,7 +67,7 @@ import Testing
         store.apply(snapshot: session(20))
         let stale = SnapshotDiff(revision: store.snapshotMemo.revision &- 1, changed: [:], removed: [], order: [], sameOrder: true)
         store.apply(snapshot: session(20, changing: 5), diff: stale)
-        #expect(store.workspaces[5].screens.first?.panes.first?.tabs.first?.title == "renamed 0",
+        #expect(store.workspaces[5].screens.first?.panes.first?.tabs.first?.titleText == "renamed 0",
                 "a diff of another memo revision is not trusted")
     }
 
@@ -99,7 +99,7 @@ import Testing
         store.apply(snapshot: next, diff: diff)
         let walked = store.snapshotWorkspacesWalkedOnMain - before
         #expect(walked == 0, "main walked \(walked) workspace snapshots in a \(sessionSize)-workspace session")
-        #expect(store.workspaces[7].screens.first?.panes.first?.tabs.first?.title == "renamed 0")
+        #expect(store.workspaces[7].screens.first?.panes.first?.tabs.first?.titleText == "renamed 0")
         // The memo vouches for the tree it applied: the same snapshot again differs nowhere.
         let again = await store.snapshotDiff(of: next)
         #expect(again?.changed.isEmpty == true)
@@ -147,7 +147,7 @@ import Testing
         store.apply(snapshot: session(50))
         let indexed = store.index.indexedRecords - before
         #expect(indexed <= retitled.count, "the snapshot indexed \(indexed) records for 5 retitled tabs and 10 agents")
-        for surface in retitled { #expect(store.index.tabsBySurface[surface]?.title == "t 1") }
+        for surface in retitled { #expect(store.index.tabsBySurface[surface]?.titleText == "t 1") }
         #expect(store.index.tabsBySurface[SurfaceID(rawValue: 10)]?.agent?.state == .working, "agent state is not the snapshot's")
         #expect(store.index.tabsBySurface[SurfaceID(rawValue: 10)]?.presence != nil)
     }
@@ -165,7 +165,7 @@ import Testing
             let before = store.workspaceListWalkedOnMain
             store.apply(snapshot: next, diff: diff)
             #expect(store.workspaceListWalkedOnMain - before == 0, "round \(round) walked the list of \(sessionSize) workspaces")
-            #expect(store.workspaces[7 + round].screens.first?.panes.first?.tabs.first?.title == "renamed 0")
+            #expect(store.workspaces[7 + round].screens.first?.panes.first?.tabs.first?.titleText == "renamed 0")
             #expect(store.workspaces.count == sessionSize)
         }
     }

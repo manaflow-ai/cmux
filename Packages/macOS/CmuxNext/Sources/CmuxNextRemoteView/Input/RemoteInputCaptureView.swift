@@ -5,8 +5,8 @@ import CmuxNextCompat
 /// The pane's input surface, over the video. It takes keyboard focus on
 /// click; while it is first responder in control mode, keys, pointer,
 /// buttons and scroll go to the host. Coordinates are flipped like stream
-/// pixels. The local cursor stays the system arrow (control mode draws the
-/// native cursor locally, RD6).
+/// pixels. With the `cursor` cap the local pointer wears the remote shape
+/// (`RemoteCursorPresentation`); otherwise it stays the system arrow.
 final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     let controller = RemoteInputController()
     /// The current image placement, from the video view.
@@ -36,7 +36,7 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
         super.updateTrackingAreas()
         for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
         addTrackingArea(NSTrackingArea(
-            rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect, .cursorUpdate], owner: self))
+            rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect, .cursorUpdate], owner: self))
     }
 
     override func becomeFirstResponder() -> Bool {
@@ -77,7 +77,11 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     var forwardsMouseButtons: Bool { controlMode }
 
     private func updateActive() {
-        controller.isActive = controlMode && isFirstResponder && window?.isKeyWindow != false
+        let active = controlMode && isFirstResponder && window?.isKeyWindow != false
+        guard active != controller.isActive else { return }
+        controller.isActive = active
+        // Input now goes to the host, or stopped: the pane re-decides which cursor shows.
+        onPointerChange?()
     }
 
     /// Gives the keyboard back to the viewer.
@@ -114,8 +118,32 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
 
     // MARK: Pointer
 
-    override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
+    /// The pointer positions sent to the host (stream pixels), to tell its echo of our
+    /// pointer from the remote moving its cursor (`RemoteCursorPresentation`).
+    private(set) var echo = RemotePointerEcho()
+    /// Whether the local pointer is over the picture.
+    private(set) var pointerInImage = false
+    /// The pointer moved, entered or left: the pane re-decides which cursor shows.
+    var onPointerChange: (() -> Void)?
+    /// The cursor the local pointer wears over the picture (nil: the system arrow).
+    var localCursor: NSCursor? {
+        didSet {
+            guard localCursor !== oldValue else { return }
+            applyLocalCursor()
+        }
+    }
 
+    /// Sets the local cursor at once while the pointer is over the surface (cursorUpdate
+    /// fires only on entry, a remote shape change must not wait for it).
+    private func applyLocalCursor() {
+        guard pointerInImage, window?.isKeyWindow == true else { return }
+        (localCursor ?? .arrow).set()
+    }
+
+    override func cursorUpdate(with event: NSEvent) { (pointerInImage ? localCursor ?? .arrow : .arrow).set() }
+
+    override func mouseEntered(with event: NSEvent) { trackPointer(event) }
+    override func mouseExited(with event: NSEvent) { setPointerInImage(false) }
     override func mouseMoved(with event: NSEvent) { movePointer(event, clamped: false) }
     override func mouseDragged(with event: NSEvent) { movePointer(event, clamped: true) }
     override func rightMouseDragged(with event: NSEvent) { movePointer(event, clamped: true) }
@@ -130,14 +158,36 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
 
     override func scrollWheel(with event: NSEvent) { controller.scroll(event) }
 
+    private func trackPointer(_ event: NSEvent) {
+        guard let geometry = geometry() else { return setPointerInImage(false) }
+        setPointerInImage(geometry.imageRect.contains(convert(event.locationInWindow, from: nil)))
+    }
+
+    private func setPointerInImage(_ inside: Bool) {
+        let changed = inside != pointerInImage
+        pointerInImage = inside
+        if changed, inside { applyLocalCursor() }
+        if changed, !inside { NSCursor.arrow.set() }
+        onPointerChange?()
+    }
+
+    /// Sends the pointer and remembers it (only while input goes to the host).
+    private func sendPointer(_ pixel: (x: Int32, y: Int32)) {
+        guard controller.isActive else { return }
+        controller.pointer(pixel)
+        echo.record(CGPoint(x: Double(pixel.x), y: Double(pixel.y)), at: .now)
+    }
+
     private func movePointer(_ event: NSEvent, clamped: Bool) {
         guard let geometry = geometry() else { return }
         let point = convert(event.locationInWindow, from: nil)
+        let inside = geometry.imageRect.contains(point)
         if clamped {
-            controller.pointer(geometry.clampedStreamPixel(at: point))
+            sendPointer(geometry.clampedStreamPixel(at: point))
         } else if let pixel = geometry.streamPixel(at: point) {
-            controller.pointer(pixel)
+            sendPointer(pixel)
         }
+        setPointerInImage(inside)
     }
 
     private func press(_ event: NSEvent, down: Bool) {
@@ -148,9 +198,13 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
         if down {
             guard let pixel = geometry.streamPixel(at: point) else { return }
             controller.button(button, down: true, at: pixel)
+            if controller.isActive { echo.record(CGPoint(x: Double(pixel.x), y: Double(pixel.y)), at: .now) }
         } else {
-            controller.button(button, down: false, at: geometry.clampedStreamPixel(at: point))
+            let pixel = geometry.clampedStreamPixel(at: point)
+            controller.button(button, down: false, at: pixel)
+            if controller.isActive { echo.record(CGPoint(x: Double(pixel.x), y: Double(pixel.y)), at: .now) }
         }
+        onPointerChange?()
     }
 }
 

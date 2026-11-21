@@ -59,6 +59,10 @@ public struct OverlayOptions: Equatable, Sendable {
     /// A dialog that stays at its transparent first frame until ``OverlayHandle/beginEntrance()``: its
     /// content draws in the panel first (a web page paints its card), then fades in drawn.
     public var holdsEntrance = false
+    /// The content keeps its own `alphaValue` from the first frame (a card that waits clear until it
+    /// measured itself, then fades itself in). Off: it shows at full opacity, also when it is presented
+    /// again while its close was fading out.
+    public var keepsContentAlpha = false
 
     public var effectiveLayer: OverlayLayer { layer ?? (kind == .dialog ? .modal : .window) }
 
@@ -125,19 +129,6 @@ public final class OverlayHandle {
     public func update(anchor: NSRect) {
         options.anchor = anchor
         host?.layout(self)
-    }
-
-    /// Where the overlay takes clicks (window coordinates), when that is less than its frame: a
-    /// transparent page that draws small things over the window (the toast stack) takes clicks only
-    /// on them, and the window under the rest stays usable. Nil: its whole visible frame.
-    public private(set) var hitRegions: [NSRect]?
-
-    /// Sets ``hitRegions`` (nil: the whole frame again).
-    public func update(hitRegions regions: [NSRect]?) {
-        guard regions != hitRegions else { return }
-        hitRegions = regions
-        host?.cachedRegions = nil
-        host?.updateMouseRouting()
     }
 
     /// Moves the overlay and its blocked region (a tab dialog after a tab resize), and where it takes clicks.

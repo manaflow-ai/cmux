@@ -3,8 +3,8 @@ import Foundation
 
 /// The paired phones' own acpmux credentials (`_acpmux/pair_issue` role `phone`, the person
 /// only), as ``MobileHostApproverSync`` keeps them on its proven connection: hostd's channel for
-/// a phone presents its credential, so the phone's Full-access setting (Settings > Devices, off
-/// by default) can cover it.
+/// a phone presents its credential, so the phone's Full-access setting (Settings > Devices, on
+/// by default for a phone) can cover it.
 ///
 /// - Only ``phones`` get one: the paired phones the account lists, so a phone with no row in
 ///   Settings > Devices never holds Full access. Until the account's list is read, none does,

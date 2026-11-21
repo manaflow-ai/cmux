@@ -122,12 +122,16 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
 }
 
 extension SidebarNoticeCard {
+    /// The restoring card's Details: opens what the footer's health line opens (app health's popover).
+    public static let detailsAction = "details"
+
     /// This Mac's sessions restoring while the app waits for them (Leo, 2026-11-08: a 30-minute restore said only that
     /// the background service isn't connected): `title` ("Restoring sessions… 4m 12s") as a quiet status card, the
     /// update status's look (text at the card's padding, the bar's sweep), with no button and no x. The App shows it
-    /// until the sessions connect.
-    public static func restoring(_ title: String) -> SidebarNoticeCard {
-        var notice = SidebarNoticeCard(id: "restoring", title: title, progress: .indeterminate)
+    /// until the sessions connect. `withDetails` adds a quiet Details (``detailsAction``) that opens app health's popover.
+    public static func restoring(_ title: String, withDetails: Bool = false) -> SidebarNoticeCard {
+        var notice = SidebarNoticeCard(id: "restoring", title: title, progress: .indeterminate,
+                                       actions: withDetails ? [Action(id: detailsAction, title: Strings.restoringDetails)] : [])
         notice.leadingSpinner = false
         return notice
     }

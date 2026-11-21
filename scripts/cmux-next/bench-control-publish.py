@@ -54,6 +54,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_cli_storm import Client  # noqa: E402
 from bench_idle import wait_for_socket  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 
 def daemon_socket(tag, limit_s=30):
@@ -206,16 +207,16 @@ def main():
         try:
             report["teardown"] = end_terminals(os.path.join(bundle, "Contents/Resources/bin/cmux-tui"), tag)
         except Exception as error:  # noqa: BLE001 - teardown is best effort; report it
-            print(f"bench-control-publish: daemon teardown: {error}", file=sys.stderr)
+            safe_print(f"bench-control-publish: daemon teardown: {error}", file=sys.stderr)
     report["failures"] = failures
     os.makedirs(args.out, exist_ok=True)
     out = os.path.join(args.out, f"control-publish-{tag}-{args.label}.json")
     with open(out, "w") as handle:
         json.dump(report, handle, indent=2)
-    print(json.dumps({k: report.get(k) for k in ("tabs", "seed_s", "publish_ms", "rename_to_snapshot_ms", "hangs")}, indent=2))
-    print(f"bench-control-publish: wrote {out}")
+    safe_print(json.dumps({k: report.get(k) for k in ("tabs", "seed_s", "publish_ms", "rename_to_snapshot_ms", "hangs")}, indent=2))
+    safe_print(f"bench-control-publish: wrote {out}")
     for failure in failures:
-        print(f"FAIL {failure}")
+        safe_print(f"FAIL {failure}")
     if failures and not args.no_fail:
         sys.exit(1)
 

@@ -43,7 +43,42 @@ impl Mux {
         effects: StateEffects,
         apply: impl FnOnce(&Transaction<'_>, &State) -> anyhow::Result<StateChanges>,
     ) -> anyhow::Result<StateCommit> {
+        self.commit_state_refreshing(
+            mutation,
+            operation,
+            fingerprint,
+            expected_revision,
+            effects.tree,
+            apply,
+            |registry| {
+                if effects.presentation {
+                    self.reload_presentation(registry)?;
+                }
+                Ok(())
+            },
+        )
+    }
+
+    /// [`Self::commit_state`] for a mutation that knows which rows of the
+    /// presentation cache it changed. `refresh` runs once after a commit that
+    /// was applied (not a replay, not unchanged), under the same hold of the
+    /// registry lock, so no other commit comes between the commit and the
+    /// cache. It brings the cache up to date by its own rows instead of
+    /// reading the whole presentation again; `tree` emits `tree-changed`.
+    #[allow(clippy::too_many_arguments)]
+    #[track_caller]
+    pub(crate) fn commit_state_refreshing(
+        &self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+        tree: bool,
+        apply: impl FnOnce(&Transaction<'_>, &State) -> anyhow::Result<StateChanges>,
+        refresh: impl FnOnce(&crate::workspace_registry::WorkspaceRegistry) -> anyhow::Result<()>,
+    ) -> anyhow::Result<StateCommit> {
         let mut registry = self.workspace_registry.lock().unwrap();
+        let unchanged = std::cell::Cell::new(false);
         let commit = {
             // The session lock covers only `apply`, which reads the session
             // to resolve its targets; the registry transaction's own writes,
@@ -53,6 +88,7 @@ impl Mux {
             // no session state but the revision below, and the registry lock
             // keeps every other registry -> state writer out meanwhile.
             let state = self.lock_state_pinned(&registry).unwrap();
+            let unchanged = &unchanged;
             let commit = registry.commit_state_mutation(
                 mutation,
                 operation,
@@ -61,10 +97,16 @@ impl Mux {
                 move |transaction| {
                     let changes = apply(transaction, &state);
                     drop(state);
+                    unchanged.set(changes.as_ref().is_ok_and(|changes| changes.unchanged));
                     self.run_state_commit_after_apply_hook();
                     changes
                 },
             )?;
+            if unchanged.get() {
+                // Nothing was committed (`StateChanges::unchanged`): no
+                // revision moved, so there is no event and no reload.
+                return Ok(commit);
+            }
             if !commit.replayed {
                 self.state
                     .lock()
@@ -73,8 +115,8 @@ impl Mux {
             }
             commit
         };
-        if !commit.replayed && effects.presentation {
-            self.reload_presentation(&registry)?;
+        if !commit.replayed {
+            refresh(&registry)?;
         }
         drop(registry);
         if !commit.replayed {
@@ -82,7 +124,7 @@ impl Mux {
             if let Some(personal_revision) = commit.personal_revision {
                 self.emit(MuxEvent::PersonalChanged { personal_revision });
             }
-            if effects.tree {
+            if tree {
                 self.emit(MuxEvent::TreeChanged);
             }
         }

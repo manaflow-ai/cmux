@@ -15,6 +15,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_env = importlib.util.spec_from_file_location(
+    "git_fixture_env",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
+)
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
+
 HERE = Path(__file__).resolve().parent
 SPEC = importlib.util.spec_from_file_location("prepush_gate", HERE.parent / "prepush-gate.py")
 assert SPEC and SPEC.loader

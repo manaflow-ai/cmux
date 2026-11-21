@@ -60,6 +60,21 @@ the person can read it. Without `--wait` it answers once the prompt is sent.
 
 `cmux cloud start-chat --help` has every flag.
 
+### A test, proof or lane makes a machine: name it `cmux-test-<run>`, kill it after
+
+A machine a test, proof, journey or agent lane makes counts against the person's team cap
+like any other (20, paused ones count). Leo's own team filled with leftover `chat-…` and
+`lease-…` machines, and his NIGHTLY could not make one (2026-11-09). So:
+
+- Name it `cmux-test-<run>` (lowercase letters, digits, `.`, `_`, `-`): `cmux cloud
+  start-chat --name cmux-test-<run> ...` or `cmux machine new --name cmux-test-<run>`.
+  Never let a test start-chat pick its own `chat-…` name: that name is the person's.
+- Kill it in a cleanup that always runs: a shell `trap 'cmux cloud kill-machine --target machine:$ID --confirm --json' EXIT`,
+  a `finally`, or an `if: always()` step in a workflow.
+- The platform deletes a `cmux-test-…` machine (and a journey's `cloud journey auto jr-…`
+  or a chat proof's `ccp-<run>`) 6 hours after its create, and the cap message names
+  these as test leftovers. A machine with any other name is never touched.
+
 ## Start with discovery
 
 ```sh
@@ -77,7 +92,7 @@ and listing actions their facts. They need the app, sign-in and its private tunn
 ## Machine lifecycle from the Mac
 
 ```sh
-cmux cloud list-machines --json                           # machines (machine_id, target, status, owner)
+cmux vm ls --json                           # machines (machine_id, target, status, owner)
 cmux machine new                                          # prints its target and next steps (--json: machine_id, or pending)
 cmux cloud new-workspace --json                           # a new cloud workspace on a new small machine of its own (machine_id, target; or pending)
 cmux cloud new-terminal-on-machine --target machine:vm-…  # a new workspace with a terminal there
@@ -93,7 +108,7 @@ From the CLI or MCP, every machine action needs `--target machine:vm-…`; witho
 the app refuses the run (only a person's own click acts on the machine in front of
 them). The full set is in [the command reference](references/commands.md).
 
-Before creating a machine, check whether it already exists: `cmux cloud list-machines`
+Before creating a machine, check whether it already exists: `cmux vm ls`
 answers the app's own machine list (the sidebar's Cloud machines), each with the
 `target` the other verbs take and its `status` (`paused` for a paused machine). Act on
 it only when it says `loaded: true`: `loaded: false` means the list is not known yet.
@@ -138,7 +153,7 @@ image) and browser authentication. The machine's `cmux --help` is authoritative.
 The Swift `cmux vm …` family is gone; today's `cmux machine` (old name `cmux vm`) is
 the API client in [headless.md](references/headless.md). The old verbs' replacements are app actions:
 `cmux cloud exec --command …` (returns the exit code and output), `cmux cloud ssh`
-(opens a terminal), `cmux cloud file-write`, `cmux cloud file-read|files-list|prepare-scp`
+(opens a terminal), `cmux cloud file-write`, `cmux vm file-read|files-list|prepare-scp`
 (these return their result to the CLI),
 `cmux cloud pause-machine|resume-machine`, `cmux cloud list-machines` (for `vm ls`),
 and `cmux cloud domain-list` (listing only). These have no CLI path:

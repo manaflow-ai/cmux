@@ -122,6 +122,12 @@ impl Unstarted {
         turn_id.and_then(Value::as_str).is_some_and(|t| self.by_turn.contains_key(t))
     }
 
+    /// Whether no turn is open and no prompt left the queue for a turn that has not started: a
+    /// later record depends on nothing this read (`restore_point.rs`).
+    pub(super) fn settled(&self) -> bool {
+        !self.open && self.prompts().next().is_none()
+    }
+
     /// The prompt ids of the prompts that left the queue for a turn that has not started.
     pub(super) fn prompts(&self) -> impl Iterator<Item = &str> {
         self.lost.iter().flatten().map(|q| q.prompt_id.as_str())

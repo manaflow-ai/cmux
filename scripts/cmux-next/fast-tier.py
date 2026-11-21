@@ -172,14 +172,38 @@ def line(status, entry, seconds, extra=""):
 
 def run_build(root, argv, cwd, what, log_lock):
     """One build, its output streamed line by line under a `[what]` prefix so a
-    build running beside another stays readable. Returns (returncode, seconds)."""
+    build running beside another stays readable. Returns (returncode, seconds, the
+    lines naming a lock cargo refused to update under --locked)."""
     started = time.monotonic()
+    # A cargo build runs inside fixit-compile (ci-oops 0a): when every error has a machine-applicable fix it writes
+    # the fixup patch for fixit-compile-push and still exits with cargo's status.
+    if argv[0] == "cargo" and FIXIT_COMPILE.is_file():
+        argv = [sys.executable, "-I", str(FIXIT_COMPILE), "run", "--kind", "cargo", "--root", str(root), "--", *argv]
     proc = subprocess.Popen(argv, cwd=root / cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, errors="replace")
+    # cargo's stale-lock refusal, kept for cargo-locks.py explain: the only lines a failed build's cause needs.
+    refusals = []
     for output_line in proc.stdout:
         with log_lock:
             print(f"[{what}] {output_line.rstrip()}", flush=True)
-    return proc.wait(), time.monotonic() - started
+        if STALE_LOCK_HINT in output_line:
+            refusals.append(output_line)
+    return proc.wait(), time.monotonic() - started, refusals
+
+
+FIXIT_COMPILE = Path(__file__).resolve().parent.parent / "ci" / "oops" / "fixit_compile.py"
+
+# The words every spelling of cargo's stale-lock refusal ends with (scripts/cmux-next/cargo-locks.py knows them all).
+STALE_LOCK_HINT = "--locked was passed"
+
+
+def stale_lock_explained(root, refusals):
+    """True when REFUSALS hold cargo's stale-lock refusal: cargo-locks.py explain has then printed its cause and fix."""
+    if not refusals:
+        return False
+    explain = [sys.executable, str(Path(__file__).resolve().parent / "cargo-locks.py"), "explain", "-",
+               "--repo", str(Path(root).resolve())]
+    return subprocess.run(explain, input="".join(refusals), text=True).returncode == 0
 
 
 def build_packages(root, entries, dry_run, timing):
@@ -217,8 +241,8 @@ def build_packages(root, entries, dry_run, timing):
         for argv, cwd, what in group:
             with log_lock:
                 print("BUILD " + describe(argv, cwd), flush=True)
-            returncode, seconds = run_build(root, argv, cwd, what, log_lock)
-            results[what] = (returncode, seconds)
+            returncode, seconds, refusals = run_build(root, argv, cwd, what, log_lock)
+            results[what] = (returncode, seconds, refusals)
             if returncode != 0:
                 return
 
@@ -232,11 +256,15 @@ def build_packages(root, entries, dry_run, timing):
     for argv, cwd, what in builds:
         if what not in results:
             continue
-        returncode, seconds = results[what]
+        returncode, seconds, refusals = results[what]
         status = "pass" if returncode == 0 else "fail"
         timing.append({"name": what, "command": describe(argv, cwd), "seconds": round(seconds, 3), "status": status})
         if returncode != 0:
-            print(f"FAST-TIER FAIL build:{what}: the tests do not build", flush=True)
+            if stale_lock_explained(root, refusals):
+                print(f"FAST-TIER FAIL build:{what}: a stale Cargo.lock (cargo --locked refused it; the fix is above)",
+                      flush=True)
+            else:
+                print(f"FAST-TIER FAIL build:{what}: the tests do not build", flush=True)
             ok = False
     return ok
 

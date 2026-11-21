@@ -35,7 +35,7 @@ struct HoverCardUsageReadTests {
 
     /// Each JSON request the watch sends when it connects.
     static func requests() -> [[String: Any]] {
-        String(decoding: AgentTurnStateFeed.watchRequest, as: UTF8.self).split(separator: "\n").compactMap {
+        String(decoding: AgentTurnStateFeed.watchRequest(AgentListFollow().watchParams), as: UTF8.self).split(separator: "\n").compactMap {
             try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any]
         }
     }

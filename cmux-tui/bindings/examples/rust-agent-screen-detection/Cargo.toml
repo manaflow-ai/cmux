@@ -23,3 +23,16 @@ toml = "0.8"
 # unreleased SDK in this source tree; a standalone checkout must keep a matching
 # SDK checkout at this path or remove `path` after the SDK release.
 [workspace]
+
+# The cmux-next app and the npm packages ship this binary, so it is built for
+# size the way cmux-tui's release profile is: fat LTO, one codegen unit.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+# panic=abort drops the landing pads and unwind cleanup code (CMUX-570, cut 3 of
+# cmuxterm-hq docs/perf/bundle-size.md). Nothing here catches a panic (no
+# catch_unwind, panic hook or joined-thread result). A panic on a wake-stream thread
+# used to end that thread alone and leave the detector without its wakes; now it ends
+# the process, and the daemon's plugin supervisor starts it again after its backoff
+# (journal_plugin.rs), as after any exit.
+panic = "abort"

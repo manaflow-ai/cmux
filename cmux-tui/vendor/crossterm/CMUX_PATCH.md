@@ -69,3 +69,15 @@ dropped whole. The client's startup input reader (`ui/graphics.rs`)
 uses the same scanner and event length. Regression tests: `cmux-tui/crates/cmux-tui/tests/tui_host_color_replies.rs`
 and `crossterm_host_replies.rs` (the quiet time with a given clock). Remove this part when upstream Crossterm
 parses OSC replies.
+
+## A waker for a blocked poll
+
+Upstream exposes the event source's waker only to `EventStream`. A thread
+that reads with `poll` and `read` had to poll on a short timeout to notice
+that it should stop, so an idle client woke ten times a second. The cmux
+patch adds `poll_waker()` and `PollWaker::wake()` (feature `event-stream`): a
+blocked `poll` returns `Ok(false)`, as it does for `EventStream`'s own wake.
+cmux-tui's input reader polls without a short cap and its shutdown wakes it.
+Regression coverage: `the_input_reader_waits_without_a_timer_and_stops_on_wake`
+in `cmux-tui/crates/cmux-tui/src/app/tests/host_input.rs`. Remove this part
+when upstream Crossterm exposes a waker for `poll`.
