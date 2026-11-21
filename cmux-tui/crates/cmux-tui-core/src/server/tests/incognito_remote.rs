@@ -560,6 +560,22 @@ fn known_of(data: &Value) -> Value {
 }
 
 #[test]
+fn screen_device_identity_changes_keep_the_workspace_tree_cached() {
+    let mux = test_mux();
+    let app = app(&mux);
+    create(&mux, &app, "visible-space", false);
+    let first = listed_since(&mux, &app, json!({}));
+    let known = known_of(&first);
+    for device in [Some("screen-device".to_string()), None] {
+        mux.emit(MuxEvent::ScreenDeviceChanged(device));
+        let after = listed_since(&mux, &app, known.clone());
+        assert_eq!(after["unchanged"], true, "identity is not a workspace field: {after}");
+        assert_eq!(after["tree_revision"], known["tree_revision"]);
+    }
+    mux.shutdown();
+}
+
+#[test]
 fn a_remote_devices_known_never_moves_with_an_incognito_workspace() {
     // hq#8813: the daemon's tree revision counts every change, so a phone
     // that held it would see an incognito workspace's changes as a revision

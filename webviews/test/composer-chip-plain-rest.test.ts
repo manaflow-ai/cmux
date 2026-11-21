@@ -18,6 +18,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { focusByKey } from "./support/focusByKey";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -100,7 +101,7 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
     { entry: "agent-pane.composer", variant: "new-chat-reasoning" },
     { entry: "agent-pane.new-tab", variant: "reasoning-chip" },
   ];
-  const CHIPS = [".acpmux-model .acpmux-picker-button"];
+  const CHIPS = [MODEL_PICKER];
 
   for (const stage of STAGES)
     test(`${stage.entry} ${stage.variant}: the effort is the model button's label, not a chip of its own`, async () => {

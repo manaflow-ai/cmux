@@ -161,12 +161,17 @@ pub(crate) async fn serve_pipe<R, W>(
         let carrier = hub.hub_carrier.get().ok_or_else(|| {
             RpcError::new(
                 -32000,
-                "this machine's hub carrier is off (not joined, or no WireGuard key)",
+                "this machine's hub carrier is off (not joined, or the cmux link holds its node key)",
             )
             .with_data(json!({"reason": "carrier.off"}))
         })?;
+        // The far machine's refusal keeps its own reason (`consent_required`, ...): the CLI
+        // ends on one no redial cures and redials the rest (`machine.unreachable`).
         carrier.dial_service(&daemon, CircuitService::CmuxTui { port }).await.map_err(|e| {
-            RpcError::new(-32000, e).with_data(json!({"reason": "machine.unreachable"}))
+            let refusal = crate::machine_routes::refusal_of(&e);
+            let message =
+                refusal.get("error").and_then(serde_json::Value::as_str).unwrap_or(&e).to_owned();
+            RpcError::new(-32000, message).with_data(json!({"reason": refusal.get("reason")}))
         })
     }
     .await;
@@ -229,8 +234,16 @@ mod tests {
         assert!(config.set("remote_daemon", "example.com:7781").is_err());
         config.set("remoteDaemon", "none").unwrap();
         assert_eq!(config.remote_daemon, None);
+        // The hub carrier needs no transport: the transport's switch is refused without its
+        // static settings (`config/start_check.rs`), and set with them.
+        assert!(config.set("transport.wireguard", "true").is_err());
+        assert!(!config.transport.wireguard);
+        config.transport.wireguard_static = Some(crate::wireguard::StaticConfig {
+            listen: "127.0.0.1:0".parse().unwrap(),
+            address: "10.77.0.1:4100".parse().unwrap(),
+        });
         config.set("transport.wireguard", "true").unwrap();
-        assert!(config.transport.wireguard, "the hub carrier needs the transport's key lock");
+        assert!(config.transport.wireguard);
         assert!(config.set("transport.wireguard", "maybe").is_err());
     }
 }

@@ -459,6 +459,7 @@ class LinuxReleasePoint(unittest.TestCase):
         for d in (self.repo / "scripts/ci", self.repo / "scripts/cmux-next", self.r2, self.bin):
             d.mkdir(parents=True)
         shutil.copy(ROOT / "scripts/ci/cmux-machine-channel-point.sh", self.repo / "scripts/ci/")
+        shutil.copy(ROOT / "scripts/ci/timeout.sh", self.repo / "scripts/ci/")
         shutil.copy(ROOT / "scripts/cmux-next/web-ota-pointer.py", self.repo / "scripts/cmux-next/")
         republish.Sandbox._exe(self.repo / "scripts/ci/upload-r2-object.py", FAKE_CAS_UPLOADER)
         republish.Sandbox._exe(self.bin / "curl", republish.FAKE_CURL)
@@ -660,6 +661,124 @@ class MacLivePoint(LinuxReleasePoint):
         self.assertIsNone(self.served(self.RELEASE))
         self.assert_ok(self.point(self.payload(), run_id="2"))
         self.assertEqual(self.verified(self.POINTER)["purpose"], "cmux-mac-live-update")
+
+
+# Stands in for scripts/ci/cmux_tui_tree_key.py: FAKE_TREE_KEYS maps a commit to its v2 tree key; a
+# commit it lacks fails, as the real script does for a commit the checkout cannot read.
+FAKE_TREE_KEY = r'''#!/usr/bin/env python3
+import json, os, sys
+assert sys.argv[1:2] == ["--version"] and sys.argv[2] == "v2", sys.argv
+keys = json.loads(os.environ.get("FAKE_TREE_KEYS", "{}"))
+if sys.argv[3] not in keys:
+    sys.exit(1)
+print(keys[sys.argv[3]])
+'''
+
+TREE_T, TREE_U = "1" * 40, "2" * 40
+THIN, FAT, OTHER = "a1" * 32, "f1" * 32, "c1" * 32  # payload keys: a sha256 over the binaries
+
+
+class CloudMachinePoint(unittest.TestCase):
+    """point-machine-channel-early then point-machine-channel (cmux-tui-artifacts.yml) against a fake R2:
+    the Cloud machine channel moves once per source tree. Commit B builds tree T: the early job points
+    at its thin build, and the fat build of the same commit keeps it. Commit C adopts B's tree T (it
+    built nothing): the channel stays on B, the same code, where before it moved to C's fat bytes and
+    every machine updated to identical code. Commit D has tree U: the channel moves."""
+
+    B, C, D = "b" * 40, "c" * 40, "d" * 40
+    CHANNEL = "cmux-tui/channels/cloud-machine.json"
+
+    def setUp(self):
+        LinuxReleasePoint.setUp(self)
+        republish.Sandbox._exe(self.repo / "scripts/ci/cmux_tui_tree_key.py", FAKE_TREE_KEY)
+        self.trees = {self.B: TREE_T, self.C: TREE_T, self.D: TREE_U}
+
+    served = LinuxReleasePoint.served
+    verified = LinuxReleasePoint.verified
+    assert_ok = LinuxReleasePoint.assert_ok
+
+    def payload(self, commit, committed_at, key, expires_in=30 * 86400):
+        value = {"schema": 1, "purpose": "cmux-cloud-machine-update", "channel": "cloud-machine", "key": key,
+                 "commit": commit, "committed_at": committed_at, "published_at": committed_at + 60,
+                 "expires_at": int(time.time()) + expires_in,
+                 "targets": {t: {n: {"url": f"https://files.cmux.com/cmux-tui/{commit}/{n}-{t}", "sha256": key,
+                                     "size": 5} for n in channel.NAMES} for t in channel.TARGETS}}
+        path = self.tmp / f"payload-{len(list(self.tmp.iterdir()))}.json"
+        path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        return path
+
+    def point(self, payload, *extra, run_id="1"):
+        scratch = pathlib.Path(tempfile.mkdtemp(dir=self.tmp))
+        env = {"PATH": f"{self.bin}:{os.environ['PATH']}", "HOME": str(self.tmp), "FAKE_R2": str(self.r2),
+               "FAKE_UPLOAD_LOG": str(self.tmp / "uploads.log"), "SIGNING_KEY": self.pem,
+               "R2_ENDPOINT": "https://r2.invalid", "GITHUB_RUN_ID": run_id,
+               "FAKE_TREE_KEYS": json.dumps(self.trees)}
+        result = subprocess.run(["bash", "scripts/ci/cmux-machine-channel-point.sh", str(payload), str(scratch),
+                                 *extra], cwd=self.repo, env=env, text=True, capture_output=True)
+        self.assert_ok(result)
+        return result
+
+    def moves(self):
+        log = self.tmp / "uploads.log"
+        return log.read_text().split().count(self.CHANNEL) if log.exists() else 0
+
+    def published(self):
+        value = self.verified(self.CHANNEL, "cloud-machine", "cmux-cloud-machine-update")
+        return value["commit"], value["key"]
+
+    def early_then_fat(self):
+        self.point(self.payload(self.B, COMMITTED_AT, THIN))  # point-machine-channel-early
+        self.point(self.payload(self.B, COMMITTED_AT, FAT), "--same-tree", run_id="2")  # point-machine-channel
+
+    def test_thin_then_fat_of_the_same_commit_moves_the_channel_once(self):
+        self.early_then_fat()
+        self.assertEqual((self.moves(), self.published()), (1, (self.B, THIN)))
+
+    def test_the_fat_build_of_the_same_commit_is_kept_by_its_tree_not_its_commit_time(self):
+        # A commit has one tree key: the fat move keeps the thin channel even if the commit times
+        # were to differ (ordering by commit time alone kept it only because they are equal).
+        self.point(self.payload(self.B, COMMITTED_AT, THIN))
+        result = self.point(self.payload(self.B, COMMITTED_AT + 1, FAT), "--same-tree", run_id="2")
+        self.assertIn("has the same tree", result.stderr)
+        self.assertEqual((self.moves(), self.published()), (1, (self.B, THIN)))
+
+    def test_an_adopted_tree_with_the_same_tree_key_keeps_the_channel(self):
+        self.early_then_fat()
+        result = self.point(self.payload(self.C, COMMITTED_AT + 60, FAT), "--same-tree", run_id="3")
+        self.assertIn("has the same tree", result.stderr)
+        self.assertEqual((self.moves(), self.published()), (1, (self.B, THIN)))
+
+    def test_a_different_tree_key_moves_the_channel(self):
+        self.early_then_fat()
+        self.point(self.payload(self.C, COMMITTED_AT + 60, FAT), "--same-tree", run_id="3")
+        self.point(self.payload(self.D, COMMITTED_AT + 120, OTHER), "--same-tree", run_id="4")
+        self.assertEqual((self.moves(), self.published()), (2, (self.D, OTHER)))
+
+    def test_a_same_tree_file_close_to_expiry_is_re_signed(self):
+        self.point(self.payload(self.B, COMMITTED_AT, THIN, expires_in=86400))
+        self.point(self.payload(self.C, COMMITTED_AT + 60, FAT), "--same-tree", run_id="2")
+        self.assertEqual((self.moves(), self.published()), (2, (self.C, FAT)))
+
+    def test_an_unknown_tree_key_moves_by_commit_time_as_before(self):
+        self.point(self.payload(self.B, COMMITTED_AT, THIN))
+        del self.trees[self.B]  # the published commit cannot be read (and git fetch has no origin here)
+        result = self.point(self.payload(self.C, COMMITTED_AT + 60, FAT), "--same-tree", run_id="2")
+        self.assertIn("no tree key for the published", result.stdout)
+        self.assertEqual((self.moves(), self.published()), (2, (self.C, FAT)))
+
+    def test_without_same_tree_an_adopted_tree_moves_as_before(self):
+        self.point(self.payload(self.B, COMMITTED_AT, THIN))
+        self.point(self.payload(self.C, COMMITTED_AT + 60, FAT), run_id="2")
+        self.assertEqual((self.moves(), self.published()), (2, (self.C, FAT)))
+
+    def test_same_tree_is_only_for_the_cloud_machine_channel(self):
+        payload = LinuxReleasePoint.payload(self)
+        scratch = pathlib.Path(tempfile.mkdtemp(dir=self.tmp))
+        env = {"PATH": f"{self.bin}:{os.environ['PATH']}", "SIGNING_KEY": self.pem}
+        result = subprocess.run(["bash", "scripts/ci/cmux-machine-channel-point.sh", str(payload), str(scratch),
+                                 "--same-tree"], cwd=self.repo, env=env, text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--same-tree is for the Cloud machine channel", result.stdout)
 
 
 if __name__ == "__main__":

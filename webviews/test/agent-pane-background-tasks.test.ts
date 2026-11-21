@@ -19,6 +19,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -362,7 +363,7 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
           ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
         );
         // A new chat starts with Session Info closed (#37576): the person opens it.
-        const toggle = page.locator("button.acpmux-session-info-toggle");
+        const toggle = page.locator(SESSION_INFO_TOGGLE);
         await toggle.waitFor({ timeout: 5_000 });
         if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
         const section = page.locator('aside.acpmux-session-info section[data-section="tasks"]');

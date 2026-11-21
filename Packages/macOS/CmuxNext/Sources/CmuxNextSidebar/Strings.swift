@@ -16,7 +16,8 @@ enum Strings {
     static var newWorkspace: String { String(localized: "sidebar.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
     /// This Mac's machine header button: its tooltip and VoiceOver label.
     static var shareScreen: String { String(localized: "sidebar.machine.shareScreen", defaultValue: "Share screen", bundle: .module) }
-    /// A Cloud machine header's button: its tooltip and VoiceOver label.
+    static var sharingScreen: String { String(localized: "sidebar.machine.sharingScreen", defaultValue: "Sharing screen", bundle: .module) }
+    /// A Cloud machine or authenticated Mac header's button: its tooltip and VoiceOver label.
     static var viewScreen: String { String(localized: "sidebar.machine.viewScreen", defaultValue: "View screen", bundle: .module) }
     /// The chevron beside the sidebar's +: its VoiceOver label (it opens the workspace chooser).
     static var newWorkspaceOptions: String {
@@ -96,6 +97,14 @@ enum Strings {
     }
     static func unreadCount(_ value: Int) -> String { String(localized: "sidebar.a11y.unread", defaultValue: "\(value) unread", bundle: .module) }
     static func progressPercent(_ value: Int) -> String { String(localized: "sidebar.a11y.progress", defaultValue: "\(value)% done", bundle: .module) }
+    /// The agent chat's task list: steps done of all (the row's "3/7" in words, and the hover card's line).
+    static func taskProgress(done: Int, total: Int) -> String {
+        String(localized: "sidebar.tasks.progress", defaultValue: "\(done) of \(total) tasks done", bundle: .module)
+    }
+    /// The hover card's line for the step the agent works on.
+    static func taskNow(_ step: String) -> String { String(localized: "sidebar.tasks.now", defaultValue: "Now: \(step)", bundle: .module) }
+    /// The hover card's line for the step after it.
+    static func taskNext(_ step: String) -> String { String(localized: "sidebar.tasks.next", defaultValue: "Next: \(step)", bundle: .module) }
     /// The hover card's line for a workspace whose idle terminals were freed (`workspaces.freeing.*`).
     static func freedTerminals(_ value: Int) -> String { String(localized: "sidebar.hoverCard.freedTerminals", defaultValue: "Freed terminals: \(value). They start again when you open this workspace.", bundle: .module) }
     static func tabCount(_ value: Int) -> String { String(localized: "sidebar.a11y.tabCount", defaultValue: "Tabs: \(value)", bundle: .module) }
@@ -144,8 +153,8 @@ enum Strings {
     static var newProfile: String { String(localized: "sidebar.space.new", defaultValue: "New Space", bundle: .module) }
     static var profiles: String { String(localized: "sidebar.a11y.rooms", defaultValue: "Spaces", bundle: .module) }
     // The switcher's window marks (design/spaces.md "The switcher (PR 3)").
-    static var goToSpaceWindow: String { String(localized: "sidebar.space.goToWindow", defaultValue: "Go to Window", bundle: .module) }
-    static var moveSpaceHere: String { String(localized: "sidebar.space.moveHere", defaultValue: "Move Here", bundle: .module) }
+    static var goToSpaceWindow: String { String(localized: "sidebar.space.goToWindow", defaultValue: "Switch to That Window", bundle: .module) }
+    static var moveSpaceHere: String { String(localized: "sidebar.space.moveHere", defaultValue: "Move to This Window", bundle: .module) }
     static var newIncognitoSpace: String { String(localized: "sidebar.space.newIncognito", defaultValue: "New Incognito Space", bundle: .module) }
     static func spaceInAnotherWindow(_ name: String) -> String {
         String(localized: "sidebar.space.inAnotherWindow", defaultValue: "\(name), in another window", bundle: .module)

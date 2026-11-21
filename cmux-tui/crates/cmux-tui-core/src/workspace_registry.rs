@@ -108,6 +108,7 @@ mod identity_load;
 mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;
+pub(crate) use public_fold::volatile_fields;
 mod public_projection_store;
 mod receipt_env;
 pub(crate) mod registry_connection;
@@ -118,9 +119,7 @@ pub(crate) mod terminal_end_prefetch;
 pub(crate) mod wal_durability;
 pub(crate) use registry_connection::RegistryConnection;
 mod registry_intent;
-pub(crate) use registry_intent::{
-    OwnedTransactionWrite, RegistryIntent, RegistryIntentSink, RegistryReceipt, SettleState,
-};
+pub(crate) use registry_intent::{OwnedTransactionWrite, RegistryIntent, RegistryReceipt};
 mod terminal_commit_intent;
 pub(crate) use terminal_commit_intent::TerminalCommitIntent;
 mod workspace_commit_intent;
@@ -2463,6 +2462,9 @@ mod receipt_env_tests;
 
 #[cfg(test)]
 mod open_cost_tests;
+
+#[cfg(test)]
+mod open_invariants_tests;
 
 #[cfg(test)]
 mod temp_store_tests;

@@ -1407,6 +1407,173 @@ async fn hub_carrier_a_session_circuit_to_a_machine_with_no_session_gate_is_refu
     }
 }
 
+/// [`C::call`], answering the error instead of failing on one.
+async fn call_result(c: &mut C, m: &str, p: Value) -> Result<Value, Value> {
+    c.next += 1;
+    let id = c.next;
+    c.tx.send(Message::request(id, m, p).to_line()).await.unwrap();
+    loop {
+        let line = tokio::time::timeout(Duration::from_secs(30), c.rx.recv())
+            .await
+            .expect("timeout")
+            .expect("closed");
+        if let Message::Response { id: rid, result, error } = Message::parse(&line).unwrap()
+            && rid == id
+        {
+            return match error {
+                Some(error) => Err(serde_json::to_value(error).unwrap()),
+                None => Ok(result.unwrap_or(Value::Null)),
+            };
+        }
+    }
+}
+
+/// The boundary of cut 1: a machine the hub lists for this person (what signing in, a pair code
+/// or a join line makes) is offered to the app as a workspace target over the hub path, with a
+/// local unix route. New Workspace's first ask (the probe) is refused while the person there has
+/// not allowed it, which records that machine's one ask; a connection to the route then reaches
+/// nothing. After the one-click grant there, the probe passes and the route carries the app's
+/// bytes to that machine's own cmux-tui session socket and back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_signed_in_machine_is_a_workspace_target_after_its_one_click_grant() {
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+
+    // Machine B: its own cmux-tui session socket answers each line with "tui: LINE".
+    let dir = tempfile::tempdir().unwrap();
+    let tui = dir.path().join("tui.sock");
+    let listener = tokio::net::UnixListener::bind(&tui).unwrap();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let (read, mut write) = stream.into_split();
+                let mut lines = tokio::io::BufReader::new(read).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if write.write_all(format!("tui: {line}\n").as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    let (key_a, key_b) = (random_key(), random_key());
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let carrier_b = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route.clone(),
+            peers: vec![public(&key_a)],
+            asked: AtomicU64::new(0),
+        }),
+        key_b,
+        fast,
+    );
+    let gate = Arc::new(TestSessionGate {
+        consent: std::sync::Mutex::new(session_consent("none", false)),
+        socket: tui.clone(),
+        asks: Default::default(),
+    });
+    carrier_b.set_session_gate(gate.clone());
+    let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let _serving = carrier_b.serve(nothing);
+
+    // Machine A: the app's acpmux, its carrier, and the hub's book listing B for this person.
+    let a = hub();
+    let carrier_a = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route,
+            peers: vec![public(&key_b)],
+            asked: AtomicU64::new(0),
+        }),
+        key_a,
+        fast,
+    );
+    a.hub_carrier.set(carrier_a);
+    let b = public(&key_b);
+    a.set_mesh_book_machines(BTreeMap::from([(b.clone(), "machine-b".to_owned())]));
+    let mut app = client(a.clone()).await;
+
+    // Offered as a workspace target over the hub path, with a local route.
+    let routes = app.call(method::MUX_MACHINE_ROUTES, json!({})).await;
+    let machines = routes["machines"].as_array().unwrap();
+    assert_eq!(machines.len(), 1, "{routes}");
+    let target = &machines[0];
+    assert_eq!(target["host"], "machine-b");
+    assert_eq!(target["daemonId"], b.as_str());
+    assert_eq!(target["via"], "hub");
+    assert_eq!(target["route"], "unix", "{target}");
+    let socket = std::path::PathBuf::from(target["socket"].as_str().unwrap());
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&socket).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "the route is the user's own");
+    }
+
+    // New Workspace's first ask: refused with the reason, and B records its one ask, naming A.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    let refused = loop {
+        let refused =
+            call_result(&mut app, method::MUX_MACHINE_ROUTE_PROBE, json!({"daemonId": b}))
+                .await
+                .expect_err("no grant, no workspace");
+        if refused["data"]["reason"] == "consent_required" {
+            break refused;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "B never answered: {refused}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    assert!(refused["message"].as_str().unwrap().contains("allow workspaces"), "{refused}");
+    assert_eq!(*gate.asks.lock().unwrap(), vec![public(&key_a)]);
+    let routes = app.call(method::MUX_MACHINE_ROUTES, json!({})).await;
+    assert_eq!(routes["machines"][0]["state"], "refused");
+    assert_eq!(routes["machines"][0]["refusal"]["reason"], "consent_required");
+    // A connection to the route reaches nothing while refused: it is closed.
+    let mut stream = tokio::net::UnixStream::connect(&socket).await.unwrap();
+    let _ = stream.write_all(b"workspace.create\n").await;
+    let mut buf = [0u8; 16];
+    let read = tokio::time::timeout(Duration::from_secs(20), stream.read(&mut buf)).await.unwrap();
+    assert!(matches!(read, Ok(0) | Err(_)), "the refused route carried bytes");
+
+    // The one-click grant on B: the probe passes and the route reaches B's session socket.
+    *gate.consent.lock().unwrap() = session_consent("granted", true);
+    let ok = app.call(method::MUX_MACHINE_ROUTE_PROBE, json!({"daemonId": b})).await;
+    assert_eq!(ok["ok"], true);
+    let routes = app.call(method::MUX_MACHINE_ROUTES, json!({})).await;
+    assert_eq!(routes["machines"][0]["state"], "ready");
+    let mut stream = tokio::net::UnixStream::connect(&socket).await.unwrap();
+    stream.write_all(b"workspace.create\n").await.unwrap();
+    let mut answer = vec![0u8; "tui: workspace.create\n".len()];
+    tokio::time::timeout(Duration::from_secs(20), stream.read_exact(&mut answer))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(answer, b"tui: workspace.create\n");
+
+    // B leaves the book: its route goes, and a probe is refused by name.
+    a.set_mesh_book_machines(BTreeMap::new());
+    let routes = app.call(method::MUX_MACHINE_ROUTES, json!({})).await;
+    assert!(routes["machines"].as_array().unwrap().is_empty());
+    assert!(!socket.exists(), "the route's socket is removed");
+    let refused = call_result(&mut app, method::MUX_MACHINE_ROUTE_PROBE, json!({"daemonId": b}))
+        .await
+        .unwrap_err();
+    assert_eq!(refused["data"]["reason"], "machine.unlisted");
+}
+
 /// Frame `i` of a bulk transfer: its index in every byte, so a lost, repeated or reordered frame
 /// shows.
 fn bulk_frame(i: u64, len: usize) -> bytes::Bytes {
@@ -1580,4 +1747,157 @@ async fn hub_carrier_no_bulk_frame_is_lost_across_a_reconnect() {
     let daemon_client = within("the connect", fixture.accepted.recv()).await.unwrap();
     bulk_down(&client, &daemon_client, 1 << 20, false).await.unwrap();
     assert!(client.snapshot().await.generation > 1, "the transfer never crossed a reconnect");
+}
+
+/// A joined machine whose config.json has no `websocket` (a Mac's plain `acpmux daemon start`
+/// under launchd) still runs its hub carrier, bridged to the daemon's own loopback listener, and
+/// its start says so in the log. A Mac's daemon.log said "mesh relay: on" and nothing at all
+/// about the carrier, so nobody could tell whether it ran.
+#[test]
+fn hub_carrier_a_joined_daemon_with_no_websocket_config_runs_it_on_loopback_and_logs_it() {
+    use std::io::BufRead;
+    use std::time::Instant;
+    // Short: the socket path must stay under the macOS limit.
+    let dir = std::env::temp_dir().join(format!("amx-hc-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    // Joined with the machine credential, and no `websocket` key at all. The hub is a closed
+    // port: the carrier's ticket requests fail and it keeps retrying, as with the platform down.
+    let config = json!({"meshRelay": {"url": "http://127.0.0.1:9", "credential": "join"}});
+    std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
+    let mut child = daemon_env::command(&dir, daemon_env::Agents::Deny, &[])
+        .args(["daemon", "run", "--memory", "--log", "info"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", dir.join("s.sock"))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let stdout = child.stdout.take().unwrap();
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut seen = Vec::new();
+    let carrier = loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(left) {
+            Ok(line) if line.contains("hub carrier") => break Some(line),
+            Ok(line) => seen.push(line),
+            Err(_) => break None,
+        }
+    };
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+    let line = carrier.unwrap_or_else(|| {
+        panic!("the start logged nothing about the hub carrier:\n{}", seen.join("\n"))
+    });
+    assert!(line.contains("hub carrier: on"), "the carrier is off: {line}");
+    assert!(line.contains("127.0.0.1:"), "the carrier is not on the loopback listener: {line}");
+}
+
+/// How long A takes from adding peer `b` to its link being connected, with `url` as b's
+/// configured URL and the hub carrier's relay as the other path; the relay is fresh each run.
+async fn time_to_connected(url: &str) -> Duration {
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+    let home = tempfile::tempdir().unwrap();
+    let auth = PeerAuth::create(home.path()).unwrap();
+    let peer_token =
+        std::fs::read_to_string(acpmux::server::peer_auth::token_path(home.path())).unwrap();
+    let b = hub();
+    let l = bind_ws("127.0.0.1:0").await.unwrap();
+    let b_ws = l.local_addr().unwrap();
+    let ws_auth = WsAuth { local_app: None, peer: Some(Arc::new(auth)) };
+    tokio::spawn(serve_ws_with(b.clone(), l, "tok".into(), ws_auth));
+    let (key_a, key_b) = (random_key(), random_key());
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let tickets_b = Arc::new(FixedTickets {
+        relay: route.clone(),
+        peers: vec![public(&key_a)],
+        asked: AtomicU64::new(0),
+    });
+    let carrier_b = HubCarrier::new(tickets_b, key_b, fast);
+    let _serving = carrier_b.serve(b_ws);
+    // B's slot is registered before A dials, as for a machine that has been up a while.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let a = hub();
+    let tickets_a = Arc::new(FixedTickets {
+        relay: route.clone(),
+        peers: vec![public(&key_b)],
+        asked: AtomicU64::new(0),
+    });
+    let carrier_a = HubCarrier::new(tickets_a, key_a, fast);
+    carrier_a.set_route("b", &public(&key_b));
+    a.hub_carrier.set(carrier_a);
+    let started = tokio::time::Instant::now();
+    a.add_peer("b", url, Some("tok".into()), Some(peer_token), false).await.unwrap();
+    while state_of(&a).await != "connected" {
+        assert!(started.elapsed() < Duration::from_secs(30), "peer b never connected over {url}");
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    let took = started.elapsed();
+    let _ = a.remove_peer("b").await;
+    took
+}
+
+/// Relay first: a peer with a hub route dials the relay at once, beside its configured path,
+/// so a black-holed direct endpoint (TCP accepted, nothing answers: a punch that failed, a
+/// WireGuard endpoint behind a firewall that drops) costs no more first-byte time than the
+/// relay open itself. Before, the relay was dialed one stagger (250 ms) after the dead path.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_black_holed_direct_path_costs_no_more_than_the_relay_open() {
+    let _ = HERMETIC;
+    // Accepts nothing: a connect lands in the backlog and the WebSocket upgrade never answers.
+    let hole = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let holed = format!("ws://{}", hole.local_addr().unwrap());
+    // Refuses at once: the relay is the only path from the first moment.
+    let refused = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let refused = format!("ws://{refused}");
+    let mut relay_only = Vec::new();
+    let mut black_holed = Vec::new();
+    for _ in 0..3 {
+        relay_only.push(time_to_connected(&refused).await);
+        black_holed.push(time_to_connected(&holed).await);
+    }
+    relay_only.sort();
+    black_holed.sort();
+    let (relay_only, black_holed) = (relay_only[1], black_holed[1]);
+    eprintln!(
+        "relay first: median time to connected {} ms relay only (direct refused), {} ms with \
+         a black-holed direct path",
+        relay_only.as_millis(),
+        black_holed.as_millis()
+    );
+    // Before relay first the black hole added the 250 ms stagger; within noise of nothing now.
+    assert!(
+        black_holed < relay_only + Duration::from_millis(150),
+        "a black-holed direct path delayed the relay: {black_holed:?} vs {relay_only:?}"
+    );
+    drop(hole);
 }

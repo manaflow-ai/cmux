@@ -36,7 +36,7 @@ import Testing
         let url = home.appending(path: "cmux-next.json")
         let legacy = #"{ "remote": { "ultraMode": true } }"#
         try Data(legacy.utf8).write(to: url)
-        let settings = SettingsController(registry: .standard(), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         #expect(settings.snapshot.remote.ultra == .always)

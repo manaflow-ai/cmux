@@ -1,5 +1,10 @@
 # ios/ agent instructions
 
+> **Retired.** `ios/` is the classic cmux iPhone app and is no longer developed or installed. The
+> iPhone app is `cmux-next-ios/` ([cmux-next-iOS notes](../cmux-next-ios/CLAUDE.md)); its hand-off
+> is `cmux-next-ios/scripts/review.sh` ([finishing a task](../skills/cmux-dev-workflow/references/finishing-a-task.md)). Don't
+> change code here, build it, or install it on a phone. The text below is kept only as history.
+
 iOS app-target work in this directory follows `Packages/iOS/AGENTS.md`,
 including its Apple Human Interface Guidelines rule. Read it before changing
 UI.
@@ -13,12 +18,20 @@ Script paths are relative to the repository root. Team members: shared build fle
 
 ## Finishing a task
 
+This section is for the classic iPhone app in `ios/`. The cmux-next iPhone app (`cmux-next-ios/`)
+has its own hand-off command, new and still under end-to-end verification:
+[cmux-next-ios/AGENTS.md](../cmux-next-ios/AGENTS.md#hand-off-command-under-verification).
+
 Every agent report for an app change ends with a hand-off the person can review on their
 iPhone, with simulator evidence from the fleet, from one command run at the pushed head:
 
 ```bash
-ios/scripts/reload.sh --review --tag <task-slug> [--workspace <pr-url>]
+ios/scripts/reload.sh --review --tag <task-slug> [--workspace <pr-url>] [--wait <seconds>]
 ```
+
+Run it before a PR exists if you like: with no PR for the branch, the fleet builds go under the task
+workspace `ios-review/<task-slug>`. It refuses (exit 2) in a clone without cmux's git hooks; install them once
+per clone with `scripts/install-git-hooks.sh` (every worktree of the clone then runs them).
 
 It does, in order, and fails (non-zero) if any step fails:
 
@@ -37,8 +50,14 @@ It does, in order, and fails (non-zero) if any step fails:
    `scripts/verify-remote.sh ios --tag <tag> --sign-in agent --record-secs 15` installs the tag's
    fleet iOS build in a throwaway simulator on a fleet worker, signs in with the `agent` profile,
    records it, takes a screenshot, deletes the simulator, and returns the evidence directory.
-4. Prints a `Review ready` block with the Tag Opener link, the fleet simulator evidence and one
-   line per iPhone.
+4. Prints a `Review ready` block: each fleet job's real state (job id; queued with its place and why,
+   running, done or failed), the Tag Opener link, the fleet simulator evidence and one line per iPhone.
+
+It waits at most `--wait` seconds (default 1800) for the fleet jobs. Past that it prints the block with the
+resume command and exits 75; the jobs keep their place in the queue and the rerun waits on the same jobs (it
+never resubmits). It also exits 75 when `cmux-ci status` did not answer and a job left no terminal receipt:
+its state is unread, not failed. Exit 76 means another run is already waiting on the tag's jobs: nothing failed,
+resume after it exits. Report either as "waiting", with the job ids and the resume command, not as a failure.
 
 ### New phones
 
@@ -61,7 +80,7 @@ A phone is always connected. No connected phone, a locked phone, a queued instal
 gate is a blocker: report its `FAIL:` line and the retry command. Do not skip the phone, fall back
 to `--simulator-only` or pass `--no-sign-in`/`--no-attach`/`--no-setup`. Rerunning the same command
 resumes the saved fleet jobs without resubmitting. Copy the `Review ready` block into the report
-(format in the root [AGENTS.md](../AGENTS.md#finishing-a-task)).
+(format in [finishing a task](../skills/cmux-dev-workflow/references/finishing-a-task.md)).
 
 ## Keep cheap iOS-only regressions in `ios/tests/`
 

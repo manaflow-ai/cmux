@@ -24,6 +24,12 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
         /// A card just hid; a hover before `token` fires shows at once
         /// (quick reshow).
         case grace(token: Int)
+
+        /// A card just hid and the next hover shows at once (Chrome's `kShowWithoutDelayTimeBuffer`).
+        public var isGrace: Bool {
+            if case .grace = self { return true }
+            return false
+        }
     }
 
     public private(set) var phase: Phase = .idle {
@@ -64,8 +70,10 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
     /// instant card, so content passing under it flashes none.
     public var stillPointerDelay: Duration
 
+    // hover-timing: a pinned card's lifetime (Show Resource Usage), not a hover delay
     public init(reshowWindow: Duration = HoverCardTiming.reshowWindow, pinLifetime: Duration = .seconds(10),
                 leaveWindow: Duration = HoverIntentTiming.standard.cardGrace, aimWindow: Duration = HoverIntentTiming.standard.cardAim,
+                // hover-timing: only for a target with no delay that content moves under a still pointer
                 stillPointerDelay: Duration = .milliseconds(300)) {
         self.reshowWindow = reshowWindow
         self.pinLifetime = pinLifetime
@@ -169,8 +177,16 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
             guard activeTarget?.id == id else { return [] }
             return end() + resume()
         case .owned(let shown):
+            let wasShown = ownedCardShown
             ownedCardShown = shown
-            guard shown else { return [] }
+            guard shown else {
+                // The owner's card went: a hover this soon shows the next card at once, as after any
+                // card (Chrome's `kShowWithoutDelayTimeBuffer`, `reshowWindow`).
+                guard wasShown, phase == .idle, suppressions.isEmpty else { return [] }
+                let grace = takeToken()
+                phase = .grace(token: grace)
+                return [.schedule(token: grace, after: reshowWindow)]
+            }
             // The owner's card takes the window: no card of a target is pending or shown, and
             // nothing hides (the window morphs to the owner's content).
             quiet = false

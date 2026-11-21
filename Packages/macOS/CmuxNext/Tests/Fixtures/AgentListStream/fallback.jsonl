@@ -5,6 +5,6 @@
 {"feed":[0,90]}
 {"change":{"bytes":[],"kind":"fallback"}}
 {"send":"eyJpZCI6MSwianNvbnJwYyI6IjIuMCIsIm1ldGhvZCI6Il9hY3BtdXgvdjIiLCJwYXJhbXMiOnsicHJvdG9jb2wiOjIsInN1cmZhY2VzIjpbImxpc3QiXX19Cg=="}
-{"v1":{"reply":[90,851],"request":{"id":1,"jsonrpc":"2.0","method":"initialize","params":{"clientCapabilities":{},"clientInfo":{"name":"cmux-next-turn-states","version":"1"},"protocolVersion":1}}}}
-{"v1":{"reply":[851,17459],"request":{"id":2,"jsonrpc":"2.0","method":"_acpmux/watch","params":{"enabled":true}}}}
-{"v1":{"reply":[17459,34026],"request":{"id":3,"jsonrpc":"2.0","method":"_acpmux/sessions","params":{"usage":true}}}}
+{"v1":{"reply":[90,235],"request":{"id":1,"jsonrpc":"2.0","method":"initialize","params":{"clientCapabilities":{},"clientInfo":{"name":"cmux-next-turn-states","version":"1"},"protocolVersion":1}}}}
+{"v1":{"reply":[235,16843],"request":{"id":2,"jsonrpc":"2.0","method":"_acpmux/watch","params":{"enabled":true}}}}
+{"v1":{"reply":[16843,33410],"request":{"id":3,"jsonrpc":"2.0","method":"_acpmux/sessions","params":{"usage":true}}}}

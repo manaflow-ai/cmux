@@ -4,12 +4,13 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserImport
-import CmuxNextControl
+public import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextMacScreen
 import CmuxNextNotifications
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTabs
@@ -73,8 +74,7 @@ final class AppControl {
     }
 
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
-        let service = try ControlService.start(registry: registry, settings: settings, launch: launch, frameSource: frames, watchdog: watchdog,
-                                               sessionHandoff: .forNightly(launch: launch, productionAuth: services.cloud.configuration.isProductionAuth, session: services.cloud.auth.storedSession))
+        let service = try ControlService.start(registry: registry, settings: settings, launch: launch, frameSource: frames, watchdog: watchdog)
         self.service = service
         let budget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                           overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
@@ -140,7 +140,7 @@ final class AppControl {
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
-        service.router.register([services.chiefPetMini.debugMethod()])  // debug.chief_pet: the pet and its reply box for captures
+        service.router.register([services.chiefPetMini.debugMethod(), services.personInput.actAsMe.debugMethod(), services.healthFeeds.debugMethod()])  // debug.chief_pet, debug.act_as_me, debug.app_health_card: captures
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugRequestLatencyMethod()] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
         terminalDisplayProbe.terminals = { [weak services] in services?.cache.terminals.map { ($0.key, $0.value.session) } ?? [] }
         service.router.register([
@@ -166,6 +166,12 @@ final class AppControl {
             // Measured animation spans (plans/cmux-next/motion.md).
             .mainActor("debug.motion") { [weak services, probe = motionCommitProbe] call in
                 .value(DebugMotion.handle(call.params, services, commitProbe: probe))
+            },
+            // The newest keyboard focus changes with their route (caller and reason), kept while the focus log is off too:
+            // `cmux app call debug.focus_log '{"limit": 50}'` (plans/cmux-next/focus-loss-AUDIT.md).
+            .mainActor("debug.focus_log") { [weak services] call in
+                let entries = services?.focusLog.recent(limit: call.params["limit"]?.intValue ?? FocusLog.recentLimit) ?? []
+                return .value((try? JSONDecoder().decode(CmuxNextSettings.JSONValue.self, from: JSONEncoder().encode(["changes": entries]))) ?? .null) // main-actor-ok: at most FocusLog.recentLimit (200) entries, a debug call only.
             },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
@@ -207,9 +213,9 @@ final class AppControl {
                 return .value(DebugFocus.report(services: services))
             },
             // Home per window and the local conversation projection (home.md).
-            .mainActor("debug.home") { [weak services] _ in
+            .mainActor("debug.home") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugHome.report(services: services))
+                return .value(DebugHome.report(services: services, paths: call.params["paths"]?.boolValue == true))
             },
             // My pending and refused sends with the reason (no screenshot needed).
             .mainActor("debug.home.delivery") { [weak services] _ in
@@ -247,10 +253,10 @@ final class AppControl {
             // Repeating Core Animation loops and whether anyone can see them (hq#3716).
             .mainActor("debug.loops") { call in .value(CmuxNextSettings.JSONValue(foundation: DebugLoops.report(limit: call.params["limit"]?.intValue ?? 50)) ?? .null) },
             // The one hover card: machine phase, card window, timer, monitor.
-            // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).
+            // `{dismiss: true}` first dismisses the shown card as an app action would; `{press: "Show details"}` presses that button.
             .mainActor("debug.hover_cards") { [weak services] call in
                 guard let services else { return .value(.null) }
-                if call.params["dismiss"]?.boolValue == true { services.hoverCards.dismiss(.action) }
+                if let error = services.hoverCards.debugCommand(dismiss: call.params["dismiss"]?.boolValue == true, press: call.params["press"]?.stringValue) { return .value(["error": .string(error)]) }
                 // `gallery: sidebar|tabs|none` shows the card kinds over fixture data (HoverCardGallery).
                 return .value(.object((HoverCardGallery.show(call.params["gallery"]?.stringValue) ?? services.hoverCards.report).mapValues(JSONValue.string)))
             },
@@ -360,8 +366,13 @@ final class AppControl {
             .mainActor("debug.key") { [weak services, player = keySequencePlayer] call in
                 guard let services else { return .value(.null) }
                 if call.params["sequence"] != nil { return .value(DebugKey.sendSequence(call.params, services: services, player: player)) }
-                return .value(DebugKey.send(call.params, services: services))
+                return DebugKey.reply(call.params, services: services)
             }.injectingInput(),
+            // Types into (and adds) the open comment bubble of the browser tab in design mode
+            // (BrowserDesignModeController.debugDrive), for captures of the element picker.
+            .async("debug.design_mode") { [weak services] call in
+                await BrowserDesignModeController.debugDrive(call.params, services: services)
+            },
             // The app's resign and become-active path without activating it (DebugAppActivation).
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
@@ -386,6 +397,12 @@ final class AppControl {
             // One file-picker open, click to the frame that shows it (DebugOpenPanelBench).
             .async("debug.open_panel_bench") { [weak services] call in
                 await DebugOpenPanelBench.run(call.params, services)
+            }.withDeadline(.fixed(.seconds(30))),
+            // One icon picker (Set Icon) or group editor (the first group's Rename) open, warm, cold or after intent, to its drawn frame.
+            .async("debug.overlay_open_bench") { @MainActor [weak services] call in
+                guard let services else { return .null }
+                let open = { (kind: String) in kind == "icon_picker" ? services.registry.perform("workspace.setIcon") : services.windows.active?.sidebar.container.beginRenameFirstGroup() ?? false }
+                return await OverlayOpenBench(pages: ["icon_picker": services.iconPicker, "group_editor": services.groupEditor], open: open).run(call.params)
             }.withDeadline(.fixed(.seconds(30))),
             .mainActor("debug.omnibar_type") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -415,6 +432,11 @@ final class AppControl {
             },
             .mainActor("debug.page_popup") { _ in .value(DebugPagePopup.list()) },
             DebugWindowSnapshot.controlMethod(services: services),
+            .async("debug.glass_parity") { @MainActor [weak services, glassParity = GlassParityPlayground()] call in
+                guard let services else { return .null }
+                // Native and web glass side by side over one backdrop, diffed (CmuxNextPages GlassParity).
+                return await glassParity.handle(call.params) { await DebugWindowSnapshot.captureAsync($0, services: services) }
+            }.withDeadline(.fixed(.seconds(60))),
             .mainActor("debug.window.focus") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.focusWindow(call.params, services: services))
@@ -428,14 +450,9 @@ final class AppControl {
                 return .value(DebugLayers.dropHighlight(call.params, services: services))
             },
             .mainActor("debug.sidebar_filter") { [weak services] call in .value(services.map { DebugSidebarFilter.run(call.params, $0) } ?? .null) },
-            .mainActor("debug.sidebar_rows") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugSidebarRows.report(call.params, services: services))
-            },
-            .mainActor("debug.sidebar_wheel") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugSidebarWheel.post(call.params, services: services))
-            },
+            .mainActor("debug.sidebar_rows") { [weak services] call in .value(services.map { DebugSidebarRows.report(call.params, services: $0) } ?? .null) },
+            .mainActor("debug.sidebar_wheel") { [weak services] call in .value(services.map { DebugSidebarWheel.post(call.params, services: $0) } ?? .null) },
+            .mainActor("debug.text_field") { [weak services] call in .value(DebugFieldEditor.run(call.params, window: services?.windows.active?.window)) },
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.beginSidebarRename(call.params, services: services))
@@ -669,3 +686,9 @@ final class AppControl {
         service?.stop()
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+// `debug.overlay_open_bench` drives the two WebKit overlay pages through these (OverlayOpenBench).
+extension IconPickerService: OverlayBenchPage {}
+extension GroupEditorService: OverlayBenchPage {}
+#endif

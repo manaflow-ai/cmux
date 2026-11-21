@@ -531,6 +531,35 @@ async fn a_task_with_notify_tells_its_chat_once_when_it_ends() {
     assert_eq!(statuses, [&json!("ok"), &json!("failed")], "{list}");
 }
 
+/// A task its own agent stops brings no end to the chat: the stop's answer told that agent how it
+/// ended, and the notice only woke the chat to say it again (hq#15820: 45 of 115 such notices in
+/// 48 h started a turn with no tool call). A stop by the person still brings the end, once.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_task_its_own_agent_stops_tells_the_chat_nothing_more() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "self-stopped").await;
+    let mut agent = acpmux_caller(&r.hub, &id).await;
+    let start = |what: &str| json!({"sessionId": id, "command": "sleep 60", "description": what, "notify": true});
+    let own = agent.request(method::MUX_BG_START, start("own stop")).await.unwrap();
+    let own = own["id"].as_str().unwrap().to_owned();
+    let theirs = agent.request(method::MUX_BG_START, start("person's stop")).await.unwrap();
+    let theirs = theirs["id"].as_str().unwrap().to_owned();
+    let stopped = agent.request(method::MUX_BG_STOP, json!({"sessionId": id, "id": own})).await;
+    assert_eq!(stopped.unwrap()["state"], "stopped", "the stop's answer carries the end");
+    let stopped = r.c.request(method::MUX_BG_STOP, json!({"sessionId": id, "id": theirs})).await;
+    assert_eq!(stopped.unwrap()["state"], "stopped");
+    r.until("the person's stop never reached the chat", || ends(&r.hub, &id).len() == 1).await;
+    // Time for the own stop's end to come, which must not.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let ends = ends(&r.hub, &id);
+    assert_eq!(ends.len(), 1, "{ends:?}");
+    assert!(ends[0].contains("Background command stopped: person's stop"), "{ends:?}");
+    let dir = acpmux::config::home().join("bg").join(&id);
+    assert!(acpmux::bg_run::notified_path(&dir, &own).exists(), "a restart would owe it");
+}
+
 /// Waits up to 20 s for `done`.
 async fn until_true(what: &str, done: impl Fn() -> bool) {
     let deadline = std::time::Instant::now() + Duration::from_secs(20);

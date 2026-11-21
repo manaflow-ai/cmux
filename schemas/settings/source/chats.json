@@ -55,7 +55,7 @@
           },
           "help": {
             "key": "settings.chats.roots.help",
-            "text": "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders."
+            "text": "Folders agents may also use."
           },
           "summary": {
             "key": "settings.chats.roots.summary",
@@ -79,7 +79,7 @@
           },
           "help": {
             "key": "settings.chats.sessionRecap.help",
-            "text": "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage."
+            "text": "A line on where a Claude chat stands when you come back. Each is a small model call."
           },
           "kind": "toggle",
           "default": true,
@@ -102,7 +102,7 @@
           },
           "help": {
             "key": "settings.chats.coldArchive.help",
-            "text": "Chats you have not used for a while are compressed into one small file each. They stay in the list with a preview, and open as before."
+            "text": "Unused chats are compressed into one small file each and open as before."
           },
           "kind": "toggle",
           "default": false,
@@ -128,7 +128,7 @@
           },
           "help": {
             "key": "settings.chats.coldArchiveAfterDays.help",
-            "text": "How many days a chat goes unused before it is compressed. A chat with an agent running, a queued message or an open turn is never compressed."
+            "text": "Days unused before a chat is compressed. Busy chats never are."
           },
           "kind": "number",
           "range": {
@@ -159,7 +159,7 @@
           },
           "help": {
             "key": "settings.chats.on.help",
-            "text": "Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here."
+            "text": "Where cmux chat starts a chat with no --on: here, cloud, vm:NAME or a device name."
           },
           "kind": "text",
           "default": "",

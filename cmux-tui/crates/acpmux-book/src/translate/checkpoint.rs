@@ -1,6 +1,7 @@
 //! Opaque versioned state, independent of the log's record/checkpoint layout.
 use super::{Error, MAX_QUEUE_ENTRIES, MAX_TRANSLATOR_BYTES, QueueEntry, State, VERSION};
 use bincode::Options;
+use serde::Serialize;
 use std::io::Cursor;
 /// The translator's checkpoint: its serde segment, at most 32 KiB, and one fixed-width record
 /// per waiting prompt, which the book keeps in its own section (`Checkpoint::prompts`).
@@ -138,6 +139,13 @@ pub(super) mod kind {
         let name = String::deserialize(d)?;
         RowKind::parse(&name).ok_or_else(|| serde::de::Error::custom("row kind"))
     }
+}
+
+/// The bytes `value` takes in the translator's segment, encoded as the checkpoint encodes it.
+pub(super) fn encoded_len<T: Serialize>(value: &T) -> usize {
+    codec()
+        .serialized_size(value)
+        .map_or(usize::MAX, |bytes| usize::try_from(bytes).unwrap_or(usize::MAX))
 }
 
 fn codec() -> impl Options {

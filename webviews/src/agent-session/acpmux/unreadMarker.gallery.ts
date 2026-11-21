@@ -10,7 +10,9 @@ import type { Play } from "../../gallery/play";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { assistant, chat, row, summary, user } from "../../gallery/fixtures/acpmux";
 import { SINCE_DIVIDER } from "./model";
+import { jumpPairLook } from "./jumpPair.experiment";
 import { jumpUpButton } from "./jumpUp.experiment";
+import { JUMP_LATEST_SHOWN } from "./transcriptSelectors";
 
 const MARK = "gallery-unread:41";
 
@@ -72,7 +74,7 @@ const atLatest =
 const midChat: Play = async (ctx) => {
   await settle(ctx);
   await ctx.scroll({ selector: ".acpmux-scroll" }, 1_400);
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
+  await ctx.waitFor(() => ctx.document.querySelector(JUMP_LATEST_SHOWN));
 };
 
 const jumpedUp: Play = async (ctx) => {
@@ -145,7 +147,8 @@ export default agentPaneEntry({
       note: "After Jump up: the view is at the line and Jump to latest takes over; Esc goes back.",
       snapshot,
       play: jumpedUp,
-      experiments: { [jumpUpButton.id]: "on" },
+      // Jump up draws only in the pair looks; the default is Jump to latest alone (jumpPair.experiment.ts).
+      experiments: { [jumpUpButton.id]: "on", [jumpPairLook.id]: "frosted" },
     },
     "line-in-view": {
       note: "The banner pressed: the New line in the message rhythm (one control row, its recap under it), the banner gone.",
