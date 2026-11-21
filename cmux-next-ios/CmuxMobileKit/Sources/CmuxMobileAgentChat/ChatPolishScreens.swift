@@ -339,11 +339,21 @@ struct EventInspectorDetail: View {
 // MARK: - Replay Conversation (the Mac's webviews/src/replay)
 
 /// A chat's records played back into a read-only transcript, at the recorded pace with long
-/// pauses cut to 2 s: play and pause, speed, a scrubber with the tool calls marked, and
-/// Previous and Next tool call. Nothing is sent to the agent.
+/// pauses cut to 2 s: play and pause, speed (it starts at 10x), a scrubber with the tool calls
+/// marked, and Previous and Next tool call. Nothing is sent to the agent.
+///
+/// The files and commands the chat touched so far grow with the replay (Leo, 2026-11-19: "with
+/// the files and commands it touched"), and a row plays from its call. In a compact width a
+/// segmented control switches between the chat and that list (HIG, Segmented controls: closely
+/// related views of one thing); in a regular width the list sits beside the chat, as on the Mac.
 struct ReplayConversationScreen: View {
     let store: AgentChatStore
     @State private var player = ChatReplayPlayer()
+    @State private var panel = ReplayPanel.chat
+    @State private var controlsHeight: CGFloat = 0
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    enum ReplayPanel: Hashable { case chat, touches }
 
     var body: some View {
         Group {
@@ -362,8 +372,7 @@ struct ReplayConversationScreen: View {
                 ContentUnavailableView("Nothing to replay yet.", systemImage: "arrow.counterclockwise")
             case .ready:
                 if let replay = player.store {
-                    AgentChatTranscript(store: replay, surface: player.surface)
-                        .background(Color.cmuxMobileBackground)
+                    replayBody(replay)
                         .overlay(alignment: .bottom) {
                             ChatReplayControls(player: player)
                                 .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
@@ -371,6 +380,7 @@ struct ReplayConversationScreen: View {
                                     player.surface.stackMaxY = frame.maxY
                                     player.surface.drawnStackHeight = frame.height
                                     player.surface.stackHeightFrame?(frame.height)
+                                    controlsHeight = frame.height
                                 }
                         }
                 }
@@ -381,6 +391,148 @@ struct ReplayConversationScreen: View {
         .task { await player.load(store) }
         .onDisappear { player.pause() }
     }
+
+    /// The transcript, and the files and commands beside it (regular width) or a segment away
+    /// (compact width). A chat that touched nothing shows the transcript alone, as on the Mac.
+    @ViewBuilder
+    private func replayBody(_ replay: AgentChatStore) -> some View {
+        let transcript = AgentChatTranscript(store: replay, surface: player.surface)
+            .background(Color.cmuxMobileBackground)
+        if player.recording.touches.isEmpty {
+            transcript
+        } else if sizeClass == .regular {
+            HStack(spacing: 0) {
+                transcript
+                Divider()
+                ReplayTouchesList(player: player, bottomInset: controlsHeight + 8)
+                    .frame(width: 320)
+            }
+        } else {
+            VStack(spacing: 0) {
+                Picker("Show", selection: $panel) {
+                    Text("Chat").tag(ReplayPanel.chat)
+                    Text("Files and Commands").tag(ReplayPanel.touches)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .accessibilityIdentifier("chat.replay.panel")
+                // The transcript stays alive under the list, so switching back keeps its place.
+                transcript
+                    .overlay {
+                        if panel == .touches {
+                            ReplayTouchesList(player: player, bottomInset: controlsHeight + 8)
+                        }
+                    }
+            }
+            .background(Color.cmuxMobileBackground)
+        }
+    }
+}
+
+/// The files and commands a replayed chat touched by the playhead (the Mac's ReplayTouches.tsx):
+/// a file once, marked Edited once a call changed it, and every command in the order it ran,
+/// Failed marked. The lists grow as the replay plays; a row plays the replay from its call.
+struct ReplayTouchesList: View {
+    let player: ChatReplayPlayer
+    /// Room for the replay controls over the list's bottom.
+    var bottomInset: CGFloat
+
+    var body: some View {
+        let shown = player.recording.touches.prefix(player.touchesShown)
+        let files = AgentReplayRecording.touchedFiles(shown)
+        let commands = shown.filter { $0.kind == .command }
+        let latest = shown.last
+        ScrollViewReader { proxy in
+            List {
+                if shown.isEmpty {
+                    Text("No files or commands yet")
+                        .foregroundStyle(.secondary)
+                }
+                if !files.isEmpty {
+                    Section {
+                        ForEach(files, id: \.path) { file in
+                            row(
+                                text: AgentReplayRecording.shownPath(file.path, cwd: player.cwd),
+                                monospaced: false,
+                                badge: file.edited ? "Edited" : "Read",
+                                badgeStyle: file.edited ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary),
+                                current: latest?.kind == .file && latest?.text == file.path,
+                                time: file.last.time
+                            )
+                            .id(Self.fileID(file.path))
+                        }
+                    } header: {
+                        header("Files", count: files.count)
+                    }
+                }
+                if !commands.isEmpty {
+                    Section {
+                        ForEach(commands) { command in
+                            row(
+                                text: command.text,
+                                monospaced: true,
+                                badge: command.failed ? "Failed" : nil,
+                                badgeStyle: AnyShapeStyle(.red),
+                                current: command == latest,
+                                time: command.time
+                            )
+                            .id(Self.commandID(command.id))
+                        }
+                    } header: {
+                        header("Commands", count: commands.count)
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(Color.cmuxMobileBackground)
+            .contentMargins(.bottom, bottomInset, for: .scrollContent)
+            .accessibilityIdentifier("chat.replay.touches")
+            // The newest row stays in view as the lists grow.
+            .onChange(of: latest?.id) {
+                guard let latest else { return }
+                proxy.scrollTo(latest.kind == .file ? Self.fileID(latest.text) : Self.commandID(latest.id))
+            }
+        }
+    }
+
+    private static func fileID(_ path: String) -> String { "file:" + path }
+    private static func commandID(_ id: Int) -> String { "command:\(id)" }
+
+    private func header(_ title: LocalizedStringKey, count: Int) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+            Text("\(count)").monospacedDigit().foregroundStyle(.tertiary)
+        }
+    }
+
+    private func row(text: String, monospaced: Bool, badge: LocalizedStringKey?, badgeStyle: AnyShapeStyle,
+                     current: Bool, time: TimeInterval) -> some View {
+        Button {
+            player.seek(to: time)
+        } label: {
+            HStack(spacing: 8) {
+                Text(verbatim: text)
+                    .font(monospaced ? .callout.monospaced() : .body)
+                    .lineLimit(1)
+                    // A path keeps its file name in view; a command keeps its program.
+                    .truncationMode(monospaced ? .tail : .head)
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let badge {
+                    Text(badge)
+                        .font(.footnote)
+                        .foregroundStyle(badgeStyle)
+                }
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.cmuxPressFill)
+        .listRowBackground(current ? Color.accentColor.opacity(0.12) : nil)
+        .accessibilityAddTraits(current ? .isSelected : [])
+        .accessibilityHint(Text("Plays the replay from here"))
+    }
 }
 
 /// The replay's playhead and the store it plays into.
@@ -389,13 +541,13 @@ struct ReplayConversationScreen: View {
 final class ChatReplayPlayer {
     enum State: Equatable { case loading, failed(String), empty, ready }
 
-    static let speeds: [Double] = [0.5, 1, 2, 4, 8, 16]
+    static let speeds = AgentReplayRecording.speeds
 
     private(set) var state: State = .loading
     private(set) var recording = AgentReplayRecording(steps: [], truncated: false)
     private(set) var time: TimeInterval = 0
     private(set) var playing = false
-    var speed: Double = 1
+    var speed: Double = AgentReplayRecording.defaultSpeed
     /// Where the scrubber is while a finger drags it (nil: not dragging).
     var scrubTime: TimeInterval?
     /// A finger is on the scrubber.
@@ -437,6 +589,10 @@ final class ChatReplayPlayer {
     var duration: TimeInterval { recording.duration }
     /// The tool calls' times (the scrubber's ticks), each once.
     var toolCallTimes: [TimeInterval] { Array(Set(recording.steps.filter(\.isToolCall).map(\.time))).sorted() }
+    /// How many of the recording's touches have happened at the playhead (the Files and Commands rows).
+    var touchesShown: Int { recording.touchesThrough(played: recording.played(at: time)) }
+    /// The chat's folder: touched paths inside it read from there.
+    var cwd: String? { summary?.cwd }
 
     func play() {
         guard state == .ready else { return }
