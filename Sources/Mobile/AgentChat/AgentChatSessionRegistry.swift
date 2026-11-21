@@ -198,7 +198,7 @@ final class AgentChatSessionRegistry {
             return
         }
         guard let surfaceID = record.surfaceID else {
-            update(sessionID: sessionID) { $0.state = .ended }
+            endSession(sessionID: sessionID)
             return
         }
         let kind = record.agentKind
@@ -219,12 +219,20 @@ final class AgentChatSessionRegistry {
                 case .found(let livePID) where livePID > 0 && livePID != pid:
                     self.update(sessionID: sessionID) { $0.pid = livePID }
                 case .found, .notFound:
-                    self.update(sessionID: sessionID) { $0.state = .ended }
+                    self.endSession(sessionID: sessionID)
                 case .unavailable:
                     self.scheduleProcessExitRetry(sessionID: sessionID, pid: pid, attempt: retryAttempt + 1)
                     return
                 }
             }
+        }
+    }
+
+    /// Ends a session and drops task metadata that is no longer live.
+    private func endSession(sessionID: String) {
+        update(sessionID: sessionID) { record in
+            record.state = .ended
+            record.backgroundTasks = []
         }
     }
 
@@ -543,6 +551,7 @@ final class AgentChatSessionRegistry {
         }
         record.lastActivityAt = event.receivedAt
         Self.applyChildRunEvent(&record, event: event)
+        Self.applyBackgroundTasksEvent(&record, event: event)
 
         let previous = records[sessionID]
         record.setHookLifecycleState(Self.nextState(previous: record.state, event: event))
@@ -686,6 +695,7 @@ final class AgentChatSessionRegistry {
                 if let normalizedWorkspace { record.workspaceID = normalizedWorkspace }
                 if let normalizedCwd { record.workingDirectory = normalizedCwd }
                 record.pid = nil
+                record.backgroundTasks = []
                 record.setProcessObservedIdle()
                 record.lastActivityAt = now
             }
