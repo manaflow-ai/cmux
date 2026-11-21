@@ -356,9 +356,11 @@ export async function measureUnloadedTickJumps(
         const probe = window as unknown as { railJump: unknown };
         probe.railJump = null;
         const prompt = `Question ${index + 1}`;
-        document.querySelector<HTMLElement>(`[data-tick="${index}"]`)!.addEventListener(
-          "click",
-          () => {
+        // On the document, not the tick: the rail may draw the tick anew between this and the click.
+        const onClick = (event: MouseEvent) => {
+          if (!(event.target as Element | null)?.closest?.(`[data-tick="${index}"]`)) return;
+          document.removeEventListener("click", onClick, true);
+          {
             const start = performance.now();
             let firstPaint: number | undefined;
             let lastTop: number | undefined;
@@ -398,9 +400,9 @@ export async function measureUnloadedTickJumps(
               }
               return true;
             });
-          },
-          { capture: true, once: true },
-        );
+          }
+        };
+        document.addEventListener("click", onClick, true);
       }, index);
       await tick.click();
       await page.waitForFunction(() => (window as unknown as { railJump: unknown }).railJump, {}, { timeout: 15_000 });
@@ -738,7 +740,7 @@ async function main() {
         ".acpmux-minimap__list { --acpmux-minimap-first: 0 !important; --acpmux-minimap-rows: 1 !important; }",
       "no-entrance": ".acpmux-minimap__bar, .acpmux-minimap__dot { animation: none !important; }",
     };
-    for (const arm of (process.env.RAIL_BENCH_ARMS ?? "base").split(",")) {
+    for (const arm of (process.env.RAIL_BENCH_ARMS ?? "base").split(",").filter(Boolean)) {
       if (!(arm in arms)) throw new Error(`Unknown benchmark arm ${arm}`);
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
       page.on("pageerror", (error) => console.error(error));
@@ -875,7 +877,7 @@ async function main() {
       await page.close();
     }
     // The cold open of the same chat, paged, with the prompt index answering 150 ms after it asks.
-    {
+    if (process.env.RAIL_BENCH_FIRST_FRAME !== "0") {
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
       page.on("pageerror", (error) => console.error(error));
       await installPaintedFrames(page);
