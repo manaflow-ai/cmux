@@ -47,18 +47,20 @@ impl TokenFilter {
         self.held.extend_from_slice(chunk);
         let prefix = TOKEN_PREFIX.as_bytes();
         if let Some(at) = self.held.windows(prefix.len()).position(|w| w == prefix) {
-            let shown = self.held[..at].to_vec();
+            let shown = self.held.get(..at).unwrap_or_default().to_vec();
             let mut rest = self.held.split_off(at);
             self.held.clear();
             let mut token = Zeroizing::new(Vec::with_capacity(256));
             token.extend_from_slice(prefix);
             self.token = Some(token);
-            self.take_token(&rest[prefix.len()..]);
+            self.take_token(rest.get(prefix.len()..).unwrap_or_default());
             rest.zeroize();
             return shown;
         }
-        let keep =
-            (1..prefix.len()).rev().find(|&k| self.held.ends_with(&prefix[..k])).unwrap_or(0);
+        let keep = (1..prefix.len())
+            .rev()
+            .find(|&k| prefix.get(..k).is_some_and(|p| self.held.ends_with(p)))
+            .unwrap_or(0);
         let show = self.held.len() - keep;
         self.held.drain(..show).collect()
     }
@@ -169,7 +171,7 @@ pub(in crate::cli) fn run(
             if n <= 0 {
                 break;
             }
-            let shown = filter.push(&buf[..n as usize]);
+            let shown = filter.push(buf.get(..n as usize).unwrap_or_default());
             let _ = out.write_all(&shown);
             let _ = out.flush();
             if filter.done() {
@@ -258,7 +260,8 @@ fn forward_input(input: RawFd, master: RawFd, stop: &AtomicBool) {
         while written < n as usize {
             // SAFETY: writes from our own buffer to our own fd.
             let w = unsafe {
-                libc::write(master, buf[written..].as_ptr().cast(), n as usize - written)
+                let rest = buf.get(written..n as usize).unwrap_or_default();
+                libc::write(master, rest.as_ptr().cast(), rest.len())
             };
             if w <= 0 {
                 return;

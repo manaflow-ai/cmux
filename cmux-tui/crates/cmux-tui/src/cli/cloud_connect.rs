@@ -133,7 +133,7 @@ pub(super) enum Chatgpt {
 }
 
 pub(super) fn parse(verb: &str, args: &[String]) -> Result<Command, UsageError> {
-    if args.len() == 1 && matches!(args[0].as_str(), "--help" | "-h" | "help") {
+    if matches!(args, [only] if matches!(only.as_str(), "--help" | "-h" | "help")) {
         return Ok(Command::Help);
     }
     if verb == "connections" {
@@ -204,7 +204,7 @@ impl Flags {
         let mut out = Vec::new();
         let mut index = 0;
         while index < args.len() {
-            let Some(name) = args[index].strip_prefix("--") else {
+            let Some(name) = args.get(index).and_then(|arg| arg.strip_prefix("--")) else {
                 return Err(UsageError::new(USAGE));
             };
             if name == "no-wait" || name == "keep" {
@@ -349,7 +349,7 @@ pub(super) fn check_secret(secret: &str) -> Result<(), String> {
 /// The Keychain account for a new item: `<store>-<8 hex>`, as the app names it.
 fn new_account(store: &str) -> String {
     let id = uuid::Uuid::new_v4().simple().to_string();
-    format!("{store}-{}", &id[..8])
+    format!("{store}-{}", id.get(..8).unwrap_or(&id))
 }
 
 /// `value` into the Keychain as a new `<store>-…` item, then `add_method` with its reference only;
@@ -366,9 +366,11 @@ fn add(
     let account = new_account(store);
     io.keychain.store(&account, &format!("cmux {store} API key"), value)?;
     let secret = format!("keychain:{SERVICE}/{account}");
-    params["secret"] = json!(secret);
-    if let Some(label) = label {
-        params["label"] = json!(label);
+    if let Some(fields) = params.as_object_mut() {
+        fields.insert("secret".to_owned(), json!(secret));
+        if let Some(label) = label {
+            fields.insert("label".to_owned(), json!(label));
+        }
     }
     let state = match io.daemon.call(add_method, params) {
         Ok(state) => state,
@@ -629,8 +631,9 @@ impl Keychain for LiveKeychain {
         } else {
             &["secret-tool", "clear", "service", SERVICE, "account", account]
         };
-        let _ = cmux_process::Command::new(argv[0])
-            .args(&argv[1..])
+        let Some((program, rest)) = argv.split_first() else { return };
+        let _ = cmux_process::Command::new(program)
+            .args(rest)
             .stdin(cmux_process::Stdio::null())
             .stdout(cmux_process::Stdio::null())
             .stderr(cmux_process::Stdio::null())
