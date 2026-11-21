@@ -172,10 +172,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
         DebugTimings.markReveal(services.launchReveal)
-        // This launch's times, in every build, for `cmux app launch-times` (CMUX-571): after the first frame, at Home's reveal or 10 s on (a relaunch into another workspace never shows Home).
+        // This launch's times and stages (LaunchStages), in every build, for `cmux app launch-times` (CMUX-571): after the first frame, at Home's reveal or 10 s on (a relaunch into another workspace never shows Home).
         if let bundleID = environment.launch.bundleID, let file = LaunchTimesFile.app(bundleID: bundleID) {
             let recorder = LaunchTimesRecorder(file: file, work: services.work, info: Bundle.main.infoDictionary ?? [:], listen: AgentPaneLaunchTimings.shared.listen, marks: DebugTimings.launchMarkTimes) { StagedUpdatePrewarm.consumeLaunchMarker(build: $0, bundleIdentifier: bundleID) }
-            firstFrame.whenOpen { [launchReveal = services.launchReveal] in launchReveal.whenReady(.home, orAfter: .seconds(10)) { recorder.write(marks: DebugTimings.launchMarkTimes()) } }
+            firstFrame.whenOpen { [launchReveal = services.launchReveal, weak services] in launchReveal.whenReady(.home, orAfter: .seconds(10)) { recorder.write(marks: DebugTimings.launchMarkTimes(), workspaces: services?.daemon.store.workspaces.count) } }
         }
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
@@ -231,7 +231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     await services.agentPaneStateLoss.showNotices(in: window, pairedSealCleared: { await services.iphone.pairedSealClearedForCutOff() })
                 }
             }
-            CATransaction.setMainCompletion { [weak self] in
+            DebugTimings.markLaunch("frame.commit_start"); CATransaction.setMainCompletion { [weak self] in
                 DebugTimings.markLaunch("first_window_frame_committed")
                 TerminalLaunchFrames.closeLaunches() // the terminals that asked by now are this frame's
                 self?.firstFrame.open()
@@ -383,7 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         services.configActions.start(settings: settings)
-        services.personInput.start()
+        services.personInput.start(); services.cache.cef.personInput = { [ledger = services.personInput] in ledger.isPerson($0) }
         services.joinConsent.follow(settings: settings)
         if !environment.noActivate { services.signInEnroll.follow() } // an agent-launched build enrolls no machine
         // Agent-launched builds never take system-wide keys from the person's app, nor a menu bar item.
