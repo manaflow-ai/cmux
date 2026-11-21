@@ -811,7 +811,10 @@ pub fn check_engines(manifest: &Value, release: &str) -> Result<(), String> {
         if comparators.iter().any(|c| meets(c, (0, 0, 0)).is_none()) {
             return Err(unsupported());
         }
-        let first = comparators[0].trim_start_matches(['>', '<', '=', '^', '~']);
+        let first = comparators
+            .first()
+            .ok_or_else(unsupported)?
+            .trim_start_matches(['>', '<', '=', '^', '~']);
         let major = if first == "*" { 0 } else { version_triple(first).ok_or_else(unsupported)?.0 };
         parsed.push((major >= 2, comparators));
     }
