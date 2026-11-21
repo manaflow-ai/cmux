@@ -150,6 +150,56 @@ struct CmuxRemoteSharingSetupTests {
         ])
     }
 
+    /// "Screen sharing + computer use" double prompt (Lawrence, 2026-11-17): macOS's own Screen
+    /// Recording prompt and our Check Again sheet were up at once. While macOS's prompt has the
+    /// person, no sheet of ours is presented; a grant made there skips Check Again entirely.
+    @Test func noSheetOfOursWhileMacOSsPromptIsUp() async throws {
+        let fixture = Fixture(permissions: (false, true), answers: ["allow"])
+        var setup = fixture.setup()
+        let gate = AnswerGate()
+        setup.requestScreen = {
+            fixture.screenRequests += 1
+            _ = await gate.answer() // macOS's prompt is up until the gate opens
+        }
+        let task = Task { @MainActor in try await setup.proceed(after: "continue", present: fixture.present) }
+
+        await gate.waitForEntry()
+        #expect(fixture.presented == ["cmux.dialog.screenSharing.setup.screen"])
+        fixture.permissions.screen = true // the person allowed it in macOS's prompt
+        gate.cancel()
+
+        #expect(try await task.value)
+        #expect(fixture.screenRequests == 1)
+        #expect(fixture.enables == 1)
+        #expect(fixture.presented == ["cmux.dialog.screenSharing.setup.screen"])
+    }
+
+    /// Denied in macOS's prompt: Check Again comes only after macOS's prompt is gone.
+    @Test func checkAgainComesOnlyAfterMacOSsPromptIsDone() async throws {
+        let fixture = Fixture(permissions: (false, true), answers: ["allow", "cancel"])
+        var setup = fixture.setup()
+        var promptOpen = false
+        var sheetsWhilePromptOpen = 0
+        setup.requestScreen = {
+            promptOpen = true
+            fixture.screenRequests += 1
+            await Task.yield()
+            promptOpen = false
+        }
+        let present: (CmuxDialogSpec) async -> String = { spec in
+            if promptOpen { sheetsWhilePromptOpen += 1 }
+            return fixture.present(spec)
+        }
+
+        let shared = try await setup.proceed(after: "continue", present: present)
+        #expect(!shared)
+        #expect(sheetsWhilePromptOpen == 0)
+        #expect(fixture.presented == [
+            "cmux.dialog.screenSharing.setup.screen",
+            "cmux.dialog.screenSharing.setup.screenCheck",
+        ])
+    }
+
     @Test(arguments: [true, false])
     func losingScreenRecordingDuringControlCheckReturnsToScreenGuide(controlGranted: Bool) async throws {
         let fixture = Fixture(permissions: (true, false), answers: ["allow", "check", "cancel"])
@@ -462,6 +512,52 @@ struct CmuxRemoteSharingSetupTests {
         #expect(try await setup.proceed(after: "continue", present: fixture.present))
         #expect(fixture.remembers == 1)
         #expect(fixture.consent)
+    }
+
+    /// A native Share click with both grants ready shows no sheet, so it never records the standing
+    /// yes the overview sheet names (review of #47312).
+    @Test func aSheetlessNativeShareKeepsNoStandingYes() async throws {
+        let fixture = Fixture(permissions: (true, true), answers: [])
+        let setup = fixture.setup()
+
+        #expect(try await setup.proceed(after: "continue", remembersYes: false, present: fixture.present))
+        #expect(fixture.enables == 1)
+        #expect(fixture.presented.isEmpty)
+        #expect(fixture.remembers == 0)
+        #expect(!fixture.consent)
+    }
+
+    /// The overview sheet, the only one whose answer records the yes, says what the yes allows.
+    @Test func theOverviewNamesTheStandingYes() {
+        let lines = CmuxRemoteSharingSetup.spec(.overview).lines.joined(separator: " ")
+        #expect(lines.contains("without asking"))
+    }
+
+    /// The standing yes, as `CmuxRemoteShareConsent.holds` decides it (review of #47312, P1 and P2): a `true`
+    /// an agent wrote into cmux-next.json alone approves nothing; this Mac's record of the answered sheet
+    /// or a device MDM force does; a team policy is not the person's yes; off is never a yes.
+    @Test func onlyTheAnsweredSheetOrDeviceMDMMakeTheStandingYes() {
+        #expect(!CmuxRemoteShareConsent.holds(settingOn: true, managed: nil, recorded: false))
+        #expect(CmuxRemoteShareConsent.holds(settingOn: true, managed: nil, recorded: true))
+        #expect(CmuxRemoteShareConsent.holds(settingOn: true, managed: .device, recorded: false))
+        #expect(!CmuxRemoteShareConsent.holds(settingOn: true, managed: .team("t"), recorded: false))
+        #expect(!CmuxRemoteShareConsent.holds(settingOn: false, managed: .device, recorded: true))
+    }
+
+    /// Turning the setting off drops the record, so a later file-only `true` needs the sheet again
+    /// instead of reviving the old yes (review of #47312, P1).
+    @Test func turningTheSettingOffForgetsTheYes() throws {
+        let suite = "ss-share-consent-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(Date(), forKey: CmuxRemoteShareConsent.recordKey)
+
+        CmuxRemoteShareConsent.forgetUnlessOn(settingOn: true, defaults: defaults)
+        #expect(defaults.object(forKey: CmuxRemoteShareConsent.recordKey) is Date)
+        CmuxRemoteShareConsent.forgetUnlessOn(settingOn: false, defaults: defaults)
+        #expect(defaults.object(forKey: CmuxRemoteShareConsent.recordKey) == nil)
+        #expect(!CmuxRemoteShareConsent.holds(settingOn: true, managed: nil,
+                                               recorded: defaults.object(forKey: CmuxRemoteShareConsent.recordKey) is Date))
     }
 
     @Test func eachGuideStepHasAStableIdentifierAndCancel() {
