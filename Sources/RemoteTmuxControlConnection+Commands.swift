@@ -135,6 +135,29 @@ extension RemoteTmuxControlConnection {
         return true
     }
 
+    /// Sends `commands` as one tmux command sequence (`a ; b`), which tmux runs in order and
+    /// stops at the first command that fails.
+    ///
+    /// tmux answers every command of a sequence with its own block, so this reserves a reply
+    /// slot for each. The joined line sent through ``send(_:)`` would reserve one, leave the
+    /// second block to whatever was sent next, and every reply after it would go to the wrong
+    /// command. `firstCommandResolved` gets the first command's result as
+    /// ``sendTracked(_:completion:)`` reports it.
+    @discardableResult
+    func sendSequence(_ commands: [String], firstCommandResolved: ((Bool) -> Void)? = nil) -> Bool {
+        guard let firstCommandResolved else {
+            return sendCommandQueueInternal(commands, kinds: commands.map { _ in .other })
+        }
+        let token = UUID()
+        trackedSendCompletions[token] = firstCommandResolved
+        let kinds: [CommandKind] = [.tracked(token)] + commands.dropFirst().map { _ in .other }
+        guard sendCommandQueueInternal(commands, kinds: kinds) else {
+            trackedSendCompletions.removeValue(forKey: token)
+            return false
+        }
+        return true
+    }
+
     func failPendingTrackedSends() {
         let completions = Array(trackedSendCompletions.values)
         trackedSendCompletions.removeAll()

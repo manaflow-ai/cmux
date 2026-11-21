@@ -48,6 +48,9 @@ enum RemoteTmuxLinkedViewPlan {
         let reconcileActions: [RemoteTmuxViewReconciler.Action]
         /// The resulting cmux workspaces (home session → ordered window ids).
         let workspaces: [RemoteTmuxLinkedWorkspaceModel.Workspace]
+        /// Windows created in the view alone, each to be linked into the real session of the
+        /// window it sits after (``RemoteTmuxViewOnlyWindows``).
+        var adoptions: [RemoteTmuxViewOnlyWindows.Adoption] = []
     }
 
     static func plan(view: RemoteTmuxViewSession, snapshot: Snapshot) -> Plan {
@@ -108,6 +111,13 @@ enum RemoteTmuxLinkedViewPlan {
             needsBootstrapSession: !hasRealSession,
             staleViewsToKill: stale,
             reconcileActions: actions,
-            workspaces: workspaces)
+            workspaces: workspaces,
+            // A view that is about to be recreated holds nothing worth placing.
+            adoptions: needsCreate ? [] : RemoteTmuxViewOnlyWindows.adoptions(
+                rows: snapshot.windows,
+                viewSessionName: viewName,
+                excludedSessions: excluded,
+                placeholderWindowId: snapshot.placeholderWindowId,
+                cmuxOwnedWindowIds: snapshot.cmuxOwnedWindowIds))
     }
 }
