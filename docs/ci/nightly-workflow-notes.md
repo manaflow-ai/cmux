@@ -219,6 +219,12 @@ runner-preflight:
 
 Fails the run in minutes when a label its jobs would wait on has no online runner, instead of every job sitting queued for hours (2026-11-10: CI_NIGHTLY_MINI named cmux-lawrence-2-light, whose runners went offline at 00:45Z; the nightly sat queued for 3+ h). It takes decide's own route, so it never waits longer than decide would, and in one-mini mode it stays on vars.CI_NIGHTLY_MINI with the rest of the run (never split across Macs); there a dead mini holds it like every other job. It was on GitHub-hosted Ubuntu until 2026-11-18, when the org-wide hosted queue held it 1h25m+ (run 44207617943) and with it every nightly, while the nightly Macs were idle. It holds no secret and reads only vars.CI_RUNNER_STATE (scripts/ci/nightly_runner_preflight.py). It never cancels anything; an unreadable or stale census lets the run go on. A failure files the nightly's failure incident with the job's token (report-nightly-failure never runs then). hq docs/handbook/runner-var-points-at-dead-host.md.
 
+## note-32
+
+nightly-next-one, Upload nightly variant artifacts (2026-11-21):
+
+The upload runs after the feed is written, but it still holds nightly-next-one-push and the whole signing Mac, so every second of it delays the next landing's build. In run 44904268153 (job 136847063748) it uploaded 571,388,812 bytes in 283 s (12:59:52 to 13:04:35Z) while run 44906071087 waited at the slot and then left it, publishing nothing. Two of the six files were the same DMG: the immutable `<prefix>-arm64-<build>.dmg` and the rolling `<prefix>-arm64.dmg`, a copy of it. No reader of this artifact uses the rolling copy. build-nightly-deltas and generate-nightly-deltas read the immutable name and the appcast. publish-nightly-next-github checks the immutable DMG against the tested digest and makes the rolling name itself (`cp`, github-names-publish-rolling-name.sh). republish-verified-nightly.py, the one reader that requires both names, takes the variant only from build-sign-notarize-nightly (its ARTIFACTS producers), never from this job. So this job leaves out the rolling copy, about 243 MB, about half the upload. The split jobs' upload (build-sign-notarize-nightly) is unchanged.
+
 ## note-33
 
 Both cmux15 and ultra1 carry `glaeda-trusted-next-signing` on multiple runners. A single `nightly-next-one-push` group serialized both Macs; removing it without pinning the runner could send both builds to the same Mac and leave the other idle.
