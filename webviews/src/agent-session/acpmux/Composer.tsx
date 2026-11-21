@@ -1474,7 +1474,12 @@ function ComposerFrame({
     requestEmoji();
     setText(value);
     setCaret(at);
+    // Esc closes a list for the text it was pressed on; an edit ends that, even one that comes back to
+    // the same text (Backspace and the letter again, or the prompt cleared and typed again), so the @
+    // and emoji lists come back as the / list does.
     setDismissed(undefined);
+    setMentionDismissed(undefined);
+    setEmojiDismissed(undefined);
     // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types, and the
     // next draft picks its own skills.
     if (!value.trim()) pickedSkills.current.clear();

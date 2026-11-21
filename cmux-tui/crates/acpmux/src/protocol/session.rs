@@ -183,6 +183,12 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub task_list: Option<crate::task_list::TaskListSummary>,
+    /// Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar
+    /// and the chat header. Absent before the first turn that makes one, and from a peer on an
+    /// older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub rolling_summary: Option<crate::store::RollingSummary>,
     pub queued: u64,
     /// Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
     /// that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
@@ -1009,5 +1015,19 @@ pub struct SessionChanged {
     pub peer: Option<String>,
     /// The list position this change took (`hub/row_log.rs`): the client's cursor for
     /// `_acpmux/watch {afterSeq}` is the highest it applied.
+    pub list_seq: u64,
+}
+
+/// To a watcher that asked for batches (`initialize` `_meta.acpmux.peerRowBatches`), in place of
+/// one `_acpmux/session_changed` per row: `count` rows of `peer` changed or left at once (a peer's
+/// list). Their list positions are consecutive, after `afterSeq` and up to `listSeq`; a client
+/// reads them with `_acpmux/watch {afterSeq, listEpoch}` from a cursor no higher than `afterSeq`,
+/// and keeps its cursor at most `afterSeq` until a list or follow current to `listSeq` is in.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerRowsChanged {
+    pub peer: String,
+    pub count: u64,
+    pub after_seq: u64,
     pub list_seq: u64,
 }
