@@ -14,7 +14,7 @@ enum HomeChiefOnboardingStrings {
     static func title(_ step: ChiefOnboardingStep) -> String {
         switch step {
         case .meet: String(localized: "home.chiefOnboarding.meet.title", defaultValue: "Meet Chief", bundle: .module)
-        case .access: String(localized: "home.chiefOnboarding.access.title", defaultValue: "What Chief can do on this Mac", bundle: .module)
+        case .access: String(localized: "home.chiefOnboarding.access.title", defaultValue: "What Chief can do", bundle: .module)
         case .look: String(localized: "home.chiefOnboarding.look.title", defaultValue: "Make it comfortable", bundle: .module)
         }
     }
@@ -66,9 +66,10 @@ enum HomeChiefOnboardingStrings {
                    defaultValue: "Skips anything that needs approval and tells you instead.", bundle: .module)
         }
     }
-    static var alwaysAsks: String {
-        String(localized: "home.chiefOnboarding.alwaysAsks",
-               defaultValue: "In every mode, Chief asks you before it spends money, deletes data or signs in, and leaves passwords to you.",
+    /// Chief's own rule (its prompt), in every mode; only Auto and Manual also check commands.
+    static var toldToAsk: String {
+        String(localized: "home.chiefOnboarding.toldToAsk",
+               defaultValue: "Chief is told to ask before spending money, deleting data or signing in, and never to type passwords. A rule, not a lock.",
                bundle: .module)
     }
     static var changeLater: String {

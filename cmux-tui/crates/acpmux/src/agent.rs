@@ -2206,6 +2206,15 @@ impl ChildAgent {
         self.hosted.as_ref().map(|h| h.link().record.clone())
     }
 
+    /// Whether this agent runs under a host whose record says a level below `level`
+    /// (`HostRecord::host_level`) on another build than this one's (`hub/host_level.rs`).
+    pub fn host_below(&self, level: u32) -> bool {
+        self.hosted.as_ref().is_some_and(|h| {
+            let link = h.link();
+            link.record.host_level < level && link.record.host_build != crate::build_info::build()
+        })
+    }
+
     /// The build its host runs (`HostRecord::host_build`), when this agent runs under a host.
     pub fn host_build(&self) -> Option<String> {
         self.hosted.as_ref().map(|h| h.link().record.host_build.clone())
