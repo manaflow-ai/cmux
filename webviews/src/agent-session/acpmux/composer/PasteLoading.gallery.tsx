@@ -71,13 +71,20 @@ export default componentEntry<Props>({
           // `solid`: the tile before this change, a solid fill and a spinner from the first frame.
           const tile =
             look === "solid" ? (
-              <span className="acpmux-md-inline-chip" data-state="loading" aria-busy="true" aria-label="Image">
+              <span
+                className="acpmux-md-inline-chip"
+                data-state="loading"
+                data-kind="image"
+                aria-busy="true"
+                aria-label="Image"
+              >
                 <Spinner loading size={14} className="acpmux-md-inline-spinner" />
               </span>
             ) : (
               <span
                 className={`acpmux-md-inline-chip ${PASTE_LOADING_CLASS}`}
                 data-state="loading"
+                data-kind="image"
                 data-paste-look={look}
                 aria-busy="true"
                 aria-label="Image"
@@ -86,7 +93,13 @@ export default componentEntry<Props>({
               </span>
             );
           const chip = (
-            <span className="acpmux-md-inline-chip" data-state="ready" data-chip="strip" data-loaded="">
+            <span
+              className="acpmux-md-inline-chip"
+              data-state="ready"
+              data-chip="strip"
+              data-kind="image"
+              data-loaded=""
+            >
               <span className="acpmux-attachment acpmux-attachment-image">
                 <img alt="Screenshot of the narrow sidebar" draggable={false} src={picture} />
               </span>

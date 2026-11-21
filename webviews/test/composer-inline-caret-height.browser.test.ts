@@ -1,8 +1,7 @@
-// The caret on a line with a pasted image is the text's height (#40941: "after pasting an image
-// the text caret becomes very tall: it extends far above the line of text being typed"). Measured on
-// the painted caret: the field's caret is drawn magenta and found in screenshots, in both of the
-// lane's engines (WebKit is the app's, and the one whose native caret ran the thumbnail's height),
-// beside the chip and inside the words after it.
+// A pasted image is a compact one-row attachment chip, so it must not make the composer or its caret
+// grow around the thumbnail. Measured on the painted caret: the field's caret is drawn magenta and
+// found in screenshots, in both of the lane's engines (WebKit is the app's), beside the chip and
+// inside the words after it.
 // cmux-web-test-timeout: 600
 import { expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -37,7 +36,12 @@ await requireBrowserLane("composer-inline-caret-height.browser.test.ts", async (
   /// at the same place twice in a row.
   async function caretRows(page: Page, band: { left: number; right: number; top: number; bottom: number }) {
     const scale = await page.evaluate(() => window.devicePixelRatio);
-    const clip = { x: band.left, y: band.top, width: band.right - band.left, height: band.bottom - band.top };
+    const clip = {
+      x: band.left,
+      y: band.top,
+      width: band.right - band.left,
+      height: band.bottom - band.top,
+    };
     let last: { top: number; bottom: number } | undefined;
     for (let attempt = 0; attempt < 60; attempt++) {
       const shot = PNG.sync.read(await page.screenshot({ clip, caret: "initial", scale: "device" }));
@@ -48,7 +52,10 @@ await requireBrowserLane("composer-inline-caret-height.browser.test.ts", async (
       }
       if (rows.size) {
         const ys = [...rows];
-        const seen = { top: band.top + Math.min(...ys) / scale, bottom: band.top + (Math.max(...ys) + 1) / scale };
+        const seen = {
+          top: band.top + Math.min(...ys) / scale,
+          bottom: band.top + (Math.max(...ys) + 1) / scale,
+        };
         if (last && last.top === seen.top && last.bottom === seen.bottom) return seen;
         last = seen;
       }
@@ -87,6 +94,7 @@ await requireBrowserLane("composer-inline-caret-height.browser.test.ts", async (
           bottom: Math.min(innerHeight, box.bottom + 4),
         },
         lineHeight: parseFloat(getComputedStyle(paragraph).lineHeight) * scale,
+        paragraphHeight: box.height,
         chipHeight: node.getBoundingClientRect().height,
       };
     });
@@ -105,6 +113,57 @@ await requireBrowserLane("composer-inline-caret-height.browser.test.ts", async (
       await vite.listen();
       await warmGalleryFrame(vite, ENTRY, engine === "chromium" ? { browser } : {});
       const port = (vite.httpServer!.address() as { port: number }).port;
+      for (const look of ["claude", "codex"] as const) {
+        for (const surface of ["chat", "new-tab", "quick"] as const) {
+          for (const scene of ["empty", "text", "pair"] as const) {
+            const context = await browser.newContext({
+              viewport: { width: WIDTH, height: 760 },
+              colorScheme: scene === "text" ? "light" : "dark",
+              reducedMotion: "reduce",
+            });
+            const page = await context.newPage();
+            try {
+              const variant = `attachment-inline-compact-${look}-${surface}-${scene}`;
+              await page.goto(
+                `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: WIDTH, frame: "component", colorScheme: scene === "text" ? "light" : "dark" })}`,
+              );
+              await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+                timeout: 90_000,
+              });
+              const proof = await page.locator(".acpmux-md").getAttribute("data-image-height-proof");
+              if (!proof)
+                throw new Error(
+                  `${variant}: ${JSON.stringify(await page.evaluate(() => window.cmuxGalleryPlayReport))}`,
+                );
+              if (scene !== "empty") expect(await page.locator(".acpmux-md").textContent()).toContain("Compare");
+              report.push(`${engine} ${look} ${surface} ${scene}: ${proof}`);
+              const before = await page
+                .locator(".acpmux-composer-box, .nt-composer")
+                .evaluate((box) => box.getBoundingClientRect().height);
+              if (process.env.CMUX_HOVER_CAPTURE_DIR)
+                await page.screenshot({
+                  path: path.join(
+                    process.env.CMUX_HOVER_CAPTURE_DIR,
+                    `compact-${engine}-${look}-${surface}-${scene}.png`,
+                  ),
+                });
+              await page.locator(".acpmux-md").focus();
+              for (let line = 0; line < 3; line++) {
+                await page.keyboard.press("Shift+Enter");
+                await page.keyboard.type("Another line");
+              }
+              await page.waitForFunction(
+                (height) =>
+                  document.querySelector(".acpmux-composer-box, .nt-composer")!.getBoundingClientRect().height >
+                  height + 20,
+                before,
+              );
+            } finally {
+              await context.close();
+            }
+          }
+        }
+      }
       for (const scene of [
         {
           name: "single",
@@ -159,10 +218,17 @@ await requireBrowserLane("composer-inline-caret-height.browser.test.ts", async (
             timeout: 90_000,
           });
           await page.waitForSelector(".acpmux-md [data-inline-attachment] img");
-          await page.addStyleTag({ content: ".acpmux-md { caret-color: rgb(255, 0, 255) !important; }" });
+          await page.addStyleTag({
+            content: ".acpmux-md { caret-color: rgb(255, 0, 255) !important; }",
+          });
           await page.locator(".acpmux-md").focus();
-          const { band, chipHeight, lineHeight } = await layout(page);
-          expect(chipHeight).toBeGreaterThan(lineHeight * 1.5);
+          const { band, chipHeight, lineHeight, paragraphHeight } = await layout(page);
+          // Before #38135 the inline image was two control rows tall, which made the paragraph and
+          // composer grow around it. The image atom now occupies one text line; a narrow pair may
+          // wrap to a second line because of its typed text and chip widths.
+          const maxLines = scene.name === "wrapped-pair" ? 2 : 1;
+          expect(paragraphHeight).toBeLessThanOrEqual(lineHeight * maxLines + 1);
+          expect(chipHeight).toBeLessThanOrEqual(lineHeight + 1);
           for (const offset of scene.offsets) {
             await caretAt(page, offset);
             const caret = await caretRows(page, band);

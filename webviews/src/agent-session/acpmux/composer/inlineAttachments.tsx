@@ -442,6 +442,7 @@ const InlineChip = memo(function InlineChip({
       <span
         className={pending!.failed ? "acpmux-md-inline-chip" : `acpmux-md-inline-chip ${PASTE_LOADING_CLASS}`}
         data-state={pending!.failed ? "failed" : "loading"}
+        data-kind={pending!.image ? "image" : pending!.video ? "video" : undefined}
         {...(pending!.failed ? {} : { "data-paste-look": look })}
         // A loading image is the shape its thumbnail will be (its header's size), so the picture
         // arriving moves nothing.
@@ -548,6 +549,7 @@ const InlineChip = memo(function InlineChip({
       className="acpmux-md-inline-chip"
       data-state="ready"
       data-chip="strip"
+      data-kind={attachment.video ? "video" : attachment.kind === "image" ? "image" : undefined}
       ref={chipRef(id)}
       {...(loaded && !pictured ? { "data-loaded": "" } : {})}
     >
