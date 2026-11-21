@@ -56,14 +56,14 @@ import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-/// The thread's margin holds the scroll origin and the fraction of a pixel of the older-history room
-/// its `top` leaves out (VirtualTranscript `threadRoomFraction`): the origin is the margin less that.
-function roomFraction(scroller: HTMLElement): number {
-  const room = Number(scroller.querySelector<HTMLElement>(".acpmux-spacer")?.dataset.olderRoom ?? 0) || 0;
-  return room - Math.floor(room);
-}
-
 await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
+  /// The thread's margin holds the scroll origin and the fraction of a pixel of the older-history room
+  /// its `top` leaves out (VirtualTranscript `threadRoomFraction`): the origin is the margin less that.
+  function roomFraction(scroller: HTMLElement): number {
+    const room = Number(scroller.querySelector<HTMLElement>(".acpmux-spacer")?.dataset.olderRoom ?? 0) || 0;
+    return room - Math.floor(room);
+  }
+
   setDefaultTimeout(300_000);
   try {
     await (await chromium.launch({ headless: true })).close();
