@@ -217,6 +217,10 @@ mod share_cli;
 mod shorthand;
 #[cfg(unix)]
 mod skew;
+#[cfg(unix)]
+mod stale_app;
+#[cfg(unix)]
+pub(crate) use stale_app::InstalledApp;
 mod skill;
 #[cfg(unix)]
 mod status;
@@ -543,6 +547,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "chat",
     "vm",
     "customize",
+    "agent-config",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
