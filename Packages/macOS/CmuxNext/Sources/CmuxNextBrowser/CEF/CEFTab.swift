@@ -40,6 +40,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var webAuthnRefused = false
     /// Passkey hand-offs whose trigger runs now (``handOverWebAuthn(during:)``): their click is the person's.
     @ObservationIgnored var webAuthnHandOvers = 0
+    /// An agent acted in the page (``markAgentDriven()``) since the person last took it (their input or a hand-off):
+    /// its WebAuthn is refused then. An agent's reads (``markAgentReading()``) leave it as it is.
+    @ObservationIgnored var webAuthnAgentActs = false
     /// An extension's popup window shown over a pane (`CEFPaneHost+PopupWindows`): its host holds the window.
     public var isExtensionWindow: Bool { host.popupWindow != nil }
     @ObservationIgnored var passwordFill = PasswordFillState()
