@@ -1118,7 +1118,7 @@ async fn a_desktop_chat_the_rate_limit_stopped_holds_its_messages_and_sends_them
     assert!(sent.starts_with(hold::CONTINUE_LINE), "{sent}");
     assert_eq!(sent.matches("second report").count(), 1, "{sent}");
     assert_eq!(sent.matches("third report").count(), 1, "{sent}");
-    assert!(sent.find("second report") < sent.find("third report"), "in the order they came");
+    assert!(sent.find("second report") < sent.find("third report"), "in the order they came: {sent}");
     let events = hub.store.events(&session.id, 0, usize::MAX).unwrap();
     assert!(events.iter().any(|e| e.kind == "rate_limit_lifted"));
     let done =
