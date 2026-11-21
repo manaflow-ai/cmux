@@ -87,6 +87,7 @@ function ProfileRow({ row, importer }: { row: Extract<ImportRow, { kind: "profil
         <span className="onb-import-sub">{subtitle}</span>
       </span>
       <span className="onb-import-trailing">
+        {/* tooltip-allow: a failed import's reason shows nowhere else. */}
         <span className="onb-import-detail" title={tooltip ?? undefined}>
           {text}
         </span>
@@ -223,7 +224,7 @@ function ImportList({ importer }: { importer: ImportState }) {
           className="onb-check onb-sync"
           data-off={history ? undefined : ""}
           inert={!history}
-          title={strings.t("onboarding.import.keepInSync.help")}
+          aria-description={strings.t("onboarding.import.keepInSync.help")}
         >
           <Check
             aria-label={strings.t("onboarding.import.keepInSync")}
@@ -514,7 +515,7 @@ export function ImportStep({ importer, progress }: { importer: ImportState; prog
         )}
       </ViewSwap>
       {mode === "list" && status !== "" && (
-        <output className="onb-status" aria-live="polite" title={status || undefined}>
+        <output className="onb-status" aria-live="polite" aria-description={status || undefined}>
           {status}
         </output>
       )}
