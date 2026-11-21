@@ -536,6 +536,38 @@ def helper_rust(repo: Path, paths: list[str]) -> list[str]:
     return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
 
 
+# $(SRCROOT) inputs of the app's Xcode project that name a whole tree another layer carries: cmux-tui's daemon is the
+# bin/ swap itself (its helper crates are helper_rust's), webviews/ is the web layer, and cmux-next-ios/ is the iPhone
+# app, whose one Mac-bundled part, cmux-mobile-host, is read from its build script instead.
+CARRIED_ROOTS = ("cmux-tui", "webviews", "cmux-next-ios")
+MOBILE_HOST_BUILD = "scripts/cmux-next/build-mobile-host.sh"
+
+
+def under(path: str, roots: list[str]) -> bool:
+    return any(path == r or path.startswith(r + "/") for r in roots)
+
+
+def bundled_inputs(repo: Path) -> list[str]:
+    """The source paths the app bundle builds or copies that `cmux app try`'s bin swap does not replace: every
+    $(SRCROOT) input of the app's Xcode project (scripts it copies, Native/DiffSidecar, resources) but the
+    CARRIED_ROOTS, plus cmux-mobile-host's own build inputs (build-mobile-host.sh `inputs=(...)`). A change under
+    one keeps an older app's copy, so it floors the signed live list like Swift does."""
+    import cmux_next_route as route
+    try:
+        project = (repo / route.APP_PROJECT).read_text(encoding="utf-8")
+    except OSError:
+        project = ""
+    refs = {p.strip("/") for p in re.findall(r'\$\(SRCROOT\)/([A-Za-z0-9_.@+/-]+)', project)}
+    out = sorted(p for p in refs if p and p.split("/")[0] not in CARRIED_ROOTS)
+    try:
+        script = (repo / MOBILE_HOST_BUILD).read_text(encoding="utf-8")
+    except OSError:
+        script = ""
+    if m := re.search(r"^inputs=\(([^)]*)\)", script, re.M):
+        out.extend(p.strip("/") for p in m.group(1).split() if p.strip("/"))
+    return out
+
+
 BASE_REF = "refs/remotes/origin/feat-cmux-next"
 
 
@@ -738,6 +770,12 @@ def pins_daemon(repo: Path, commit: str, *, whole_app: bool = False) -> list[str
         uncarried.extend(helper_rust(repo, daemon + files.get("no-app", [])))
         # The separately bundled helpers share the workspace dependency graph.
         uncarried.extend(path for path in daemon if path in ("cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock"))
+        # What the bundle copies or builds beside bin/ (the code-mode runner and other bundled scripts, the diff
+        # sidecar's sources, cmux-mobile-host and the crates it links) classifies as no-app, ios-only or daemon,
+        # yet an older app keeps its own copy of it.
+        bundled = bundled_inputs(repo)
+        uncarried.extend(path for kind in ("no-app", "ios-only", "daemon") for path in files.get(kind, [])
+                         if under(path, bundled))
     before, after = pinned_ffi_source(repo, parent), pinned_ffi_source(repo, commit)
     if before is None and after is None:
         return sorted(set(uncarried + linked_rust(repo, daemon)))

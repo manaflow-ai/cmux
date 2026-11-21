@@ -1090,6 +1090,38 @@ class LiveFromWholeApp(unittest.TestCase):
                 self.assertEqual(out["live_from"], [head])
                 self.assertIn(path, out["floor_paths"])
 
+    def test_diff_sidecar_source_floors_the_published_list(self):
+        path = "Native/DiffSidecar/src/lib.rs"
+        head = self.commit(path, "pub fn diff() {}\n")
+        out = self.hot.live_from(self.repo, head, 2)
+        self.assertEqual((out["live_from"], out["floor"]), ([head], head))
+        self.assertIn(path, out["floor_paths"])
+
+    def test_a_script_the_app_bundles_floors_the_published_list(self):
+        project = self.repo / "cmux.xcodeproj/project.pbxproj"
+        project.write_text(project.read_text() + '"$(SRCROOT)/scripts/cmux-next/cmux-code-mode-runner",\n')
+        self.git("commit", "-qam", "bundle the runner")
+        path = "scripts/cmux-next/cmux-code-mode-runner"
+        head = self.commit(path, "#!/bin/sh\necho changed\n")
+        out = self.hot.live_from(self.repo, head, 2)
+        self.assertEqual((out["live_from"], out["floor"]), ([head], head))
+        self.assertIn(path, out["floor_paths"])
+        # A script the app does not bundle stays live.
+        other = self.commit("scripts/cmux-next/unrelated-tool.sh", "#!/bin/sh\n")
+        self.assertEqual(self.hot.live_from(self.repo, other, 2)["live_from"][:2], [other, head])
+
+    def test_the_mac_mobile_host_floors_the_list_but_the_iphone_app_does_not(self):
+        self.commit("scripts/cmux-next/build-mobile-host.sh",
+                    "#!/bin/bash\ninputs=(cmux-next-ios/rust cmux-tui/crates/cmux-rd-core\n  cmux-tui/Cargo.toml)\n")
+        host = self.commit("cmux-next-ios/rust/crates/cmux-mobile-host/src/main.rs", "fn main() {}\n")
+        out = self.hot.live_from(self.repo, host, 2)
+        self.assertEqual((out["live_from"], out["floor"]), ([host], host))
+        self.assertIn("cmux-next-ios/rust/crates/cmux-mobile-host/src/main.rs", out["floor_paths"])
+        linked = self.commit("cmux-tui/crates/cmux-rd-core/src/lib.rs", "pub fn rd() {}\n")
+        self.assertEqual(self.hot.live_from(self.repo, linked, 2)["live_from"], [linked])
+        phone = self.commit("cmux-next-ios/Sources/App.swift", "struct App {}\n")
+        self.assertEqual(self.hot.live_from(self.repo, phone, 2)["live_from"], [phone, linked])
+
     def test_separately_bundled_helper_manifests_floor_the_published_list(self):
         for path in (
             "cmux-tui/crates/cmux-git/Cargo.toml",
