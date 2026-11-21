@@ -19,6 +19,16 @@
 # per-surface traces beside it. A failed UI test still gets a report of what it
 # traced; the step's exit is the UI run's.
 #
+# At a commit not yet on feat-cmux-next or main (a pull request's head) the controller runs only
+# listed measure scripts, so run the UI suite through the CI script and read it here:
+#
+#   cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg test \
+#     --arg ui=KeyboardMotionBenchUITests --artifact artifacts/ios-sim/evidence.zip --timeout 7200
+#   cmux-ci artifact STEP /tmp/kbm/evidence.zip   # --failed when a UI test failed
+#   unzip -q /tmp/kbm/evidence.zip -d /tmp/kbm/evidence
+#   python3 -I scripts/measure/ios_keyboard_motion.py --console /tmp/kbm/evidence/ui-console.txt \
+#     --attachments /tmp/kbm/evidence/ui-attachments --out .build/ios-keyboard-motion/report.json
+#
 # Args: ui=SUITE (default KeyboardMotionBenchUITests), only=TEST,... (methods of
 # it, e.g. only=testTerminalShell).
 set -euo pipefail
