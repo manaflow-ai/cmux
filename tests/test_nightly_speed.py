@@ -1142,6 +1142,8 @@ class PublicationReceipt(unittest.TestCase):
         pairs = [(ns.ts(f["feed_at"]), {**f, "confirmed": True, "confirmed_identity": True}) for f in feeds]
         self.assertFalse(ns.covered(rows, pairs, end - 7 * 86400, last + 7200, span))
         self.assertTrue(ns.covered(rows, pairs, end - 7 * 86400, last, span), "a span to the report's end covers it")
+        self.assertTrue(ns.covered(rows, pairs, end - 7 * 86400, last + 0.75, span),
+                        "the span is stored to the second: 14:03:13Z covers a report until 14:03:13.750")
         data = ns.pr_attribution([], ".", run=git, now=last + 7200,
                                  feeds=[{**f, "confirmed": True, "confirmed_identity": True} for f in feeds],
                                  classified=span)

@@ -531,7 +531,7 @@ def covered(rows: List[Dict[str, Any]], feeds: List[Tuple[float, Dict[str, Any]]
     if not sound_span(classified) or not feeds or feeds[0][0] >= since or (ts(classified["from"]) or 0) > since:
         return False
     end = ts(classified["to"]) or 0
-    if end < until:
+    if end < int(until):  # the span is stored to the second
         return False
     return all(e.get("confirmed") and e.get("confirmed_identity") for _, e in feeds) and all(
         (ts(r["feed_at"]) or 0) <= end for r in rows if r["status"] == "attributed")
@@ -1026,7 +1026,8 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
                             if u["sign_run"] not in signed and not superseded_line(u, state["records"])]
     state["new"] = [r["build"] for r in sorted(new_recs, key=lambda r: r["feed_at"])]
     state["new_unpublished"] = [u["sign_run"] for u in new_unp]
-    now = time.time()
+    # Whole seconds: the span's end is stored as iso(now), so a fractional now would read past it (covered).
+    now = float(int(time.time()))
     state["classified"] = classified_span(hist.get("classified"), runs, signed, state, oldest, iso(now), complete)
     state["feeds"] = feed_list((hist.get("feeds") or []) + extra_feeds, state["records"], now)
     if notes:
