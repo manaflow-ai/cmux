@@ -113,6 +113,41 @@ import Testing
         #expect(session.isAttached)
     }
 
+    /// The fetch's reply comes before its replay is decoded. A second fetch
+    /// in that gap dropped the replay unread and asked again with the old
+    /// `history_rows_omitted`: on a 100k-row pane the phone fetched the whole
+    /// history over and over and never reached line 1. The next fetch waits
+    /// for the replay.
+    @Test func aFetchWaitsForTheLastFetchsReplay() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.historyRows = 3_500
+        daemon.afterAttach = nil
+        let session = session(daemon, ChannelLog())
+        defer { session.stop() }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+
+        daemon.withholdReplay = true
+        #expect(session.loadOlderHistory())
+        // The new attach is confirmed (the old one released its size); its replay is not in.
+        try await waitUntil { daemon.recorded.contains { $0["cmd"] as? String == "release-surface-size" } }
+        #expect(session.historyRowsOmitted == 3_500)
+        #expect(!session.loadOlderHistory(), "the last fetch's replay is not on the screen yet")
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(attaches(daemon).count == 2)
+
+        // The replay arrives: the next fetch goes out.
+        daemon.withholdReplay = false
+        session.handle(FakeTerminalDaemon.line(["event": "vt-state", "surface": 7, "cols": 80, "rows": 24,
+                                                "history_rows_omitted": 1_500,
+                                                "data": Data("[2000 rows]hello\r\n$ ".utf8).base64EncodedString()]))
+        #expect(session.historyRowsOmitted == 1_500)
+        #expect(session.loadOlderHistory())
+        try await waitUntil { attaches(daemon).count == 3 }
+        #expect(attaches(daemon).last?["replay_history_rows"] == nil)
+    }
+
     /// A `resized` replay brings the whole history: nothing is left to fetch.
     @Test func aResizedReplayHoldsTheWholeHistory() async throws {
         let daemon = FakeTerminalDaemon()
