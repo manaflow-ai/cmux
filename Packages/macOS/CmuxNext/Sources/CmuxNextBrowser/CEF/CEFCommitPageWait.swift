@@ -5,12 +5,21 @@ import AppKit
 /// size (``CEFCommitLayoutWait/laidOut``) or at ``readyFrames`` display frames, and asks for `release` at
 /// ``releaseFrames`` frames when the page still holds that size then (a commit that never showed).
 ///
-/// The commit waits for the report at most 3 frames (`ScreenContentView.commitBound`) and shows the pane's ground for a
-/// surface that is late. The bound here is one frame under it, so the page is never late: a page that has not laid out
+/// The page asks its commit to wait up to ``commitTicks`` frames for it (``PaneCommitSurface/commitWaitTicks``; the
+/// commit's own bound, `ScreenContentView.commitBound`, is 3), and the commit shows the pane's ground for a surface
+/// that is late. The bound here is one frame under the page's, so the page is never late: a page that has not laid out
 /// by then shows its old frame at its top-left corner beside its backdrop, as before this wait.
+///
+/// Why longer than the commit's 3: a page frame at a new size shows about two refreshes after the page's own layout
+/// (Chromium's commit, raster and draw, then the GPU's swap), so a page that lays out in 30 ms shows its frame some 5 to
+/// 6 refreshes after the change at 120 Hz. At 3 the zoom of a 4x2 layout showed the page's old frame beside its
+/// backdrop for up to 3 refreshes while the pane grew (films of `pane-perf --film --page-resize-work-ms=30`, cmux20-bench).
+/// A page that lays out in time answers in 1 or 2 frames and its commit waits no longer than before.
 final class CEFCommitPageWait {
-    /// Display frames until the page is ready whatever it answered: one under the commit's bound of 3.
-    static let readyFrames = 2
+    /// Frame ticks the page's commit may wait for it.
+    static let commitTicks = 3
+    /// Display frames until the page is ready whatever it answered: one under ``commitTicks``.
+    static let readyFrames = commitTicks - 1
     /// Display frames until a size taken ahead for a commit that has not shown goes (the commit shows at most 4 frames
     /// after its change).
     static let releaseFrames = 8
