@@ -29,7 +29,8 @@ static CREATES: AtomicUsize = AtomicUsize::new(0);
 fn answer(request: &Value) -> Value {
     if request["method"] == "cloud.machines" {
         return json!({"id": request["id"], "ok": true, "result": {"machines": [
-            {"id": "vm_abcdefghij0123456789", "title": "scout", "status": "running"}
+            {"id": "vm_abcdefghij0123456789", "title": "scout", "status": "running"},
+            {"id": "vm_zzzzzzzzzzzzzzzzzzzz", "title": "spare", "status": "stopped"}
         ]}});
     }
     if request["method"] != "cloud.automation" {
@@ -182,8 +183,9 @@ fn cloud_create_list_run_and_the_plan_refusal() {
     assert!(run.status.success(), "{}", text(&run.stderr));
     assert!(text(&run.stdout).contains("run_bbbbbbbbbbbbbbbbbbbb"));
 
-    // A shell command runs on the team's only Cloud machine: a steps body that
-    // checks out the branch's newest head, then waits for the command.
+    // A shell command runs on the Cloud machine `--machine` names (by id, after the command
+    // word, where the global `--machine` once swallowed it): a steps body that checks out the
+    // branch's newest head, then waits for the command.
     let scout = cmux(
         &dir,
         &socket,
@@ -193,6 +195,8 @@ fn cloud_create_list_run_and_the_plan_refusal() {
             "models-scout",
             "--target",
             "cloud",
+            "--machine",
+            "vm_abcdefghij0123456789",
             "--command",
             "bash scripts/models/run-scout.sh",
             "--repo",

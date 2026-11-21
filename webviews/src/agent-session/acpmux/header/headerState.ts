@@ -78,6 +78,9 @@ export interface HeaderState {
   /// Where the chat can move (Move to… in the composer's picker and the title menu): Cloud machines,
   /// and this Mac for a chat a move took from it. The host validates ids again on dispatch.
   readonly moveTargets: readonly HeaderMoveTarget[];
+  /// The chat is half of a terminal and chat pair (a terminal runs its session): "..." offers Switch to terminal, the
+  /// App's Toggle Terminal and Chat. Only a `pane.tabState` reply carries it (read as the menu opens); a push keeps it.
+  readonly terminalSwitch: boolean;
   /// Rises with each change the App sees: a `pane.tabState` reply that arrives after a newer push is dropped.
   readonly version: number;
 }
@@ -100,6 +103,7 @@ const INITIAL: HeaderState = {
   moves: [],
   moveReasons: {},
   moveTargets: [],
+  terminalSwitch: false,
   version: 0,
 };
 let current: HeaderState = INITIAL;
@@ -136,6 +140,7 @@ export function setHeaderState(value: unknown): void {
     moves?: unknown;
     moveReasons?: unknown;
     moveTargets?: unknown;
+    terminalSwitch?: unknown;
     version?: unknown;
   };
   const version = typeof raw.version === "number" ? raw.version : current.version;
@@ -171,6 +176,7 @@ export function setHeaderState(value: unknown): void {
           ];
         })
       : current.moveTargets,
+    terminalSwitch: typeof raw.terminalSwitch === "boolean" ? raw.terminalSwitch : current.terminalSwitch,
     version,
   };
   if (JSON.stringify(next) === JSON.stringify(current)) return;
