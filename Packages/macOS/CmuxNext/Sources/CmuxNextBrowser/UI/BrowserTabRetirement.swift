@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Retires a page shown through a pane's shared chrome (`BrowserChromeTabState`): the page closes and leaves
 /// the chrome's page area; a chrome that shows it now lets it go and stays for the pane's other tabs.
@@ -38,6 +39,12 @@ extension BrowserChromeTabSwitch {
     /// the next tab.
     func release(_ state: BrowserChromeTabState) {
         guard chrome.boundState === state else { return }
+        // Its omnibar edit ends with it, as a tab that only leaves ends it (`save(into:)`): left behind, the field
+        // editor stays first responder under the next tab's omnibar, which says it is not editing, and Cmd-L never
+        // focused it again (Lawrence 2026-11-20: Shift-Cmd-L, Cmd-W, then Cmd-L did nothing).
+        let bar = chrome.addressBar
+        if bar.field.currentEditor() != nil, let window = chrome.window { FocusRoute(.system, "a closing tab's omnibar edit ends").moveKeyboard(in: window, to: nil) }
+        if bar.controller.state.hasFocus { bar.controller.send(.focusLost) }
         chrome.extensionToolbar.hidePopups()
         chrome.pageInfoIfMade?.close()
         chrome.hideNotice()
