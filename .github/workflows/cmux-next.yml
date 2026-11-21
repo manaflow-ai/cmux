@@ -7392,7 +7392,7 @@ jobs:
   # Posts cmux-next/compile from the Mac Release compile when compile-status handed off to it.
   # Why: docs/ci/cmux-next-workflow-notes.md#note-83
   compile-status-handoff:
-    needs: [compile-status, release-compile-fast, release-compile]
+    needs: [compile-status, release-compile-fast, release-compile, app-compile-fleet]
     if: ${{ always() && !cancelled() && needs.compile-status.outputs.handoff != '' }}
     name: cmux-next fleet Release compile (handoff)
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
@@ -7421,15 +7421,18 @@ jobs:
           DOWN: ${{ needs.compile-status.outputs.handoff }}
           FAST: ${{ needs.release-compile-fast.result }}/${{ needs.release-compile-fast.outputs.verdict }}
           MAC: ${{ needs.release-compile.result }}
+          # A pull request's app compile reads the same fleet compile on its own deadline (2026-11-21); its
+          # verdict answers when compile-status's reads gave up first and release-compile skipped on that pass.
+          APP: ${{ needs.app-compile-fleet.outputs.verdict }}
         run: |
           set -uo pipefail
           # post()'s rate-limit waits end here: the step's 56 min less a last try, inside the token's hour.
           post_end=$((SECONDS + ${POST_END_SECONDS:-3240}))
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Compile check::bad head sha '$SHA'"; exit 1; }
           # The fast check's own verdict (a gateway's fleet compile) first, else the Mac Release compile.
-          case "$FAST/$MAC" in
-            success/pass/*|*/success) state=success d="The Release compile (fallback) compiled this head; the results service was down" ;;
-            */fail/*|*/failure) state=failure d="The Release compile (fallback) failed at this head; see its log" ;;
+          case "$FAST/$MAC/${APP:-}" in
+            success/pass/*|*/success/*|*/pass) state=success d="The Release compile (fallback) compiled this head; the results service was down" ;;
+            */fail/*|*/failure/*|*/fail) state=failure d="The Release compile (fallback) failed at this head; see its log" ;;
             *) state=error d="[no-verdict] No compile verdict: results service was down ($DOWN) and no fallback compile ran; re-run all jobs" ;;
           esac
           # Why: docs/ci/cmux-next-workflow-notes.md#note-10 (a refused status post)
