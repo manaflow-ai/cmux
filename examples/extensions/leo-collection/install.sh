@@ -8,7 +8,7 @@
 # `cmux ext dev` loads one folder at a time, so this loops over them.
 set -u
 cd "$(dirname "$0")/../../.." || exit 1
-EXTENSIONS="leo-clock leo-weather leo-gacha leo-usage"
+EXTENSIONS="leo-clock leo-weather leo-gacha leo-usage leo-ambient"
 LOOK="${1:-dusk}"
 
 if [ "$LOOK" = remove ]; then
