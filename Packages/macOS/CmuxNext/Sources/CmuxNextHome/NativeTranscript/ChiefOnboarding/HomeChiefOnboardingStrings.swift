@@ -14,7 +14,7 @@ enum HomeChiefOnboardingStrings {
     static func title(_ step: ChiefOnboardingStep) -> String {
         switch step {
         case .meet: String(localized: "home.chiefOnboarding.meet.title", defaultValue: "Meet Chief", bundle: .module)
-        case .access: String(localized: "home.chiefOnboarding.access.title", defaultValue: "What Chief can do on this Mac", bundle: .module)
+        case .access: String(localized: "home.chiefOnboarding.access.title", defaultValue: "Chief's access to this Mac", bundle: .module)
         case .look: String(localized: "home.chiefOnboarding.look.title", defaultValue: "Make it comfortable", bundle: .module)
         }
     }

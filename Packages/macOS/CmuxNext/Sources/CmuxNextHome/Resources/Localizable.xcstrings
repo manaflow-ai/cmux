@@ -28368,127 +28368,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "What Chief can do on this Mac"
+            "value": "Chief's access to this Mac"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما يمكن لـ Chief فعله على هذا الـ Mac"
+            "value": "صلاحيات Chief على هذا الـ Mac"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Šta Chief može raditi na ovom Macu"
+            "value": "Chiefov pristup ovom Macu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvad Chief kan gøre på denne Mac"
+            "value": "Chiefs adgang til denne Mac"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Was Chief auf diesem Mac tun kann"
+            "value": "Chiefs Zugriff auf diesen Mac"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lo que Chief puede hacer en este Mac"
+            "value": "El acceso de Chief a este Mac"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce que Chief peut faire sur ce Mac"
+            "value": "L’accès de Chief à ce Mac"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cosa può fare Chief su questo Mac"
+            "value": "L’accesso di Chief a questo Mac"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このMacでChiefができること"
+            "value": "このMacでのChiefのアクセス権"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អ្វីដែល Chief អាចធ្វើនៅលើ Mac នេះ"
+            "value": "សិទ្ធិចូលប្រើរបស់ Chief លើ Mac នេះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac에서 Chief가 할 수 있는 일"
+            "value": "이 Mac에 대한 Chief의 접근 권한"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hva Chief kan gjøre på denne Macen"
+            "value": "Chiefs tilgang til denne Macen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Co Chief może robić na tym Macu"
+            "value": "Dostęp Chiefa do tego Maca"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O que o Chief pode fazer neste Mac"
+            "value": "O acesso do Chief a este Mac"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Что Chief может делать на этом Mac"
+            "value": "Доступ Chief к этому Mac"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สิ่งที่ Chief ทำได้บน Mac เครื่องนี้"
+            "value": "สิทธิ์เข้าถึงของ Chief บน Mac เครื่องนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief bu Mac’te neler yapabilir"
+            "value": "Chief’in bu Mac’teki erişimi"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Що Chief може робити на цьому Mac"
+            "value": "Доступ Chief до цього Mac"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Những gì Chief có thể làm trên máy Mac này"
+            "value": "Quyền truy cập của Chief trên máy Mac này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief 能在这台 Mac 上做什么"
+            "value": "Chief 在这台 Mac 上的权限"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief 能在這台 Mac 上做什麼"
+            "value": "Chief 在這台 Mac 上的權限"
           }
         }
       }
