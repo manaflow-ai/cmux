@@ -37,12 +37,16 @@ const HOST_SOLID = /^--cmux-(?:.*solid.*|popup-surface)$/;
 const TOOLTIP = /tooltip|\.ui-hint\b|\.ui-card\b|hover-?card|\[role=["']?tooltip/i;
 // The History page menu (pages/shared/PageMenu.tsx) drew the solid popup surface under a border
 // (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS.").
-// The suggestion lists, hover action bars and palettes that still drew the solid popup
+// The hover previews, suggestion lists, hover action bars and toasts that still drew the solid popup
 // surface a month after that ask (Leo 2026-10-21: "WHERE IS THE GLASS EVERYWHERE ALL THESE STUPID
 // F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT") are named here too, so none goes solid again.
 const REQUIRED_GLASS_CLASSES = new Set([
   "acpmux-omni",
   "page-menu",
+  "acpmux-header-preview",
+  "acpmux-file-search",
+  "acpmux-cols-card",
+  "acpmux-drop-refusal",
   "hm-suggestions",
   "hc-msg-toolbar",
   "hc-msg-more",
@@ -436,6 +440,9 @@ function sourceFiles(dir: string): string[] {
 /** Every tooltip class list in the page code that is not glass, as `file:line: "classes"`. A
  * tooltip element is `ui-tooltip` (ui/Tooltip.tsx, AnchoredCard) or `ui-title-tooltip`
  * (ui/titleTooltips.ts); it carries `ui-glass` with it. */
+// Pages that load no shared glass sheet (ui/glass/glass.css), so ui-glass draws nothing there: the
+// optimistic-chat inspector is a developer page with its own plain styles.
+const ROLE_TOOLTIP_EXEMPT = /^optchat-inspector\//;
 export function findSolidTooltipMarkup(srcDir: string = SRC): string[] {
   const found: string[] = [];
   for (const file of sourceFiles(srcDir)) {
@@ -446,6 +453,15 @@ export function findSolidTooltipMarkup(srcDir: string = SRC): string[] {
       if (names.includes("ui-glass")) continue;
       const line = text.slice(0, match.index).split("\n").length;
       found.push(`${relative(srcDir, file)}:${line}: ${match[0]}`);
+    }
+    // A JSX element that says it is a tooltip (`role="tooltip"`, a hover preview) with a fixed class
+    // list is glass too, whatever its classes are named (the header tool preview escaped by name).
+    if (ROLE_TOOLTIP_EXEMPT.test(relative(srcDir, file))) continue;
+    for (const tag of text.matchAll(/<[A-Za-z][\w.]*\b[^<>]*?\brole=["']tooltip["'][^<>]*>/g)) {
+      const classes = /\bclassName\s*=\s*(?:\{\s*)?(["`])([^"`\n]*)\1/.exec(tag[0])?.[2];
+      if (classes === undefined || classes.includes("${") || classes.split(/\s+/).includes("ui-glass")) continue;
+      const line = text.slice(0, tag.index).split("\n").length;
+      found.push(`${relative(srcDir, file)}:${line}: role="tooltip" className=${JSON.stringify(classes)}`);
     }
   }
   return found;
