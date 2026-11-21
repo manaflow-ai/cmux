@@ -200,6 +200,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // never runs inline on the main thread, and no in-process main-thread
         // caller needs it.
         "surface.read_text",
+        // SVG validation and rasterization must never run inline on main.
+        // These mutations carry explicit UUID targets and never change focus.
+        "surface.icon.set", "surface.icon.clear",
         // `surface.input_state` reads the screen through the render-grid
         // export in one short `v2MainSync` hop (`cmux send` asks it before
         // typing). App-side for the same reason as `surface.read_text`.

@@ -467,6 +467,7 @@ extension Workspace {
         preservesTerminalForTransfer: Bool = false,
         preservesRemoteTerminalTracking: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
+        surfaceIconLeases.reset(panelID: panelId)
         if closePanel, !preservesTerminalForTransfer {
             journalClosedAgentSessions(panelId: panelId)
         }
