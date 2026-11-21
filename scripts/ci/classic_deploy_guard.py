@@ -266,6 +266,10 @@ class GitFiles:
         """Fetch AFTER's last COUNT+1 commits without blobs: every commit of a COUNT-commit range that AFTER
         contains, and its parents, is within COUNT+1 of AFTER (each path from AFTER to it stays in the range)."""
         try:
+            # Only CI's own shallow checkout is deepened: a depth fetch would turn a full clone shallow (a full clone
+            # already holds the range, and anything it lacks is read from REST).
+            if self._git("rev-parse", "--is-shallow-repository").strip() != "true":
+                return
             self._git("fetch", "--quiet", "--no-tags", "--filter=blob:none", f"--depth={count + 1}", "origin", after,
                       timeout=600)
         except (OSError, subprocess.SubprocessError) as exc:
