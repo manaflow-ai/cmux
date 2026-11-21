@@ -737,6 +737,7 @@ impl Hub {
             usage_limits: parent_meta.usage_limits.clone(),
             available_commands: parent_meta.available_commands.clone(),
             goal: None,
+            task_list: None,
             permission_rules: None,
             tags: Default::default(),
             unread: false,
@@ -744,6 +745,7 @@ impl Hub {
             unread_turns: 0,
             last_return: None,
             away_recap: None,
+            rolling_summary: None,
             read_through: Default::default(),
             claude_unstored: false,
             // Never the parent's: only its creator asks (`SessionMeta::wait_start`).

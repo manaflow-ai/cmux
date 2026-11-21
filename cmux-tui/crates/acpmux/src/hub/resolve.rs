@@ -376,6 +376,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         usage_limits: None,
         available_commands: None,
         goal: None,
+        task_list: None,
         permission_rules: None,
         tags: Default::default(),
         unread: false,
@@ -383,6 +384,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         unread_turns: 0,
         last_return: None,
         away_recap: None,
+        rolling_summary: None,
         read_through: Default::default(),
         claude_unstored: false,
         // Never the parent's: only its creator asks (`SessionMeta::wait_start`).

@@ -22,37 +22,72 @@ export const TRANSCRIPT_FOOTER_CONTROL = gridLength("transcript-footer-control")
 /// `--cv-tool-row-height` at the default density, "One-line row pitch", #29965).
 export const TRANSCRIPT_LINE_ROW = 22;
 
-/// The live line right under a step or status row (model.ts `isLiveStep`, MARK_LIVE_STEP): its box and the gap over
-/// it, set here and nowhere else. model.ts places it with these, conversation.css draws it through the custom
-/// properties `transcriptLiveVars` puts on the transcript, and the spacing spec (transcriptSpacing.ts) and the tests
-/// derive their numbers from them, so changing its box or its gap is one line here (Leo, 2026-11-15: "why do we have so
-/// many files that get affected each time anyways").
+/// The running turn's live line as its last row (`below`): the gap over it right under a step or status row (model.ts
+/// `isLiveStep`, MARK_LIVE_STEP), the room its row takes, and the box its words are drawn in, set here and nowhere
+/// else. model.ts places it with these, conversation.css draws it through the custom properties `transcriptLiveVars`
+/// puts on the transcript, and the spacing spec (transcriptSpacing.ts) and the tests derive their numbers from them,
+/// so changing its box or its gap is one line here (Leo, 2026-11-15: "why do we have so many files that get affected
+/// each time anyways").
 ///   `line`  one more one-line row of the run, TRANSCRIPT_LINE_ROW tall (#29965)
 ///   `slot`  the footer's TRANSCRIPT_FOOTER_CONTROL slot it has under a reply, so what lands over it moves nothing
 ///           (cmux#24569)
-/// `slot`, as Leo chose on #43627 (2026-11-16: "Use 32px size with Lucas's 16px gap and notify Lucas"): since #41213
-/// made live-turn-work `runs` the default, the row over the line keeps switching between a run and a reply, and with
-/// `line` each switch moved the line 10 px in layout (transcript_replay.live.cls about 1.1, cmux#47098).
-export const TRANSCRIPT_LIVE_STEP_BOX = "slot" as "line" | "slot";
-/// The grid token of the gap over it: the run gap Codex leaves between transcript items (#42247).
-export const TRANSCRIPT_LIVE_STEP_GAP_TOKEN = "gap-run";
+/// Since #41213 made live-turn-work `runs` the default, the row over the line keeps switching between a run and a
+/// reply: with a `line` row under a run and a `slot` row under a reply, each switch moved the line 10 px in layout
+/// (transcript_replay.live.cls about 1.1, cmux#47098), which is why the row stays the `slot` (#43627, #47111).
+/// Its words are drawn in TRANSCRIPT_LIVE_LINE_BOX at the top of that row, the same box under a run, a reply or a
+/// prompt, so the switch moves neither its top nor its words, and the footer that takes the slot when the turn ends
+/// moves nothing under it. Leo, 2026-11-21 05:23Z: "see the space/gap between tool calls and the current shimmer?
+/// this isnt great." The 16 gap over a 32 box put its words 43 under a step row's centre; the 8 over a 22 box puts
+/// them 30 under, one row pitch and the 8 a footer stands under its reply (variant B).
+/// `<html data-live-gap>` (gallery `agent-pane.chat-live-gap`) shows the looks side by side; `shipped` is the default.
+export const LIVE_GAP_LOOKS = {
+  /// Before: the run gap (16) over the 32 slot, its words centred in it.
+  before: { gap: "gap-run", row: "slot", box: "slot" },
+  /// The bare flip: the footer gap (8) over a 22 row under a run (the composer gap under it), the 32 slot under a
+  /// reply, its words centred in each. It jumps.
+  jumps: { gap: "gap-footer", row: "line", box: "slot" },
+  /// The fallback: the footer gap (8) over the 32 slot, its words centred in it (35 under a step row's centre).
+  slot8: { gap: "gap-footer", row: "slot", box: "slot" },
+  /// Variant B: the footer gap (8) over a 22 box drawn at the top of the 32 slot, under every row.
+  shipped: { gap: "gap-footer", row: "slot", box: "line" },
+} as const satisfies Record<string, { gap: string; row: "line" | "slot"; box: "line" | "slot" }>;
+export type LiveGapLook = keyof typeof LIVE_GAP_LOOKS;
+export function liveGapLook(): (typeof LIVE_GAP_LOOKS)[LiveGapLook] {
+  const set = typeof document === "undefined" ? undefined : document.documentElement.dataset.liveGap;
+  return set !== undefined && set in LIVE_GAP_LOOKS ? LIVE_GAP_LOOKS[set as LiveGapLook] : LIVE_GAP_LOOKS.shipped;
+}
+const boxLength = (box: "line" | "slot") => (box === "slot" ? TRANSCRIPT_FOOTER_CONTROL : TRANSCRIPT_LINE_ROW);
+const boxVar = (box: "line" | "slot") => (box === "slot" ? "var(--cv-footer-row)" : "var(--cv-tool-row-height)");
+/// The room its row takes right under a step row.
+export const TRANSCRIPT_LIVE_STEP_BOX = LIVE_GAP_LOOKS.shipped.row as "line" | "slot";
+/// The grid token of the gap over it right under a step row: the footer gap, 8, as a footer stands under its reply.
+export const TRANSCRIPT_LIVE_STEP_GAP_TOKEN = LIVE_GAP_LOOKS.shipped.gap as string;
 export const TRANSCRIPT_LIVE_STEP_GAP = gridLength(TRANSCRIPT_LIVE_STEP_GAP_TOKEN);
-/// Its height at Interface Size 1.
-export const TRANSCRIPT_LIVE_STEP_HEIGHT =
-  TRANSCRIPT_LIVE_STEP_BOX === "slot" ? TRANSCRIPT_FOOTER_CONTROL : TRANSCRIPT_LINE_ROW;
+/// Its row's height under a step row at Interface Size 1.
+export const TRANSCRIPT_LIVE_STEP_HEIGHT = boxLength(TRANSCRIPT_LIVE_STEP_BOX);
+/// The box its words are drawn in, at the top of its row, under any row: a one-line row's 22.
+export const TRANSCRIPT_LIVE_LINE_BOX = Math.min(boxLength(LIVE_GAP_LOOKS.shipped.box), TRANSCRIPT_LIVE_STEP_HEIGHT);
+/// The live gap and row height under a step row for the look in force (`liveGapLook`), read per layout.
+export const liveStepGap = (): number => gridLength(liveGapLook().gap);
+export const liveStepHeight = (): number => boxLength(liveGapLook().row);
 /// Its box and gap as CSS custom properties, set on the transcript's root (VirtualTranscript.tsx): conversation.css
-/// sizes the line with `--cv-live-step-height` and the gallery's plays read `--cv-live-step-gap`, never a length of
-/// their own.
-export function transcriptLiveVars(): Record<"--cv-live-step-height" | "--cv-live-step-gap", string> {
+/// sizes its row under a step with `--cv-live-step-height`, draws its words in `--cv-live-line-box` at the top of its
+/// row, and the gallery's plays read `--cv-live-step-gap`, never a length of their own.
+export function transcriptLiveVars(): Record<
+  "--cv-live-step-height" | "--cv-live-step-gap" | "--cv-live-line-box",
+  string
+> {
+  const look = liveGapLook();
   return {
-    "--cv-live-step-height": TRANSCRIPT_LIVE_STEP_BOX === "slot" ? "var(--cv-footer-row)" : "var(--cv-tool-row-height)",
-    "--cv-live-step-gap": `var(--grid-${TRANSCRIPT_LIVE_STEP_GAP_TOKEN})`,
+    "--cv-live-step-height": boxVar(look.row),
+    "--cv-live-step-gap": `var(--grid-${look.gap})`,
+    "--cv-live-line-box": boxVar(look.box),
   };
 }
 /// The spacing spec's distance from a one-line row's centre to the centre of the live line under it, its words
-/// centred in its box (transcriptSpacing.ts "step-to-live" and the "...-to-live" status rows).
+/// centred in their box (transcriptSpacing.ts "step-to-live" and the "...-to-live" status rows).
 export const TRANSCRIPT_LINE_TO_LIVE_STEP =
-  TRANSCRIPT_LINE_ROW / 2 + TRANSCRIPT_LIVE_STEP_GAP + TRANSCRIPT_LIVE_STEP_HEIGHT / 2;
+  TRANSCRIPT_LINE_ROW / 2 + TRANSCRIPT_LIVE_STEP_GAP + TRANSCRIPT_LIVE_LINE_BOX / 2;
 
 /// The interface scale the CSS grid tokens multiply by (desktop.css: `calc(24px *
 /// var(--cmux-interface-scale, 1))`). The virtual stack places its gaps with the same factor, so
@@ -263,7 +298,7 @@ export function transcriptGap(previous: number, next: number): number {
   // The live state is separate from completed activity. Leo, 2026-11-04: "the gap between tool
   // calls and thinking needs to be bigger". Use the same scaled run gap as activity to prose.
   if (line(previous) && (next === MARK_INDICATOR || next === MARK_FOOTER_SLOT)) return TRANSCRIPT_RUN_GAP;
-  if (next === MARK_LIVE_STEP) return TRANSCRIPT_LIVE_STEP_GAP;
+  if (next === MARK_LIVE_STEP) return liveStepGap();
   // A run, or any status line, and the reply's prose around it sit 16 apart, either way.
   if ((line(previous) && next === MARK_MESSAGE) || (previous === MARK_MESSAGE && line(next))) return TRANSCRIPT_RUN_GAP;
   return TRANSCRIPT_BLOCK_GAP;
@@ -276,7 +311,7 @@ export function transcriptGap(previous: number, next: number): number {
 export function tailGap(last: number, beforeLast: number, footerAfter = false): number {
   last = baseMark(last);
   // The live line in a run has the room under it that a row of its box has: an indicator's, or the footer slot's.
-  if (last === MARK_LIVE_STEP) last = TRANSCRIPT_LIVE_STEP_BOX === "slot" ? MARK_FOOTER_SLOT : MARK_INDICATOR;
+  if (last === MARK_LIVE_STEP) last = liveGapLook().row === "slot" ? MARK_FOOTER_SLOT : MARK_INDICATOR;
   beforeLast = baseMark(beforeLast);
   if (footerAfter) return TRANSCRIPT_BLOCK_GAP;
   if (last === MARK_INDICATOR && beforeLast === MARK_PROMPT) return TRANSCRIPT_BLOCK_GAP;
