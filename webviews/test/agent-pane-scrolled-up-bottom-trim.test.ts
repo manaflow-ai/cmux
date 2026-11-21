@@ -102,6 +102,9 @@ await requireBrowserLane("agent-pane-scrolled-up-bottom-trim.test.ts", async () 
     name: string;
     session?: Record<string, unknown>;
     arrive: PapercutStep[];
+    /// Attach only the newest records and hold every older page's reply until the reader is back at the
+    /// end with the room kept: the page then lands above them, which must not eat the room nor move them.
+    olderPageAtEnd?: true;
   }[] = [
     { name: "calls and a reply", arrive: runningTurnEnds },
     {
@@ -113,6 +116,7 @@ await requireBrowserLane("agent-pane-scrolled-up-bottom-trim.test.ts", async () 
         ...queuedRuns("q-2", queue[1]!.prompt, 2),
       ],
     },
+    { name: "calls and a reply, then an older page lands", arrive: runningTurnEnds, olderPageAtEnd: true },
   ];
 
   /// Waits until the transcript and the stack hold still over 12 painted frames, and no finite
@@ -192,7 +196,13 @@ await requireBrowserLane("agent-pane-scrolled-up-bottom-trim.test.ts", async () 
       test(`${engine}: scrolled up, ${each.name} arrive; back at the end, nothing moves under the view`, async () => {
         const browser = await type.launch({ headless: true });
         browsers.push(browser);
-        const pane = await papercutPane(() => browser, { turns: 40, running: true, session: each.session });
+        const pane = await papercutPane(() => browser, {
+          turns: 40,
+          running: true,
+          session: each.session,
+          ...(each.olderPageAtEnd ? { attachPage: 80 } : {}),
+        });
+        if (each.olderPageAtEnd) pane.stall(["_acpmux/events"]);
         try {
           const page = await pane.open({ width: 900, height: 700 });
           await settle(page);
@@ -222,6 +232,13 @@ await requireBrowserLane("agent-pane-scrolled-up-bottom-trim.test.ts", async () 
             if (atEnd && steps.length >= 3 && steps.slice(-3).every(([asked]) => asked === 0)) break;
           }
           expect(atEnd).toBeDefined();
+          if (each.olderPageAtEnd) {
+            // The reader went up past the loaded top, so a page was asked; it lands now, at the end.
+            expect(pane.history.requests.length).toBeGreaterThan(0);
+            await settle(page);
+            before = await view(page);
+            pane.stall([]);
+          }
           await settle(page);
           await page.waitForTimeout(1500);
           await settle(page);
