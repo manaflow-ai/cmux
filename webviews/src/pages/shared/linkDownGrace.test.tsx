@@ -9,7 +9,7 @@
 import { act, type ReactNode } from "react";
 import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { LASTING_MS } from "../../ui/lasting";
+import { CONNECTION_QUIET_MS, LASTING_MS } from "../../ui/lasting";
 import { teardownDom } from "../../../test/support/domTeardown";
 import { installVirtualSizes } from "../../../test/support/virtualSizes";
 import { createStrings } from "./i18n";
@@ -72,7 +72,7 @@ test("Settings: a lost link drops in no read-only banner until it lasts", async 
   await mounted(<ReadOnlyNotice connected={false} loaded readable />, async (element) => {
     const banner = () => element.querySelector("[data-read-only=disconnected]");
     expect(banner()).toBeNull();
-    await advance(LASTING_MS - 100);
+    await advance(CONNECTION_QUIET_MS - 100);
     expect(banner()).toBeNull();
     await advance(200);
     expect(banner()).not.toBeNull();
@@ -169,9 +169,83 @@ test("Tasks: an owner that drops is said lost only once that lasts", async () =>
       await settle();
     });
     expect(store.getSnapshot().connection).toBe("unreachable");
-    await advance(LASTING_MS - 100);
-    expect(element.querySelector(".tasks-banner")).toBeNull();
+    await advance(CONNECTION_QUIET_MS - 100);
+    expect(element.querySelector("[data-connection-chip]")).toBeNull();
     await advance(200);
-    expect(element.querySelector(".tasks-banner")).not.toBeNull();
+    expect(element.querySelector("[data-connection-chip]")).not.toBeNull();
   });
+});
+
+// Leo, 2026-11-21: "these messages should not be pushing up the text ... stop layout shifting". The
+// mark a lost link leaves is out of flow (jsdom has no layout engine, so the proof is structural: the
+// stylesheet that styles the mark fixes it to the viewport, and a page's content has the same DOM
+// before and after it comes), and it comes only after the shared 10 s bound.
+test("the corner mark takes no room: fixed to the viewport, and the shared 10 s bound holds it", async () => {
+  const css = await Bun.file(new URL("../../ui/connectionChip.css", import.meta.url)).text();
+  expect(css).toMatch(/\.ui-connection-chip\s*\{[^}]*position:\s*fixed/);
+  expect(CONNECTION_QUIET_MS).toBe(10_000);
+  const { ReadOnlyNotice } = await import("../settings/components/ReadOnlyBanner");
+  await mounted(<ReadOnlyNotice connected={false} loaded readable />, async (element) => {
+    await advance(CONNECTION_QUIET_MS + 100);
+    const chip = element.querySelector("[data-connection-chip]")!;
+    expect(chip).not.toBeNull();
+    // Its sentence is the tooltip and the accessible text; nothing of it is a row in the page's flow.
+    expect(chip.getAttribute("title")).toBe(chip.textContent);
+    expect(element.querySelector(".banner")).toBeNull();
+  });
+});
+
+test("AutoResumeNotice: the daemon's retry wait says nothing until it has lasted 10 s", async () => {
+  const { AutoResumeNotice } = await import("../../agent-session/acpmux/AutoResumeNotice");
+  const retry = { retry: { attempt: 2, of: 4, reason: "transport" }, attempt: 1 };
+  await mounted(<AutoResumeNotice state={retry} />, async (element) => {
+    expect(element.querySelector("[data-auto-resume]")).toBeNull();
+    await advance(CONNECTION_QUIET_MS - 100);
+    expect(element.querySelector("[data-auto-resume]")).toBeNull();
+    await advance(200);
+    expect(element.querySelector("[data-auto-resume]")).not.toBeNull();
+  });
+});
+
+test("AppHealth: a queued action waiting on the link waits 10 s; a stuck part shows at once", async () => {
+  const { AppHealthIndicator } = await import("../../app-health/AppHealth");
+  const health = createStrings(
+    {
+      en: {
+        "appHealth.pending": "Reconnecting; will %@ when back",
+        "appHealth.line.stuck": "%@ isn’t responding",
+      },
+    },
+    ["en"],
+  );
+  const actions = { open() {}, repair() {} };
+  const pending = { worst: "healthy", parts: [], receipts: [], pending: [{ id: "a", label: "close Task" }] };
+  await mounted(
+    <AppHealthIndicator snapshot={pending as never} strings={health} actions={actions} />,
+    async (element) => {
+      expect(element.querySelector(".ah-indicator")).toBeNull();
+      await advance(CONNECTION_QUIET_MS + 100);
+      expect(element.querySelector(".ah-indicator")).not.toBeNull();
+    },
+  );
+  const part = {
+    id: "p",
+    kind: "page",
+    label: "Agent chat",
+    state: "stuck",
+    sinceMs: 0,
+    detail: "",
+    action: "none",
+    attempt: 0,
+    maxAttempts: 3,
+    nextAtMs: null,
+    canRepair: false,
+  };
+  const stuck = { worst: "stuck", parts: [part], receipts: [] };
+  await mounted(
+    <AppHealthIndicator snapshot={stuck as never} strings={health} actions={actions} />,
+    async (element) => {
+      expect(element.querySelector(".ah-indicator")).not.toBeNull();
+    },
+  );
 });
