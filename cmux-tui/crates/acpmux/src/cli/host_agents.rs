@@ -218,10 +218,8 @@ pub(crate) fn local_step(machine: &str) -> Option<JoinStep> {
         if ready { JoinStepState::Ok } else { JoinStepState::Warn },
         detail,
     );
-    if !ready {
-        if let Some(next) = next {
-            step = step.with_fix(format!("Next: `{next}`"));
-        }
+    if !ready && let Some(next) = next {
+        step = step.with_fix(format!("Next: `{next}`"));
     }
     Some(step.with_data(json!({"agents": agents})))
 }
