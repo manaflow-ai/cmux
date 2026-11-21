@@ -320,6 +320,21 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
     ]
 
 
+# Gates whose reds are often formatting the PR autofix already repaired: its push job never runs on a
+# pull_request event, so the repairs wait in the run's pr-autofix-patch artifact until the lane applies them.
+AUTOFIXABLE = ("web lint", "prepush gate")
+
+
+def autofix_hint() -> str:
+    # CMUX_PR_NUMBER: the workflow's pull request (a dispatch's inputs.pr runs on the base branch's ref).
+    pr = os.environ.get("CMUX_PR_NUMBER", "")
+    if not pr.isdigit():
+        match = re.fullmatch(r"refs/pull/(\d+)/merge", os.environ.get("GITHUB_REF", ""))
+        pr = match.group(1) if match else "N"
+    return (f"A formatting red here may already be fixed by this PR's autofix run: in a clean checkout of the PR "
+            f"head, run `scripts/cmux-next/pr-autofix apply {pr}` to commit and push its pr-autofix-patch.")
+
+
 def run_gate(argv: list[str], repo: Path, seconds: float | None) -> int | None:
     """The gate's exit code, or None when it gave no result in SECONDS: then its whole process group is stopped (a
     gate's bun install child included), so a hung install ends as a named, stalled gate, not a cancelled job."""
@@ -494,6 +509,12 @@ def run(args: argparse.Namespace) -> int:
             stream.write("\n".join(lines) + "\n")
     if failed:
         print(f"fast gates: {', '.join(failed)} failed", flush=True)
+        if any(name in AUTOFIXABLE for name in failed):
+            hint = autofix_hint()
+            print(f"::notice title=fast gates: PR autofix::{hint}")
+            if args.summary:
+                with args.summary.open("a", encoding="utf-8") as stream:
+                    stream.write("\n" + hint + "\n")
         return 1
     print("fast gates: all passed", flush=True)
     return 0

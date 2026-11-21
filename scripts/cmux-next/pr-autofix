@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# Applies a pull request's PR autofix repairs with the lane's own credentials.
+# cmux-next-pr-autofix.yml computes the repairs (vp fmt, cargo fmt, generated
+# files) on every same-repo pull request, but never pushes them on a
+# pull_request event: its contents-write key stays away from code the pull
+# request controls (1aa405bc1). The repairs wait in the run's artifact
+# pr-autofix-patch, so a formatting red stays red until the lane fixes it by
+# hand (#37986's changes.ts import). This takes that artifact from the
+# newest finished PR autofix run of the pull request's head, checks it applies
+# cleanly to that head, applies only what the push job would
+# (pr-autofix-apply.sh: autofix outputs the pull request owns), and commits and
+# pushes it to the pull request's branch.
+#
+# Run it in a clean checkout of the pull request's head. The apply script and
+# the tables it reads come from the base branch through the GitHub API (gh api
+# .../contents?ref=<base>), never from that checkout or from whatever origin
+# names: a pull request could replace them, and a remote that only looks like
+# the repository could serve its own, and either would run code with the
+# lane's credentials (the push job's base copy prevents the same in CI).
+# origin must push to exactly https://github.com/OWNER/REPO (or its ssh form).
+# Through the lane-gh broker on a lane VM, gh and git push need no token here.
+#
+# Usage: scripts/cmux-next/pr-autofix apply N [--repo OWNER/REPO] [--no-push]
+set -euo pipefail
+usage() { echo "usage: $0 apply N [--repo OWNER/REPO] [--no-push]" >&2; exit 2; }
+die() { echo "pr-autofix: $*" >&2; exit 1; }
+
+[[ "${1:-}" == apply ]] || usage
+pr="${2:-}"
+[[ "$pr" =~ ^[0-9]+$ ]] || usage
+shift 2
+repo=manaflow-ai/cmux push=1
+while (( $# )); do
+  case "$1" in
+    --repo) repo="${2:?--repo needs OWNER/REPO}"; shift 2 ;;
+    --no-push) push=0; shift ;;
+    *) usage ;;
+  esac
+done
+[[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "--repo must be OWNER/REPO, not $repo"
+GH="${CMUX_PR_AUTOFIX_GH:-gh}"
+top="$(git rev-parse --show-toplevel 2>/dev/null)" || die "run this inside a checkout of $repo"
+cd "$top"
+
+head_sha="$("$GH" pr view "$pr" -R "$repo" --json headRefOid --jq .headRefOid)"
+head_ref="$("$GH" pr view "$pr" -R "$repo" --json headRefName --jq .headRefName)"
+cross="$("$GH" pr view "$pr" -R "$repo" --json isCrossRepository --jq .isCrossRepository)"
+base_ref="$("$GH" pr view "$pr" -R "$repo" --json baseRefName --jq .baseRefName)"
+[[ "$cross" == false ]] || die "#$pr comes from a fork; its author applies the artifact (see the run's summary)"
+[[ "$(git rev-parse HEAD)" == "$head_sha" ]] \
+  || die "HEAD is $(git rev-parse --short HEAD), not #$pr's head ${head_sha:0:12}: fetch and check out $head_ref first"
+# The push goes to origin: it must be the repository the pull request and artifact came from, or a
+# fork's origin would take the commit and the pull request would stay red.
+# Compared whole, host and path: a suffix match let https://attacker.example/OWNER/REPO through.
+# CMUX_PR_AUTOFIX_GITHUB is the host root, for the test's local remote only.
+github="${CMUX_PR_AUTOFIX_GITHUB:-https://github.com}"
+origin_url="$(git remote get-url --push origin 2>/dev/null)" || die "this checkout has no origin remote"
+canonical() { # a remote URL -> https://github.com/owner/repo form, lowercased, no .git or trailing /
+  local url="$1"
+  case "$url" in
+    git@github.com:*) url="https://github.com/${url#git@github.com:}" ;;
+    ssh://git@github.com/*) url="https://github.com/${url#ssh://git@github.com/}" ;;
+  esac
+  url="${url%/}"; url="${url%.git}"
+  printf '%s' "${url,,}"
+}
+[[ "$(canonical "$origin_url")" == "$(canonical "$github/$repo")" ]] \
+  || die "origin pushes to $origin_url, not $github/$repo"
+[[ -z "$(git status --porcelain --untracked-files=no)" ]] || die "the checkout has uncommitted changes; commit or set them aside first"
+
+run="$("$GH" api "repos/$repo/actions/workflows/cmux-next-pr-autofix.yml/runs?head_sha=$head_sha&per_page=20" \
+  --jq '[.workflow_runs[] | select(.status == "completed" and .conclusion == "success")] | sort_by(.created_at) | last | .id // empty')"
+[[ -n "$run" ]] || die "no finished PR autofix run for ${head_sha:0:12} yet; run this again when it finishes"
+artifact="$("$GH" api "repos/$repo/actions/runs/$run/artifacts" \
+  --jq '[.artifacts[] | select(.name == "pr-autofix-patch")] | first | if . == null then "" elif .expired then "expired" else .id end')"
+if [[ -z "$artifact" ]]; then
+  echo "pr-autofix: run $run made no repairs for ${head_sha:0:12}; nothing to apply"
+  exit 0
+fi
+# Artifacts expire after a few days: an old head's repairs are gone, not absent.
+[[ "$artifact" != expired ]] \
+  || die "run $run's pr-autofix-patch expired; push a new head (or merge the base) for a fresh PR autofix run"
+
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/pr-autofix.XXXXXX")"
+trap 'rm -rf "$tmp"' EXIT
+# The trusted apply script, from the base branch's tip in $repo itself, read through the GitHub API
+# rather than fetched from a git remote (cmux-next-pr-autofix.yml's push job checks out the same).
+[[ "$base_ref" =~ ^[A-Za-z0-9._/-]+$ ]] || die "unexpected base branch name: $base_ref"
+mkdir "$tmp/trusted"
+for name in pr-autofix-apply.sh settings-exports.txt generated_outputs.py; do
+  "$GH" api "repos/$repo/contents/scripts/cmux-next/$name?ref=$base_ref" --jq .content > "$tmp/trusted/$name.b64" \
+    && python3 -I -c 'import base64, sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.read()))' \
+      < "$tmp/trusted/$name.b64" > "$tmp/trusted/$name" && [[ -s "$tmp/trusted/$name" ]] \
+    || die "could not read scripts/cmux-next/$name from $repo at $base_ref"
+  rm -f "$tmp/trusted/$name.b64"
+done
+chmod +x "$tmp/trusted/pr-autofix-apply.sh"
+"$GH" api "repos/$repo/actions/artifacts/$artifact/zip" > "$tmp/artifact.zip"
+python3 -I -m zipfile -e "$tmp/artifact.zip" "$tmp/artifact"
+patch="$tmp/artifact/pr-autofix.patch"
+if [[ ! -s "$patch" ]]; then
+  echo "pr-autofix: run $run's patch is empty; nothing to apply"
+  exit 0
+fi
+# The repair ran on the merge with the base; a patch that does not apply to the
+# head as it is now is stale, and the newer head's run makes a fresh one.
+git apply --check "$patch" 2>"$tmp/check" \
+  || die "run $run's patch does not apply cleanly to ${head_sha:0:12}: $(head -3 "$tmp/check")"
+
+# Only what the pull request owns (#21946), from the files API as the push job reads it: one
+# call per page, since the agents' gh quota refuses --paginate (it cannot charge its calls).
+: > "$tmp/changed.txt"
+for (( page = 1; page <= 30; page++ )); do
+  "$GH" api "repos/$repo/pulls/$pr/files?per_page=100&page=$page" \
+    --jq '.[] | .filename, (.previous_filename // empty), "--file--"' > "$tmp/page"
+  grep -vx -- --file-- "$tmp/page" >> "$tmp/changed.txt" || true
+  (( $(grep -cx -- --file-- "$tmp/page" || true) == 100 )) || break
+done
+"$tmp/trusted/pr-autofix-apply.sh" "$patch" "$top" --changed "$tmp/changed.txt" | tee "$tmp/applied"
+mapfile -t applied < <(sed -n 's/^applied: //p' "$tmp/applied")
+if (( ${#applied[@]} == 0 )); then
+  echo "pr-autofix: every repair belongs to the base autofix; nothing to commit"
+  exit 0
+fi
+git add -- "${applied[@]}"
+# No Autofix-Run trailer: on a head that carries one, later PR autofix runs skip
+# the action exports (cmux-next-pr-autofix.yml), and a lane's push needs no loop guard.
+git commit --quiet -m "chore(next): PR autofix at ${head_sha:0:12}" \
+  -m "$(printf -- '- %s\n' "${applied[@]}")" \
+  -m "From PR autofix run https://github.com/$repo/actions/runs/$run (scripts/cmux-next/pr-autofix)."
+echo "pr-autofix: committed $(git rev-parse --short HEAD) on ${head_sha:0:12}"
+if (( push )); then
+  git push --quiet origin "HEAD:refs/heads/$head_ref"
+  echo "pr-autofix: pushed to $head_ref"
+fi
