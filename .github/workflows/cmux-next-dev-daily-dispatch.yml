@@ -88,6 +88,7 @@ jobs:
           TAG: cmux-next-dev-daily-dispatch/dispatch
         with:
           script: |
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const { data } = await getOctokit(process.env.APP_TOKEN).rest.rateLimit.get();
             const c = data.resources.core;
             const tag = process.env.TAG;
@@ -287,6 +288,7 @@ jobs:
           TAG: cmux-next-dev-daily-dispatch/dispatch
         with:
           script: |
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const { data } = await getOctokit(process.env.APP_TOKEN).rest.rateLimit.get();
             const c = data.resources.core;
             const tag = process.env.TAG;
