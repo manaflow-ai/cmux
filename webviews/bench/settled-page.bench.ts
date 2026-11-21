@@ -9,9 +9,12 @@
 //                     the sidebar does). From the call.
 //   workspace_switch  the target chat's page shown and settled, then hidden (its workspace left: visibilityState hidden,
 //                     `visibilitychange`), a new turn arrives while hidden, then shown again. From the show.
-//   open_recent       a second page for the target chat built in the warm renderer (another chat page open in the same
-//                     context), as a released chat page opens again. From navigation.
-//   restart           the target chat's page in a new (cold) context. From navigation.
+//   open_recent       a released chat page opens again in the warm renderer: first-load-after-restart.bench.ts MODE=reopen
+//                     (the app's serving path: the saved copy, the kept tail, acpmux up). From navigation.
+//   restart           the app relaunches: first-load-after-restart.bench.ts MODE=native-ready (a cold context, PAGES
+//                     restored pages, the saved copy while acpmux comes back). From navigation.
+// The two navigations run that bench (BOUND=1, RUNNING=1 for the stream arm) and take its rounds: settled_ms is its
+// final first paint, shifts its shift frames, bound_ms its derived bound.
 // Each in two arms: `idle` (the target is B) and `stream` (the target is S, and the stand-in streams a reply chunk to S
 // every STREAM_EVERY_MS from the transition on, for STREAM_MS).
 //
@@ -25,8 +28,8 @@
 //
 // The derived bound: the same settled DOM (scripts removed), drawn with no app code at all, to its first paint, in the
 // same state. For the in-page transitions (chat and workspace switch) the round's own page swaps its body for the
-// settled copy and restores the scroller's offset; for the navigations (open recent, restart) a page in the same
-// context state (warm renderer or cold context) loads the settled copy as a static document. It is what putting the
+// settled copy and restores the scroller's offset; for the navigations (open recent, restart) the restart bench loads
+// the settled copy as a static document in the same context state (warm renderer or cold context). It is what putting the
 // final pixels up costs and nothing else, so `ratio = settled_ms / bound_ms` is how many bounds the app spends on data,
 // React and scroll. The goal: ratio within 2 and no shift.
 //
@@ -263,9 +266,6 @@ function installFrameReader() {
       return { t0, frames, lastChange };
     },
   };
-  // A navigation arm starts at once, from navigation (t0 = 0).
-  // Only the measured page (its URL carries `measure=1`), not the other pages and bound pages in its context.
-  if (location.hash.includes("measure=1")) w.__settle.start(0);
 }
 
 type Read = { t0: number; frames: FrameRecord[]; lastChange: number };
@@ -315,12 +315,11 @@ function judge(read: Read, arm: Arm): Judged {
 }
 
 /** The settled DOM, scripts removed, and the scroller's offset. */
-async function settledCopy(page: Page): Promise<{ html: string; body: string; scrollTop: number }> {
+async function settledCopy(page: Page): Promise<{ body: string; scrollTop: number }> {
   return page.evaluate(() => {
     const clone = document.documentElement.cloneNode(true) as HTMLElement;
     for (const node of clone.querySelectorAll("script")) node.remove();
     return {
-      html: `<!doctype html>${clone.outerHTML}`,
       body: clone.querySelector("body")?.innerHTML ?? "",
       scrollTop: document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollTop ?? 0,
     };
@@ -342,25 +341,48 @@ async function boundInPage(page: Page, copy: { body: string; scrollTop: number }
   );
 }
 
-/** Navigation bound: a page in `context` loads the settled copy as a static document; navigation to its first paint. */
-let boundHtml = "";
-async function boundNavigation(context: BrowserContext, base: string, copy: { html: string; scrollTop: number }) {
-  boundHtml = copy.html.replace(
-    "</body>",
-    `<script>{const s=document.querySelector(".acpmux-scroll");if(s)s.scrollTop=${copy.scrollTop};` +
-      `requestAnimationFrame(()=>setTimeout(()=>{window.__boundPaint=performance.now()},0))}</script></body>`,
-  );
-  const page = await context.newPage();
-  await page.goto(`${base}/__bound.html`);
-  await page.waitForFunction(() => (window as unknown as { __boundPaint?: number }).__boundPaint, null, {
-    timeout: 30_000,
-  });
-  const ms = await page.evaluate(() => (window as unknown as { __boundPaint: number }).__boundPaint);
-  await page.close();
-  return ms;
-}
-
 type Round = Judged & { boundMs: number; ratio: number };
+
+/** open_recent and restart: the restart bench's rounds (the app's serving path), with its derived bound. */
+function fromRestartBench(scenario: "open_recent" | "restart", arm: Arm): Round[] {
+  const mode = scenario === "restart" ? "native-ready" : "reopen";
+  const run = Bun.spawnSync(["bun", path.join(webviews, "bench/first-load-after-restart.bench.ts")], {
+    cwd: webviews,
+    env: {
+      ...process.env,
+      MODE: mode,
+      BOUND: "1",
+      ROUNDS: String(ROUNDS),
+      TURNS: String(TURNS),
+      ...(arm === "stream" ? { RUNNING: "1" } : {}),
+    },
+    stdout: "pipe",
+    stderr: "inherit",
+  });
+  const out = run.stdout.toString();
+  const line = out.split("\n").find((one) => one.startsWith("FIRST_LOAD_JSON "));
+  if (run.exitCode !== 0 || !line)
+    throw new Error(`first-load-after-restart MODE=${mode} failed:\n${out.slice(-2000)}`);
+  type Got = {
+    finalFirstPaintMs: number | null;
+    shiftFrames: number;
+    frames: number;
+    boundMs: number | null;
+    shifts: { index: number; why: string }[];
+  };
+  const got = JSON.parse(line.slice("FIRST_LOAD_JSON ".length)) as Record<string, { rounds: Got[] }>;
+  return got[mode]!.rounds.map((r) => {
+    if (r.finalFirstPaintMs === null || r.boundMs === null) throw new Error(`MODE=${mode}: a round never settled`);
+    return {
+      settledMs: r.finalFirstPaintMs,
+      shifts: r.shiftFrames,
+      why: r.shifts.slice(0, 5).map((one) => `frame ${one.index} ${one.why}`),
+      frames: r.frames,
+      boundMs: r.boundMs,
+      ratio: r.finalFirstPaintMs / Math.max(r.boundMs, 1),
+    };
+  });
+}
 const median = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
@@ -403,7 +425,6 @@ try {
     hostname: "127.0.0.1",
     async fetch(request) {
       const pathname = new URL(request.url).pathname;
-      if (pathname === "/__bound.html") return new Response(boundHtml, { headers: { "content-type": "text/html" } });
       const file = Bun.file(path.join(out, pathname === "/" ? "index.html" : pathname));
       return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
     },
@@ -440,7 +461,6 @@ try {
   const one = async (scenario: Scenario, arm: Arm): Promise<Round> => {
     const target = arm === "stream" ? S : B;
     let context: BrowserContext | undefined;
-    let warm: BrowserContext | undefined;
     try {
       let page: Page;
       if (scenario === "chat_switch") {
@@ -479,37 +499,16 @@ try {
           w.__settle.start(performance.now());
           document.dispatchEvent(new Event("visibilitychange"));
         });
-      } else if (scenario === "open_recent") {
-        context = await newContext();
-        const other = await context.newPage();
-        await other.goto(urlFor(A));
-        await waitPainted(other, MARK);
-        if (arm === "stream") startStream();
-        page = await context.newPage();
-        await page.goto(`${urlFor(target)}&measure=1`);
-      } else {
-        // restart: the measured page in a new (cold) context.
-        context = await newContext();
-        if (arm === "stream") startStream();
-        page = await context.newPage();
-        await page.goto(`${urlFor(target)}&measure=1`);
-      }
+      } else throw new Error(`${scenario} runs in first-load-after-restart.bench.ts`);
       const read = await framesOf(page, MARK);
       stopStream();
       const judged = judge(read, arm);
       const copy = await settledCopy(page);
-      let boundMs: number;
-      if (scenario === "chat_switch" || scenario === "workspace_switch") boundMs = await boundInPage(page, copy);
-      else if (scenario === "open_recent") boundMs = await boundNavigation(context, base, copy);
-      else {
-        warm = await browser.newContext({ viewport: VIEWPORT });
-        boundMs = await boundNavigation(warm, base, copy);
-      }
+      const boundMs = await boundInPage(page, copy);
       return { ...judged, boundMs, ratio: judged.settledMs / Math.max(boundMs, 1) };
     } finally {
       stopStream();
       await context?.close();
-      await warm?.close();
     }
   };
 
@@ -519,7 +518,8 @@ try {
   for (const scenario of SCENARIOS.filter((name) => !only || only.includes(name)))
     for (const arm of arms) {
       const rounds: Round[] = [];
-      for (let round = 0; round < ROUNDS; round += 1) rounds.push(await one(scenario, arm));
+      if (scenario === "open_recent" || scenario === "restart") rounds.push(...fromRestartBench(scenario, arm));
+      else for (let round = 0; round < ROUNDS; round += 1) rounds.push(await one(scenario, arm));
       const name = `settled_page.${scenario}.${arm}`;
       const settled = median(rounds.map((r) => r.settledMs));
       const bound = median(rounds.map((r) => r.boundMs));
