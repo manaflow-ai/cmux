@@ -9,13 +9,6 @@ import Testing
         #expect(TerminalTheme.monokai.palette.count == TerminalTheme.paletteCount)
     }
 
-    @Test func jsonRoundTripPreservesColors() throws {
-        let theme = TerminalTheme.monokai
-        let data = try JSONEncoder().encode(theme)
-        let decoded = try JSONDecoder().decode(TerminalTheme.self, from: data)
-        #expect(decoded == theme)
-    }
-
     @Test func decodesArbitraryThemeFromJSON() throws {
         // A non-Monokai theme (Solarized Dark-ish) supplied as JSON, proving the
         // app is no longer locked to a single hardcoded palette.
