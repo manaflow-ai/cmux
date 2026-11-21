@@ -34,7 +34,6 @@ use crate::{Fetch, FetchError};
 
 #[path = "overlay_room.rs"]
 mod room;
-use room::Temp;
 
 /// The size of a chunk of a big file, and the largest file fetched whole.
 pub const CHUNK: u64 = 4 * 1024 * 1024;
