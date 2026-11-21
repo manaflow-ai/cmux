@@ -16,17 +16,6 @@ extension MachineSettingsSchema {
                 default: .bool(MacScreenSettings.systemShortcutsDefault),
                 keywords: ["mac screen", "remote", "system shortcuts", "command tab", "spotlight", "mission control", "keyboard", "accessibility"]
             ),
-            SettingDescriptor(
-                MacScreenSettings.shareWithoutAskingPath,
-                section: .keyboard,
-                group: group,
-                title: SettingsText.keyed("settings.macScreen.shareWithoutAsking", "Share This Mac Without Asking"),
-                help: SettingsText.keyed("settings.macScreen.shareWithoutAsking.help", "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies."),
-                summary: SettingsText.keyed("settings.macScreen.shareWithoutAsking.summary", "Sharing turns on without asking"),
-                kind: .toggle,
-                default: .bool(MacScreenSettings.shareWithoutAskingDefault),
-                keywords: ["mac screen", "remote", "screen sharing", "share this mac", "confirm", "ask"]
-            ),
         ]
     }
 }
@@ -64,6 +53,17 @@ extension MachineSettingsSchema {
                 kind: .toggle,
                 default: .bool(RemoteSettings.endSharingOnQuitDefault),
                 keywords: ["cmux remote", "screen sharing", "mac screen", "quit", "background", "device hub"]
+            ),
+            SettingDescriptor(
+                RemoteSettings.shareWithOwnDevicesByDefaultPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.remote.shareWithOwnDevicesByDefault", "Share With My Devices by Default"),
+                help: SettingsText.keyed("settings.remote.shareWithOwnDevicesByDefault.help", "On: your other devices view this Mac with no Allow, until you stop sharing."),
+                summary: SettingsText.keyed("settings.remote.shareWithOwnDevicesByDefault.summary", "Your devices view it with no prompt"),
+                kind: .toggle,
+                default: .bool(RemoteSettings.shareWithOwnDevicesByDefaultDefault),
+                keywords: ["cmux remote", "screen sharing", "mac screen", "allow", "same account", "device hub"]
             ),
             SettingDescriptor(
                 RemoteSettings.ultraPath,

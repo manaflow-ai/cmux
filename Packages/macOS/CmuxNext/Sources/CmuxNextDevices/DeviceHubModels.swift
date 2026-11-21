@@ -42,12 +42,16 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
     public var lastSeenAt: Date?
     public var macScreenShared: Bool
     public var online: Bool
+    /// The hub's one-way name of the machine the device runs on (`machineGroup`): the same for every
+    /// record of one machine (this app's builds and the acpmux daemon's device), nil when it named none.
+    public var machineGroup: String?
 
     public init(id: String, name: String, platform: DevicePlatform? = nil, signingKey: String? = nil, agreementKey: String? = nil,
-                createdAt: Date? = nil, lastSeenAt: Date? = nil, macScreenShared: Bool = false, online: Bool = false) {
+                createdAt: Date? = nil, lastSeenAt: Date? = nil, macScreenShared: Bool = false, online: Bool = false,
+                machineGroup: String? = nil) {
         self.id = id; self.name = name; self.platform = platform; self.signingKey = signingKey
         self.agreementKey = agreementKey; self.createdAt = createdAt; self.lastSeenAt = lastSeenAt
-        self.macScreenShared = macScreenShared; self.online = online
+        self.macScreenShared = macScreenShared; self.online = online; self.machineGroup = machineGroup
     }
 
     /// Whether this Mac can view this device's screen (``DevicePlatform/hostsScreenThisMacViews``); a device
@@ -65,7 +69,7 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
     public var fingerprint: String? { signingKey.flatMap(DeviceIdentity.fingerprint(signingKey:)) }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, platform, signingKey, agreementKey, createdAt, lastSeenAt, macScreenShared, online
+        case id, name, platform, signingKey, agreementKey, createdAt, lastSeenAt, macScreenShared, online, machineGroup
     }
 
     public init(from decoder: any Decoder) throws {
@@ -79,6 +83,7 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
         lastSeenAt = c.date(.lastSeenAt)
         macScreenShared = c.flag(.macScreenShared)
         online = c.flag(.online)
+        machineGroup = c.lenient(String.self, .machineGroup)
     }
 }
 

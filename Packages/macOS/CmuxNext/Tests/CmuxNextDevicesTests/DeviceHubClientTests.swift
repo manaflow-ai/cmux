@@ -47,6 +47,15 @@ import Testing
         // The Mac it runs on, the same for every build: the hub reads an Always answer about this Mac across its device ids.
         #expect(body["machine"] as? String == DeviceMachine.current.id)
         #expect((body["machine"] as? String).map { $0.count == 64 && $0.allSatisfy(\.isHexDigit) && $0 == $0.lowercased() } ?? true)
+        // remote.shareWithOwnDevicesByDefault off (the default): the hub hears nothing and keeps its default.
+        #expect(body["shareWithOwnDevices"] == nil)
+    }
+
+    @Test func registrationSendsShareWithOwnDevicesOnlyWhenTheSettingIsOn() async throws {
+        let hub = StubHub.routes(["POST /v1/devices": (200, #"{"device":{"id":"x","name":"Studio","platform":"macos","macScreenShared":1,"online":true}}"#)])
+        _ = try await makeClient(hub, identity: DeviceIdentity.software()).registerDevice(name: "Studio", platform: .macos, shareWithOwnDevices: true)
+        let body = try #require(hub.requests.last?.jsonBody)
+        #expect(body["shareWithOwnDevices"] as? Bool == true)
     }
 
     /// The hub matches answers by this value: every build keys the same hardware UUID with the same secret to the same id,
@@ -60,6 +69,15 @@ import Testing
         #expect(a.id != DeviceMachine(hardwareUUID: "8A1C3F2E-0D4B-4C5A-9E7F-112233445566", secret: Data(repeating: 8, count: 32)).id)
         #expect(DeviceMachine(hardwareUUID: nil, secret: key).id == nil && DeviceMachine(hardwareUUID: "", secret: key).id == nil)
         #expect(DeviceMachine(hardwareUUID: "8A1C3F2E-0D4B-4C5A-9E7F-112233445566", secret: nil).id == nil)
+    }
+
+    /// The acpmux daemon computes the same value (cmux-hub-host `machine.rs`, the same vector), so the
+    /// app and the daemon name one machine and the hub keeps one device for it.
+    @Test func theMachineIsTheDaemonsForTheSameKeyAndUUID() {
+        let secret = Data((1...32).map { UInt8($0) })
+        let expected = "fbc56a076aca949302e3be7b9de232591fd3db3894b26781fd7aca57f672e6c6"
+        #expect(DeviceMachine(hardwareUUID: "12345678-ABCD-EF01-2345-6789ABCDEF01", secret: secret).id == expected)
+        #expect(DeviceMachine(hardwareUUID: " 12345678-abcd-ef01-2345-6789abcdef01\n", secret: secret).id == expected)
     }
 
     /// The secret is made once, only this user can read it, and every later load (another build, cmux Remote) reads the same one.

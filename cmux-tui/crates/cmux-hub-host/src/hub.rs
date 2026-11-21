@@ -93,6 +93,8 @@ pub struct Hub {
     user_id: Mutex<Option<String>>,
     /// The account session and when it ends (ms).
     session: Mutex<Option<(String, u64)>>,
+    /// This machine's `machine` (machine.rs), sent at registration; None names no machine.
+    machine: Option<String>,
 }
 
 impl Hub {
@@ -116,7 +118,16 @@ impl Hub {
             renewal,
             user_id: Mutex::new(user_id),
             session: Mutex::new(None),
+            // This crate's own tests register against a stand-in and never read the real machine.
+            machine: if cfg!(test) { None } else { crate::machine::current() },
         })
+    }
+
+    /// This client with `machine` as the machine it registers (None: names no machine).
+    #[must_use]
+    pub fn with_machine(mut self, machine: Option<String>) -> Self {
+        self.machine = machine;
+        self
     }
 
     pub fn user_id(&self) -> Option<String> {
@@ -266,6 +277,11 @@ impl Hub {
         body.insert("platform".into(), json!(platform));
         body.insert("signingKey".into(), json!(self.signer.public_key()));
         body.insert("agreementKey".into(), json!(self.device.agreement_key()?));
+        // The machine it runs on, the value the Mac app sends: the hub keeps one device per
+        // machine and lists them as one (machine.rs).
+        if let Some(machine) = &self.machine {
+            body.insert("machine".into(), json!(machine));
+        }
         self.call("POST", "/v1/devices", Some(&Value::Object(body)))
     }
 
@@ -465,7 +481,11 @@ mod tests {
         let device = Device::generate("desk").unwrap();
         let id = device.id.clone();
         let renewal = Renewal::Machine { credential: "cmm_secret".into() };
-        let hub = Hub::with_renewal(&origin, device, None, renewal).unwrap();
+        // The machine the Mac app names too: the hub keeps one device for both.
+        let machine = "ab".repeat(32);
+        let hub = Hub::with_renewal(&origin, device, None, renewal)
+            .unwrap()
+            .with_machine(Some(machine.clone()));
         assert_eq!(hub.user_id(), None);
         let mut extra = serde_json::Map::new();
         extra.insert("shareByJoin".into(), json!(true));
@@ -483,6 +503,7 @@ mod tests {
         assert_eq!(received[1].line, "POST /v1/devices HTTP/1.1");
         assert_eq!(received[1].body["platform"], "macos");
         assert_eq!(received[1].body["shareByJoin"], true);
+        assert_eq!(received[1].body["machine"], json!(machine));
         assert_eq!(received[1].body["id"], json!(id));
         assert_eq!(received[1].header("authorization"), Some("Bearer sess-1"));
         assert!(received[1].header("x-device-sig").is_some());
@@ -504,6 +525,8 @@ mod tests {
         assert_eq!(received[0].body, json!({"userId": "p:u"}));
         assert!(received[0].header("x-device-sig").is_some());
         assert_eq!(received[1].body["platform"], "linux");
+        // No machine read here: the registration names none rather than a made-up one.
+        assert!(received[1].body.get("machine").is_none());
         assert_eq!(received[1].header("authorization"), Some("Bearer sess-2"));
     }
 

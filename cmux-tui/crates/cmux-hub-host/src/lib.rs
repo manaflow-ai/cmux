@@ -14,6 +14,8 @@ pub mod host_process;
 // points on Windows (identity.rs).
 pub mod hub;
 pub mod identity;
+// This machine as the hub's `machine`, the value the Mac app sends too (machine.rs).
+pub mod machine;
 pub mod net;
 // Unix only: Windows serves no session yet (docs/device-hub/windows-host.md, step 4).
 #[cfg(unix)]

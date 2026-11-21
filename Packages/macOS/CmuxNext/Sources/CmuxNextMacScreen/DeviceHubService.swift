@@ -66,6 +66,8 @@ public final class DeviceHubService {
     /// The signed-in account's user id; nil when signed out.
     private var user: String?
     private var watch: Task<Void, Never>?
+    /// `remote.shareWithOwnDevicesByDefault`, read at each registration of the hub this service installs.
+    private var shareWithOwnDevices: (@MainActor () -> Bool)?
     /// Follows what the pages say before a hub exists: whether the address is valid, and the restore.
     private var setupWatch: Task<Void, Never>?
     /// Follows the running hub's socket: another device removed this Mac.
@@ -139,6 +141,7 @@ public final class DeviceHubService {
     /// Follows the hub address and the account from now on.
     public func start(settings: SettingsController) {
         guard watch == nil else { return }
+        shareWithOwnDevices = { settings.snapshot.remote.shareWithOwnDevicesByDefault }
         let account = account, selectedBaseURL = selectedBaseURL
         // The pages' setup words never wait for the restore: "not configured" means only an address that is
         // not valid, and a restore that has not ended reads as restoring, never as a bad address.
@@ -244,6 +247,7 @@ public final class DeviceHubService {
 
     private func install(_ hub: DeviceHub, url: URL, user: String) {
         self.hub = hub
+        hub.shareWithOwnDevices = shareWithOwnDevices
         running = (url, user)
         pages.hub = hub
         // task-owner: the registration and socket start, tried again after each failed registration (the page

@@ -1557,7 +1557,8 @@
       "agent": "userOnly",
       "why": "cmux Remote: the person's call.",
       "keys": [
-        "remote.endSharingOnQuit"
+        "remote.endSharingOnQuit",
+        "remote.shareWithOwnDevicesByDefault"
       ]
     },
     {
