@@ -31,6 +31,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 import { newestPage } from "../bench/daemonPage";
 import { snapshotCss } from "../scripts/agent-pane/snapshotCss.mjs";
 import {
@@ -230,7 +231,17 @@ await requireBrowserLane("chat-copy-dock-swap.test.ts", async () => {
 
   /// Every painted frame until `windowMs` from navigation: the copy's shadow root while it shows,
   /// else the live page. Runs in the page.
-  function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest: string; hostTag: string }) {
+  function recordFrames({
+    windowMs,
+    latest,
+    hostTag,
+    rowSelector,
+  }: {
+    windowMs: number;
+    latest: string;
+    hostTag: string;
+    rowSelector: string;
+  }) {
     let stopped = false;
     const recording = {
       frames: [] as unknown[],
@@ -261,7 +272,7 @@ await requireBrowserLane("chat-copy-dock-swap.test.ts", async () => {
       const view = rootHidden ? undefined : scope.querySelector<HTMLElement>(".acpmux-scroll")?.getBoundingClientRect();
       const rows: { id: string; top: number; text: string }[] = [];
       if (view)
-        for (const row of Array.from(scope.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))) {
+        for (const row of Array.from(scope.querySelectorAll<HTMLElement>(rowSelector))) {
           const box = row.getBoundingClientRect();
           if (box.height <= 0 || box.bottom <= view.top || box.top >= view.bottom) continue;
           if (Number(getComputedStyle(row).opacity) === 0) continue;
@@ -484,7 +495,12 @@ await requireBrowserLane("chat-copy-dock-swap.test.ts", async () => {
     await installPaintedFrames(page);
     await serveBridge(page);
     await page.addInitScript(installHost, { tail });
-    await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
+    await page.addInitScript(recordFrames, {
+      windowMs,
+      latest: LATEST,
+      hostTag: SNAPSHOT_HOST_TAG,
+      rowSelector: TRANSCRIPT_ROW,
+    });
   };
 
   /// The load before the restart: acpmux up, the chat open with its draft, settled, and its copy
