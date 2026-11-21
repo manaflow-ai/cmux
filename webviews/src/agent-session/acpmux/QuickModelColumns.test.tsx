@@ -602,17 +602,43 @@ test("arrows move the highlight without landing; Return lands it and closes", as
 
 const chip = () => document.querySelector<HTMLButtonElement>("button[data-menu='model']")!;
 
-test("a click on a model lands it at once and keeps the menu open", async () => {
+// David Beyer 2026-11-20: the model menu closes after a switch, as the list menu's pick always did.
+test("a click on a model lands it and closes the menu", async () => {
   const calls = await openMenu();
   await click(tab("Codex"));
   await click(row("Sol"));
-  expect(row("Sol").getAttribute("aria-selected")).toBe("true");
-  expect(calls.open).toBe(true);
-  expect(calls.picks.map((pick) => pick.id)).toEqual(["codex-Sol"]);
-  // A close lands nothing more.
-  await click(chip());
   expect(calls.open).toBe(false);
+  expect(calls.picks.map((pick) => pick.id)).toEqual(["codex-Sol"]);
+  // Reopened, the menu shows the pick on its tab; a close lands nothing more.
+  await click(chip());
+  expect(calls.open).toBe(true);
+  await click(chip());
   expect(calls.picks).toHaveLength(1);
+});
+
+test("a click on a level lands it and closes the menu", async () => {
+  const calls = await openMenu();
+  await click([...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!);
+  expect(calls.efforts).toEqual(["high"]);
+  expect(calls.open).toBe(false);
+});
+
+test("a click on a level of another model lands both and closes the menu", async () => {
+  const calls = await openMenu();
+  await click(tab("Codex"));
+  // The arrows show Astra's levels without landing it; a click on one lands Astra at that level.
+  await press("ArrowDown");
+  expect(calls.picks).toHaveLength(0);
+  await click([...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!);
+  expect(calls.picks.map((pick) => [pick.id, pick.effort])).toEqual([["codex-Astra", "high"]]);
+  expect(calls.open).toBe(false);
+});
+
+test("the Fast switch flips in place and keeps the menu open", async () => {
+  const calls = await openMenu();
+  await click(fastSwitch());
+  expect(calls.fast).toEqual([true]);
+  expect(calls.open).toBe(true);
 });
 
 test("a picked model keeps the chat's level when it has it, else takes its recommended one", async () => {
