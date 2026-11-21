@@ -31,8 +31,8 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private var frameRate = ScreenQuality.baselineFrameRate
     /// The cursor is drawn into the picture (``setDrawsCursor(_:)``).
     private var drawsCursor = true
-    /// The processes whose windows are left out of the picture, as last applied.
-    private var excludedApplied: Set<pid_t> = []
+    /// The processes and windows left out of the picture, as last applied.
+    private var excludedApplied = Exclusion()
     /// Processes whose windows stay out of the picture while the cursor does
     /// (``setDrawsCursor(_:)`` false): the Computer Use agent's cursor
     /// overlay, which a viewer that draws pointers shows itself. A viewer
@@ -43,6 +43,16 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         set { lock.withLock { excludedSource = newValue } }
     }
     private var excludedSource: (@Sendable () -> [pid_t])?
+    /// SECURITY: windows that stay out of the picture always, whatever the cursor: a prompt only the
+    /// person at this Mac may see (the join consent ask). Their `sharingType = .none` is not enough:
+    /// since macOS 15.4 a ScreenCaptureKit capture may still show such a window, so this capture leaves
+    /// them out by id. Read when a capture starts, every 2 s and at once on ``exclusionsChanged()``.
+    /// Set by the app; nil by default (nothing left out).
+    public var excludedWindowIDs: (@Sendable () -> Set<CGWindowID>)? {
+        get { lock.withLock { excludedWindowSource } }
+        set { lock.withLock { excludedWindowSource = newValue } }
+    }
+    private var excludedWindowSource: (@Sendable () -> Set<CGWindowID>)?
     /// The most pixels on the captured picture's long edge (``setMaximumLongEdge(_:)``; nil: the display's size).
     private var longEdgeCap: Int?
     /// The last reconfiguration failed: the running capture may not be at
@@ -59,10 +69,46 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     /// callback never reaches a freed backend) until `stop()` removes it.
     private var reconfiguration: (callback: CGDisplayReconfigurationCallBack, context: Unmanaged<ScreenCaptureBackend>)?
 
-    public init(log: @escaping @Sendable (String) -> Void) {
+    /// Puts a pasted image on the pasteboard; false when it could not (tests record it instead).
+    private let writePasteboard: @Sendable (Data, String) -> Bool
+
+    public convenience init(log: @escaping @Sendable (String) -> Void) {
+        let timing = CaptureTimingLog()
+        self.init(log: log, timing: timing, input: EventInjector(timing: timing), writePasteboard: Self.writeGeneralPasteboard)
+    }
+
+    init(log: @escaping @Sendable (String) -> Void, timing: CaptureTimingLog?, input: EventInjector,
+         writePasteboard: @escaping @Sendable (Data, String) -> Bool,
+         sourceProbe: any ScreenSourceProbe = SystemScreenSourceProbe()) {
         self.log = log
-        timing = CaptureTimingLog()
-        input = EventInjector(timing: timing)
+        self.timing = timing
+        self.input = input
+        self.writePasteboard = writePasteboard
+        self.sourceProbe = sourceProbe
+    }
+
+    /// Reads the lock and display sleep (the system's; a test's own).
+    private let sourceProbe: any ScreenSourceProbe
+    /// Reports them while a viewer watches (``observeSourceState(_:)``) until `stop()`:
+    /// checked on the 2 s exclusion tick, and on each frame while not live, so an
+    /// unlock clears the viewer's notice with its first new picture.
+    private var sourceMonitor: ScreenSourceMonitor?
+
+    public func observeSourceState(_ changed: @escaping @Sendable (ScreenSourceState) -> Void) {
+        let monitor = ScreenSourceMonitor(probe: sourceProbe, changed: changed)
+        let previous = lock.withLock { () -> ScreenSourceMonitor?? in
+            guard !stopped else { return .none }
+            defer { sourceMonitor = monitor }
+            return .some(sourceMonitor)
+        }
+        guard let previous else { return }
+        previous?.stop()
+        monitor.check()
+    }
+
+    /// Reads the source state again (a change goes to the viewer).
+    func checkSource() {
+        lock.withLock { sourceMonitor }?.check()
     }
 
     public func start(frame: @escaping @Sendable (CVPixelBuffer, CGRect) -> Void,
@@ -261,13 +307,15 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     }
 
     private func capture(_ display: SCDisplay) async throws {
-        let (rate, cursor, cap, excluded) = lock.withLock { (frameRate, drawsCursor, longEdgeCap, excludedSource) }
+        let (rate, cursor, cap, excluded, windows) = lock.withLock {
+            (frameRate, drawsCursor, longEdgeCap, excludedSource, excludedWindowSource)
+        }
         let configuration = configuration(for: display, frameRate: rate, cursor: cursor, cap: cap)
         let size = CGSize(width: configuration.width, height: configuration.height)
-        let pids = Self.excluded(excluded, drawsCursor: cursor)
-        let (filter, applied) = await Self.filter(display: display, excluding: pids)
+        let exclusion = Exclusion(pids: Self.excluded(excluded, drawsCursor: cursor), windows: windows?() ?? [])
+        let (filter, applied) = await Self.filter(display: display, excluding: exclusion)
         // Not applied (the window list failed): the watcher tries again.
-        lock.withLock { excludedApplied = applied ? pids : [] }
+        lock.withLock { excludedApplied = applied ? exclusion : Exclusion() }
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await stream.startCapture()
@@ -300,47 +348,81 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         drawsCursor ? [] : Set(source?() ?? [])
     }
 
-    /// The display, without the windows of `pids` (none: the whole display),
-    /// and whether `pids` are left out (false when the window list failed:
+    /// What the picture leaves out: every window of `pids` and the windows `windows` names.
+    struct Exclusion: Equatable, Sendable {
+        var pids: Set<pid_t> = []
+        var windows: Set<CGWindowID> = []
+        var isEmpty: Bool { pids.isEmpty && windows.isEmpty }
+    }
+
+    /// The display, without what `exclusion` names (nothing: the whole display),
+    /// and whether it is left out (false when the window list failed:
     /// the whole display, until the next try).
-    private static func filter(display: SCDisplay, excluding pids: Set<pid_t>) async -> (SCContentFilter, Bool) {
-        guard !pids.isEmpty else { return (SCContentFilter(display: display, excludingWindows: []), true) }
+    private static func filter(display: SCDisplay, excluding exclusion: Exclusion) async -> (SCContentFilter, Bool) {
+        guard !exclusion.isEmpty else { return (SCContentFilter(display: display, excludingWindows: []), true) }
         guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false) else {
             return (SCContentFilter(display: display, excludingWindows: []), false)
         }
-        let apps = content.applications.filter { pids.contains($0.processID) }
-        return (SCContentFilter(display: display, excludingApplications: apps, exceptingWindows: []), true)
+        guard !exclusion.windows.isEmpty else {
+            let apps = content.applications.filter { exclusion.pids.contains($0.processID) }
+            return (SCContentFilter(display: display, excludingApplications: apps, exceptingWindows: []), true)
+        }
+        // By window: a process's windows as listed now (the watcher follows new ones) and the named windows.
+        let left = Set(excludedWindows(content.windows.map { ($0.windowID, $0.owningApplication?.processID) }, excluding: exclusion))
+        return (SCContentFilter(display: display, excludingWindows: content.windows.filter { left.contains($0.windowID) }), true)
     }
 
-    /// Every 2 s: when the processes to leave out changed (the agent's helper
-    /// started or restarted), the running capture's filter follows.
+    /// The ids of `windows` (id, owning process) that `exclusion` leaves out.
+    static func excludedWindows(_ windows: [(id: CGWindowID, pid: pid_t?)], excluding exclusion: Exclusion) -> [CGWindowID] {
+        windows.filter { window in
+            exclusion.windows.contains(window.id) || window.pid.map { exclusion.pids.contains($0) } == true
+        }.map(\.id)
+    }
+
+    /// The app's windows to leave out changed (a prompt showed or hid): the running capture's filter
+    /// follows now, not at the watcher's next pass.
+    public func exclusionsChanged() {
+        // task-owner: one filter refresh; ends once applied or the backend stopped
+        Task { [weak self] in _ = await self?.refreshExclusions(force: true) }
+    }
+
+    /// Every 2 s: when the processes or windows to leave out changed (the agent's helper
+    /// started or restarted, a prompt showed), the running capture's filter follows.
     private func watchExclusions() {
         Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2)) // exclusion refresh period
                 guard let self else { return }
-                let state = lock.withLock { () -> (stopped: Bool, source: (@Sendable () -> [pid_t])?, cursor: Bool, applied: Set<pid_t>, generation: Int) in
-                    (stopped, excludedSource, drawsCursor, excludedApplied, streamGeneration)
-                }
-                if state.stopped { return }
-                let pids = Self.excluded(state.source, drawsCursor: state.cursor)
-                guard pids != state.applied else { continue }
-                let running = lock.withLock { () -> (SCStream, SCDisplay)? in
-                    guard streamGeneration == state.generation, let stream, let streamDisplay else { return nil }
-                    return (stream, streamDisplay)
-                }
-                guard let running else { continue }
-                let (filter, applied) = await Self.filter(display: running.1, excluding: pids)
-                guard applied else { continue }
-                do {
-                    try await running.0.updateContentFilter(filter)
-                    lock.withLock { excludedApplied = pids }
-                    log("capture leaves out \(pids.count) process(es)")
-                } catch {
-                    log("capture filter not applied: \(error.localizedDescription)")
-                }
+                checkSource() // locked or display asleep since the last tick
+                guard await refreshExclusions(force: false) else { return }
             }
         }
+    }
+
+    /// Applies the current exclusion to the running capture when it changed, or always with `force`
+    /// (a window left out by id may have moved to the display since). False once the backend stopped.
+    private func refreshExclusions(force: Bool) async -> Bool {
+        let state = lock.withLock { () -> (stopped: Bool, source: (@Sendable () -> [pid_t])?, windows: (@Sendable () -> Set<CGWindowID>)?, cursor: Bool, applied: Exclusion, generation: Int) in
+            (stopped, excludedSource, excludedWindowSource, drawsCursor, excludedApplied, streamGeneration)
+        }
+        if state.stopped { return false }
+        let exclusion = Exclusion(pids: Self.excluded(state.source, drawsCursor: state.cursor), windows: state.windows?() ?? [])
+        guard force || exclusion != state.applied else { return true }
+        let running = lock.withLock { () -> (SCStream, SCDisplay)? in
+            guard streamGeneration == state.generation, let stream, let streamDisplay else { return nil }
+            return (stream, streamDisplay)
+        }
+        guard let running else { return true }
+        let (filter, applied) = await Self.filter(display: running.1, excluding: exclusion)
+        guard applied else { return true }
+        do {
+            try await running.0.updateContentFilter(filter)
+            lock.withLock { excludedApplied = exclusion }
+            log("capture leaves out \(exclusion.pids.count) process(es), \(exclusion.windows.count) window(s)")
+        } catch {
+            log("capture filter not applied: \(error.localizedDescription)")
+        }
+        return true
     }
 
     public func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
@@ -349,7 +431,9 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
               let statusRaw = attachments.first?[.status] as? Int, SCFrameStatus(rawValue: statusRaw) == .complete,
               let buffer = sampleBuffer.imageBuffer else { return }
         timing?.frame(displayTime: attachments.first?[.displayTime] as? UInt64)
-        let sink = lock.withLock { onFrame }
+        let (sink, monitor) = lock.withLock { (onFrame, sourceMonitor) }
+        // A new picture while locked or asleep: read again, so an unlock or wake clears the notice now.
+        if let monitor, let state = monitor.state, state != .live { monitor.check() }
         sink?(buffer, CGRect(x: 0, y: 0, width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer)))
     }
 
@@ -368,22 +452,49 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         input.handle(message)
     }
 
-    /// Pixel scrolling (`u: "px"`) and pointer events that carry the held modifiers.
+    /// Pixel scrolling (`u: "px"`), pointer events that carry the held modifiers, and pasted images.
     public var inputCapabilities: [String] {
-        [ScreenHostMessage.pixelScrollCapability, ScreenHostMessage.modifiedPointerCapability]
+        [ScreenHostMessage.pixelScrollCapability, ScreenHostMessage.modifiedPointerCapability, ScreenHostMessage.pasteImageCapability]
+    }
+
+    /// The viewer's Paste Image: the image goes on the general pasteboard,
+    /// then ⌘V pastes it where this Mac's focus is (as the viewer's own ⌘V
+    /// would), in order with the input around it.
+    public func pasteImage(_ data: Data, type: String) -> Bool {
+        guard writePasteboard(data, type) else { return false }
+        input.pasteShortcut()
+        return true
+    }
+
+    /// Replaces the general pasteboard with the image: its own type, plus
+    /// TIFF for a type some apps don't read (HEIC); PNG and JPEG go as they
+    /// are (a TIFF copy is the whole bitmap uncompressed, hundreds of MB for
+    /// a large screenshot). False when the bytes are no image.
+    static func writeGeneralPasteboard(_ data: Data, type: String) -> Bool {
+        guard let image = NSImage(data: data), image.isValid else { return false }
+        let item = NSPasteboardItem()
+        item.setData(data, forType: NSPasteboard.PasteboardType(type))
+        if !["public.png", "public.jpeg", NSPasteboard.PasteboardType.tiff.rawValue].contains(type), let tiff = image.tiffRepresentation {
+            item.setData(tiff, forType: .tiff)
+        }
+        let board = NSPasteboard.general
+        board.clearContents()
+        return board.writeObjects([item])
     }
 
     public func stop() {
-        let (stream, reconfiguration) = lock.withLock { () -> (SCStream?, (callback: CGDisplayReconfigurationCallBack, context: Unmanaged<ScreenCaptureBackend>)?) in
+        let (stream, reconfiguration, sourceMonitor) = lock.withLock { () -> (SCStream?, (callback: CGDisplayReconfigurationCallBack, context: Unmanaged<ScreenCaptureBackend>)?, ScreenSourceMonitor?) in
             defer {
                 self.stream = nil
                 streamDisplay = nil
                 streamGeneration += 1
                 stopped = true
                 self.reconfiguration = nil
+                self.sourceMonitor = nil
             }
-            return (self.stream, self.reconfiguration)
+            return (self.stream, self.reconfiguration, self.sourceMonitor)
         }
+        sourceMonitor?.stop()
         if let reconfiguration {
             // On the main thread, where the callbacks run: none is mid-call when
             // the hold it used is released.
@@ -470,6 +581,24 @@ final class EventInjector: @unchecked Sendable {
             break
         }
     }
+
+    /// ⌘V alone, whatever modifiers the viewer holds (a latched ⇧ or ⌥ would
+    /// make it Paste and Match Style or Move); those stay held after it.
+    func pasteShortcut() {
+        lock.withLock {
+            guard !ended else { return }
+            let held = flags
+            flags = []
+            key(Self.commandKeysym, down: true)
+            key(Self.vKeysym, down: true)
+            key(Self.vKeysym, down: false)
+            key(Self.commandKeysym, down: false)
+            flags = held
+            timing?.input()
+        }
+    }
+
+    static let vKeysym: UInt32 = 0x76, commandKeysym: UInt32 = 0xFFE7
 
     /// Lets go of every button and modifier the viewer holds (a viewer that
     /// drops mid-click or with ⌘ down leaves none stuck on the Mac); input
@@ -606,5 +735,23 @@ final class EventInjector: @unchecked Sendable {
         "!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6", "&": "7", "*": "8", "(": "9", ")": "0",
         "_": "-", "+": "=", "{": "[", "}": "]", "|": "\\", ":": ";", "\"": "'", "<": ",", ">": ".", "?": "/", "~": "`",
     ]
+}
+
+/// This Mac's lock and display sleep, read now: the session dictionary's
+/// `CGSSessionScreenIsLocked` (the window server sets it only while locked;
+/// absent or not a Boolean reads as unlocked, so no false notice) and the
+/// main display's `CGDisplayIsAsleep`. Neither needs an entitlement or a grant.
+public struct SystemScreenSourceProbe: ScreenSourceProbe {
+    public init() {}
+
+    public func read() -> ScreenSourceState {
+        ScreenSourceState(locked: Self.locked(session: CGSessionCopyCurrentDictionary() as? [String: Any]),
+                          asleep: CGDisplayIsAsleep(CGMainDisplayID()) != 0)
+    }
+
+    static func locked(session: [String: Any]?) -> Bool {
+        guard let number = session?["CGSSessionScreenIsLocked"] as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
+        return number.boolValue
+    }
 }
 #endif

@@ -273,8 +273,7 @@
   inset-inline: var(--ds-space-2);
   padding: var(--ds-space-1) 0;
   border-radius: 12px;
-  background: var(--surface-popup);
-  box-shadow: var(--ui-popup-shadow);
+  --glass-elevation: var(--ui-popup-drop, var(--elevation-2));
   overflow: hidden;
 }
 .hm-suggestions-list.ui-listbox {
@@ -350,9 +349,4 @@
   font-size: var(--text-caption);
   color: var(--page-text-2);
   letter-spacing: var(--text-caption--letter-spacing);
-}
-/* An agent member's disc: the hover tint and a sparkle in the secondary text colour (HomeGroupAvatar). */
-.hm-member-sparkle {
-  background: var(--page-hover);
-  color: color-mix(in srgb, var(--page-text) 60%, transparent);
 }

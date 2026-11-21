@@ -15,6 +15,7 @@ import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import { cmuxCommandRefusal, type CmuxCommand, type CmuxCommandResult } from "../src/agent-session/acpmux/cmuxCommands";
 import { translate } from "../src/agent-session/acpmux/i18n";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -93,12 +94,8 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {
@@ -136,7 +133,7 @@ const PNG = Uint8Array.from([
 ]);
 
 /** A file still being read: its loading tile at its place in the prompt (inline, the default view). */
-const LOADING = '.acpmux-md-inline-chip[data-state="loading"]';
+const LOADING = '.acpmux-md-inline-chip[aria-busy="true"], .acpmux-md-inline-chip [aria-busy="true"]';
 
 /** Renders the composer over `snapshot`, types `typed` into it and returns its field and sends. */
 async function composer(
@@ -380,6 +377,33 @@ test("an attachment-only Return waits for a pending image and sends it when read
   expect(page.sent[0]!.steer).toBe(false);
   expect(page.sent[0]!.text).toMatch(/^\uFFFC[^\uFFFC]+\uFFFC$/);
   expect(page.sentAttachments).toEqual([["pending.png"]]);
+});
+
+test("a screenshot sent as a path loads in a file chip at the caret", async () => {
+  const snapshot = chat();
+  snapshot.summary = { ...snapshot.summary!, promptCapabilities: { image: false } };
+  let resolve!: (result: { paths: string[] }) => void;
+  const upload = new Promise<{ paths: string[] }>((done) => {
+    resolve = done;
+  });
+  const page = await composer(snapshot, "", undefined, false, undefined, () => upload);
+  const file = new File([PNG], "screenshot.png", { type: "image/png" });
+  const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: { files: [file], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => page.field.dispatchEvent(paste));
+  try {
+    const loading = page.field.querySelector('.acpmux-attachment-file[aria-busy="true"]');
+    expect(loading).not.toBeNull();
+    expect(loading!.textContent).toContain("screenshot.png");
+    expect(loading!.querySelector("img")).toBeNull();
+  } finally {
+    await act(async () => resolve({ paths: ["/tmp/screenshot.png"] }));
+  }
+  expect(page.field.querySelector(".acpmux-attachment-link[data-saved]")).not.toBeNull();
+  await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
+  expect(page.sentAttachments).toEqual([["screenshot.png"]]);
 });
 
 test("a terminal-only spelling waits for its pending image and sends as an attachment prompt", async () => {

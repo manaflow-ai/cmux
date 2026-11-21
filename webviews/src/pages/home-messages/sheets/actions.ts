@@ -18,7 +18,7 @@
 //                                                                     (+ the first message's send)
 // Catalog actions (the PageDescriptor's allowed actions): home.leaveConversation (asks first),
 // home.invite, home.inviteToTeam {email}, home.newChief.
-import { isPageError, type PageClient } from "../../shared/pageClient";
+import type { PageClient } from "../../shared/pageClient";
 import type { Strings } from "../../shared/i18n";
 import type { ContactAddress } from "./address";
 import {
@@ -30,7 +30,6 @@ import {
   type SeatImpact,
   type TeamInviteResult,
 } from "./model";
-import { parseOutbox } from "../outbox";
 import type { HomeRecipient } from "./recipients";
 
 export const MessagesSheetOps = {
@@ -91,24 +90,16 @@ export interface ComposeActions {
   openTeamInvite(address: ContactAddress): void;
 }
 
-/** A refusal the host sent as an error, as the sheet's status line reads it. */
-function refused(error: unknown): { kind: "refused"; reason: string } {
-  return { kind: "refused", reason: isPageError(error) || error instanceof Error ? error.message : "" };
+/** A refusal the host sent as an error, as the sheet's status line reads it: the generic "That
+ * didn't work. Try again." (an empty reason), never the owner's own text. */
+function refused(): { kind: "refused"; reason: string } {
+  return { kind: "refused", reason: "" };
 }
 
 const wireRecipient = (recipient: HomeRecipient) =>
   recipient.kind === "contact"
     ? { contact: recipient.contact.id }
     : { address: recipient.address.value, addressKind: recipient.address.kind };
-
-/** `start`'s outcome with its unanswered first send (`pending`) checked as the outbox checks a kept
- * row: a malformed one is dropped, never shown. */
-export function firstSendOutcome(outcome: ComposeOutcome): ComposeOutcome {
-  if (outcome.kind !== "opened") return outcome;
-  const { pending, ...opened } = outcome;
-  const rows = parseOutbox({ pending: { [opened.conversation]: Array.isArray(pending) ? pending : [] } });
-  return rows.length ? { ...opened, pending: rows } : opened;
-}
 
 /** The actions over the page's host. */
 export function hostActions(host: PageClient, strings: Strings) {
@@ -155,14 +146,8 @@ export function hostActions(host: PageClient, strings: Strings) {
         );
       return teamInviteOutcome(result, address.value, strings);
     },
-    start: async (recipients, text) =>
-      firstSendOutcome(
-        await outcome<ComposeOutcome>(
-          MessagesSheetOps.start,
-          { recipients: recipients.map(wireRecipient), text },
-          refused,
-        ),
-      ),
+    start: (recipients, text) =>
+      outcome(MessagesSheetOps.start, { recipients: recipients.map(wireRecipient), text }, refused),
     newChief: () => action(MessagesSheetActions.newChief),
     openInvite: () => action(MessagesSheetActions.invite),
     openTeamInvite: (address) => action(MessagesSheetActions.inviteToTeam, { email: address.value }),

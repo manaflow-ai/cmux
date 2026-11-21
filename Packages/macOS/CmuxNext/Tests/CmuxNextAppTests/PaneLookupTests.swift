@@ -133,6 +133,23 @@ struct PaneLookupTests {
                 "a bare paneKey two machines share stays ambiguous")
     }
 
+    /// Close Other Panes on a remote pane closes the other panes on that pane's own machine: a pane
+    /// with no view was closed on the active daemon (this Mac), so the local pane with the same
+    /// handle could close instead, and with this Mac's daemon offline the close was refused as
+    /// "not connected" though the remote machine was the one asked (PL-burst review, minor).
+    @Test func closeOtherPanesOfARemotePaneAsksThatPanesMachine() throws {
+        let fixture = try Fixture()
+        #expect(fixture.services.daemon(for: fixture.remotePanes[0]) === fixture.remote.daemon)
+        PaneHandlers.bindPaneVerbs(into: fixture.services.registry, context: AppActionContext(services: fixture.services))
+        let invocation = fixture.invocation(fixture.remotePanes[0].id, machine: fixture.remote.machineID).confirmed()
+        var ran = false
+        let refusal = fixture.services.registry.capturingRefusal {
+            _ = fixture.services.registry.capturingWork { ran = fixture.services.registry.perform("pane.closeOthers", invocation: invocation) }
+        }
+        #expect(ran)
+        #expect(refusal != MiscHandlerStrings.daemonOffline, "the close went to this Mac's daemon, not the remote pane's")
+    }
+
     /// An agent tab's open in editor (`file.open` where `editor`, also Session Info Sources and the
     /// Diff page) and its preview open run on the agent pane's own machine.
     @Test func agentFileAndPreviewOpensAreScopedToTheirOwnMachine() throws {

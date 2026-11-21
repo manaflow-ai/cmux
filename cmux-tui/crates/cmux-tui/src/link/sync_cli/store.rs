@@ -81,7 +81,7 @@ fn configured() -> Option<&'static Config> {
 /// answer or answered with no list of capabilities: such a machine may serve
 /// it, so the caller still fences.
 pub(super) fn fetch_served(socket: &std::path::Path) -> Option<bool> {
-    serves_fetch(&super::super::machine_gate::identify(socket)?)
+    serves_fetch(&super::super::machine_gate::reach(socket).ok()?)
 }
 
 /// [`fetch_served`] for one `identify` answer: `None` when it has no list of
@@ -517,6 +517,7 @@ impl Client {
         let runtime =
             tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build()?;
         let http = reqwest::Client::builder()
+            .default_headers(cmux_build_space::headers()?)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .timeout(Duration::from_secs(120))

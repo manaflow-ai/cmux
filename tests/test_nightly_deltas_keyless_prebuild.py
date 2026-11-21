@@ -15,6 +15,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 TEXT = (ROOT / ".github" / "workflows" / "nightly.yml").read_text()
 JOBS = yaml.safe_load(TEXT)["jobs"]
@@ -33,18 +36,40 @@ def steps(name: str) -> list[dict]:
     return JOBS.get(name, {}).get("steps") or []
 
 
+# build-nightly-deltas' runners: the fork branch's hosted Mac, the nightly mini, or a nightly-only runner. Read per
+# matrix cell (workflow_jobs.runs_on_values); a runner it cannot resolve to these is refused, never passed.
+LIGHT_LABEL = re.compile(r"glaeda-nightly-only-[A-Za-z0-9_.-]+")
+FORK_LABELS = {"macos-26"}
+LIGHT_VARIABLES = {"vars.CI_NIGHTLY_MINI", "vars.CI_NIGHTLY_ONLY_RUNNER"}
+WHOLE_MAC = ("glaeda-trusted-next-signing", "hold-the-whole-mac", "claim-publication-mac")
+
+
+def light_route_problems(job: dict) -> list[str]:
+    """Why a job's runs-on may leave the nightly mini's light, nightly-only runners; [] when it cannot."""
+    if workflow_jobs.runs_on_cells(job) is None:
+        return [f"its runs-on {workflow_jobs.runs_on(job)!r} reads a matrix value nothing resolves"]
+    labels, unresolved = workflow_jobs.runs_on_values(job)
+    found = [f"it may run on the whole-Mac signer ({label})" for label in sorted(labels)
+             if any(word in label for word in WHOLE_MAC)]
+    found += [f"it may run on {label}, not a nightly-only runner" for label in sorted(labels)
+              if label not in FORK_LABELS and not LIGHT_LABEL.fullmatch(label)]
+    found += [f"its runner comes from {term}, which may name any runner" for term in sorted(unresolved - LIGHT_VARIABLES)]
+    if "vars.CI_NIGHTLY_ONLY_RUNNER" not in unresolved:
+        found.append("it no longer takes vars.CI_NIGHTLY_ONLY_RUNNER, the nightly mini's nightly-only runners")
+    return found
+
+
 build = JOBS.get("build-nightly-deltas")
 if build is None:
     failures.append("no build-nightly-deltas job builds the deltas without the key")
 else:
     body = job_text("build-nightly-deltas")
-    if "secrets." in body:
+    if workflow_jobs.secret_names(body) or workflow_jobs.secret_names(build):
         failures.append("build-nightly-deltas must hold no secret")
-    if "glaeda-trusted-next-signing" in str(build.get("runs-on")) or "hold-the-whole-mac" in body \
-            or "claim-publication-mac" in body:
+    if any(word in body for word in WHOLE_MAC[1:]):
         failures.append("build-nightly-deltas must run on a light nightly-only runner, not the whole-Mac signer")
-    if "CI_NIGHTLY_ONLY_RUNNER" not in str(build.get("runs-on")):
-        failures.append("build-nightly-deltas must stay on the nightly mini's nightly-only runners")
+    failures += [f"build-nightly-deltas must stay on the nightly mini's nightly-only runners: {why}"
+                 for why in light_route_problems(build)]
     if "NIGHTLY_DELTAS_PREBUILD_ONLY: 1" not in body and "NIGHTLY_DELTAS_PREBUILD_ONLY: '1'" not in body:
         failures.append("build-nightly-deltas must run generate-nightly-deltas.sh in its keyless mode")
     if "cmux-nightly-prebuilt-deltas-${{ matrix.variant }}" not in body:
@@ -74,6 +99,22 @@ if not 0 <= exit_at < APPCAST.find('key_file="$work_dir/sparkle_ed_key"'):
     failures.append("sparkle_generate_appcast.sh must exit its prebuild-only mode before it writes the key file")
 if "SPARKLE_PREBUILT_DELTAS_DIR" not in APPCAST:
     failures.append("sparkle_generate_appcast.sh must reuse SPARKLE_PREBUILT_DELTAS_DIR's deltas")
+
+# The route check refuses what it cannot read as a light runner (#40846 review F1): a matrix, a picker output, the
+# signer's label, a matrix nothing resolves.
+LIGHT = "${{ vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"
+for runs_on, strategy, refused in (
+        (LIGHT, None, False),
+        ("${{ matrix.runner }}", {"matrix": {"runner": ["glaeda-nightly-only-m4pro", "glaeda-trusted-next-signing"]}},
+         True),
+        ("${{ matrix.runner }}", {"matrix": "${{ fromJSON(needs.pick.outputs.matrix) }}"}, True),
+        ("${{ needs.pick.outputs.runner || vars.CI_NIGHTLY_ONLY_RUNNER }}", None, True),
+        ("${{ vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-trusted-next-signing' }}", None, True),
+        ("${{ vars.CI_NIGHTLY_MINI || 'glaeda-nightly-only-m4pro' }}", None, True),
+        ("blacksmith-6vcpu-macos-26", None, True)):
+    fixture = {"runs-on": runs_on, **({"strategy": strategy} if strategy else {})}
+    if bool(light_route_problems(fixture)) != refused:
+        failures.append(f"the route check {'passes' if refused else 'refuses'} {fixture}")
 
 if failures:
     print("FAIL: keyless nightly deltas\n  " + "\n  ".join(failures))

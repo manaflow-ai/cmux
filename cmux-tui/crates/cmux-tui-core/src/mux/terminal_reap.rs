@@ -501,7 +501,8 @@ impl Mux {
             }
         }
         // One projection and one commit for every terminal with a runtime
-        // (O(N), nx-scale 1b); the per-terminal close takes the rest.
+        // and every ended or pending one with none (O(N), nx-scale 1b); the
+        // per-terminal close takes what the batch must not decide.
         let mutation = WorkspaceMutation::daemon_local(END_TERMINALS_MUTATION_ORIGIN);
         let one_by_one = match self.end_terminals_in_one_commit(&to_close, &mutation) {
             Ok(batch) => {
@@ -767,9 +768,26 @@ impl Mux {
         // read below queries the registry database while state is held.
         let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
-        ids.into_iter()
+        let ended: Vec<(Vec<String>, TerminalPublicId)> = ids
+            .into_iter()
             .filter(|id| state.terminal_catalog.get(id).is_none_or(|surface| surface.is_dead()))
-            .filter(|id| Self::terminal_tabs_kept_locked(&registry, &state, id).unwrap_or(false))
+            .map(|id| (Self::terminal_tab_ids(&state, &id), id))
+            .filter(|(tab_ids, _)| !tab_ids.is_empty())
+            .collect();
+        // One statement reads the kept tabs for each terminal of the session; no ended terminal, no statement.
+        let kept = if ended.is_empty() {
+            HashSet::new()
+        } else {
+            let read = registry.kept_tab_ids();
+            if let Err(error) = &read {
+                eprintln!("cmux-tui: the kept tabs were not read, no parked trim: {error:#}");
+            }
+            read.unwrap_or_default()
+        };
+        ended
+            .into_iter()
+            .filter(|(tab_ids, _)| tab_ids.iter().any(|tab_id| kept.contains(tab_id)))
+            .map(|(_, id)| id)
             .collect()
     }
 

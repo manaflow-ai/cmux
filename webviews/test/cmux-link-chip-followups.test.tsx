@@ -21,6 +21,7 @@ import { chipsAsLinks } from "../src/agent-session/acpmux/conversation/chipCopy"
 import { SessionHoverStore } from "../src/agent-session/acpmux/started/sessionHover";
 import { SessionHoverContext } from "../src/agent-session/acpmux/started/sessionHoverCardModel";
 import { resetSessionRefs, setSessionRefResolver } from "../src/agent-session/acpmux/conversation/sessionRefs";
+import { teardownDom } from "./support/domTeardown";
 
 const HEX = "16c92e4354fcaf05540386720d78e251";
 const WORKSPACE = `cmux-nightly://workspace/ws_${HEX}`;
@@ -104,14 +105,10 @@ afterEach(() => {
   resetSessionRefs();
 });
 
-afterAll(() => {
+afterAll(async () => {
   setLinkPlaces([]);
   setPageChats(undefined);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function chats(): SessionHoverStore {

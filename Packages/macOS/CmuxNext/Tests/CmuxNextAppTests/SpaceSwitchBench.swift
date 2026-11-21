@@ -31,6 +31,8 @@ final class SpaceSwitchBench {
     let controller: WindowController
     let rooms: [ProfileID]
     let keysByRoom: [ProfileID: [String]]
+    /// The snapshot the store shows: a test changes a copy and applies it (a pane that comes or goes).
+    let tree: DaemonTree
 
     /// - Parameters:
     ///   - total: workspaces in the window, split evenly across `spaces` rooms.
@@ -62,6 +64,7 @@ final class SpaceSwitchBench {
             pins: keys.enumerated().map { WorkspacePin(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: $1), profile: rooms[$0 % spaces]) },
             workspaces: keys.enumerated().map { PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: $1), index: $0) })
         store.apply(snapshot: tree)
+        self.tree = tree
         let frame = NSRect(x: 200, y: 200, width: 1100, height: 720)
         if registered {
             services.windows.ordersWindowsIn = false
@@ -112,6 +115,12 @@ final class SpaceSwitchBench {
     func close() {
         controller.teardown()
         controller.window?.close()
+        // The services' group editor keeps its panel warm once a press made it (GroupEditorService); the bench's
+        // services end here, so their panel closes with the window instead of staying open for later suites.
+        if let panel = services.groupEditor.panel {
+            panel.isReleasedWhenClosed = false
+            panel.close()
+        }
     }
 
     var list: SidebarListView { controller.sidebar.container.sidebarView.list }

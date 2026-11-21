@@ -1,0 +1,11 @@
+# Files an earlier commit deleted that came back unchanged (check-no-swiftui.py, finding 3).
+# A row is a claim, not a proof: the check only compares the file with the blob the row names (CI has no
+# history to look the blob up in). A reviewer of a new row runs `git rev-parse <deleting commit>^:<path>`
+# and compares it with the blob id.
+# path<TAB>git blob id<TAB>why. Port the file to AppKit and delete its row and its allowlist line.
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupAvatar.swift	075f1e5b541d35540d83c22afb77b0cf53ed0409	deleted by #37736 (b7d534e7f6fd), restored unchanged: Home lives in Swift
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupContactRow.swift	682c2a967847da0607edf673e73c1500a5ee7485	deleted by #37736 (b7d534e7f6fd), restored unchanged: Home lives in Swift
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupInfoColors.swift	3d9d5a4a8fda530edd616abad1bf8f59941dcd1f	deleted by #37736 (b7d534e7f6fd), restored unchanged: Home lives in Swift
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupInfoSheet.swift	010153fdba5d521aca8dcec6f1c125c3ca7df469	deleted by #37736 (b7d534e7f6fd), restored unchanged: Home lives in Swift
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupInfoView.swift	6c894bf3c6f6a4a3ba0b82bbe0933ffafc22ea84	deleted by #37736 (b7d534e7f6fd), restored unchanged: Home lives in Swift
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupMemberRow.swift	708d050ba66fc1c1b071f75b22d2db5810da572b	deleted by #37736 (b7d534e7f6fd), restored unchanged: Home lives in Swift

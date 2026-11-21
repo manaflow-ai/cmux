@@ -4,7 +4,7 @@ use super::Controller;
 
 const DEFAULT_MSS: usize = 1024;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Reno {
     cwnd: usize,

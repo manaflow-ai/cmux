@@ -14,13 +14,7 @@ export interface HomeContact {
   id: string;
   name: string;
   source: ContactSource;
-  /** How the To: list tells a Chief apart (the host's HomeChiefRoster look): its tag and last activity. */
-  look?: RecipientLook;
 }
-
-/** The To: list's look of a recipient: a Chief's own (from the host), else none. */
-export const contactLook = (recipient: HomeRecipient): RecipientLook =>
-  recipient.kind === "contact" ? (recipient.contact.look ?? {}) : {};
 
 /** One recipient: someone the user reaches, or an address that gets an invite. */
 export type HomeRecipient = { kind: "contact"; contact: HomeContact } | { kind: "address"; address: ContactAddress };

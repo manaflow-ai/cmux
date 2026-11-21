@@ -129,6 +129,18 @@ impl Daemon {
         daemon
     }
 
+    /// A daemon whose terminal hosts wait at the gate that this returns,
+    /// while the gate is closed ([`HostReadyGate`]). A Debug daemon only.
+    pub fn start_with_host_ready_gate(name: &str) -> (Self, HostReadyGate) {
+        let mut daemon = Self::prepare(name, &[], true);
+        let gate = HostReadyGate { path: daemon.dir.join("host-ready-gate") };
+        daemon
+            .env
+            .push(("CMUX_TUI_TEST_HOST_READY_GATE".to_owned(), gate.path.display().to_string()));
+        daemon.spawn();
+        (daemon, gate)
+    }
+
     fn prepare(name: &str, env: &[(&str, &str)], acpmux: bool) -> Self {
         let dir = PathBuf::from("/tmp").join(unique(&format!("cmux-amp-{name}")));
         fs::create_dir_all(&dir).unwrap();
@@ -435,7 +447,12 @@ impl Daemon {
 
     /// `cmux --json <args>` against this daemon.
     pub fn cli(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        self.cli_command(args).output().unwrap()
+    }
+
+    fn cli_command(&self, args: &[&str]) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        command
             .arg("--json")
             .arg("--socket")
             .arg(&self.socket)
@@ -444,9 +461,8 @@ impl Daemon {
             .env_remove("CMUX_TUI_SOCKET")
             .env_remove("CMUX_TUI_TERMINAL_ID")
             .env_remove("CMUX_LAUNCH_CREDENTIAL")
-            .env_remove("ACPMUX_SESSION_ID")
-            .output()
-            .unwrap()
+            .env_remove("ACPMUX_SESSION_ID");
+        command
     }
 
     /// `cmux --json <args>` started against this daemon and its acpmux, as
@@ -514,6 +530,50 @@ impl Daemon {
         run["value"]["terminal_id"].as_str().unwrap().to_owned()
     }
 
+    /// [`Self::terminal`] that does not wait for the daemon: the started
+    /// `cmux` command. It ends when the terminal is ready, and its output
+    /// names the terminal ([`started_terminal`]).
+    pub fn terminal_started(&self, workspace: &str, script: &str) -> Child {
+        self.cli_command(&[
+            "workspace",
+            workspace,
+            "run",
+            "--on-exit",
+            "keep",
+            "--",
+            "/bin/sh",
+            "-c",
+            script,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
+    }
+
+    /// The connections that the daemon admitted up to now, with the one of
+    /// this read (`server-stats`, section `commands`).
+    pub fn admitted_connections(&self) -> u64 {
+        let stats = self
+            .legacy(json!({"id": 1, "cmd": "server-stats", "include": ["commands"]}))
+            .expect("server-stats");
+        stats["data"]["commands"]["connections"]
+            .as_array()
+            .unwrap_or_else(|| panic!("server-stats has no commands.connections: {stats}"))
+            .iter()
+            .filter_map(|row| row["accepted"].as_u64())
+            .sum()
+    }
+
+    /// The lifecycle of terminal `terminal` (`resolve-terminal`): `adopting`
+    /// while a daemon that started again has not yet adopted the terminal.
+    pub fn lifecycle(&self, terminal: &str) -> String {
+        let resolved = self
+            .legacy(json!({"id": 1, "cmd": "resolve-terminal", "terminal_id": terminal}))
+            .expect("resolve-terminal");
+        resolved["data"]["lifecycle"].as_str().unwrap_or_default().to_owned()
+    }
+
     /// A terminal in `workspace` whose child writes its launch credential to
     /// a file and then runs `then` (a shell command); its id and credential.
     pub fn agent_terminal(&self, workspace: &str, then: &str) -> (String, String) {
@@ -577,6 +637,46 @@ impl Drop for Daemon {
         self.stop();
         let _ = fs::remove_dir_all(&self.dir);
     }
+}
+
+/// The gate of the terminal hosts of a daemon that
+/// [`Daemon::start_with_host_ready_gate`] started: a FIFO. A host that the
+/// daemon starts while the gate is closed has made its terminal's process,
+/// and waits in its open of the FIFO before it tells the daemon that the
+/// terminal is ready.
+pub struct HostReadyGate {
+    path: PathBuf,
+}
+
+impl HostReadyGate {
+    /// Each host that the daemon starts from now on waits at the gate.
+    pub fn close(&self) {
+        let made = Command::new("mkfifo").arg(&self.path).status().unwrap();
+        assert!(made.success(), "mkfifo {}", self.path.display());
+    }
+
+    /// Lets each host that waits go on, and each later host pass.
+    pub fn open(&self) {
+        // An open for reading and writing does not wait for a host. The gate
+        // is removed while it is open: a host that saw it gets through.
+        let open = fs::OpenOptions::new().read(true).write(true).open(&self.path);
+        let _ = fs::remove_file(&self.path);
+        drop(open);
+    }
+}
+
+/// The id of the terminal that a command of [`Daemon::terminal_started`]
+/// made. Waits for the command.
+pub fn started_terminal(run: Child) -> String {
+    let output = run.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "the run failed: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let run: Value = serde_json::from_slice(&output.stdout).unwrap();
+    run["value"]["terminal_id"].as_str().unwrap().to_owned()
 }
 
 pub fn wait_for_file(path: &Path) -> String {

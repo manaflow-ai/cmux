@@ -4,7 +4,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use cmux_tui_core::{MuxEvent, SurfaceId};
 use crossbeam_channel::Sender as SyncSender;
@@ -192,6 +191,12 @@ pub(super) fn start_ordered_session_inner(
 ) -> anyhow::Result<(OrderedSession, SessionEventWorker, Arc<MuxTitleIngress>, Arc<AtomicU64>)> {
     let cancellation = EventCancellation::new();
     let start = Arc::new(AtomicBool::new(!paused));
+    // The app loop blocks with no timeout when nothing timed waits: state
+    // this session changes on its own threads without an event wakes it.
+    let wake = app_events.clone();
+    inner.set_idle_waker(move || {
+        let _ = wake.try_send(AppEvent::Wake);
+    });
     let events =
         SessionEventSender::scoped(app_events, generation, surface_filter, cancellation.clone());
     let layout_resize_owner = inner.allocate_layout_resize_owner();
@@ -213,12 +218,21 @@ pub(super) fn start_ordered_session_inner(
     let worker_titles = mux_titles.clone();
     let worker_start = start.clone();
     let worker_stop = stop.clone();
+    #[cfg(test)]
+    let paused_wakes = Arc::new(AtomicU64::new(0));
+    #[cfg(test)]
+    let worker_paused_wakes = paused_wakes.clone();
     let mux =
         std::thread::Builder::new().name(format!("mux-events-{generation}")).spawn(move || {
+            // Paused (a prepared machine session): `activate` and
+            // `stop_and_join` unpark this thread; it never polls the flags
+            // on a timer. A wake before the park is kept by the park token.
             while !worker_start.load(Ordering::Acquire)
                 && !worker_events.cancellation.stop.load(Ordering::Acquire)
             {
-                std::thread::park_timeout(Duration::from_millis(1));
+                std::thread::park();
+                #[cfg(test)]
+                worker_paused_wakes.fetch_add(1, Ordering::Relaxed);
             }
             if worker_events.cancellation.stop.load(Ordering::Acquire) {
                 return;
@@ -235,7 +249,14 @@ pub(super) fn start_ordered_session_inner(
         })?;
     Ok((
         session,
-        SessionEventWorker { cancellation, start, stop, mux: Some(mux) },
+        SessionEventWorker {
+            cancellation,
+            start,
+            stop,
+            mux: Some(mux),
+            #[cfg(test)]
+            paused_wakes,
+        },
         mux_titles,
         mux_recovery_generation,
     ))

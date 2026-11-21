@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
 """structural-rebuild.py's log reading and edit, with no build: the timing summary and the driver's receipt come
-out of a reload log (not an earlier build's receipt), the edit adds one stored property inside HomeConversationPage, and a
+out of a reload log (not an earlier build's receipt), the edit adds one stored property inside HomeHostView, and a
 run refuses a source file with local edits; a SIGTERM during a reload unwinds and ends the reload's process
 group, SIGKILLing a member that ignores SIGTERM."""
+# tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): it drops inherited
+# GIT_DIR / GIT_INDEX_FILE / GIT_CONFIG redirects and turns off git's background maintenance in temp repos.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), '..', '..', '..', 'tests', "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 import importlib.util, json, os, signal, subprocess, sys, tempfile, time
 from pathlib import Path
 
@@ -10,6 +18,10 @@ ROOT = Path(__file__).resolve().parents[3]
 spec = importlib.util.spec_from_file_location("structural_rebuild", ROOT / "scripts/measure/structural-rebuild.py")
 sr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sr)
+# tests/process_gone.py by path: `python3 -I` puts no script folder on sys.path.
+spec = importlib.util.spec_from_file_location("process_gone", ROOT / "tests/process_gone.py")
+process_gone = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(process_gone)
 
 with tempfile.TemporaryDirectory(prefix="structural-rebuild-") as tmp:
     log = Path(tmp) / "cmux-reload-srebuild.log"
@@ -37,11 +49,11 @@ with tempfile.TemporaryDirectory(prefix="structural-rebuild-") as tmp:
 
     source = Path(tmp) / sr.EDIT_FILE
     source.parent.mkdir(parents=True)
-    source.write_text("import AppKit\n\n@MainActor\nfinal class HomeConversationPage: NSView {\n    let transcript: Int\n}\n")
+    source.write_text("import AppKit\n\n@MainActor\nfinal class HomeHostView: NSView {\n    let transcript: Int\n}\n")
     sr.ROOT = tmp
     sr.add_property(1)
     sr.add_property(2)
-    assert source.read_text() == ("import AppKit\n\n@MainActor\nfinal class HomeConversationPage: NSView {\n"
+    assert source.read_text() == ("import AppKit\n\n@MainActor\nfinal class HomeHostView: NSView {\n"
                                   "    var structuralRebuildProbe2 = 2\n    var structuralRebuildProbe1 = 1\n"
                                   "    let transcript: Int\n}\n"), source.read_text()
 
@@ -81,11 +93,8 @@ with tempfile.TemporaryDirectory(prefix="structural-rebuild-") as tmp:
     # reload.sh takes the cleanup's SIGTERM at once: the run does not sit out the grace and SIGKILL it.
     assert time.monotonic() - sent < 10, f"cleanup took {time.monotonic() - sent:.1f} s"
     assert (Path(tmp) / "unwound").read_text() == "yes"
-    try:
-        os.kill(child, 0)
-        raise AssertionError(f"the reload's child {child} outlived the run")
-    except ProcessLookupError:
-        pass
+    # The child, reparented once reload.sh ended, is gone once it has exited: a zombie not reaped yet counts.
+    assert process_gone.died(child), f"the reload's child {child} outlived the run"
 # A process in the reload's group that ignores SIGTERM is SIGKILLed after the grace, even once reload.sh is gone.
 with tempfile.TemporaryDirectory(prefix="structural-rebuild-") as tmp:
     (Path(tmp) / "scripts").mkdir()
@@ -104,12 +113,12 @@ with tempfile.TemporaryDirectory(prefix="structural-rebuild-") as tmp:
     run.send_signal(signal.SIGTERM)
     _, err = run.communicate(timeout=60)
     assert "ended by signal" in err, (run.returncode, err)
-    try:
-        os.kill(child, 0)
-        os.kill(child, signal.SIGKILL)
+    if not process_gone.died(child):
+        try:
+            os.kill(child, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         raise AssertionError(f"the reload's child {child}, which ignores SIGTERM, outlived the run")
-    except ProcessLookupError:
-        pass
 # macOS answers killpg with EPERM once the group holds only zombies: the cleanup takes that as gone, not an error
 # that would cut it short and replace the stop that started it.
 class Gone:

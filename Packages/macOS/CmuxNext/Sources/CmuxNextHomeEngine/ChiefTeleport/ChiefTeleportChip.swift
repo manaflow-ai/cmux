@@ -2,8 +2,8 @@ public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 
-/// Where the Chief runs, as a small chip (the Home header beside the Chief's name, the Chief card's
-/// Runs On row): This Mac, cmux Cloud or the host's name, or the running move's step. A click
+/// Where the Chief runs, as a small chip (the Chief card's Runs On row, ``ChiefRunsOnChip``): This
+/// Mac, cmux Cloud or the host's name, or the running move's step. A click
 /// opens the Teleport menu (``ChiefTeleportMenuBuilder``), whose picks run the app's `chief.moveTo`
 /// and `chief.moveRollback` through ``ChiefTeleportModel``.
 ///
@@ -14,9 +14,6 @@ import CmuxNextDesign
 public final class ChiefTeleportChip: NSView {
     /// How it draws (``ChiefTeleportChipStyle/plain`` ships).
     public var style: ChiefTeleportChipStyle { didSet { if style != oldValue { show() } } }
-    /// A Chief on another host reads "Chief is on <host>" (Home's header on this Mac's conversation,
-    /// which cannot open the Chief there); off, the host's name alone (the Chief card).
-    public var saysAway = false { didSet { if saysAway != oldValue { show() } } }
     private let model: ChiefTeleportModel
     private let glyph = ThemedImageView()
     private let label = ThemedLabel(labelWithString: "")
@@ -88,15 +85,28 @@ public final class ChiefTeleportChip: NSView {
 
     /// Reads the model and draws the chip for it.
     func show() {
-        let face = model.chipFace(saysAway: saysAway)
-        let text = face.text
-        tone = switch face.tone {
-        case "running": .running
-        case "failed": .failed
-        case "away": .away
-        default: .here
+        let phase = model.shownPhase
+        let place = Self.placeTitle(model.location, current: model.menu().currentTitle)
+        let text: String
+        let symbol: String
+        switch phase {
+        case .checking, .moving, .verifying, .rollingBack:
+            tone = .running
+            text = ChiefTeleportMenuBuilder.statusLine(phase) ?? place
+            symbol = phase == .rollingBack ? "arrow.uturn.backward" : "arrow.triangle.2.circlepath"
+        case .failed:
+            tone = .failed
+            text = ChiefTeleportMenuBuilder.statusLine(phase) ?? place
+            symbol = "exclamationmark.triangle"
+        case .idle, .done, .rolledBack:
+            tone = model.location == .thisMac ? .here : .away
+            if model.location == .thisMac, model.marks.fork != nil {
+                text = ChiefTeleportStrings.withFork(place)
+            } else {
+                text = place
+            }
+            symbol = Self.placeSymbol(model.location)
         }
-        let symbol = face.symbol
         label.stringValue = text
         label.ink = switch tone {
         case .failed: .danger
@@ -111,7 +121,7 @@ public final class ChiefTeleportChip: NSView {
         label.isHidden = !style.showsText
         chevron.isHidden = !style.showsChevron
         dot.isHidden = style != .dot
-        setAccessibilityLabel(face.label)
+        setAccessibilityLabel(ChiefTeleportStrings.label(text))
         themedToolTip = style.showsText ? ChiefTeleportStrings.help : text
         invalidateIntrinsicContentSize()
         needsLayout = true
@@ -201,6 +211,14 @@ public final class ChiefTeleportChip: NSView {
         case .thisMac: ChiefTeleportStrings.thisMac
         case .cloud: ChiefTeleportStrings.cloud
         case .host(let host): host
+        }
+    }
+
+    static func placeSymbol(_ location: ChiefLocation) -> String {
+        switch location {
+        case .thisMac: "laptopcomputer"
+        case .cloud: "cloud"
+        case .host: "macmini"
         }
     }
 

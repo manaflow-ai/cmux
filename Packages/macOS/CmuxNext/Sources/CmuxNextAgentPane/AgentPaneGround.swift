@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// The chat's own ground under its page (SPLIT NEW PANE GROUND, m81): what the page paints under its content
 /// (``AgentPaneTheme/pageBackground(_:surface:backgrounds:)``, the user's `appearance.surfaces` background), drawn by the
@@ -63,4 +63,11 @@ extension AgentPaneView {
         ground.isHidden = false
         if model.newTab == nil { showsLoadingState = true }
     }
+}
+
+/// SPLIT OPEN CHAT: the chat's ground is this pane's ground. Its pane shows it where the chat, held at its rest size
+/// on a split's spring, does not reach yet (`PaneClipView.showHeldGround`), and when the pane closes. Nil under a
+/// picture of the chat and for a translucent ground: the pane then shows what it showed before.
+extension AgentPaneView: PaneGroundReporting {
+    public var paneGround: CGColor? { ground.isHidden ? nil : ground.layer?.backgroundColor }
 }

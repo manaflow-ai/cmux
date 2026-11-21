@@ -1,7 +1,7 @@
 // Home link chips and their preview cards, ported from Swift `HomeLinkChip` (the kind a link shows
 // as), `HomeLinkPreview` and `HomeLinkChipHoverSource` (CmuxNextHome/LinkChips) and
 // `HomeLinkPreviewProvider` (CmuxNextApp/Home). The facts come from the app through one host op,
-// `cmux.home.messages.linkPreview` (spec below); the swap PR wires it to the provider, which reads the
+// `cmux.home.linkPreview` (spec below); the swap PR wires it to the provider, which reads the
 // models and never changes them.
 
 /** What a chip points at; its icon. */
@@ -65,7 +65,7 @@ export interface HomeLinkPreview {
 }
 
 /**
- * `cmux.home.messages.linkPreview` (page → host). Params `{url, kind, details}`; answers a
+ * `cmux.home.linkPreview` (page → host). Params `{url, kind, details}`; answers a
  * `HomeLinkPreview`.
  *  - `details: false`: what the app knows at once (titles, state), for the card as it opens
  *    (`HomeLinkPreviewing.preview(for:kind:)`).
@@ -73,7 +73,7 @@ export interface HomeLinkPreview {
  *    a page's thumbnail), for the card to update in place (`details(for:preview:)`).
  *  A target the app no longer has answers its id as the title, `status` "Closed", tone `danger`.
  */
-export const LINK_PREVIEW_OP = "cmux.home.messages.linkPreview";
+export const LINK_PREVIEW_OP = "cmux.home.linkPreview";
 
 export interface LinkPreviewParams {
   url: string;

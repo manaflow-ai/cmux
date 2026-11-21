@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import ci_apply  # noqa: E402
 import live_apply  # noqa: E402
 
-APP = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeConversationPage.swift"
+APP = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift"
 HELPER = "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/Admission.swift"
 BODY = [("-", "        return 1"), ("+", "        return 2")]
 
@@ -51,6 +51,14 @@ class PlanTests(unittest.TestCase):
         p = lane([("M", APP)], {APP: [("+", "    var count = 0")]})
         self.assertEqual(p["lane"], "full")
         self.assertIn("stored property", p["fallback"])
+
+    def test_string_catalogs_still_take_the_full_build(self):
+        # try-pr shows a catalog edit with no build, but the shipped app compiles the tables.
+        catalog = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings"
+        for files in ([("M", catalog)], [("M", catalog), ("M", "webviews/src/a.tsx")]):
+            p = lane(files)
+            self.assertEqual(p["lane"], "full")
+            self.assertEqual(p["fallback"]["string catalogs (compiled into the app)"], [catalog])
 
     def test_web_and_daemon_take_both_appliers(self):
         p = lane([("M", "webviews/src/a.tsx"), ("M", "cmux-tui/crates/cmux-tui-core/src/a.rs")])

@@ -60,7 +60,7 @@ struct EntryOut<'a> {
     base: u64,
     link: Link,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    set: Vec<(&'a str, &'a Value)>,
+    set: Vec<(&'a str, &'a PeerRow)>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     drop: Vec<&'a str>,
 }
@@ -138,11 +138,11 @@ fn still_on_disk(kept: &Kept, now: &Arc<RemoteSession>, link: &Link) -> Option<K
     if kept.disk.summary == now.summary {
         return Some(Kept::new(now));
     }
-    if now.summary.get("stale").and_then(Value::as_bool) != Some(true) {
+    if !now.summary.stale() {
         return None;
     }
     let mut loaded = kept.disk.summary.clone();
-    super::peer_cache::mark_stale(&mut loaded, link.last_seen);
+    loaded.mark_stale(link.last_seen);
     (loaded == now.summary).then(|| Kept { disk: kept.disk.clone(), seen: now.clone() })
 }
 
@@ -229,7 +229,7 @@ impl OnDisk {
             last_seen: Option<u64>,
             down_since: Option<u64>,
             next_retry_at: Option<u64>,
-            sessions: Vec<&'a Value>,
+            sessions: Vec<&'a PeerRow>,
             journal: u64,
         }
         let bytes = serde_json::to_vec(&SavedOut {
@@ -242,7 +242,7 @@ impl OnDisk {
         // The snapshot first: a crash before the journal is emptied leaves lines of the old
         // base, which a load ignores.
         crate::config::write_atomic(snap, &bytes)?;
-        match std::fs::remove_file(journal) {
+        match crate::home_fs::remove_file(journal) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),
@@ -380,7 +380,7 @@ pub(super) fn load(dir: &Path, peer: &str) -> Option<Saved> {
 /// Removes both of `peer`'s files.
 pub(super) fn remove(dir: &Path, peer: &str) {
     for path in [snapshot_path(dir, peer), journal_path(dir, peer)].into_iter().flatten() {
-        let _ = std::fs::remove_file(path);
+        let _ = crate::home_fs::remove_file(path);
     }
 }
 

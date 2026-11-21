@@ -387,6 +387,8 @@ async fn a_file_one_run_added_stays_once_the_base_has_it() {
     assert_eq!(String::from_utf8_lossy(&out.stdout), "pub fn n() {}\n");
 }
 
+// A bash stand-in for ssh, made executable with a Unix mode.
+#[cfg(unix)]
 #[tokio::test]
 async fn the_task_streams_the_remote_output_in_order_and_keeps_its_exit_code() {
     let tmp = tempfile::tempdir().unwrap();
@@ -427,6 +429,8 @@ async fn the_task_streams_the_remote_output_in_order_and_keeps_its_exit_code() {
     assert!(!script_path.exists(), "the script is removed after the run");
 }
 
+// A bash stand-in for ssh, made executable with a Unix mode.
+#[cfg(unix)]
 #[tokio::test]
 async fn a_dropped_connection_ends_the_command_on_the_other_machine() {
     let tmp = tempfile::tempdir().unwrap();

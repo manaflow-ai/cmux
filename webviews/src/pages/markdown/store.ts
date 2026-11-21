@@ -200,6 +200,12 @@ export class MarkdownStore {
     for (const listener of this.listeners) listener();
   }
 
+  /** The host reports the owner link: back up while the page is disconnected, it reads again (a
+   * launch or a daemon restart drops the link for a few seconds; the page never said so). */
+  linkChanged(connected: boolean): void {
+    if (connected && this.state.phase === "disconnected") void this.start();
+  }
+
   /** Loads the config and starts watching the file. */
   async start(): Promise<void> {
     const client = this.client;

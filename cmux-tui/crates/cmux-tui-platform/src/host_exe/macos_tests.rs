@@ -90,3 +90,44 @@ fn a_copy_folder_under_a_removed_root_is_not_made_again() {
     assert!(ensure_private_dir(&gone.join("0".repeat(64))).is_err());
     assert!(!gone.exists(), "made the removed root {} again", gone.display());
 }
+
+/// A child process that keeps a copy of `file`'s open file description as its stdin, the way a
+/// child that another daemon thread starts keeps the daemon's descriptors until it execs or
+/// exits. Dropping this ends and reaps it.
+struct Keeper(std::process::Child);
+
+impl Keeper {
+    fn keep(file: &File) -> Keeper {
+        let copy = file.try_clone().unwrap();
+        Keeper(std::process::Command::new("sleep").arg("60").stdin(copy).spawn().unwrap())
+    }
+}
+
+impl Drop for Keeper {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// A collection look at a copy whose folder it cannot delete leaves the copy's in-use lock free,
+/// also while a child another daemon thread started meanwhile keeps the look's descriptor: else
+/// another daemon's `hold_shared_lock` on that copy waits for that child.
+#[test]
+fn a_collection_look_leaves_the_in_use_lock_free_while_a_child_keeps_its_descriptor() {
+    let scratch = Scratch::new("collect-look");
+    let dir = scratch.0.join("a".repeat(64));
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join(LOCK_NAME), b"").unwrap();
+    // A folder whose entries cannot be removed: the delete fails and the lock file stays.
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o500)).unwrap();
+    let look = File::open(dir.join(LOCK_NAME)).unwrap();
+    let keeper = Keeper::keep(&look);
+    remove_if_unused(&dir, look);
+    let probe = File::open(dir.join(LOCK_NAME)).unwrap();
+    let free = probe.try_lock().is_ok();
+    drop(probe);
+    drop(keeper);
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(free, "a collection look left the in-use lock held");
+}

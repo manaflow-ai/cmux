@@ -22,8 +22,10 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
 # https://docs.github.com/actions/reference/limits#workflow-file-size: "500 KB".
 LIMIT = 512_000
-# The room every file keeps below the limit.
-MARGIN = 8_192
+# The room every file keeps below the limit: about ten pull requests' worth of new steps (the three
+# changes before the 2026-11-10 refusal added 286, 900 and 2,300 bytes), so the guard is red for many
+# changes before GitHub refuses the file. 8,192 was one large change away from the limit.
+MARGIN = 32_000
 
 
 def oversized(paths: list[Path], limit: int = LIMIT, margin: int = MARGIN) -> list[str]:
@@ -60,7 +62,7 @@ class WorkflowFileSize(unittest.TestCase):
             fine.write_bytes(b"#" * 10)
             findings = oversized([near, over, fine])
         self.assertEqual(len(findings), 2, findings)
-        self.assertIn("near.yml: 503,809 bytes, within 8,192 bytes of the limit", findings[0])
+        self.assertIn("near.yml: 480,001 bytes, within 32,000 bytes of the limit", findings[0])
         self.assertIn("over.yml: 512,001 bytes, over the limit", findings[1])
         self.assertIn("docs/ci/over-workflow-notes.md", findings[1])
 

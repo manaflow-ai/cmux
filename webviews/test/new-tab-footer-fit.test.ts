@@ -6,6 +6,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("new-tab-footer-fit.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -56,7 +57,7 @@ await requireBrowserLane("new-tab-footer-fit.test.ts", async () => {
         await page.goto(`http://127.0.0.1:${port}/`);
         const root = page.locator(".acpmux-newtab");
         const footer = root.locator(".acpmux-composer-foot");
-        await footer.locator(".acpmux-model .acpmux-picker-button").waitFor();
+        await footer.locator(MODEL_PICKER).waitFor();
         await page.evaluate((plainFooter) => window.cmuxAcpmuxComposer?.({ plainFooter }), plainFooter);
         await page.evaluate(() => document.fonts.ready);
 

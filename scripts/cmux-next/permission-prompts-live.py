@@ -17,7 +17,8 @@ page (a new port, so a new origin, every run). For each engine:
      the page's `onclick`. Chromium shows no web notifications (DesktopNotifier owns the
      app's one macOS notification authorization), but its pages keep `Notification` and
      `PushManager` with the permission `default`, as in Chrome: a page without them fails
-     bot checks (Akamai's challenge page reloaded godaddy.com forever).
+     bot checks (Akamai's challenge page reloaded godaddy.com forever). A request for the
+     permission ends at once as `default`, with no prompt, however often the page asks.
 
 Location is only ever denied: allowing it would raise the macOS location prompt on the
 host. GUI host only (a capture mini). The app is quit and the tag's daemons stopped at
@@ -27,6 +28,7 @@ import argparse, functools, glob, http.server, json, os, plistlib, socket, subpr
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -213,6 +215,13 @@ def run_engine(engine):
         check(run(engine, "notifyNow('cmux chromium early')"), f"{engine}: the page makes a notification without permission")
         time.sleep(2)
         check(banner("cmux chromium early") is None, f"{engine}: a notification without permission shows no banner ({banners()})")
+        for attempt in range(1, 7):
+            check(run(engine, "askNotify(); true"), f"{engine}: the page requests notifications ({attempt})")
+            got = settled("notify")
+            check(got == "default" and not permission_prompts("notifications"),
+                  f"{engine}: notification request {attempt} ends at once, unanswered, with no prompt ({got}, {prompts()})")
+        got = page("Notification.permission")
+        check(got == "default", f"{engine}: after six requests nothing is stored for the site ({got})")
     else:
         check(run(engine, "notifyNow('cmux early')"), f"{engine}: the page makes a notification before asking")
         time.sleep(2)
@@ -292,7 +301,7 @@ app = subprocess.Popen([BINARY], env={
     "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
     "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-print(f"app pid {app.pid}, out {opts.out}", flush=True)
+safe_print(f"app pid {app.pid}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 180)
     if not windows():

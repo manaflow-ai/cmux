@@ -15,7 +15,7 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     let field = NSSearchField() // text-focus-allow: no rounded control owns this sidebar field; its ring is the only focus cue (accessibility).
     private let status = NSTextField(labelWithString: "")
     let table = FindResultsTableView()
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private var results: [RipgrepMatch] = []
     private var observation: Task<Void, Never>?
 
@@ -27,7 +27,7 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
         self.model = model
         self.rootFolder = rootFolder
         self.effects = effects
-        super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
+        super.init(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
         build()
         observation = Task { [weak self] in
             guard let model = self?.model else { return }
