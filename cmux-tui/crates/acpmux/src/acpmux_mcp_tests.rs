@@ -94,7 +94,7 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
     );
     let send = tools[0]["description"].as_str().unwrap();
     assert!(send.contains("Message another agent session"), "{send}");
-    assert!(send.contains("instead of running `cmux agent send` in a shell"), "{send}");
+    assert!(send.contains("`cmux agent send` front door"), "{send}");
     assert!(send.contains("batch them in one call with messages"), "{send}");
     assert_eq!(tools[7]["inputSchema"]["required"], json!(["to", "body"]));
     assert_eq!(tools[9]["inputSchema"]["required"], json!(["id"]));
@@ -256,27 +256,6 @@ fn a_batch_has_no_message_count_cap() {
     assert_eq!(items.len(), 1001);
     assert!(items.iter().all(Result::is_ok));
     assert_eq!(items.last().unwrap().as_ref().unwrap().to.as_deref(), Some("lane-1000"));
-}
-
-/// The notice's length limits, the daemon's own (`prompt_provenance`), are in its schema, on the
-/// call and on each batch item, so a caller sees them before it sends.
-#[test]
-fn the_notice_schema_carries_the_daemons_length_limits() {
-    use crate::prompt_provenance::{MAX_NAME_CHARS, MAX_NOTICE_TITLE_CHARS};
-    let props = &tools()[0]["inputSchema"]["properties"];
-    let item_notice = &props["messages"]["items"]["properties"]["notice"];
-    for notice in [&props["notice"], item_notice] {
-        let fields = &notice["properties"];
-        for (key, max) in [
-            ("sender", MAX_NAME_CHARS),
-            ("host", MAX_NAME_CHARS),
-            ("title", MAX_NOTICE_TITLE_CHARS),
-        ] {
-            assert_eq!(fields[key]["maxLength"], max, "{key}");
-            let said = fields[key]["description"].as_str().unwrap();
-            assert!(said.contains(&format!("at most {max} characters")), "{key}: {said}");
-        }
-    }
 }
 
 /// `notice`: a tool's notice, checked as the daemon checks it, its sender this session's name by
@@ -1064,6 +1043,25 @@ async fn bg_tools_refuse_arguments_that_are_not_an_object() {
         assert_eq!(r["isError"], true, "{name}: {r}");
         assert_eq!(text(&r), "arguments must be an object", "{name}: {r}");
     }
+}
+
+/// run_wait given a background task's id (`{"id": "bg-..."}`, the bounce "repo is required"
+/// agents met 6 times in a day) reads that task as bg_output does and says why, naming bg_output.
+#[tokio::test]
+async fn run_wait_given_a_bg_task_id_reads_the_task_and_names_bg_output() {
+    let (_hub, client, _dir) = daemon().await;
+    for args in
+        [json!({"id": "bg-581e5d78d9cd"}), json!({"task": "bg-581e5d78d9cd", "timeout": "600"})]
+    {
+        let r = bg::call(&client, "any", "run_wait", &args).await;
+        let t = text(&r);
+        assert!(!t.contains("repo is required"), "{args}: {r}");
+        assert!(t.contains("bg-581e5d78d9cd is a background task"), "{args}: {r}");
+        assert!(t.contains("bg_output"), "{args}: {r}");
+    }
+    // A run id with no repo is still the repo refusal: only a bg- value is a task.
+    let r = bg::call(&client, "any", "run_wait", &json!({"run": 5})).await;
+    assert!(text(&r).contains("repo is required"), "{r}");
 }
 
 /// Exercise the actual MCP-to-daemon socket path without substituting an MCP

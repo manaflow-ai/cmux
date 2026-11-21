@@ -388,9 +388,7 @@ def settled_put(route: str, found, state: tuple | None = None) -> None:
         os.replace(spare, path)
         if not _SETTLED_PRUNED:
             _SETTLED_PRUNED.append(True)
-            for old in path.parent.glob("*.json"):
-                if time.time() - old.stat().st_mtime > SETTLED_KEEP_SECONDS:
-                    old.unlink(missing_ok=True)
+            prune_kept(path.parent, SETTLED_KEEP_SECONDS)
     except OSError:
         pass
 
@@ -839,6 +837,84 @@ def git_remote(repo: str) -> str:
     return f"https://github.com/{repo}.git"
 
 
+# The source cache's bound. Every object a fetch brings lands in a promisor pack, which `git gc` keeps whatever is
+# reachable, and the refs git_commit fetches into are deleted after: so the one-commit fetches, the blobs `git show`
+# fetches lazily, ws_check_squash_tree's whole-history fetch and its merge-tree objects piled up for good (2.3 GB on
+# the land host on 2026-11-21, nothing removing any of it). A repo whose objects pass SOURCE_CACHE_MAX_BYTES
+# (BASE_RED_EXCUSE_SOURCE_CACHE_MAX_BYTES) is made again from nothing by the next run that finds no other run using
+# it, which is cheap: every fetch is blob-less and git_commit's one commit deep. A repo made less than
+# SOURCE_CACHE_MIN_AGE_SECONDS ago is kept whatever its size, so a working set above the cap is rebuilt once a day at
+# most, never once a run. Each run holds a shared flock on the repo's lock file (beside it) from its first git_cache
+# call to its exit; the rebuild takes it exclusive without waiting, so a repo another run is reading is never moved.
+SOURCE_CACHE_MAX_BYTES_ENV = "BASE_RED_EXCUSE_SOURCE_CACHE_MAX_BYTES"
+SOURCE_CACHE_MAX_BYTES = 512 * 1024 * 1024
+SOURCE_CACHE_MIN_AGE_SECONDS = 24 * 3600
+SOURCE_CACHE_STAMP = "base-red-excuse-made"
+_SOURCE_CACHE_LOCKS: dict[str, int] = {}
+
+
+def source_cache_max_bytes() -> int:
+    raw = os.environ.get(SOURCE_CACHE_MAX_BYTES_ENV, "")
+    try:
+        value = int(raw) if raw else SOURCE_CACHE_MAX_BYTES
+    except ValueError:
+        return SOURCE_CACHE_MAX_BYTES
+    return value if value > 0 else SOURCE_CACHE_MAX_BYTES
+
+
+def source_cache_bytes(where: Path) -> int:
+    """Bytes under WHERE's objects directory (loose objects, packs and their indexes), files only."""
+    total = 0
+    for root, _, files in os.walk(where / "objects"):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(root, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def source_cache_hold(where: Path) -> bool:
+    """Hold this run's shared lock on the bare repo WHERE (once per process), rebuilding WHERE first when no other run
+    holds it and it is past its bound (SOURCE_CACHE_MAX_BYTES and SOURCE_CACHE_MIN_AGE_SECONDS). True when WHERE was
+    moved aside for a fresh one. Without flock (no fcntl) nothing is locked and nothing rebuilt."""
+    key = str(where)
+    if key in _SOURCE_CACHE_LOCKS:
+        return False
+    try:
+        import fcntl
+    except ImportError:
+        return False
+    where.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(where.with_name(where.name + ".lock"), os.O_RDWR | os.O_CREAT, 0o644)
+    rebuilt, retired = False, []
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fcntl.flock(fd, fcntl.LOCK_SH)  # another run reads WHERE: share it, rebuild nothing
+    else:
+        # No other run holds WHERE, nor any copy an earlier rebuild moved aside.
+        retired = sorted(where.parent.glob(where.name + ".retired-*"))
+        try:
+            made = (where / SOURCE_CACHE_STAMP).stat().st_mtime
+        except OSError:
+            made = 0.0  # a repo from before the stamp: as old as can be
+        if ((where / "HEAD").is_file() and time.time() - made > SOURCE_CACHE_MIN_AGE_SECONDS
+                and source_cache_bytes(where) > source_cache_max_bytes()):
+            aside = where.with_name(f"{where.name}.retired-{os.getpid()}-{int(time.time())}")
+            try:
+                os.rename(where, aside)
+                retired.append(aside)
+                rebuilt = True
+            except OSError:
+                pass
+        fcntl.flock(fd, fcntl.LOCK_SH)
+    _SOURCE_CACHE_LOCKS[key] = fd  # held until this process exits
+    for old in retired:  # nothing reads a moved-aside copy: removed outside the exclusive hold
+        shutil.rmtree(old, ignore_errors=True)
+    return rebuilt
+
+
 def git_cache(repo: str) -> Callable[..., subprocess.CompletedProcess] | None:
     """`git` in REPO's bare repo under source_cache(), made and pointed at REPO's remote (blob-less) on first use; None
     when it cannot be."""
@@ -851,11 +927,19 @@ def git_cache(repo: str) -> Callable[..., subprocess.CompletedProcess] | None:
         return subprocess.run(["git", "--git-dir", str(where), *args], capture_output=True, env=env,
                               timeout=GIT_SECONDS, stdin=subprocess.DEVNULL)
 
+    try:
+        source_cache_hold(where)
+    except OSError:
+        pass  # an unlockable cache is still read, only never rebuilt
     if not (where / "HEAD").is_file():
         where.mkdir(parents=True, exist_ok=True)
         if subprocess.run(["git", "init", "-q", "--bare", str(where)], capture_output=True,
                           timeout=GIT_SECONDS).returncode:
             return None
+        try:
+            (where / SOURCE_CACHE_STAMP).touch()
+        except OSError:
+            pass
     for key, value in (("remote.origin.url", git_remote(repo)), ("remote.origin.promisor", "true"),
                        ("remote.origin.partialclonefilter", "blob:none")):
         if git("config", key, value).returncode:
@@ -2216,8 +2300,35 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
             inside = False
         elif inside and line and not RATCHET_HIT.match(line):
             errors[f"ratchet: {line}"] += 1
+    if not tests and not errors:
+        errors = last_words(output)
     crashes = frozenset(first or second for first, second in CRASH.findall("\n".join(output)))
     return UnplacedSignature(steps, tests, errors, crashes, tuple(dict.fromkeys(unnamed)))
+
+
+# A shell step that ends its red with a plain sentence and exit 1 names no test and no error line: only the runner's
+# generic `##[error]Process completed with exit code 1.` follows it. 2026-11-20, cmuxterm-hq#15467 at 4aa7a17c
+# (cmuxterm-hq#15575): 'Fleet tests' failed "Validate the fleet client install and the tag policy" on `Bundled fleet
+# client is stale. Run scripts/sync-fleet-skill-client.py.`, the same step and the same line as main's run
+# 44769654200, and was refused as naming nothing to compare. When a whole log names no failing test or error line, the
+# last line each exit annotation follows is that failed step's error line, on both sides alike (numbers masked,
+# counted): a step that fails anew, or fails on other words, still differs from the base.
+EXIT_LINE = re.compile(r"^##\[error\]Process completed with exit code (\d+)\.?$")
+LAST_WORDS = "last words before exit"
+
+
+def last_words(output: list[str]) -> Counter:
+    """For each runner exit annotation in OUTPUT (a whole log's lines less the runner's echo, test_reds.lines_of),
+    `last words before exit N: LINE`, LINE the nearest non-empty line above it that is not a runner `##[` line,
+    numbers masked (normalise_error), counted."""
+    found: Counter = Counter()
+    for n, line in enumerate(output):
+        if not (exit_code := EXIT_LINE.match(line)):
+            continue
+        said = next((text for text in reversed(output[:n]) if text.strip()), "")
+        if said and not said.startswith("##["):
+            found[f"{LAST_WORDS} {exit_code[1]}: {normalise_error(said)}"] += 1
+    return found
 
 
 def unplaced_without_ffi_pin(head: UnplacedSignature) -> UnplacedSignature:
@@ -2239,6 +2350,33 @@ def unplaced_head_evidence(repo: str, job: dict, github) -> UnplacedSignature:
     return unplaced_signature(job, github.log(repo, job))
 
 
+# A red job whose log names no failing test, error line or crash is compared by its failed steps alone (Leo, 2026-11-21
+# ~03:45Z: "clearly we need to be hitting a 10x improvement in not running useless jobs"; the coordinator's rule: "a
+# red job with no parsable test name is excused when the same job (same name, same failing step) is red on the base
+# run"). cmuxterm-hq docs/ci/bottleneck-and-skip-candidates-2026-11-21.md: 3,765 PR heads were red only from base over
+# 11-13..19, and a refused inherited red makes its owner push again. Excused only when the base verdict failed exactly
+# the same steps (name and conclusion, counted: failed_step_keys) and names no failing test, error line, crash or
+# unnamed test either: a base that names a failure the head does not print is another failure, never this one.
+STEP_ONLY_WHY = "its log names no failing test or error line, so only its failed steps identify it"
+
+
+def step_only_verdict(name: str, why: str, head: UnplacedSignature, found: UnplacedSignature, where: str) -> str:
+    """The audit line for red NAME whose whole-log signature HEAD names no failing test or error line, when FOUND (the
+    red base verdict at WHERE) failed the same steps and names nothing either; else Refused saying why not."""
+    nothing = f"'{name}': {why}, and its log names no failing test or error line"
+    if head.crashes or head.unnamed:
+        raise Refused(f"{nothing}, but it crashed or reports tests it does not name; never compared by step alone")
+    if found.tests or found.errors or found.crashes or found.unnamed:
+        said = sorted(found.tests) or sorted(found.errors) or sorted(found.crashes) or list(found.unnamed)
+        raise Refused(f"{nothing}, while {where} names its failure ({'; '.join(said)[:300]}); a red naming nothing "
+                      "is not that one")
+    if head.steps != found.steps:
+        raise Refused(f"{nothing}; compared by step alone, its failed steps ({step_keys_text(head.steps)}) are not "
+                      f"{where}'s ({step_keys_text(found.steps)})")
+    return (f"excused '{name}': {STEP_ONLY_WHY}: the same failed steps ({step_keys_text(head.steps)[:300]}), as "
+            f"often each, as {where}, which names no failing test or error line either")
+
+
 def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, found: UnplacedSignature,
                      base_run: dict, *, why: str | None = None) -> str:
     """The audit line for an unplaced red job NAME whose whole-log signature HEAD is FOUND's, the newest red base
@@ -2249,8 +2387,11 @@ def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, f
     if not head.steps:
         raise Refused(f"'{name}': {why}, and it names no failed step; nothing is compared with the base")
     if not head.tests and not head.errors:
-        raise Refused(f"'{name}': {why}, and its log names no failing test or error line; nothing to "
-                      "compare with the base")
+        # A red that names nothing (a setup step such as `Select JDK 17` exiting 1, a shell check that prints no
+        # FAIL line) is the base's when the base verdict failed the very same steps and names nothing either
+        # (STEP_ONLY_WHY): its failed steps are its whole identity, as the Chromium step's is. cmux#48480 was refused
+        # three times for 'seven-language live conformance', red at 'Select JDK 17' on feat-cmux-next too.
+        return step_only_verdict(name, why, head, found, where)
     for side, said in (("its", head.unnamed), (f"{where}'s", found.unnamed)):
         if said:
             raise Refused(f"'{name}': {why}; compared whole, {side} log reports more failed tests than it names "
@@ -4130,6 +4271,50 @@ JOBS_CACHE_ENV = "BASE_RED_EXCUSE_JOBS_CACHE"  # a directory, or "off"
 JOBS_CACHE_SECONDS = 6 * 3600
 
 
+# The jobs cache's size bound, beside each directory's age bound (JOBS_CACHE_SECONDS for kept job lists,
+# SETTLED_KEEP_SECONDS for settled reads): past JOBS_CACHE_MAX_BYTES (BASE_RED_EXCUSE_JOBS_CACHE_MAX_BYTES) in one
+# directory, its oldest answers go first until it is under. A spare file a crashed write left (".NAME.PID") goes after
+# KEPT_SPARE_SECONDS. Every kept answer is only a saved read: one removed is read from GitHub again.
+JOBS_CACHE_MAX_BYTES_ENV = "BASE_RED_EXCUSE_JOBS_CACHE_MAX_BYTES"
+JOBS_CACHE_MAX_BYTES = 256 * 1024 * 1024
+KEPT_SPARE_SECONDS = 3600
+
+
+def jobs_cache_max_bytes() -> int:
+    raw = os.environ.get(JOBS_CACHE_MAX_BYTES_ENV, "")
+    try:
+        value = int(raw) if raw else JOBS_CACHE_MAX_BYTES
+    except ValueError:
+        return JOBS_CACHE_MAX_BYTES
+    return value if value > 0 else JOBS_CACHE_MAX_BYTES
+
+
+def prune_kept(where: Path, keep_seconds: float) -> None:
+    """Prune one kept-answers directory WHERE: answers older than KEEP_SECONDS, spare files older than
+    KEPT_SPARE_SECONDS, then the oldest answers until the rest fit in jobs_cache_max_bytes()."""
+    now, kept = time.time(), []
+    for entry in os.scandir(where):
+        try:
+            if not entry.is_file(follow_symlinks=False):
+                continue
+            stat = entry.stat(follow_symlinks=False)
+        except OSError:
+            continue
+        spare = entry.name.startswith(".")
+        if not spare and not entry.name.endswith(".json"):
+            continue
+        if now - stat.st_mtime > (KEPT_SPARE_SECONDS if spare else keep_seconds):
+            Path(entry.path).unlink(missing_ok=True)
+        elif not spare:
+            kept.append((stat.st_mtime, stat.st_size, entry.path))
+    total, cap = sum(size for _, size, _ in kept), jobs_cache_max_bytes()
+    for _, size, path in sorted(kept):
+        if total <= cap:
+            break
+        Path(path).unlink(missing_ok=True)
+        total -= size
+
+
 def jobs_cache() -> Path | None:
     named = os.environ.get(JOBS_CACHE_ENV)
     if named == "off":
@@ -4165,9 +4350,7 @@ def base_run_jobs(repo: str, run: dict, github) -> list[dict]:
             spare = key.with_name(f".{key.name}.{os.getpid()}")
             spare.write_text(json.dumps(jobs))
             os.replace(spare, key)
-            for old in key.parent.glob("*.json"):
-                if time.time() - old.stat().st_mtime > JOBS_CACHE_SECONDS:
-                    old.unlink(missing_ok=True)
+            prune_kept(key.parent, JOBS_CACHE_SECONDS)
         except OSError:
             pass
     return jobs
@@ -4972,11 +5155,11 @@ _PUBLISH = "requests, publishes, attributes or comments: no test verdict of its 
 # Every job of these workflows is declared (GUARD_JOB_IDS) or excluded here with its reason.
 GUARD_WORKFLOWS = {
     "cmux-next-guards.yml": {
+        "coalesce": "the window gate (base-coalesce.yml): decides whether a push runs the guards, reads no tree",
         "pinned-asset-store": "reads the pinned asset store over the network, not the tree",
         "nightly-guards": "calls ci-guards.yml, whose jobs are classified there (GUARD_JOB_SUFFIXES)",
         "signing-runner-variables": "reads the repository's runner variables, not the tree",
         "portable-placement": _PLACE,
-        "hot-route": _PLACE,
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
         "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
                           "(guards_new_reds.py --tip), so no pull request's red is its",
@@ -4994,7 +5177,7 @@ GUARD_WORKFLOWS = {
         "guard-status": "a routed rollup (ROUTED_ROLLUPS), judged by the jobs under it",
     },
     "cmux-next.yml": {
-        **dict.fromkeys(("pr-quiet-period", "push-head-preflight", "path_route", "dev-daily-tree-wait",
+        **dict.fromkeys(("push-head-preflight", "path_route", "dev-daily-tree-wait",
                          "macos-placement", "portable-placement", "app-compile-placement",
                          "fast-tier-rerun-placement", "fast-tier-handback-placement", "dev-daily-place",
                          "dev-landing-place", "release-compile-fast-admission", "compile-status-handoff"), _PLACE),
