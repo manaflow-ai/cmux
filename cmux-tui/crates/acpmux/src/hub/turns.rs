@@ -1885,6 +1885,8 @@ impl Hub {
             // Whether it taught something, taken however it ended: a turn's signals never carry
             // into the next one.
             let taught = crate::memory_inbox::take(&session.id);
+            // Its tool runs and prompt, the chat's task shape (`skill_distill.rs`), likewise.
+            let shape = crate::skill_distill::take(&session.id);
             // Its recap and question: the chat's rolling summary (`rolling_summary.rs`).
             let wrap_up_recap = crate::wrap_up_suggestion::take_recap(&session.id);
             let wrap_up_answer = crate::wrap_up_suggestion::take(&session.id);
@@ -1931,6 +1933,9 @@ impl Hub {
                     }
                     if status == "completed" && taught {
                         self.offer_learned(session, learned);
+                    }
+                    if status == "completed" {
+                        self.record_task_shape(session, shape);
                     }
                     // A chat that took several corrections, kept now (`prompt_coach.rs`): settled
                     // by this turn's own prompt only.
