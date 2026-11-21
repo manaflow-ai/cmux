@@ -50,8 +50,7 @@ import {
   type AgentsState,
   type AppUpdateAction,
   type ChannelsState,
-  type CloudEnvironmentsRun,
-  type CloudEnvironmentsState,
+  type CloudEnvironmentMethod,
   type SharesState,
   type KeysState,
   type TailnetState,
@@ -67,8 +66,6 @@ import {
   type AgentToolsCardRun,
   type AgentToolsCardState,
   type IntegrationsState,
-  type AgentSkillsRun,
-  type AgentSkillsState,
   type McpServersRun,
   type McpServersState,
   type ListRow,
@@ -93,6 +90,8 @@ import {
   type AgentMcpState,
   type AgentHooksRun,
   type AgentHooksState,
+  type AgentSkillsRun,
+  type AgentSkillsState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -857,10 +856,12 @@ export class SettingsStore {
     await this.fetchNative(settingsKeys.harnesses);
   }
 
-  /** Settings > Accounts > Cloud Environments: the host's state (null when the host has none). */
-  async environments(): Promise<CloudEnvironmentsState | null> {
-    const reply = await this.request("cmux.settings.environments.state", {});
-    return reply.ok ? reply.value : null;
+  /** Settings > Cloud > Cloud Environments: one request of the shared Cloud environment editor. Rejects
+   * with the host's `{code, message}`, which the editor maps to its own sentences. */
+  async cloudEnvironment<T>(method: CloudEnvironmentMethod, params: Record<string, unknown> = {}): Promise<T> {
+    const reply = await this.request("cmux.settings.cloud_environment", { method, params });
+    if (!reply.ok) throw reply.error;
+    return reply.value as T;
   }
 
   /** Settings > Agents > Worktree Setup: the session host's projects with their saved recipes,
@@ -893,15 +894,6 @@ export class SettingsStore {
     return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
-  /** One Cloud Environments gesture, then the fresh state; the host's failure text, else null. */
-  async runEnvironments(
-    run: CloudEnvironmentsRun,
-  ): Promise<{ state: CloudEnvironmentsState | null; error: string | null }> {
-    const reply = await this.request("cmux.settings.environments.run", run);
-    const state = await this.environments();
-    if (!reply.ok) return { state, error: userMessage(reply.error, SETTINGS_SENTENCES) };
-    return { state, error: reply.value?.error ?? null };
-  }
 
   /** The customization being tried on, after running `verb` (Keep, Revert Now); null when none is,
    * or the host has no CLI. A status read is also the look that reverts a try-on whose time is up. */

@@ -54,7 +54,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case contextMenus
         /// Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet address (plans/cmux-next/server-updates-DESIGN.md section 10).
         case server
-        /// Settings > Cloud > Cloud Environments: the team's environments, Build, Delete and Add (plans/cmux-next/cloud-environments-DESIGN.md); `cmux.settings.environments.*`.
+        /// Settings > Cloud > Cloud Environments: the account's Cloud environments, the Default first, each opening the composer's environment editor, and Add; `cmux.settings.cloud_environment`.
         case cloudEnvironments
         /// Settings > Server > This Mac on Your Tailnet: sign this Mac's own tailnet node in or out (acpmux's embedded node, `_acpmux/tailnet/*`, relayed by the app on its person connection); `cmux.settings.tailnet.*`. Shown only where acpmux answers.
         case tailnet

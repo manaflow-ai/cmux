@@ -30,7 +30,7 @@ enum DebugDialog {
     /// (it admits a client to the whole daemon, cx-hnmbt.2), an iPhone pairing, an ssh:// link from another app (it connects to a host
     /// a web page chose), a cmux://session link's new tab (any page or app can open the link), a guest link an agent or script asked
     /// for (it exposes the chat's transcript, #30263), and cmux Remote's `remote.confirm` (its Allow may sign a share approval).
-    static let userOnly: Set<String> = Set([ClipboardReadStrings.identifier, AgentShareConsentSheet.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.environmentConfirmIdentifier, CloudChangeRequest.identifier,
+    static let userOnly: Set<String> = Set([ClipboardReadStrings.identifier, AgentShareConsentSheet.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudChangeRequest.identifier,
                                             DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
                                             SessionLinkGate.dialogIdentifier, CmuxRemoteActionEnvironment.confirmIdentifier]).union(CmuxRemoteActionEnvironment.setupIdentifiers)
 
