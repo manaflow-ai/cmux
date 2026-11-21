@@ -8158,9 +8158,15 @@ export class AcpmuxDirectClient {
     return this.turnEndSeen || summary.queuePaused === true;
   }
 
-  /// Whether the summary's status says a turn runs, as ``staleRun`` reads it.
+  /// Whether the summary's status says a turn runs, as ``staleRun`` reads it. A status other than
+  /// "running" read after an end settles it: a "running" after that is a new turn's (acpmux lists
+  /// the chat running before its prompt reaches this page), never the ended one's carried over.
   private summaryRuns(summary: Record<string, any> | undefined): boolean {
-    return summary?.status === "running" && !this.staleRun(summary);
+    if (summary?.status !== "running") {
+      if (summary !== undefined) this.turnEndSeen = false;
+      return false;
+    }
+    return !this.staleRun(summary);
   }
 
   private sessionChanged(params: SessionChanged): void {
