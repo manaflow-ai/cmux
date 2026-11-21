@@ -7,7 +7,8 @@
 Material Design 3 (Material You) for agent chats in cmux, with the baseline scheme as Android 14
 and Google's apps draw it. The chrome has two tones and no lines: the navigation drawer (the
 sidebar) and the tab row sit on surface-container, and the chat sits on surface. The selected tab
-is in the content's own color and runs into the pane. Text is Roboto on the M3 type scale, shapes
+is in the content's own color and runs into the pane through gooey concave fillets, the
+"tail" (`appearance.cornerFlush: flush-goo`). Text is Roboto on the M3 type scale, shapes
 follow the M3 shape scale (a 20 px prompt bubble, filled 12 px cards, 4 px menus), and primary
 (#6750A4, #D0BCFF in the dark) is the only accent: links, focus, Send and the circular progress
 indicator. It comes in two variants: Material (light, the default) and Material Dark.
@@ -17,7 +18,7 @@ It is built only from public surfaces, so you can copy any part of it:
 | File | What it does |
 | --- | --- |
 | `cmux-setup.json` | Picks the theme file. Sets Roboto for the chat on Body Large (16 px on a 24 px line) with code at 14, a 760 px reading column, the minimap off, the composer's ring as a circular progress indicator, and the drawer's rows: grouped by project under plain headlines, with a leading icon, a trailing age, and the PR and agent status |
-| `themes/material.json` | Default. The M3 light baseline: surface #FEF7FF, surface-container #F3EDF7 for the drawer, tab row and browser bar, secondary-container #E8DEF8 for selection, primary #6750A4. Includes the two-tone frame, no borders, the M3 proportions, a thick primary arc and M3 motion |
+| `themes/material.json` | Default. The M3 light baseline: surface #FEF7FF, surface-container #F3EDF7 for the drawer, tab row and browser bar, secondary-container #E8DEF8 for selection, primary #6750A4. Includes the two-tone frame, the gooey selected tab, no borders, the M3 proportions, a thick primary arc and M3 motion |
 | `themes/material-dark.json` | The M3 dark baseline: surface #141218, surface-container #211F26, secondary-container #4A4458, primary #D0BCFF |
 | `agent-pane/theme.css` | The 20 px tonal prompt bubble with no edge, filled cards with no outline, on-surface-variant secondary text and primary links, all as `cmux.agentPane.style/1` tokens mixed from the theme's own colors. Also M3 menus as `--menu-*` tokens (cmux#46846) |
 | `customize/` | A hover card drawn as an M3 rich tooltip (subhead, supporting text, list rows with leading icons, the waiting reason as a primary action line), and drawer rows in Label Large weight that show the circular progress arc while work runs |
@@ -66,7 +67,6 @@ once your build has them, uncomment their lines in the theme files and the setup
 
 | Part | Add | Needs |
 | --- | --- | --- |
-| Gooey tabs: the selected tab and the selected drawer row flare into the pane through concave fillets (the "tail") | `"appearance.tabShape": "gooey"` in both theme files | cmux#46780 |
 | M3 menus and popovers | already set in `agent-pane/theme.css`, and inactive until then | cmux#46846 |
 | A neutral selected row (secondary-container exactly) apart from the accent | `"appearance.selection"` | cmux#46516 |
 | The prompt bubble's text in on-secondary-container | `--cv-user-bubble-text` | cmux#46490 |

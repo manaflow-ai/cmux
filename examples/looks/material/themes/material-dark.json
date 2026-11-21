@@ -62,9 +62,9 @@
   "appearance.chromeStyle": "flat",
   "appearance.titleAreaTone": "subtleTone",
   // Gooey: the selected tab and the selected sidebar row flare into the pane through concave
-  // fillets (Leo: "the gooey material theme ish thing with the tabs having the tail"). Pending in
-  // cmux#46780; uncomment once your build has it:
-  // "appearance.tabShape": "gooey",
+  // fillets (Leo: "the gooey material theme ish thing with the tabs having the tail"). The tail
+  // draws on the flat, flush-corner frame set above (appearance.cornerFlush, cmux#46367).
+  "appearance.cornerFlush": "flush-goo",
   "appearance.focusIndicator": "tabs",
   // No hairline, outline or separator: tone does the separating.
   "appearance.borders": "none",
