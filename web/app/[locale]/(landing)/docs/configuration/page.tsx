@@ -43,6 +43,7 @@ const sectionOrder = [
   "workspaceGroups",
   "workspaceColors",
   "sidebarAppearance",
+  "windowBackground",
   "automation",
   "actions",
   "ui",

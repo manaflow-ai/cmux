@@ -188,6 +188,16 @@ Sidebar tint settings from Settings > Sidebar Appearance.
 | `sidebarAppearance.darkModeTintColor` | colorHexOrNull | `null` | Sidebar tint override for dark appearance. |
 | `sidebarAppearance.tintOpacity` | number | `0.18` | Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`. |
 
+## windowBackground
+
+One image painted behind the titlebar, sidebar and every terminal pane of a cmux window, from Settings > Themes > Background Image. While an image shows, it replaces window transparency and glass. It is hidden when macOS Reduce Transparency is on.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `windowBackground.image` | string or null | `""` | Path to the image file, absolute or starting with `~/`. Any format macOS reads works (PNG, JPEG, HEIC). Empty or null shows no image. |
+| `windowBackground.imageOpacity` | number | `0.25` | How visible the image is over the terminal background color, from 0 to 1. Lower values keep text easier to read. |
+| `windowBackground.imageFit` | `"cover"` or `"contain"` or `"stretch"` | `"cover"` | How the image is scaled to the window: `cover` fills it and crops the overflow, `contain` shows the whole image, `stretch` ignores the aspect ratio. |
+
 ## automation
 
 Socket control and automation settings from Settings > Automation.

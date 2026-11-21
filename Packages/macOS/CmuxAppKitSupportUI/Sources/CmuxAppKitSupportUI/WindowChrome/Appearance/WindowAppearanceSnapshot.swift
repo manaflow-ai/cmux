@@ -46,6 +46,16 @@ public struct WindowAppearanceSnapshot {
     /// text is drawn for a scheme its own background does not use.
     public let sidebarColorScheme: ColorScheme
 
+    /// The window background image painted behind every surface, or `nil`
+    /// when there is none.
+    ///
+    /// This is `nil` when the user picked no image and also when Reduce
+    /// Transparency is on: the image is decoration behind content, which that
+    /// setting asks to remove. While an image shows, the window is filled with
+    /// the opaque terminal background color under the image, so the desktop
+    /// does not show through even when `background-opacity` is below 1.
+    public let backgroundImage: WindowBackgroundImageSettings?
+
     /// Creates a resolved window appearance snapshot.
     public init(
         terminalBackgroundColor: NSColor,
@@ -57,7 +67,8 @@ public struct WindowAppearanceSnapshot {
         windowGlassSettings: WindowGlassSettingsSnapshot,
         resolvedColorScheme: ColorScheme? = nil,
         reducesTransparency: Bool = false,
-        ambientColorScheme: ColorScheme? = nil
+        ambientColorScheme: ColorScheme? = nil,
+        backgroundImage: WindowBackgroundImageSettings = .none
     ) {
         let resolvedScheme = resolvedColorScheme ?? Self.colorScheme(
             forTerminalBackgroundColor: terminalBackgroundColor,
@@ -87,6 +98,7 @@ public struct WindowAppearanceSnapshot {
         self.resolvedColorScheme = resolvedScheme
         self.reducesTransparency = reducesTransparency
         self.sidebarColorScheme = sidebarScheme
+        self.backgroundImage = backgroundImage.isEnabled && !reducesTransparency ? backgroundImage : nil
     }
 
     /// Clamps opacity into the visible `0...1` range.
@@ -249,6 +261,11 @@ public struct WindowAppearanceSnapshot {
     public func policy(for role: WindowBackdropRole) -> WindowBackdropPolicy {
         switch role {
         case .windowRoot:
+            // The background image layer paints the terminal color under the
+            // image, so a root fill here would cover the image.
+            if backgroundImage != nil {
+                return .clear
+            }
             return terminalBackdropPolicy()
         case .terminalCanvas, .bonsplitChrome, .titlebar, .browserSurface:
             return .clear
@@ -311,6 +328,21 @@ public struct WindowAppearanceSnapshot {
         let rootPolicy = terminalBackdropPolicy()
         if reducesTransparency {
             return opaqueWindowFillPlan(rootPolicy: rootPolicy)
+        }
+        if backgroundImage != nil {
+            // The image covers the whole window, so glass and compositor blur
+            // would never be seen. The window stays non-opaque so every
+            // surface over the root (panes, canvas mode) keeps a clear
+            // background, and its fill is the opaque terminal color so a
+            // resize gap or an unreadable image file never shows the desktop.
+            return WindowBackdropPlan(
+                hostingPhase: .transparentRootBackdrop,
+                windowBackgroundColor: terminalBackgroundColor.withAlphaComponent(1),
+                windowIsOpaque: false,
+                rootPolicy: .clear,
+                glass: nil,
+                shouldApplyGhosttyCompositorBlur: false
+            )
         }
         if windowGlassSettings.shouldApply(
             glassEffectAvailable: glassEffectAvailable,

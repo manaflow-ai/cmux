@@ -692,6 +692,7 @@ def supported_paths_from_source(source: Path) -> list[str]:
         "sidebar.",
         "workspaceColors.",
         "sidebarAppearance.",
+        "windowBackground.",
         "automation.",
         "agentMessages.",
         "browser.",

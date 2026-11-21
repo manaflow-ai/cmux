@@ -472,9 +472,7 @@ final class CmuxSettingsFileStore {
             parseSidebarSection(sidebarSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
         parseFontSections(root, sourcePath: sourcePath, snapshot: &snapshot)
-        if let sidebarAppearanceSection = root["sidebarAppearance"] as? [String: Any] {
-            parseSidebarAppearanceSection(sidebarAppearanceSection, sourcePath: sourcePath, snapshot: &snapshot)
-        }
+        parseAppearanceSections(root, sourcePath: sourcePath, snapshot: &snapshot)
         if let automationSection = root["automation"] as? [String: Any] {
             parseAutomationSection(automationSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -883,7 +881,7 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func parseSidebarAppearanceSection(
+    func parseSidebarAppearanceSection(
         _ section: [String: Any],
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
