@@ -216,14 +216,18 @@ function HoverInputScene() {
           ...box(300, 20, 300, 0),
           height: "auto",
           maxHeight: "none",
-          display: "grid",
-          gap: "var(--ds-space-1)",
           borderRadius: "var(--ui-popup-radius)",
         }}
       >
-        <span style={{ fontWeight: "var(--weight-emphasis)" }}>Fix the trailing comma in the tokenizer #4812</span>
-        <span style={{ color: "var(--cmux-text-secondary)" }}>manaflow/parser · opened 2 hours ago</span>
-        <span style={{ color: "var(--cmux-text-secondary)" }}>✓ 14 checks · 1 running</span>
+        {/* The real card's content wrapper (LinkHoverCard, linkCard.css), which pads the text off the rim. */}
+        <div
+          className="cv-link-preview__content"
+          style={{ display: "grid", gap: "var(--ds-space-1)", padding: "8px 10px" }}
+        >
+          <span style={{ fontWeight: "var(--weight-emphasis)" }}>Fix the trailing comma in the tokenizer #4812</span>
+          <span style={{ color: "var(--cmux-text-secondary)" }}>manaflow/parser · opened 2 hours ago</span>
+          <span style={{ color: "var(--cmux-text-secondary)" }}>✓ 14 checks · 1 running</span>
+        </div>
       </div>
       <div
         className="ui-card ui-glass acpmux-header-preview"
