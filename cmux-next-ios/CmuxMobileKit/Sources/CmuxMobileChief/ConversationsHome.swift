@@ -41,6 +41,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     @State private var listMemo = MacHomeList.Memo()
     @State private var query = ""
     @State private var homeRetries = 0
+    /// Home's connection banner over kept rows waits out a blip (Workspaces' banner does too):
+    /// the kept rows say what Home has, the Mac's link retries on its own.
+    @State private var bannerGate = QuietStatusGate()
     /// The New Chief name prompt is up.
     @State private var namingChief = false
     @State private var newChiefName = ""
@@ -101,9 +104,15 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// Rows show in the list (the kept ones a Delete Conversation from List did not hide).
     private var keptRowsShow: Bool { !hiddenRows.visible(feed.rows ?? []).isEmpty }
 
+    /// The Mac whose list is not live while kept rows show (nil: Home is live or shows no rows):
+    /// the outage Home's toast waits out, one wait per Mac.
+    private var homeOutage: String? { connectionStatus != nil && keptRowsShow ? (homeMacID ?? "") : nil }
+
     /// The connection toast over kept rows, the states Workspaces' toast uses (``ConnectionBannerState``).
     private var homeBanner: ConnectionBannerState? {
-        guard let status = connectionStatus, keptRowsShow else { return nil }
+        // An unreachable Mac is already past the coordinator's quiet wait (`macConnection` turns
+        // `.failed` only then): it speaks at once; the other states wait here.
+        guard let status = connectionStatus, keptRowsShow, bannerGate.isShown || status.kind == .unreachable else { return nil }
         let mac = macTag ?? String(localized: "your Mac")
         if status.isRetrying { return .reconnecting(to: mac, identity: homeMacID) }
         switch status.kind {
@@ -476,6 +485,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         // 2026-11-13: "reuse the toast strategy"). It takes its own room and covers no row; a
         // swipe hides it. With nothing kept, the empty state says it instead.
         .cmuxMobileBanner(homeBanner, retry: { Task { await retryHome() } })
+        // Keyed by the Mac: switching to another Mac that is also down starts its own wait.
+        .onChange(of: homeOutage, initial: true) { _, outage in
+            bannerGate.update(outage: outage)
+        }
         .onChange(of: connectionStatus?.kind, initial: true) { old, kind in
             // VoiceOver hears that Home is not live when it stops being live (also on arriving
             // with the Mac already away), not on each retry.
