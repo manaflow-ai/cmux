@@ -1,6 +1,60 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.choice.width.narrow": {
+      "comment": "Width preset for the transcript and composer columns.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Narrow"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "ضيق"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Usko"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Smal"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Schmal"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Estrecho"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Étroit"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Stretto"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "狭い"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "តូច"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "좁게"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Smal"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wąski"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Estreita"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Узкая"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แคบ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Dar"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Вузька"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hẹp"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "窄"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "窄"}}
+      }
+    },
+    "settings.choice.width.wide": {
+      "comment": "Width preset for the transcript and composer columns.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Wide"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "عريض"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Široko"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Bred"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Breit"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Ancho"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Large"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Largo"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "広い"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ធំ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "넓게"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bred"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Szeroki"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Larga"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Широкая"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "กว้าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Geniş"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Широка"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Rộng"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "宽"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "寬"}}
+      }
+    },
     "settings.sidebarSection.more": {
       "comment": "Settings window sidebar: the header of the last section, which starts closed and holds the pages a person opens less often (New Tab, Menus, Keys, Privacy, Advanced, ...). A click opens or closes it.",
       "extractionState": "manual",

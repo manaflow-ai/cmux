@@ -7,6 +7,7 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let widthDefault: Double = 800
     nonisolated static let widthRange: ClosedRange<Double> = 480...4000
     nonisolated static let widthPlaceholder: Double = 800
+    nonisolated static let widthValues = ["narrow", "medium", "wide"]
     /// `agentPane.display.fullWidth`.
     nonisolated static let fullWidthPath = ["agentPane", "display", "fullWidth"]
     nonisolated static let fullWidthDefault = false

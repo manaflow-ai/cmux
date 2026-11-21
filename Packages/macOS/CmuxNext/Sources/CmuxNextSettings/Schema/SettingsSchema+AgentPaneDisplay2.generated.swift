@@ -11,7 +11,11 @@ extension AgentPaneDisplaySettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.width", "Chat Text Width"),
                 help: SettingsText.keyed("settings.agentPane.display.width.help", "The widest the chat's column gets. On a wider pane the chat stays centered."),
-                kind: .number(SettingNumber(AgentPaneDisplaySettingsSchema.widthRange, step: 10, unit: .points, placeholder: AgentPaneDisplaySettingsSchema.widthPlaceholder)),
+                kind: .choiceOrNumber([
+                    SettingChoice("narrow", SettingsText.keyed("settings.choice.width.narrow", "Narrow")),
+                    SettingChoice("medium", SettingsText.keyed("settings.choice.editor.medium", "Medium")),
+                    SettingChoice("wide", SettingsText.keyed("settings.choice.width.wide", "Wide")),
+                ], SettingNumber(AgentPaneDisplaySettingsSchema.widthRange, step: 10, unit: .points, placeholder: AgentPaneDisplaySettingsSchema.widthPlaceholder)),
                 default: .number(AgentPaneDisplaySettingsSchema.widthDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "width", "max width", "column", "measure", "wide"]
             ),
@@ -370,19 +374,6 @@ extension AgentPaneDisplaySettingsSchema {
                 ]),
                 default: .string(AgentPaneDisplaySettingsSchema.harnessPlacementDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "model", "picker", "harness", "placement", "left", "top", "symbols"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.railSidePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.rail.side", "Prompt Rail Side"),
-                help: SettingsText.keyed("settings.agentPane.display.rail.side.help", "Right-click the rail to move it."),
-                kind: .choice([
-                    SettingChoice("left", SettingsText.keyed("settings.choice.left", "Left")),
-                    SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
-                ]),
-                default: .string(AgentPaneDisplaySettingsSchema.railSideDefault),
-                keywords: ["agent", "chat", "acp", "display", "reading", "rail", "minimap", "prompts", "ticks", "scroll", "side", "left", "right"]
             ),
         ]
     }

@@ -21,7 +21,30 @@
             "key": "settings.agentPane.display.width.help",
             "text": "The widest the chat's column gets. On a wider pane the chat stays centered."
           },
-          "kind": "number",
+          "kind": "choice_or_number",
+          "choices": [
+            {
+              "value": "narrow",
+              "title": {
+                "key": "settings.choice.width.narrow",
+                "text": "Narrow"
+              }
+            },
+            {
+              "value": "medium",
+              "title": {
+                "key": "settings.choice.editor.medium",
+                "text": "Medium"
+              }
+            },
+            {
+              "value": "wide",
+              "title": {
+                "key": "settings.choice.width.wide",
+                "text": "Wide"
+              }
+            }
+          ],
           "range": {
             "min": 480,
             "max": 4000,
