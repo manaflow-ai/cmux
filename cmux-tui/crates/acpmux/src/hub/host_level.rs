@@ -40,6 +40,15 @@ pub(super) fn start_for(run: &super::queue::PromptRun, provenance: Option<&Value
     if super::prompt_sender::person_turn(run, provenance) { FOR_A_PERSON } else { FOR_NO_PERSON }
 }
 
+/// `Session::start_for` of the first start of a chat that records no creator (`created_by.rs`:
+/// an adopt, a move's target), which `person` (`NewRequest::person`) says the person asked for or
+/// not. Counted as the person's before, so a lane's adopt (a failover, a successor) asked Claude
+/// Code for a suggestion after every turn: on one lane Mac most chats made on 2026-11-20 and 21
+/// had no creator (sr2 audit).
+pub(super) fn start_for_creator(person: bool) -> u8 {
+    if person { FOR_A_PERSON } else { FOR_NO_PERSON }
+}
+
 /// How long a chat whose host must move waits idle first: long enough that what follows its turn
 /// (a queued notice, a script's next prompt) comes first, short against the idle period.
 pub(super) const MOVE_AFTER: std::time::Duration = std::time::Duration::from_secs(10);
@@ -47,9 +56,10 @@ pub(super) const MOVE_AFTER: std::time::Duration = std::time::Duration::from_sec
 impl Hub {
     /// Whether the agent start of `session` beginning now is a person's: the chat on a person's
     /// screen (`seen.rs` `shown`), else what asked for it (`Session::start_for`): their own
-    /// prompt, their typing or open (`wake_for`), else, for a start nothing marked (the one
-    /// `session/new` makes), whoever created the chat (`created_by.rs`): the person, or one
-    /// from before creators were kept; never an agent or a script.
+    /// prompt, their typing or open (`wake_for`), a chat with no creator the person asked for
+    /// (`start_for_creator`), else, for a start nothing marked (the one `session/new` makes),
+    /// whoever created the chat (`created_by.rs`): the person, or one from before creators
+    /// were kept (a fork the person made records none either); never an agent or a script.
     pub(super) fn for_a_person(&self, session: &Session) -> bool {
         if self.shown(session) {
             return true;

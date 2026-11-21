@@ -39,11 +39,6 @@ concurrency:
   group: backend-migrations-${{ github.event.pull_request.number || github.event.merge_group.head_sha }}${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next' && format('-edit-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
-env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh). It
-  # switches itself off at 2026-11-22 00:00 UTC. These runs (about 800 an hour each) had no attribution.
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/trusted/scripts/ci/api_call_log/env.sh
-
 jobs:
   plan:
     if: ${{ !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') }}
