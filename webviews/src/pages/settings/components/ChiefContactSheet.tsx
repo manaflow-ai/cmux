@@ -148,6 +148,7 @@ export function ChiefContactSheet({
             id="chief-contact-handle"
             value={handle}
             onChange={(event) => setHandle(event.target.value)}
+            aria-label={t("settingsPage.chiefContact.handle")}
             placeholder={t("settingsPage.chiefContact.phoneHint")}
             autoComplete="off"
             autoCapitalize="none"
