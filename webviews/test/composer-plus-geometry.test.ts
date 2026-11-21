@@ -13,7 +13,7 @@
 // 3. Centered controls: +, the mic and Send are one size (`--acpmux-composer-control`), each glyph
 //    sits at its button's center, and every button stands the same inset off the box's edges on
 //    every side it meets (left, top and bottom for +; right, top and bottom for the last trailing
-//    control). Claude's three centers are the prompt's first line's center; Codex's chat look puts
+//    control). Claude's three centers are the prompt's last line's center; Codex's chat look puts
 //    them together on a lower row, below a full-width prompt (Leo 2026-11-04's ChatGPT reference).
 // 4. Room around the text (Claude's look; Leo, 2026-11-01: "this is all still not aligned there's not
 //    enough of a space at the bottom"): the caret's center is +'s center, the first line has as much
