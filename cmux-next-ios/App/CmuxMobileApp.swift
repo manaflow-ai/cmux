@@ -57,6 +57,8 @@ struct CmuxMobileApp: App {
             .notice("launch: isReduceMotionEnabled=\(UIAccessibility.isReduceMotionEnabled, privacy: .public)")
         // Screenshot rig: CMUX_MOBILE_FEED_LIVE_FIXTURE=1 fills the Feed from a fixed Mac.
         LiveFeedFixture.shared.startIfRequested()
+        // Input responsiveness: main-thread hitches with stacks, keyboard windows, key and send latency.
+        InputLatencyTrace.startIfRequested()
         #endif
     }
 
@@ -91,6 +93,7 @@ struct CmuxMobileApp: App {
             #if DEBUG
             // `CMUX_MOBILE_LAUNCH_MARKS=1`: the launch marks for LaunchTTIUITests.
             .overlay(alignment: .topLeading) { LaunchMarksProbe() }
+            .overlay(alignment: .topTrailing) { InputLatencyProbe() }
             #endif
             .modifier(ChiefCallCover(
                 controller: ChiefVoice.controller,
