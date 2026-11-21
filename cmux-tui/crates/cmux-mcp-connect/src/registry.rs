@@ -32,8 +32,18 @@ pub struct Entry {
     /// metadata names as its default.
     #[serde(default)]
     pub scopes: Vec<String>,
+    /// A public client registered ahead with the service, for a server
+    /// that takes no dynamic client registration (Slack: an app with PKCE
+    /// on, so no client secret). Its redirect is the loopback port below.
     #[serde(default)]
     pub client_id: Option<String>,
+    /// The fixed loopback port of `client_id`'s registered redirect
+    /// (`http://localhost:<port>/callback`); a DCR client takes any port.
+    #[serde(default)]
+    pub redirect_port: Option<u16>,
+    /// How the authorize URL joins scopes (`,` for Slack); a space by default.
+    #[serde(default)]
+    pub scope_delimiter: Option<String>,
     /// The header a key goes in (`auth: key`).
     #[serde(default)]
     pub key_header: Option<String>,

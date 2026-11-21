@@ -4,14 +4,18 @@
 //!   Unix connection; the device list only for the verified app.
 //! - `remote-host-call {method, params}`: one host request (`status`,
 //!   `refresh`, `request`, `open_settings`, `restart`, `screen.share`,
-//!   `screen.access`, `screen.stop_session`). Any local Unix connection may
-//!   read, refresh, request a grant (macOS still asks the person), restart a
-//!   worker, and lower access (sharing off, a viewer to None or Ask from more,
-//!   a session stopped). Raising (sharing on, a viewer to Ask from None, View
-//!   or Full) needs the verified app: an agent in a terminal never grants a
-//!   device access to this Mac.
-//! - `remote-host-config {computer_use, screen_sharing, headless}`: the
-//!   person's switches, from the verified app.
+//!   `screen.access`, `screen.stop_session`, `computer_use.session`). Any
+//!   local Unix connection may read, refresh, request a grant (macOS still
+//!   asks the person), restart a worker, and lower access (sharing off, a
+//!   viewer to None or Ask from more, a session stopped, an agent's Computer
+//!   Use stopped, its cursor spotlit). Raising (sharing on, a viewer to Ask
+//!   from None, View or Full, an agent's Computer Use resumed) needs the
+//!   verified app: an agent in a terminal never grants a device access to
+//!   this Mac, nor lets a stopped agent act again.
+//! - `remote-host-config {computer_use, screen_sharing, headless,
+//!   app_permissions}`: the person's switches, and the app's own Screen
+//!   Recording and Accessibility (memory only, shown as status `app`), from
+//!   the verified app.
 //! - `remote-host-app`: the app socket's credentials for the verified app's
 //!   own process (the host admits that process only).
 
@@ -83,6 +87,14 @@ fn unavailable(message: String) -> anyhow::Error {
 pub(super) fn status(mux: &Mux, client: u64) -> anyhow::Result<Value> {
     let caller = caller(mux, client)?;
     let mut status = mux.control_clients.remote_host.status();
+    // Settings reads the on-demand supervisor without starting its worker or requesting its secret.
+    let computer_use = &mux.control_clients.computer_use;
+    if caller.verified_app
+        && computer_use.configured()
+        && let Some(fields) = status.as_object_mut()
+    {
+        fields.insert("computer_use".into(), computer_use.status());
+    }
     if !caller.verified_app
         && let Some(screen) = status.pointer_mut("/host/screen").and_then(Value::as_object_mut)
     {
@@ -118,6 +130,7 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
             return host.capture(method, params, stamp, caller.peer_token).map_err(unavailable);
         }
         "status" | "refresh" | "request" | "open_settings" | "restart" | "screen.stop_session" => {}
+        "computer_use.session" => computer_use_session(&caller, &params)?,
         "screen.share" => {
             let on = params.get("on").and_then(Value::as_bool).ok_or_else(|| RemoteRefused {
                 code: "bad_request",
@@ -175,11 +188,62 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
     Ok(answer)
 }
 
-pub(super) fn config(mux: &Mux, client: u64, update: Value) -> anyhow::Result<Value> {
+/// `computer_use.session {action, session, label?}`: the person's Stop for one
+/// agent's Computer Use (the cmux menu bar), its Resume, Show Cursor
+/// (`spotlight`) and Show Window (`raise_window`). Stop and spotlight only
+/// lower or show, so any local connection may ask; Resume lets an agent act
+/// again, and Show Window brings an app to the front (it takes the person's
+/// focus, which only the person asks for), so both need the verified app.
+fn computer_use_session(caller: &Caller, params: &Value) -> Result<(), RemoteRefused> {
+    let action = params.get("action").and_then(Value::as_str).unwrap_or_default();
+    let session = params.get("session").and_then(Value::as_str).unwrap_or_default();
+    if session.is_empty() || session.len() > 256 {
+        return Err(RemoteRefused {
+            code: "bad_request",
+            message: "computer_use.session needs a session".into(),
+        });
+    }
+    match action {
+        "stop" | "spotlight" => Ok(()),
+        "resume" if caller.verified_app => Ok(()),
+        "resume" => Err(forbidden(
+            "resuming an agent's Computer Use needs the cmux app (its menu bar Resume)",
+        )),
+        "raise_window" if caller.verified_app => Ok(()),
+        "raise_window" => Err(forbidden(
+            "showing an agent's window needs the cmux app (its menu bar Show Window)",
+        )),
+        _ => Err(RemoteRefused {
+            code: "bad_request",
+            message: "computer_use.session action is stop, resume, spotlight or raise_window"
+                .into(),
+        }),
+    }
+}
+
+pub(super) fn config(
+    mux: &Mux,
+    client: u64,
+    update: Value,
+    app_permissions: Option<crate::remote_host::AppPermissions>,
+) -> anyhow::Result<Value> {
     if !caller(mux, client)?.verified_app {
         return Err(forbidden("switches come from the cmux app").into());
     }
-    mux.control_clients.remote_host.set_config(&update).map_err(unavailable)
+    let host = &mux.control_clients.remote_host;
+    let reported = app_permissions.map(|permissions| host.set_app_permissions(permissions));
+    // A call that carries only the app's grants never saves, starts or stops anything.
+    match reported {
+        Some(status) if !has_switch(&update) => Ok(status),
+        _ => host.set_config(&update).map_err(unavailable),
+    }
+}
+
+/// Whether a `remote-host-config` update moves any of the person's switches.
+fn has_switch(update: &Value) -> bool {
+    ["computer_use", "screen_sharing", "headless"]
+        .iter()
+        .any(|key| update.get(key).is_some_and(|value| !value.is_null()))
 }
 
 pub(super) fn app(mux: &Mux, client: u64) -> anyhow::Result<Value> {
@@ -201,6 +265,52 @@ fn app_stamp(pid: u32) -> Option<Value> {
 #[cfg(not(target_os = "macos"))]
 fn app_stamp(_pid: u32) -> Option<Value> {
     None
+}
+
+#[cfg(test)]
+mod computer_use_session_tests {
+    use super::*;
+
+    fn caller(verified_app: bool) -> Caller {
+        Caller { verified_app, peer_pid: None, peer_token: None }
+    }
+
+    #[test]
+    fn stop_and_spotlight_are_open_to_local_callers_and_resume_needs_the_app() {
+        let stop = json!({"action": "stop", "session": "s1"});
+        let spotlight = json!({"action": "spotlight", "session": "s1"});
+        let resume = json!({"action": "resume", "session": "s1"});
+        assert!(computer_use_session(&caller(false), &stop).is_ok());
+        assert!(computer_use_session(&caller(false), &spotlight).is_ok());
+        let refused = computer_use_session(&caller(false), &resume).unwrap_err();
+        assert_eq!(refused.code, ORIGIN_FORBIDDEN);
+        assert!(computer_use_session(&caller(true), &resume).is_ok());
+    }
+
+    /// Show Window (the menu bar's `raise_window`) brings the agent's app to
+    /// the front: the cmux app may ask, another local connection may not.
+    #[test]
+    fn raise_window_needs_the_app() {
+        let raise = json!({"action": "raise_window", "session": "s1"});
+        assert!(computer_use_session(&caller(true), &raise).is_ok());
+        let refused = computer_use_session(&caller(false), &raise).unwrap_err();
+        assert_eq!(refused.code, ORIGIN_FORBIDDEN);
+    }
+
+    #[test]
+    fn a_session_and_a_known_action_are_required() {
+        for params in [
+            json!({"action": "stop"}),
+            json!({"action": "stop", "session": ""}),
+            json!({"action": "stop", "session": "x".repeat(257)}),
+            json!({"action": "end", "session": "s1"}),
+        ] {
+            assert_eq!(
+                computer_use_session(&caller(true), &params).unwrap_err().code,
+                "bad_request"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

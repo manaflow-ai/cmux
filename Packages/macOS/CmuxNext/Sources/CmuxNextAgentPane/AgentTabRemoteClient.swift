@@ -15,14 +15,18 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     public func attach(_ page: AgentSessionPage, events handler: @escaping @Sendable (AgentSessionRemoteEvent) -> Void) async throws -> Data {
         try await mapped {
-            try await client.attach(afterSeq: page.afterSeq, beforeSeq: page.beforeSeq, limit: page.limit, kinds: page.kinds) { event, line in
+            try await client.attach(afterSeq: page.afterSeq, beforeSeq: page.beforeSeq, limit: page.limit, kinds: page.kinds,
+                                    maxBytes: page.maxBytes) { event, line in
                 handler(Self.event(event, line))
             }
         }
     }
 
     public func events(_ page: AgentSessionPage) async throws -> Data {
-        try await mapped { try await client.events(afterSeq: page.afterSeq, beforeSeq: page.beforeSeq, limit: page.limit, kinds: page.kinds) }
+        try await mapped {
+            try await client.events(afterSeq: page.afterSeq, beforeSeq: page.beforeSeq, limit: page.limit, kinds: page.kinds,
+                                    maxBytes: page.maxBytes)
+        }
     }
 
     public func prompt(id: String, text: String) async throws -> Data {
@@ -31,6 +35,22 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     public func prompt(id: String, content: Data) async throws -> Data {
         try await mapped { try await client.prompt(id: id, content: content) }
+    }
+
+    public func prompt(id: String, text: String, steer: Bool) async throws -> Data {
+        try await mapped { try await client.prompt(id: id, text: text, steer: steer) }
+    }
+
+    public func prompt(id: String, content: Data, steer: Bool) async throws -> Data {
+        try await mapped { try await client.prompt(id: id, content: content, steer: steer) }
+    }
+
+    public func queueApprove(promptID: String, turnID: String, revision: UInt64) async throws -> Data {
+        try await mapped { try await client.queueApprove(promptID: promptID, turnID: turnID, revision: revision) }
+    }
+
+    public func queueDecline(promptID: String) async throws -> Data {
+        try await mapped { try await client.queueDecline(promptID: promptID) }
     }
 
     public func cancel() async throws { _ = try await mapped { try await client.cancel(); return Data() } }

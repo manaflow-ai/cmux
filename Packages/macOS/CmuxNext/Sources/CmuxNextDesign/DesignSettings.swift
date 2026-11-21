@@ -44,6 +44,9 @@ public final class DesignSettings {
     public var densityTokens: DensityTokens = .compact
     /// `appearance.customDensities`: the user's own densities, in file order.
     public var customDensities: [DensityTokens] = []
+    /// Whether `densityTokens` is the active theme file's own density (its `"density"` block): then a change to it
+    /// shows but is not saved, since the file would put it back.
+    public var densityFromThemeFile = false
     /// Every density the user can pick: the built-ins, densest first, then the custom ones.
     public var availableDensities: [DensityTokens] { DensityPreset.allCases.map(\.tokens) + customDensities }
     /// The density with `id` among `availableDensities`.
@@ -71,6 +74,7 @@ public final class DesignSettings {
         return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.pageScale)');"
             + "document.documentElement.style.setProperty('--cmux-density-scale', '\(Typography.pageDensityScale)');"
             + "document.documentElement.style.setProperty('--cmux-density-text-scale', '\(Typography.pageDensityTextScale)');"
+            + "document.documentElement.style.setProperty('--cmux-chat-text-scale', '\(Typography.pageChatTextScale)');"
             + "if (window.__cmuxSyncPageZoom) { window.__cmuxSyncPageZoom(); } else { document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)'); }"
             + composerScript
             + "document.documentElement.style.setProperty('--cmux-row-text-scale', '\(Typography.pageRowTextScale)');"
@@ -79,7 +83,7 @@ public final class DesignSettings {
     }
     /// New Tab scales its Default page values together with one zoom.
     private var composerScript: String {
-        let tokens = densityTokens.tokens
+        let tokens = Metrics.tokens.tokens
         let values: [(String, String?)] = [
             ("--cmux-composer-zoom", tokens["composerZoom"].map { Self.cssNumber($0) }),
             ("--cmux-composer-column", tokens["composerMaxWidth"].map { "min(\(Self.cssNumber($0))px, 100%)" }),
@@ -136,6 +140,15 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: WindowMaterialView.inactiveDimDidChange, object: nil)
         }
     }
+    /// `appearance.agentGlow`: the backdrop answers the agents (``BackdropAgentGlow``). Off by
+    /// default: it changes the default look. The App's ``agentGlow`` reader starts and stops with it.
+    public var agentGlowEnabled = false
+    /// `appearance.previousGlass`: web pages draw the glass numbers from before the one glass system
+    /// (``WebTheme/glassLevels`` is `previous`). Off by default.
+    public var previousGlass = false
+    /// What every window's backdrop shows of the agents now; ``BackdropAgentGlow/calm`` while
+    /// ``agentGlowEnabled`` is off. Each window backdrop observes it (``BackdropAgentGlowView``).
+    public var agentGlow = BackdropAgentGlow.calm
     /// `appearance.wallpaperTint`: where the desktop shows through the window, its tint takes the
     /// desktop picture's hue (``WallpaperTint``), as macOS tints its own windows. Off until the
     /// setting reaches it (``SettingsApplier``).
@@ -297,8 +310,9 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
-    /// `appearance.fontSmoothing`: what web pages draw with now (``WebTheme``). Native text keeps the
-    /// launch's value (``ProcessFontSmoothing/current``).
+    /// `appearance.fontSmoothing`: what web pages draw with now (``WebTheme``). Chrome text cmux draws
+    /// itself follows it too (``ProcessFontSmoothing/chrome``); stock AppKit text keeps the launch's
+    /// value (``ProcessFontSmoothing/current``).
     public var fontSmoothing: FontSmoothing = .auto
     /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
     /// or shaded apart from it.
@@ -319,6 +333,12 @@ public final class DesignSettings {
     /// ``Metrics/titleAreaShadeScale``); a change repaints, as the contrast does.
     public var titleAreaTone: TitleAreaTone = .oneColor {
         didSet { if titleAreaTone != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+    /// `appearance.cornerFlush`: how the selected tab meets the content card (``CornerFlush``); nil while the key is
+    /// unset, so the default (`flush`, no goo) draws only over the stock chrome (``CornerFlush/current``). A Debug
+    /// Settings pick of `chrome.cornerFlush` still overrides it. A change repaints, as the tone does.
+    public var cornerFlush: CornerFlush? {
+        didSet { if cornerFlush != oldValue { ThemeScope.app.store.repaintAll() } }
     }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
@@ -386,7 +406,7 @@ public final class DesignSettings {
         case .dividerThickness: 0...6
         case .dividerHitWidth: 1...24
         case .panelCornerRadius: 0...20
-        case .chromeFontSize: 10...16
+        case .chromeFontSize: 10...20
         case .tabFontSize: 10...18
         case .titlebarHeight: 24...56
         }
