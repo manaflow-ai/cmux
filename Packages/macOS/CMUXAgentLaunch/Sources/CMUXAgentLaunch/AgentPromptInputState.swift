@@ -39,6 +39,29 @@ public struct AgentPromptScreenSpan: Equatable, Sendable {
     }
 }
 
+/// An agent whose input row `AgentPromptInputState` can read.
+public enum AgentPromptStyle: Hashable, Sendable, CaseIterable {
+    /// Claude Code: `❯` and a no-break space.
+    case claude
+    /// Codex: `›` and a space.
+    case codex
+
+    private static let remoteKeyPrefix = "cmux.remote.agent:"
+
+    /// The style for an agent lifecycle key such as `claude_code`, including
+    /// a remote tmux mirror's `cmux.remote.agent:` key. Nil for an agent
+    /// whose input row isn't modeled.
+    public init?(agentKey: String) {
+        var key = Substring(agentKey)
+        if key.hasPrefix(Self.remoteKeyPrefix) { key = key.dropFirst(Self.remoteKeyPrefix.count) }
+        switch key {
+        case "claude_code": self = .claude
+        case "codex": self = .codex
+        default: return nil
+        }
+    }
+}
+
 /// Recognizes the input areas of Claude Code and Codex on a terminal screen.
 ///
 /// - Claude Code draws its input row as `❯` followed by a no-break space,
@@ -54,7 +77,9 @@ public struct AgentPromptScreenSpan: Equatable, Sendable {
 /// transcript above is not a dialog.
 ///
 /// Both glyphs can appear in other programs' output, so callers should only
-/// act on the result for a surface known to run an agent.
+/// act on the result for a surface known to run an agent, and should pass
+/// only the prompt styles of the agents running there: another agent's
+/// transcript can hold a `› ` or `❯ ` row above its own input box.
 extension AgentPromptInputState {
     private static let claudePromptPrefix = "\u{276F}\u{00A0}"
     private static let codexPromptPrefix = "\u{203A} "
@@ -70,17 +95,26 @@ extension AgentPromptInputState {
 
     /// Reads the input state from a screen.
     ///
-    /// - Parameter rows: The visible screen, top to bottom; each row's spans
-    ///   in column order.
-    public init(screenRows rows: [[AgentPromptScreenSpan]]) {
-        self = Self.detect(rows: rows)
+    /// - Parameters:
+    ///   - rows: The visible screen, top to bottom; each row's spans in
+    ///     column order.
+    ///   - promptStyles: The input rows to look for: those of the agents
+    ///     running on the surface. Dialogs are recognized whatever this holds.
+    public init(
+        screenRows rows: [[AgentPromptScreenSpan]],
+        promptStyles: Set<AgentPromptStyle>
+    ) {
+        self = Self.detect(rows: rows, styles: promptStyles)
     }
 
-    private static func detect(rows: [[AgentPromptScreenSpan]]) -> AgentPromptInputState {
+    private static func detect(rows: [[AgentPromptScreenSpan]], styles: Set<AgentPromptStyle>) -> AgentPromptInputState {
         let plainRows = rows.map(plainText)
-        let promptRow = plainRows.lastIndex(where: { promptPrefix(in: $0) != nil })
+        let promptRow = plainRows.lastIndex(where: { promptPrefix(in: $0, styles: styles) != nil })
+        // Hints count only below the last prompt-glyph row of any style, so a
+        // reply above it that quotes a hint isn't a dialog on any agent.
+        let glyphRow = plainRows.lastIndex(where: { promptPrefix(in: $0, styles: Set(AgentPromptStyle.allCases)) != nil })
 
-        let hintSearchStart = promptRow.map { $0 + 1 } ?? 0
+        let hintSearchStart = glyphRow.map { $0 + 1 } ?? 0
         let bottomRows = plainRows[hintSearchStart...].reversed()
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             .prefix(dialogHintRowWindow)
@@ -91,7 +125,7 @@ extension AgentPromptInputState {
             return .dialog
         }
 
-        guard let promptRow, let prefix = promptPrefix(in: plainRows[promptRow]) else {
+        guard let promptRow, let prefix = promptPrefix(in: plainRows[promptRow], styles: styles) else {
             return .unknown
         }
 
@@ -127,14 +161,14 @@ extension AgentPromptInputState {
 
     /// The prompt glyph and its separator when `row` is an input row. Claude
     /// may draw a `│` box border before the glyph.
-    private static func promptPrefix(in row: String) -> String? {
+    private static func promptPrefix(in row: String, styles: Set<AgentPromptStyle>) -> String? {
         var body = Substring(row)
         body = body.drop(while: { $0 == " " })
         if body.hasPrefix("\u{2502}") {
             body = body.dropFirst().drop(while: { $0 == " " })
         }
-        if body.hasPrefix(claudePromptPrefix) { return claudePromptPrefix }
-        if body.hasPrefix(codexPromptPrefix) { return codexPromptPrefix }
+        if styles.contains(.claude), body.hasPrefix(claudePromptPrefix) { return claudePromptPrefix }
+        if styles.contains(.codex), body.hasPrefix(codexPromptPrefix) { return codexPromptPrefix }
         return nil
     }
 

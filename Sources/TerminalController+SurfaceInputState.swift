@@ -38,7 +38,8 @@ extension TerminalController {
             }
 
             let lifecycle = workspace.agentHibernationLifecycleState(panelId: surfaceId, fallback: nil)
-            let hasAgent = workspace.agentLifecycleStatesByPanelId[surfaceId]?.isEmpty == false
+            let agentKeys = workspace.agentLifecycleStatesByPanelId[surfaceId].map { Array($0.keys) } ?? []
+            let hasAgent = !agentKeys.isEmpty
             var payload: [String: Any] = [
                 "surface_id": surfaceId.uuidString,
                 "workspace_id": workspace.id.uuidString,
@@ -52,7 +53,12 @@ extension TerminalController {
                 return .ok(payload)
             }
             payload["terminal"] = true
-            let screen = Self.agentPromptInputState(of: panel.surface)
+            // Read only the input rows of the agents running here: another
+            // agent's transcript can hold a Claude or Codex prompt glyph.
+            let screen = Self.agentPromptInputState(
+                of: panel.surface,
+                promptStyles: Set(agentKeys.compactMap(AgentPromptStyle.init(agentKey:)))
+            )
             // Only the screen decides, and only for a surface that runs an
             // agent: the prompt glyphs and key hints also show up in other
             // programs' output, and the lifecycle can stay `needsInput` after
@@ -79,7 +85,10 @@ extension TerminalController {
     /// Reads the visible screen through the render-grid export, keeping each
     /// span's faint attribute so placeholders don't read as drafts.
     @MainActor
-    static func agentPromptInputState(of surface: TerminalSurface) -> AgentPromptInputState {
+    static func agentPromptInputState(
+        of surface: TerminalSurface,
+        promptStyles: Set<AgentPromptStyle>
+    ) -> AgentPromptInputState {
         // The active screen, not the viewport: a human scrolled up in the
         // pane still has their draft at the bottom.
         guard let frame = surface.mobileRenderGridFrame(
@@ -101,6 +110,6 @@ extension TerminalController {
                 faint: faintStyles.contains(span.styleID)
             ))
         }
-        return AgentPromptInputState(screenRows: rows)
+        return AgentPromptInputState(screenRows: rows, promptStyles: promptStyles)
     }
 }
