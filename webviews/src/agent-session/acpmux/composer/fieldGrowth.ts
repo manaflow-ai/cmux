@@ -157,6 +157,8 @@ export function fieldGrowth(external: () => boolean): Plugin {
       // The arm is read once per editor.
       const arm = experimentArm(fieldGrowthMotion);
       let scroller: HTMLElement | null = null;
+      let editWaitingForResize = false;
+      let editClearTimer: ReturnType<typeof setTimeout> | undefined;
       // The height the field last drew at rest, kept as it changes for any reason (a rewrap, the
       // window's cap) by the field's own observer, which delivers after the edit that changes it.
       let shown = -1;
@@ -166,8 +168,16 @@ export function fieldGrowth(external: () => boolean): Plugin {
         if (!scroller || typeof ResizeObserver !== "function") return;
         shown = scroller.getBoundingClientRect().height;
         const field = scroller;
-        restObserver = new ResizeObserver(() => {
-          if (!moving.has(field)) shown = field.getBoundingClientRect().height;
+        restObserver = new ResizeObserver((entries) => {
+          if (moving.has(field)) return;
+          const entry = entries[0];
+          const measured = entry?.target === field ? field.getBoundingClientRect().height : undefined;
+          if (editWaitingForResize && measured !== undefined) {
+            editWaitingForResize = false;
+            follow(false, measured);
+          } else if (measured !== undefined) {
+            shown = measured;
+          }
         });
         restObserver.observe(field);
       };
@@ -195,8 +205,9 @@ export function fieldGrowth(external: () => boolean): Plugin {
         animation.addEventListener("finish", done, { once: true });
         animation.addEventListener("cancel", done, { once: true });
       };
-      // perf-hot: one layout read per edit (ProseMirror's own caret reveal reads the same layout next).
-      const follow = (atOnce = false) => {
+      // Growth edits read layout only when the observer reports a changed height. Retargeting a
+      // running motion still reads the current animated height so its curve remains continuous.
+      const follow = (atOnce = false, measuredTo?: number) => {
         const field = scroller;
         if (!field) return;
         const running = moving.get(field);
@@ -207,7 +218,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
         const started = running?.animation.startTime ?? null;
         const scrolled = field.scrollTop;
         running?.animation.cancel();
-        const to = field.getBoundingClientRect().height;
+        const to = measuredTo ?? field.getBoundingClientRect().height;
         shown = to;
         // Read before the same-end path: an edit after motion went off (or a value set from outside)
         // lands a running growth instead of playing it on.
@@ -287,9 +298,30 @@ export function fieldGrowth(external: () => boolean): Plugin {
       return {
         update(next, previous) {
           if (!scroller) attach();
-          if (!next.state.doc.eq(previous.doc)) follow(placedKey.getState(next.state) === true);
+          if (next.state.doc.eq(previous.doc)) return;
+          const placed = placedKey.getState(next.state) === true;
+          // Keep the synchronous path for engines without ResizeObserver; the observer is the
+          // signal that makes the deferred path safe on supported engines.
+          const immediate = placed || external() || moving.has(scroller!) || restObserver === undefined;
+          if (immediate) {
+            editWaitingForResize = false;
+            if (editClearTimer !== undefined) clearTimeout(editClearTimer);
+            editClearTimer = undefined;
+            follow(placed);
+            return;
+          }
+          // A stable-height key must not synchronously read layout. If this edit wraps or unwraps
+          // the field, its observer delivers the measured end height before paint and starts the
+          // same growth motion from `shown`.
+          editWaitingForResize = true;
+          if (editClearTimer !== undefined) clearTimeout(editClearTimer);
+          editClearTimer = setTimeout(() => {
+            editWaitingForResize = false;
+            editClearTimer = undefined;
+          }, 0);
         },
         destroy() {
+          if (editClearTimer !== undefined) clearTimeout(editClearTimer);
           restObserver?.disconnect();
           if (scroller) land(scroller);
         },

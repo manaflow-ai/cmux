@@ -10,6 +10,17 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
   const dom = new JSDOM("<!doctype html><body></body>", { pretendToBeVisual: true });
   const { window } = dom;
   const scope = globalThis as Record<string, unknown>;
+  type ResizeCallback = (entries: ResizeObserverEntry[]) => void;
+  const resizeObservers = new Set<{ callback: ResizeCallback }>();
+  class TestResizeObserver {
+    constructor(readonly callback: ResizeCallback) {
+      resizeObservers.add(this);
+    }
+    observe() {}
+    disconnect() {
+      resizeObservers.delete(this);
+    }
+  }
   const globals = {
     window,
     document: window.document,
@@ -17,10 +28,7 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
     MutationObserver: window.MutationObserver,
     CustomEvent: window.CustomEvent,
     getComputedStyle: window.getComputedStyle.bind(window),
-    ResizeObserver: class {
-      observe() {}
-      disconnect() {}
-    },
+    ResizeObserver: TestResizeObserver,
   };
   const saved = Object.keys(globals).map((key) => [key, key in scope, scope[key]] as const);
   Object.assign(scope, globals);
@@ -38,7 +46,11 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
       field.className = "acpmux-md-field";
       field.style.cssText = "height:48px;line-height:20px;box-sizing:border-box";
       window.document.body.append(field);
-      field.getBoundingClientRect = () => new window.DOMRect(0, 0, 600, Number.parseFloat(field.style.height) * zoom);
+      let rectReads = 0;
+      field.getBoundingClientRect = () => {
+        rectReads += 1;
+        return new window.DOMRect(0, 0, 600, Number.parseFloat(field.style.height) * zoom);
+      };
       let capped = false;
       Object.defineProperties(field, {
         clientHeight: { get: () => Number.parseFloat(field.style.height) },
@@ -60,13 +72,22 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
       const view = new EditorView(field, {
         state: EditorState.create({ schema, plugins: [fieldGrowth(() => false)] }),
       });
+      const notifyResize = () => {
+        const entry = { target: field } as unknown as ResizeObserverEntry;
+        for (const observer of [...resizeObservers]) observer.callback([entry]);
+      };
       try {
         for (const height of [68, 48, 68, 48]) {
           const before = Number.parseFloat(field.style.height);
           field.style.height = `${height}px`;
           // The browser may scroll to the new caret before the editor reports its edit.
+          const beforeDispatchReads = rectReads;
           field.scrollTop = 20;
           view.dispatch(view.state.tr.insertText("x"));
+          // Stable-height typing does not force a layout read. A changed height is picked up by
+          // ResizeObserver before the frame paints.
+          expect(rectReads).toBe(beforeDispatchReads);
+          notifyResize();
           expect(field.scrollTop).toBe(0);
           expect(Number.parseFloat(String(frames[0]!.height)) * zoom).toBeCloseTo(before * zoom);
           expect(Number.parseFloat(String(frames.at(-1)!.height)) * zoom).toBeCloseTo(height * zoom);
@@ -89,6 +110,7 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
         // A growth past 1.5 lines, in CSS pixels at every zoom, keeps the caret in view instead.
         field.style.height = "188px";
         view.dispatch(view.state.tr.insertText("large paste"));
+        notifyResize();
         expect(growthHoldsTop(field)).toBe(false);
         animation!.dispatchEvent(new window.Event("finish"));
         // At the maximum height, caret reveal and native scrolling remain available.
@@ -96,6 +118,7 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
         field.style.height = "208px";
         field.scrollTop = 60;
         view.dispatch(view.state.tr.insertText("past the cap"));
+        notifyResize();
         expect(growthHoldsTop(field)).toBe(false);
         expect(view.someProp("handleScrollToSelection", (handle) => handle(view))).toBeUndefined();
         expect(field.scrollTop).toBe(60);
