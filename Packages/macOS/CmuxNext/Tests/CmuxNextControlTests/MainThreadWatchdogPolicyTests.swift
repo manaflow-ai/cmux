@@ -35,6 +35,26 @@ struct MainThreadWatchdogPolicyTests {
         #expect(MainThreadWatchdog.hangFailsAssertion(elapsedNanos: 10_500_000_000, mainThreadCPUNanos: nil, assertNanos: assertNanos))
     }
 
+    /// The watchdog thread checks the assertion after it reported the hang, and on a Mac out of CPU it
+    /// waits for its turn too: the stall it measured past the threshold can be over by then. A stall that
+    /// ended is not a hang still running, and its missing CPU reading is not "unreadable" (an app starved
+    /// to 2 ms of main-thread CPU in 11 s was ended that way). One still running keeps the wall-clock rule.
+    @Test func aStallThatEndedBeforeTheCheckDoesNotFailHangAssertion() {
+        let watchdog = MainThreadWatchdog(configuration: .init(logStalls: false, hangAssertThreshold: .seconds(10)),
+                                          uptime: { 0 })
+        let assertNanos: UInt64 = 10_000_000_000
+        watchdog.heartbeat(.afterWaiting)
+        let stall = watchdog.currentBeat
+        // Still running, CPU unreadable (no watched thread): wall-clock time alone decides.
+        #expect(watchdog.runningHangFailsAssertion(beat: stall, elapsedNanos: 11_000_000_000, assertNanos: assertNanos))
+        watchdog.heartbeat(.beforeWaiting)
+        #expect(!watchdog.runningHangFailsAssertion(beat: stall, elapsedNanos: 11_000_000_000, assertNanos: assertNanos))
+        // The next turn is a stall of its own, measured from its own heartbeat.
+        watchdog.heartbeat(.afterWaiting)
+        #expect(!watchdog.runningHangFailsAssertion(beat: stall, elapsedNanos: 11_000_000_000, assertNanos: assertNanos))
+        #expect(!watchdog.runningHangFailsAssertion(beat: watchdog.currentBeat, elapsedNanos: 1_000_000_000, assertNanos: assertNanos))
+    }
+
     /// The watchdog thread reads the watched thread's CPU time (thread_info
     /// on its port), and it moves when that thread works. The watched thread
     /// is a thread of its own, not the main thread: `watchCurrentThread()`
