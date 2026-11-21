@@ -10,11 +10,9 @@ import Testing
         #expect(PasswordImportKey.storesUnderMockKey(chromiumUsesMockKeychain: true, environment: [:]))
     }
 
-    @Test func aReleaseBuildOnItsOwnKeychainItemImportsPasswords() {
-        #expect(!PasswordImportKey.storesUnderMockKey(chromiumUsesMockKeychain: false, environment: [:]))
-    }
-
-    @Test func aDevelopmentBundleOnTheRealKeychainImportsPasswords() {
+    /// The gate no longer reads the bundle identifier, so this one case covers a Release build on its own keychain item
+    /// and a development bundle on the real keychain alike.
+    @Test func aBuildOnTheRealKeychainImportsPasswords() {
         #expect(!PasswordImportKey.storesUnderMockKey(chromiumUsesMockKeychain: false, environment: [:]))
     }
 
