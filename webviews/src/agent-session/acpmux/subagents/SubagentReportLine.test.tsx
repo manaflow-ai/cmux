@@ -9,9 +9,9 @@ import type { AcpmuxRow } from "../model";
 import { BackgroundTurnLine } from "../conversation/BackgroundTurnLine";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "../conversation/backgroundTurns";
 import { withSubagentLines } from "./runningTray";
-import { SUBAGENT_DONE } from "./subagentRows";
+import { SUBAGENT_DONE, SUBAGENT_STARTED } from "./subagentRows";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
-import { SubagentViewsContext } from "./SubagentGroup";
+import { SubagentViewsContext } from "./subagentGroupModel";
 
 // As Claude's live records name them: acpmux's subagent is `<session>/<tool call>`, the
 // notification's origin the bare call.
@@ -59,13 +59,14 @@ test("a subagent's report sits right under its finished line and names it", () =
   const out = withSubagentLines(transcript());
   expect(out.map((entry) => entry.id)).toEqual([
     "prompt",
+    `${SUBAGENT_STARTED}:group`,
     "footer",
     "other",
     `${SUBAGENT_DONE}:chat/toolu_fix`,
     backgroundTurnRowId("report"),
     "reply",
   ]);
-  const report = out[4]!;
+  const report = out.find((entry) => entry.id === backgroundTurnRowId("report"))!;
   expect(report.subagentReport?.id).toBe("chat/toolu_fix");
   const closed = renderToStaticMarkup(<BackgroundTurnLine row={report} expanded={false} onToggle={() => {}} />);
   expect(closed).toContain("Report from");
@@ -112,4 +113,11 @@ test("a shell's background turn keeps its own line", () => {
   const html = renderToStaticMarkup(<BackgroundTurnLine row={shell} expanded={false} onToggle={() => {}} />);
   expect(html).not.toContain("Report from");
   expect(html).toContain('data-background-turn="quiet"');
+});
+
+test("a report whose subagent is not loaded still opens to its summary", () => {
+  const lone = turn("lone", 9_000);
+  const open = renderToStaticMarkup(<BackgroundTurnLine row={lone} expanded onToggle={() => {}} />);
+  expect(open).toContain("cv-subagent-report__body");
+  expect(open).toContain("I&#x27;ve merged the fix, but it");
 });

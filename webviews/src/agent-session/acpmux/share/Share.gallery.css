@@ -1,0 +1,27 @@
+/* The looks the gallery compares with the shipped Share sheet (Share.gallery.ts look-*). None ships. */
+:root[data-share-look="two-primaries"] .share-dialog__add .ui-btn[type="submit"] {
+  background: var(--ds-color-accent);
+  color: var(--ds-color-on-accent);
+  font-weight: var(--weight-emphasis);
+}
+:root[data-share-look="popover"] .share-dialog-popup.ui-dialog.ui-glass {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-popover-tint), transparent);
+  --glass-backdrop: var(--ds-glass-popover-blur);
+  border-radius: var(--ds-radius-xl);
+}
+:root[data-share-look="outline"] .share-dialog :is(.ui-input, .ui-btn:not([data-variant="solid"], [data-variant="ghost"])) {
+  background: transparent;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-separator);
+}
+
+:root[data-share-look="row-hover"] .share-dialog__row:not(:hover, [data-popup-open]) {
+  box-shadow: none;
+}
+:root[data-share-look="row-filled"] .share-dialog__row {
+  background: var(--ds-color-hover);
+}
+:root[data-share-look="row-bleed"] .share-dialog__row {
+  box-shadow: none;
+  border-radius: 0;
+  border-block-end: var(--cmux-hairline, 0.5px) solid var(--ds-color-separator);
+}

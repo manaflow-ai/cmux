@@ -221,7 +221,9 @@ pub fn checked_session(
     Ok(session)
 }
 
-/// The cmux API's client-session refusal codes. `known_code` prints only these, from this table.
+/// The cmux API's client-session refusal codes. `known_code` prints only these and the codes of
+/// cmux-platform's Cloud refusal table ([`cmux_cloud_machine::refusals::PLATFORM`]: the VM limit,
+/// a rate limit, a machine's state), each from its own table.
 const KNOWN_CODES: [&str; 19] = [
     // The machine exec route's refusals (cmux-platform MachineGuest.ts GUEST_REFUSAL).
     "vm_not_found",
@@ -247,7 +249,14 @@ const KNOWN_CODES: [&str; 19] = [
 
 /// The table's copy of `code` when the code is one this command knows, else nothing.
 pub fn known_code(code: Option<&str>) -> &'static str {
-    code.and_then(|c| KNOWN_CODES.iter().copied().find(|known| *known == c)).unwrap_or("")
+    code.and_then(|c| {
+        KNOWN_CODES
+            .iter()
+            .copied()
+            .find(|known| *known == c)
+            .or_else(|| cmux_cloud_machine::refusals::platform_code(c))
+    })
+    .unwrap_or("")
 }
 
 /// `text` with every occurrence of the token and the credential replaced.

@@ -31,6 +31,9 @@ struct SidebarFirstItemInItsWindowTests {
         case cmdOneKey
         /// A click on window B's Home item (the sidebar's activate intent), in window B's dispatch.
         case homeItemClick
+        /// A click on window B's Home item that runs after its click's dispatch, while the key window record names
+        /// window A (cmux#37371: Home showed in window A, which came forward and switched the macOS Space).
+        case homeItemClickAfterDispatch
         /// The Cmd-1 action run by name for window B (the palette, the menu): no event, B is the active window.
         case selectNumberAction
         /// Cmd-1 as the journey sends it (`debug.key` with `window` B) in an app that is not active: no
@@ -49,7 +52,7 @@ struct SidebarFirstItemInItsWindowTests {
         /// New Window as the person runs it (Cmd-Shift-N, `newWindow`): on a new space.
         case newSpace
         /// Move Workspace to New Window (`moveWorkspaceToNewWindow`, the journey's set-up): a workspace of window A
-        /// moves into a new window, on window A's space.
+        /// moves into a new window, which takes a space of its own (`WindowOwnSpace.give`).
         case movedWorkspace
 
         var testDescription: String { rawValue }
@@ -57,7 +60,7 @@ struct SidebarFirstItemInItsWindowTests {
 
     @Test(arguments: Entry.allCases, Opening.allCases)
     func theFirstSidebarItemShowsInTheWindowItWasAskedIn(_ entry: Entry, opening: Opening) async throws {
-        let newSpace = opening == .newSpace
+        let newSpace = opening != .sameSpace
         try await PasswordManagerRouteTests.withApp { services, connection in
             let keyWindow = services.keyWindowSource
             defer { services.keyWindowSource = keyWindow }
@@ -116,11 +119,14 @@ struct SidebarFirstItemInItsWindowTests {
             }
             let shownB = windowB.state.workspaceID
             #expect(shownB.flatMap(services.workspace(id:))?.isAnyHome != true, "window B shows a Home before the input")
-            let (shownA, pageA, membersA) = (windowA.state.workspaceID, windowA.state.page, services.windows.registry.members(of: windowA.state.id))
+            // Window A's own workspaces: since #44275 two windows on one space list each other's as guests
+            // (spaces-overhaul-DESIGN.md rule 6), so on the same space A also lists B's Home, by design.
+            let ownedA = { services.windows.registry.value.window(windowA.state.id)?.ownedIDs ?? [] }
+            let (shownA, pageA, membersA) = (windowA.state.workspaceID, windowA.state.page, ownedA())
             @MainActor func report() -> String {
                 let owner = { (id: String?) in id.flatMap { services.windows.registry.value.owner(of: $0) } ?? "none" }
                 return "window A shows \(windowA.state.workspaceID ?? "nil") (was \(shownA ?? "nil")), page \(String(describing: windowA.state.page)), "
-                    + "members \(services.windows.registry.members(of: windowA.state.id)) (were \(membersA)); "
+                    + "owns \(ownedA()) (owned \(membersA)), lists \(services.windows.registry.members(of: windowA.state.id)); "
                     + "window B shows \(windowB.state.workspaceID ?? "nil") (was \(shownB ?? "nil"), owner \(owner(windowB.state.workspaceID))), "
                     + "B selects \(String(describing: SidebarNavigation.current(in: windowB, services))); store Home \(homeA.id) in \(owner(homeA.id)); "
                     + "window Homes \(services.daemon.store.workspaces.filter(\.isWindowHome).map { "\($0.id) in \(owner($0.id))" })"
@@ -140,6 +146,8 @@ struct SidebarFirstItemInItsWindowTests {
                 #expect(taken, "the key router did not take Cmd-1 in window B")
             case .homeItemClick:
                 services.windows.dispatching(eventFrom: windowNS) { windowB.sidebar.handle(.activateItem(homeItem)) }
+            case .homeItemClickAfterDispatch:
+                windowB.sidebar.handle(.activateItem(homeItem))
             case .selectNumberAction:
                 services.keyWindowSource = { [weak windowB] in windowB?.window }
                 #expect(services.registry.perform("selectWorkspaceByNumber", argument: "1"))
@@ -164,7 +172,45 @@ struct SidebarFirstItemInItsWindowTests {
             #expect(services.windows.registry.value.owner(of: homeB) == idB, "window B's Home is not in window B: \(report())")
             #expect(windowB.state.profileID == roomB, "Home moved window B off its space \(roomB): \(report())")
             #expect(windowA.state.workspaceID == shownA && windowA.state.page == pageA, "\(entry) in window B changed window A: \(report())")
-            #expect(services.windows.registry.members(of: windowA.state.id) == membersA, "window A's workspaces changed: \(report())")
+            #expect(ownedA() == membersA, "window A's own workspaces changed: \(report())")
+        }
+    }
+    /// cmux#37371: a tab row clicked in window B's sidebar (or in a workspace row's hover card) for a workspace window
+    /// A lists shows that tab in window B, as a click on the workspace row does. It went to window A, which came
+    /// forward and could switch the macOS Space. The key window record names window A, as after Cmd-Tab.
+    @Test func aTabRowClickedInWindowBShowsTheTabInWindowB() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let keyWindow = services.keyWindowSource
+            defer { services.keyWindowSource = keyWindow }
+            let (windowA, _) = try await HomeSplitKeysTests.showHome(services, connection)
+            services.keyWindowSource = { [weak windowA] in windowA?.window }
+            let ownA = try await services.windows.createWorkspace(WorkspaceSpawn(cwd: NSTemporaryDirectory(), name: "37371-tab-row"),
+                                                                  into: windowA.state.id)
+            let firstTab = { services.workspace(id: ownA)?.screens.flatMap(\.panes).flatMap(\.tabs).first?.id }
+            try await PinnedPageTests.until({ firstTab() != nil && services.windows.registry.value.owner(of: ownA) == windowA.state.id },
+                                            within: .seconds(30))
+            services.windows.show(workspaceID: ownA, in: windowA.state, from: .thisWindow)
+            let before = Set(services.windows.controllers.map(\.state.id))
+            _ = services.windows.newWindow()
+            let opened = { services.windows.controllers.first { !before.contains($0.state.id) && !services.windows.registry.members(of: $0.state.id).isEmpty } }
+            try await PinnedPageTests.until({ opened()?.state.workspaceID != nil }, within: .seconds(60))
+            let windowB = try #require(opened())
+            let tab = try #require(firstTab())
+            // Window A's own workspaces (its guests from window B, on the same space since #44275, are not counted).
+            let ownedA = { services.windows.registry.value.window(windowA.state.id)?.ownedIDs ?? [] }
+            let membersA = ownedA()
+
+            windowB.sidebar.handle(.selectTab(workspace: CmuxNextSidebar.WorkspaceID(ownA), tab: CmuxNextSidebar.TabID(tab)))
+
+            try await PinnedPageTests.until({ windowB.state.workspaceID == ownA }, within: .seconds(30), report: {
+                "window B shows \(windowB.state.workspaceID ?? "nil"), window A \(windowA.state.workspaceID ?? "nil"); "
+                    + "\(ownA) in \(services.windows.registry.value.owner(of: ownA) ?? "none")"
+            })
+            #expect(services.windows.registry.value.owner(of: ownA) == windowB.state.id, "the tab's workspace stayed in window A")
+            // Window A, on the same space, keeps showing it as a guest view: the click did not act in window A.
+            #expect(services.windows.registry.value.window(windowA.state.id)?.guests.contains(ownA) == true,
+                    "window A does not list the moved workspace as a guest")
+            #expect(ownedA() == membersA.filter { $0 != ownA }, "window A still owns the workspace whose tab was clicked in window B")
         }
     }
 }

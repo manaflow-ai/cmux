@@ -6,7 +6,7 @@ import { RunBoard } from "./RunBoard";
 import { CompareRunBoard } from "./variants/compare/CompareRunBoard";
 import { TimelineRunBoard } from "./variants/timeline/TimelineRunBoard";
 import { RunApiHttpError } from "./runApi";
-import { attachFailureState, attachTicketExpired } from "./RunBoard";
+import { attachFailureState, attachTicketExpired } from "./runBoardModel";
 
 describe("Run board attach bridge", () => {
   test("classifies expired and replayed one-use tickets for clear retry copy", () => {

@@ -53,3 +53,12 @@
   border-radius: var(--surface-toast-radius) var(--surface-toast-radius) 0 0;
   background: color-mix(in srgb, var(--cmux-text, CanvasText) 5%, transparent);
 }
+
+/* The toast veil's compared tints (Notice.gallery.tsx `Tint`). `theme` is the shipped
+   --surface-toast-veil and needs nothing here. */
+.ui-notice-gallery[data-tint="gray"] .ui-notice {
+  --glass-tint: light-dark(rgb(252 252 252 / 55%), rgb(28 28 28 / 42%));
+}
+.ui-notice-gallery[data-tint="popover"] .ui-notice {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-popover-tint), transparent);
+}

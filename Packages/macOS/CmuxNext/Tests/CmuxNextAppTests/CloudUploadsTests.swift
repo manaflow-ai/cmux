@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 @testable import CmuxNextApp
+@testable import CmuxNextDaemon
 import Foundation
 import Testing
 
@@ -70,5 +71,24 @@ import Testing
         }
         #expect(!CloudUploadStrings.failed.contains("%"))
         #expect(CloudUploadStrings.failed.rangeOfCharacter(from: .decimalDigits) == nil)
+    }
+
+    /// A Cloud chat started with no folder is no moved chat; its tab on the machine still takes the
+    /// person's files when it is that machine's chat bound to the session asking
+    /// (``DaemonStore/holdsChat(tab:host:session:)``), and no other tab does.
+    @Test func aHomeCloudChatsTabTakesUploadsOnlyForItsOwnSession() throws {
+        let store = DaemonStore()
+        var chat = TabSnapshot(surface: SurfaceID(rawValue: 1), kind: .conversation, cwd: nil)
+        chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "registry:cloud-1", session: "s1", harness: "claude"))
+        let terminal = TabSnapshot(surface: SurfaceID(rawValue: 2), kind: .pty, cwd: nil)
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chat, terminal])])
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "cloud", screens: [screen])]))
+        let tabs = try #require(store.workspaces.first?.screens.first?.panes.first?.tabs)
+        let (chatTab, terminalTab) = (tabs[0].id, tabs[1].id)
+        #expect(store.holdsChat(tab: chatTab, host: "registry:cloud-1", session: "s1"))
+        #expect(!store.holdsChat(tab: chatTab, host: "registry:cloud-1", session: "s2"), "another chat's session")
+        #expect(!store.holdsChat(tab: chatTab, host: "registry:cloud-2", session: "s1"), "another machine's chat")
+        #expect(!store.holdsChat(tab: terminalTab, host: "registry:cloud-1", session: "s1"), "not a chat")
+        #expect(!store.holdsChat(tab: "missing", host: "registry:cloud-1", session: "s1"))
     }
 }

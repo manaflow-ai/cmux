@@ -17,6 +17,10 @@
 use super::*;
 use crate::snapshot::{SnapshotPhase, primary_history_pages};
 
+// Copy-mode reads of the same retained screen: row text, block text, search.
+#[path = "terminal_screen_text.rs"]
+mod screen_text;
+
 static NEXT_MARKER_EPOCH: AtomicU64 = AtomicU64::new(1);
 
 pub(super) struct HistoryMarkers {

@@ -48,8 +48,9 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
         Promise.all(row.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => undefined))),
       );
   };
-  /// The received messages' toggles: each message is its own disclosure line (IncomingMessageCard.tsx).
-  const toggle = () => page.locator(".cv-received .cv-disclosure__toggle");
+  /// The received messages' toggles: each message is its own message line (IncomingMessageCard.tsx,
+  /// AgentMessageRow.tsx).
+  const toggle = () => page.locator(".cv-received .cv-agentmsg__toggle");
   /// Resolves once nothing in the first received message is moving.
   const folded = () =>
     page
@@ -101,7 +102,7 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
             // One line: no taller than the 26px line it sits on.
             oneLine:
               box.getBoundingClientRect().height <=
-              box.closest(".cv-disclosure__line")!.getBoundingClientRect().height + 0.5,
+              box.closest(".cv-agentmsg__line")!.getBoundingClientRect().height + 0.5,
           };
         });
       expect(preview).toEqual({ overflow: "ellipsis", wrap: "nowrap", oneLine: true });
@@ -122,7 +123,9 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
         .first()
         .evaluate((box) => box.clientHeight >= box.scrollHeight && box.textContent!.includes("Step 12")),
     ).toBe(true);
-    await toggle().first().click();
+    // Open, the toggle button holds no preview and has no width; the whole line toggles, so close
+    // it from its chevron, as the sent test does.
+    await page.locator(".cv-received .cv-agentmsg__chevron").first().click();
     await page.locator(".cv-received__text").first().waitFor({ state: "detached" });
   });
   test("sent preview has no fade or partial chip and Show more reveals all of it", async () => {
@@ -160,7 +163,7 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     test(`Tab reaches ${direction} code controls inside the shown text`, async () => {
       await open("code-first");
       const row = page.locator(direction === "received" ? ".cv-received" : ".cv-message");
-      const toggle = row.locator(direction === "received" ? ".cv-disclosure__toggle" : ".cv-agentmsg__toggle");
+      const toggle = row.locator(".cv-agentmsg__toggle");
       const text = row.locator(direction === "received" ? ".cv-received__text" : ".cv-message__text");
       if (direction === "sent") {
         await toggle.click();

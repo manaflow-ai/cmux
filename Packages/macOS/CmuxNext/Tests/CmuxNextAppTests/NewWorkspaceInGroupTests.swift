@@ -55,9 +55,9 @@ import Testing
         }
     }
 
-    @Test func theDefaultPlacementPutsANewWorkspaceRightBelowTheCurrentOne() throws {
-        let placed = try Self.placed(CmuxConfigSnapshot.newWorkspacePlacementFallback, from: "d")
-        #expect(placed.group == ["c", "d", "n", "e"])
+    @Test func theDefaultPlacementPutsANewWorkspaceAtTheTopOfTheCurrentGroup() throws {
+        let placed = try Self.placed(CmuxConfigSnapshot.newWorkspacePlacementDefault, from: "d")
+        #expect(placed.group == ["n", "c", "d", "e"])
     }
 
     @Test func afterCurrentFromAGroupMemberGoesRightBelowItInThatGroup() throws {

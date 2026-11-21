@@ -8,29 +8,36 @@ import { UiProvider } from "../../ui/UiProvider";
 import { nativePopupHost } from "../../ui/popupHost";
 import { installNativeMenu } from "../../ui/nativeMenu";
 import { postNative } from "./native";
-import { startFlickerLog } from "./flickerLog";
+import { pageHostFlickerSend, startFlickerLog } from "./flickerLog";
 import { pageHostClient } from "./pageHost";
 import { appPopupHost } from "../../pages/shared/pagePopupHost";
 import { installMessageMenuReporter } from "./conversation/messageMenu";
 import { installDragOut } from "./conversation/dragOut";
 import { installPageKey } from "./pageKey";
-import { installToastRoom } from "./toastRoom";
 import { installRevealSettle } from "../shared/pageReveal";
 import { setHarnessSymbolHost } from "../shared/harnessIcons";
 import { experimentArm } from "../../experiments/experiment";
 import { liveBackground } from "../../ui/liveBackground/liveBackground.experiment";
 import { reportHostGlass } from "../../ui/glass/hostGlass";
 import { chatUnderHoverCard, hostGlassCover } from "./chatUnderGlass";
+import { installUiPointer, type UiPointerControl } from "./uiPointer/picker";
+import { reportChatSnapshot } from "./chatSnapshot/live";
 
-// The native own-window picker runs in the page's inspector runtime. Keep its report on the
-// normal host protocol so the shared page host and the legacy WKWebView use the same validation.
-(
-  globalThis as typeof globalThis & {
-    __cmuxUiPointerPost?: (params: Record<string, unknown>) => void;
-  }
-).__cmuxUiPointerPost = (params) => {
-  void postNative("uiPointer.report", params);
-};
+// The chat's snapshot drew in the document's first frame (chatSnapshot/boot.ts): the host shows the
+// page now, before the handshake, instead of keeping its loading state until the rows are read.
+reportChatSnapshot(postNative);
+
+// Inspect Element's page side (uiPointer/picker.ts), driven by the native own-window picker. Its
+// report goes on the normal host protocol so the shared page host and the legacy WKWebView use the
+// same validation.
+(globalThis as typeof globalThis & { __cmuxUiPointer?: UiPointerControl }).__cmuxUiPointer = installUiPointer(
+  document,
+  {
+    post: (report) => void postNative("uiPointer.report", report),
+    // Esc that reached the page: the native picker stops too (UIInspectorController.pageReport).
+    cancel: () => void postNative("uiPointer.report", { cancelled: true }),
+  },
+);
 
 // One transcript snapshot per display frame, however many deltas land in it.
 AcpmuxDirectClient.scheduleFrame = nextFrame;
@@ -47,8 +54,6 @@ installDragOut(document);
       installLiveBackground(document, arm),
     );
 }
-// The app's toasts keep a band at the pane's foot that the chat stays above (toastRoom.ts).
-installToastRoom(document);
 // The composer shows its caret only while the page is the key one (pageKey.ts).
 installPageKey(document);
 // A switch away and back is a reattach: nothing started while hidden plays on return, and a change
@@ -71,15 +76,18 @@ export function mountAcpmux(initialChat?: InitialChat): void {
   // its call with the page client; the legacy bridge answers `contextMenu.show`.
   if (!pageHostClient() && window.webkit?.messageHandlers?.agentSession)
     installNativeMenu((request) => postNative("contextMenu.show", { ...request }));
-  // Floating glass the page marks (data-host-glass: Session Info first) is the App's own glass under
-  // the page, as its native menus are (ui/glass/hostGlass.ts).
+  // Floating glass the page marks (data-host-glass) is the App's own glass under the page, as its
+  // native menus are (ui/glass/hostGlass.ts). Each report carries the zoom its boxes were measured at,
+  // so a zoom never leaves the App's glass apart from the page's content (cmux#42413 had it off for that).
   if (pageHostClient() || window.webkit?.messageHandlers?.agentSession)
-    reportHostGlass(document, (surfaces) => postNative("pane.glass", { surfaces }), {
+    reportHostGlass(document, (surfaces, zoom) => postNative("pane.glass", { surfaces, zoom }), {
       candidates: chatUnderHoverCard,
       options: hostGlassCover,
     });
-  // The always-on flicker detector (flickerLog.ts), on the pane's own WebKit handler only.
-  if (!pageHostClient()) startFlickerLog();
+  // The always-on flicker detector (flickerLog.ts; its frame watch only behind a debug flag): on the
+  // shared page host its batches are the `diag.flicker` op, on the old host the pane's own WebKit
+  // handler takes them.
+  startFlickerLog(window, pageHostClient() ? pageHostFlickerSend() : undefined);
   createRoot(root).render(
     <UiProvider container={root} popupHost={popupHost}>
       <PaneBoundary onRetry={() => window.location.reload()}>

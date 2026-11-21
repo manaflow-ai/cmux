@@ -25,7 +25,7 @@ import { makeFakeUpstream } from "./fake-upstream.ts";
 import { makeS3aFakes } from "./s3a-fakes.ts";
 import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
-import { applyServiceScopeGrants, parseServiceScopeGrants, ServiceKeys } from "../../src/auth/service-keys.ts";
+import { applyServiceScopeGrants, parseServiceScopeGrants, ServiceKeys, teamKeysOf } from "../../src/auth/service-keys.ts";
 import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
 import { AgentStore, type ClientSessionRow } from "../../src/db/agents.ts";
 
@@ -64,6 +64,8 @@ export interface HarnessOptions {
   readonly stackWebhookSecret?: string;
   /** The CMUX_VM_CI_TRUST var; tokens from `githubToken` are signed by the harness's stand-in for GitHub's key. */
   readonly ciTrust?: string;
+  /** The CMUX_VM_TEAM_KEYS var (src/auth/team-keys.ts), merged with the service keys as the Worker does. */
+  readonly teamKeys?: string;
 }
 
 /** One audit row as a test sees it. */
@@ -113,7 +115,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const upstream = makeFakeUpstream(UPSTREAM_KEY);
   /** Client sessions (migration 0016), as cmux_vm.vm_client_sessions holds them. */
   const clientSessions: ClientSessionRow[] = [];
-  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: (request) => upstream.fetch(request) });
+  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 });
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
   /** Tenants whose plan allows creating VMs. */
@@ -265,7 +267,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     Layer.succeed(ServiceKeys, {
       find: (sha256) =>
         Effect.sync(() =>
-          Option.map(Option.fromNullable(serviceKeys.find((key) => key.sha256 === sha256)), (key) =>
+          Option.orElse(Option.map(Option.fromNullable(serviceKeys.find((key) => key.sha256 === sha256)), (key) =>
             applyServiceScopeGrants(
               [
                 {
@@ -278,7 +280,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
               ],
               parseServiceScopeGrants(options.serviceScopeGrants).grants,
             )[0]!,
-          ),
+          ), () => Option.fromNullable(teamKeysOf([], options.teamKeys).find((key) => key.sha256 === sha256))),
         ),
     }),
     auditStore,
@@ -412,7 +414,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     recordFault,
     meshRecordFault,
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
-      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: (request) => upstream.fetch(request) }));
+      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 }));
     },
     /** One agent reaper run, as the Worker's cron does. */
     reap,
@@ -506,7 +508,13 @@ export async function makeHarness(options: HarnessOptions = {}) {
     async addKey(
       tenant: string,
       scopes: ReadonlyArray<Scope>,
-      options: { readonly revoked?: boolean; readonly expiresAt?: Date; readonly allowlist?: ReadonlyArray<string> } = {},
+      options: {
+        readonly revoked?: boolean;
+        readonly expiresAt?: Date;
+        readonly allowlist?: ReadonlyArray<string>;
+        /** Store the key as an agent key confined to these labels (its principal's requiredLabels), whatever its scopes. */
+        readonly agentLabels?: Readonly<Record<string, string>>;
+      } = {},
     ): Promise<string> {
       const secret = generateApiKey();
       keys.push({
@@ -517,7 +525,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
         hash: await Effect.runPromise(hashApiKey(secret)),
         revoked: options.revoked ?? false,
         expiresAt: options.expiresAt ?? null,
-        agent: null,
+        agent: options.agentLabels === undefined ? null : { labels: options.agentLabels, maxVms: 1, maxUsdPerHour: 1 },
       });
       return secret;
     },

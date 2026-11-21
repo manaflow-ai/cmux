@@ -6,20 +6,20 @@
 // listed whole here (Leo, 2026-11-01: "our + button results are still really bad"): at most a few
 // recent ones, then one "Commands and skills…" row that opens the slash list, which searches them
 // all (composerPlusRegistry.ts, recentCommands.ts).
-import type React from "react";
-import { AtIcon, BuildIcon, PaperclipIcon, PlanIcon, Picker, PlusIcon, SearchIcon, SlashIcon } from "./ComposerPickers";
-import type { Choice, Section } from "./ComposerPickers";
-import {
-  composerPlusSections,
-  runComposerPlusAction,
-  type ComposerPlusEntry,
-  type ComposerPlusSection,
-} from "./composerPlusRegistry";
+import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
+import { Picker, PlusIcon, type Section } from "./ComposerPickers";
+import { runComposerPlusAction, type ComposerPlusEntry } from "./composerPlusRegistry";
 import type { SlashCommand } from "./slashCommands";
 import { useT } from "./i18n";
-import { Icon } from "./icons/Icon";
+
 import { experimentArm } from "../../experiments/experiment";
 import { composerPlusCommands } from "./composerPlusCommands.experiment";
+import { composerPlusMenuSections } from "./composerPlusMenuModel";
+import { acpmuxPerf } from "./perf";
+import { useStableHandlers } from "./stableHandlers";
+import { memo, useEffect } from "react";
+import { PLAN_TOGGLE_OPENER } from "./composerControls";
+import { registerPicker } from "./pickerOpeners";
 
 export type ComposerPlusMenuProps = {
   /** The rows, from composerPlusRegistry, already narrowed to what this composer can run. */
@@ -38,59 +38,15 @@ export type ComposerPlusMenuProps = {
   onOpen?(): void;
 };
 
-function rowIcon(entry: ComposerPlusEntry, planning: boolean): React.ReactNode {
-  if (entry.id === "add.files") return <PaperclipIcon />;
-  if (entry.id === "add.mention") return <AtIcon />;
-  if (entry.id === "add.commands") return <SlashIcon />;
-  // icon-scale-allow: the composer's own 18 glyph set (design/grid.md)
-  if (entry.id === "files.search") return <SearchIcon size={18} />;
-  if (entry.id.startsWith("add.mode.")) return planning ? <BuildIcon /> : <PlanIcon />;
-  // icon-scale-allow: the composer's own 18 glyph set (design/grid.md)
-  return <Icon name={entry.icon} size={18} />;
+/// The + menu draws again only when its rows or Plan change, never on a keystroke in the composer
+/// (CMUX-571; Leo, 2026-11-12: "even if a chat is long, there should be no percievable difference").
+/// The composer builds its handlers inline on each render, so each `on*` prop is one stable function
+/// that calls the latest (useStableHandlers), and the composer memoizes `entries`.
+export function ComposerPlusMenu(props: ComposerPlusMenuProps) {
+  return <MemoPlusMenu {...useStableHandlers(props)} />;
 }
 
-export type ComposerPlusCommandsArm = keyof typeof composerPlusCommands.arms;
-
-/** The commands group as the arm draws it: recents then the row (shipped), the row first, or the row alone. */
-function arrangeCommands(rows: ComposerPlusEntry[], arm: ComposerPlusCommandsArm): ComposerPlusEntry[] {
-  const recents = rows.filter((entry) => entry.id !== "add.commands");
-  const row = rows.filter((entry) => entry.id === "add.commands");
-  if (arm === "row-only") return row.length ? row : recents;
-  return arm === "row-then-recents" ? [...row, ...recents] : [...recents, ...row];
-}
-
-/** The groups the menu draws, in COMPOSER_PLUS_SECTIONS order, empty ones left out. */
-export function composerPlusMenuSections(
-  entries: readonly ComposerPlusEntry[],
-  planning = false,
-  arm: ComposerPlusCommandsArm = composerPlusCommands.defaultArm,
-): { section: ComposerPlusSection; entries: ComposerPlusEntry[]; choices: Choice[] }[] {
-  return [...composerPlusSections(entries)].flatMap(([section, all]) => {
-    const rows = section === "commands" ? arrangeCommands(all, arm) : all;
-    return rows.length
-      ? [
-          {
-            section,
-            entries: rows,
-            choices: rows.map((entry): Choice => ({
-              id: entry.id,
-              name: entry.name,
-              // A description that only repeats the title (Goal) is left out.
-              description:
-                entry.description.trim() && entry.description.trim() !== entry.name.trim()
-                  ? entry.description
-                  : undefined,
-              icon: rowIcon(entry, planning),
-              ...(entry.id === "add.mention" ? { hint: "@" } : {}),
-              ...(entry.id === "add.commands" ? { hint: "/" } : {}),
-            })),
-          },
-        ]
-      : [];
-  });
-}
-
-export function ComposerPlusMenu({
+const MemoPlusMenu = memo(function PlusMenu({
   entries,
   className,
   planning = false,
@@ -99,28 +55,50 @@ export function ComposerPlusMenu({
   onSlash,
   onOpen,
 }: ComposerPlusMenuProps) {
+  acpmuxPerf.render("composer:plus");
   const t = useT();
-  // Untitled groups: a hairline splits them (styles.css), with no header band between.
-  const sections: Section[] = composerPlusMenuSections(entries, planning, experimentArm(composerPlusCommands)).map(
-    (group) => ({
-      choices: group.choices,
-      onPick: (id: string) => {
-        const entry = group.entries.find((row) => row.id === id);
-        if (!entry) return "keep";
-        const handled = runComposerPlusAction(entry.action, {
-          command: onCommand,
-          ...(onExtension ? { extension: onExtension } : {}),
-          slash: onSlash,
-        });
-        return handled ? undefined : "keep";
-      },
-    }),
+  const addShortcut = useShortcut(SHORTCUT_ACTIONS.composerAddMenu);
+  const planShortcut = useShortcut(SHORTCUT_ACTIONS.composerTogglePlan);
+  // Toggle Plan Mode (composerControls.ts) runs the Plan/Build row's own action, the path a click
+  // on the row takes: the app draws no Plan toggle chip, so this row owns the key. The opener is
+  // registered again with each row and handler, never through useEffectEvent: React 19.2.3 updates
+  // an effect event only in a plain function component, and this memo component kept its first
+  // render's, drawn before a new chat's agent reported its modes (test/composer-plan-key.test.tsx).
+  const planEntry = entries.find((entry) => entry.id.startsWith("add.mode."));
+  useEffect(
+    () =>
+      planEntry
+        ? registerPicker(PLAN_TOGGLE_OPENER, () =>
+            runComposerPlusAction(planEntry.action, { command: onCommand, slash: onSlash }),
+          )
+        : undefined,
+    [planEntry, onCommand, onSlash],
   );
+  // Untitled groups: a hairline splits them (styles.css), with no header band between.
+  const sections: Section[] = composerPlusMenuSections(
+    entries,
+    planning,
+    experimentArm(composerPlusCommands),
+    planShortcut,
+  ).map((group) => ({
+    choices: group.choices,
+    onPick: (id: string) => {
+      const entry = group.entries.find((row) => row.id === id);
+      if (!entry) return "keep";
+      const handled = runComposerPlusAction(entry.action, {
+        command: onCommand,
+        ...(onExtension ? { extension: onExtension } : {}),
+        slash: onSlash,
+      });
+      return handled ? undefined : "keep";
+    },
+  }));
   return (
     <Picker
       label={t("composer.add")}
       // Codex's short tooltip (Leo, 2026-10-21): "Add files and more", not the menu's list.
       tooltip={t("composer.addTooltip")}
+      shortcut={addShortcut}
       className={className ? `acpmux-composer-plus ${className}` : "acpmux-composer-plus"}
       button={<PlusIcon />}
       align="start"
@@ -128,4 +106,4 @@ export function ComposerPlusMenu({
       {...(onOpen ? { onOpen } : {})}
     />
   );
-}
+});

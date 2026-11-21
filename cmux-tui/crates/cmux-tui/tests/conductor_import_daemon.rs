@@ -16,6 +16,8 @@ struct Daemon {
     child: Child,
     socket: PathBuf,
     dir: PathBuf,
+    /// HOME, outside `/tmp`: a temporary folder is never a project.
+    home: PathBuf,
 }
 
 fn git(dir: &Path, args: &[&str]) {
@@ -39,6 +41,12 @@ fn conductor_home(home: &Path) {
     fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q"]);
     fs::write(repo.join("README"), "app\n").unwrap();
+    fs::create_dir_all(repo.join(".conductor")).unwrap();
+    fs::write(
+        repo.join(".conductor/settings.toml"),
+        "file_include_globs = [\".env\"]\n[scripts]\nsetup = \"bun install\"\n",
+    )
+    .unwrap();
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-qm", "init"]);
     let lima = home.join("conductor/workspaces/app/lima");
@@ -65,7 +73,9 @@ impl Daemon {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = PathBuf::from("/tmp")
             .join(format!("cmux-conductor-{name}-{}-{stamp}", std::process::id()));
-        let home = dir.join("home");
+        let home = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("cmux-conductor-{name}-{}-{stamp}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
         fs::create_dir_all(&home).unwrap();
         conductor_home(&home.canonicalize().unwrap());
         let socket = dir.join("mux.sock");
@@ -94,7 +104,7 @@ impl Daemon {
             assert!(Instant::now() < deadline, "daemon did not create {}", socket.display());
             std::thread::sleep(Duration::from_millis(25));
         }
-        Self { child, socket, dir }
+        Self { child, socket, dir, home }
     }
 
     /// One `cmux.protocol/2` request; the reply's `result`, or its `error`.
@@ -158,6 +168,7 @@ impl Drop for Daemon {
         let _ = self.child.kill();
         let _ = self.child.wait();
         let _ = fs::remove_dir_all(&self.dir);
+        let _ = fs::remove_dir_all(&self.home);
     }
 }
 
@@ -206,4 +217,46 @@ fn conductor_import_plans_records_and_replays_over_the_socket() {
     // A caller never names the folder Conductor is read from.
     let refused = daemon.send("conductor_import.plan", json!({"home": "/elsewhere"}), None);
     assert_eq!(refused.unwrap_err()["code"], "validation.invalid");
+}
+
+#[test]
+fn conductor_import_plans_a_worktree_recipe_and_keeps_a_saved_one() {
+    let daemon = Daemon::start("recipe");
+    let plan = daemon.plan();
+    let recipe = plan["plan"]["projects"][0]["recipe"].clone();
+    let path = recipe["project_path"].as_str().unwrap_or_else(|| panic!("{plan}")).to_string();
+    assert_eq!(recipe["setup"], "bun install", "{recipe}");
+    assert_eq!(recipe["include"], json!([".env"]), "{recipe}");
+
+    // The app saves it on the project; the next plan keeps that one.
+    daemon
+        .send("project.add", json!({"path": path}), Some("add"))
+        .unwrap_or_else(|error| panic!("project.add: {error}"));
+    let worktree = json!({"setup": "bun install", "include": [".env"]});
+    daemon
+        .send("project.update", json!({"path": path, "worktree": worktree}), Some("save"))
+        .unwrap_or_else(|error| panic!("project.update: {error}"));
+    let again = daemon.plan();
+    assert!(again["plan"]["projects"][0]["recipe"].is_null(), "{again}");
+    assert_eq!(again["plan"]["projects"][0]["recipe_kept"], true, "{again}");
+
+    // A recipe the user saves after the preview wins over the import's save.
+    let theirs = json!({"setup": "make", "include": [".env.local"]});
+    daemon
+        .send("project.update", json!({"path": path, "worktree": theirs}), Some("user"))
+        .unwrap_or_else(|error| panic!("project.update: {error}"));
+    let import = json!({"path": path, "worktree": recipe_of(&recipe), "keep_saved_worktree": true});
+    daemon
+        .send("project.update", import, Some("import"))
+        .unwrap_or_else(|error| panic!("project.update: {error}"));
+    let listed = daemon
+        .send("project.list", json!({}), None)
+        .unwrap_or_else(|error| panic!("project.list: {error}"));
+    assert!(listed.to_string().contains(".env.local"), "{listed}");
+    assert!(!listed.to_string().contains("bun install"), "{listed}");
+}
+
+/// The saved form of a planned recipe: its commands and include, without its project.
+fn recipe_of(planned: &Value) -> Value {
+    json!({"setup": planned["setup"], "include": planned["include"]})
 }

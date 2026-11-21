@@ -31,6 +31,7 @@ import "./composerControls.css";
 import "./composerStates.css";
 import "./composerLocation.css";
 import "./composerLook.css";
+import "./composerV2.css";
 import "./savedEnvironments.css";
 import "./bottomStack.css";
 import "./composerAttachments.css";
@@ -46,6 +47,8 @@ import "./header/header.css";
 import "./needsYou/needsYou.css";
 import "./newtab/screen.css";
 import "./newtab/history.css";
+import "./queue/queue.css";
+import "./ledger/ledger.css";
 import "./newtab/noEntry.css";
 import "./threadMinimap/threadMinimap.css";
 import "./turnChanges/turnChanges.css";
@@ -85,8 +88,18 @@ if (params.has("mock") && params.has("slowDaemon")) {
   fixture.cmuxAcpmuxMockSlowMs = Number(params.get("slowMs") ?? 6_000);
 }
 if (devHost) installDevHost(devHost);
-else if (params.has("mock") && !window.webkit?.messageHandlers?.agentSession)
-  window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
+// A page given a New Tab context (`__cmuxNewTabContext`, as the app injects one) opens as a New Tab
+// page with no chat, as the app's handshake names one (bench/session-scale-typing.bench.ts).
+else if (params.has("mock") && !window.webkit?.messageHandlers?.agentSession) {
+  const newTab = (window as { __cmuxNewTabContext?: unknown }).__cmuxNewTabContext;
+  window.cmuxAcpmuxActions = {
+    ready: async () => ({
+      protocolVersion: 1,
+      transport: "mock",
+      ...(newTab === undefined ? {} : { newTab, newSession: true }),
+    }),
+  };
+}
 if (!devHost && params.has("mock")) {
   const { installAppPanelsDevClient } = await import("../../apps/scene/panelsClient");
   const { MockAppPanelsClient } = await import("../../apps/scene/panelsMock");

@@ -4,14 +4,12 @@
  * Bake run 41701438675 passed 28 checks on an image whose session host crash-looped after any
  * rebind: cmux-host's bind kept `lifecycle-fence.json` but dropped `auth/`, and cmux-tui refuses
  * that shape at startup ("previous remote daemon authorization state requires explicit
- * migration; verify that no legacy cmux-tui process remains"), so the Native receiver never bound
- * UDP 4101 (fixed in cmux#34128). Every check ran once, right after the first bind, which was clean.
+ * migration; verify that no legacy cmux-tui process remains") (fixed in cmux#34128). Every check
+ * ran once, right after the first bind, which was clean.
  *
  * Each phase holds for HOLD_SECONDS and needs: the same session host pid alive at both ends, no
  * session dir with a lifecycle fence but no `auth/`, no legacy or migration error and no session
- * host exit in the host unit's journal during the hold, and UDP 4101 bound once the clone is bound
- * to Cloud (`/var/lib/cmux/bound.json`; the Native receiver binds only after a Cloud bind, which a
- * smoke clone never gets, so there the port is reported and not required).
+ * host exit in the host unit's journal during the hold.
  *
  * The forced rebind is the bind agent's own path: a different id in /etc/cmux/daemon-instance-id
  * and a write of the driver file (/run/cmux/instance-id) wake cmux-host, which reads the instance
@@ -39,8 +37,6 @@ export function daemonHoldCommand(holdSeconds = HOLD_SECONDS): string {
     `sleep ${holdSeconds}`,
     'if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then echo alive=1; else echo alive=0; fi',
     `echo "pid-after=$(${SESSION_HOST_PID})"`,
-    "echo \"udp4101=$(ss -Hulpn 'sport = :4101' 2>/dev/null | wc -l)\"",
-    "if [ -e /var/lib/cmux/bound.json ]; then echo cloud-bound=1; else echo cloud-bound=0; fi",
     `for d in ${REMOTE_SESSIONS}/*/; do [ -e "$d/lifecycle-fence.json" ] && [ ! -d "$d/auth" ] && echo "fence-without-auth=$d"; done`,
     `journalctl -u ${HOST_UNIT} --since "@$t0" --no-pager -o cat 2>/dev/null > /root/cmux-uptime.log`,
     `${LEGACY_ERROR} < /root/cmux-uptime.log | head -3 | cut -c1-200 | sed 's/^/legacy-error=/'`,
@@ -74,8 +70,8 @@ function lines(stdout: string): Array<[string, string]> {
     .map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]);
 }
 
-/** Problems with one daemonHoldCommand answer; `nativeReceiver` requires UDP 4101 on a Cloud-bound clone. */
-export function daemonUptimeProblems(stdout: string, nativeReceiver: boolean): string[] {
+/** Problems with one daemonHoldCommand answer. */
+export function daemonUptimeProblems(stdout: string): string[] {
   const kv = lines(stdout);
   const get = (key: string) => kv.find(([k]) => k === key)?.[1] ?? "";
   const problems: string[] = [];
@@ -87,12 +83,10 @@ export function daemonUptimeProblems(stdout: string, nativeReceiver: boolean): s
     if (k === "legacy-error") problems.push(`legacy or migration error: ${v}`);
     if (k === "host-exit") problems.push(`session host exited: ${v}`);
   }
-  if (nativeReceiver && get("cloud-bound") === "1" && Number(get("udp4101")) < 1) problems.push("UDP 4101 not bound on a Cloud-bound Native receiver clone");
   return problems;
 }
 
 export function daemonUptimeDetail(stdout: string): string {
   const kv = Object.fromEntries(lines(stdout));
-  const udp = kv["cloud-bound"] === "1" ? `udp4101 sockets ${kv.udp4101}` : `udp4101 sockets ${kv.udp4101} (not required: clone not bound to Cloud)`;
-  return `session host ${kv.pid} up ${HOLD_SECONDS} s; ${udp}`;
+  return `session host ${kv.pid} up ${HOLD_SECONDS} s`;
 }

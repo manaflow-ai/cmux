@@ -184,7 +184,7 @@ final class HangReportsController {
     /// removes it. Returns the undo `setSetting` runs when the write then fails, so a failed `true`
     /// leaves no record that a later synced or edited file could use.
     static func recordUserWrite(defaults: UserDefaults, path: [String], value: CmuxNextSettings.JSONValue?) -> (@MainActor () -> Void)? {
-        guard path == HangReportsSetting.path else { return nil }
+        guard path == HangReportsSetting.configPath else { return nil }
         guard value == .bool(true) else {
             // Off stays off even if the write fails: with no record nothing sends.
             defaults.removeObject(forKey: consentKey)
@@ -222,7 +222,7 @@ final class HangReportsController {
             await apply(true, settingOn: true)
             return
         }
-        guard let descriptor = SettingsSchema.descriptor(for: HangReportsSetting.path) else { return }
+        guard let descriptor = SettingsSchema.descriptor(for: HangReportsSetting.configPath) else { return }
         do { try await settings.setSetting(descriptor, to: .bool(true), by: .user) } catch {
             logger.error("diagnostics.hangReports not written: \(String(describing: error), privacy: .public)")
         }

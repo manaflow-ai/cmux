@@ -117,12 +117,14 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         var name: String
         var number: Int
 
-        /// Nil unless `url` is `https://github.com/<owner>/<repo>/pull/<n>` with plain names.
+        /// Nil unless `url` is `https://github.com/<owner>/<repo>/pull/<n>` (or `/issues/<n>`) with
+        /// plain names. Both are read as `issueOrPullRequest`: GitHub numbers them in one series,
+        /// and a reference written as either may name the other.
         init?(url: String) {
             let parts = url.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
             let plain = { (s: String) in !s.isEmpty && s.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) } }
             guard parts.count == 7, parts[0] == "https:", parts[1].isEmpty, parts[2] == "github.com", plain(parts[3]), plain(parts[4]),
-                  parts[5] == "pull", let number = Int(parts[6]), number > 0, String(number) == parts[6] else { return nil }
+                  parts[5] == "pull" || parts[5] == "issues", let number = Int(parts[6]), number > 0, String(number) == parts[6] else { return nil }
             self.url = url
             owner = parts[3]
             name = parts[4]
@@ -165,9 +167,32 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             baseRef { target { ... on Commit { statusCheckRollup { state \(Self.rollupCounts) \(contexts) } } } }
             """
         let aliases = targets.enumerated().map { index, target in
-            "p\(index): repository(owner: \"\(target.owner)\", name: \"\(target.name)\") { pullRequest(number: \(target.number)) { ...f } }"
+            "p\(index): repository(owner: \"\(target.owner)\", name: \"\(target.name)\") "
+                + "{ issueOrPullRequest(number: \(target.number)) { __typename ...f ...i } }"
         }
-        return "query { \(rateLimitField) \(aliases.joined(separator: " ")) } fragment f on PullRequest { \(fields) }"
+        return "query { \(rateLimitField) \(aliases.joined(separator: " ")) } fragment f on PullRequest { \(fields) } "
+            + "fragment i on Issue { \(Self.issueFields) }"
+    }
+
+    /// What a card shows of an issue: its title, state (and why it closed), author, labels and
+    /// comment count. An issue has no branches, checks or files.
+    static let issueFields = "url number title state stateReason createdAt updatedAt closedAt author { login avatarUrl(size: 48) } "
+        + "labels(first: \(AgentPanePullRequest.maximumLabels)) { nodes { name color } } comments { totalCount }"
+
+    /// An issue's node as ``AgentPanePullRequest/init(ghView:)`` reads it: `kind` `issue`, and a
+    /// closed one that was not planned under its own state (GitHub draws it grey, not purple).
+    static func issueView(_ node: [String: Any]) -> [String: Any] {
+        var view = node
+        view["kind"] = "issue"
+        if (node["state"] as? String)?.uppercased() == "CLOSED", (node["stateReason"] as? String)?.uppercased() == "NOT_PLANNED" {
+            view["state"] = "NOT_PLANNED"
+        }
+        view["totalCommentsCount"] = (node["comments"] as? [String: Any])?["totalCount"] as? Int
+        view["comments"] = nil
+        // GraphQL wraps a connection's rows in `nodes`; gh prints them as a plain array.
+        view["labels"] = (node["labels"] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []
+        view["__typename"] = nil
+        return view
     }
 
     /// Each target's pull request in a GraphQL answer, reshaped as `gh pr view` prints it (the
@@ -185,8 +210,14 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         var result: [String: AgentPanePullRequest?] = [:]
         for (index, target) in targets.enumerated() {
             guard let alias = answers["p\(index)"] else { continue }
-            guard var view = (alias as? [String: Any])?["pullRequest"] as? [String: Any] else {
+            guard var view = (alias as? [String: Any])?["issueOrPullRequest"] as? [String: Any] else {
                 if !unanswered.contains("p\(index)") { result[target.url] = .some(nil) }
+                continue
+            }
+            if view["__typename"] as? String == "Issue" {
+                guard let data = try? JSONSerialization.data(withJSONObject: Self.issueView(view)),
+                      let issue = AgentPanePullRequest(ghView: data) else { continue }
+                result[target.url] = .some(issue)
                 continue
             }
             let commit = ((view["commits"] as? [String: Any])?["nodes"] as? [[String: Any]])?.last?["commit"] as? [String: Any]

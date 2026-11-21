@@ -162,6 +162,10 @@ pub(crate) struct OverlayEdit {
     /// The project's worktree recipe; null clears it.
     #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
     pub worktree: Option<Option<WorktreeRecipe>>,
+    /// Leaves an already saved recipe as it is: `worktree` then only fills an
+    /// empty one, checked and written in the same commit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_saved_worktree: Option<bool>,
 }
 
 /// A field that is present (`Some`), null included (`Some(None)`); serde's
@@ -502,7 +506,8 @@ impl Projects {
         if let Some(order) = edit.order {
             project.overlay.order = order;
         }
-        if let Some(worktree) = &edit.worktree {
+        let keep = edit.keep_saved_worktree == Some(true) && project.overlay.worktree.is_some();
+        if let Some(worktree) = edit.worktree.as_ref().filter(|_| !keep) {
             project.overlay.worktree =
                 worktree.clone().filter(|recipe| recipe != &WorktreeRecipe::default());
         }

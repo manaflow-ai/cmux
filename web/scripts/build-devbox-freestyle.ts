@@ -131,6 +131,9 @@ import {
   devboxJournalResetCommand,
   devboxParkDaemonCommand,
   devboxSettleBeforeSnapshotCommand,
+  devboxClaudeTeamOnboardingCheckCommand,
+  devboxClaudeSettingsDefaultsCommand,
+  devboxWorkUserCmuxConfigDirCommand,
   DEVBOX_MACHINE_HEALTH_PARKED_COMMAND,
   devboxPrepareTemplateTerminalCommand,
   devboxSnapshotClockCommand,
@@ -540,6 +543,10 @@ try {
   // Keep the guest daemon alive across logout and image resume. This writes
   // the same canonical user unit as `acpmux host setup`, then enables it once
   // the binary and its state home are present.
+  // The work user's ~/.config/cmux exists before the daemon starts, so no later
+  // step makes a folder on the way to its harness sources: that reloads the
+  // catalog, whose model probe starts Claude (devboxWorkUserCmuxConfigDirCommand).
+  await step("cmux-config-dir", devboxWorkUserCmuxConfigDirCommand());
   await step("acpmux-service", cmuxTuiServiceInstallCommand());
   await step(
     "cmux-tui-pin",
@@ -592,8 +599,8 @@ try {
     devboxTeamKindDefaultCommand(),
   );
 
-  // The Ghostty generation panes announce as TERM_PROGRAM_VERSION (the
-  // supervisor exports it next to TERM_PROGRAM=ghostty; see cmux-devbox-boot).
+  // The Ghostty .deb pin, recorded for the acpmux daemon launch
+  // (acpmuxPersonKey.ts); terminal panes carry cmux's own version.
   await step(
     "ghostty-version",
     `mkdir -p /etc/cmux && printf '%s\n' ${devboxGhosttyVersion()} > /etc/cmux/ghostty-version && cat /etc/cmux/ghostty-version`,
@@ -743,11 +750,14 @@ try {
   // is the same bytes on every machine and stays; the verifier checks it.)
   await step("clean", `rm -rf /var/lib/apt/lists/* /root/.npm/_cacache ${WORK_HOME}/.npm/_cacache 2>/dev/null; rm -f /root/.claude.json ${WORK_HOME}/.claude.json; ${devboxJournalResetCommand}; sync; true`);
   await step("claude-onboarding", `. ${VM_GUEST_MODEL_PLANE_ENV_PATH} && python3 -I /etc/cmux/claude-onboarding.py /root/.claude.json /root/.config/cmux/claude-team/.claude.json && sudo -n -u ${WORK_USER} env ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" python3 -I /etc/cmux/claude-onboarding.py ${WORK_HOME}/.claude.json ${WORK_HOME}/.config/cmux/claude-team/.claude.json && echo claude-onboarding-seeded`);
+  await step("claude-settings-defaults", devboxClaudeSettingsDefaultsCommand());
   // After the bake's last shell: the timer is enabled but stopped and the
   // bake pass's files are gone, so a clone runs no pass until its re-arm.
   await step("machine-health-parked", DEVBOX_MACHINE_HEALTH_PARKED_COMMAND);
   // Last guest step before the snapshot; see devboxSettleBeforeSnapshotCommand.
-  await step("settle-before-snapshot", devboxSettleBeforeSnapshotCommand());
+  // The seeded Claude team configs are still the seed after the settle: nothing
+  // started Claude on them during the bake (devboxClaudeTeamOnboardingCheckCommand).
+  await step("settle-before-snapshot", `${devboxSettleBeforeSnapshotCommand()} && ${devboxClaudeTeamOnboardingCheckCommand()}`);
 } catch (error) {
   console.error(`bake failed: ${String(error)}`);
   await deleteBuilder();

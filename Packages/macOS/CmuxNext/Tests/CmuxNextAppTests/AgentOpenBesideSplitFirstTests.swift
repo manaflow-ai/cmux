@@ -41,11 +41,11 @@ import Testing
         tabs.localHost = host
         tabs.holdsTabs = { _ in true }
         tabs.reachable = { _ in true }
-        tabs.locate = { [weak services] _ in services.map { (pane: PaneID(rawValue: 1), daemon: $0.daemon) } }
+        tabs.locateScoped = { [weak services] _ in services.map { (pane: PaneID(rawValue: 1), daemon: $0.daemon) } }
         // Nothing on the chat's right, and the chat is wide enough to halve: a split right.
-        tabs.rightColumn = { _ in .init(sourceWidth: 1400) }
-        tabs.serially = { _, turn in turn({}); return true }
-        tabs.openInMainPane = { _, _, _, _, _ in nil }
+        tabs.rightColumnScoped = { _ in .init(sourceWidth: 1400) }
+        tabs.seriallyScoped = { _, turn in turn({}); return true }
+        tabs.openInMainPaneScoped = { _, _, _, _, _ in nil }
         let creates = Creates()
         tabs.create = { _, _, _, _, _, split in
             creates.splits.append(split)

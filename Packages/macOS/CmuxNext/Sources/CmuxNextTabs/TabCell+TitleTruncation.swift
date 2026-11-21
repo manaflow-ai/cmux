@@ -2,20 +2,11 @@ import AppKit
 import CoreText
 
 extension TabCell {
-    /// How a title `textWidth` wide draws in a visible area `visibleWidth` wide.
+    /// How a title `textWidth` wide draws in a visible area `visibleWidth` wide: never truncated.
     ///
-    /// Middle truncation (#28625) keeps a distinguishing suffix ("Helper 1", "Helper 2") while the
-    /// area still holds a few characters on each side of the "…" (`middleMinimum`, measured from the
-    /// title). Narrower, CoreText would draw the ellipsis alone (Lawrence msg 19596, 26 tabs: "all
-    /// here is … which is not very helpful"): the title then starts at its first character and
-    /// fades at the area's end (Chrome's and Helium's crowded tab, no ellipsis): nil, which clips.
-    static func titleTruncation(textWidth: CGFloat, visibleWidth: CGFloat, middleMinimum: CGFloat) -> CTLineTruncationType? {
-        textWidth <= visibleWidth + 0.5 || visibleWidth >= middleMinimum ? .middle : nil
-    }
-
-    /// The narrowest area in which middle truncation keeps two characters each side of the "…".
-    func middleTruncationMinimum(_ title: String) -> CGFloat {
-        let kept = String(title.prefix(2)) + "…" + String(title.suffix(2))
-        return ceil((kept as NSString).size(withAttributes: [.font: titleFont]).width)
-    }
+    /// Chrome's tab (Lawrence 2026-11-07, cmux beside Chrome: "Austin's…(7 days)"): no "…" anywhere. The title starts
+    /// at its first character, runs to the tab's trailing end and fades out there (`TitleFade`). Middle truncation
+    /// (#28625, kept for a distinguishing suffix such as "Helper 1", "Helper 2") put a "…" inside the title; the hover
+    /// card and the tab's tooltip still show the whole title. nil: the line is clipped, never truncated.
+    static func titleTruncation(textWidth: CGFloat, visibleWidth: CGFloat) -> CTLineTruncationType? { nil }
 }

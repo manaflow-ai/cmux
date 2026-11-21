@@ -94,6 +94,46 @@ fn list_pages_follow_the_cursor() {
 }
 
 #[test]
+fn machine_list_relays_disk_health_to_the_app() {
+    let mut s = server();
+    let disk_health = json!({
+        "free_mb": 4096,
+        "used_mb": 12288,
+        "total_mb": 16384,
+        "floor_mb": 1024,
+        "top_users": [{ "path": "/home/cmux", "used_mb": 2048 }],
+        "observed_at": 1_700_000_000_000i64
+    });
+    let machine = json!({
+        "id": vm(9),
+        "team": "team_t0000000000000000001",
+        "creator": "user_u0000000000000000001",
+        "name": "disk-health",
+        "size": { "cpu": 2, "memory_mb": 4096, "disk_mb": 16384 },
+        "status": "running",
+        "image": { "id": "img_i0000000000000000001", "daemon_version": "0.40.0" },
+        "host": host(9),
+        "classic": false,
+        "created_at": 1_790_000_001_000i64,
+        "last_active_at": null,
+        "idle_policy": { "idle_seconds": 1800 },
+        "error": null,
+        "revision": "3",
+        "disk_health": disk_health
+    });
+    s.control_plane_mut().answer(
+        "cloud.machine.list",
+        json!({}),
+        None,
+        json!({ "machines": [machine], "next_cursor": null, "revision": "3" }),
+    );
+
+    let page = s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
+    assert_eq!(page["machines"][0]["disk_health"], disk_health);
+    assert_eq!(record(&s, &vm(9))["disk_health"], disk_health);
+}
+
+#[test]
 fn create_replays_on_the_same_key_and_never_creates_twice() {
     let mut s = server();
     let args =
@@ -535,5 +575,43 @@ fn every_vector_op_the_server_serves_reaches_the_backend_by_its_wire_name() {
         if let Err(e) = &out {
             assert_ne!(e.upstream_code.as_deref(), Some("vector.missing"), "{}", case["name"]);
         }
+    }
+}
+
+/// A backend snapshot as `cloud.snapshot.list` and `create` answer it, at `revision`.
+fn snapshot_at(revision: &str) -> Value {
+    json!({ "id": snap(9), "machine": vm(1), "name": null, "size_mb": 512, "status": "ready",
+        "created_at": 1_790_000_000_000i64, "revision": revision })
+}
+
+/// `cloud.snapshot.list` of one machine, when the backend lists `snapshot`.
+fn list_answering(snapshot: Value) -> Result<Value, CloudError> {
+    let mut s = server();
+    let params = json!({ "machine": vm(1) });
+    let answer = json!({ "snapshots": [snapshot] });
+    s.control_plane_mut().answer("cloud.snapshot.list", params.clone(), None, answer);
+    s.handle(&Request::new("cloud.snapshot.list", params))
+}
+
+/// `cloud.snapshot.create`, when the backend answers `snapshot`.
+fn create_answering(snapshot: Value) -> Result<Value, CloudError> {
+    let mut s = server();
+    let args = json!({ "machine": vm(1), "name": "one" });
+    let answer = json!({ "snapshot": snapshot });
+    s.control_plane_mut().answer("cloud.snapshot.create", args.clone(), Some("key-rev"), answer);
+    s.handle(&mutation("cloud.snapshot.create", args, "key-rev"))
+}
+
+#[test]
+fn a_snapshot_revision_is_a_checked_decimal() {
+    let list = list_answering(snapshot_at("007")).expect("lists");
+    assert_eq!(list["snapshots"][0]["revision"], "7", "{list}");
+    let made = create_answering(snapshot_at("007")).expect("creates");
+    assert_eq!(made["snapshot"]["revision"], "7", "{made}");
+    for bad in ["", "7a", "-1", "0x2"] {
+        let listed = err_json(list_answering(snapshot_at(bad)));
+        assert_eq!(listed["code"], "cmux.cloud.bad_response", "{bad:?}: {listed}");
+        let created = err_json(create_answering(snapshot_at(bad)));
+        assert_eq!(created["code"], "cmux.cloud.bad_response", "{bad:?}: {created}");
     }
 }

@@ -180,8 +180,36 @@ struct AgentPaneMediaNoAutoActionTests {
         // The page learns the sites from the policy.
         let inspect = await Self.ask(pane, "link.inspect", ["paths": [String](), "urls": [String]()])
         let policy = (inspect["value"] as? [String: Any])?["policy"] as? [String: Any]
-        #expect(policy?["clickFreeImageHosts"] as? [String] == ["raw.githubusercontent.com"])
+        #expect(policy?["clickFreeImageHosts"] as? [String] == [
+            "avatars.githubusercontent.com", "cmux.com", "lh3.googleusercontent.com", "raw.githubusercontent.com",
+        ])
         #expect(pane.effects.seen.isEmpty, "\(pane.effects.seen)")
+    }
+
+    @Test func aSignedInGuestsAccountPictureLoadsWithNoClickHeldToTheListAndSpendsNoGesture() async throws {
+        let pane = try Self.pane()
+        // The pictures a cmux account's sign-in gives (`fromAvatar`), as Faces asks for them (`auto`).
+        let pictures = [
+            "https://avatars.githubusercontent.com/u/1?v=4", "https://lh3.googleusercontent.com/a/ACg8ocK=s96-c",
+            "https://cmux.com/icon.png",
+        ]
+        pane.model.transport.gestures.record(click: true)
+        for picture in pictures {
+            let reply = await Self.ask(pane, "image.load", ["src": picture, "auto": true])
+            #expect(Self.src(reply)?.hasPrefix("data:image/png;base64,") == true, "\(picture): \(reply)")
+        }
+        #expect(pane.images.all == pictures.map { URL(string: $0)! })
+        #expect(pane.images.hosts == pictures.map { _ in AgentPaneSafeFetch.clickFreeImageHosts })
+        #expect(pane.model.transport.gestures.consume(), "an account picture spent the pending click")
+        // Lookalikes and other Google or cmux hosts still wait for a click.
+        for source in [
+            "https://lh4.googleusercontent.com/a.png", "https://www.cmux.com/icon.png", "https://cmux.com.evil.example/a.png",
+            "https://evil.example/avatars.githubusercontent.com/a.png", "https://CMUX.com/icon.png",
+        ] {
+            let auto = await Self.ask(pane, "image.load", ["src": source, "auto": true])
+            #expect(Self.errorCode(auto) != nil, "\(source): \(auto)")
+        }
+        #expect(pane.images.all.count == pictures.count)
     }
 
     @Test func anImageFromAnotherSiteALookalikeOrAnOddSpellingStillWaitsForAClick() async throws {

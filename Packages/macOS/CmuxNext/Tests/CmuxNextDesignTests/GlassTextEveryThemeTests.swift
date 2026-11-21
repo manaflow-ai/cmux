@@ -6,8 +6,8 @@ import CmuxNextDesignTokens
 import Testing
 
 /// User 2026-11-03: "we need to make sure every single theme, all the UI elements are colored
-/// properly". A toast and a sheet draw on the neutral glass: a grey veil (``FloatingGlassStyle``)
-/// over the window, or the solid popup surface under Reduce Transparency. Their text was the
+/// properly". A toast and a sheet draw on the role glass: a veil (``FloatingGlassStyle``; the
+/// toast's in the theme's tint, the sheet's grey) over the window, or the solid popup surface under Reduce Transparency. Their text was the
 /// theme's text colours as they are, never fitted to that glass, so in low-contrast themes the
 /// message and the detail read under 4.5:1; a toast also took its colours once, outside any
 /// window, so in a room with its own theme it kept the app theme's ink, and its hidden detail kept
@@ -17,8 +17,7 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct GlassTextEveryThemeTests {
     private static func ground(_ style: FloatingGlassStyle, _ tokens: ThemeTokens) -> ThemeRGB {
-        let veil = style.look(isDark: tokens.isDark).veil
-        return ThemeRGB(red: veil.white, green: veil.white, blue: veil.white, alpha: veil.alpha).composited(over: tokens.windowBackground.withAlpha(1))
+        Palette.veilRGB(of: style, tokens: tokens).composited(over: tokens.windowBackground.withAlpha(1))
     }
 
     private static func rgb(_ color: NSColor?) throws -> ThemeRGB {

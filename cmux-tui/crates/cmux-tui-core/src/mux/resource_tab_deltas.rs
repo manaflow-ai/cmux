@@ -146,7 +146,8 @@ impl TabMembership {
             Changes::None => None,
             Changes::Resync => Some(TabDeltas::Resync),
             Changes::Tabs(changes) => {
-                let decorations = mux.tree_decorations_in_state(state);
+                let surfaces = changes.iter().map(|(_, surface)| *surface).collect::<Vec<_>>();
+                let decorations = mux.tab_tree_decorations_in_state(state, &surfaces);
                 let deltas = changes
                     .into_iter()
                     .map(|(kind, surface)| tab_delta(state, &decorations, kind, surface))

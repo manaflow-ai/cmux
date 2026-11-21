@@ -38,6 +38,16 @@ pub fn step(name: &str, key: &str) -> Option<Step> {
     }
 }
 
+/// The step at which `key` names a sub-session `name` (`PARENT/SHORT`) by its last segments:
+/// `td2-a` and `td2_a` name `coord/td2-A`. Never by a prefix of them (a short key would reach
+/// any child), and never a name with no more segments than `key`.
+pub fn short_step(name: &str, key: &str) -> Option<Step> {
+    let segments = key.split('/').count();
+    let cut =
+        name.char_indices().filter(|(_, c)| *c == '/').map(|(i, _)| i).rev().nth(segments - 1)?;
+    step(name.get(cut + 1..)?, key).filter(|at| *at != Step::Prefix)
+}
+
 /// `text` in lowercase without `-`, `_` or spaces: `td2-A`, `td2_a` and `TD2 a` all read `td2a`.
 /// An iterator, so a lookup over every session allocates nothing.
 fn folded(text: &str) -> impl Iterator<Item = char> + '_ {
@@ -95,6 +105,15 @@ mod tests {
         assert_eq!(names("TD2-a", &["td2-A", "td2-a"]), Err(vec!["td2-A", "td2-a"]));
         // A whole name in another case wins over a longer name it starts.
         assert_eq!(names("review", &["Review", "review-2"]), Ok(Some("Review")));
+    }
+
+    #[test]
+    fn a_short_name_is_read_by_the_same_steps_but_never_as_a_prefix() {
+        assert_eq!(short_step("coord/td2-A", "td2-a"), Some(Step::Case));
+        assert_eq!(short_step("coord/td2-A", "td2_a"), Some(Step::Separators));
+        assert_eq!(short_step("a/coord/td2-A", "COORD/td2-a"), Some(Step::Case));
+        assert_eq!(short_step("coord/td2-A", "td2"), None);
+        assert_eq!(short_step("td2-A", "td2-a"), None);
     }
 
     #[test]

@@ -4,9 +4,8 @@ import Foundation
 /// `app.uiScale`, which scales cmux chrome and first-party pages together.
 public struct AgentPaneZoomSetting: Sendable {
     public init() {}
-    public static let configPath = ["agentPane", "zoom"]
-    public static let fallback = 1.0
-    public static let range: ClosedRange<Double> = 0.5...2.0
+    /// The zoom commands' step (the row's step in agent-pane-zoom.json); `configPath`, `fallback` and
+    /// `range` are generated from that file.
     public static let step = 0.1
 
     public static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Double {

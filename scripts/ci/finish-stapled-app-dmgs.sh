@@ -78,7 +78,7 @@ for i in "${!handoffs[@]}"; do
     --timeout "$WAIT_TIMEOUT" --output-format json > "$TMP_DIR/wait-$i.out" 2>&1 &
   pids+=("$!")
 done
-for pid in "${pids[@]}"; do
+for pid in ${pids[@]+"${pids[@]}"}; do
   wait "$pid" || true
 done
 pids=()

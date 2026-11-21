@@ -9,7 +9,7 @@ cmux-managed: true
 A chat is an acpmux session. Moving it hands the whole chat (acpmux's own
 history, queued prompts, draft) and the agent's own store to the target
 machine's daemon, then closes it here: the source never runs it again, so
-there is one writer. `acpmux resolve` and agent links follow it to its new
+there is one writer. `cmux agent resolve` and agent links follow it to its new
 place. This is for agent chats; moving the Chief itself is the
 `chief-teleport` skill (the `move` tool).
 
@@ -30,8 +30,13 @@ default. Say so when the chat used them.
 ## The folder
 
 - A git checkout on a branch: the branch is pushed (never forced) and checked
-  out as a fresh worktree on the target. Uncommitted changes refuse the move:
-  commit them first, or pass `--leave-dirty` and say they stayed behind.
+  out as a fresh worktree on the target. Uncommitted changes refuse the move
+  unless you pass `--carry-changes`: tracked edits, deletions and untracked
+  files that are not ignored then arrive uncommitted in the new worktree, and
+  likely secrets (`.env`, keys, `.netrc`) stay here (the move's output names
+  them). Or commit them first, or pass `--leave-dirty` and say they stayed
+  behind. A teleport the user asked for ("keep going there") is
+  `--interrupt --carry-changes`.
 - Any other folder under the home: the same path under the target's home,
   made there; its files do not move.
 - `--cwd PATH`: run there as the target has it.
@@ -39,18 +44,19 @@ default. Say so when the chat used them.
 ## Moving to a machine you added (Mac mini, Linux box, laptop)
 
 ```bash
-acpmux machine ls                                # targets: connected, current build
-acpmux session move CHAT --machine NAME --dry-run   # where it would go; changes nothing
-acpmux session move CHAT --machine NAME --json      # the move
+cmux agent machine ls                                # targets: connected, current build
+cmux agent session move CHAT --machine NAME --dry-run   # where it would go; changes nothing
+cmux agent session move CHAT --machine NAME --json      # the move
+cmux agent session move CHAT --machine NAME --interrupt --carry-changes   # mid-turn, uncommitted work too
 ```
 
 - `--machine auto` lets placement pick (never a machine a person works at).
-- A running turn refuses the move. Wait for it (`acpmux wait CHAT`), or pass
+- A running turn refuses the move. Wait for it (`cmux agent wait CHAT`), or pass
   `--interrupt`: the stopped turn's continuation is queued and runs on the
   target.
 - `--all-idle --machine auto` moves every chat here that is between turns.
-- A machine named by the user that is not in `acpmux machine ls`: add it
-  with `acpmux machine add` (ssh over the tailnet) or `acpmux machine doctor
+- A machine named by the user that is not in `cmux agent machine ls`: add it
+  with `cmux agent machine add` (ssh over the tailnet) or `cmux agent machine doctor
   NAME --fix`; do not copy files by hand.
 
 A chat that is on another machine moves from here too, with `--from`: this
@@ -59,11 +65,11 @@ reach each other (or this laptop) still trade chats. `--machine local`
 brings one back here:
 
 ```bash
-acpmux session move CHAT --from mini-3 --machine cloud-vm   # mini -> cloud VM
-acpmux session move CHAT --from cloud-vm --machine local    # back to this Mac
+cmux agent session move CHAT --from mini-3 --machine cloud-vm   # mini -> cloud VM
+cmux agent session move CHAT --from cloud-vm --machine local    # back to this Mac
 ```
 
-CHAT is the chat's name or id on that machine (`acpmux ls` shows
+CHAT is the chat's name or id on that machine (`cmux agent ls` shows
 `HOST/NAME`; give the part after the slash).
 
 ## Moving to cmux Cloud
@@ -85,7 +91,7 @@ An agent runs it only for its own chat, and then the chat shows the user a
 card (Move, Not now, Always): the move waits for their click. For another
 chat, tell the user to use Move to Cloud on that chat (its tab's right-click
 menu or the command palette), or, when the Cloud machine is one of
-`acpmux machine ls`, use `acpmux session move` to it as above.
+`cmux agent machine ls`, use `cmux agent session move` to it as above.
 Never use a team machine someone else made (`fs-lane-*`, another person's
 title) unless the user names it.
 
@@ -96,7 +102,7 @@ credentials, `~/.codex/auth.json`, OpenCode's or pi's `auth.json`, an API key
 or a keychain item to another machine, and never print one.
 
 1. Before the move, check the target can run the agent: a short throwaway
-   chat there (`acpmux run --host NAME -m HARNESS "Reply only: pong"`). It
+   chat there (`cmux agent run --host NAME -m HARNESS "Reply only: pong"`). It
    fails with a sign-in message when the agent is signed out there.
 2. On a cmux Cloud machine, the image signs Claude and Codex in through
    CodeRouter by default; the chat's sign-in card (`_acpmux/agent_login`)
@@ -112,13 +118,13 @@ or a keychain item to another machine, and never print one.
 After the move, send one test prompt on the target and read the reply:
 
 ```bash
-acpmux send HOST/ID "Reply with the last thing I asked you, in five words."
-acpmux wait HOST/ID --timeout 300 && acpmux last HOST/ID
+cmux agent send HOST/ID "Reply with the last thing I asked you, in five words."
+cmux agent wait HOST/ID --timeout 300 && cmux agent last HOST/ID
 ```
 
 A reply that knows the chat's history is a resumed chat. A turn that fails
 with a gateway or sign-in error is the target's model access, not the move:
-fix that, then `acpmux retry HOST/ID`. A move that fails part way gives the
+fix that, then `cmux agent retry HOST/ID`. A move that fails part way gives the
 chat back here as it was; say which step failed.
 
 ## Telling the user

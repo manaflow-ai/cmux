@@ -59,6 +59,10 @@ public struct OverlayOptions: Equatable, Sendable {
     /// A dialog that stays at its transparent first frame until ``OverlayHandle/beginEntrance()``: its
     /// content draws in the panel first (a web page paints its card), then fades in drawn.
     public var holdsEntrance = false
+    /// The content keeps its own `alphaValue` from the first frame (a card that waits clear until it
+    /// measured itself, then fades itself in). Off: it shows at full opacity, also when it is presented
+    /// again while its close was fading out.
+    public var keepsContentAlpha = false
 
     public var effectiveLayer: OverlayLayer { layer ?? (kind == .dialog ? .modal : .window) }
 
@@ -148,6 +152,26 @@ public final class OverlayHandle {
     public func stopTakingMouse() {
         guard !options.passesThroughClicks else { return }
         options.passesThroughClicks = true
+        host?.cachedRegions = nil
+        host?.updateMouseRouting()
+    }
+
+    /// From now on the overlay takes clicks again, in place: no dismiss and present, which moves
+    /// its content to another view and makes a web page draw a blank frame (the cookie import
+    /// card's first click, and its tab getting the keyboard back).
+    public func startTakingMouse() {
+        guard options.passesThroughClicks else { return }
+        options.passesThroughClicks = false
+        host?.cachedRegions = nil
+        host?.updateMouseRouting()
+    }
+
+    /// Hides the overlay where it is, or shows it again, and takes no clicks while hidden: a card
+    /// that waits off screen keeps its place and its drawn content for when it shows again.
+    public func setHiddenInPlace(_ hidden: Bool) {
+        let view = clipView ?? content
+        guard view.isHidden != hidden else { return }
+        view.isHidden = hidden
         host?.cachedRegions = nil
         host?.updateMouseRouting()
     }

@@ -19,11 +19,14 @@ extension TabStripView {
             needsLayout = true
         }
         onMovedInWindow?()
+        // The flush corner's tab row reads the strip's place in the window: report a move (a canvas pan).
+        reportCornerLead()
     }
 
     /// Tabs are vertically centered in whatever height the strip gets; in a minimal window's top row
-    /// their pills center on the row's shared line instead (`TopRowLine`: the traffic lights', the
-    /// toolbar band's and the sidebar's + line, Leo 2026-11-07), at every density. Measured where the
+    /// they sit midway between the window's top edge and the strip's bottom, equal gaps above and
+    /// below (#38054), and the card's top moves them onto the row's shared line (`TopRowLine`: the
+    /// traffic lights', the toolbar band's and the sidebar's + line, Leo 2026-11-07). Measured where the
     /// pane will rest (``restingDrop``), as the inset is: a strip sliding through the top row lays out
     /// once for its final place and its tabs move with it, never pinned to the line on the way.
     func computeTabTop() -> CGFloat {
@@ -31,8 +34,10 @@ extension TabStripView {
         let tabHeight = min(metrics.tabHeight, bounds.height)
         if TopRowLineLook.tunable.value != .off, let window, let content = window.contentView {
             let strip = restingWindowRect().strip
-            if WindowTitlebar.isInTopRow(strip, in: window), let line = WindowTitlebar.topRowLine(in: window) {
-                return line.pillTop(stripTop: content.bounds.maxY - strip.maxY, stripHeight: bounds.height, tabHeight: tabHeight, scale: scale)
+            if WindowTitlebar.isInTopRow(strip, in: window), WindowTitlebar.topRowEvensPillGaps(in: window) {
+                // Equal gaps from under the window's rim and to the strip's bottom; the card's top brings them to the line (#38054).
+                let row = PaneChromeMetrics(stripHeight: bounds.height, tabHeight: tabHeight, panePadding: 0)
+                return row.pillTop(stripTop: content.bounds.maxY - strip.maxY, rim: WindowTitlebar.topRowRim(in: window), scale: scale)
             }
         }
         return metrics.tabTop(stripHeight: bounds.height, scale: scale)

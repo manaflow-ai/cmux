@@ -66,6 +66,10 @@ impl App {
                 self.run_action(Action::ShowShortcuts)?;
                 return Ok(());
             }
+            MenuAction::FocusAttention(surface) => {
+                self.focus_attention_surface(surface)?;
+                return Ok(());
+            }
             _ => {}
         }
         if menu_action_prepares_pty_release(action) && !self.prepare_pty_input_before_mutation() {
@@ -192,7 +196,8 @@ impl App {
             | MenuAction::FocusSidebar
             | MenuAction::ActivateSidebarProfile(_)
             | MenuAction::SetSidebarViewVisible { .. }
-            | MenuAction::ShowShortcuts => unreachable!("shared menu actions return above"),
+            | MenuAction::ShowShortcuts
+            | MenuAction::FocusAttention(_) => unreachable!("shared menu actions return above"),
             MenuAction::SetClientSizing { surface, client, enabled } => {
                 self.session.set_client_sizing(surface, client, enabled);
             }

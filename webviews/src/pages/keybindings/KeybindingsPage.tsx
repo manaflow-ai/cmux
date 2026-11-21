@@ -4,6 +4,7 @@
 import { useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import { Popover, type UiAnchor, type UiVirtualAnchor } from "../../ui/Popover";
 import type { Strings } from "../shared/i18n";
+import { useLasting } from "../../ui/lasting";
 import {
   canEditWhen,
   displayStrokes,
@@ -85,6 +86,9 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = strings;
   const disconnected = snap.connection === "disconnected";
+  // A lost link keeps the list on screen and says so only once it lasts (ui/lasting.ts): a daemon
+  // restart drops it for a few seconds, and the person has nothing to do (Leo, 2026-11-14).
+  const downLasting = useLasting(disconnected);
   const searchRecording = snap.recording?.target === "search";
   const selected = snap.rows.find((row) => identity(row) === snap.selection);
   // The recording row's keys, read each time the recorder is placed.
@@ -218,11 +222,11 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
           store={store}
         />
       )}
-      {disconnected ? (
+      {downLasting ? (
         <div className="keys-empty">{t("keybindings.page.disconnected")}</div>
       ) : snap.rows.length === 0 ? (
         <div className="keys-empty">
-          {snap.loading
+          {snap.loading || disconnected
             ? ""
             : t(snap.text || snap.conflictsOnly ? "keybindings.page.emptySearch" : "keybindings.page.empty")}
         </div>

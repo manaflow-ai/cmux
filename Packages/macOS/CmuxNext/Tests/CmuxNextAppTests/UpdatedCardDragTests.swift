@@ -165,6 +165,64 @@ struct UpdatedCardDragTests {
         host.configure(nil)
     }
 
+    /// Review of #37669 (F1): a card that went away mid-settle came back still springing from the old
+    /// drop. Taking the card away resets its settle.
+    @Test func aCardTakenAwayMidSettleComesBackAtItsRest() throws {
+        for key in Self.keys { UserDefaults.standard.removeObject(forKey: key) }
+        defer { for key in Self.keys { UserDefaults.standard.removeObject(forKey: key) } }
+        let (sidebar, _) = try Self.sidebar()
+        let host = sidebar.updatedCardView
+        host.settleX.catchMidFlight(at: 12, toward: 0)
+        host.settleY.catchMidFlight(at: -80, toward: 0)
+        host.configure(nil)
+        #expect(host.settleX.value == 0)
+        #expect(host.settleY.value == 0)
+    }
+
+    /// Review of #37790 at efe59289 and #37802: a higher-priority card that hid the Updated card mid-drag
+    /// left the drag held, so when the card came back the stale offset stood and the page's late release
+    /// moved it. Hiding the card ends its drag; the page's moves and release for that press are dropped.
+    @Test func aCardHiddenMidDragDropsThatDrag() throws {
+        for key in Self.keys { UserDefaults.standard.removeObject(forKey: key) }
+        defer { for key in Self.keys { UserDefaults.standard.removeObject(forKey: key) } }
+        let (sidebar, island) = try Self.sidebar()
+        let host = sidebar.updatedCardView
+        let resting = host.frame
+        island.onDrag?(SidebarCardDrag(offset: CGPoint(x: 0, y: -120)))
+        sidebar.layoutSubtreeIfNeeded()
+        host.isHidden = true
+        #expect(host.heldOffset == nil)
+        host.isHidden = false
+        island.onDrag?(SidebarCardDrag(offset: CGPoint(x: 0, y: -130)))
+        #expect(host.heldOffset == nil, "a late move of the hidden drag")
+        island.onDrag?(SidebarCardDrag(offset: CGPoint(x: 0, y: -300), drop: .top))
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(host.anchor == .bottom, "the late release of the hidden drag")
+        #expect(UserDefaults.standard.string(forKey: SidebarUpdatedCardHost.rememberedAnchorKey) == nil)
+        #expect(host.frame == resting)
+        // The next press drags.
+        island.onDrag?(SidebarCardDrag(offset: CGPoint(x: 0, y: -10)))
+        #expect(host.heldOffset == CGPoint(x: 0, y: -10))
+        host.configure(nil)
+    }
+
+    /// Review of #38020 at c4dbe0f3: a card taken away while hidden mid-drag kept dropping the page's
+    /// drag messages, so when it came back the first move of its next drag was lost.
+    @Test func aCardTakenAwayWhileHiddenMidDragDragsWhenItComesBack() throws {
+        for key in Self.keys { UserDefaults.standard.removeObject(forKey: key) }
+        defer { for key in Self.keys { UserDefaults.standard.removeObject(forKey: key) } }
+        let (sidebar, island) = try Self.sidebar()
+        let host = sidebar.updatedCardView
+        island.onDrag?(SidebarCardDrag(offset: CGPoint(x: 0, y: -120)))
+        host.isHidden = true
+        host.configure(nil)
+        host.configure(Self.card)
+        let again = try #require(host.island as? FakeIsland)
+        again.onDrag?(SidebarCardDrag(offset: CGPoint(x: 0, y: -10)))
+        #expect(host.heldOffset == CGPoint(x: 0, y: -10))
+        host.configure(nil)
+    }
+
     /// Through the App's real island and page provider: the page's drag reaches the host in points,
     /// and the host's place reaches the page.
     @Test func theAppsIslandCarriesTheDragAndThePlace() async throws {
@@ -192,6 +250,8 @@ struct UpdatedCardDragTests {
         island.setPlace(SidebarCardPlace(anchor: .bottom, above: 400, below: 0))
         #expect(places.count == 1, "an unchanged place is not sent again")
         #expect(places.first?["anchor"]?.stringValue == "bottom")
+        // Review F3 of #37790: the page reads the pointer's screen deltas in CSS px at this zoom.
+        #expect(places.first?["zoom"]?.doubleValue == Double(island.provider.card.zoom()))
         subscription.cancel()
     }
 }

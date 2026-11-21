@@ -59,12 +59,12 @@ import Testing
 
     /// A kebab or snake spelling (an older CLI, a hand-written script) still names the canonical argument
     /// for a release, and arrives under the canonical name.
-    @Test(arguments: ["promptId", "prompt-id", "prompt_id"])
+    @Test(arguments: ["publicKey", "public-key", "public_key"])
     func anySpellingOfAnArgumentNamesIt(_ given: String) throws {
-        let descriptor = try #require(ActionCatalog.all.first { $0.id.rawValue == "cloudRelayChat" })
-        let request = try Self.validated(Self.info(descriptor), [given: .string("p-1"), "prompt": .string("hi"), "agent": .string("claude")])
-        #expect(request.arguments["promptId"] != nil)
-        #expect(request.arguments.count == 3)
+        let descriptor = try #require(ActionCatalog.all.first { $0.id.rawValue == "cloudPrepareSCP" })
+        let request = try Self.validated(Self.info(descriptor), [given: .string("ssh-ed25519 AAAA")])
+        #expect(request.arguments["publicKey"] != nil)
+        #expect(request.arguments.count == 1)
     }
 
     /// The renamed snake_case arguments keep their old spelling for a release.
@@ -82,9 +82,8 @@ import Testing
 
     /// Two spellings of one argument in one request are refused, never one silently winning.
     @Test func twoSpellingsOfOneArgumentAreRefused() throws {
-        let descriptor = try #require(ActionCatalog.all.first { $0.id.rawValue == "cloudRelayChat" })
-        let args: [String: JSONValue] = ["promptId": .string("p-1"), "prompt-id": .string("p-2"),
-                                         "prompt": .string("hi"), "agent": .string("claude")]
+        let descriptor = try #require(ActionCatalog.all.first { $0.id.rawValue == "cloudPrepareSCP" })
+        let args: [String: JSONValue] = ["publicKey": .string("ssh-ed25519 AAAA"), "public-key": .string("ssh-ed25519 BBBB")]
         #expect(throws: ControlError.self) { try Self.validated(Self.info(descriptor), args) }
     }
 

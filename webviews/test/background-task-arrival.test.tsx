@@ -10,7 +10,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
-import { useSessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import {
   bindSessionInfoPane,
   resetSessionInfoState,
@@ -21,6 +21,7 @@ import type { BackgroundCommand, SessionInfoProcess } from "../src/agent-session
 import { TasksSection } from "../src/agent-session/acpmux/session-info/TasksSection";
 import { SummaryTasks } from "../src/agent-session/acpmux/summary/SummaryTasks";
 import { assistant, chat, user } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -59,6 +60,7 @@ afterEach(async () => {
   root = undefined;
   resetSessionInfoState();
   setHeaderState({ inspector: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

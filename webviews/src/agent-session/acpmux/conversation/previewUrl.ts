@@ -4,7 +4,7 @@
 // CSP `frame-src` and URL+AgentPanePreview.swift name the same ones); 0.0.0.0, which a server binds
 // but a browser does not reach, reads as localhost.
 import type { AcpmuxRow } from "../model";
-import { stripAnsi } from "./toolOutput";
+import { stripAnsi } from "./toolOutputModel";
 
 // The host ends the name (`localhost.evil.com` is not loopback, a sentence's closing dot is fine);
 // a colon after it must start a port.
@@ -63,13 +63,20 @@ function parse(text: string): string | undefined {
 /// and output (where a dev server prints its address). Other tools' input and output (a file
 /// read, a web fetch) are left out.
 export function turnPreviewUrl(user: AcpmuxRow, turn: readonly AcpmuxRow[]): string | undefined {
-  return latestLocalUrl([
-    user.text,
-    ...turn.flatMap((row) => [
-      row.kind === "assistant" ? row.text : undefined,
-      ...(row.items ?? []).flatMap((item) =>
-        item.tool?.kind === "execute" ? [item.tool.command, item.tool.output] : [],
-      ),
-    ]),
+  return latestLocalUrl([user.text, ...turnTexts(turn)]);
+}
+
+/// The page the agent's side of a turn gave, never the person's prompt: an address the person
+/// typed is not yet served (New project opens only what the agent serves, App.tsx).
+export function turnServedUrl(turn: readonly AcpmuxRow[]): string | undefined {
+  return latestLocalUrl(turnTexts(turn));
+}
+
+function turnTexts(turn: readonly AcpmuxRow[]): (string | undefined)[] {
+  return turn.flatMap((row) => [
+    row.kind === "assistant" ? row.text : undefined,
+    ...(row.items ?? []).flatMap((item) =>
+      item.tool?.kind === "execute" ? [item.tool.command, item.tool.output] : [],
+    ),
   ]);
 }

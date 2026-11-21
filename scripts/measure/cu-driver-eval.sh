@@ -19,6 +19,8 @@
 # arena=run (cu-driver-bench.sh suite=arena) runs the computer-use arena instead (arena/README.md):
 # arms=a,b engines (each built or fetched as its PR or release runs it; engines=DIR holds the ones
 # build-engines.sh built), harness=claude:MODEL,codex:MODEL, arena_tasks=a,b, reps= runs per task.
+# arena=latency (cu-driver-bench.sh suite=latency) assembles the same arms and runs the per-call
+# latency bench on them instead (../cu-bench/README.md), reps= rounds, no model.
 set -uo pipefail
 reps=3 drivers="cmux-cua,cua-driver-0.38.0" electron=1 bench="" condition=background tasks="" waive=""
 arena="" arms="" harness="" arena_tasks="" engines="" arena_budget=0
@@ -45,7 +47,7 @@ done
 [[ -z "$bench" || "$bench" == preflight || "$bench" == run ]] || { echo "cu-driver-eval.sh: bench= is preflight or run" >&2; exit 2; }
 [[ "$condition" == background || "$condition" == foreground ]] || { echo "cu-driver-eval.sh: condition= is background or foreground" >&2; exit 2; }
 [[ "$tasks" =~ ^[A-Z0-9,-]*$ ]] || { echo "cu-driver-eval.sh: tasks= is a comma list of task ids" >&2; exit 2; }
-[[ -z "$arena" || "$arena" == run ]] || { echo "cu-driver-eval.sh: arena= is run" >&2; exit 2; }
+[[ -z "$arena" || "$arena" == run || "$arena" == latency ]] || { echo "cu-driver-eval.sh: arena= is run or latency" >&2; exit 2; }
 [[ "$arms" =~ ^[a-z0-9.,-]*$ && "$arena_tasks" =~ ^[a-z0-9,-]*$ ]] || { echo "cu-driver-eval.sh: arms= and arena_tasks= are comma lists of names" >&2; exit 2; }
 [[ "$arena_budget" =~ ^-?[0-9]+$ ]] || { echo "cu-driver-eval.sh: arena_budget= is seconds" >&2; exit 2; }
 [[ "$harness" =~ ^[a-z0-9.,:-]*$ ]] || { echo "cu-driver-eval.sh: harness= is a comma list of claude:MODEL or codex:MODEL" >&2; exit 2; }
@@ -80,7 +82,7 @@ finish() {
 fetch() {
   local file="$cache/$3-$(basename "$2")"
   if [[ ! -s "$file" ]]; then
-    curl -fsSL --retry 3 -o "$file.part" "$2" || { rm -f "$file.part"; return 1; }
+    curl -fsSL --retry 3 --retry-all-errors -o "$file.part" "$2" || { rm -f "$file.part"; return 1; }
     mv "$file.part" "$file"
   fi
   if [[ "$(shasum -a 256 "$file" | awk '{print $1}')" != "$3" ]]; then
@@ -304,13 +306,24 @@ if ! granted; then
   exit 3
 fi
 
+if [[ "$arena" == latency ]]; then
+  echo "CU-DRIVER-EVAL-STAGE latency"
+  budget_args=()
+  (( arena_budget > 0 )) && budget_args=(--budget "$arena_budget")
+  python3 -I "$here/../cu-bench/cu_bench.py" run --arms "$work/arena/arms.json" --out "$out/cu-bench" --rounds "$reps" \
+    ${budget_args[@]+"${budget_args[@]}"}
+  status=$?
+  finish
+  exit "$status"
+fi
+
 if [[ -n "$arena" ]]; then
   echo "CU-DRIVER-EVAL-STAGE arena"
   harness_args=()
   IFS=',' read -r -a harnesses <<<"$harness"
   for h in ${harnesses[@]+"${harnesses[@]}"}; do [[ -n "$h" ]] && harness_args+=(--harness "$h"); done
   [[ ${#harness_args[@]} -gt 0 ]] || { finish "arena: no harness= given"; exit 4; }
-  PATH="/opt/homebrew/bin:$PATH" python3 -I "$here/arena/arena.py" run --arms "$work/arena/arms.json" "${harness_args[@]}" \
+  PATH="/opt/homebrew/bin:$PATH" python3 -I "$here/arena/arena.py" run --arms "$work/arena/arms.json" ${harness_args[@]+"${harness_args[@]}"} \
     --app "$work/arena/Arena.app" --probe "$work/arena/bin/arena-probe" --out "$out/arena" --reps "$reps" \
     --budget "$arena_budget" ${arena_tasks:+--tasks "$arena_tasks"}
   status=$?
@@ -324,7 +337,7 @@ if [[ -n "$bench" ]]; then
   IFS=';' read -r -a waivers <<<"$waive"
   for regex in ${waivers[@]+"${waivers[@]}"}; do [[ -n "$regex" ]] && waive_args+=(--waive "$regex"); done
   "$bench_python" -I "$here/bench_v2.py" --bench "$macos_bench" --work "$bench_dir/work" --build-dir "$bench_dir/build" \
-    --out "$out/bench-v2" "${bench_args[@]}" ${waive_args[@]+"${waive_args[@]}"} --mode "$bench" --condition "$condition" \
+    --out "$out/bench-v2" ${bench_args[@]+"${bench_args[@]}"} ${waive_args[@]+"${waive_args[@]}"} --mode "$bench" --condition "$condition" \
     --runs "$reps" ${tasks:+--tasks "$tasks"}
   status=$?
   finish

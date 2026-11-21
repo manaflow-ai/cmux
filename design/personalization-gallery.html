@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Personalization: three layouts</title>
+<style>
+:root { color-scheme: dark; --bg: #141416; --fg: #ececf0; --muted: #9a9aa2; --line: #2a2a2e; --card: #1b1b1e; --accent: #5e8bff; }
+body { margin: 0; padding: 24px; background: var(--bg); color: var(--fg); font: 13px/1.45 -apple-system, BlinkMacSystemFont, sans-serif; }
+h1 { font-size: 18px; margin: 0 0 4px; }
+p.lead { color: var(--muted); margin: 0 0 20px; max-width: 820px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 22px; }
+.card { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--card); }
+.card.rec { border-color: var(--accent); box-shadow: 0 0 0 1px #5e8bff55; }
+.card h2 { font-size: 14px; margin: 0 0 2px; display: flex; gap: 8px; align-items: center; }
+.badge { font-size: 11px; background: var(--accent); color: #fff; border-radius: 999px; padding: 1px 8px; }
+.what { color: var(--muted); margin: 0 0 10px; }
+.page { height: 420px; overflow: hidden; border-radius: 10px; background: #18181b; border: 1px solid var(--line); padding: 14px; position: relative; }
+.title { font-size: 16px; font-weight: 600; margin: 0 0 10px; }
+.jump { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: #222226; margin-bottom: 12px; }
+.jump span { padding: 3px 8px; border-radius: 6px; color: var(--muted); font-size: 12px; }
+.jump span.on { background: #5e8bff33; color: var(--fg); }
+.part { margin-bottom: 14px; }
+.part header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.part header b { font-size: 13px; }
+.part header i { font-style: normal; color: var(--muted); font-size: 12px; }
+.rows { border: 1px solid var(--line); border-radius: 10px; }
+.row { display: flex; justify-content: space-between; padding: 7px 10px; border-top: 1px solid var(--line); font-size: 12px; }
+.row:first-child { border-top: 0; }
+.row em { font-style: normal; color: var(--muted); }
+.preview { height: 64px; border-radius: 8px; background: linear-gradient(135deg, #233046, #3b2b4f); margin-bottom: 8px; display: flex; gap: 6px; padding: 8px; }
+.preview div { flex: 1; border-radius: 5px; background: #00000055; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 8px; }
+.tiles div { height: 34px; border-radius: 6px; background: linear-gradient(135deg, #e3a75b, #3d2a4f); }
+.tiles div:nth-child(2) { background: linear-gradient(135deg, #9fd3c7, #1d3550); }
+.tiles div:nth-child(3) { background: #2a2a30; }
+.tiles div:nth-child(4) { background: linear-gradient(135deg, #556, #223); outline: 2px solid var(--accent); }
+.seg { display: flex; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.seg span { padding: 6px 10px; color: var(--muted); font-size: 12px; }
+.seg span.on { color: var(--fg); box-shadow: inset 0 -2px var(--accent); }
+.over { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.over > div { border: 1px solid var(--line); border-radius: 10px; padding: 8px; font-size: 12px; }
+.over > div b { display: block; margin-bottom: 4px; }
+.over .sw { height: 36px; border-radius: 6px; background: linear-gradient(135deg, #233046, #3b2b4f); }
+</style>
+</head>
+<body>
+<h1>Personalization: three layouts</h1>
+<p class="lead">Leo, 2026-11-07: the profile menu needs Personalization, "a fast jump into the settings of the appearance
+section ... we can do a lot better". Each layout draws the same cards and rows as their home categories (Theme,
+Appearance, Chief, Agents, Notifications), so a pick here is the same write as a pick there. Compared beside the
+references <code>cursor/web/appearance-settings-overview</code> (titled runs of cards, one column) and
+<code>claude/live/menus-account-menu-left-icon-column</code> (the person on top of the account menu).</p>
+<div class="grid">
+
+<div class="card rec">
+  <h2>A. Jump bar over stacked parts <span class="badge">picked</span></h2>
+  <p class="what">Every part on one scroll, a pinned jump bar to land on one. Change Background… opens it on Background.
+  Nothing is hidden, so a look is tuned in one pass, and it reads like the reference's titled runs.</p>
+  <div class="page">
+    <div class="title">Personalization</div>
+    <div class="jump"><span>Theme</span><span class="on">Background</span><span>Chief</span><span>Text and Density</span><span>Sounds</span></div>
+    <div class="part"><header><b>Theme</b><i>More in Theme</i></header><div class="preview"><div></div><div></div><div></div></div>
+      <div class="rows"><div class="row">App Theme<em>Match System</em></div><div class="row">Accent<em>Blue</em></div></div></div>
+    <div class="part"><header><b>Background</b><i>More in Appearance</i></header><div class="rows"><div class="tiles"><div></div><div></div><div></div><div></div></div>
+      <div class="row">Material<em>Glass</em></div><div class="row">Opacity<em>60%</em></div></div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>B. Tabs, one part at a time</h2>
+  <p class="what">Shorter page, but a look spans parts (a background changes which theme reads well), and a tab hides
+  the other half of the decision. One more click per change.</p>
+  <div class="page">
+    <div class="title">Personalization</div>
+    <div class="seg"><span>Theme</span><span class="on">Background</span><span>Chief</span><span>Text</span><span>Sounds</span></div>
+    <div class="rows"><div class="tiles"><div></div><div></div><div></div><div></div></div>
+      <div class="row">Material<em>Glass</em></div><div class="row">Opacity<em>60%</em></div><div class="row">Pane Backgrounds<em>Shared</em></div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>C. Overview tiles that expand</h2>
+  <p class="what">A summary of the current look first; each tile opens its part. Pretty at rest, but every change is a
+  tile open plus the change, and the tiles repeat what the parts already show.</p>
+  <div class="page">
+    <div class="title">Personalization</div>
+    <div class="over">
+      <div><b>Theme</b><div class="sw"></div></div>
+      <div><b>Background</b><div class="sw" style="background:linear-gradient(135deg,#e3a75b,#3d2a4f)"></div></div>
+      <div><b>Chief</b>Fox, shown</div>
+      <div><b>Text and Density</b>Cozy, 14 pt</div>
+      <div><b>Sounds</b>Default, 100%</div>
+    </div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

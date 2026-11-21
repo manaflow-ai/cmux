@@ -5,6 +5,7 @@ Run: python3 -I scripts/cmux-next/tests/settings-source-from-export.test.py
 import glob
 import importlib.util
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -23,6 +24,30 @@ def load(name, path):
 
 GEN = load("gen_settings_sources", "scripts/cmux-next/gen-settings-sources.py")
 DRAFT = load("settings_source_from_export", "scripts/cmux-next/settings-source-from-export.py")
+
+
+class GeneratorSectionFilesTests(unittest.TestCase):
+    def test_every_section_source_has_one_generator_file(self):
+        sources = {path.name for path in (ROOT / "schemas/settings/source").glob("*.json")
+                   if "lists" in json.loads(path.read_text(encoding="utf-8"))}
+        self.assertEqual(sorted(sources), sorted(Path(section["source"]).name for section in GEN.SECTIONS))
+
+    def test_a_generator_file_names_its_own_source(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = Path(root) / GEN.GENERATOR_DIR
+            folder.mkdir(parents=True)
+            entry = {"source": "schemas/settings/source/other.json", "swift": GEN.SCHEMA_DIR + "/X.generated.swift",
+                     "type": "XSettingsSchema", "lists": {"x": ["descriptors", None]}}
+            (folder / "x.json").write_text(json.dumps(entry), encoding="utf-8")
+            saved, GEN.ROOT = GEN.ROOT, root
+            try:
+                with self.assertRaises(SystemExit):
+                    GEN.load_generator_sections()
+                entry["source"] = "schemas/settings/source/x.json"
+                (folder / "x.json").write_text(json.dumps(entry), encoding="utf-8")
+                self.assertEqual(GEN.load_generator_sections()[0]["lists"], {"x": ("descriptors", None)})
+            finally:
+                GEN.ROOT = saved
 
 
 class SettingsSourceFromExportTests(unittest.TestCase):
@@ -63,6 +88,9 @@ class SettingsSourceFromExportTests(unittest.TestCase):
                     if "choices" in source:
                         source["choices"] = [{"value": c["value"], "title": c["title"]} for c in source["choices"]]
                     drafted = DRAFT.draft_row(exported)
+                    if drafted.get("palette_shown") and source.get("page_hidden"):
+                        # The export does not carry the reason of a row the palette still offers.
+                        drafted["page_hidden"] = source["page_hidden"]
                     if "choices_from" in row:
                         # The source lists the leading choices; the Swift member lists the rest.
                         drafted["choices"] = drafted["choices"][:len(source["choices"])]
@@ -89,8 +117,13 @@ class SettingsSourceFromExportTests(unittest.TestCase):
         self.assertNotIn("consumers", row)
 
     def test_select_by_swift_type_reads_title_keys(self):
-        picked = DRAFT.select(self.rows, swift_types=["ChromePlacementSetting"])
-        self.assertIn("sidebar.side", [row["key"] for row in picked])
+        # A stand-in CmuxNextSettings tree: the real hand-written rows keep moving into sources.
+        with tempfile.TemporaryDirectory() as root:
+            folder = Path(root) / DRAFT.SETTINGS_SOURCES
+            folder.mkdir(parents=True)
+            (folder / "Example.swift").write_text('extension ExampleSetting { static let t = "settings.sidebar.side" }\n')
+            picked = DRAFT.select(self.rows, swift_types=["ExampleSetting"], root=root)
+        self.assertEqual(["sidebar.side"], [row["key"] for row in picked])
         with self.assertRaises(SystemExit):
             DRAFT.select(self.rows, keys=["no.such.key"])
 

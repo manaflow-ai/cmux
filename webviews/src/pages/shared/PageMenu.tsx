@@ -3,7 +3,7 @@
 // refuses, Base UI owns the menu semantics, keyboard navigation, dismissal and
 // focus restoration; this adapter only supplies the pointer location and
 // page-specific actions.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "../../ui/nativeMenu";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator } from "../../ui/Menu";
@@ -28,6 +28,20 @@ export interface PageMenuProps {
   onClose: () => void;
   /** The row or button that opened the menu, restored on Escape or dismissal. */
   returnFocus?: HTMLElement | null;
+}
+
+/** The keyboard's way to a row's menu: Shift-F10 or the context-menu key on a focused control
+ * opens it at the control's bottom start corner, as `ContextMenu` does (ui/ContextMenu.tsx). Null
+ * for any other key; a hit is handled (default prevented). */
+export function pageMenuKey(event: KeyboardEvent): { x: number; y: number; returnFocus: HTMLElement } | null {
+  if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return null;
+  if (!(event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) return null;
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return null;
+  event.preventDefault();
+  const rect = target.getBoundingClientRect();
+  const rtl = getComputedStyle(target).direction === "rtl";
+  return { x: rtl ? rect.right : rect.left, y: rect.bottom, returnFocus: target };
 }
 
 export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {

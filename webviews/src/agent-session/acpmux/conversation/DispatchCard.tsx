@@ -6,10 +6,10 @@ import type { AcpmuxActivity } from "../model";
 import { useFindReveal } from "./chatFind";
 import { ChevronRight, Envelope, ToolGroup } from "./icons";
 import { CopyButton } from "./CopyButton";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useT } from "../i18n";
 import { dispatchDestination, type DispatchCall } from "./dispatchCalls";
-import { messagePreview } from "./AgentMessageRow";
+import { messagePreview } from "./agentMessageRowModel";
 import "./DispatchCard.css";
 import { lineLabel, briefAnchor } from "./dispatchCardModel";
 

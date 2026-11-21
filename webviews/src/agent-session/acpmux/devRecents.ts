@@ -1,6 +1,6 @@
 // Dev page only (dev.tsx `?recents=demo`): recent model and effort combos across the mock
 // catalog's families, so the model picker shows its recents and layers on first open.
-import type { Combo } from "./ComposerPickers";
+import type { Combo } from "./composerPickerModel";
 
 const DEMO: Combo[] = [
   { harness: "claude", model: "claude-opus-5-5", effort: "high", effortName: "High" },

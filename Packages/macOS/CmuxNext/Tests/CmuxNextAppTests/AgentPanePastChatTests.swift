@@ -1,3 +1,4 @@
+import CmuxNextAgentLanes
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import Foundation

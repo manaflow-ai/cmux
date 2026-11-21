@@ -7,8 +7,8 @@ language = "C"
 include_guard = "CMUX_MOTION_FFI_H"
 header = """
 /* cmux-motion's C ABI (cmux-tui/crates/cmux-app-ffi/src/motion.rs): the
- * closed-form spring, the spec's motion tokens, the structural bounce rule
- * and the ui.animations.* switches, and the tab strip's tweens and geometry
+ * closed-form spring, the spec's motion tokens and the ui.animations.*
+ * switches, and the tab strip's tweens and geometry
  * (Chrome's strip motion), the color transition's curves and color mix, and
  * the hover rules (cmux-app-ffi/src/hover.rs, cmux-motion src/hover: the hover
  * card machine, tooltip hover intent, the safe triangle, the row card's

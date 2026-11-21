@@ -1,4 +1,5 @@
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 @MainActor @Suite struct WorkspaceVerticalTabsTests {
     static func defaults() -> UserDefaults {
         let name = "WorkspaceVerticalTabsTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
+        let defaults = UserDefaults(testSuiteName: name)!
         defaults.removePersistentDomain(forName: name)
         return defaults
     }

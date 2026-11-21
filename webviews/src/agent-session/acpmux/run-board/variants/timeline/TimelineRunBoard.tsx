@@ -18,7 +18,7 @@ import {
   type RunApiClient,
 } from "../../runApi";
 import { attachRunTerminal } from "../../runAttach";
-import { attachTicketExpired } from "../../RunBoard";
+import { attachTicketExpired } from "../../runBoardModel";
 
 export type TimelineRunBoardProps = {
   snapshot: RunBoardSnapshot;

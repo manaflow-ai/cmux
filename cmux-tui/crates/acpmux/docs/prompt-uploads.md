@@ -31,7 +31,7 @@ binding, and calls this API over its daemon connection.
 | `promptUploads` feature flag | landed, #25730 |
 | `_acpmux/file_put_status`, finish `sha256` and its `{path, size, uploadId}` answer, the `upload.*` error reasons, `upload.diskFull` | #25793, flag `uploadResume` |
 | binary data frames `_acpmux/file_put_data` on the app's WebSocket, peer chats included | #25803, flag `uploadFrames` |
-| `acpmux send --attach` and `send_message` send any size and number by reference (no 8 MiB / 10 MiB / 16-file refusal), begin `forPrompt`, `owned` references deleted when their prompt is refused, cancel deletes a finished upload | #25840 |
+| `cmux agent send --attach` and `send_message` send any size and number by reference (no 8 MiB / 10 MiB / 16-file refusal), begin `forPrompt`, `owned` references deleted when their prompt is refused, cancel deletes a finished upload | #25840 |
 
 A native caller checks the flags, not the PRs. Without `uploadFrames` it sends data with
 `_acpmux/file_put_chunk`; the base64 then travels only on the native-to-daemon socket, never on
@@ -48,7 +48,7 @@ These are listed in the `initialize` result, `_meta.acpmux.features`.
 | `uploadFrames` | the daemon takes binary data frames on the app's WebSocket (section 1) |
 | `filePutChunks` | the daemon takes `file_put_begin` / `_chunk` / `_finish` / `_cancel` |
 | `filePut` | the daemon takes the one-shot `_acpmux/file_put` (one file in one request, kept for older clients) |
-| `sendAttach` | the daemon saves a message's inline attachments (`acpmux send --attach`, `send_message`) |
+| `sendAttach` | the daemon saves a message's inline attachments (`cmux agent send --attach`, `send_message`) |
 
 A client sends by reference only to a daemon that lists `promptUploads`. Without it, the client
 keeps the old inline path.
@@ -320,10 +320,28 @@ repeated finish answers the same.
   it. A prompt that still names a removed upload is refused with `upload.missing`.
 - Any other upload is removed while it is unfinished.
 
+### How uploads are stored
+
+- A finished upload's bytes are stored once, by their SHA-256, under
+  `<ACPMUX_HOME>/uploads/.store/<first two hex digits>/<sha256>` (owner-only, read-only). The
+  same file pasted again, in the same chat or another, adds no second copy
+  (`hub/file_uploads/store.rs`).
+- The path the finish answers, `<ACPMUX_HOME>/uploads/<session>/<uploadId>/<fileName>`, stays
+  that upload's path for as long as it exists: it is another hard link to the stored bytes, so an
+  agent opens it by path as before.
+- Each upload's folder has a `.record`: `{name, source, at, sha256, size}`. `source` is
+  `file_put_begin`'s optional `source` (the app the file came from).
+- A stored file's references are its hard links other than the store's own. It is deleted once
+  none is left: when the last upload naming it is deleted with its chat, cancelled or aged out.
+- Where the uploads folder cannot hard-link (another file system, Windows), an upload keeps its
+  own copy, as before.
+
 ### How long uploads stay
 
 - Finished uploads stay until the chat is deleted or the age sweep removes them
-  (`uploadsMaxAgeDays`, default 30).
+  (`uploadsMaxAgeDays`, default 30). A chat marked kept stays out of the sweep:
+  `_acpmux/uploads_keep {sessionId, keep}` (for a pinned or starred chat; `keep: false` lets
+  its uploads age out again). A Web connection may not call it (`filePut.remote`).
 - An upload begun and never finished or cancelled (its sender's connection dropped, or a late
   begin ack nobody cancelled) is reaped by the same sweep. It deletes the upload's whole folder,
   `.part` and `.meta` included, once both the upload and its last use are older than
@@ -352,7 +370,7 @@ Today, an unknown upload, a wrong offset, or a finish before all bytes arrived r
 A client retries every error except `filePut.name`, `filePut.remote` and disk-full. Before it
 retries, it reads the upload's state (status, or its last acknowledged offset).
 
-`acpmux send --attach` and `send_message` (`attach/upload.rs`) retry only what the link lost: a
+`cmux agent send --attach` and `send_message` (`attach/upload.rs`) retry only what the link lost: a
 peer link that timed out, dropped or is down (`peer_unreachable`), and `upload.offset`. They read
 the upload's status and go on from its offset, until no byte has gone for 10 minutes. The CLI says
 on stderr what it is doing: when the uploads start, every 10 seconds with the bytes sent, the rate
@@ -392,7 +410,7 @@ before it is resolved:
 - `upload.owned: "<ownerToken>"` (from #25840) says the upload was made for this prompt alone;
   its value is the upload's `ownerToken` from begin, and any other value (`true` included)
   deletes nothing. If the prompt is refused before the chat takes it, the daemon deletes that
-  upload. A prompt the chat takes, a duplicate and a held prompt keep it. `acpmux send --attach`
+  upload. A prompt the chat takes, a duplicate and a held prompt keep it. `cmux agent send --attach`
   sets it. Leave it out for an upload that another prompt or a retry may name, such as the
   app's uploads, which stay finished across retries: the app keeps the token natively and
   removes an attachment with a token-carrying `file_put_cancel`.

@@ -116,12 +116,19 @@ id). With `OPTCHAT_GROUP_WAKE` set, a person's message in another local
 conversation the Chief takes part in is a wake of that conversation, read and
 answered as a cloud wake is (`brain/side.rs`); another Chief's message wakes
 it too (never its own; other agents never do). Loop guard: the owner's
-per-thread budget (`cmux_conversation::MAX_AGENT_TURNS`, 6): at most 6 agent
-texts in one thread (the replies of one root, or the top level) since a
-person's text in that thread; the owner refuses more (`agent_budget`), and a
+per-thread budget (`cmux_conversation::MAX_AGENT_TURNS`, 6): in a
+conversation with two or more agents, at most 6 agent texts in one thread
+(the replies of one root, or the top level) since a person's text in that
+thread (the person's own Chief chat, with one agent, has no cap); the owner refuses more (`agent_budget`), and a
 Chief pre-checks it from the messages it read (`thread_agent_streak` on the
 thread its reply goes into) so it stays quiet instead of running that turn.
-A person's text resets its own thread only. A page shows "Chiefs paused" for
+A person's text resets its own thread only. The outbox drops a refused
+message (it never loops) but keeps the refusal for the Chief: `send` answers
+an error ("refused by the conversation, nothing was posted (agent_budget)")
+when the owner refuses it at once, `outcome: queued` while it still waits in
+the outbox (the gap, an upload, link previews), and `outcome: done. sent`
+only when the owner took it; a later refusal (a queued send, a turn reply)
+is told on the Chief's next `send`. A page shows "Chiefs paused" for
 a thread when `thread_agent_streak` of its newest messages is at the budget. `every` adds a constant
 "Channels" paragraph to the system prompt: the Chief acts on its own when a
 message concerns its role, and a reply of exactly `NO_REPLY` posts nothing.
@@ -380,6 +387,25 @@ engine bar over the Chief conversation (harness, model and effort pickers,
 the last turn's engine, latency, tool calls, cache hit rate and cost) that
 writes the same file.
 
+### Open-source brains (Hermes, OpenClaw)
+
+`chief engine set --harness hermes` (or `openclaw`) runs the turns on Hermes
+Agent or OpenClaw through acpmux, once the brain is on PATH
+(`brain_home.rs`, chief-cohesion OSS-LOCAL-BRAINS.md "Build"). The Chief keeps
+the conversation, the memory, the schedules and the approvals; the brain runs
+one turn at a time from a home the Chief owns (`optchat/brains/<family>`,
+`HERMES_HOME`/`OPENCLAW_HOME` through acpmux's built-in
+`optchat-chief-<brain>-<home id>` preset), never the person's own, with its
+models through the team gateway (`--brain-base-url`, default the team
+subrouter) and its own cron, memory and logins off. OpenClaw runs only in
+sandbox mode `all` (Docker or Podman needed), with no skills, and gets cmux's
+MCP servers in its own config (its ACP bridge takes none per session); the
+host runs its Gateway on loopback. A brain that cannot run a turn (not
+installed, unavailable, or it failed one in the last 10 minutes) gives way to
+the default harness, with one note in the chat; `chief brains` shows each
+brain's state and last fallback, and `chief brains migrate hermes` turns
+Hermes' own cron jobs into cmux automations, one confirmed line at a time.
+
 ## Monitoring: trace and stats
 
 Every turn (`turn.start`, `turn.end`), every model request in a turn
@@ -470,6 +496,9 @@ optchat-chief memory import [--mux-home DIR] DIR           an old JSONL home or 
 optchat-chief memory search [--mux-home DIR] [--limit N] [--json] WORDS  messages and summaries holding every word (FTS5);
                                                            --json: id, kind, date, snippet and full text per hit
 optchat-chief memory stats [--mux-home DIR]                counts, schema, migration record, backup status
+optchat-chief memory redescribe [--mux-home DIR] failed|ID...   the running host describes again the images these note
+                                                           lines name (failed: every "no description" note), rewrites
+                                                           each note in the change book and rebuilds the summaries above it
 optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...
                                                            long-term memory shared by Codex and Claude Code sessions
 ```
@@ -812,8 +841,9 @@ that profile is named. Any other Claude-family profile must also be kind
 proxy` replaced by a `claude-stdio` profile that runs `claude` with no
 arguments) only when its `ANTHROPIC_BASE_URL` is the team subrouter on
 cmux-lawrence (`harness_gate::TEAM_SUBROUTER_URLS`); a real `sr claude
-proxy` profile wins over it. A refused turn starts no session and posts `(turn refused:
-...)` in the chat. A session that acpmux resolved or moved onto another
+proxy` profile wins over it. A refused turn starts no session and posts a short plain reply
+(`harness_gate::refused_reply`): it quotes the message it answers, says what is missing and what
+to do, and a repeat says how many turns in a row were refused, so no two in a row read the same. A session that acpmux resolved or moved onto another
 profile is checked again by its own harness, at the start and at the end
 of the turn. Every refusal is a `harness.refused` trace event (role,
 harness, reason), and each `turn.end` records `harness_profile`,
@@ -1433,9 +1463,13 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   compactor's) ask acpmux to wait on the harness (`waitStart`) instead of a
   wall clock: a loaded machine slows a start down, and killing it there loses
   the start and the turn. acpmux ends the start once the harness has used no
-  CPU, with no thread ready, for 5 minutes. A turn's wait still ends on a stop
-  or the turn's limit, and past 30 s `settle.json` has `startingSecs`: the app
-  says the machine is busy and the Chief is still starting. Nothing reruns.
+  CPU (under 5 ms per 10 s: a launcher's own runtime ticks are no work), with
+  no thread ready and no page read in, for 5 minutes. A turn's wait still ends
+  on a stop or the turn's limit, and past 30 s `settle.json` has
+  `startingSecs`: the app says the machine is busy and the Chief is still
+  starting. A turn whose start acpmux ended that way posts no diagnostics: its
+  person's message waits in the reply ledger, whose retry turns start a fresh
+  harness and, if none starts, say so in plain words (#36028).
 - **Turns paragraph.** The spec says "do the user's tasks yourself ... use
   subagents only when the user asks". The Chief's base prompt replaces that
   paragraph with `prompt.rs` `CHIEF_TURNS`: keep turns short, give builds,

@@ -326,8 +326,9 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
   });
 
   test("a popover keeps a compact fold button beside its tabs", async () => {
-    // 1280px: no room for the inline column, so the summary is a popover.
-    const context = await browser!.newContext({ viewport: { width: 1280, height: 800 } });
+    // 1100px: no room for the inline column beside Chat Text Width's 800px one, so the summary is a
+    // popover.
+    const context = await browser!.newContext({ viewport: { width: 1100, height: 800 } });
     const page = await context.newPage();
     await open(page);
     if (!(await panel(page).isVisible())) await page.getByRole("button", { name: "Chat summary" }).click();

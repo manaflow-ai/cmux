@@ -2,35 +2,10 @@
 // the pane's syntax theme) comes in its own chunk, so the page's first script parses without
 // Pierre and Shiki (bd cx-z9kz0); until it has loaded, the card draws as plain text.
 import { lazy, Suspense, useMemo, type ReactNode } from "react";
-import { translate, type Translate } from "../i18n";
 import { isDiagram } from "./codeShape";
 import { highlightsCode } from "./highlightLimits";
 import { PlainCode, PlainCodeLines } from "./StreamingCode";
-
-/// Header label shown for a fence language: its name, which no language translates.
-// l10n-allow: programming language names
-const LANG_LABELS: Record<string, string> = {
-  python: "Python",
-  py: "Python",
-  json: "JSON",
-  diff: "Diff",
-  ts: "TypeScript",
-  typescript: "TypeScript",
-  js: "JavaScript",
-  javascript: "JavaScript",
-  swift: "Swift",
-  sh: "Shell",
-  bash: "Shell",
-  html: "HTML",
-  htm: "HTML",
-  svg: "SVG",
-  markdown: "Markdown",
-  md: "Markdown",
-};
-
-export function languageLabel(lang: string, t: Translate = translate) {
-  return lang === "text" || lang === "txt" ? t("code.plainText") : (LANG_LABELS[lang] ?? lang);
-}
+import { loadHighlightedCode } from "./codeBlockModel";
 
 export type CodeBlockProps = {
   code: string;
@@ -44,8 +19,6 @@ export type CodeBlockProps = {
   artifactRevision?: number;
 };
 
-/// Loads the highlighted card; the page starts it once it has painted (App.tsx).
-export const loadHighlightedCode = () => import("./HighlightedCode");
 const HighlightedCode = lazy(() => loadHighlightedCode().then((module) => ({ default: module.HighlightedCode })));
 const HighlightedLines = lazy(() =>
   import("./HighlightedLines").then((module) => ({ default: module.HighlightedLines })),
