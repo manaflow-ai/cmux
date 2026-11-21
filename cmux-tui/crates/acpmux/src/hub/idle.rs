@@ -85,6 +85,17 @@ impl Hub {
             || session.work_below_since.lock().is_ok_and(|v| *v != 0)
     }
 
+    /// [`Self::holds_work_below`] for a summary (the list's `workingBelow`): from the process
+    /// table this daemon has read already, never a log scan. A summary is read for every chat a
+    /// list shows: the scan read the log of each chat not loaded yet, and an archived chat's read
+    /// brought its log back from its cold archive (`cold_archive.rs`), so listing an archived chat
+    /// undid its archive. A chat whose process table is unread counts none here.
+    pub(super) fn holds_work_below_read(&self, session: &Session) -> bool {
+        self.running_processes_read(session) > 0
+            || session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
+            || session.work_below_since.lock().is_ok_and(|v| *v != 0)
+    }
+
     pub(super) fn idle_eligible(&self, session: &Session) -> bool {
         !self.stopping.load(Ordering::SeqCst)
             && matches!(session.status(), SessionStatus::Ready | SessionStatus::Idle)
