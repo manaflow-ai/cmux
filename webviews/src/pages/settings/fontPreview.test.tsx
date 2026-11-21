@@ -26,7 +26,7 @@ const slider = (key: string) =>
 
 describe("font pictures", () => {
   test("the Interface Font row draws a tile per choice, each in its own face, the current one marked", async () => {
-    page = await renderPage({ path: "/settings/personalization" });
+    page = await renderPage({ path: "/settings/chat" });
     const all = tiles(UI);
     expect(all.map((tile) => tile.dataset.fontChoice)).toContain("cmux-sans");
     expect(all.length).toBeGreaterThanOrEqual(10);
@@ -37,14 +37,14 @@ describe("font pictures", () => {
   });
 
   test("a click on a tile writes that choice", async () => {
-    page = await renderPage({ path: "/settings/personalization" });
+    page = await renderPage({ path: "/settings/chat" });
     const geist = tiles(UI).find((tile) => tile.dataset.fontChoice === "geist")!;
     await click(geist);
     expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({ key: UI, value: "geist" });
   });
 
   test("the size slider resizes every tile while it drags, and its release keeps the size", async () => {
-    page = await renderPage({ path: "/settings/personalization" });
+    page = await renderPage({ path: "/settings/chat" });
     expect(picture(tiles(UI)[0]!).style.fontSize).toBe("14px");
     await changeValue(slider(SIZE), "20");
     for (const tile of tiles(UI)) expect(picture(tile).style.fontSize).toBe("20px");
@@ -54,7 +54,7 @@ describe("font pictures", () => {
   });
 
   test("the Chat Font's Markdown choice draws the Markdown viewer's preset", async () => {
-    page = await renderPage({ path: "/settings/personalization" });
+    page = await renderPage({ path: "/settings/chat" });
     const preset = "agentPane.display.font.preset";
     const markdown = () => tiles(preset).find((tile) => tile.dataset.fontChoice === "markdown")!;
     expect(picture(markdown()).style.fontFamily).toContain("system-ui");
@@ -71,6 +71,17 @@ describe("font pictures", () => {
     expect(sample().dataset.fontSample).toBe("Menlo");
     expect(sample().dataset.size).toBe("17");
     expect(sample().querySelector("span")!.style.fontFamily).toContain("Menlo");
+  });
+
+  test("a page that does not hold the row is refused, alias or not", async () => {
+    const { sectionShowing } = await import("./categories");
+    // Where the chat's font rows actually live, after Personalization folded into Appearance.
+    expect(sectionShowing("chat", UI)).toBe("chat");
+    // `personalization` still opens a page (Appearance's alias), just not this row's: the old name
+    // used to capture the wrong page and wait for a row that never drew.
+    expect(() => sectionShowing("personalization", UI)).toThrow(/opens "appearance".*is on "chat"/);
+    expect(() => sectionShowing("chat", "terminal.fontFamily")).toThrow(/is on "terminal"/);
+    expect(() => sectionShowing("chat", "no.such.row")).toThrow(/no row/);
   });
 
   test("every previewed row exists in the schema, and a family name cannot break out of its stack", async () => {
