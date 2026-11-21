@@ -424,7 +424,8 @@ fn use_takes_a_recipe_by_name_and_a_saved_profile_of_that_name_wins() {
     fs::create_dir_all(dir.path().join("config")).unwrap();
     fs::write(dir.path().join("config/cmux-next.json"), "{}\n").unwrap();
     let customize = Customize::open(Roots::under(dir.path()));
-    let run = |request, at| execute(&customize, request, "cli", at, &super::ask::NoChat).ok().unwrap();
+    let run =
+        |request, at| execute(&customize, request, "cli", at, &super::ask::NoChat).ok().unwrap();
 
     // No `recipes` first: the name alone finds the recipe, theme file included.
     let used = run(Request::Use { source: "ukiyo-e".to_owned(), watch: false }, 1_000);
