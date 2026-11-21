@@ -86,8 +86,8 @@ EXCLUDED_SHARED: dict[tuple[str, str], str] = {
         "scheduled run replacing a pending one is safe"),
     ("published-in.yml", ""): "labels merged pull requests from the stable feed; reads the feed when it starts",
     ("ios-ui-tests-nightly.yml", "report"): (
-        "syncs one tracking issue and builds nothing; each run reads the issue when it starts, so a newer "
-        "report replacing a waiting one leaves the issue in the newest run's state (#44421)"),
+        "syncs one tracking issue and builds nothing; the report that replaces a waiting one carries the newer "
+        "result, so the issue still ends open or closed correctly; only the replaced run's comment is dropped (#44421)"),
 }
 
 # cancel-in-progress true in an excluded workflow, outside pull request test runs, as it is today.
