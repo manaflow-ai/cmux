@@ -253,6 +253,55 @@ def built_source(source: str, built: set[str], root: str) -> bool:
     return crate == root or source[len(crate) + 1:].split("/", 1)[0] not in verdict.UNBUILT_TARGET_DIRS
 
 
+BINARIES_MAP = json.dumps({
+    "workspace_inputs": ["cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock"],
+    "workflows": {
+        ".github/workflows/next.yml": {
+            "inputs": [],
+            "jobs": {
+                "daemon-test": {"crates": ["cmux-tui/crates/app"], "compile_only": True, "binaries_only": True,
+                                "router_output": "daemon", "binaries_key": "key.txt",
+                                "inputs": ["scripts/build.sh"], "key_only": ["fixtures/bench.json"]},
+            },
+        }
+    },
+})
+KEY = "# comment\ntree cmux-tui\ngitlink ghostty\nblob scripts/build.sh\nblob schemas/core.json\nblob fixtures/bench.json\n"
+
+
+class BinariesOnly(unittest.TestCase):
+    """A job that runs the published binaries (cmux-next.yml's daemon-test, routed by cmux_next_route.py)."""
+
+    def placement(self, files=FILES):
+        with fake_tree({**files, "key.txt": KEY}) as tree:
+            return jobs.placement("daemon-test", tree, map_text=BINARIES_MAP)
+
+    def test_its_crates_are_their_built_targets_only(self):
+        found = self.placement()
+        self.assertTrue(any(jobs.under("cmux-tui/crates/app/src/lib.rs", entry) for entry in found.inputs))
+        self.assertTrue(any(jobs.under("schemas/core.json", entry) for entry in found.inputs))  # core embeds it
+        for path in ("cmux-tui/crates/app/tests/t.rs", "fixtures/app/x.json",  # its own tests and their fixtures
+                     "cmux-tui/crates/helper/src/lib.rs", "cmux-tui/crates/sim/src/lib.rs"):  # dev, off feature
+            with self.subTest(path=path):
+                self.assertFalse(any(jobs.under(path, entry) for entry in found.inputs), found.inputs)
+
+    def test_a_path_in_no_package_is_never_placed(self):
+        found = self.placement()
+        self.assertTrue(found.unknown("cmux-tui/scripts/tool.sh"))
+        self.assertFalse(found.unknown("cmux-tui/crates/lonely/src/lib.rs"))
+        self.assertFalse(found.unknown("cmux-tui/README.md"))
+
+    def test_a_key_input_outside_the_graph_must_be_the_jobs(self):
+        _, all_jobs = jobs.load_map(BINARIES_MAP)
+        job = all_jobs[0]
+        with fake_tree({**FILES, "key.txt": KEY}) as tree:
+            self.assertEqual(jobs.check_binaries_key(jobs.Graph(tree, [], all_jobs), job), [])
+        with fake_tree({**FILES, "key.txt": KEY + "blob scripts/new-recipe.sh\n"}) as tree:
+            problems = jobs.check_binaries_key(jobs.Graph(tree, [], all_jobs), job)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("scripts/new-recipe.sh", problems[0])
+
+
 class TheRepository(unittest.TestCase):
     """The routed workflows, as they are in this commit."""
 
@@ -315,6 +364,22 @@ class TheRepository(unittest.TestCase):
                     result = jobs.route(head, [path], map_text=(ROOT / jobs.MAP).read_text(), base_tree=base)
                     run = {key[1]: value for key, value in result.run.items()}
                     self.assertTrue(run["acpmux-tests"], result.lines())
+
+    def test_the_daemon_tier_routes_by_the_map(self):
+        """cmux_next_route.py's daemon tier reads the map's daemon-test: a crate the fetched binaries build runs it, a
+        crate none of them builds, or a binary crate's own tests, does not."""
+        spec = importlib.util.spec_from_file_location("cmux_next_route_for_jobs", ROOT / "scripts/ci/cmux_next_route.py")
+        router = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = router
+        spec.loader.exec_module(router)
+        daemon = router.daemon_graph(ROOT)
+        self.assertIsNotNone(daemon)
+        self.assertTrue(daemon.reason("cmux-tui/crates/cmux-tui/src/main.rs"))
+        self.assertTrue(daemon.reason("cmux-tui/Cargo.lock"))
+        self.assertTrue(daemon.reason("scripts/cmux-next/pin-cmux-tui.sh"))
+        self.assertIsNone(daemon.reason("cmux-tui/crates/cmux-tui/tests/does_not_exist.rs"))
+        self.assertIsNone(daemon.reason("cmux-tui/crates/cmux-app-ffi/src/lib.rs"))  # the app links its pinned release
+        self.assertEqual(set(router.DAEMON_PATHS) - set(router._daemon_map_inputs(ROOT)), set())
 
     def test_the_workflow_paths_reader(self):
         text = 'on:\n  push:\n    paths:\n      - "a/**"\n      # c\n      - b.txt\n  pull_request:\njobs:\n  x:\n'

@@ -35,7 +35,8 @@ BROKER_FIELDS = frozenset({
     "headRefOid", "id", "isArchived", "isBinary", "isCrossRepository", "isDraft", "isFork", "isMinimized",
     "isPrivate", "isTruncated", "issueCount", "label", "labels", "lastEditedAt", "limit", "locked", "login",
     "maintainerCanModify", "mergeCommit", "mergeMethod", "mergeStateStatus", "mergeable", "merged",
-    "mergedAt", "mergedBy", "message", "mode", "name", "nameWithOwner", "nodes", "number", "object", "oid",
+    "mergedAt", "mergedBy", "message", "messageBody", "messageHeadline", "mode", "name", "nameWithOwner", "nodes",
+    "number", "object", "oid",
     "pageInfo", "parents", "path", "prefix", "pullRequest", "pushedAt", "remaining", "requestedReviewer",
     "resetAt", "reviewRequests", "reviews", "slug", "startCursor", "state", "status", "submittedAt",
     "target", "targetUrl", "text", "timelineItems", "title", "totalCount", "tree", "type", "updatedAt",
@@ -540,7 +541,7 @@ class SpentRestQuotaTests(unittest.TestCase):
 
 class BrokerGraphqlFieldsTests(unittest.TestCase):
     """The land gates read GitHub through the lane-gh broker, which refuses a graphql field outside its list. Scope:
-    merge_freeze.py, scripts/gh-merge-green and the base-red classifier merge_hold runs on every land with a red
+    merge_freeze.py, scripts/gh-merge-green and the base-red classifier land-judge runs on every land with a red
     (CLASSIFIER_FILES), not every graphql caller in scripts/. A classifier query the broker refuses means no base red
     can be excused from a lane VM (cmuxterm-hq#10092: BLOB_QUERY's `mode`)."""
 
