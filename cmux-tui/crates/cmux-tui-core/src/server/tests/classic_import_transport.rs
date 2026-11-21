@@ -8,7 +8,7 @@ use crate::server::origin_gate::{set_role_for_test, set_verified_app_for_test};
 use crate::state::classic_import_router::TEST_HOME;
 
 /// Puts the wire's classic home back, and removes it, when the test ends.
-struct WireHome(std::path::PathBuf);
+struct WireHome(PathBuf);
 
 impl Drop for WireHome {
     fn drop(&mut self) {
