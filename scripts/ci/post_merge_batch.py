@@ -259,10 +259,13 @@ def tick(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------- plan
 
 
-def plan_batch(sha: str, runs: list[dict], suites: dict[str, Suite], files_since) -> dict:
-    """The suites a batch run calls: every one the commits since the newest earlier batch run reach."""
+def plan_batch(sha: str, runs: list[dict], suites: dict[str, Suite], files_since, judged=lambda run_id: True) -> dict:
+    """The suites a batch run calls: every one the commits since the newest earlier batch run reach.
+    Only a run whose judge succeeded counts: one whose plan died (drill run 44881749105, rate limit)
+    tested nothing, and planning past it skipped the suites its commits reached."""
     earlier = [r for r in runs if is_batch(r) and r.get("status") == "completed" and r.get("head_sha") != sha]
-    base = earlier[0]["head_sha"] if earlier else ""
+    tested = next((r for r in earlier if judged(r["id"])), None)
+    base = tested["head_sha"] if tested else ""
     files = files_since(base) if base else None
     picked = [key for key, suite in suites.items() if files is None or suite.reached(files)]
     return {"base": base, "suites": picked, "files": None if files is None else len(files)}
@@ -291,15 +294,17 @@ def cmd_plan(args: argparse.Namespace) -> int:
         write_outputs(args.github_output, {"suites": f" {args.suite} ", "sha": args.probe_sha, "only": args.only or "", "base": ""})
         summary(args.summary, f"Probe: `{args.suite}` job `{args.only or '(all)'}` at `{args.probe_sha}`.")
         return 0
+    def judged(run_id: int) -> bool:
+        return any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in run_jobs(args.repo, run_id))
+
     try:
-        runs = list_runs(args.repo, args.branch)
+        plan = plan_batch(args.sha, list_runs(args.repo, args.branch), suites, lambda base: changed_files(base, args.sha), judged)
     except RuntimeError as err:
-        # Past the wait budget the run list is unreadable: run every suite rather than none, so the
+        # Past the wait budget the runs are unreadable: run every suite rather than none, so the
         # tip is still tested; the next batch's judge compares against this run as usual.
         print(f"plan: earlier batch runs unreadable, running every suite: {err}", file=sys.stderr)
         summary(args.summary, "- Earlier batch runs could not be read (rate limit): every suite runs.")
-        runs = []
-    plan = plan_batch(args.sha, runs, suites, lambda base: changed_files(base, args.sha))
+        plan = plan_batch(args.sha, [], suites, lambda base: [])
     write_outputs(
         args.github_output,
         {"suites": " " + " ".join(plan["suites"]) + " ", "sha": args.sha, "only": "", "base": plan["base"]},

@@ -62,6 +62,13 @@ class PlanAndJudgeTest(unittest.TestCase):
         self.assertEqual((plan["base"], plan["suites"]), ("b" * 40, ["web"]))
         self.assertEqual(pmb.plan_batch("a" * 40, [], self.suites, lambda base: [])["suites"], ["web", "rust"])
 
+    def test_plan_skips_a_batch_whose_judge_never_succeeded(self) -> None:
+        # Drill-2 (2026-11-21): run 2's plan died, so it tested nothing; the base is run 1's head.
+        runs = [run(2, "b" * 40, "2026-11-21T10:00:00Z"), run(1, "c" * 40, "2026-11-21T09:00:00Z")]
+        plan = pmb.plan_batch("a" * 40, runs, self.suites, lambda base: [], lambda rid: rid == 1)
+        self.assertEqual(plan["base"], "c" * 40)
+        self.assertEqual(pmb.plan_batch("a" * 40, runs, self.suites, lambda base: None or [], lambda rid: False)["suites"], ["web", "rust"])
+
     def test_job_id_matches_matrix_legs(self) -> None:
         self.assertEqual(self.suites["rust"].job_id("test (linux, 1)"), "test")
         self.assertEqual(self.suites["rust"].job_id("other"), "")
