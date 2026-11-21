@@ -89,9 +89,13 @@ class NightlyNextOneJobTests(unittest.TestCase):
 
     def test_it_runs_on_the_one_job_label(self) -> None:
         runs_on = one_line(self.job.get("runs-on"))
-        # cmux15's signer label, a literal (no variable chooses where signing secrets go).
+        # The signer label, a literal (no variable chooses where signing secrets go), or on attempt 1 the one signer
+        # Mac's runner signing_runner.py next-slot names (vars.NIGHTLY_NEXT_SIGNER_SLOTS 2).
         self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && "
-                                  "'glaeda-trusted-next-signing' || 'glaeda-trusted-next-signing' }}")
+                                  "'glaeda-trusted-next-signing' || github.run_attempt == 1 && "
+                                  "needs.resolve-nightly-cmux-tui-client.outputs.signer_owned && "
+                                  "fromJSON(needs.resolve-nightly-cmux-tui-client.outputs.signer_owned) || "
+                                  "'glaeda-trusted-next-signing' }}")
         self.assertEqual(self.job.get("environment"), "${{ needs.decide.outputs.environment }}")
 
     def test_no_artifact_carries_the_app_into_or_out_of_it(self) -> None:
@@ -135,10 +139,13 @@ class NightlyNextOneJobTests(unittest.TestCase):
 
     def test_it_holds_its_own_concurrency_group_and_never_cancels_a_started_run(self) -> None:
         # The push slot (docs/ci/nightly-workflow-notes.md#note-19): a loop run's nightly-next-one takes
-        # nightly-next-one-push, any other run's is scoped to the run; tests/test_nightly_next_push_slot_at_build.py.
+        # nightly-next-one-push (or its signer Mac's slot, nightly-next-one-push-<mac>), any other run's is scoped to the run; tests/test_nightly_next_push_slot_at_build.py.
         self.assertEqual(self.job.get("concurrency"), {
             "group": "${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || "
-                     "inputs.nightly_next_loop_retry != '') && 'nightly-next-one-push' || "
+                     "inputs.nightly_next_loop_retry != '') && (github.run_attempt == 1 && "
+                     "needs.resolve-nightly-cmux-tui-client.outputs.signer_slot != '' && "
+                     "format('nightly-next-one-push-{0}', needs.resolve-nightly-cmux-tui-client.outputs.signer_slot) || "
+                     "'nightly-next-one-push') || "
                      "format('nightly-next-one-{0}', github.run_id) }}",
             "cancel-in-progress": False})
 
