@@ -1,5 +1,12 @@
-//! `acpmux bg start|list`: the command-line spelling of the
+//! `acpmux bg start|list|output`: the command-line spelling of the
 //! session-owned background task RPCs used by the acpmux MCP server.
+//!
+//! `output` is here because the MCP server is the surface that fails: its port is per session,
+//! and a daemon restart leaves it stale for the rest of that session, while this CLI keeps
+//! working (2026-11-21: `acpmux (ECONNREFUSED)` for a whole session, `bg list` fine throughout,
+//! and no way at all to read what a task had printed). It is the same `_acpmux/bg/output` read
+//! the MCP `bg_output` tool makes, rendered by the same `bg_run::output_text`, with a line bound
+//! on top.
 //!
 //! The daemon remains the authority for caller identity and task ownership.
 //! This client only supplies the current session id, so a command run from an
@@ -40,6 +47,34 @@ pub enum BgCmd {
         /// Include tasks started by other subagents or the lead.
         #[arg(long)]
         all: bool,
+    },
+    /// Read a background task's output: by default its last lines, the same read the MCP
+    /// `bg_output` tool makes.
+    ///
+    /// A task's output is whatever the command printed, which for an agent task is its whole
+    /// transcript (a Claude Code subagent's is an `agent-*.jsonl` of every step it took, many
+    /// thousands of lines). The line bound is the point: this output is read into a caller's
+    /// context. `--json` prints the daemon's whole reply, the read entire, as the MCP tool's
+    /// structured result does.
+    Output {
+        /// The task's id, as `bg start` or `bg list` gave it.
+        #[arg(required = true)]
+        id: String,
+        /// Show only the last N lines of what was read (default 40). A task that printed a
+        /// subagent's transcript prints thousands; raise this deliberately.
+        #[arg(long, default_value_t = crate::bg_run::OUTPUT_TAIL_LINES, value_parser = clap::value_parser!(u64).range(1..))]
+        tail: u64,
+        /// Show every line that was read, with no line bound (the byte bounds still hold).
+        #[arg(long, conflicts_with = "tail")]
+        no_tail: bool,
+        /// Read from this byte of the task's whole output; pass the previous read's
+        /// `next fromByte` to see only what is new.
+        #[arg(long)]
+        from_byte: Option<u64>,
+        /// At most this many bytes (default 65536, the most 1048576). The daemon keeps each
+        /// task's newest 8 MiB.
+        #[arg(long)]
+        max_bytes: Option<u64>,
     },
 }
 
@@ -82,6 +117,8 @@ fn shell_quote(word: &str) -> String {
 
 pub async fn run(client: &Client, cmd: BgCmd, json_out: bool) -> Result<()> {
     let session = current_session()?;
+    // How many lines of a read `output` prints: its `--tail`, or every line read for `--no-tail`.
+    let mut tail: Option<u64> = None;
     let caller_subagent =
         crate::cli::sender::sending_as_on(client, None).await.subagent.map(|s| s.to_value());
     let (method, params) = match cmd {
@@ -118,6 +155,19 @@ pub async fn run(client: &Client, cmd: BgCmd, json_out: bool) -> Result<()> {
                 "callerSubagent": caller_subagent,
             }),
         ),
+        BgCmd::Output { ref id, tail: t, no_tail, from_byte, max_bytes } => {
+            tail = (!no_tail).then_some(t);
+            (
+                method::MUX_BG_OUTPUT,
+                json!({
+                    "sessionId": session,
+                    "id": id,
+                    "fromByte": from_byte,
+                    "maxBytes": max_bytes,
+                    "callerSubagent": caller_subagent,
+                }),
+            )
+        }
     };
     let reply = client.request(method, params).await?;
     if json_out {
@@ -135,6 +185,17 @@ pub async fn run(client: &Client, cmd: BgCmd, json_out: bool) -> Result<()> {
                 }
             }
         }
+        // One judged value, one rendering: the same `bg_run::output_text` the MCP `bg_output`
+        // tool prints, with this command's line bound.
+        method::MUX_BG_OUTPUT => println!("{}", crate::bg_run::output_text(&reply, tail)),
+        method::MUX_BG_START => {
+            print_task(&reply);
+            // A next step the caller of this CLI can take, since it may have no MCP server, or
+            // a stale port to one (`bg_hook::read_call`).
+            if let Some(id) = reply.get("id").and_then(Value::as_str) {
+                println!("next: read its output with {}", crate::bg_hook::cli_read_call(id));
+            }
+        }
         _ => print_task(&reply),
     }
     Ok(())
@@ -142,7 +203,47 @@ pub async fn run(client: &Client, cmd: BgCmd, json_out: bool) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::shell_quote;
+    use super::{BgCmd, shell_quote};
+    use clap::Parser as _;
+
+    /// `bg output <id>` parses, and its line bound is on by default: a task's output can be a
+    /// whole subagent transcript, so an unbounded read is never what a bare call does.
+    #[test]
+    fn bg_output_parses_and_is_bounded_by_default() {
+        #[derive(clap::Parser)]
+        struct Cli {
+            #[command(subcommand)]
+            bg: BgCmd,
+        }
+        let of =
+            |words: &[&str]| Cli::parse_from(std::iter::once("bg").chain(words.iter().copied())).bg;
+        assert_eq!(
+            of(&["output", "bg-1"]),
+            BgCmd::Output {
+                id: "bg-1".to_owned(),
+                tail: crate::bg_run::OUTPUT_TAIL_LINES,
+                no_tail: false,
+                from_byte: None,
+                max_bytes: None,
+            }
+        );
+        let BgCmd::Output { tail, from_byte, max_bytes, .. } =
+            of(&["output", "bg-1", "--tail", "5", "--from-byte", "7", "--max-bytes", "99"])
+        else {
+            panic!("not an output command");
+        };
+        assert_eq!((tail, from_byte, max_bytes), (5, Some(7), Some(99)));
+        assert!(matches!(
+            of(&["output", "bg-1", "--no-tail"]),
+            BgCmd::Output { no_tail: true, .. }
+        ));
+        // --tail 0 would print nothing: refused, not silently treated as "everything".
+        let mut words = vec!["bg", "output", "bg-1", "--tail", "0"];
+        assert!(Cli::try_parse_from(words.clone()).is_err());
+        words.pop();
+        words.pop();
+        assert!(Cli::try_parse_from(words).is_ok());
+    }
 
     #[test]
     fn argv_mode_quotes_shell_metacharacters_and_single_quotes() {
