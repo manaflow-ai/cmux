@@ -54,7 +54,20 @@ export function sceneGradient(value: unknown): string | undefined {
   return `linear-gradient(${((angle % 360) + 360) % 360}deg, ${colors.join(", ")})`;
 }
 
-type SceneStyle = CSSProperties & { "--app-hover"?: string };
+export type SceneStyle = CSSProperties & { "--app-hover"?: string; "--app-x"?: string; "--app-y"?: string };
+
+/** A ZStack child's `position`: its center at `{x, y}` points, or with `unit: "fraction"` at 0...1 of
+ * the stack (SwiftUI's `.position`); an axis left out centers. Undefined without one. */
+export function scenePosition(props: SceneProps): { x: string; y: string } | undefined {
+  const position = sceneRecord(props.position);
+  const x = sceneNumber(position.x);
+  const y = sceneNumber(position.y);
+  if (x === undefined && y === undefined) return undefined;
+  const fraction = position.unit === "fraction";
+  const place = (value: number | undefined) =>
+    value === undefined ? "50%" : fraction ? `${value * 100}%` : `${value}px`;
+  return { x: place(x), y: place(y) };
+}
 const FONTS: Record<string, string> = {
   largeTitle: "var(--text-title)",
   title: "var(--text-title)",
@@ -104,11 +117,24 @@ export function sceneStyle(props: SceneProps): SceneStyle {
     sceneNumber(props.opacity) === undefined ? undefined : Math.max(0, Math.min(1, props.opacity as number));
   // The node's own transform as the individual properties, so a value animation (`rotate` 350 to
   // 370 degrees turns 20, not back 340) and a loop or transition (`transform`) compose.
+  // `offset` moves the drawing, then `rotation` turns it clockwise about the node's own center, so a
+  // clock hand offset by half its length turns about the face's center. Neither moves the layout.
   const rotation = sceneNumber(props.rotation);
-  if (rotation !== undefined) style.rotate = `${rotation}deg`;
   const scale = sceneNumber(props.scale);
   if (scale !== undefined) style.scale = String(Math.max(0, scale));
-  style.translate = offsetTranslate(props.offset);
+  const offset = offsetTranslate(props.offset);
+  if (offsetInTransform(props)) {
+    // A rotated offset (a clock hand) or a positioned child (whose `translate` centers it on its
+    // point) carries both in `transform`, offset first, so the rotation turns the offset too.
+    const transforms = [
+      rotation !== undefined ? `rotate(${rotation}deg)` : "",
+      offset ? `translate(${offset.replace(" ", ", ")})` : "",
+    ].filter(Boolean);
+    if (transforms.length) style.transform = transforms.join(" ");
+  } else {
+    if (rotation !== undefined) style.rotate = `${rotation}deg`;
+    style.translate = offset;
+  }
   const blur = sceneNumber(props.blur);
   const glow = glowFilter(props.glow);
   // An animated node keeps both functions so a blur or glow change interpolates (same filter list).
@@ -131,12 +157,25 @@ export function sceneStyle(props: SceneProps): SceneStyle {
     style.borderWidth = Math.max(0, sceneNumber(props.borderWidth) ?? 1);
   }
   style["--app-hover"] = sceneColor(props.hoverBackground);
+  const position = scenePosition(props);
+  if (position) {
+    style["--app-x"] = position.x;
+    style["--app-y"] = position.y;
+  }
   style.gap = sceneNumber(props.spacing);
   if (props.fixedSize === "both" || props.fixedSize === "horizontal") style.flexShrink = 0;
   // App controls follow the host's default cursor even when a cross-platform scene requests a hand.
   if (props.cursor === "pointer" || props.cursor === "default") style.cursor = "default";
   return style;
 }
+
+/** `fontDesign`: the system font's rounded, serif or monospaced design (scene.css's stacks: SF Pro
+ * Rounded, New York, SF Mono where the system has them). The type scale still sets the size. */
+const DESIGNS: Record<string, string> = {
+  rounded: "var(--cmux-app-scene-font-rounded)",
+  serif: "var(--cmux-app-scene-font-serif)",
+  monospaced: "var(--cmux-app-scene-font-monospaced)",
+};
 
 export function textStyle(props: SceneProps): CSSProperties {
   const size = sceneNumber(props.font);
@@ -146,7 +185,7 @@ export function textStyle(props: SceneProps): CSSProperties {
     fontWeight: WEIGHTS[sceneText(props.weight)],
     fontStyle: props.italic === true ? "italic" : undefined,
     textDecorationLine: props.strikethrough === true ? "line-through" : undefined,
-    fontFamily: props.monospaced === true ? "var(--font-mono)" : undefined,
+    fontFamily: DESIGNS[sceneText(props.fontDesign)] ?? (props.monospaced === true ? "var(--font-mono)" : undefined),
     ...(lines === undefined
       ? {}
       : lines > 1
@@ -179,6 +218,12 @@ export function gradientImage(value: unknown): string | undefined {
   const stops = colors.length === 1 ? [colors[0], colors[0]] : colors.slice(0, 16);
   const angle = (sceneNumber(gradient.angle) ?? 90) + 90;
   return `linear-gradient(${angle}deg, ${stops.join(", ")})`;
+}
+
+/** Whether the node's `offset` goes in `transform` (after its rotation, or beside a ZStack `position`)
+ * rather than the individual `translate`. */
+export function offsetInTransform(props: SceneProps): boolean {
+  return offsetTranslate(props.offset) !== undefined && (sceneNumber(props.rotation) !== undefined || scenePosition(props) !== undefined);
 }
 
 /** The `offset` prop as a CSS `translate`. */

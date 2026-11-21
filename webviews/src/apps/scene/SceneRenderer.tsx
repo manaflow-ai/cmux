@@ -8,7 +8,6 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type CSSProperties,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -26,7 +25,17 @@ import {
   useSceneChildren,
   useSceneEntering,
 } from "./sceneMotion";
-import { sceneColor, sceneNumber, sceneRecord, sceneStyle, sceneText, textStyle, sceneGradient } from "./sceneStyle";
+import { formatSceneDate, sceneDateStyle, useSceneNow, type SceneDateStyle } from "./sceneDate";
+import {
+  sceneColor,
+  sceneNumber,
+  sceneRecord,
+  sceneStyle,
+  sceneText,
+  textStyle,
+  sceneGradient,
+  type SceneStyle,
+} from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import { currentMotionEnv, useSceneMotion, type MotionPart } from "./useSceneMotion";
 import "./scene.css";
@@ -264,11 +273,26 @@ function SceneSlider({ node, dispatch, disabled }: { node: SceneNode; dispatch: 
   );
 }
 
-const SHAPES = ["Circle", "Capsule", "Rectangle", "RoundedRectangle"];
+/** A Text with `date` and `dateStyle`: formatted here and ticked by the shared clock (sceneDate.ts),
+ * so the app sends nothing while it counts. */
+function SceneDateText({ props, style }: { props: SceneNode["props"]; style: SceneDateStyle }) {
+  const now = useSceneNow(true);
+  const text = formatSceneDate(style, props.date as number, now, { timeZone: props.timeZone });
+  return <SceneTextContent text={text} transition={props.contentTransition} />;
+}
+
+const SHAPES = new Set(["Circle", "Capsule", "Rectangle", "RoundedRectangle"]);
+/** HStack `alignment`: SwiftUI's vertical alignments (center is the stylesheet's default). */
+const HSTACK_ALIGN: Record<string, string> = {
+  top: "flex-start",
+  bottom: "flex-end",
+  firstTextBaseline: "first baseline",
+  lastTextBaseline: "last baseline",
+};
 
 /** A stroked shape with `trim` draws its outline as SVG (a CSS border cannot draw part of itself). */
 const trimmedOutline = (node: SceneNode): boolean =>
-  SHAPES.includes(node.type) && sceneColor(node.props.stroke) !== undefined && trimRange(node.props.trim) !== undefined;
+  SHAPES.has(node.type) && sceneColor(node.props.stroke) !== undefined && trimRange(node.props.trim) !== undefined;
 
 /** The trimmed outline: `pathLength` 1, so the dash is the trimmed fraction; a circle starts at
  * 12 o'clock and runs clockwise, a rectangle at its top-left corner. The dash animates on the
@@ -342,12 +366,18 @@ function contentOf(
     case "ForEach":
     case "Reorderable":
       return children;
-    case "Text":
+    case "Text": {
+      const dateStyle = sceneDateStyle(props);
       return (
-        <span className="cmux-app-scene-text" style={textStyle(props)}>
-          <SceneTextContent text={sceneText(props.text)} transition={props.contentTransition} />
+        <span className="cmux-app-scene-text" style={textStyle(props)} data-date-style={dateStyle}>
+          {dateStyle ? (
+            <SceneDateText props={props} style={dateStyle} />
+          ) : (
+            <SceneTextContent text={sceneText(props.text)} transition={props.contentTransition} />
+          )}
         </span>
       );
+    }
     case "Icon":
       return (
         <SceneSymbol
@@ -428,6 +458,8 @@ function contentOf(
     case "Particles":
       // A choreography (validated by the host) wins over a preset.
       return nodeChoreography(node) ? <SceneChoreography node={node} /> : <SceneParticles node={node} />;
+    case "Line":
+      return null;
     case "Image":
       return <SceneImage source={props.src} />;
     case "Toggle":
@@ -465,7 +497,7 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
   const type = node?.type;
   const part = useMemo<MotionPart | undefined>(() => {
     if (type === "ProgressView") return { ref: partRef, properties: ["scale"] };
-    if (type && SHAPES.includes(type))
+    if (type && SHAPES.has(type))
       return { ref: partRef, properties: ["stroke-dasharray", "stroke-dashoffset", "stroke"] };
     return undefined;
   }, [type]);
@@ -479,7 +511,7 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
   ));
   const content = contentOf(node, children, dispatch, disabled, partRef);
   if (content === undefined) return null;
-  const style = sceneStyle(props) as CSSProperties & Record<`--${string}`, string | undefined>;
+  const style = sceneStyle(props) as SceneStyle & Record<`--${string}`, string | undefined>;
   // `loop`: scene.css runs the effect from these (no script per frame); the period follows ui.animationSpeed.
   const loop =
     props.loop !== undefined && typeof document !== "undefined"
@@ -496,18 +528,24 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
       props.alignment === "center" ? "center" : props.alignment === "trailing" ? "flex-end" : "stretch";
   }
   if (node.type === "HStack") {
-    // SwiftUI's vertical alignment: top, center (the default) or bottom.
-    style.alignItems = props.alignment === "top" ? "flex-start" : props.alignment === "bottom" ? "flex-end" : undefined;
+    // SwiftUI's vertical alignment: top, center (the default), bottom, or the first or last
+    // text baseline (AM/PM beside a big time).
+    style.alignItems = HSTACK_ALIGN[sceneText(props.alignment)];
   }
-  if (SHAPES.includes(node.type)) {
+  const frame = sceneRecord(props.frame);
+  if (node.type === "Line") {
+    // A stroke along its width: `strokeWidth` thick (1 by default) in `stroke` (the separator ink).
+    if (frame.width === undefined && frame.minWidth === undefined) style.width = "100%";
+    if (frame.height === undefined) style.height = Math.max(0, sceneNumber(props.strokeWidth) ?? 1);
+    style.backgroundColor = sceneColor(props.stroke) ?? sceneColor(props.fill) ?? sceneColor("separator");
+  }
+  if (SHAPES.has(node.type)) {
     // `size` sets both sides; a `frame` width or height wins on its own side (a bar, a capsule).
-    const frame = sceneRecord(props.frame);
     const side = Math.max(0, sceneNumber(props.size) ?? 16);
     if (frame.width === undefined && frame.maxWidth === undefined && frame.minWidth === undefined) style.width = side;
     if (frame.height === undefined && frame.maxHeight === undefined && frame.minHeight === undefined)
       style.height = side;
     if (frame.maxWidth === "infinity" && frame.width === undefined) style.width = "100%";
-    if (frame.maxHeight === "infinity" && frame.height === undefined) style.height = "100%";
     style.flexShrink = 0;
     // A gradient `fill` replaces the color; the `gradient` modifier (sceneStyle) draws over a color fill.
     const fillGradient = sceneGradient(props.fill);
@@ -540,6 +578,12 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     "data-entering": entering && !leaving ? "" : undefined,
     "data-leaving": own === true ? "" : undefined,
     "data-animation": props.animation === "smooth" || props.animation === "snappy" ? props.animation : undefined,
+    // `frame({maxHeight: "infinity"})`: the node takes its stack's (or the tile's) whole height (scene.css).
+    "data-fill-height": frame.maxHeight === "infinity" && frame.height === undefined ? "" : undefined,
+    // `frame({maxWidth: "infinity"})`: the node takes the width its row has free (SwiftUI's flexible frame).
+    "data-fill-width": frame.maxWidth === "infinity" && frame.width === undefined ? "" : undefined,
+    // A ZStack child's `position` (scene.css): its center at `--app-x`, `--app-y`.
+    "data-positioned": style["--app-x"] !== undefined ? "" : undefined,
     className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}`,
     ref: element as RefObject<HTMLDivElement & HTMLButtonElement>,
     style,

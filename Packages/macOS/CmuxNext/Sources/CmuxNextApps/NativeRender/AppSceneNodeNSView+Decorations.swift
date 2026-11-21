@@ -6,8 +6,11 @@ import CmuxNextDesign
 /// `borderWidth` (1 by default) stroke it inside, `cornerRadius` rounds and clips both;
 /// `hoverBackground` washes it while the pointer is over it (local, no script round trip);
 /// `rotation` turns it clockwise by that many degrees about its center, `scale` sizes it about its
-/// center and `offset` moves it, all three on the layer's own transform (the frame does not move);
-/// `glow` and `gradient` are drawn in AppSceneNodeNSView+Motion.swift.
+/// center and `offset` (`{x, y}` points) moves its drawing first, so the rotation turns the offset too
+/// (a clock hand offset by half its length turns about the face's center), all three on the layer's
+/// own transform (the frame does not move); `position` (`{x, y}`, points or, with `unit: "fraction"`,
+/// 0...1 of the parent) places a ZStack child's center (``AppSceneZStackNSView``); `glow` and
+/// `gradient` are drawn in AppSceneNodeNSView+Motion.swift.
 extension AppSceneNodeNSView {
     /// One `frame` dimension: a number, or `"infinity"` (fill).
     func frameDimension(_ key: String) -> CGFloat? {
@@ -98,7 +101,7 @@ extension AppSceneNodeNSView {
         guard let layer else { return }
         // A gradient `background`'s points follow the box's shape: repaint it at the new size.
         if let decorationGradient, !decorationGradient.isHidden, decorationGradient.frame != layer.bounds { needsDisplay = true }
-        let parts = SceneTransformParts(scale: node.scaleFactor, degrees: node.rotationDegrees, offset: node.offset)
+        let parts = SceneTransformParts(scale: node.scaleFactor, degrees: node.rotationDegrees, offset: node.offset.turned(by: node.rotationDegrees))
         let space = SceneTransformSpace(layer: layer)
         let target = space.transform(scale: parts.scale, degrees: parts.degrees, offset: parts.offset)
         if !CATransform3DEqualToTransform(layer.transform, target) {
@@ -146,4 +149,13 @@ struct SceneTransformParts: Equatable {
     var scale: CGFloat
     var degrees: CGFloat
     var offset: CGPoint
+}
+
+extension CGPoint {
+    /// This offset (+y down on screen) turned `degrees` clockwise: an offset drawn before a rotation.
+    func turned(by degrees: CGFloat) -> CGPoint {
+        guard degrees != 0, self != .zero else { return self }
+        let radians = degrees * .pi / 180
+        return CGPoint(x: x * cos(radians) - y * sin(radians), y: x * sin(radians) + y * cos(radians))
+    }
 }

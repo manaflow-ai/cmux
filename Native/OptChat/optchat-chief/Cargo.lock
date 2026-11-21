@@ -198,6 +198,7 @@ dependencies = [
 name = "cmux-conversation"
 version = "0.1.0"
 dependencies = [
+ "cmux-message-preview",
  "pulldown-cmark",
  "serde",
  "serde_json",
@@ -240,6 +241,10 @@ dependencies = [
  "sha2",
  "url",
 ]
+
+[[package]]
+name = "cmux-message-preview"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-panic-log"

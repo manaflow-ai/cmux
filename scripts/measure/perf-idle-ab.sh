@@ -313,8 +313,11 @@ for path in sorted(glob.glob(os.path.join(runs, "*.json"))):
                         cpu[(chats, name)][arm].append(e[key])
                         total += e[key]
             cpu[(chats, "total")][arm].append(round(total, 3))
-        footprints[chats][arm].append({**{kind: e.get("footprint_mb") or 0.0 for kind, e in s["kinds"].items()},
-                                       "total": s.get("total_footprint_mb") or 0.0})
+        # Only the footprints the sample measured: one with none (an older sampler) prints no footprint line.
+        run = {kind: e["footprint_mb"] or 0.0 for kind, e in s["kinds"].items() if "footprint_mb" in e}
+        if "total_footprint_mb" in s:
+            run["total"] = s["total_footprint_mb"] or 0.0
+        footprints[chats][arm].append(run)
         for kind, e in s["kinds"].items():
             if e.get("wakeups_per_s") is None:
                 continue

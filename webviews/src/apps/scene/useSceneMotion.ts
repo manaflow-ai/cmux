@@ -4,7 +4,7 @@
 // Animation in WebKit) runs every frame and React renders once per change, never per frame.
 import { useLayoutEffect, useRef, type RefObject } from "react";
 import { parseMotion, sceneMotionEnv, sceneTiming, type SceneMotionEnv, type SceneTiming } from "./motionProps";
-import { sceneNumber, sceneRecord } from "./sceneStyle";
+import { offsetInTransform, sceneNumber, sceneRecord } from "./sceneStyle";
 import type { SceneNode, SceneProps } from "./store";
 
 /** The computed property read, and the keyframe property it animates (border colors read one side). */
@@ -21,6 +21,7 @@ const TRACKED = [
   "rotate",
   "scale",
   "translate",
+  "transform",
   "filter",
   "width",
   "height",
@@ -34,9 +35,12 @@ export function animatedProperties(props: SceneProps): string[] {
   const out: string[] = [];
   // `breathe` runs opacity itself.
   if (props.opacity !== undefined && sceneRecord(props.loop).effect !== "breathe") out.push("opacity");
-  if (props.rotation !== undefined) out.push("rotate");
+  if (offsetInTransform(props)) out.push("transform");
+  else {
+    if (props.rotation !== undefined) out.push("rotate");
+    if (props.offset !== undefined) out.push("translate");
+  }
   if (props.scale !== undefined) out.push("scale");
-  if (props.offset !== undefined) out.push("translate");
   if (props.blur !== undefined || props.glow !== undefined) out.push("filter");
   const frame = sceneRecord(props.frame);
   if (sceneNumber(frame.width) !== undefined) out.push("width");

@@ -10,6 +10,7 @@ import CmuxNextDesign
 /// gradient `fill`; `trim` draws part of a stroked outline (a circle's from 12 o'clock, clockwise: a
 /// ring gauge); `glow` shines around the drawn outline. Fill, stroke, trim, glow and the outline
 /// itself animate with `animation`.
+/// `Line` is a stroke along its width: `strokeWidth` thick (1 by default) in `stroke` (the separator ink).
 final class AppSceneShapeNSView: AppSceneNodeNSView {
     /// Carries the glow: its shadow follows whatever it draws (the shape, or the masked gradient).
     private let host = CALayer()
@@ -43,10 +44,20 @@ final class AppSceneShapeNSView: AppSceneNodeNSView {
     private var side: CGFloat? { node.number("size").map { CGFloat(max(0, $0)) } }
     private var isStroked: Bool { node.props["stroke"]?.stringValue != nil }
 
-    override var contentNaturalWidth: CGFloat? { side }
-    override func contentHeight(width: CGFloat) -> CGFloat { side ?? 0 }
+    private var lineWidth: CGFloat { CGFloat(max(0, node.number("strokeWidth") ?? 1)) }
+
+    override var contentNaturalWidth: CGFloat? { node.type == .line ? nil : side }
+    override func contentHeight(width: CGFloat) -> CGFloat { node.type == .line ? lineWidth : side ?? 0 }
 
     override func layoutContent(in rect: CGRect) {
+        if node.type == .line {
+            host.frame = rect
+            host.shadowPath = nil
+            shape.frame = CGRect(origin: .zero, size: rect.size)
+            shape.path = CGPath(rect: CGRect(origin: .zero, size: rect.size), transform: nil)
+            shape.lineWidth = 0
+            return
+        }
         let box = side.map { CGRect(x: rect.minX, y: rect.midY - $0 / 2, width: $0, height: $0) } ?? rect
         animateFrame(host, box)
         animateFrame(shape, CGRect(origin: .zero, size: box.size))
@@ -96,6 +107,13 @@ final class AppSceneShapeNSView: AppSceneNodeNSView {
 
     override func paint() {
         let stroke = node.props["stroke"]?.sceneColor
+        if node.type == .line {
+            gradient?.isHidden = true
+            fillGradient?.isHidden = true
+            shape.fillColor = (stroke ?? node.props["fill"]?.sceneColor ?? Palette.separator).cgColor
+            shape.strokeColor = nil
+            return
+        }
         let fill = node.props["fill"]?.sceneColor ?? (stroke == nil ? Palette.textSecondary : .clear)
         let trim = node.trim
         paintGradient()
