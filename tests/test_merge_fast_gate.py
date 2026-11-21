@@ -453,7 +453,7 @@ class FastGate(unittest.TestCase):
                      base="feat-cmux-next")
         message = str(caught.exception)
         self.assertIn("--wait budget of 600s ran out", message)
-        self.assertIn("reads timed out or failed", message)
+        self.assertIn("6 reads timed out or failed", message)
         self.assertIn("took over 60s", message)
         self.assertEqual(clock.slept, [30, 60, 120, 240, 150])
         self.assertEqual(len(calls), 6)
@@ -465,7 +465,22 @@ class FastGate(unittest.TestCase):
                 contextlib.redirect_stderr(io.StringIO()) as err:
             status = gate.main(["manaflow-ai/cmux", "42", HEAD, "--next-covered", "--timeout", "0"])
         self.assertEqual(status, 1)
-        self.assertIn("reads timed out or failed", err.getvalue())
+        self.assertIn(": 1 read timed out or failed, the last:", err.getvalue())
+
+    def test_a_zero_interval_still_backs_off_from_one_second(self):
+        """--interval 0 must not turn failing reads into a loop of reads with no wait."""
+        reads = []
+
+        def read(*_args):
+            reads.append(1)
+            if len(reads) > 20:
+                raise AssertionError("read again with no backoff")
+            raise gate.ReadFailed("reading the pull request took over 60s")
+        clock = Clock()
+        with self.assertRaises(gate.WaitRanOut):
+            gate.run("manaflow-ai/cmux", "42", HEAD, 10, 0, True, read=read, clock=clock, sleep=clock.sleep)
+        self.assertEqual(clock.slept, [1, 2, 4, 3])
+        self.assertEqual(len(reads), 5)
 
     def test_a_failed_read_that_is_not_transient_refuses_at_once(self):
         calls = self.gh_reads((1, "", "GraphQL: Could not resolve to a PullRequest with the number of 42."))

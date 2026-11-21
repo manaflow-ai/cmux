@@ -7420,6 +7420,10 @@ pub struct App {
     /// mouse-tracking state so the host owns clicks and selection whenever
     /// the inner application did not request mouse input.
     host_mouse_capture_applied: Option<bool>,
+    /// The capture a focus-in or resize re-assert cleared from
+    /// `host_mouse_capture_applied`. A frame that cannot read the inner
+    /// state (terminal lock busy) re-emits this value instead of guessing.
+    host_mouse_capture_before_reassert: Option<bool>,
     pub graphics_writer: Option<GraphicsWriter>,
     next_graphics_submission: u64,
     pending_graphics_submission: Option<u64>,
@@ -9726,6 +9730,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         desired_outer_cursor: OuterCursorSpec::Reset,
         applied_outer_cursor: initial_applied_outer_cursor(surface_only.is_some()),
         host_mouse_capture_applied: initial_host_mouse_capture(surface_only.is_some()),
+        host_mouse_capture_before_reassert: None,
         graphics_writer,
         next_graphics_submission: 0,
         pending_graphics_submission: None,
@@ -13849,6 +13854,7 @@ impl App {
             stdout.write_all(sequence.as_bytes())?;
             stdout.flush()?;
             self.host_mouse_capture_applied = Some(desired_mouse_capture);
+            self.host_mouse_capture_before_reassert = None;
         }
         Ok(())
     }
@@ -13916,7 +13922,7 @@ impl App {
     /// inner application still holds. When the state is momentarily
     /// unknowable (terminal lock contended, surface gone during teardown)
     /// the client keeps the capture it last applied instead of toggling the
-    /// host.
+    /// host, including the capture a re-assert cleared.
     fn desired_host_mouse_capture(&self) -> bool {
         let Some(surface_id) = self.surface_only else { return true };
         let canonical = self
@@ -13927,7 +13933,11 @@ impl App {
                 PointerSemanticProbe::Ready(semantics) => Some(semantics.mouse_tracking),
                 PointerSemanticProbe::Contended => None,
             });
-        canonical.unwrap_or_else(|| self.host_mouse_capture_applied.unwrap_or(false))
+        canonical.unwrap_or_else(|| {
+            self.host_mouse_capture_applied
+                .or(self.host_mouse_capture_before_reassert)
+                .unwrap_or(false)
+        })
     }
 
     /// A scoped attach client mirrors the inner terminal's input modes onto
@@ -13951,16 +13961,12 @@ impl App {
         if self.surface_only.is_none() {
             return;
         }
-        // Keep the last applied state when the inner terminal cannot be
-        // probed. Clearing it here would make the next frame guess `false`
-        // and release host capture during a transient lock/contention.
-        let probe_available = self
-            .surface_only
-            .and_then(|surface_id| self.session.surface(surface_id))
-            .and_then(|surface| surface.try_pointer_semantics())
-            .is_some_and(|probe| matches!(probe, PointerSemanticProbe::Ready(_)));
-        if probe_available {
-            self.host_mouse_capture_applied = None;
+        // Clear even when the PTY reader holds the terminal lock: skipping
+        // the reset then would lose this re-assert for good. A frame that
+        // still cannot read the inner state re-emits the cleared value from
+        // `host_mouse_capture_before_reassert`, so it never guesses `false`.
+        if let Some(applied) = self.host_mouse_capture_applied.take() {
+            self.host_mouse_capture_before_reassert = Some(applied);
         }
         // The previous frame may have applied an authored style. If the
         // inner application reset DECSCUSR, clear the desired style now so
@@ -32911,6 +32917,54 @@ mod tests {
         mux.close_surface(surface.id).unwrap();
     }
 
+    /// The PTY reader holds the terminal lock while it parses output, so the
+    /// inner state can be unknowable at the moment a resize arrives. The
+    /// re-assert must not be lost then: the next frame still re-emits host
+    /// mouse capture, from the capture last applied, and never guesses that
+    /// capture is off.
+    #[test]
+    fn scoped_resize_reasserts_host_mouse_capture_while_the_terminal_is_busy() {
+        let mux = Mux::new("scoped-resize-busy-reassert-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        app.host_mouse_capture_applied = Some(true);
+
+        // Hold the terminal lock on another thread, as the reader does.
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let holder_surface = surface.clone();
+        let holder = std::thread::spawn(move || {
+            holder_surface.with_terminal(|_| {
+                held_tx.send(()).unwrap();
+                let _ = release_rx.recv_timeout(Duration::from_secs(10));
+            });
+        });
+        held_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+
+        app.handle(AppEvent::Input(Event::Resize(120, 40))).unwrap();
+        let applied_after_resize = app.host_mouse_capture_applied;
+        let next_frame = host_mouse_capture_escape_if_changed(
+            app.host_mouse_capture_applied,
+            app.desired_host_mouse_capture(),
+        );
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+
+        assert_eq!(
+            applied_after_resize, None,
+            "a resize while the terminal is busy must still reset the applied host-capture bookkeeping"
+        );
+        let next_frame = next_frame
+            .expect("the next frame must re-emit host mouse capture while the terminal is busy");
+        assert!(
+            next_frame.contains("\x1b[?1002h"),
+            "the busy-terminal re-assert must keep the capture last applied, not release it: {next_frame:?}"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
     /// A full TUI owns the entire host surface and re-emits its input modes
     /// through its normal lifecycle; the focus-in re-assert is scoped-only, so
     /// it must not disturb a full-TUI client's capture bookkeeping.
@@ -47011,6 +47065,7 @@ mod tests {
             desired_outer_cursor: OuterCursorSpec::Reset,
             applied_outer_cursor: None,
             host_mouse_capture_applied: Some(true),
+            host_mouse_capture_before_reassert: None,
             graphics_writer: None,
             next_graphics_submission: 0,
             pending_graphics_submission: None,

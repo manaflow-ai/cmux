@@ -25,6 +25,32 @@ the agent's own idle prompt (a dismissal faster than its scan). Claude Code
 sends no hook when a permission dialog is dismissed with Esc, so the screen is
 the only evidence that the agent stopped waiting.
 
+One agent's hooks run one after another, but each hands its event to the
+session on its own connection, and the session serves each connection on its
+own thread, so the journal can take a `Stop` before the prompt that came
+first. Each event carries when its hook started, from the machine the hook
+runs on: its monotonic clock (`boot_id`, `monotonic_ns`) and its wall clock
+(`observed_at_ms`, ms since the epoch). The agent's state, in the agent list
+and in the roster that the sidebar, tab badges and attention jump read,
+follows the latest-started event of its session: an event of the same
+session that started earlier than the latest applied one is kept in the
+journal but does not change the state. One session runs on one machine, so
+the monotonic clock decides, however far apart the events are; a wall clock
+step does not change the order. Two events with the same monotonic value
+keep journal order. An event of another boot (a resume after a reboot)
+applies, even if its clock reads less. The session's start and end, and an
+event that opens a dialog, a question or a plan review, always apply
+(parallel subagents of one session can each open one, and it stays open
+until answered). An error report is a state like any other: a late one does
+not replace a newer state. The latest stamp is stored with the agent's hook
+state, so the order holds across a session restart.
+
+The monotonic clock is `CLOCK_MONOTONIC`, one system-wide clock per boot. On
+macOS that is `mach_continuous_time`, which counts while the Mac sleeps. An
+event with no monotonic stamp (an older hook helper, or a platform that gives
+no boot id) applies in journal order: the wall clock (`observed_at_ms`) is
+kept for the record and does not order events.
+
 ## Agents in a tmux session started elsewhere
 
 An agent can run in a tmux session whose server was started outside
@@ -168,8 +194,9 @@ Claude Code 2.1 reads under any config directory and beside any
   - The `SessionStart` hook writes the claim whether or not the daemon took
     the event, so a Claude that starts while the daemon is down still claims
     its terminal (its read fails, so it counts as the agent). Claude Code
-    kills the hook at its 5 s timeout: the hand-off waits at most 4.25 s,
-    and the read ends 4.5 s after the hook started. With no time left the
+    kills the hook at its 5 s timeout: the hand-off waits at most 4.25 s
+    and never past 4.5 s after the hook started, and the read ends no later
+    than 4.5 s after the hook started. With no time left the
     hook makes no read and acts as when the read fails.
 - Limit: a Claude that ended without `SessionEnd` (a crash or `kill -9`)
   leaves a live row. The next Claude started by hand in that terminal then

@@ -674,10 +674,11 @@ mod tests {
     }
 
     /// Writes an executable (0755) script, creating its parent directory.
+    /// `cmux_test_exec` writes it from a child process, so a fork by another
+    /// test thread cannot make running it fail with ETXTBSY.
     fn write_executable(path: &Path, content: &str) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, content).unwrap();
-        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        cmux_test_exec::write_executable(path, content).unwrap();
     }
 
     /// The permission bits of `path`.

@@ -15238,18 +15238,18 @@ mod tests {
     /// The socket answers `identify` as soon as it is bound, and the owner
     /// started its reaper only later: a client that identified in between
     /// saw an owner without a reaper (restart_host_leak.rs:87 on macOS,
-    /// main #39586). An owner that announced its reaper lists the capability
-    /// from the start; a stopped reaper ends the announcement.
+    /// main #39586). A reaper held from before the bind lists the capability
+    /// from the start; a stopped reaper ends it.
     #[test]
-    fn terminal_reap_identify_lists_an_announced_reaper_before_it_starts() {
+    fn terminal_reap_identify_lists_a_held_reaper_before_it_is_released() {
         let mux = test_mux();
-        mux.announce_terminal_reaper();
+        let held = crate::prepare_terminal_reaper(&mux).unwrap();
         assert!(
             identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY),
             "an owner that starts its reaper once bound answered identify without \
              terminal-reaper-active-v1 before the reaper thread ran"
         );
-        let reaper = crate::start_terminal_reaper(&mux).unwrap();
+        let reaper = held.release();
         assert!(identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
         reaper.stop();
         assert!(

@@ -218,6 +218,11 @@ export const env = createEnv({
     RESEND_API_KEY: z.string().min(1),
     CMUX_FEEDBACK_FROM_EMAIL: z.string().email(),
     CMUX_TEAM_INVITE_FROM_EMAIL: z.string().email().optional(),
+    // Sign in with ChatGPT (OpenAI's OIDC client registration). Unset hides the
+    // button and the /handler/chatgpt routes answer 404. The secret is set
+    // only when OpenAI registered a confidential client.
+    CMUX_CHATGPT_SIGNIN_CLIENT_ID: z.string().min(1).optional(),
+    CMUX_CHATGPT_SIGNIN_CLIENT_SECRET: z.string().min(1).optional(),
     // Rate-limit rule ids are all optional: an unset id means that route runs
     // without rate limiting (the operator removed the limits deliberately).
     CMUX_BILLING_RECOVERY_RATE_LIMIT_ID: z.string().min(1).optional(),
@@ -304,6 +309,10 @@ export const env = createEnv({
       "STRIPE_STARTER_MONTHLY_15_PRICE_ID",
     ),
     STRIPE_STARTER_MONTHLY_15_PRICE_ID: z.string().min(1).optional(),
+    // cmux NEXT Cloud plans. Unset means that plan is not for sale yet.
+    STRIPE_PRICE_NEXT_PLUS_MONTHLY: z.string().min(1).optional(),
+    STRIPE_PRICE_NEXT_PRO_MONTHLY: z.string().min(1).optional(),
+    STRIPE_PRICE_NEXT_MAX_MONTHLY: z.string().min(1).optional(),
     // Optional pin for the Pro <-> Max portal configuration; otherwise the
     // configuration is found by its metadata (see services/billing/stripe.ts).
     STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: z.string().min(1).optional(),
@@ -368,6 +377,8 @@ export const env = createEnv({
     // Hosted coderouter and Subrouter have no plan, permission, or team
     // allow-list gate: team membership is the only access requirement.
     CRON_SECRET: z.string().min(1).optional(),
+    // Bearer token for the Billing nightly's read of /api/cron/apple-notifications/health.
+    APPLE_NOTIFICATIONS_HEALTH_TOKEN: z.string().min(1).optional(),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: z.string().url().optional(),
     // Preserve the legacy VM alert range. The VM consumers already apply
     // their compatibility fallback for zero and unsafe values.
@@ -495,6 +506,8 @@ export const env = createEnv({
   },
   runtimeEnv: {
     RESEND_API_KEY: trimEnv(process.env.RESEND_API_KEY),
+    CMUX_CHATGPT_SIGNIN_CLIENT_ID: trimEnv(process.env.CMUX_CHATGPT_SIGNIN_CLIENT_ID) || undefined,
+    CMUX_CHATGPT_SIGNIN_CLIENT_SECRET: trimEnv(process.env.CMUX_CHATGPT_SIGNIN_CLIENT_SECRET) || undefined,
     CMUX_BILLING_RECOVERY_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_BILLING_RECOVERY_RATE_LIMIT_ID,
     ),
@@ -545,6 +558,9 @@ export const env = createEnv({
     STRIPE_MAX_YEARLY_1920_PRICE_ID: trimEnv(process.env.STRIPE_MAX_YEARLY_1920_PRICE_ID),
     STRIPE_STARTER_MONTHLY_20_PRICE_ID: trimEnv(process.env.STRIPE_STARTER_MONTHLY_20_PRICE_ID),
     STRIPE_STARTER_MONTHLY_15_PRICE_ID: trimEnv(process.env.STRIPE_STARTER_MONTHLY_15_PRICE_ID),
+    STRIPE_PRICE_NEXT_PLUS_MONTHLY: trimEnv(process.env.STRIPE_PRICE_NEXT_PLUS_MONTHLY) || undefined,
+    STRIPE_PRICE_NEXT_PRO_MONTHLY: trimEnv(process.env.STRIPE_PRICE_NEXT_PRO_MONTHLY) || undefined,
+    STRIPE_PRICE_NEXT_MAX_MONTHLY: trimEnv(process.env.STRIPE_PRICE_NEXT_MAX_MONTHLY) || undefined,
     STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: trimEnv(
       process.env.STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID,
     ),
@@ -585,6 +601,7 @@ export const env = createEnv({
       process.env.CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID,
     ),
     CRON_SECRET: trimEnv(process.env.CRON_SECRET),
+    APPLE_NOTIFICATIONS_HEALTH_TOKEN: trimEnv(process.env.APPLE_NOTIFICATIONS_HEALTH_TOKEN),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: trimEnv(process.env.CMUX_ALERTS_SLACK_WEBHOOK_URL),
     CMUX_VM_ALERT_CREATE_FAILURES_15M: trimEnv(process.env.CMUX_VM_ALERT_CREATE_FAILURES_15M),
     CMUX_VM_ALERT_EXPIRED_LEASES: trimEnv(process.env.CMUX_VM_ALERT_EXPIRED_LEASES),

@@ -28,6 +28,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution until 2026-11-22 00:00 UTC: one gh-call line per GitHub API call
+  # (scripts/ci/api_call_log/env.sh). GitHub runs this file from main, and it had no attribution.
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   evidence:
     # Every event grades, with no job-level `if`: a skipped `risk evidence` run would be the newest
@@ -38,7 +43,7 @@ jobs:
     concurrency:
       group: risk-evidence-${{ github.event.pull_request.number }}
       cancel-in-progress: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 8
     permissions:
       contents: read
@@ -58,6 +63,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/risk_tier.py
             scripts/ci/receipt_grammar.py
+            scripts/ci/api_call_log
           sparse-checkout-cone-mode: false
       # The base's last 9 days of history, for the check that flags taking back a change another
       # pull request merged recently (a stale base). A fresh repository with full blobs, not the
@@ -81,10 +87,13 @@ jobs:
         run: |
           history="$RUNNER_TEMP/base-history"
           git init -q "$history"
-          if timeout 120 git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
+          # Blobless: commits and trees only (16 MB in 5 s, against 681 MB in 115 s with every blob, 11-21; the fetch
+          # was 179 of risk tier's 251 runner-min). risk_tier.py fetches the versions of the files it blames in one
+          # round trip (prefetch_blobs, cmux#48946); merge-base reads commits only.
+          if timeout 120 git -C "$history" fetch -q --no-tags --filter=blob:none --shallow-since="9 days ago" "https://github.com/$REPO.git" \
               "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"; then
             echo "BASE_HISTORY=$history" >> "$GITHUB_ENV"
-            timeout 60 git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
+            timeout 60 git -C "$history" fetch -q --no-tags --filter=blob:none --shallow-since="9 days ago" "https://github.com/$REPO.git" \
               "+refs/pull/$NUMBER/head:refs/remotes/pull/head" || echo "head not fetched; the merge base comes from compare"
           else
             echo "::warning::recent-revert check skipped: base history unavailable"

@@ -1,5 +1,5 @@
-//! The local PTY reader publishes titles and bells after it releases the
-//! terminal lock.
+//! The local PTY reader publishes titles and bells, and the frame producer
+//! publishes output, after each releases the terminal lock.
 //!
 //! `Mux::emit_terminal_title` and `Mux::emit_terminal_bell` resolve placements
 //! under `Mux::state`. A tree delta reads `Surface::size` (the geometry lock)
@@ -9,6 +9,13 @@
 //! `workspace_keyboard_enter_returns_focus_to_pane` hung this way in hosted run
 //! 42697795746 (close_surface, the Enter key's geometry claim and the shell's
 //! title deadlocked).
+//!
+//! The frame producer had the same leg: it built a frame and sent
+//! `SurfaceOutput` (`emit_terminal_output` also takes `Mux::state`) with the
+//! terminal lock held. With the reader's terminal-directory publication
+//! (`Mux::state`, then `Surface::size`) and a sizing-menu resize, the cmux-tui
+//! test `size_menu_commands_reach_the_shared_sizing_host` timed out this way in
+//! hosted run 42761781665 (attempt 3).
 
 use super::*;
 use std::sync::mpsc;
@@ -38,8 +45,10 @@ fn resize_completes_while_the_reader_waits_for_state(kind: TerminalEventPublicat
     let (resume_tx, resume_rx) = mpsc::channel::<()>();
     let resume_rx = Mutex::new(resume_rx);
     let observed = surface.id;
+    let held_once = AtomicBool::new(false);
     mux.set_terminal_event_publish_hook(Some(Arc::new(move |event, surface| {
-        if event != kind || surface != observed {
+        // Hold only the first publication; the resize makes more output.
+        if event != kind || surface != observed || held_once.swap(true, Ordering::AcqRel) {
             return;
         }
         let _ = reached_tx.send(());
@@ -47,8 +56,10 @@ fn resize_completes_while_the_reader_waits_for_state(kind: TerminalEventPublicat
         let _ = resume_rx.lock().unwrap().recv_timeout(PUBLISH_DEADLINE);
     })));
 
+    // A clean surface, so the next output publication is the observed one.
+    surface.take_dirty();
     surface.write_bytes(b"go\n").unwrap();
-    reached_rx.recv_timeout(PUBLISH_DEADLINE).expect("the reader never published the event");
+    reached_rx.recv_timeout(PUBLISH_DEADLINE).expect("the publisher never reached the event");
 
     // A tree delta (close_surface) holds `Mux::state` ...
     let state = mux.state.lock().unwrap();
@@ -70,7 +81,7 @@ fn resize_completes_while_the_reader_waits_for_state(kind: TerminalEventPublicat
 
     assert!(
         matches!(resized, Ok(Ok(true))),
-        "the resize waited behind the reader's terminal lock while the reader waited for \
+        "the resize waited behind the publisher's terminal lock while the publisher waited for \
          Mux::state ({kind:?}): {resized:?}"
     );
 }
@@ -88,5 +99,13 @@ fn local_reader_publishes_a_bell_after_releasing_the_terminal_lock() {
     resize_completes_while_the_reader_waits_for_state(
         TerminalEventPublication::Bell,
         "IFS= read -r line; printf '\\007'; IFS= read -r line",
+    );
+}
+
+#[test]
+fn frame_producer_publishes_output_after_releasing_the_terminal_lock() {
+    resize_completes_while_the_reader_waits_for_state(
+        TerminalEventPublication::Output,
+        "IFS= read -r line; printf 'lock-order-output'; IFS= read -r line",
     );
 }

@@ -59,6 +59,8 @@ pub(crate) enum ReapOutcome {
     Reaped,
     /// A client holds an attach stream on the unplaced terminal.
     Attached,
+    /// The daemon is in a shutdown handoff: the next owner gets the terminal.
+    HandingOff,
     /// The terminal gained a placement or is gone.
     Retained,
 }
@@ -170,8 +172,11 @@ impl ReapSchedule {
                 self.retry_floors.insert(terminal_id.to_string(), retry);
             }
             // An attached client keeps the terminal for another full grace
-            // period; its detach does not emit a topology event.
-            Some(ReapOutcome::Attached) | None => self.postpone(terminal_id, retry),
+            // period; its detach does not emit a topology event. A cancelled
+            // handoff emits none either.
+            Some(ReapOutcome::Attached | ReapOutcome::HandingOff) | None => {
+                self.postpone(terminal_id, retry);
+            }
         }
     }
 
@@ -279,10 +284,17 @@ impl Mux {
             .collect())
     }
 
-    /// End one unplaced terminal. The close repeats the placement and attach
-    /// checks once it holds its locks, so a terminal that gained a view, or
-    /// an attach stream that landed before then, is retained.
+    /// End one unplaced terminal. The close repeats the placement, attach and
+    /// handoff checks once it holds its locks, so a terminal that gained a
+    /// view, or an attach stream or a handoff that landed before then, is
+    /// retained.
     pub(crate) fn reap_unplaced_terminal(&self, terminal_id: &str) -> anyhow::Result<ReapOutcome> {
+        // Checked before any mux lock: the handoff flushes its acknowledgement
+        // under the client registry's lock, and a close that waited for it
+        // under the mux locks would stall the whole mux.
+        if self.daemon_handoff_in_progress() {
+            return Ok(ReapOutcome::HandingOff);
+        }
         let runtime_view = {
             let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             state.terminal_catalog.values().find_map(|runtime| {
@@ -292,7 +304,7 @@ impl Mux {
             })
         };
         let Some(runtime_view) = runtime_view else { return Ok(ReapOutcome::Retained) };
-        if self.control_clients.attach_observation(&[runtime_view]).0 {
+        if self.terminal_view_attached(runtime_view) {
             return Ok(ReapOutcome::Attached);
         }
         match self.close_terminal_guarded(
@@ -306,6 +318,7 @@ impl Mux {
             Ok(_) => Ok(ReapOutcome::Reaped),
             Err(error) => match error.downcast_ref::<TerminalCloseGuardFailed>().copied() {
                 Some(TerminalCloseGuardFailed::Attached) => Ok(ReapOutcome::Attached),
+                Some(TerminalCloseGuardFailed::HandingOff) => Ok(ReapOutcome::HandingOff),
                 Some(TerminalCloseGuardFailed::Placed) => Ok(ReapOutcome::Retained),
                 None => Err(error),
             },
@@ -437,16 +450,88 @@ impl Drop for TerminalReaper {
     }
 }
 
+/// A reaper thread started before the owner binds its socket and held until
+/// the owner holds the session: `identify` lists `terminal-reaper-active-v1`
+/// from the bind, and the thread runs no pass before [`Self::release`].
+/// Dropping it (a failed bind or a failed later startup step) ends the
+/// thread and the advertisement.
+#[must_use = "dropping a held reaper ends it; call `release` once the owner holds its socket"]
+pub struct HeldTerminalReaper {
+    reaper: TerminalReaper,
+    /// Sending releases the thread; dropping it unsent ends the thread.
+    release: std::sync::mpsc::Sender<()>,
+}
+
+impl HeldTerminalReaper {
+    /// The owner holds the session: the reaper runs from now on.
+    pub fn release(self) -> TerminalReaper {
+        let Self { reaper, release } = self;
+        // The thread waits on the receiver until this send or a drop.
+        let _ = release.send(());
+        reaper
+    }
+
+    /// End the held thread and wait for it; `identify` no longer lists the
+    /// reaper when this returns.
+    pub fn cancel(self) {
+        let Self { reaper, release } = self;
+        drop(release);
+        reaper.stop();
+    }
+}
+
+/// Start the unplaced-terminal reaper thread held: see
+/// [`HeldTerminalReaper`].
+pub fn prepare_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<HeldTerminalReaper> {
+    let (release, released) = std::sync::mpsc::channel();
+    let reaper = spawn_terminal_reaper(mux, Some(released))?;
+    Ok(HeldTerminalReaper { reaper, release })
+}
+
 /// Start the unplaced-terminal reaper for an owner with the mux's current
 /// grace period. It runs until stopped or the mux is gone.
 pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> {
+    spawn_terminal_reaper(mux, None)
+}
+
+/// Ends the reaper's advertisement when its thread ends for any cause,
+/// including a panic or a failed spawn. It clears only this thread's own
+/// subscription, so a reaper that ends late never clears a newer one's.
+struct EndTerminalReaperOnExit {
+    mux: Weak<Mux>,
+    /// The receiver the thread currently waits on (see [`TerminalReaper`]).
+    events: Arc<Mutex<MuxEventReceiver>>,
+}
+
+impl Drop for EndTerminalReaperOnExit {
+    fn drop(&mut self) {
+        if let Some(mux) = self.mux.upgrade() {
+            let events = self.events.lock().unwrap_or_else(PoisonError::into_inner).clone();
+            mux.end_terminal_reaper(&events);
+        }
+    }
+}
+
+/// The reaper thread; with `released`, it waits for the owner's release
+/// (or the sender's drop, which ends it) before its first pass.
+fn spawn_terminal_reaper(
+    mux: &Arc<Mux>,
+    released: Option<Receiver<()>>,
+) -> std::io::Result<TerminalReaper> {
     let stop = Arc::new(AtomicBool::new(false));
     let events = Arc::new(Mutex::new(mux.subscribe_terminal_reaper()));
     let weak = Arc::downgrade(mux);
     let thread_stop = stop.clone();
     let shared_events = events.clone();
     let mut thread_events = events.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    let exit_guard = EndTerminalReaperOnExit { mux: weak.clone(), events: events.clone() };
     let thread = std::thread::Builder::new().name("mux-terminal-reap".into()).spawn(move || {
+        let _exit_guard = exit_guard;
+        if let Some(released) = released
+            && released.recv().is_err()
+        {
+            return;
+        }
         let mut schedule = ReapSchedule::default();
         loop {
             if thread_stop.load(Ordering::Acquire) {
@@ -482,47 +567,35 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
                 }
             }
         }
-        // Stopped: `identify` no longer advertises a running reaper.
-        if let Some(mux) = weak.upgrade() {
-            mux.end_terminal_reaper();
-        }
     });
-    let thread = match thread {
-        Ok(thread) => thread,
-        Err(error) => {
-            mux.end_terminal_reaper();
-            return Err(error);
-        }
-    };
+    // A failed spawn drops the closure and its exit guard, which ends the
+    // advertisement.
+    let thread = thread?;
     Ok(TerminalReaper { stop, events, thread: Some(thread) })
 }
 
 impl Mux {
-    /// Whether this owner's unplaced-terminal reaper runs
-    /// (`terminal-reaper-active-v1`).
+    /// Whether this owner's unplaced-terminal reaper thread runs, held or
+    /// released (`terminal-reaper-active-v1`).
     pub fn terminal_reaper_running(&self) -> bool {
         self.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).is_some()
     }
 
-    /// Announce that this owner starts the unplaced-terminal reaper once its
-    /// socket is bound. The socket answers `identify` from the moment it is
-    /// bound, so a client that identifies before the reaper thread runs must
-    /// already see `terminal-reaper-active-v1`. The announcement ends when
-    /// the reaper stops or its start fails.
-    pub fn announce_terminal_reaper(&self) {
-        self.terminal_reaper_announced.store(true, Ordering::Release);
-    }
-
-    /// Whether `identify` lists `terminal-reaper-active-v1`: the reaper runs,
-    /// or this owner announced that it starts it.
+    /// Whether `identify` lists `terminal-reaper-active-v1`: the reaper
+    /// thread runs, or it is held until the owner holds the session
+    /// ([`HeldTerminalReaper`]).
     pub fn terminal_reaper_advertised(&self) -> bool {
-        self.terminal_reaper_announced.load(Ordering::Acquire) || self.terminal_reaper_running()
+        self.terminal_reaper_running()
     }
 
-    /// The reaper stopped or did not start: `identify` no longer lists it.
-    fn end_terminal_reaper(&self) {
-        self.terminal_reaper_announced.store(false, Ordering::Release);
-        self.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).take();
+    /// The reaper thread that waits on `events` ended or did not start:
+    /// `identify` no longer lists it, unless a newer reaper subscribed since.
+    fn end_terminal_reaper(&self, events: &MuxEventReceiver) {
+        let mut current =
+            self.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner);
+        if current.as_ref().is_some_and(|current| current.same_mailbox(events)) {
+            *current = None;
+        }
     }
 
     /// Subscribe the reaper to the events that can change the reapable set,

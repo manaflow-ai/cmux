@@ -2834,6 +2834,9 @@ impl Mux {
             {
                 return Err(TerminalCloseGuardFailed::Attached.into());
             }
+            if guard.requires_detached() && self.daemon_handoff_in_progress() {
+                return Err(TerminalCloseGuardFailed::HandingOff.into());
+            }
         }
         let durable_host = registry.terminal_host_id(&public_id)?.ok_or_else(|| {
             terminal_close_state_error(format!("terminal {public_id} has no durable host"))
