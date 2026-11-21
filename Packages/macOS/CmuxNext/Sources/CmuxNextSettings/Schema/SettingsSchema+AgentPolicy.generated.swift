@@ -31,9 +31,9 @@ extension SettingsSchema {
         "customize.fromTheApp",
         // Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).
         "contextMenus.showCustomizeItem",
-        "window.titlebarButtons", "tabs.plusButton", "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
-        "browser.toolbarPosition", "navigation.historyScope", "navigation.history.scope", "sidebar.minimalMode",
-        "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons",
+        "window.titlebarButtons", "tabs.plusButton", "tabs.plusMenu", "tabs.barPosition", "tabs.barOrder",
+        "tabs.toolbarButtons", "browser.toolbarPosition", "navigation.historyScope", "navigation.history.scope",
+        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons",
         "sidebar.showTimestamps", "sidebar.settleFinished", "sidebar.showColors", "sidebar.showLocalMachine",
         "workspaceColors.indicatorStyle",
         // Sidebar control visibility (looks only)

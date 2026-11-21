@@ -1,8 +1,33 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextSettings
+import CmuxNextWindowRules
 
 extension ActionRegistry {
+    /// Only the primary + uses this ordered list. Resolve it on the gesture so settings reloads
+    /// need no per-pane observer. The existing runners retain their permissions and refusals.
+    func makeConfiguredPlusMenu(root: JSONValue, target: ActionTargetRef, machineID: String?, localMachineID: String) -> NSMenu? {
+        let rows = WindowRules().plusMenu(root.value(at: CmuxConfigSnapshot.plusMenuPath) ?? .null)
+        guard !rows.isEmpty else { return nil }
+        let menu = NSMenu()
+        for row in rows {
+            let arguments: [String: ActionValue] = row.localWorkspace ? ["machine": .string(localMachineID)] : [:]
+            let items = makeContextMenu(for: .newTab, target: row.localWorkspace ? nil : target,
+                                        entries: [.action(ActionID(rawValue: row.action))], arguments: arguments,
+                                        customize: false, machineID: row.localWorkspace ? localMachineID : machineID)
+            let detached = items.items
+            items.removeAllItems()
+            for item in detached {
+                if row.localWorkspace {
+                    item.title = String(localized: "paneCreation.localWorkspace", defaultValue: "New Local Workspace", table: "PaneCreation", bundle: .module)
+                }
+                menu.addItem(item)
+            }
+        }
+        return menu
+    }
+
     /// Pane creation and the full command catalog share the visible + menu.
     func makePaneCreationMenu(target: ActionTargetRef, machineID: String? = nil) -> NSMenu {
         // The person's arrangement of the New Tab Button menu (Settings > Menus), then All commands….
