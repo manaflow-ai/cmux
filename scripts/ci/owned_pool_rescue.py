@@ -554,6 +554,10 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-rd-windows.yml",
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
+    # feat-cmux-next only; a pull request of over 300 files calls ci.yml in its own run, whose portable
+    # placement puts light jobs on vars.CI_LIGHT_LANE_RUNNER on attempt 1 (or a bot's attempt 2) only,
+    # so a re-run leaves the minis.
+    ".github/workflows/docs-only-fallback.yml",
     ".github/workflows/iroh-v2.yml",
     # The post-publication canary's Mac job takes the side label on attempt 1.
     ".github/workflows/nightly-next-canary.yml",
@@ -561,6 +565,9 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/nightly-next-cua-signed-host.yml",  # feat-cmux-next only
     ".github/workflows/nightly-next-launch-smoke.yml",
     ".github/workflows/macos-cross-parity.yml",
+    # feat-cmux-next only; its probe type-check takes the side label (vars.CI_PR_POOL_OWNED) on attempt 1
+    # only, so a re-run leaves the minis.
+    ".github/workflows/measure-swift-typecheck.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
@@ -584,11 +591,12 @@ OWNED_EVERY_ATTEMPT_PATHS = frozenset({
 CMUX_NEXT_WORKFLOW_PATH = ".github/workflows/cmux-next.yml"
 # Lightweight workflows whose placement job chooses a fresh fleet or owned
 # route for otherwise paid Linux jobs. Their later bot attempts are eligible
-# for the placement-only failover below.
+# for the placement-only failover below. pr-checks.yml and web-validation.yml left this list when
+# neither branch's copy kept a portable-placement job (main's #47956 put their Linux jobs on cmux-linux);
+# tests/test_ci_owned_pool_sources.py fails on a listed workflow with no placement graph and on a
+# placement graph this list does not name.
 PORTABLE_LIGHT_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-next-fast-gates.yml",
-    ".github/workflows/pr-checks.yml",
-    ".github/workflows/web-validation.yml",
 })
 # These workflows have no owned job on their first attempt, so they are not
 # part of SIDE_WORKFLOW_PATHS or WATCHED_WORKFLOW_PATHS. Their later attempts
