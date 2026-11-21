@@ -645,6 +645,7 @@ try {
     const target = arm === "stream" ? S : B;
     let context: BrowserContext | undefined;
     let profiler: CDPSession | undefined;
+    let tracer: CDPSession | undefined;
     try {
       let page: Page;
       if (scenario === "chat_switch") {
@@ -658,6 +659,22 @@ try {
           await profiler.send("Profiler.enable");
           await profiler.send("Profiler.setSamplingInterval", { interval: 100 });
           await profiler.send("Profiler.start");
+        }
+        if (process.env.CHROMETRACE === "1") {
+          tracer = await context.newCDPSession(page);
+          await tracer.send("Tracing.start", {
+            transferMode: "ReturnAsStream",
+            traceConfig: {
+              includedCategories: [
+                "devtools.timeline",
+                "disabled-by-default-devtools.timeline",
+                "disabled-by-default-devtools.timeline.stack",
+                "blink.user_timing",
+                "v8.execute",
+                "disabled-by-default-devtools.timeline.frame",
+              ],
+            },
+          });
         }
         await start(page);
         if (arm === "stream") startStream();
@@ -693,6 +710,26 @@ try {
       const read = await framesOf(page, markOf(target));
       stopStream();
       if (profiler) printProfile(`${scenario}.${arm}`, (await profiler.send("Profiler.stop")).profile);
+      if (tracer) {
+        const done = new Promise<string>((resolve) =>
+          tracer!.once("Tracing.tracingComplete", (event: { stream?: string }) => resolve(event.stream!)),
+        );
+        await tracer.send("Tracing.end");
+        const handle = await done;
+        let text = "";
+        for (;;) {
+          const chunk = (await tracer.send("IO.read", { handle })) as {
+            data: string;
+            eof: boolean;
+            base64Encoded?: boolean;
+          };
+          text += chunk.base64Encoded ? Buffer.from(chunk.data, "base64").toString() : chunk.data;
+          if (chunk.eof) break;
+        }
+        await tracer.send("IO.close", { handle });
+        const keep = process.env.FAST_CHECKS_OUT ?? process.env.PROFILE_OUT;
+        if (keep) fs.writeFileSync(path.join(keep, `${scenario}.${arm}-${Date.now()}.trace.json`), text);
+      }
       const judged = judge(read, arm, target);
       if (TRACE) {
         // The timeline to the settled frame: socket traffic, long tasks, and the first frame showing the target.
