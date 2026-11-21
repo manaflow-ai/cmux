@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { cardStrings } from "../strings";
-import { nextStep, setupProgress, setupSteps, setupTitle, type SetupState } from "./setupModel";
+import { nextStep, setupProgress, setupSteps, type SetupState, setupTitle } from "./setupModel";
 
 const strings = cardStrings(["en"]);
 
