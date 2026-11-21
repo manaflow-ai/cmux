@@ -25,12 +25,14 @@ final class MacScreenInputSink: RemoteViewInputSink {
 nonisolated final class MacScreenFrameCounter: Sendable {
     private let state = Mutex((pending: 0, timings: MacScreenFrameTimings()))
 
-    /// Counts one frame (the host's `frame` number, decoded at `decodedAtNanos`, `DispatchTime`
-    /// uptime) as it reaches the presenter; true when the pane should hear now.
-    func tick(frame: UInt32 = 0, decodedAtNanos: UInt64 = 0) -> Bool {
+    /// Counts one frame (the host's `frame` number, released at `releasedAtNanos` and decoded at
+    /// `decodedAtNanos`, `DispatchTime` uptime) as it reaches the presenter; true when the pane
+    /// should hear now.
+    func tick(frame: UInt32 = 0, releasedAtNanos: UInt64 = 0, decodedAtNanos: UInt64 = 0) -> Bool {
         let nowNanos = DispatchTime.now().uptimeNanoseconds, now = ContinuousClock.now
         return state.withLock { state in
-            state.timings.presented(frame: frame, decodedAtNanos: decodedAtNanos, nowNanos: nowNanos, now: now)
+            state.timings.presented(frame: frame, releasedAtNanos: releasedAtNanos, decodedAtNanos: decodedAtNanos,
+                                    nowNanos: nowNanos, now: now)
             state.pending += 1
             return state.timings.total == 1 || state.pending >= 15
         }

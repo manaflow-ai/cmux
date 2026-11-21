@@ -759,7 +759,7 @@ fn pick(displays: &[(Id, u32)], which: &str) -> Res<(Id, u32)> {
             .find(|d| d.1 == main)
             .or(displays.first())
             .copied()
-            .ok_or_else(|| "no display to capture (is Screen Recording allowed?)".into());
+            .ok_or_else(|| crate::permissions::no_display_here().into());
     }
     let index: usize =
         which.parse().map_err(|_| format!("--display {which}: use main or an index"))?;

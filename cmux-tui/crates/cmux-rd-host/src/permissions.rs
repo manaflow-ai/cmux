@@ -61,6 +61,25 @@ pub(crate) fn screen_recording_missing(host: &str, item: &str) -> String {
     )
 }
 
+/// The reason a share ends with when Screen Recording reads as on but macOS lists no display to
+/// capture (an empty SCShareableContent): a grant macOS holds for an older copy of the item.
+/// Its own words, so it is never read as a missing grant or a helper that stopped.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn no_display_listed(host: &str, item: &str) -> String {
+    format!(
+        "Screen Recording is on for \"{item}\" on {host}, but macOS listed no display to capture. \
+         On {host}, open System Settings > Privacy & Security > Screen & System Audio Recording, \
+         turn \"{item}\" off and on again."
+    )
+}
+
+/// [`no_display_listed`] for this process on this Mac.
+#[cfg(target_os = "macos")]
+pub(crate) fn no_display_here() -> String {
+    let exe = std::env::current_exe().unwrap_or_default();
+    no_display_listed(&host_name(), &listed_as(&exe))
+}
+
 /// At capture start: Err with [`screen_recording_missing`] when this process (the helper, its
 /// own responsible process) has no Screen Recording grant, so the session ends with the cause
 /// on the wire (`ended: failed: <words>`) instead of a capture that never delivers a picture.
@@ -282,6 +301,14 @@ mod tests {
             "System Settings > Privacy & Security > Screen & System Audio Recording and turn on \"cmux Computer Use\""
         ));
         assert!(!host_name().is_empty());
+    }
+
+    #[test]
+    fn a_grant_that_lists_no_display_is_its_own_cause() {
+        let words = no_display_listed("cosmic-gray", "cmux NIGHTLY Screen Sharing");
+        assert!(words.contains("macOS listed no display to capture"), "{words}");
+        assert!(words.contains("turn \"cmux NIGHTLY Screen Sharing\" off and on again"), "{words}");
+        assert!(!words.contains("not granted"), "never read as a missing grant: {words}");
     }
 
     #[test]
