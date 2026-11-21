@@ -399,7 +399,52 @@ public struct BrowserInstalledBrowserDetector {
             }
         }
 
-        return Self.sortProfiles(Self.dedupedProfiles(profiles))
+        let deduped = Self.dedupedProfiles(profiles)
+        return Self.sortProfiles(deduped + deduped.flatMap(firefoxContainerProfiles(of:)))
+    }
+
+    /// One source per public container in the profile's `containers.json`, so an
+    /// import can take a single container's cookies (Zen ties one to each workspace).
+    private func firefoxContainerProfiles(of profile: InstalledBrowserProfile) -> [InstalledBrowserProfile] {
+        let url = profile.rootURL.appendingPathComponent("containers.json", isDirectory: false)
+        guard let data = fileManager.contents(atPath: url.path),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let identities = root["identities"] as? [[String: Any]] else {
+            return []
+        }
+        return identities.compactMap { identity in
+            guard identity["public"] as? Bool != false,
+                  let containerID = identity["userContextId"] as? Int,
+                  let name = Self.firefoxContainerName(identity) else {
+                return nil
+            }
+            return InstalledBrowserProfile(
+                displayName: "\(profile.displayName) · \(name)",
+                rootURL: profile.rootURL,
+                isDefault: false,
+                containerID: containerID
+            )
+        }
+    }
+
+    /// The display name of a `containers.json` identity. Firefox's built-in
+    /// containers carry a localization id instead of a name.
+    private static func firefoxContainerName(_ identity: [String: Any]) -> String? {
+        if let name = (identity["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            return name
+        }
+        switch identity["l10nId"] as? String {
+        case "user-context-personal":
+            return String(localized: "browser.import.firefoxContainer.personal", defaultValue: "Personal")
+        case "user-context-work":
+            return String(localized: "browser.import.firefoxContainer.work", defaultValue: "Work")
+        case "user-context-banking":
+            return String(localized: "browser.import.firefoxContainer.banking", defaultValue: "Banking")
+        case "user-context-shopping":
+            return String(localized: "browser.import.firefoxContainer.shopping", defaultValue: "Shopping")
+        default:
+            return nil
+        }
     }
 
     private func firefoxProfilesFromINI(rootURL: URL) -> [InstalledBrowserProfile] {

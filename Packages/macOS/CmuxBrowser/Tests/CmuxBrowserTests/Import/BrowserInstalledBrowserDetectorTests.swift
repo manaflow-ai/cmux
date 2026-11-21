@@ -221,6 +221,51 @@ struct BrowserInstalledBrowserDetectorTests {
         #expect(firefox.profiles.contains { $0.displayName == "My Work Profile" && $0.isDefault })
     }
 
+    @Test("lists each Firefox container as its own source profile")
+    func detectsFirefoxContainers() throws {
+        let home = try makeTempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let zenRoot = home.appendingPathComponent("Library/Application Support/zen", isDirectory: true)
+        let profileDir = zenRoot.appendingPathComponent("Profiles/a1.Default (release)", isDirectory: true)
+        try FileManager.default.createDirectory(at: profileDir, withIntermediateDirectories: true)
+        try Data().write(to: profileDir.appendingPathComponent("cookies.sqlite"))
+        let ini = """
+        [Profile0]
+        Name=Default (release)
+        IsRelative=1
+        Path=Profiles/a1.Default (release)
+        Default=1
+        """
+        try ini.write(to: zenRoot.appendingPathComponent("profiles.ini"), atomically: true, encoding: .utf8)
+        let containers = """
+        {"version": 5, "lastUserContextId": 7, "identities": [
+          {"userContextId": 1, "public": true, "icon": "fingerprint", "color": "blue", "l10nId": "user-context-personal"},
+          {"userContextId": 4, "public": false, "icon": "", "color": "", "name": "userContextIdInternal.thumbnail"},
+          {"userContextId": 6, "public": true, "icon": "fingerprint", "color": "blue", "name": "PIP"},
+          {"userContextId": 7, "public": true, "icon": "fingerprint", "color": "turquoise", "name": "Peregrine"}
+        ]}
+        """
+        try containers.write(to: profileDir.appendingPathComponent("containers.json"), atomically: true, encoding: .utf8)
+
+        let detector = BrowserInstalledBrowserDetector(
+            homeDirectoryURL: home,
+            bundleLookup: { _ in nil },
+            applicationSearchDirectories: [],
+            fileManager: .default
+        )
+
+        let zen = try #require(detector.detectInstalledBrowsers().first { $0.id == "zen" })
+        let summary = zen.profiles.map { "\($0.displayName)|\($0.containerID.map(String.init) ?? "-")|\($0.isDefault)" }
+        #expect(summary == [
+            "Default (release)|-|true",
+            "Default (release) · Peregrine|7|false",
+            "Default (release) · Personal|1|false",
+            "Default (release) · PIP|6|false",
+        ])
+        #expect(Set(zen.profiles.map(\.id)).count == zen.profiles.count)
+    }
+
     @Test("an app-only hit still produces a candidate via bundle lookup")
     func detectsAppOnlyFromBundleLookup() throws {
         let home = try makeTempHome()
