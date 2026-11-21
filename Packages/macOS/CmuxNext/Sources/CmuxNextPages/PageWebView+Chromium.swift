@@ -205,14 +205,21 @@ extension PageWebView {
         page.resources = { [weak self] url, range in await self?.chromiumResource(url, range: range) ?? .notFound }
         page.readyResources = { [weak self] url in self?.readyChromiumResource(url) }
         do {
-            try await bridge.setUp(documentScripts: scripts.sources)
+            // Every setup call goes out now, in order, in this turn; their answers come in about one
+            // round trip, and the first failed one fails the setup.
+            let setUp = try bridge.startSetUp(documentScripts: scripts.sources)
+            var questionKeys: ChromiumQuestionKeyChannel?
+            var documentGuard: (@MainActor () async throws -> Void)?
             if descriptor.isAgentPage {
                 let descriptor = descriptor
-                let questionKeys = ChromiumQuestionKeyChannel(page: page, owns: descriptor.owns)
-                questionKeys.onInvalidated = { [weak self] in self?.onQuestionKeyChannelInvalidated?() }
-                try await questionKeys.prepareDocumentGuard()
-                session.questionKeys = questionKeys
+                let channel = ChromiumQuestionKeyChannel(page: page, owns: descriptor.owns)
+                channel.onInvalidated = { [weak self] in self?.onQuestionKeyChannelInvalidated?() }
+                documentGuard = channel.startDocumentGuard()
+                questionKeys = channel
             }
+            try await setUp()
+            try await documentGuard?()
+            if let questionKeys { session.questionKeys = questionKeys }
         } catch {
             session.end()
             // A start cancelled meanwhile (the page fell back or closed) has nothing left to fall back from.
