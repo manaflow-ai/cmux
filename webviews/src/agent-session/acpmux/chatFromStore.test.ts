@@ -69,6 +69,11 @@ function recorded(step: string, sid: string): string[] {
   return out;
 }
 
+/// Each batch a new number, as the host numbers them: the receiver takes a repeat of the batch it last
+/// applied as a lost `taken` and applies it no second time (documentPump.ts `key`, rows/receiver.ts).
+let batches = 0;
+const nextBatch = () => ++batches;
+
 type Row = { id: string; kind: string };
 type Hooks = { answer: (method: string, params: any) => Promise<unknown> };
 
@@ -117,7 +122,10 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
   const direct = client as any;
   // As the host calls it: the document's receiver, which the client installed before its first open.
   const feed = (changes: string[]) =>
-    (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({ batch: 1, changes });
+    (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({
+      batch: nextBatch(),
+      changes,
+    });
   try {
     await settle(() => asked.some((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === a));
     // The switch is asked, then the v1 attach is the hold: no page, no log read.
@@ -318,7 +326,7 @@ test("with the list still out, a host that opens: the hold's reply gives the row
       visible: expect.any(Boolean),
     });
     (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({
-      batch: 1,
+      batch: nextBatch(),
       changes: recorded("window", sid),
     });
     await settle(() => run.rows().length === 11);
@@ -381,7 +389,10 @@ test("a new chat whose sub is refused while its hold is out: the open resolves t
     () => (socket = new Held()) as unknown as WebSocket,
   )) as any;
   const feed = (changes: string[]) =>
-    (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({ batch: 1, changes });
+    (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({
+      batch: nextBatch(),
+      changes,
+    });
   try {
     await settle(() => asked.some((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === a));
     started = (await client.startSession("claude")) as string;
@@ -432,7 +443,10 @@ test("a new chat whose sub is refused before its open is answered: it draws as v
   const asked: { to: string; method: string; params: any }[] = [];
   let started = "";
   const receive = (changes: string[]) =>
-    (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({ batch: 1, changes });
+    (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({
+      batch: nextBatch(),
+      changes,
+    });
   setNativeHost(async (method, params) => {
     asked.push({ to: "host", method, params });
     if (method !== "chat.rows.open") return null;
