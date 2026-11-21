@@ -69,6 +69,8 @@ import {
   type IntegrationsState,
   type McpServersRun,
   type McpServersState,
+  type AgentMcpRun,
+  type AgentMcpState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
@@ -794,6 +796,18 @@ export class SettingsStore {
   async runMcpServers(run: McpServersRun): Promise<McpServersState | null> {
     await this.request("cmux.settings.mcp.run", run);
     return this.mcpServersState();
+  }
+
+  /** Settings > MCP Servers, Claude Code and Codex; null when the host has none. */
+  async agentMcpState(): Promise<AgentMcpState | null> {
+    const reply = await this.request("cmux.settings.agentMcp.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Claude Code / Codex MCP gesture, then the groups as they are after it (null: the host has none). */
+  async runAgentMcp(run: AgentMcpRun): Promise<AgentMcpState | null> {
+    await this.request("cmux.settings.agentMcp.run", run);
+    return this.agentMcpState();
   }
 
   /** Reads Settings > Models (a host without it rejects, and the part stays null). */

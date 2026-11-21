@@ -2606,7 +2606,7 @@ def test_adopted_manifest_check_requires_what_publish_requires():
 def test_same_commit_adopted_by_two_runs_keeps_the_first_publication():
     # 2026-11-14: the app FFI re-pin pushed dba915e8 to its staging ref, then to app-ffi-repin. Both runs
     # adopted it; the second's manifest differed only in attestationUrl, its write-once upload went red, and
-    # merge_hold held re-pin PR #42986 while the base's FFI pin check went red.
+    # land-judge held re-pin PR #42986 while the base's FFI pin check went red.
     adopt, fetch, _ = adopt_cdn()
     manifests = []
     for run in (43596039910, 43596045323):
