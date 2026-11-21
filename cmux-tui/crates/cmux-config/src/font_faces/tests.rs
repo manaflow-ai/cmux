@@ -14,7 +14,7 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
-fn file_value(path: &std::path::Path) -> Value {
+fn file_value(path: &Path) -> Value {
     json!(format!("file:{}", path.display()))
 }
 
