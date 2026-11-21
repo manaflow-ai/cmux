@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use base64::Engine as _;
-use cmux_server::pairing::unpair::{REFUSED, UNREACHABLE};
+use cmux_server::pairing::unpair::{CHALLENGE_REFUSED, REFUSED, UNREACHABLE};
 use cmux_server::pairing::{self, Transport};
 use cmux_server::{Error, ExitKind, Result};
 use cmux_server_core::pairing::enrollment::{Begun, Paired, Waited};
@@ -34,8 +34,10 @@ fn paired() -> Paired {
 #[derive(Clone, Copy)]
 enum Cloud {
     Accepts,
-    /// The challenge is refused 4xx: the install was revoked in the app.
+    /// The challenge refuses the install as unknown or revoked: it was revoked in the app.
     AlreadyRevoked,
+    /// The challenge is refused 4xx for another reason (a rate limit, validation): still active.
+    ChallengeRefused,
     /// The challenge passes but the token mint is refused (an old client, an SSO gate): still active.
     TokenRefused,
     Down,
@@ -98,6 +100,9 @@ impl Transport for Api {
         self.posts.lock().unwrap().push((path.into(), body.clone(), bearer.map(str::to_owned)));
         match (path, self.cloud) {
             ("/v1/auth/challenge", Cloud::AlreadyRevoked) => {
+                Err(Error::rejected(CHALLENGE_REFUSED))
+            }
+            ("/v1/auth/challenge", Cloud::ChallengeRefused) => {
                 Err(Error::rejected("server.pair.api_refused"))
             }
             ("/v1/auth/challenge", _) => Ok(json!({"install":INSTALL,"nonce":NONCE,
@@ -176,6 +181,20 @@ fn server_unpair_after_the_app_revoked_the_machine_still_forgets_it_here() {
     assert_eq!(out["removed"], true);
     assert_eq!(api.paths(), ["/v1/auth/challenge"]);
     assert!(!path.exists());
+}
+
+#[test]
+fn server_unpair_keeps_the_record_when_the_challenge_is_refused_for_another_reason() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    pair(&path, &Api::new(Cloud::Accepts));
+    let before = std::fs::read(&path).unwrap();
+    let limited = Api::new(Cloud::ChallengeRefused);
+    let error = pairing::unpair(&path, &limited, false).unwrap_err();
+    assert_eq!((error.kind, error.message.as_str()), (ExitKind::Rejected, REFUSED));
+    assert_eq!(limited.paths(), ["/v1/auth/challenge"]);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(pairing::status(&path).unwrap()["state"], "paired");
 }
 
 #[test]

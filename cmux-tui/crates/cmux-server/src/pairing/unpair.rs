@@ -20,6 +20,9 @@ use crate::error::{Error, Result};
 pub const UNREACHABLE: &str = "server.unpair.cloud_unreachable";
 /// The backend answered the sign-out with a refusal other than "already revoked".
 pub const REFUSED: &str = "server.unpair.cloud_refused";
+/// The challenge route's answer for an unknown or revoked install (network.rs
+/// `challenge_refusal`): the only refusal that lets unpair forget the local key.
+pub const CHALLENGE_REFUSED: &str = "server.pair.challenge_refused";
 
 /// What happened in cmux Cloud.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -59,13 +62,18 @@ fn cloud_error(error: Error) -> Error {
 fn sign_out(record: &identity::Identity, transport: &dyn Transport) -> Result<Cloud> {
     let paired =
         record.paired.as_ref().ok_or_else(|| Error::internal("server.unpair.not_paired"))?;
-    // The challenge refuses only an unknown or revoked install (one answer for both): that alone
-    // means "already revoked". A refused token mint (an old client, an SSO or team policy gate)
-    // leaves the install active, so it keeps the local record.
+    // The challenge answers an unknown or revoked install with one refusal (CHALLENGE_REFUSED):
+    // that alone means "already revoked". Any other refusal (a failed lookup, validation, a rate
+    // limit) or a refused token mint (an old client, an SSO or team policy gate) says nothing about
+    // the install, so it keeps the local record.
     let ids = json!({"user": paired.user, "install": paired.install});
     match transport.backend_post(&record.api, "/v1/auth/challenge", &ids, None) {
         Ok(_) => {}
-        Err(error) if error.kind == crate::ExitKind::Rejected => return Ok(Cloud::AlreadyRevoked),
+        Err(error)
+            if error.kind == crate::ExitKind::Rejected && error.message == CHALLENGE_REFUSED =>
+        {
+            return Ok(Cloud::AlreadyRevoked);
+        }
         Err(error) => return Err(cloud_error(error)),
     }
     let bearer = confirmation::token(record, transport).map_err(cloud_error)?;
