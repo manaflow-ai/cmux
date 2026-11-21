@@ -1531,6 +1531,72 @@ export type AgentMcpRun =
       headers?: string[];
     };
 
+/** One Claude Code or Codex hook handler (`cmux --json agent-config hooks list`, cmux-agent-customize hooks.rs `HookEntry`). */
+export type AgentHookRow = {
+  /** Stable across Turn Off / Turn On; the CLI's handle for the row. */
+  id: string;
+  agent: "claude" | "codex";
+  /** `user` (~/.claude/settings.json, ~/.codex/hooks.json), `user-local`, `user-config`, `project`,
+   * `project-local` or `plugin`. */
+  scope: string;
+  file: string;
+  event: string;
+  matcher: string | null;
+  type: string;
+  command: string;
+  timeout: number | null;
+  enabled: boolean;
+  /** `cmux` (cmux's own, read-only), `plugin` (read-only) or `user`. */
+  owner: "user" | "cmux" | "plugin";
+  read_only: boolean;
+  /** Codex: `trusted`, `untrusted`, `modified` or `unsupported` (Codex runs only trusted hooks). */
+  trust?: string;
+  /** Codex: the hooks.state key its trust and on/off live under. */
+  state_key?: string;
+  plugin?: string;
+};
+
+/** One config file the hooks list read. */
+export type AgentHookFile = {
+  agent: "claude" | "codex";
+  scope: string;
+  path: string;
+  exists: boolean;
+  hooks: number;
+  error?: string;
+  disable_all_hooks?: boolean;
+};
+
+/** `cmux --json agent-config hooks list`. */
+export type AgentHooksListing = {
+  hooks: AgentHookRow[];
+  files: AgentHookFile[];
+  counts: { claude: number; codex: number };
+  codex_hooks_feature: boolean | null;
+  disabled_store?: string;
+  elapsed_micros: number;
+};
+
+/** Settings > Agents > Claude Code & Codex > Hooks (`SettingsAgentHooks.state`); `available` is the
+ * Labs switch `labs.agentCustomization`. */
+export type AgentHooksState =
+  | { available: false }
+  | { available: true; listing: AgentHooksListing | null; error: string | null };
+
+/** One Hooks gesture; every one but refresh runs only on a click. */
+export type AgentHooksRun =
+  | { action: "refresh" }
+  | { action: "enable" | "disable" | "remove"; id: string }
+  | {
+      action: "add";
+      agent: "claude" | "codex";
+      event: string;
+      command: string;
+      matcher?: string;
+      timeout?: number;
+      scope?: "user" | "user-local";
+    };
+
 /** One Agent integrations gesture; each runs only on a click. */
 export type IntegrationsRun = { action: "refresh" } | { action: "install" | "repair" | "remove"; id: string };
 
@@ -1744,6 +1810,10 @@ export type SettingsOps = {
   "cmux.settings.agentMcp.state": [Record<string, never>, AgentMcpState];
   /** Native: one Claude Code / Codex MCP gesture (`cmux agent-config mcp enable|disable|remove|add`, a folder pick or a refresh). */
   "cmux.settings.agentMcp.run": [AgentMcpRun, unknown];
+  /** Native: every Claude Code and Codex hook (Labs labs.agentCustomization; `cmux agent-config hooks list`). */
+  "cmux.settings.agentHooks.state": [Record<string, never>, AgentHooksState];
+  /** Native: one Hooks gesture (`cmux agent-config hooks enable|disable|remove|add`, or a refresh); returns the state after it. */
+  "cmux.settings.agentHooks.run": [AgentHooksRun, AgentHooksState];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */
