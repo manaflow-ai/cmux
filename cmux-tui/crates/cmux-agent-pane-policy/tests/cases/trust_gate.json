@@ -111,14 +111,16 @@
    "breaks": true
   },
   {
-   "name": "trust gate: initialize may not carry any _meta",
+   "name": "trust gate: initialize's _meta holds acpmux only (the page's opt-ins, cmux#46563)",
    "frame": {
     "jsonrpc": "2.0",
     "method": "initialize",
     "id": 1,
     "params": {
      "protocolVersion": 1,
-     "_meta": {}
+     "_meta": {
+      "via": "app"
+     }
     }
    },
    "breaks": true
