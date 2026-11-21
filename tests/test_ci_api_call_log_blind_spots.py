@@ -122,10 +122,12 @@ class BlindSpots(unittest.TestCase):
         self.assertTrue(call[-1].startswith("GET /repos/o/r/actions/runs/{n} 200 [curl tok="), call)
         self.assertNotIn("test-token-not-real", done.stderr)
 
-    def test_curl_that_reads_its_own_headers_is_left_alone(self) -> None:
-        done = self.step("curl -sSi https://api.github.com/rate_limit")
+    def test_curl_that_dumps_its_own_headers_keeps_them(self) -> None:
+        # The function adds -D only when the caller has none: curl keeps one -D, so theirs would be lost.
+        done = self.step(f"curl -sS -D {self.root}/mine.txt https://api.github.com/rate_limit")
         self.assertEqual([c for c in self.lines(done) if "curl" in c[-1]], [])
         self.assertEqual(done.stdout.strip(), '{"body":true}')
+        self.assertIn("x-ratelimit-used: 4320", (self.root / "mine.txt").read_text())
 
     def test_curl_elsewhere_is_not_named(self) -> None:
         done = self.step("curl -sS https://example.com/x")
