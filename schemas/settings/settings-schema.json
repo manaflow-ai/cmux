@@ -283,6 +283,7 @@
               "appearance.paneBackgrounds",
               "ui.reducedBackgrounds",
               "appearance.agentGlow",
+              "appearance.previousGlass",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur",
               "appearance.inactiveWindowDim",
@@ -2221,7 +2222,8 @@
           {
             "key" : "settings.group.experiments",
             "rows" : [
-              "experiments.glassToolbarGroups"
+              "experiments.glassToolbarGroups",
+              "experiments.composerV2"
             ],
             "title" : {
               "key" : "settings.group.experiments",
@@ -27570,7 +27572,25 @@
         "dore-paradise-lost-book-vi",
         "dore-moses-tables",
         "dore-empyrean",
-        "dore-raven"
+        "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -28603,6 +28623,132 @@
             "text" : "The Raven — Gustave Doré"
           },
           "value" : "dore-raven"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fine Wind, Clear Morning (Red Fuji) — Katsushika Hokusai"
+          },
+          "value" : "hokusai-red-fuji"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Thunderstorm beneath the Summit — Katsushika Hokusai"
+          },
+          "value" : "hokusai-storm-below-fuji"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Kajikazawa in Kai Province — Katsushika Hokusai"
+          },
+          "value" : "hokusai-kajikazawa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sudden Shower over Shin-Ōhashi Bridge and Atake — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-sudden-shower"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Night Snow at Kanbara — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-kanbara-snow"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Plum Park in Kameido — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-plum-garden"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Moon Pine, Ueno — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-moon-pine"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Irises at Yatsuhashi — Ogata Kōrin"
+          },
+          "value" : "korin-irises"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Pine Trees — Hasegawa Tōhaku"
+          },
+          "value" : "tohaku-pine-trees"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Mandarin Ducks in the Snow — Itō Jakuchū"
+          },
+          "value" : "jakuchu-mandarin-ducks"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Travelers among Mountains and Streams — Fan Kuan"
+          },
+          "value" : "fan-kuan-travelers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Early Spring — Guo Xi"
+          },
+          "value" : "guo-xi-early-spring"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Clouds Rising from the Green Sea — Ma Yuan"
+          },
+          "value" : "ma-yuan-clouds-green-sea"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Along the River During the Qingming Festival — Zhang Zeduan"
+          },
+          "value" : "zhang-zeduan-qingming"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Thousand Li of Rivers and Mountains — Wang Ximeng"
+          },
+          "value" : "wang-ximeng-thousand-li"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Clearing after Rain on Mount Inwang — Jeong Seon"
+          },
+          "value" : "jeong-seon-inwang"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "General View of Mount Geumgang — Jeong Seon"
+          },
+          "value" : "jeong-seon-geumgang"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Nature Better than the Official Ranks — Kim Hong-do"
+          },
+          "value" : "kim-hong-do-samgong"
         }
       ],
       "consumers" : [
@@ -29945,6 +30091,132 @@
             "text" : "The Raven — Gustave Doré"
           },
           "value" : "dore-raven"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fine Wind, Clear Morning (Red Fuji) — Katsushika Hokusai"
+          },
+          "value" : "hokusai-red-fuji"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Thunderstorm beneath the Summit — Katsushika Hokusai"
+          },
+          "value" : "hokusai-storm-below-fuji"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Kajikazawa in Kai Province — Katsushika Hokusai"
+          },
+          "value" : "hokusai-kajikazawa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sudden Shower over Shin-Ōhashi Bridge and Atake — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-sudden-shower"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Night Snow at Kanbara — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-kanbara-snow"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Plum Park in Kameido — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-plum-garden"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Moon Pine, Ueno — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-moon-pine"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Irises at Yatsuhashi — Ogata Kōrin"
+          },
+          "value" : "korin-irises"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Pine Trees — Hasegawa Tōhaku"
+          },
+          "value" : "tohaku-pine-trees"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Mandarin Ducks in the Snow — Itō Jakuchū"
+          },
+          "value" : "jakuchu-mandarin-ducks"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Travelers among Mountains and Streams — Fan Kuan"
+          },
+          "value" : "fan-kuan-travelers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Early Spring — Guo Xi"
+          },
+          "value" : "guo-xi-early-spring"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Clouds Rising from the Green Sea — Ma Yuan"
+          },
+          "value" : "ma-yuan-clouds-green-sea"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Along the River During the Qingming Festival — Zhang Zeduan"
+          },
+          "value" : "zhang-zeduan-qingming"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Thousand Li of Rivers and Mountains — Wang Ximeng"
+          },
+          "value" : "wang-ximeng-thousand-li"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Clearing after Rain on Mount Inwang — Jeong Seon"
+          },
+          "value" : "jeong-seon-inwang"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "General View of Mount Geumgang — Jeong Seon"
+          },
+          "value" : "jeong-seon-geumgang"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Nature Better than the Official Ranks — Kim Hong-do"
+          },
+          "value" : "kim-hong-do-samgong"
         },
         {
           "title" : {
@@ -31306,6 +31578,132 @@
         },
         {
           "title" : {
+            "key" : null,
+            "text" : "Fine Wind, Clear Morning (Red Fuji) — Katsushika Hokusai"
+          },
+          "value" : "hokusai-red-fuji"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Thunderstorm beneath the Summit — Katsushika Hokusai"
+          },
+          "value" : "hokusai-storm-below-fuji"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Kajikazawa in Kai Province — Katsushika Hokusai"
+          },
+          "value" : "hokusai-kajikazawa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sudden Shower over Shin-Ōhashi Bridge and Atake — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-sudden-shower"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Night Snow at Kanbara — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-kanbara-snow"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Plum Park in Kameido — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-plum-garden"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Moon Pine, Ueno — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-moon-pine"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Irises at Yatsuhashi — Ogata Kōrin"
+          },
+          "value" : "korin-irises"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Pine Trees — Hasegawa Tōhaku"
+          },
+          "value" : "tohaku-pine-trees"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Mandarin Ducks in the Snow — Itō Jakuchū"
+          },
+          "value" : "jakuchu-mandarin-ducks"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Travelers among Mountains and Streams — Fan Kuan"
+          },
+          "value" : "fan-kuan-travelers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Early Spring — Guo Xi"
+          },
+          "value" : "guo-xi-early-spring"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Clouds Rising from the Green Sea — Ma Yuan"
+          },
+          "value" : "ma-yuan-clouds-green-sea"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Along the River During the Qingming Festival — Zhang Zeduan"
+          },
+          "value" : "zhang-zeduan-qingming"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Thousand Li of Rivers and Mountains — Wang Ximeng"
+          },
+          "value" : "wang-ximeng-thousand-li"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Clearing after Rain on Mount Inwang — Jeong Seon"
+          },
+          "value" : "jeong-seon-inwang"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "General View of Mount Geumgang — Jeong Seon"
+          },
+          "value" : "jeong-seon-geumgang"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Nature Better than the Official Ranks — Kim Hong-do"
+          },
+          "value" : "kim-hong-do-samgong"
+        },
+        {
+          "title" : {
             "key" : "settings.choice.desktopWallpaper",
             "text" : "Desktop Wallpaper"
           },
@@ -32480,6 +32878,132 @@
             "text" : "The Raven — Gustave Doré"
           },
           "value" : "dore-raven"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fine Wind, Clear Morning (Red Fuji) — Katsushika Hokusai"
+          },
+          "value" : "hokusai-red-fuji"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Thunderstorm beneath the Summit — Katsushika Hokusai"
+          },
+          "value" : "hokusai-storm-below-fuji"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Kajikazawa in Kai Province — Katsushika Hokusai"
+          },
+          "value" : "hokusai-kajikazawa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sudden Shower over Shin-Ōhashi Bridge and Atake — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-sudden-shower"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Night Snow at Kanbara — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-kanbara-snow"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Plum Park in Kameido — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-plum-garden"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Moon Pine, Ueno — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-moon-pine"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Irises at Yatsuhashi — Ogata Kōrin"
+          },
+          "value" : "korin-irises"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Pine Trees — Hasegawa Tōhaku"
+          },
+          "value" : "tohaku-pine-trees"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Mandarin Ducks in the Snow — Itō Jakuchū"
+          },
+          "value" : "jakuchu-mandarin-ducks"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Travelers among Mountains and Streams — Fan Kuan"
+          },
+          "value" : "fan-kuan-travelers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Early Spring — Guo Xi"
+          },
+          "value" : "guo-xi-early-spring"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Clouds Rising from the Green Sea — Ma Yuan"
+          },
+          "value" : "ma-yuan-clouds-green-sea"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Along the River During the Qingming Festival — Zhang Zeduan"
+          },
+          "value" : "zhang-zeduan-qingming"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Thousand Li of Rivers and Mountains — Wang Ximeng"
+          },
+          "value" : "wang-ximeng-thousand-li"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Clearing after Rain on Mount Inwang — Jeong Seon"
+          },
+          "value" : "jeong-seon-inwang"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "General View of Mount Geumgang — Jeong Seon"
+          },
+          "value" : "jeong-seon-geumgang"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Nature Better than the Official Ranks — Kim Hong-do"
+          },
+          "value" : "kim-hong-do-samgong"
         },
         {
           "title" : {
@@ -34031,6 +34555,146 @@
         "text" : "Window Background"
       },
       "help" : {
+        "key" : "settings.appearance.previousGlass.help",
+        "text" : "Draws menus, popovers, the composer and cards with the glass from before November 2026."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.previousGlass",
+      "keywords" : [
+        "glass",
+        "liquid glass",
+        "previous",
+        "old",
+        "classic look",
+        "blur",
+        "frost",
+        "translucent",
+        "transparency",
+        "menu",
+        "popover"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "previousGlass"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.previousGlass"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.previousGlass",
+        "text" : "Previous Glass Look"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
         "key" : "settings.appearance.experimentalControls.help",
         "text" : "Applies Hue and Saturation to the window's tint. Off, they have no effect."
       },
@@ -34612,181 +35276,6 @@
       "title" : {
         "key" : "settings.appearance.inactiveWindowDim",
         "text" : "Dim Inactive Windows"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "off",
-        "flush",
-        "flush-tight",
-        "flush-goo"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.cornerFlush.off",
-            "text" : "Pill"
-          },
-          "value" : "off"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.cornerFlush.flush",
-            "text" : "Flush"
-          },
-          "value" : "flush"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.cornerFlush.tight",
-            "text" : "Flush, Tight to the Sidebar"
-          },
-          "value" : "flush-tight"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.cornerFlush.goo",
-            "text" : "Goo"
-          },
-          "value" : "flush-goo"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "flush",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.panes",
-        "text" : "Panes"
-      },
-      "help" : {
-        "key" : "settings.appearance.cornerFlush.help",
-        "text" : "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.cornerFlush",
-      "keywords" : [
-        "corner",
-        "flush",
-        "goo",
-        "gooey",
-        "folder tab",
-        "fillet",
-        "pill",
-        "selected tab",
-        "tab shape",
-        "card",
-        "material"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "cornerFlush"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.cornerFlush.summary",
-        "text" : "Pill, flush or goo for the selected tab"
-      },
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "options",
-          "offered" : true,
-          "operations" : [
-
-          ],
-          "reason" : null,
-          "row" : "setting:appearance.cornerFlush"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.appearance.cornerFlush",
-        "text" : "Selected Tab Shape"
       },
       "validation" : "portable"
     },
@@ -38470,6 +38959,181 @@
       "title" : {
         "key" : "settings.appearance.titleAreaContrast",
         "text" : "Title Area Contrast"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "flush",
+        "flush-tight",
+        "flush-goo"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.off",
+            "text" : "Pill"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.flush",
+            "text" : "Flush"
+          },
+          "value" : "flush"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.tight",
+            "text" : "Flush, Tight to the Sidebar"
+          },
+          "value" : "flush-tight"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.goo",
+            "text" : "Goo"
+          },
+          "value" : "flush-goo"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "flush",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.appearance.cornerFlush.help",
+        "text" : "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.cornerFlush",
+      "keywords" : [
+        "corner",
+        "flush",
+        "goo",
+        "gooey",
+        "folder tab",
+        "fillet",
+        "pill",
+        "selected tab",
+        "tab shape",
+        "card",
+        "material"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "cornerFlush"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.cornerFlush.summary",
+        "text" : "Pill, flush or goo for the selected tab"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.cornerFlush"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.cornerFlush",
+        "text" : "Selected Tab Shape"
       },
       "validation" : "portable"
     },
@@ -68177,6 +68841,7 @@
     },
     {
       "accepts" : [
+        "folder",
         "auto",
         "glass",
         "solid",
@@ -68185,6 +68850,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundFolder",
+            "text" : "Folders"
+          },
+          "value" : "folder"
+        },
         {
           "title" : {
             "key" : "settings.choice.groupBackgroundAuto",
@@ -68217,7 +68889,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "auto",
+      "default" : "folder",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -68225,7 +68897,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.groupHeader.background.help",
-        "text" : "How a group's background draws. Sections shows plain headings instead."
+        "text" : "How a group draws. Folders shows plain folders; Sections shows plain headings."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.groupHeader.background",
@@ -105089,6 +105761,143 @@
       "title" : {
         "key" : "settings.experiments.glassToolbarGroups",
         "text" : "Glass Toolbar Groups"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.composerV2.help",
+        "text" : "A glass composer with mode chips, mention chips and a round send button. Still being shaped."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.composerV2",
+      "keywords" : [
+        "experiments",
+        "experimental",
+        "prototype",
+        "composer",
+        "glass",
+        "chips",
+        "mention",
+        "send"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "composerV2"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.composerV2"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.composerV2",
+        "text" : "Composer Refresh"
       },
       "validation" : "portable"
     },
