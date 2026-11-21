@@ -25,6 +25,9 @@ pub struct Compaction {
 #[derive(Debug)]
 pub struct CompactionResult {
     pub snapshot: Arc<DiskSnapshot>,
+    /// Wall-clock capture used to classify rows in this snapshot. The reader
+    /// turns it into a fixed `cold_before` threshold at installation.
+    pub captured_now: u64,
     /// Cold in-memory rows covered by this capture, removed in bounded turns.
     pub cold_keys: VecDeque<RowKey>,
     /// Hot disk rows that startup hydration had not reached at capture.
@@ -195,6 +198,7 @@ impl Compaction {
         }
         Ok(CompactionResult {
             snapshot,
+            captured_now: self.captured_now,
             cold_keys,
             missing_hot,
             covered_generation: self.covered_generation,

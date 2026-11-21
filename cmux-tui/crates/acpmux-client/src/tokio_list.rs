@@ -74,8 +74,12 @@ pub struct Rows {
     pub unknown: Vec<ListKey>,
     /// A family read's hot part has kin in the snapshot's part (said on its last page).
     pub cold_unread: bool,
-    /// A family read's rows at the depth bound (64) that have hot children of their own.
+    /// This cold family page came entirely from the ancestor-closure table.
+    pub closure: bool,
+    /// Follow-up roots: depth-bound rows, or cold rows with hot children.
     pub deeper: Vec<ListKey>,
+    /// Listed rows that cross an origin in the serving snapshot closure.
+    pub foreign: Vec<ListKey>,
 }
 
 /// A connection upgraded to the list surface.
@@ -491,7 +495,9 @@ where
                 Ok(Some(Rows {
                     rows: reply.rows,
                     cold_unread: reply.cold_unread,
+                    closure: reply.closure,
                     deeper: reply.deeper,
+                    foreign: reply.foreign,
                     ..Rows::default()
                 }))
             }

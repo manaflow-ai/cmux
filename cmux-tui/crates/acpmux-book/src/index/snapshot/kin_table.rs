@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 mod build;
 mod format;
+pub(super) mod lookup;
 mod sort;
 #[cfg(test)]
 mod tests;
@@ -24,6 +25,8 @@ const SLOTS_PER_PAGE: usize = 511;
 const FAMILY_KIND: u8 = 1;
 const FORK_KIND: u8 = 2;
 const MAX_DEPTH: u8 = 64;
+pub(crate) const DEPTH_CROSS_ORIGIN: u8 = 0x80;
+pub(crate) const DEPTH_MASK: u8 = !DEPTH_CROSS_ORIGIN;
 const _: () =
     assert!(crate::index::MAX_INDEX_RECORD_BYTES + super::TRAILER_BYTES <= u16::MAX as usize);
 static TABLE_FAILURES: AtomicUsize = AtomicUsize::new(0);
@@ -84,7 +87,6 @@ pub(super) struct TableHeader {
 }
 
 #[derive(Debug)]
-#[cfg_attr(not(test), allow(dead_code))] // PR2 consumes the retained handle and page metadata.
 pub(super) struct Table {
     file: File,
     pub header: TableHeader,
@@ -108,10 +110,9 @@ impl Table {
         !self.disabled.load(Ordering::Relaxed)
     }
 
-    /// Read a whole CRC page. A caller falling back must discard any partial
-    /// answer from the table. No later read on this snapshot retries the table.
+    /// Read a whole CRC page. A caller retains already verified rows if a later
+    /// page fails. No later read on this snapshot retries the disabled table.
     /// Page 0 is the directory's first page (the header is not a data page).
-    #[allow(dead_code)] // PR1 establishes failure handling; PR2 routes list reads here.
     pub(super) fn read_page(&self, index: u64) -> Option<[u8; PAGE_BYTES]> {
         if !self.is_usable() {
             return None;
@@ -142,7 +143,6 @@ impl Table {
         }
     }
 
-    #[allow(dead_code)] // Also used when PR2 observes a referenced frame CRC failure.
     pub(super) fn disable(&self, error: &io::Error) {
         if !self.disabled.swap(true, Ordering::Relaxed) {
             table_failure(error);
@@ -213,6 +213,8 @@ pub(super) fn finish_table(
 }
 
 pub(super) fn table_failure(error: &io::Error) {
+    #[cfg(test)]
+    super::record_kin_disabled();
     TABLE_FAILURES.fetch_add(1, Ordering::Relaxed);
     eprintln!("cold kin table set aside for snapshot: {error}");
 }
@@ -244,7 +246,7 @@ pub(crate) fn key_fingerprint(key: &RowKey, kind: u8) -> (u64, u32) {
     (hash, crc.finalize())
 }
 
-fn invalid(message: &'static str) -> io::Error {
+pub(super) fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 fn read_u32(bytes: &[u8]) -> io::Result<u32> {

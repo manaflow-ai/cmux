@@ -29,6 +29,9 @@ pub(super) enum HydrationState {
 pub(super) struct Hydration {
     snapshot: Arc<DiskSnapshot>,
     rows: SnapshotRows,
+    /// One clock capture for this hydration pass. Batches must not move the
+    /// cold partition while startup is still filling the hot overlay.
+    now: u64,
 }
 
 impl HubWriter {
@@ -101,9 +104,24 @@ impl HubWriter {
     }
 
     pub(super) fn start_hydration(&mut self) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |time| u64::try_from(time.as_millis()).unwrap_or(u64::MAX));
+        self.start_hydration_at(now);
+    }
+
+    /// Restart a pass for a new snapshot without moving the cold partition.
+    /// Only the initial boot path captures the wall clock; compaction installs
+    /// its own capture before publishing. A pointer change during hydration
+    /// reuses the already-published threshold instead of taking a new sample.
+    fn start_hydration_at(&mut self, now: u64) {
         let Some(snapshot) = self.published.load().disk().cloned() else { return };
+        let current = self.published.load_full();
+        let mut next = current.as_ref().clone();
+        next.raise_cold_before(now.saturating_sub(acpmux_book::index::HOT_WINDOW_MS));
+        self.published.store(Arc::new(next));
         self.compaction_counters.damaged_snapshot_frames.store(0, Ordering::Relaxed);
-        self.hydration = Some(Hydration { rows: snapshot.rows(), snapshot });
+        self.hydration = Some(Hydration { rows: snapshot.rows(), snapshot, now });
     }
 
     // Advance a bounded number of physical rows on the writer's blocking
@@ -112,19 +130,23 @@ impl HubWriter {
         let Some(load) = self.hydration.as_mut() else { return };
         let current = self.published.load_full();
         if !current.disk().is_some_and(|disk| Arc::ptr_eq(disk, &load.snapshot)) {
+            let cold_before = current.cold_before();
             self.hydration = None;
-            self.start_hydration();
+            if cold_before == 0 {
+                self.start_hydration();
+            } else {
+                self.start_hydration_at(
+                    cold_before.saturating_add(acpmux_book::index::HOT_WINDOW_MS),
+                );
+            }
             return;
         }
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |time| u64::try_from(time.as_millis()).unwrap_or(u64::MAX));
         let mut next = current.as_ref().clone();
         let mut finished = false;
         let mut failed = false;
         for _ in 0..256 {
             match load.rows.next() {
-                Some(Ok(row)) => next = next.hydrate(row, now),
+                Some(Ok(row)) => next = next.hydrate(row, load.now),
                 Some(Err(error)) if is_corrupt_snapshot_row(&error) => {
                     self.compaction_counters
                         .damaged_snapshot_frames
