@@ -342,6 +342,8 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-acpmux-lib-test
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
+          cache-on-failure: true
 
       # `protocol::` selects exactly the protocol module's tests (src/protocol/tests.rs);
       # a filter that matches none (a moved module) fails rather than passing empty.
@@ -454,6 +456,8 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-acpmux-tests
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
+          cache-on-failure: true
 
       - name: v2 bench home emits all gate rows
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -590,6 +594,8 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-acpmux-sim
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
+          cache-on-failure: true
 
       - name: cargo test -p acpmux --features sim --test sim
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -679,6 +685,8 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-carrier-sim
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
+          cache-on-failure: true
 
       - name: cargo test -p cmux-remote --test carrier_sim
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -904,6 +912,8 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-pr-clippy
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
+          cache-on-failure: true
 
       # A red the PR autofix repairs (machine-applicable lints in this change's own files) passes as autofixed
       # once the autofix push is on (vars.CMUX_PR_AUTOFIX_PUSH, cmux-next-pr-autofix-push.yml on main): the fix
