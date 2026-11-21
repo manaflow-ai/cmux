@@ -59,6 +59,7 @@ on:
       - "backend/catalog/cloud-operations.json"
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "docs/cmux-next/customize-recipes.md"
+      - "examples/looks/claude-code/notification-levels/cmux-setup.json"
       - "docs/remote-agents-and-cloud.md"
       - "plans/cmux-next/action-surfaces.json"
       - "plans/cmux-next/daemon-capabilities.json"
@@ -121,6 +122,7 @@ on:
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
+      - "examples/looks/claude-code/notification-levels/cmux-setup.json"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
       - "skills/cmux-customization/templates/clock-weather/main.js"

@@ -16,9 +16,8 @@ extension NotificationCenterService {
         // A Chief hand's waiting request: the same banner, posted and withdrawn by the hands service (cx-om025).
         services.cloud.hands.texts = AgentApprovalBanners.handTexts
         services.cloud.hands.onPending = { [weak self] approval, name in
-            guard let self, self.preferences.permitsBanner(for: .needsInput) else { return }
-            self.desktop.post(id: approval.key, title: AgentApprovalBanners.handTitle(name), body: approval.summary, surface: nil,
-                               workspace: nil, defaultSound: self.preferences.permitsSound(for: .needsInput), approval: true)
+            self?.desktop.post(id: approval.key, title: AgentApprovalBanners.handTitle(name), body: approval.summary, surface: nil,
+                               workspace: nil, defaultSound: true, approval: true)
         }
         services.cloud.hands.onSettled = { [weak self] approval, _ in self?.desktop.withdraw([approval.key]) }
     }

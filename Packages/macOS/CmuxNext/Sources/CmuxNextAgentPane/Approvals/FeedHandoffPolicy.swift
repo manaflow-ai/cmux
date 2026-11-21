@@ -46,7 +46,7 @@ public nonisolated struct FeedHandoffPolicy: Sendable {
     public func content(for item: FeedLocalItem) -> (title: String, body: String)? {
         let source = NotificationSource(wire: item.source)
         if let workspace = item.context.workspace, mutedWorkspaces.contains(workspace) { return nil }
-        guard canHandOff(item), preferences.desktop != .never, preferences.postsDesktop(for: source),
+        guard isInNormalWindow(item), preferences.desktop != .never, preferences.postsDesktop(for: source),
               !arrivedInQuietHours(item) else { return nil }
         return mirrored(item)
     }
@@ -56,12 +56,7 @@ public nonisolated struct FeedHandoffPolicy: Sendable {
     /// normal window's (`normalWindows`): the driver withdraws its adopt
     /// (`feed.adopt.cancel`) instead of sending it.
     public func frozenContent(for item: FeedLocalItem) -> (title: String, body: String)? {
-        canHandOff(item) ? mirrored(item) ?? ("", "") : nil
-    }
-
-    private func canHandOff(_ item: FeedLocalItem) -> Bool {
-        let event = NotificationSoundEvent(source: NotificationSource(wire: item.source), level: .init(rawValue: item.level) ?? .info)
-        return isInNormalWindow(item) && preferences.permitsBanner(for: event)
+        isInNormalWindow(item) ? mirrored(item) ?? ("", "") : nil
     }
 
     private func isInNormalWindow(_ item: FeedLocalItem) -> Bool {
