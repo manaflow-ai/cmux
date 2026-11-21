@@ -9,10 +9,14 @@
 
 use super::*;
 use crate::Actor;
+use crate::workspace_registry::FrontendBrowserRecord;
 
 /// Daemon-internal `pane.split` field: the new pane holds a browser at this
 /// URL instead of a terminal.
 pub(crate) const PANE_BROWSER_URL_FIELD: &str = "pane_browser_url";
+/// Renderer chosen for a public browser split, stored in the effect but
+/// excluded from the request fingerprint so replay needs no live renderer.
+pub(crate) const PANE_BROWSER_ENGINE_FIELD: &str = "pane_browser_frontend_engine";
 
 /// A new pane on the `direction` side of `pane` (`right`, `down`, `left` or
 /// `up`) that holds only one new tab: one `pane.split` commit and one
@@ -229,6 +233,23 @@ impl Mux {
                     state.screen_of(target).map(|(workspace, _)| state.workspaces[workspace].id)
                 })
                 .with_context(|| format!("pane {target} has no workspace"))?;
+            if let Some(engine) = fields.get(PANE_BROWSER_ENGINE_FIELD).and_then(Value::as_str) {
+                let browser_id = intent["browser_reservation"]["browser_id"]
+                    .as_str()
+                    .context("stored browser reservation omitted its browser id")?;
+                let record = FrontendBrowserRecord {
+                    engine: engine.to_string(),
+                    url: url.to_string(),
+                    title: None,
+                    favicon_url: None,
+                    profile_id: None,
+                    owner: None,
+                };
+                let mut registry =
+                    self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+                registry.put_frontend_browser(browser_id, &record, None)?;
+                self.reload_presentation(&registry)?;
+            }
             let surface = self.spawn_browser_surface_with_resource_identity(
                 url.to_string(),
                 size,

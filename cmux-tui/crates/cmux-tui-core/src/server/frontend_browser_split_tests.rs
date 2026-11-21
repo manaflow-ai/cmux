@@ -54,6 +54,64 @@ fn frontend_browser_tab_split_capability_is_advertised() {
     assert!(advertised_capabilities(false).contains(&"frontend-browser-tab-split-v1"));
 }
 
+#[test]
+fn browser_pane_split_frontend_replays_after_close_with_a_stale_revision() {
+    let mux = Mux::new_for_test("public-frontend-browser-split", crate::SurfaceOptions::default());
+    let (writer, _outbound) = super::super::tests::captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer);
+    mux.control_clients
+        .set_info(client, None, None, Some(vec![FRONTEND_BROWSER_TABS_CAPABILITY.into()]))
+        .unwrap();
+    let request = |operation: &str, key: &str, fields: Value| {
+        let mut params = json!({"machine":"current","session":"current"});
+        params.as_object_mut().unwrap().extend(fields.as_object().unwrap().clone());
+        let envelope = json!({
+            "protocol":"cmux.protocol/2","type":"request","id":operation,
+            "operation":operation,"idempotency_key":key,"params":params,
+        });
+        let response =
+            crate::resource_router::handle_resource_message(&mux, &envelope.to_string()).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        response["result"].clone()
+    };
+    let workspace = request(
+        "workspace.create",
+        "initial-workspace",
+        json!({"name":"frontend-split","initial_content":"terminal","focus":true}),
+    );
+    let source = workspace["value"]["pane_id"].as_str().unwrap();
+    let active = mux.with_state(|state| state.active_pane()).unwrap();
+    let before = mux.surface_count();
+    let fields = json!({
+        "pane":source,"direction":"right","fit":true,"browser":true,
+        "correlation_key":"public-browser-split",
+    });
+    let created = request("pane.split", "split-attempt", fields.clone());
+    let path = &created["value"];
+    assert_eq!(path["kind"], "browser");
+    assert!(path["terminal_id"].is_null());
+    let pane_id = crate::resource::PanePublicId::parse(path["pane_id"].as_str().unwrap()).unwrap();
+    let tabs = mux.with_state(|state| state.pane_by_public_id(&pane_id).unwrap().tabs.clone());
+    assert_eq!(tabs.len(), 1);
+    assert_eq!(mux.surface_count(), before + 1);
+    assert_eq!(mux.with_state(|state| state.active_pane()), Some(active));
+    let browser = mux.surface(tabs[0]).unwrap();
+    assert!(browser.browser_source().is_none(), "a frontend browser needs no provider");
+    assert_eq!(browser.browser_status(), Some(crate::browser::BrowserStatus::Live));
+    assert_eq!(mux.frontend_browser(&browser).unwrap().url, "about:blank");
+
+    request("tab.close", "close-browser-tab", json!({"tab":path["tab_id"]}));
+    let remaining = mux.surface_count();
+    let retry = with_fields(fields, json!({"expected_revision":"0","url":"about:blank"}));
+    for key in ["split-attempt", "split-retry-attempt"] {
+        let replayed = request("pane.split", key, retry.clone());
+        assert_eq!(replayed["value"], *path);
+        assert_eq!(replayed["replayed"], true);
+        assert_eq!(mux.surface_count(), remaining);
+    }
+    mux.shutdown();
+}
+
 /// The split creates the frontend browser tab in a new pane in one
 /// `pane-added` delta under the caller-minted pane id; the source pane never
 /// lists the tab, and the tab is frontend-rendered (no CDP target).

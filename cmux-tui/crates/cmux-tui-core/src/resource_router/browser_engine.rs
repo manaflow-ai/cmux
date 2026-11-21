@@ -21,16 +21,17 @@ use serde_json::{Value, json};
 
 use super::{ParsedResourceRequest, content, operation_name, resource_operation_error};
 use crate::browser::BrowserStatus;
-use crate::mux::PANE_BROWSER_URL_FIELD;
+use crate::mux::{PANE_BROWSER_ENGINE_FIELD, PANE_BROWSER_URL_FIELD};
 use crate::resource::{OperationClass, ResourceError, ResourceOperation};
 use crate::server::FRONTEND_BROWSER_TABS_CAPABILITY;
 use crate::state::frontend_browser_keys::KeyedFrontendBrowser;
 use crate::workspace_registry::FrontendBrowserRecord;
 use crate::{Mux, ResourceTarget};
 
-/// Routes browser creation to an app that renders its own tabs, including
-/// browser pane splits. Plain `tab.create_browser` still prefers the daemon
-/// provider when one is attached. For frontend creations, the record is registered under the request's key first
+/// Routes browser creation to an app that renders its own tabs when no
+/// daemon provider is attached. Browser splits register their frontend
+/// record in the durable creation effect, under its reserved browser id.
+/// For `tab.create_browser`, the record is registered under the request's key first
 /// (the keyed `new-frontend-browser-tab` path), and the request then carries
 /// its `frontend_browser_id`. A retry under the same key reuses that id, so
 /// the topology receipt replays. A request that was received before on the
@@ -40,14 +41,25 @@ pub(super) fn route_to_frontend(
     request: &mut ParsedResourceRequest,
 ) -> Result<(), ResourceError> {
     let operation = request.envelope.operation;
-    let split = operation == ResourceOperation::PaneSplit
-        && request.fields.get("browser").and_then(Value::as_bool) == Some(true);
-    if split {
+    if operation == ResourceOperation::PaneSplit
+        && request.fields.remove("browser").and_then(|value| value.as_bool()) == Some(true)
+    {
         let url = request.fields.remove("url").unwrap_or_else(|| json!("about:blank"));
-        request.fields.remove("browser");
         request.fields.insert(PANE_BROWSER_URL_FIELD.into(), url);
+        if mux.browser_provider_snapshot().is_none()
+            && mux.control_clients.any_client_supports(FRONTEND_BROWSER_TABS_CAPABILITY)
+            && !received_before(mux, request)
+        {
+            let engine = crate::browser_profile_ops::requested_or_default_engine(
+                mux,
+                None,
+                super::required_string(&request.fields, PANE_BROWSER_URL_FIELD)?,
+            )?;
+            request.fields.insert(PANE_BROWSER_ENGINE_FIELD.into(), json!(engine.to_string()));
+        }
+        return Ok(());
     }
-    if (!split && operation != ResourceOperation::TabCreateBrowser)
+    if operation != ResourceOperation::TabCreateBrowser
         || request.fields.contains_key("frontend_browser_id")
     {
         return Ok(());
@@ -56,14 +68,13 @@ pub(super) fn route_to_frontend(
     let Some(key) = request.envelope.idempotency_key.clone() else { return Ok(()) };
     let keyed = mux.has_frontend_browser_key(&key).map_err(resource_operation_error)?;
     if !keyed
-        && ((!split && mux.browser_provider_snapshot().is_some())
+        && (mux.browser_provider_snapshot().is_some()
             || !mux.control_clients.any_client_supports(FRONTEND_BROWSER_TABS_CAPABILITY)
             || received_before(mux, request))
     {
         return Ok(());
     }
-    let url_field = if split { PANE_BROWSER_URL_FIELD } else { "url" };
-    let url = super::required_string(&request.fields, url_field)?.to_string();
+    let url = super::required_string(&request.fields, "url")?.to_string();
     // The request's `engine`, else the person's `browser.siteEngines` rule
     // for the URL, else `browser.defaultEngine` (Chromium unless set to
     // WebKit): an agent's tab opens in the same engine as one the person opens.
@@ -116,7 +127,7 @@ pub(super) fn refuse_without_provider(
     let daemon_rendered = match operation {
         ResourceOperation::TabCreateBrowser => !request.fields.contains_key("frontend_browser_id"),
         ResourceOperation::PaneSplit if request.fields.contains_key(PANE_BROWSER_URL_FIELD) => {
-            !request.fields.contains_key("frontend_browser_id")
+            !request.fields.contains_key(PANE_BROWSER_ENGINE_FIELD)
         }
         ResourceOperation::BrowserClose => false,
         _ if name.starts_with("browser.") && operation.class() == OperationClass::Mutation => {
