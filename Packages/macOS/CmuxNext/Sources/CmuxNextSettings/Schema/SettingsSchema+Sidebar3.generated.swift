@@ -8,6 +8,21 @@ extension SidebarSettingsSchema {
         let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         return [
             SettingDescriptor(
+                SidebarSectionsSetting.groupHeaderBackgroundPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupHeader.background", "Group Background"),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.background.help", "How a group's background draws. Sections shows plain headings instead."),
+                kind: .choice([
+                    SettingChoice(SidebarGroupBackgroundStyle.auto.rawValue, SettingsText.keyed("settings.choice.groupBackgroundAuto", "Automatic")),
+                    SettingChoice(SidebarGroupBackgroundStyle.glass.rawValue, SettingsText.keyed("settings.choice.groupBackgroundGlass", "Glass")),
+                    SettingChoice(SidebarGroupBackgroundStyle.solid.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSolid", "Solid")),
+                    SettingChoice(SidebarGroupBackgroundStyle.sections.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSections", "Sections")),
+                ]),
+                default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
+                keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header", "sections", "section", "heading", "plain"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.groupPalettePath,
                 section: .appearance,
                 group: group,

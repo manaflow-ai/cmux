@@ -46,11 +46,11 @@ REGRESSION = 0.10
 
 BENCHES = ["new_surfaces", "panes", "tab_switch", "palette", "sidebar", "home", "acp", "idle", "anim"]
 # Benches that run only when --only names them: the default (all of BENCHES) is what stable-next's --gate step runs, and
-# a bench added here is a perf cron row that warns, never a new gate row (CLAUDE.md: no new CI gates).
+# a bench added here is a perf cron row that warns, never a new gate row (the 2026-10-23 no-new-CI rule, since lifted).
 OPT_IN_BENCHES = ["terminal_burst"]
 PERF_BENCH = os.path.join(HERE, "..", "perf-bench")
 # Stage rows: where a judged row's time goes (the chat composer's typing: key to page, key to edit and render done).
-# Stored and shown, never gated, budgeted or written to a baseline: measurement only (no new CI gates).
+# Stored and shown, never gated, budgeted or written to a baseline: measurement only (the 2026-10-23 no-new-CI rule, since lifted).
 STAGE_ROW_RE = re.compile(r"^acp\.[^.@]+\.typing\.(to_listener|to_work)(@|$)")
 
 
