@@ -57,27 +57,31 @@ done < "$log"
 echo "::endgroup::"
 
 [ -n "$id" ] || finish unavailable "the client submitted no step (exit $status)"
-json="$("$client" status "$id" 2>&1)" || finish unavailable "the controller's record of step $id could not be read"
+json="$("$client" status "$id")" || finish unavailable "the controller's record of step $id could not be read"
 
-refs=0
-rest="$json"
-while [[ "$rest" =~ \"ref\":\ *\"([^\"]*)\"(.*) ]]; do
-  refs=$((refs + 1))
-  [ "${BASH_REMATCH[1]}" = "$ref" ] || finish unavailable "step $id tested ${BASH_REMATCH[1]:-no commit}, not $ref"
-  rest="${BASH_REMATCH[2]}"
-done
-[ "$refs" -gt 0 ] || finish unavailable "step $id's record names no tested commit"
-if [[ "$json" =~ \"source_digest\":\ *\"([^\"]*)\" ]] && [ -n "${BASH_REMATCH[1]}" ] && [ "${BASH_REMATCH[1]}" != "$ref" ]; then
-  finish unavailable "step $id checked out ${BASH_REMATCH[1]}, not $ref"
+# The step's own top-level fields, read with json (no first-match regex): ref, source_digest, state, exit_code.
+fields="$(printf '%s' "$json" | python3 -c '
+import json, sys
+try:
+    record = json.load(sys.stdin)
+except ValueError:
+    sys.exit(1)
+if not isinstance(record, dict):
+    sys.exit(1)
+code = record.get("exit_code")
+print("\x1f".join(str(record.get(key) or "") for key in ("ref", "source_digest", "state"))
+      + "\x1f" + (str(code) if isinstance(code, int) and not isinstance(code, bool) else ""))
+')" || finish unavailable "step $id's record is not a JSON object"
+IFS=$'\x1f' read -r tested digest state code <<< "$fields"
+[ -n "$tested" ] || finish unavailable "step $id's record names no tested commit"
+[ "$tested" = "$ref" ] || finish unavailable "step $id tested $tested, not $ref"
+if [ -n "$digest" ] && [ "$digest" != "$ref" ]; then
+  finish unavailable "step $id checked out $digest, not $ref"
 fi
-state=""
-code=""
-if [[ "$json" =~ \"state\":\ *\"([a-z_]*)\" ]]; then state="${BASH_REMATCH[1]}"; fi
-if [[ "$json" =~ \"exit_code\":\ *(-?[0-9]+) ]]; then code="${BASH_REMATCH[1]}"; fi
 
-if [ "$status" = 0 ] && [ "$state" = done ] && [ "$code" = 0 ]; then
+if [ "$status" = 0 ] && [ "$state" = "done" ] && [ "$code" = 0 ]; then
   finish pass "every selected package passed at $ref (step $id)"
-elif { [ "$state" = failed ] || [ "$state" = done ]; } && [[ "$code" =~ ^-?[0-9]+$ ]] && [ "$code" -ne 0 ]; then
+elif { [ "$state" = failed ] || [ "$state" = "done" ]; } && [[ "$code" =~ ^-?[0-9]+$ ]] && [ "$code" -ne 0 ]; then
   finish fail "a package test failed or did not build at $ref (step $id, exit $code); the errors are in its log above"
 fi
 finish unavailable "no verdict from step $id (client exit $status, step ${state:-unknown})"
