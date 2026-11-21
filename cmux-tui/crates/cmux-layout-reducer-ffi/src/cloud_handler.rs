@@ -273,13 +273,19 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let sizes: Map<String, Value> = args::CREATE_SIZES
                 .iter()
                 .map(|(name, cpu, memory)| {
-                    ((*name).to_owned(), json!({ "cpu": cpu, "memoryMb": memory }))
+                    (
+                        (*name).to_owned(),
+                        json!({ "cpu": cpu, "memoryMb": memory }),
+                    )
                 })
                 .collect();
             let resize: Map<String, Value> = args::RESIZE_SIZES
                 .iter()
                 .map(|(name, cpu, memory)| {
-                    ((*name).to_owned(), json!({ "cpu": cpu, "memoryMb": memory }))
+                    (
+                        (*name).to_owned(),
+                        json!({ "cpu": cpu, "memoryMb": memory }),
+                    )
                 })
                 .collect();
             json!({ "toolsProbe": answers::TOOLS_PROBE, "createSizes": sizes, "resizeSizes": resize,
@@ -351,7 +357,10 @@ fn facts(operation: &[u8], f: Facts) -> Result<Value, i32> {
         b"cloud_handler_share_link" => {
             let ok = answers::share_link_ok(&f.url);
             let refusal = (!ok).then(|| {
-                f.names.said("portFailed", &["the platform returned an invalid share URL"])
+                f.names.said(
+                    "portFailed",
+                    &["the platform returned an invalid share URL"],
+                )
             });
             json!({ "ok": ok, "refusal": value(refusal)? })
         }

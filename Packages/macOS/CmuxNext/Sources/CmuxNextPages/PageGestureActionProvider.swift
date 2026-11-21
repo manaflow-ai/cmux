@@ -10,8 +10,7 @@ public import Foundation
 public final class PageGestureActionProvider: PageProvider {
     private let page: PageDescriptor
     private let inner: any PageProvider
-    /// The gesture the last run spent (`PageCallContext.gestureEvent`).
-    private var spentGesture: TimeInterval?
+    private var clicks = PageGestureSpender()
 
     public init(page: PageDescriptor, wrapping inner: any PageProvider) {
         self.page = page
@@ -20,10 +19,7 @@ public final class PageGestureActionProvider: PageProvider {
 
     /// Whether `action` runs as the person's own on `context`; a `true` answer spends its gesture.
     public func runsAsPerson(_ action: String, _ context: PageCallContext) -> Bool {
-        guard page.gestureActions.contains(action), context.page == page.id, context.userGesture,
-              let event = context.gestureEvent, event != spentGesture else { return false }
-        spentGesture = event
-        return true
+        page.gestureActions.contains(action) && context.page == page.id && clicks.spend(context)
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {

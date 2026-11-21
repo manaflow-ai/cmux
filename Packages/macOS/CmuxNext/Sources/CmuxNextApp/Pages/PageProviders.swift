@@ -8,8 +8,8 @@ import Foundation
 
 /// The app's native UI ops for React pages (plans/cmux-next/react-pages.md 1.3):
 /// `cmux.app.action.run` runs one of the page's allowed registry actions with origin `page` (never
-/// `user` unless a native sheet confirmed it, so rules such as destructive confirmation still
-/// ask), and `cmux.app.clipboard.write` writes the pasteboard, only on the person's own gesture.
+/// `user` unless the call was confirmed, so rules such as destructive confirmation still ask), and
+/// `cmux.app.clipboard.write` writes the pasteboard, only on the person's own gesture.
 @MainActor
 final class AppPageNativeProvider: PageProvider {
     private unowned let services: AppServices
@@ -17,6 +17,7 @@ final class AppPageNativeProvider: PageProvider {
     /// Runs a confirmed namespace op on the provider that owns its namespace.
     var forward: (@MainActor (_ op: String, _ params: CmuxNextSettings.JSONValue, _ context: PageCallContext) async throws -> CmuxNextSettings.JSONValue)?
     var presenter: any PageConfirmationPresenter = DialogPageConfirmationPresenter()
+    private var clicks = PageGestureSpender()
     /// The page view the sheet attaches to.
     var anchor: () -> NSView? = { nil }
     /// Writes the text `cmux.app.clipboard.write` puts on the clipboard: the general
@@ -110,14 +111,14 @@ final class AppPageNativeProvider: PageProvider {
         }
     }
 
-    /// A confirmed op (``PageDescriptor/confirmedOps``): the native sheet, then the op as the user's
-    /// own on the namespace's provider. A declined sheet answers `{confirmed: false}` (the Cloud
-    /// page's contract), an approved one `{confirmed: true, value}`.
+    /// A confirmed op (``PageDescriptor/confirmedOps``) as the user's own: on the person's fresh click
+    /// (spent once) for one of ``PageConfirmation/clickRunsOps``, else after the native sheet. A
+    /// declined sheet answers `{confirmed: false}` (the Cloud page's contract), else `{confirmed: true, value}`.
     private func runConfirmed(_ op: String, kind: PageConfirmation.Kind, args: CmuxNextSettings.JSONValue,
                               context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard let forward else { throw PageError.unknownOp(op) }
-        let labels = (args.objectValue ?? [:]).compactMapValues(\.stringValue)
-        guard await presenter.confirm(.forOp(op, kind: kind, args: labels), anchor: anchor()) else { return ["confirmed": false] }
+        let sheet = PageConfirmation.forOp(op, kind: kind, args: (args.objectValue ?? [:]).compactMapValues(\.stringValue))
+        if sheet.asksAfterClick || !clicks.spend(context), !(await presenter.confirm(sheet, anchor: anchor())) { return ["confirmed": false] }
         let value = try await forward(op, args, PageCallContext(page: context.page, origin: "user", confirmed: true, opid: context.opid))
         return ["confirmed": true, "value": value]
     }

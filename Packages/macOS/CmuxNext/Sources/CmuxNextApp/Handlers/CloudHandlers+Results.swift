@@ -261,13 +261,6 @@ extension CloudHandlerRules {
         case "portLimit": return CloudPortStrings.limit(names)
         case "portPathInvalid": return CloudPortStrings.pathInvalid(names)
         case "portNoLink": return CloudPortStrings.noLink(names)
-        case "gitHubAppConfirmBody": return CloudStrings.gitHubAppConfirmBody(name: value(0), email: value(1))
-        case "gitHubAppConfirmNoIdentity": return CloudStrings.gitHubAppConfirmNoIdentity
-        case "gitHubConfirmBody": return CloudStrings.gitHubConfirmBody(name: value(0), email: value(1))
-        case "gitHubConfirmNoIdentity": return CloudStrings.gitHubConfirmNoIdentity
-        case "gitHubFallbackNotConnected": return CloudStrings.gitHubFallback(.notConnected)
-        case "gitHubFallbackNotConfigured": return CloudStrings.gitHubFallback(.notConfigured)
-        case "gitHubFallbackUnknown": return CloudStrings.gitHubFallback(.unknown)
         default: return said.args.isEmpty ? Self.unanswered : said.args.joined(separator: " ")
         }
     }
