@@ -1001,7 +1001,8 @@ test("a quiet failure's short reply draws under its named line, never folded ins
     const at = view.findIndex((row) => row.kind === BACKGROUND_TURN);
     expect(at).toBeGreaterThanOrEqual(0);
     expect(lineHtml(view[at]!)).toContain("Background command failed (exit code 1)");
-    expect(lineHtml(view[at]!)).not.toContain("aria-expanded");
+    // It opens to its task (backgroundTurnTask.ts), never folds the reply under it.
+    expect(lineHtml(view[at]!)).toContain('data-opens="task"');
     expect(view[at + 1]).toMatchObject({
       kind: "assistant",
       text: "The suite failed on one flaky test; rerunning it.",
@@ -1012,7 +1013,8 @@ test("a quiet failure's short reply draws under its named line, never folded ins
 });
 
 // #33319: a failure that ended with something to say keeps its named line over its rows, so a long
-// reply never hides what failed. The line heads rows that already show, so it opens nothing.
+// reply never hides what failed. The line heads rows that already show, so it opens only to its task
+// (Leo, 2026-11-21: "background tasks not expandable"), never to them.
 test("a failure with a long reply keeps its named line over the reply", async () => {
   const daemon = fakeDaemon(
     record([
@@ -1038,7 +1040,7 @@ test("a failure with a long reply keeps its named line over the reply", async ()
     expect(at).toBeGreaterThanOrEqual(0);
     const line = view[at]!;
     expect(lineHtml(line)).toContain("Background command failed (exit code 101)");
-    expect(lineHtml(line)).not.toContain("aria-expanded");
+    expect(lineHtml(line)).toContain('data-opens="task"');
     expect(lineHtml(line)).toContain('data-background-turn="failed"');
     expect(view.slice(at + 1).some((row) => row.text?.includes("Here is what broke"))).toBe(true);
   } finally {

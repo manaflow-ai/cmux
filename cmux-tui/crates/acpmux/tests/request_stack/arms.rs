@@ -409,6 +409,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 "taken only from the unix socket, by the peer's pid (invalid params)",
             ),
         ),
+        (
+            method::MUX_INBOX_RELAY,
+            Any(json!({}), "taken only from a process a Claude Code session runs (invalid params)"),
+        ),
         (method::MUX_RENAME, Run(json!({"sessionId": "$S", "newName": "renamed-s"}))),
         (
             method::MUX_KEEP,

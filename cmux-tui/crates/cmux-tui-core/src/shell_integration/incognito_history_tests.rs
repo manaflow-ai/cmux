@@ -129,6 +129,7 @@ fn run_explicit_command(
 
 /// The repo's Ghostty scripts and the app's layer, as the app bundles them.
 fn app_resources() -> (PathBuf, PathBuf) {
+    // affected-reads: ghostty-next Resources/cmux-cli-path
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     (
         fs::canonicalize(root.join("ghostty-next/src/shell-integration")).unwrap(),
