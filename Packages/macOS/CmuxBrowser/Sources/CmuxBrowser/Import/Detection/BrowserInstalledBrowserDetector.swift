@@ -52,7 +52,8 @@ public struct BrowserInstalledBrowserDetector {
 
             let dataDetection = detectData(
                 descriptor: descriptor,
-                appBundleIdentifier: appDetection.bundleIdentifier
+                appBundleIdentifier: appDetection.bundleIdentifier,
+                appDetected: appDetection.url != nil
             )
 
             if appDetection.url == nil,
@@ -179,9 +180,14 @@ public struct BrowserInstalledBrowserDetector {
         return (nil, [], nil)
     }
 
+    /// Finds a browser's data root, its profiles and any data artifacts under the home directory.
+    ///
+    /// `appDetected` says whether the browser's app was found. Only Safari uses it: Safari's
+    /// default profile is offered when its app is installed even if none of its data is visible.
     private func detectData(
         descriptor: BrowserImportBrowserDescriptor,
-        appBundleIdentifier: String?
+        appBundleIdentifier: String?,
+        appDetected: Bool
     ) -> (dataRootURL: URL?, family: BrowserImportEngineFamily, profiles: [InstalledBrowserProfile], artifactHits: [String]) {
         var bestRootURL: URL?
         var bestFamily = descriptor.family
@@ -242,6 +248,28 @@ public struct BrowserInstalledBrowserDetector {
                     isDefault: true
                 )
             ]
+        }
+
+        // Safari's default cookie store lives in its sandbox container (or, before the sandbox,
+        // in ~/Library/Cookies), outside the data root, and the cookie reader resolves a default
+        // profile to those stores, not to the profile's root. So the default profile is offered
+        // at the root Safari would use whenever it is missing and either:
+        // - a data artifact was found. That covers a store that is the only trace of Safari,
+        //   and a store sitting beside named profiles, whose own stores are elsewhere.
+        // - the app is installed. Without Full Disk Access neither the data root nor the
+        //   container is visible, and choosing the profile is how the import reaches the
+        //   reader's access-denied warning.
+        if descriptor.id == "safari",
+           !bestProfiles.contains(where: \.isDefault),
+           !artifactHits.isEmpty || appDetected,
+           let rootPath = candidateRootPaths.first {
+            bestProfiles.append(
+                InstalledBrowserProfile(
+                    displayName: String(localized: "browser.profile.default", defaultValue: "Default"),
+                    rootURL: homeDirectoryURL.appendingPathComponent(rootPath, isDirectory: true),
+                    isDefault: true
+                )
+            )
         }
 
         return (
