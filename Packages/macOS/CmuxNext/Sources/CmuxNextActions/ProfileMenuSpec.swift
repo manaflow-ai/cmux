@@ -5,7 +5,7 @@
 // are in the Rust catalog (cmux-action-catalog).
 
 /// What the profile menu holds, top to bottom: the current profile (with its
-/// options submenu), the submenus, Show Chief, Personalization…, Settings, Check for Updates, the account
+/// options submenu), the submenus, Show Chief, Show Chief Pet, Personalization…, Settings, Check for Updates, the account
 /// rows (Accounts…, Cloud), then New Tab and Incognito Window. A submenu row or action the build
 /// does not register is left out, and a submenu with no row is left out
 /// (items whose feature does not exist are omitted, not disabled). "New
@@ -29,7 +29,10 @@ public nonisolated struct ProfileMenuSpec: Sendable {
 
     public var profileActions: [ActionID]
     public var submenus: [Submenu]
-    /// Personalization…, under Show Chief: Settings > Personalization (Leo 2026-11-07).
+    /// Show Chief (David Beyer, Nov 20: "Show Chief" did not show the Chief unless he went to Home): opens the
+    /// Chief, its conversation or the side panel (`home.openChief`), as the sidebar's Chief row does.
+    public var chief: Row
+    /// Personalization…, under Show Chief Pet: Settings > Personalization (Leo 2026-11-07).
     public var personalization: Row
     public var settings: Row
     /// Check for Updates…, under Settings: the app menu has it, and the
@@ -56,6 +59,7 @@ public nonisolated struct ProfileMenuSpec: Sendable {
                     symbol: "chevron.left.forwardslash.chevron.right",
                     actions: ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement"]),
         ]
+        chief = Row(action: "home.openChief", title: Self.text("menu.profile.showChief", "Show Chief"), symbol: "sparkles")
         personalization = Row(action: "appearance.personalize", title: nil, symbol: "wand.and.stars")
         settings = Row(action: "openSettings", title: nil, symbol: "gear")
         updates = Row(action: "palette.checkForUpdates", title: nil, symbol: "arrow.down.circle")
@@ -69,7 +73,7 @@ public nonisolated struct ProfileMenuSpec: Sendable {
         ]
     }
 
-    /// The setting the Show Chief / Hide Chief row flips (CmuxNextSettings `HomeChiefPetSetting`).
+    /// The setting the Show Chief Pet / Hide Chief Pet row flips (CmuxNextSettings `HomeChiefPetSetting`).
     public static let chiefPetSetting = "home.chiefPetEnabled"
 
     static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
