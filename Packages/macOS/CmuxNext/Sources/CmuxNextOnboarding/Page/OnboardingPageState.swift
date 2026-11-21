@@ -91,6 +91,7 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         let bookmarks: Int
         let history: Int
         let openTabs: Int
+        let extensions: Int
         let cookies: Int
         let passwords: Int
         let searchEngines: Int
@@ -99,6 +100,7 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
             bookmarks = counts.bookmarks
             history = counts.history
             openTabs = counts.openTabs
+            extensions = counts.extensions
             cookies = counts.cookies
             passwords = counts.passwords
             searchEngines = counts.searchEngines

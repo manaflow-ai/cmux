@@ -111,10 +111,16 @@ public struct BrowserDataReader: Sendable {
         }
     }
 
-    /// A Chromium profile's Web Store extensions.
+    /// A Chromium profile's Web Store and unpacked extensions.
     @concurrent public func extensions(_ profile: BrowserSourceProfile) async throws -> [ImportedExtension] {
         guard profile.browser.family == .chromium else { return [] }
         return try await protected.profile(profile.path, over: transport) { try await list(Request(reader: "chromium.extensions", profile: $0)) }
+    }
+
+    /// Every extension the Chromium profile in `folder` has (a cmux profile's own folder, which no
+    /// privacy protection guards); empty for a profile Chromium has not made yet.
+    @concurrent public func installedExtensions(in folder: URL) async throws -> [InstalledExtension] {
+        try await list(Request(reader: "chromium.installed_extensions", profile: folder.path))
     }
 
     /// The `browser.searchEngine` setting for `engine`: the built-in engine (`builtIn`: id to

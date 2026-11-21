@@ -134,7 +134,8 @@ public extension Optional where Wrapped == ImportCounts {
 enum ImportCountsText {
     static func line(_ counts: ImportCounts) -> String {
         let values: [(ImportDataKind, Int)] = [(.bookmarks, counts.bookmarks), (.history, counts.history),
-                                               (.openTabs, counts.openTabs), (.cookies, counts.cookies), (.passwords, counts.passwords)]
+                                               (.openTabs, counts.openTabs), (.extensions, counts.extensions), (.cookies, counts.cookies),
+                                               (.passwords, counts.passwords)]
         // One default engine per profile: its name alone says it came over.
         let engine = counts.searchEngines > 0 ? [OnboardingStrings.kind(.searchEngines)] : []
         return (values.filter { $0.1 > 0 }.map { "\(OnboardingStrings.kind($0.0)) \($0.1.formatted(.number))" } + engine)

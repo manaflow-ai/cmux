@@ -22,6 +22,7 @@ const KIND_KEYS: Record<ImportDataKind, string> = {
   bookmarks: "onboarding.kind.bookmarks",
   history: "onboarding.kind.history",
   openTabs: "onboarding.kind.openTabs",
+  extensions: "onboarding.kind.extensions",
   cookies: "onboarding.kind.signIns",
   searchEngines: "onboarding.kind.searchEngine",
   passwords: "onboarding.kind.passwords",
@@ -46,6 +47,7 @@ const COUNTED: readonly (keyof ImportCounts & ImportDataKind)[] = [
   "bookmarks",
   "history",
   "openTabs",
+  "extensions",
   "cookies",
   "passwords",
 ];
@@ -54,7 +56,7 @@ const COUNTED: readonly (keyof ImportCounts & ImportDataKind)[] = [
 export function countsLine(strings: Strings, counts: ImportCounts | null | undefined): string {
   if (counts == null) return "";
   const parts = COUNTED.filter((kind) => (counts[kind] ?? 0) > 0).map(
-    (kind) => `${kindLabel(strings, kind)} ${formatCount(strings, counts[kind])}`,
+    (kind) => `${kindLabel(strings, kind)} ${formatCount(strings, counts[kind] ?? 0)}`,
   );
   // One default engine per profile: its name alone says it came over.
   if ((counts.searchEngines ?? 0) > 0) parts.push(kindLabel(strings, "searchEngines"));
