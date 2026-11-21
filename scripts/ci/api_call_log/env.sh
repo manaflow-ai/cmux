@@ -7,9 +7,11 @@
 # together and the Python line's X-RateLimit-Reset names that token's installation pool. It
 # never logs a header value besides those, a body, a flag value or a token.
 #
-# It switches itself off at 2026-11-19 00:00 UTC (below): a second window, for the cmux-bot
-# installation's pool (hq docs/handbook/app-installation-spend-per-caller.md); the first ended
-# 2026-11-05. A follow-up removes it and the BASH_ENV lines.
+# It switches itself off at 2026-11-22 00:00 UTC (below): a third window, for the routing App
+# installation 164690637 (manaflow-glaeda-route), which loses ~4.3k REST/h to callers no one counts
+# (the Linux scaler measured ~450/h). The first window ended 2026-11-05, the second (cmux-bot's
+# pool, hq docs/handbook/app-installation-spend-per-caller.md) 2026-11-19. A follow-up removes it
+# and the BASH_ENV lines.
 #
 # This file must never fail, never print, and never change what a step does. It does three things:
 #   - puts scripts/ci/api_call_log/gh first on PATH, a shim that logs one line and execs the real gh with the same argv;
@@ -27,7 +29,7 @@ _api_call_log_setup() {
   case "${RUNNER_OS:-}" in Linux | macOS) ;; *) return 1 ;; esac
   [ -n "${RUNNER_TEMP:-}" ] && [ -n "${BASH_SOURCE[0]:-}" ] || return 1
   # Self-expiring: after this hour (UTC) it does nothing, whether or not the cleanup PR has landed.
-  [ "$(date -u +%Y%m%d%H 2>/dev/null || echo 9999999999)" -lt 2026111900 ] || return 1
+  [ "$(date -u +%Y%m%d%H 2>/dev/null || echo 9999999999)" -lt 2026112200 ] || return 1
   local src dir sink
   src=$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd) || src=""
   dir="$RUNNER_TEMP/api-call-log"

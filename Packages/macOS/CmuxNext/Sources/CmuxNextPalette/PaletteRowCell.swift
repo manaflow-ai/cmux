@@ -30,6 +30,24 @@ final class PaletteKeycapsView: NSView {
         return NSSize(width: widths.reduce(0, +) + Metrics.space1 * CGFloat(keycaps.count - 1), height: PaletteLayout.keycapSize)
     }
 
+    /// Where `cap` draws in `rect` (flipped), on the pixel grid. Its ink is centered left to right. Up and
+    /// down, a symbol key (↩ ⇥ ⌘ ⌥ ⇧ ⌫, arrows) centers its own ink: centered by its line box, ↩ and ⇥ drew
+    /// below the middle of the cap and of the text beside it (#48512). Letters, digits and punctuation
+    /// center the font's capitals instead, so "," "'" "." and "_" keep their height on the line.
+    private func baseline(of cap: String, in rect: NSRect) -> NSPoint {
+        let font = Typography.shortcut
+        let unbounded = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        // Measured from the baseline, y up.
+        let ink = (cap as NSString).boundingRect(with: unbounded, options: [.usesDeviceMetrics], attributes: attributes)
+        let isSymbol = !cap.isEmpty && cap.unicodeScalars.allSatisfy {
+            $0.properties.generalCategory == .otherSymbol || $0.properties.generalCategory == .mathSymbol
+        }
+        let y = isSymbol && !ink.isEmpty ? rect.midY + ink.midY : rect.midY + font.capHeight / 2
+        let x = ink.isEmpty ? rect.midX - (cap as NSString).size(withAttributes: attributes).width / 2 : rect.midX - ink.midX
+        let scale = window?.backingScaleFactor ?? 2
+        return NSPoint(x: (x * scale).rounded() / scale, y: (y * scale).rounded() / scale)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         var x: CGFloat = 0
         let size = PaletteLayout.keycapSize
@@ -41,8 +59,7 @@ final class PaletteKeycapsView: NSView {
                 Palette.hoverFill.setFill()
                 NSBezierPath(roundedRect: rect, xRadius: PaletteLayout.keycapCornerRadius, yRadius: PaletteLayout.keycapCornerRadius).fill()
                 let text = cap as NSString
-                let textSize = text.size(withAttributes: attributes)
-                text.draw(at: NSPoint(x: rect.midX - textSize.width / 2, y: rect.midY - textSize.height / 2), withAttributes: attributes)
+                text.draw(with: NSRect(origin: baseline(of: cap, in: rect), size: .zero), options: [], attributes: attributes)
                 x += width + Metrics.space1
             }
         }

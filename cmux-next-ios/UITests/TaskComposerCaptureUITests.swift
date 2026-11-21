@@ -11,8 +11,8 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
     @MainActor
     private static func openComposer(_ app: XCUIApplication) -> String? {
         steps([
-            { longPress(any(app, "workspaces.new"), "New Workspace button") },
-            { tap(any(app, "workspaces.newTask"), "New Task…") },
+            // The floating New Task button above the tab bar (2026-11-18), not a menu row.
+            { tap(any(app, "workspaces.newTask"), "New Task button") },
             { any(app, "taskComposer.prompt").waitForExistence(timeout: 10) ? nil : "composer did not open" },
             { dismissKeyboardTip(app); return nil },
         ])
@@ -40,6 +40,23 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         let end = Date().addingTimeInterval(timeout)
         while Date() < end { if ok() { return nil }; pause(0.3) }
         return ok() ? nil : why
+    }
+
+    /// The New Task button where it belongs: just above the tab bar and in from the trailing edge,
+    /// whatever the page under it shows (it floated mid-screen over an empty list on iOS 27,
+    /// 2026-11-19, while the list captures looked right).
+    @MainActor
+    private static func placed(_ app: XCUIApplication) -> String? {
+        let button = C.any(app, "workspaces.newTask")
+        if let missing = check(button.exists && button.isHittable, "no New Task button", timeout: 8) { return missing }
+        let bar = app.tabBars.firstMatch
+        guard bar.exists else { return "no tab bar" }
+        let frame = button.frame, window = app.windows.firstMatch.frame
+        let above = bar.frame.minY - frame.maxY
+        guard (0...40).contains(above) else { return "New Task button is \(Int(above)) pt above the tab bar (want 0...40)" }
+        let inset = window.maxX - frame.maxX
+        guard (4...40).contains(inset) else { return "New Task button is \(Int(inset)) pt in from the trailing edge (want 4...40)" }
+        return nil
     }
 
     @MainActor
@@ -192,8 +209,54 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                 C.steps([{ C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
                          { app.swipeUp(); C.pause(0.8); return nil }])
             },
+            // The floating New Task button, bottom trailing above the tab bar.
+            Scene(group: g, id: "new-task-button", args: Self.list) { app in Self.placed(app) },
+            // Scrolled to the end: the last row clears the button (the list's bottom room).
+            Scene(group: g, id: "new-task-button-scrolled-end", args: Self.list) { app in
+                C.steps([{ Self.placed(app) },
+                         { for _ in 0..<4 { app.swipeUp() }; C.pause(1.2); return nil },
+                         { Self.placed(app) }])
+            },
+            Scene(group: g, id: "new-task-button-large-type", args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"]) { app in
+                Self.placed(app)
+            },
+            // An empty list (the phone's "No workspaces" page): the button stays above the tab bar.
+            Scene(group: g, id: "new-task-button-empty-list", args: Self.list) { app in
+                app.swipeDown()
+                return C.steps([{ C.showKeyboard(app, field: app.searchFields.firstMatch, "search field") },
+                                { app.typeText("zzqqxx\n"); C.pause(1.0); return nil },
+                                { Self.check(!app.keyboards.firstMatch.exists, "the keyboard stayed up") },
+                                { Self.placed(app) }])
+            },
+            // The keyboard up: the button stays put behind it (never lifted into the list).
+            Scene(group: g, id: "new-task-button-keyboard-up", args: Self.list) { app in
+                app.swipeDown()
+                return C.steps([{ C.showKeyboard(app, field: app.searchFields.firstMatch, "search field") },
+                                { app.typeText("cmux"); C.pause(1.0); return nil },
+                                {
+                                    // Behind the keyboard, at its place above the tab bar: not lifted over the list.
+                                    let button = C.any(app, "workspaces.newTask"), keyboard = app.keyboards.firstMatch
+                                    guard keyboard.exists else { return "no keyboard" }
+                                    guard button.exists else { return nil }
+                                    return button.frame.minY >= keyboard.frame.minY - 1 ? nil : "the keyboard lifted the New Task button"
+                                }])
+            },
+            // Feed shows it too (2026-11-19), at the same place.
+            Scene(group: g, id: "new-task-button-feed", args: ["-cmux-mobile-tab", "feed", "-cmux-mobile-fresh-task-setup"]) { app in
+                Self.placed(app)
+            },
+            Scene(group: g, id: "new-task-button-feed-composer", args: ["-cmux-mobile-tab", "feed", "-cmux-mobile-fresh-task-setup"]) { app in
+                C.steps([{ Self.placed(app) }, { Self.openComposer(app) }])
+            },
+            // A pushed page (a workspace) has no button.
+            Scene(group: g, id: "new-task-button-hidden-pushed", args: Self.list) { app in
+                C.steps([{ Self.placed(app) },
+                         { C.tap(app.buttons["workspace.row.ws-cmux"], "ws-cmux row") },
+                         { Self.check(!C.any(app, "workspaces.newTask").exists, "New Task button on a pushed page") }])
+            },
             Scene(group: g, id: "entry-hidden-no-agents", args: Self.list + ["-cmux-mobile-no-agents"]) { app in
-                C.steps([{ C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
+                C.steps([{ Self.check(!C.any(app, "workspaces.newTask").exists, "New Task button shown with no agents") },
+                         { C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
                          { Self.check(!C.any(app, "workspaces.newTask").exists, "New Task is offered") }])
             },
             // A plain tap opens an agent chat in the latest project folder (2026-11-17); with no
@@ -529,6 +592,19 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
 
     /// Start with one agent: the sheet closes, the new workspace opens at once on its agent
     /// tab named for the task, and the composer's prompt is cleared for the next task.
+    /// The symbol exploration (Aziz, 2026-11-19): the button with each candidate in place of
+    /// `plus`, on the real list, light and dark (`-cmux-mobile-new-task-symbol`, DEBUG only).
+    @MainActor
+    func testNewTaskSymbolOptions() {
+        let symbols = ["plus", "square.and.pencil", "pencil", "pencil.line", "sparkles", "wand.and.sparkles",
+                       "plus.bubble", "bubble.and.pencil", "text.bubble", "paperplane", "bolt", "terminal"]
+        capture(symbols.map { symbol in
+            Scene(group: "8 New Task symbols", id: "symbol-\(symbol)", args: Self.list + ["-cmux-mobile-new-task-symbol", symbol]) { app in
+                Self.placed(app)
+            }
+        })
+    }
+
     @MainActor
     func testStartOneOpensTheWorkspaceAndClearsThePrompt() {
         let app = launch(Self.list + ["-cmux-mobile-mock-create-delay", "4"])
