@@ -49,6 +49,7 @@ extension CmuxSettingsFileStore {
             }
     }
 
+    /// Builds ordered configuration-template sections with defaults, shortcut bindings and sample values.
     private static func defaultTemplateSections() -> [[String: Any]] {
         let fileEditorSettings = FilePreviewEditorSettings(defaults: .standard)
         let shortcutsBindings = Dictionary(
@@ -216,6 +217,7 @@ extension CmuxSettingsFileStore {
                     "claudeCodeIntegration": IntegrationsCatalogSection().claudeCodeHooksEnabled.defaultValue,
                     "piIntegration": IntegrationsCatalogSection().piHooksEnabled.defaultValue,
                     "claudeBinaryPath": "",
+                    "codexLaunchCommand": "",
                     "codexIntegration": IntegrationsCatalogSection().codexHooksEnabled.defaultValue,
                     "ripgrepBinaryPath": "",
                     "suppressSubagentNotifications": IntegrationsCatalogSection().suppressSubagentNotifications.defaultValue,

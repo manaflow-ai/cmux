@@ -78,6 +78,7 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
     private let computerUseConfigStore = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
     private let computerUseEnabledKey = SettingCatalog().computerUse.enabled
 
+    /// Snapshots terminal launch preferences, socket authentication and managed-policy overrides for a new surface.
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
         let integrations = AgentIntegrationSettingsStore(defaults: .standard)
         return TerminalSurfaceSpawnPolicy(
@@ -85,6 +86,7 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
             claudeHooksEnabled: integrations.claudeCodeHooksEnabled,
             codexHooksEnabled: integrations.codexHooksEnabled,
             customClaudePath: integrations.customClaudePath,
+            codexLaunchCommand: integrations.codexLaunchCommand,
             subagentNotificationEnvironmentKey: AgentIntegrationSettingsStore.subagentSuppressionEnvironmentKey,
             suppressSubagentNotifications: integrations.suppressesSubagentNotifications,
             cursorHooksEnabled: integrations.cursorHooksEnabled,

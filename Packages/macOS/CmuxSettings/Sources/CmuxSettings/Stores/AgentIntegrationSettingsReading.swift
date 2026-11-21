@@ -19,6 +19,9 @@ public protocol AgentIntegrationSettingsReading: Sendable {
     /// `claude` from `PATH`. Whitespace-only values read as `nil`.
     var customClaudePath: String? { get }
 
+    /// A Codex shell command prefix, or `nil` for normal executable resolution.
+    var codexLaunchCommand: String? { get }
+
     /// Whether the Cursor hooks integration is enabled.
     var cursorHooksEnabled: Bool { get }
 

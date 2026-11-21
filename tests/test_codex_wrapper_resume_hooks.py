@@ -35,10 +35,26 @@ def run_wrapper(
     restore_token: str | None = None,
     inject_args_available: bool = True,
     subrouter_marker: str | None = None,
+    launch_command: str | None = None,
+    in_cmux: bool = True,
+    nested_launch: bool = False,
+    launcher_preflight: bool = False,
+    profile_reorders_path: bool = False,
+    inherited_path_reorders_path: bool = False,
+    managed_shim_available: bool = True,
+    inherited_other_agent: bool = False,
+    sibling_shim_available: bool = True,
 ) -> tuple[int, list[str], list[str], dict[str, str], str]:
+    """Run the production wrapper with disposable fake Codex and cmux executables.
+
+    Launcher, PATH and inherited-identity variants expose the actual forwarded argv,
+    hook requests and process metadata. Return exit status, argv, cmux calls,
+    exported metadata and stderr so assertions can distinguish passthrough from
+    an instrumented session. Real socket fixtures are created only when requested.
+    """
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
-        wrapper_dir = tmp / "wrapper-bin"
+        wrapper_dir = tmp / ("wrapper bin" if profile_reorders_path or inherited_path_reorders_path else "wrapper-bin")
         real_dir = tmp / "real-bin"
         bundled_dir = tmp / "bundled cli"
         wrapper_dir.mkdir()
@@ -48,6 +64,15 @@ def run_wrapper(
         wrapper = wrapper_dir / "cmux-codex-wrapper"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
         wrapper.chmod(0o755)
+        shim = wrapper_dir / "codex"
+        if not sibling_shim_available:
+            # A bundled wrapper has no adjacent codex entrypoint; the managed
+            # shim lives separately, as it does in a real cmux terminal.
+            shim = tmp / "cmux-cli-shims" / "surface with spaces" / "codex"
+            shim.parent.mkdir(parents=True)
+        shim.symlink_to(wrapper)
+        launcher_script = tmp / "launcher with spaces"
+        make_executable(launcher_script, '#!/bin/sh\nexec codex "$@"\n')
 
         real_args_log = tmp / "real-args.log"
         real_env_log = tmp / "real-env.log"
@@ -60,19 +85,27 @@ def run_wrapper(
 set -euo pipefail
 : > "$FAKE_REAL_ARGS_LOG"
 for arg in "$@"; do
-  printf '%s\\n' "$arg" >> "$FAKE_REAL_ARGS_LOG"
+  printf '%s\\0' "$arg" >> "$FAKE_REAL_ARGS_LOG"
 done
 {
   printf 'CMUX_CODEX_PID=%s\\n' "${CMUX_CODEX_PID-__UNSET__}"
   printf 'CMUX_CODEX_HOOK_CMUX_BIN=%s\\n' "${CMUX_CODEX_HOOK_CMUX_BIN-__UNSET__}"
   printf 'CMUX_AGENT_LAUNCH_KIND=%s\\n' "${CMUX_AGENT_LAUNCH_KIND-__UNSET__}"
+  printf 'CMUX_AGENT_LAUNCH_EXECUTABLE=%s\\n' "${CMUX_AGENT_LAUNCH_EXECUTABLE-__UNSET__}"
+  printf 'CMUX_AGENT_LAUNCH_ARGV_B64=%s\\n' "${CMUX_AGENT_LAUNCH_ARGV_B64-__UNSET__}"
   printf 'CMUX_AGENT_RESUME_LAUNCH=%s\\n' "${CMUX_AGENT_RESUME_LAUNCH-__UNSET__}"
   printf 'CMUX_AGENT_RESTORE_LAUNCH=%s\\n' "${CMUX_AGENT_RESTORE_LAUNCH-__UNSET__}"
   printf 'CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND=%s\\n' "${CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND-__UNSET__}"
   printf 'CMUX_WORKSPACE_ID=%s\\n' "${CMUX_WORKSPACE_ID-__UNSET__}"
   printf 'CMUX_SURFACE_ID=%s\\n' "${CMUX_SURFACE_ID-__UNSET__}"
   printf 'CMUX_CODEX_HEADLESS=%s\\n' "${CMUX_CODEX_HEADLESS-__UNSET__}"
+  printf 'FAKE_PROVIDER=%s\\n' "${FAKE_PROVIDER-__UNSET__}"
+  printf 'CMUX_CODEX_LAUNCH_COMMAND_ACTIVE=%s\\n' "${CMUX_CODEX_LAUNCH_COMMAND_ACTIVE-__UNSET__}"
+  printf 'REAL_PID=%s\\n' "$$"
 } > "$FAKE_REAL_ENV_LOG"
+if [[ "${FAKE_NESTED_ONCE:-0}" == "1" ]]; then
+  FAKE_NESTED_ONCE=0 "$FAKE_WRAPPER" exec nested-prompt
+fi
 """,
         )
 
@@ -115,10 +148,61 @@ exit 1
             test_socket.bind(str(socket_path))
 
         env = os.environ.copy()
-        env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
+        env["PATH"] = f"{wrapper_dir}:{real_dir}:/usr/bin:/bin"
+        if inherited_path_reorders_path:
+            # Restore launches the managed shim by its absolute path after
+            # the pane's shell has already put native Codex first in PATH.
+            env["PATH"] = f"{real_dir}:{wrapper_dir}:/usr/bin:/bin"
         env["HOME"] = str(tmp / "home")
+        home = Path(env["HOME"])
+        home.mkdir()
+        env["CFFIXED_USER_HOME"] = str(home)
+        env["ZDOTDIR"] = str(home)
+        env["SHELL"] = "/bin/zsh"
+        env["FAKE_TEST_PATH"] = env["PATH"]
+        if profile_reorders_path:
+            # Homebrew shellenv and macOS path_helper can put the real binary
+            # ahead of cmux's shim while an interactive login shell starts.
+            env["FAKE_TEST_PATH"] = f"{real_dir}:{wrapper_dir}:/usr/bin:/bin"
+        env.pop("CMUX_CODEX_WRAPPER_SHIM_ROOT", None)
+        if not sibling_shim_available:
+            env["CMUX_CODEX_WRAPPER_SHIM_ROOT"] = str(shim.parent)
+            env["PATH"] += f":{shim.parent}"
+            env["FAKE_TEST_PATH"] = env["PATH"]
+        if managed_shim_available:
+            env["CMUX_CODEX_WRAPPER_SHIM"] = str(shim)
+        else:
+            env.pop("CMUX_CODEX_WRAPPER_SHIM", None)
+        if inherited_other_agent:
+            env["CMUX_AGENT_LAUNCH_KIND"] = "claude"
+            env["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/inherited/claude"
+            env["CMUX_AGENT_LAUNCH_ARGV_B64"] = "aW5oZXJpdGVkAA=="
+        env["FAKE_LAUNCHER_CALLS"] = str(tmp / "launcher-calls")
+        env["FAKE_WRAPPER"] = str(wrapper)
+        env["FAKE_NESTED_ONCE"] = "1" if nested_launch else "0"
+        (home / ".zshrc").write_text(
+            'export PATH="$FAKE_TEST_PATH"\n'
+            'subcodex() {\n'
+            '  printf "called\\n" >> "$FAKE_LAUNCHER_CALLS"\n'
+            '  export FAKE_PROVIDER=custom\n'
+            + ('  command codex --no-daemon --version >/dev/null || return\n' if launcher_preflight else '')
+            +
+            '  codex "$@"\n'
+            '}\n', encoding="utf-8",
+        )
+        env.pop("CMUX_CODEX_LAUNCH_COMMAND_ACTIVE", None)
+        if launch_command is None:
+            env.pop("CMUX_CODEX_LAUNCH_COMMAND", None)
+        else:
+            env["CMUX_CODEX_LAUNCH_COMMAND"] = {
+                "__script__": str(launcher_script),
+                "__shim__": str(shim),
+            }.get(launch_command, launch_command)
         env["CMUX_SURFACE_ID"] = "11111111-1111-1111-1111-111111111111"
         env["CMUX_WORKSPACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        if not in_cmux:
+            env.pop("CMUX_SURFACE_ID", None)
+            env.pop("CMUX_WORKSPACE_ID", None)
         env["CMUX_SOCKET_PATH"] = str(socket_path)
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli)
         env["FAKE_REAL_ARGS_LOG"] = str(real_args_log)
@@ -147,24 +231,171 @@ exit 1
 
         try:
             proc = subprocess.run(
-                [str(wrapper), *argv],
+                [str(shim if sibling_shim_available else wrapper), *argv],
                 cwd=tmp,
                 env=env,
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=15,
             )
         finally:
             if test_socket is not None:
                 test_socket.close()
 
         observed_env = dict(line.split("=", 1) for line in read_lines(real_env_log))
-        return proc.returncode, read_lines(real_args_log), read_lines(cmux_log), observed_env, proc.stderr.strip()
+        observed_env["launcher_calls"] = str(len(read_lines(tmp / "launcher-calls")))
+        real_args = real_args_log.read_bytes().split(b"\0")[:-1] if real_args_log.exists() else []
+        return proc.returncode, [arg.decode("utf-8") for arg in real_args], read_lines(cmux_log), observed_env, proc.stderr.strip()
 
 
 def expect(condition: bool, message: str, failures: list[str]) -> None:
     if not condition:
         failures.append(message)
+
+
+def test_custom_launch_command(failures: list[str]) -> None:
+    """Check custom-launcher selection, literal argv forwarding and one inner hook owner.
+
+    Includes executable paths, disabled hooks, nested launches, preflight commands
+    and error propagation without silently substituting the ordinary launcher.
+    """
+    for argv in (
+        ["resume", SESSION_ID, "-a", "never", "-s", "workspace-write"],
+        ["resume", SESSION_ID, "literal $(printf injected); 'quoted'"],
+        ["--version"], [],
+    ):
+        code, actual, calls, env, stderr = run_wrapper(
+            socket_state="stale", argv=argv, launch_command="subcodex",
+        )
+        label = f"custom-command/{argv}"
+        expect(code == 0, f"{label}: exit {code}: {stderr}", failures)
+        expect(env.get("FAKE_PROVIDER") == "custom", f"{label}: shell function was bypassed", failures)
+        expect(env.get("launcher_calls") == "1", f"{label}: launcher must run exactly once", failures)
+        expect(env.get("CMUX_CODEX_LAUNCH_COMMAND_ACTIVE") == "__UNSET__",
+               f"{label}: re-entry guard leaked into Codex", failures)
+        if argv == ["--version"]:
+            expect(actual == argv, f"{label}: non-session args changed: {actual}", failures)
+            expect(not calls, f"{label}: hooks injected into --version", failures)
+        else:
+            expect(env.get("REAL_PID") == env.get("CMUX_CODEX_PID"),
+                   f"{label}: claimed PID is not the real Codex PID", failures)
+            expect(sum(a.startswith("hooks.SessionStart=") for a in actual) == 1,
+                   f"{label}: SessionStart must be injected exactly once: {actual}", failures)
+            expect(env.get("CMUX_SURFACE_ID") == "11111111-1111-1111-1111-111111111111",
+                   f"{label}: surface tracking was lost", failures)
+            if argv:
+                expect(all(a in actual for a in argv), f"{label}: resume ID/options lost: {actual}", failures)
+
+    for command in ("", "  \n  "):
+        code, actual, _, env, _ = run_wrapper(socket_state="stale", argv=["--version"], launch_command=command)
+        expect(code == 0 and actual == ["--version"] and env.get("launcher_calls") == "0",
+               "empty custom command must preserve the default launcher", failures)
+
+    code, actual, _, _, _ = run_wrapper(socket_state="stale", argv=["--version"], launch_command="false")
+    expect(code != 0 and not actual, "a failed custom command must not fall back to ordinary Codex", failures)
+
+    for command in ("__script__", "__shim__"):
+        code, actual, calls, env, stderr = run_wrapper(
+            socket_state="stale", argv=["resume", SESSION_ID], launch_command=command,
+        )
+        expect(code == 0 and env.get("REAL_PID") == env.get("CMUX_CODEX_PID"),
+               f"{command}: executable handoff must retain the actual Codex PID: {stderr}", failures)
+        expect(SESSION_ID in actual and sum(a.startswith("hooks.SessionStart=") for a in actual) == 1,
+               f"{command}: executable launcher must not recurse or duplicate hooks: {actual}", failures)
+        expect(sum("hooks codex inject-args" in call for call in calls) == 1,
+               f"{command}: injection must run exactly once", failures)
+
+    code, actual, calls, env, _ = run_wrapper(
+        socket_state="stale", argv=["resume", SESSION_ID], launch_command="subcodex", hooks_disabled=True,
+    )
+    expect(code == 0 and actual == ["resume", SESSION_ID] and not calls and env.get("FAKE_PROVIDER") == "custom",
+           "disabling hooks must preserve the chosen launcher without injecting hooks", failures)
+
+    code, actual, calls, env, _ = run_wrapper(
+        socket_state="stale", argv=["--version"], launch_command="subcodex", in_cmux=False,
+    )
+    expect(code == 0 and actual == ["--version"] and not calls and env.get("launcher_calls") == "0",
+           "outside cmux the launcher override must not apply", failures)
+
+    code, actual, calls, env, stderr = run_wrapper(
+        socket_state="stale", argv=["resume", SESSION_ID], launch_command="subcodex",
+        nested_launch=True,
+    )
+    expect(code == 0 and env.get("launcher_calls") == "2",
+           f"nested Codex must use the configured launcher again: {stderr}", failures)
+    expect(env.get("REAL_PID") == env.get("CMUX_CODEX_PID") and env.get("CMUX_CODEX_HEADLESS") == "1",
+           "nested Codex must establish its own real PID and headless identity", failures)
+    expect(actual[-2:] == ["exec", "nested-prompt"] and sum(a.startswith("hooks.SessionStart=") for a in actual) == 1,
+           f"nested Codex must retain exactly one hook set: {actual}", failures)
+    expect(sum("hooks codex inject-args" in call for call in calls) == 2,
+           "outer and nested Codex must each request hooks once", failures)
+
+    code, actual, calls, env, stderr = run_wrapper(
+        socket_state="stale", argv=["resume", SESSION_ID, "--no-daemon"], launch_command="subcodex",
+        launcher_preflight=True,
+    )
+    expect(code == 0 and env.get("REAL_PID") == env.get("CMUX_CODEX_PID") and env.get("launcher_calls") == "1",
+           f"a launcher version preflight must not consume the resume handoff: {stderr}", failures)
+    expect(SESSION_ID in actual and "--no-daemon" in actual and sum("hooks codex inject-args" in call for call in calls) == 1,
+           "version preflight must preserve resume arguments and one injection", failures)
+
+
+def test_custom_launcher_profile_reorders_path(failures: list[str]) -> None:
+    """Keep real PID registration and one hook set after login profiles reorder PATH."""
+    for argv in ([], ["resume", SESSION_ID, "-a", "never", "-s", "workspace-write"]):
+        code, actual, calls, env, stderr = run_wrapper(
+            socket_state="stale", argv=argv, launch_command="subcodex",
+            launcher_preflight=True, profile_reorders_path=True,
+        )
+        expect(code == 0 and env.get("FAKE_PROVIDER") == "custom",
+               f"login profile must retain custom launcher: {stderr}", failures)
+        expect(env.get("REAL_PID") == env.get("CMUX_CODEX_PID"),
+               "profile PATH reorder bypassed Codex PID registration", failures)
+        expect(sum(a.startswith("hooks.SessionStart=") for a in actual) == 1,
+               "profile PATH reorder lost session hooks", failures)
+        expect(sum("hooks codex inject-args" in call for call in calls) == 1,
+               "profile PATH reorder must inject hooks exactly once", failures)
+        expect(env.get("CMUX_CODEX_LAUNCH_COMMAND_ACTIVE") == "__UNSET__",
+               "profile PATH reorder leaked the handoff guard", failures)
+        if argv:
+            expect(all(a in actual for a in argv), "profile PATH reorder lost saved resume arguments", failures)
+
+
+def test_executable_launcher_inherited_path(failures: list[str]) -> None:
+    """Exercise sibling and separate managed shims with native-first inherited PATH.
+
+    The launcher must retain literal resume arguments, consume its reentry guard,
+    and replace inherited agent identity with the real Codex process metadata.
+    """
+    argv = ["resume", SESSION_ID, "-a", "never", "-s", "workspace-write",
+            "", "two words", "literal $(false); 'quoted'", "line1\nline2"]
+    for managed_shim, reordered_path, sibling_shim in (
+        (True, True, True), (False, False, True), (False, True, True), (False, True, False)
+    ):
+        label = f"executable-launcher/managed-shim={managed_shim}/reordered-path={reordered_path}/sibling={sibling_shim}"
+        code, actual, calls, env, stderr = run_wrapper(
+            socket_state="missing", argv=argv, launch_command="__script__",
+            inherited_path_reorders_path=reordered_path,
+            managed_shim_available=managed_shim, inherited_other_agent=True,
+            sibling_shim_available=sibling_shim,
+        )
+        expect(code == 0, f"{label}: exit {code}: {stderr}", failures)
+        expect(actual[-len(argv):] == argv,
+               f"{label}: literal resume arguments changed: {actual}", failures)
+        expect(env.get("REAL_PID") == env.get("CMUX_CODEX_PID"),
+               f"{label}: executable handoff bypassed Codex PID registration", failures)
+        for event in ("SessionStart", "Stop"):
+            expect(sum(a.startswith(f"hooks.{event}=") for a in actual) == 1,
+                   f"{label}: executable handoff must inject {event} exactly once", failures)
+        expect(sum("hooks codex inject-args" in call for call in calls) == 1,
+               f"{label}: executable handoff must request hooks exactly once", failures)
+        expect(env.get("CMUX_CODEX_LAUNCH_COMMAND_ACTIVE") == "__UNSET__",
+               f"{label}: executable handoff leaked the active marker", failures)
+        expect(env.get("CMUX_AGENT_LAUNCH_KIND") == "codex"
+               and env.get("CMUX_AGENT_LAUNCH_EXECUTABLE", "").endswith("/real-bin/codex")
+               and env.get("CMUX_AGENT_LAUNCH_ARGV_B64") != "aW5oZXJpdGVkAA==",
+               f"{label}: executable handoff retained another agent's launch identity", failures)
 
 
 # cmux-launched Codex always disables the native `computer_use` provider before
@@ -373,7 +604,11 @@ def test_headless_marker_follows_the_subcommand(failures: list[str]) -> None:
 
 
 def main() -> int:
+    """Run wrapper behavior regressions and return nonzero when any collected assertion fails."""
     failures: list[str] = []
+    test_custom_launch_command(failures)
+    test_custom_launcher_profile_reorders_path(failures)
+    test_executable_launcher_inherited_path(failures)
     test_every_resume_route_is_instrumented(failures)
     test_direct_fork_is_instrumented(failures)
     test_explicit_disable_still_bypasses_hooks(failures)

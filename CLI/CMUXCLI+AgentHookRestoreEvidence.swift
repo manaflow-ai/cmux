@@ -2,53 +2,9 @@ import Foundation
 import CMUXAgentLaunch
 
 extension CMUXCLI {
-    private static let codexPermissionEvidenceChunkBytes = 64 * 1024
-
+    /// Reports whether a captured Codex launch explicitly sets approval, sandbox or networking.
     private func codexLaunchHasExplicitPermissions(_ launchCommand: AgentHookLaunchCommandRecord?) -> Bool {
-        guard let launchCommand,
-              AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: "codex") else {
-            return false
-        }
-        let arguments = launchCommand.arguments
-        for (index, argument) in arguments.enumerated() {
-            if [
-                "--yolo",
-                "--full-auto",
-                "--dangerously-bypass-approvals-and-sandbox",
-                "-a",
-                "--ask-for-approval",
-                "-s",
-                "--sandbox",
-            ].contains(argument) {
-                return true
-            }
-            if argument.hasPrefix("--ask-for-approval=") || argument.hasPrefix("--sandbox=") {
-                return true
-            }
-            if argument == "-c" || argument == "--config",
-               index + 1 < arguments.count,
-               codexConfigOverridesPermissions(arguments[index + 1]) {
-                return true
-            }
-            if argument.hasPrefix("-c=") || argument.hasPrefix("--config=") {
-                let components = argument.split(
-                    separator: "=",
-                    maxSplits: 1,
-                    omittingEmptySubsequences: false
-                )
-                if components.count == 2,
-                   codexConfigOverridesPermissions(String(components[1])) {
-                    return true
-                }
-            }
-        }
-        return false
-    }
-
-    private func codexConfigOverridesPermissions(_ value: String) -> Bool {
-        let key = value.split(separator: "=", maxSplits: 1).first?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return key == "approval_policy" || key == "sandbox_mode"
+        CodexResumePermissionPolicy().hasExplicitPermissions(in: launchCommand)
     }
 
     /// Whether an OMP hook has no launch candidate to publish or invalidate.
@@ -115,11 +71,11 @@ extension CMUXCLI {
         mapped: ClaudeHookSessionRecord?,
         transcriptPath: String? = nil,
         currentPID: Int? = nil
-    ) -> AgentHookLaunchCommandRecord? {
+    ) async -> AgentHookLaunchCommandRecord? {
         guard ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] != "1" else {
             return nil
         }
-        return selectedAgentHookResumeLaunchCommand(
+        return await selectedAgentHookResumeLaunchCommand(
             kind: kind,
             current: current,
             mapped: mapped,
@@ -128,19 +84,33 @@ extension CMUXCLI {
         )?.preservingExternalLauncher(from: [current, mapped?.launchCommand])
     }
 
+    /// Selects current or persisted launch evidence before repairing eligible Codex permissions.
+    ///
+    /// Rejected captures may use only a trusted same-kind fallback. A same-process mapped
+    /// capture can retain explicit permissions that are absent from the current capture.
+    ///
+    /// - Parameters:
+    ///   - kind: Agent kind whose resume command is being published.
+    ///   - current: Launch evidence from the current hook observation.
+    ///   - mapped: Previously persisted session evidence, when available.
+    ///   - transcriptPath: Optional transcript used to recover missing Codex permissions.
+    ///   - currentPID: Observed process identity used to corroborate mapped evidence.
+    /// - Returns: Selected launch metadata, a retained rejection, or nil when no launch should be published.
     private func selectedAgentHookResumeLaunchCommand(
         kind: String,
         current: AgentHookLaunchCommandRecord?,
         mapped: ClaudeHookSessionRecord?,
         transcriptPath: String?,
         currentPID: Int?
-    ) -> AgentHookLaunchCommandRecord? {
+    ) async -> AgentHookLaunchCommandRecord? {
         let ompCaptureUnavailable = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "omp"
             && ompLaunchCaptureIsUnavailable(current)
         if current?.isRejectedCapture == true || ompCaptureUnavailable {
             if let preserved = mappedLaunchAfterRejectedCapture(kind: kind, current: current, mapped: mapped) {
                 return kind == "codex"
-                    ? repairedCodexLaunchCommand(preserved, transcriptPath: transcriptPath)
+                    ? await repairedCodexLaunchCommand(
+                        preserved, transcriptPath: transcriptPath, observedAt: current?.capturedAt
+                    )
                     : preserved
             }
             return current
@@ -150,7 +120,9 @@ extension CMUXCLI {
            currentPID == mapped?.pid,
            !codexLaunchHasExplicitPermissions(current),
            codexLaunchHasExplicitPermissions(mapped?.launchCommand) {
-            return mapped?.launchCommand
+            return await repairedCodexLaunchCommand(
+                mapped?.launchCommand, transcriptPath: transcriptPath, observedAt: current?.capturedAt
+            )
         }
         let selected: AgentHookLaunchCommandRecord? = {
             let currentSource = normalizedHookValue(current?.source)?.lowercased()
@@ -181,9 +153,10 @@ extension CMUXCLI {
             return current ?? mapped?.launchCommand
         }()
         guard kind == "codex" else { return selected }
-        return repairedCodexLaunchCommand(
+        return await repairedCodexLaunchCommand(
             selected,
-            transcriptPath: transcriptPath
+            transcriptPath: transcriptPath,
+            observedAt: current?.capturedAt
         )
     }
 
@@ -304,98 +277,33 @@ extension CMUXCLI {
         return launchCommand
     }
 
+    /// Recovers missing Codex permission fields from bounded, actor-isolated transcript evidence.
+    ///
+    /// Complete explicit policies and captures without usable timing or transcript metadata
+    /// return unchanged. Recorded values never replace explicit launch arguments.
+    ///
+    /// - Parameters:
+    ///   - launchCommand: Capture to repair, or nil when no launch was selected.
+    ///   - transcriptPath: Optional path to the session's permission evidence.
+    ///   - observedAt: Current hook time; takes precedence over the capture's older timestamp.
+    /// - Returns: The original or repaired capture, preserving nil when no capture exists.
     private func repairedCodexLaunchCommand(
         _ launchCommand: AgentHookLaunchCommandRecord?,
-        transcriptPath: String?
-    ) -> AgentHookLaunchCommandRecord? {
-        guard var launchCommand else { return nil }
+        transcriptPath: String?,
+        observedAt: TimeInterval? = nil
+    ) async -> AgentHookLaunchCommandRecord? {
+        guard let launchCommand else { return nil }
         guard !launchCommand.arguments.isEmpty else { return launchCommand }
-        guard !codexLaunchHasExplicitPermissions(launchCommand),
-              let capturedAt = launchCommand.capturedAt,
+        guard let capturedAt = observedAt ?? launchCommand.capturedAt,
               let transcriptPath = normalizedHookValue(transcriptPath) else {
             return launchCommand
         }
-        let permissionArguments = codexPermissionArguments(
+        let policy = CodexResumePermissionPolicy()
+        guard policy.requiresTranscriptEvidence(for: launchCommand) else { return launchCommand }
+        return policy.repairing(launchCommand, with: await CodexResumePermissionEvidenceReader().permissionArguments(
             transcriptPath: transcriptPath,
             before: capturedAt
-        )
-        guard !permissionArguments.isEmpty else {
-            return launchCommand
-        }
-        launchCommand.arguments.append(contentsOf: permissionArguments)
-        return launchCommand
+        ))
     }
 
-    private func codexPermissionArguments(
-        transcriptPath: String,
-        before capturedAt: TimeInterval
-    ) -> [String] {
-        let expandedPath = (transcriptPath as NSString).expandingTildeInPath
-        guard let handle = FileHandle(forReadingAtPath: expandedPath) else { return [] }
-        defer { try? handle.close() }
-        guard let endOffset = try? handle.seekToEnd() else { return [] }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        var offset = endOffset
-        var pending = Data()
-        while offset > 0 {
-            let byteCount = min(UInt64(Self.codexPermissionEvidenceChunkBytes), offset)
-            offset -= byteCount
-            do {
-                try handle.seek(toOffset: offset)
-            } catch {
-                return []
-            }
-            guard let chunk = try? handle.read(upToCount: Int(byteCount)) else { return [] }
-            pending.insert(contentsOf: chunk, at: pending.startIndex)
-            while let newline = pending.lastIndex(of: 0x0A) {
-                let lineStart = pending.index(after: newline)
-                let line = Data(pending[lineStart...])
-                pending.removeSubrange(newline...)
-                if let arguments = codexPermissionArguments(
-                    from: line,
-                    before: capturedAt,
-                    formatter: formatter
-                ) {
-                    return arguments
-                }
-            }
-        }
-        return codexPermissionArguments(from: pending, before: capturedAt, formatter: formatter) ?? []
-    }
-
-    private func codexPermissionArguments(
-        from line: Data,
-        before capturedAt: TimeInterval,
-        formatter: ISO8601DateFormatter
-    ) -> [String]? {
-        guard !line.isEmpty,
-              let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-              object["type"] as? String == "turn_context",
-              let timestamp = object["timestamp"] as? String,
-              let date = formatter.date(from: timestamp),
-              date.timeIntervalSince1970 < capturedAt,
-              let payload = object["payload"] as? [String: Any] else {
-            return nil
-        }
-        let approvalPolicy = normalizedHookValue(payload["approval_policy"] as? String)
-        let sandboxMode = (payload["sandbox_policy"] as? [String: Any]).flatMap {
-            normalizedHookValue($0["type"] as? String)
-        }
-        if approvalPolicy == "never", sandboxMode == "danger-full-access" {
-            return ["--yolo"]
-        }
-        if approvalPolicy == "never", sandboxMode == "disabled" {
-            return ["--dangerously-bypass-approvals-and-sandbox"]
-        }
-        var arguments: [String] = []
-        if let approvalPolicy {
-            arguments.append(contentsOf: ["-a", approvalPolicy])
-        }
-        if let sandboxMode,
-           ["read-only", "workspace-write", "danger-full-access"].contains(sandboxMode) {
-            arguments.append(contentsOf: ["-s", sandboxMode])
-        }
-        return arguments.isEmpty ? nil : arguments
-    }
 }

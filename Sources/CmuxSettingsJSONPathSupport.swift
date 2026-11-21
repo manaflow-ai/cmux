@@ -485,6 +485,7 @@ enum AutomationSettingsFileMapping {
 
     static let stringSettings: [SettingsFileStringMapping] = [
         .init(jsonKey: "claudeBinaryPath", defaultsKey: automation.claudeBinaryPath.userDefaultsKey),
+        .init(jsonKey: "codexLaunchCommand", defaultsKey: automation.codexLaunchCommand.userDefaultsKey),
         .init(jsonKey: "ripgrepBinaryPath", defaultsKey: automation.ripgrepBinaryPath.userDefaultsKey),
         .init(jsonKey: "autoNamingAgent", defaultsKey: automation.autoNamingAgent.userDefaultsKey),
     ]
