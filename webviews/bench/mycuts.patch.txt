@@ -1,0 +1,125 @@
+diff --git a/webviews/src/agent-session/acpmux/afterNextPaint.ts b/webviews/src/agent-session/acpmux/afterNextPaint.ts
+new file mode 100644
+index 000000000000..e25353cdc3e5
+--- /dev/null
++++ b/webviews/src/agent-session/acpmux/afterNextPaint.ts
+@@ -0,0 +1,31 @@
++/** The longest a page whose frames stall holds work for its next paint. */
++export const AFTER_PAINT_CAP_MS = 100;
++
++/** Runs `run` in a task after the next animation frame, so the frame paints first; in a task at
++ * once when frames do not run (a hidden page, a test without `requestAnimationFrame`), and after
++ * `AFTER_PAINT_CAP_MS` at most when frames stall. Returns its cancel. */
++export function afterNextPaint(run: () => void): () => void {
++  const timers: ReturnType<typeof setTimeout>[] = [];
++  let frame: number | undefined;
++  let done = false;
++  const cancel = () => {
++    done = true;
++    if (frame !== undefined) cancelAnimationFrame(frame);
++    for (const timer of timers) clearTimeout(timer);
++  };
++  const finish = () => {
++    if (done) return;
++    cancel();
++    run();
++  };
++  const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
++  if (typeof requestAnimationFrame === "undefined" || hidden) timers.push(setTimeout(finish, 0));
++  else {
++    frame = requestAnimationFrame(() => {
++      frame = undefined;
++      timers.push(setTimeout(finish, 0));
++    });
++    timers.push(setTimeout(finish, AFTER_PAINT_CAP_MS));
++  }
++  return cancel;
++}
+diff --git a/webviews/src/agent-session/acpmux/checkpoints/controller.tsx b/webviews/src/agent-session/acpmux/checkpoints/controller.tsx
+index eee48846f36c..cca0fed32504 100644
+--- a/webviews/src/agent-session/acpmux/checkpoints/controller.tsx
++++ b/webviews/src/agent-session/acpmux/checkpoints/controller.tsx
+@@ -1,5 +1,5 @@
+ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+-import { CheckpointClient, type CheckpointClientOptions, type Request } from "./client";
++import { CheckpointClient, type CheckpointClientOptions, type CheckpointClientState, type Request } from "./client";
+ import type { CheckpointTarget } from "./protocol";
+ import { CheckpointReview } from "./Review";
+ import type { CheckpointStrings } from "./strings";
+@@ -29,9 +29,17 @@ export function useCheckpoints({
+       }),
+   );
+   const subscribe = useCallback((listener: () => void) => client.subscribe(listener), [client]);
+-  const read = useCallback(() => client.getSnapshot(), [client]);
+-  const state = useSyncExternalStore(subscribe, read);
+   const [open, setOpen] = useState(false);
++  // A closed review reads only `supported`: the client's other state (a switch's `select`, a list
++  // or record) changes nothing the pane draws until the review opens, so it renders nothing.
++  const closedView = useRef<CheckpointClientState | undefined>(undefined);
++  const read = useCallback(() => {
++    const next = client.getSnapshot();
++    if (open) return next;
++    if (closedView.current?.supported !== next.supported) closedView.current = { supported: next.supported };
++    return closedView.current;
++  }, [client, open]);
++  const state = useSyncExternalStore(subscribe, read);
+   const [copyError, setCopyError] = useState(false);
+   const cwd = target?.cwd;
+   const sessionId = target?.sessionId;
+diff --git a/webviews/src/agent-session/acpmux/direct.ts b/webviews/src/agent-session/acpmux/direct.ts
+index e91856270a62..6ffebedf563e 100644
+--- a/webviews/src/agent-session/acpmux/direct.ts
++++ b/webviews/src/agent-session/acpmux/direct.ts
+@@ -256,6 +256,7 @@ import {
+ } from "./conversation/promptCoach";
+ import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
+ import { promptCoachEnabled } from "./chatDisplay";
++import { afterNextPaint } from "./afterNextPaint";
+ import {
+   PRESET_APPROVAL,
+   PresetApprovalFold,
+@@ -7719,6 +7720,9 @@ export class AcpmuxDirectClient {
+       this.earlyAttach = undefined;
+     }
+     const result = await sent.attaching;
++    // A switch drew the chat's kept tail: its frame paints before the reply's page renders, which
++    // a local daemon's reply would otherwise beat. What came live meanwhile is held (`copyLive`).
++    if (keptThrough > 0) await new Promise<void>((resolve) => afterNextPaint(resolve));
+     this.syncView();
+     if (!current()) return [];
+     // The row changed while the attach was out to name another session than the reply's (another
+diff --git a/webviews/src/agent-session/acpmux/sessionAuth.ts b/webviews/src/agent-session/acpmux/sessionAuth.ts
+index a6d52ff00916..edfadc329d52 100644
+--- a/webviews/src/agent-session/acpmux/sessionAuth.ts
++++ b/webviews/src/agent-session/acpmux/sessionAuth.ts
+@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+ import { agentDisplayName } from "./agents";
+ import { translate, type Translate } from "./i18n";
+ import { providerName } from "./modelVariants";
++import { afterNextPaint } from "./afterNextPaint";
+ /** The session/selected-route auth verdict from acpmux. Unknown is never a refusal. */
+ export type SessionAuthState =
+   | "ready"
+@@ -296,7 +297,10 @@ export function useSessionAuth(
+     const probe =
+       selectionChanged || checked.current.refresh !== refresh || checked.current.refreshEpoch !== refreshEpoch;
+     checked.current = { selection, refresh, refreshEpoch };
+-    void read(selected, probe).then(
++    // A new selection reads its sign-in after the frame that draws it: a reply that came first (a
++    // local daemon answers at once) would render the pane again before that frame paints.
++    const ask = () =>
++      void read(selected, probe).then(
+       (reply) => {
+         if (!live) return;
+         const auth = readSessionAuth(reply);
+@@ -317,8 +321,10 @@ export function useSessionAuth(
+           setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
+       },
+     );
++    const cancel = selectionChanged ? afterNextPaint(ask) : (ask(), undefined);
+     return () => {
+       live = false;
++      cancel?.();
+     };
+   }, [read, selected, selection, refresh, refreshEpoch, version]);
+   const recheck = useCallback(() => setRefresh((n) => n + 1), []);
