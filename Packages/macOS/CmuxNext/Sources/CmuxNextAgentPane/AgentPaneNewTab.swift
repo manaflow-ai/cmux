@@ -1,5 +1,5 @@
 import CmuxNextDesign
-import CmuxNextSettings
+public import CmuxNextSettings
 public import Foundation
 
 /// The kinds the new tab page offers in its Terminal | Browser | Agent switch.
