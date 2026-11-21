@@ -36,11 +36,13 @@ jobs:
     if: github.repository_owner == 'manaflow-ai'
     permissions:
       actions: read
-      contents: read
+      contents: read # the roster script and the GitHub API wait
       issues: write
     runs-on: ${{ contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
+    timeout-minutes: 20
     env:
+      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
+      GH_BUDGET_WAIT_MAX_SECONDS: "900"
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       LABEL: cmux-fleet-linux-x64
@@ -52,6 +54,24 @@ jobs:
             scripts/ci/janitor_watchdog_roster.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
+
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
+      # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
+      # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud. It follows the
+      # workspace checkout above, whose clean would remove it.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
       # The routing App's read-only runner token: the workflow token cannot list
       # self-hosted runners. Any failure leaves it empty and the roster unknown.
