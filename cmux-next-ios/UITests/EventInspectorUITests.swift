@@ -10,7 +10,7 @@ final class EventInspectorUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(count: Int, live: Double? = nil) -> XCUIApplication {
+    private func launch(count: Int, live: Double? = nil, edge: String? = nil, after: Double? = nil) -> XCUIApplication {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
@@ -19,6 +19,8 @@ final class EventInspectorUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_LIST_PASSES"] = "0"
         app.launchEnvironment["CMUX_MOBILE_LIST_SETTLE"] = "0"
         if let live { app.launchEnvironment["CMUX_MOBILE_LIST_LIVE_HZ"] = "\(live)" }
+        if let edge { app.launchEnvironment["CMUX_MOBILE_LIST_EDGE"] = edge }
+        if let after { app.launchEnvironment["CMUX_MOBILE_LIST_EDGE_AFTER"] = "\(after)" }
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore"]
         app.launch()
         XCTAssertTrue(app.navigationBars["Event Inspector"].waitForExistence(timeout: 40), "the inspector opens\n\(app.debugDescription)")
@@ -163,5 +165,63 @@ final class EventInspectorUITests: XCTestCase {
         defer { app.terminate() }
         XCTAssertTrue(app.staticTexts["No events for this chat"].waitForExistence(timeout: 10), "no journal\n\(app.debugDescription)")
         attach(app, "no-journal")
+    }
+
+    /// The row "… · seq N" (its label is the title, then "dir · kind · time").
+    @MainActor
+    private func row(_ app: XCUIApplication, seq: Int) -> XCUIElement {
+        app.buttons.matching(identifier: "chat.inspector.row").matching(NSPredicate(format: "label CONTAINS %@", "· seq \(seq),")).firstMatch
+    }
+
+    /// Scrolls to the list's end, where the oldest records are.
+    @MainActor
+    private func scrollToOldest(_ app: XCUIApplication) {
+        let oldest = row(app, seq: 1)
+        for _ in 0..<60 where !(oldest.exists && oldest.isHittable) { app.swipeUp(velocity: .fast) }
+        XCTAssertTrue(oldest.isHittable, "the oldest record is reached\n\(app.debugDescription)")
+    }
+
+    /// EVT-14: the reader at the oldest records when 60 more arrive over the 500 cap. The rows
+    /// under the reader drop, the list ends at their neighbour (seq 61), the header says so.
+    @MainActor
+    func testRecordsDroppedUnderTheReader() {
+        let app = launch(count: 500, edge: "drop", after: 45)
+        defer { app.terminate() }
+        expectHeader(app, "500 events", "a full journal")
+        scrollToOldest(app)
+        XCTAssertEqual(header(app).exists ? header(app).label : "500 events", "500 events", "the drop waits for the reader")
+        attach(app, "1-reader-at-oldest")
+        let neighbour = row(app, seq: 61)
+        XCTAssertTrue(neighbour.waitForExistence(timeout: 60) && row(app, seq: 1).waitForNonExistence(timeout: 30),
+                      "the dropped rows go and their neighbour shows\n\(app.debugDescription)")
+        XCTAssertTrue(neighbour.isHittable, "the neighbour is where the reader was")
+        XCTAssertFalse(row(app, seq: 60).exists, "seq 60 dropped")
+        attach(app, "2-after-drop")
+        for _ in 0..<60 where !header(app).isHittable { app.swipeDown(velocity: .fast) }
+        expectHeader(app, "500 events · 60 older dropped", "the header counts the dropped")
+        attach(app, "3-header")
+    }
+
+    /// EVT-14: a record's detail stays open, showing it, when the record drops from the journal.
+    @MainActor
+    func testDetailOfADroppedRecordKeepsShowingIt() {
+        let app = launch(count: 500, edge: "drop", after: 45)
+        defer { app.terminate() }
+        scrollToOldest(app)
+        row(app, seq: 1).tap()
+        let json = app.descendants(matching: .any)["chat.inspector.json"].firstMatch
+        XCTAssertTrue(json.waitForExistence(timeout: 10), "the detail opens\n\(app.debugDescription)")
+        attach(app, "1-detail")
+        // The drop lands while the detail is open (45 s after launch).
+        let back = app.navigationBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(json.exists, "the detail stays")
+        _ = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: json)], timeout: 50)
+        XCTAssertTrue(json.exists, "the detail still shows its record after it dropped\n\(app.debugDescription)")
+        XCTAssertTrue(app.navigationBars.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "seq 1")).firstMatch.exists,
+                      "the title is still the dropped record's")
+        attach(app, "2-detail-after-drop")
+        back.tap()
+        XCTAssertTrue(row(app, seq: 61).waitForExistence(timeout: 10), "back on the list, which ends at seq 61\n\(app.debugDescription)")
+        attach(app, "3-list-after-drop")
     }
 }

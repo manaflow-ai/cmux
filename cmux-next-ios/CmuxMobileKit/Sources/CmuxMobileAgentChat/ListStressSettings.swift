@@ -83,6 +83,12 @@ public struct ListStressSettings: Equatable, Sendable {
     public var pullTrace: Bool
     /// `CMUX_MOBILE_LIST_FILTER=TEXT` (inspector): the filter typed while the list scrolls.
     public var filter: String?
+    /// `CMUX_MOBILE_LIST_EDGE` (UI tests' edge cases): `removed` (subagent: its chat's records go
+    /// while the transcript is open), `offline` (subagent: the Mac goes offline mid-run),
+    /// `drop` (inspector: 60 more records arrive, dropping the oldest under the reader).
+    public var edge: String?
+    /// `CMUX_MOBILE_LIST_EDGE_AFTER=SECONDS` (default 4): when the edge case happens.
+    public var edgeAfter: Double
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         screen = environment["CMUX_MOBILE_LIST_SCREEN"]
@@ -110,6 +116,8 @@ public struct ListStressSettings: Equatable, Sendable {
         refreshSeconds = environment["CMUX_MOBILE_LIST_REFRESH_SECONDS"].flatMap(Double.init)
         pullTrace = environment["CMUX_MOBILE_LIST_PULL_TRACE"] == "1"
         filter = environment["CMUX_MOBILE_LIST_FILTER"]
+        edge = environment["CMUX_MOBILE_LIST_EDGE"]
+        edgeAfter = environment["CMUX_MOBILE_LIST_EDGE_AFTER"].flatMap(Double.init) ?? 4
     }
 
     /// Whether a working row logs each redraw of its elapsed time (the rig's running chat).

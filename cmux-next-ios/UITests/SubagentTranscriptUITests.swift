@@ -11,7 +11,7 @@ final class SubagentTranscriptUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(_ screen: String, count: Int, stream: Bool = false) -> XCUIApplication {
+    private func launch(_ screen: String, count: Int, stream: Bool = false, edge: String? = nil) -> XCUIApplication {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
@@ -20,6 +20,7 @@ final class SubagentTranscriptUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_LIST_PASSES"] = "0"
         app.launchEnvironment["CMUX_MOBILE_LIST_SETTLE"] = "0"
         if stream { app.launchEnvironment["CMUX_MOBILE_LIST_STREAM"] = "1" }
+        if let edge { app.launchEnvironment["CMUX_MOBILE_LIST_EDGE"] = edge }
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore"]
         app.launch()
         return app
@@ -92,5 +93,80 @@ final class SubagentTranscriptUITests: XCTestCase {
         defer { app.terminate() }
         XCTAssertTrue(app.staticTexts["No subagents"].waitForExistence(timeout: 40), "the empty state\n\(app.debugDescription)")
         attach(app, "empty")
+    }
+
+    /// Lets `seconds` of the live stream go by.
+    @MainActor
+    private func pass(_ seconds: TimeInterval) {
+        _ = XCTWaiter().wait(for: [XCTestExpectation(description: "the stream runs")], timeout: seconds)
+    }
+
+    /// SUB-8: at the end, the running transcript follows its new rows; scrolled away, the row
+    /// being read stays put while rows arrive below; back at the end, it follows again.
+    @MainActor
+    func testRunningTranscriptFollowsAtTheEndAndHoldsTheReaderAway() {
+        let app = launch("subagent", count: 20, stream: true)
+        defer { app.terminate() }
+        XCTAssertTrue(app.navigationBars["WireGuard dialer"].waitForExistence(timeout: 40), "the transcript opens\n\(app.debugDescription)")
+        let footer = app.staticTexts["chat.subagent.footer"].firstMatch
+        for _ in 0..<20 where !(footer.exists && footer.isHittable) { app.swipeUp() }
+        XCTAssertTrue(footer.isHittable, "the reader reaches the end\n\(app.debugDescription)")
+        attach(app, "1-at-end")
+        pass(5)
+        XCTAssertTrue(footer.isHittable, "at the end, the transcript follows 5 s of new rows\n\(app.debugDescription)")
+        attach(app, "2-followed")
+
+        app.swipeDown()
+        app.swipeDown()
+        pass(1)
+        // A row that is not streaming (a streamed answer's text changes as it grows).
+        let read = app.staticTexts.allElementsBoundByIndex.first { $0.isHittable && $0.label.count > 3 && !$0.label.contains("token") && $0.identifier != "chat.subagent.footer" }
+        guard let read else { XCTFail("a row to read shows\n\(app.debugDescription)"); return }
+        let label = read.label
+        let before = read.frame
+        attach(app, "3-scrolled-away")
+        pass(4)
+        let after = app.staticTexts.matching(NSPredicate(format: "label == %@", label)).firstMatch.frame
+        XCTAssertEqual(after.minY, before.minY, accuracy: 1, "the row being read stays put while rows arrive below")
+        XCTAssertFalse(footer.isHittable, "scrolled away, the transcript does not follow")
+        attach(app, "4-held")
+
+        for _ in 0..<20 where !(footer.exists && footer.isHittable) { app.swipeUp() }
+        pass(4)
+        XCTAssertTrue(footer.isHittable, "back at the end, it follows again\n\(app.debugDescription)")
+        attach(app, "5-follows-again")
+    }
+
+    /// SUB-11: the subagent's chat goes while its transcript is open: "Subagent not found".
+    @MainActor
+    func testRemovedSubagentSaysNotFound() {
+        let app = launch("subagent", count: 20, stream: true, edge: "removed")
+        defer { app.terminate() }
+        XCTAssertTrue(app.navigationBars["WireGuard dialer"].waitForExistence(timeout: 40), "the transcript opens\n\(app.debugDescription)")
+        attach(app, "1-open")
+        XCTAssertTrue(app.staticTexts["Subagent not found"].waitForExistence(timeout: 20), "the removed subagent says so\n\(app.debugDescription)")
+        XCTAssertEqual(app.state, .runningForeground, "no crash")
+        attach(app, "2-not-found")
+    }
+
+    /// SUB-11: the Mac goes offline mid-run: the rows stay, the footer says so, no spinner.
+    @MainActor
+    func testMacOfflineMidRunStopsTheFooter() {
+        let app = launch("subagent", count: 20, stream: true, edge: "offline")
+        defer { app.terminate() }
+        XCTAssertTrue(app.navigationBars["WireGuard dialer"].waitForExistence(timeout: 40), "the transcript opens\n\(app.debugDescription)")
+        let footer = app.staticTexts["chat.subagent.footer"].firstMatch
+        for _ in 0..<20 where !(footer.exists && footer.isHittable) { app.swipeUp() }
+        attach(app, "1-running")
+        let offline = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Mac offline"), object: footer)
+        XCTAssertEqual(XCTWaiter().wait(for: [offline], timeout: 20), .completed, "the footer says the Mac is offline, has '\(footer.label)'")
+        let tokens = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "token"))
+        func newest() -> String { tokens.allElementsBoundByIndex.last?.label ?? "" }
+        let text = newest()
+        pass(3)
+        XCTAssertEqual(newest(), text, "nothing streams while offline")
+        XCTAssertEqual(footer.label, "Mac offline", "the footer stays")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Step ")).firstMatch.exists, "the rows stay")
+        attach(app, "2-offline")
     }
 }

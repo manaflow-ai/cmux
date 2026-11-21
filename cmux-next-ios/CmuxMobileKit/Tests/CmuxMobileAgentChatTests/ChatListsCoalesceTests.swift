@@ -109,6 +109,70 @@ import Testing
         #expect(memo.builds == 201, "200 applies built rows \(memo.builds) times")
     }
 
+    static func call(_ n: Int, status: ACPToolCall.Status = .completed) -> TurnItem {
+        .tool(ACPToolCall(id: "c\(n)", title: "Read f\(n).swift", kind: .read, status: status))
+    }
+
+    /// A 2000-item transcript: answers, thoughts and runs of tool calls.
+    static func long(_ count: Int = 2000) -> AgentSubagent {
+        var agent = AgentSubagent(id: "b", parent: nil, name: "b", task: "t", startedAt: at)
+        agent.items = (0..<count).map { n in
+            switch n % 5 {
+            case 0: .message(id: "m\(n)", markdown: "Answer \(n)")
+            case 1: .thought(id: "t\(n)", text: "Thinking \(n)")
+            default: call(n)
+            }
+        }
+        return agent
+    }
+
+    @Test func anAppendMakesTheRowsItChangedNotTheTranscripts() {
+        var agent = Self.long()
+        let memo = SubagentRowsMemo()
+        _ = memo.rows(for: agent)
+        var made = memo.rowsMade
+        var previous = memo.rows(for: agent).rows
+        for n in 0..<300 {
+            switch n % 3 {
+            case 0: agent.items.append(.message(id: "new\(n)", markdown: "New \(n)"))
+            case 1:
+                // A token on the last answer.
+                if case .message(let id, let markdown) = agent.items[agent.items.count - 1] {
+                    agent.items[agent.items.count - 1] = .message(id: id, markdown: markdown + " more")
+                }
+            default: agent.items.append(Self.call(10_000 + n))
+            }
+            let rows = memo.rows(for: agent).rows
+            let cost = memo.rowsMade - made
+            made = memo.rowsMade
+            #expect(cost <= 2, "change \(n) to a \(agent.items.count)-item transcript made \(cost) rows")
+            #expect(rows == agent.asTurn.rows, "the rows match a full build after change \(n)")
+            // Rows the change did not touch keep their identity and value.
+            for (old, new) in zip(previous.dropLast(2), rows) { #expect(old.id == new.id && old == new) }
+            previous = rows
+        }
+    }
+
+    @Test func rowsMatchAFullBuildThroughRandomChanges() {
+        var generator = SystemRandomNumberGenerator()
+        var agent = Self.long(200)
+        let memo = SubagentRowsMemo()
+        for step in 0..<400 {
+            let index = Int.random(in: 0..<max(agent.items.count, 1), using: &generator)
+            switch Int.random(in: 0..<6, using: &generator) {
+            case 0: agent.items.append(Self.call(50_000 + step, status: .inProgress))
+            case 1 where !agent.items.isEmpty:
+                // A call in the middle finishes.
+                if case .tool(var call) = agent.items[index] { call.status = .failed; agent.items[index] = .tool(call) }
+            case 2 where !agent.items.isEmpty: agent.items.remove(at: index)
+            case 3: agent.items.insert(.message(id: "i\(step)", markdown: "Inserted"), at: min(index, agent.items.count))
+            case 4: agent.items.append(.thought(id: "nt\(step)", text: "More"))
+            default: agent.state = step % 2 == 0 ? .running : .completed
+            }
+            #expect(memo.rows(for: agent).rows == agent.asTurn.rows, "step \(step)")
+        }
+    }
+
     @Test func aStateChangeRebuildsTheRows() throws {
         let store = store(["b"])
         let memo = SubagentRowsMemo()
@@ -273,6 +337,46 @@ import Testing
         #expect(rows.shownQueries.last == "tool_call_update")
         #expect(!rows.shownQueries.contains("tool"), "an older query's result was shown: \(rows.shownQueries)")
         #expect(rows.rows(journal).map(\.id) == brute(journal, "tool_call_update"))
+    }
+
+    /// While a new query's filter runs off the main thread, the rows (what the list draws and
+    /// Copy as JSON Lines copies) are one query's: never the last query's rows mixed with newer
+    /// records matched against the new one.
+    @Test func whileAFilterRunsTheRowsAreOneQuerysRows() async {
+        let journal = journal()
+        let pad = String(repeating: "pad ", count: 200)
+        for n in 0..<400 { journal.record(Self.record(n, body: pad + (n % 2 == 0 ? "alpha" : "beta"))) }
+        let rows = EventInspectorRows(offMainAbove: 0)
+        rows.setQuery("alpha", journal: journal)
+        await rows.settled()
+        #expect(rows.rows(journal).map(\.id) == brute(journal, "alpha"))
+        // The new query's scan is in flight (this test holds the main actor, so it cannot land).
+        rows.setQuery("beta", journal: journal)
+        for n in 400..<440 { journal.record(Self.record(n, body: n % 2 == 0 ? "alpha" : "beta")) }
+        let shown = Array(rows.rows(journal))
+        let allAlpha = shown.allSatisfy { $0.matches("alpha") }
+        let allBeta = shown.allSatisfy { $0.matches("beta") }
+        #expect(allAlpha || allBeta,
+                "the rows mix two queries: \(shown.filter { $0.matches("alpha") }.count) match alpha, \(shown.filter { $0.matches("beta") }.count) match beta")
+        if allAlpha { #expect(shown.map(\.id) == brute(journal, "alpha"), "the shown query's rows, newer records too") }
+        await rows.settled()
+        #expect(rows.rows(journal).map(\.id) == brute(journal, "beta"), "the new query's rows once it lands")
+        // Records after it lands match the new query.
+        for n in 440..<450 { journal.record(Self.record(n, body: n % 2 == 0 ? "alpha" : "beta")) }
+        #expect(rows.rows(journal).map(\.id) == brute(journal, "beta"))
+    }
+
+    /// Clear while a filter runs: the landed rows are the new query's over the records since.
+    @Test func clearWhileAFilterRunsLandsTheNewQueryOnTheRecordsSince() async {
+        let journal = journal()
+        let pad = String(repeating: "pad ", count: 200)
+        for n in 0..<300 { journal.record(Self.record(n, body: pad + (n % 2 == 0 ? "alpha" : "beta"))) }
+        let rows = EventInspectorRows(offMainAbove: 0)
+        rows.setQuery("beta", journal: journal)
+        journal.clear()
+        for n in 300..<310 { journal.record(Self.record(n, body: n % 2 == 0 ? "alpha" : "beta")) }
+        await rows.settled()
+        #expect(rows.rows(journal).map(\.id) == brute(journal, "beta"))
     }
 
     final class Flag: @unchecked Sendable {

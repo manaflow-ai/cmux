@@ -62,16 +62,53 @@ public struct AgentSubagent: Identifiable, Hashable, Sendable {
 /// are untouched (an array compares its storage first).
 @MainActor
 final class SubagentRowsMemo {
-    private var built: (agent: AgentSubagent, turn: AgentTurn, rows: [TurnRow])?
-    /// Times the rows were built (tests: once per change of the subagent, not once per redraw).
+    private var agent: AgentSubagent?
+    private var turn: AgentTurn?
+    private var rows: [TurnRow] = []
+    /// The item each row starts at.
+    private var starts: [Int] = []
+    private var permissionTools: Set<String> = []
+    /// Times the subagent changed and its turn was taken again (tests: not once per redraw).
     private(set) var builds = 0
+    /// Rows made (tests: an append makes the rows it changed, not the transcript's).
+    private(set) var rowsMade = 0
 
     func rows(for agent: AgentSubagent) -> (turn: AgentTurn, rows: [TurnRow]) {
-        if let built, built.agent == agent { return (built.turn, built.rows) }
+        if let last = self.agent, let turn, last == agent { return (turn, rows) }
         builds += 1
         let turn = agent.asTurn
-        let rows = turn.rows
-        built = (agent, turn, rows)
+        let items = agent.items
+        let tools = TurnRowBuilder.permissionTools(items)
+        // Rows before the first changed item stay as they were; rows are made from there on.
+        var keep = 0
+        var from = 0
+        if let last = self.agent, tools == permissionTools {
+            let old = last.items
+            let common = min(old.count, items.count)
+            // A comparison per item (an untouched one compares its storage), no row made.
+            var first = 0
+            while first < common, old[first] == items[first] { first += 1 }
+            from = first
+            if let row = starts.lastIndex(where: { $0 <= first }) {
+                switch rows[row] {
+                case .tool, .toolGroup:
+                    // A run of calls can grow: made again from its first call.
+                    keep = row
+                    from = starts[row]
+                default:
+                    keep = starts[row] == first ? row : row + 1
+                }
+            }
+        }
+        let made = TurnRowBuilder.rows(items, hidden: turn.hiddenToolCalls, permissionTools: tools, from: from)
+        rowsMade += made.rows.count
+        rows.removeSubrange(keep...)
+        starts.removeSubrange(keep...)
+        rows += made.rows
+        starts += made.starts
+        self.agent = agent
+        self.turn = turn
+        permissionTools = tools
         return (turn, rows)
     }
 }

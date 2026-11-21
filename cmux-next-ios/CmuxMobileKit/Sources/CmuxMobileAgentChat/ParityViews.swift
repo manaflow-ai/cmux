@@ -220,10 +220,18 @@ struct SubagentTranscriptScreen: View {
     let subagentID: String
     @State private var nested: String?
     @State private var memo = SubagentRowsMemo()
+    @State private var position = ScrollPosition(edge: .top)
+    /// The reader is at the end: a running subagent's new rows scroll into view. Scrolled away,
+    /// rows added below move nothing (the list keeps its place from the top).
+    @State private var follows = false
+    @State private var phase = ScrollPhase.idle
 
     var body: some View {
         if let agent = store.subagent(subagentID) {
             let (turn, rows) = memo.rows(for: agent)
+            let revision = memo.builds
+            // Offline, a running subagent's footer stops: no spinner while nothing can come.
+            let offline = agent.state == .running && store.isOffline
             ScrollView {
                 // Lazy: a long subagent run builds the rows on screen only.
                 LazyVStack(alignment: .leading, spacing: 14) {
@@ -250,10 +258,11 @@ struct SubagentTranscriptScreen: View {
                             .environment(\.loadFullToolOutput, LoadFullToolOutputAction { [store] call in await store.loadFullOutput(of: call) })
                     }
                     HStack(spacing: 8) {
-                        SubagentStateGlyph(state: agent.state)
-                        Text(agent.state == .running ? (agent.action ?? "Working") : agent.state.label)
+                        SubagentStateGlyph(state: offline ? .disconnected : agent.state)
+                        Text(offline ? String(localized: "Mac offline") : agent.state == .running ? (agent.action ?? "Working") : agent.state.label)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("chat.subagent.footer")
                     }
                     .padding(.top, 4)
                 }
@@ -261,6 +270,18 @@ struct SubagentTranscriptScreen: View {
                 .padding(.vertical, 16)
             }
             .defaultScrollAnchor(.top)
+            .scrollPosition($position)
+            .onScrollPhaseChange { _, new in phase = new }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height + geometry.contentInsets.bottom - 24
+            } action: { _, atEnd in
+                // Growth alone (the reader idle at the end) does not stop following; the
+                // reader's own scroll decides.
+                if atEnd || phase == .interacting || phase == .decelerating { follows = atEnd }
+            }
+            .onChange(of: revision) {
+                if follows, agent.state == .running { position.scrollTo(edge: .bottom) }
+            }
             .background(Color.cmuxMobileBackground)
             .chatDemoReceiver(store: store, surface: surface)
             .navigationTitle(agent.name)

@@ -262,7 +262,7 @@ struct EventInspectorScreen: View {
                             .accessibilityIdentifier("chat.inspector.row")
                         }
                     } header: {
-                        Text(summary(shown: rows.count, total: total, dropped: journal.dropped))
+                        Text(summary(shown: rows.count, total: total, dropped: journal.dropped, filtering: memo.isFiltering))
                             .accessibilityIdentifier("chat.inspector.count")
                     }
                 }
@@ -282,7 +282,8 @@ struct EventInspectorScreen: View {
                                                               options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(600)])
                                 copied = true
                             }
-                            .disabled(rows.isEmpty)
+                            // While a new filter runs the rows are the last filter's: copy waits for it.
+                            .disabled(rows.isEmpty || memo.isFiltering)
                             Button("Clear", systemImage: "trash", role: .destructive) { journal.clear() }
                                 .disabled(total == 0)
                         } label: {
@@ -309,9 +310,10 @@ struct EventInspectorScreen: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func summary(shown: Int, total: Int, dropped: Int) -> String {
+    private func summary(shown: Int, total: Int, dropped: Int, filtering: Bool) -> String {
         var text = shown == total ? String(localized: "\(total) events") : String(localized: "\(shown) of \(total) events")
         if dropped > 0 { text += " · " + String(localized: "\(dropped) older dropped") }
+        if filtering { text += " · " + String(localized: "Filtering…") }
         return text
     }
 }

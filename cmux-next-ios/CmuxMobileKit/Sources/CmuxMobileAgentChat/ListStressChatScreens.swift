@@ -28,12 +28,27 @@ enum ListStressChatScreens {
         let root: AnyView
         switch screen {
         case "subagent":
-            let store = AgentChatStore(source: RigSource())
+            let source = RigSource()
+            let store = AgentChatStore(source: source)
             seedTranscript(store, items: max(settings.count, 1), running: settings.streams)
-            if settings.streams { live = streamTranscript(store) }
-            root = AnyView(NavigationStack {
-                SubagentTranscriptScreen(store: store, surface: AgentChatSurface(), subagentID: transcriptID)
-            })
+            if settings.streams { live = streamTranscript(store, source: source) }
+            let holder = RigStoreHolder(store: store)
+            switch settings.edge {
+            case "removed":
+                // The chat's records go (its chat closed, or a history that no longer has it).
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(settings.edgeAfter))
+                    live?.cancel()
+                    holder.store = AgentChatStore(source: RigSource())
+                }
+            case "offline":
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(settings.edgeAfter))
+                    source.offline = true
+                }
+            default: break
+            }
+            root = AnyView(NavigationStack { RigTranscript(holder: holder) })
         case "subagents":
             let store = AgentChatStore(source: RigSource())
             let running = seedSubagents(store, count: max(settings.count, 0))
@@ -45,6 +60,13 @@ enum ListStressChatScreens {
             if let journal {
                 for n in 0..<settings.count { journal.record(record(n)) }
                 live = feedInspector(journal, settings: settings)
+                if settings.edge == "drop" {
+                    // The oldest records, at the list's end where the reader waits, drop.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(settings.edgeAfter))
+                        for n in settings.count..<(settings.count + 60) { journal.record(record(n)) }
+                    }
+                }
             }
             root = AnyView(NavigationStack { EventInspectorScreen(journal: journal, sessionID: "rig") })
         default:
@@ -120,12 +142,14 @@ enum ListStressChatScreens {
 
     /// A token every 20 ms, a tool call every 500 ms (the answer goes on in a new message after
     /// it), and the 5 siblings changing state once a second.
-    static func streamTranscript(_ store: AgentChatStore) -> Task<Void, Never> {
+    static func streamTranscript(_ store: AgentChatStore, source: RigSource) -> Task<Void, Never> {
         Task { @MainActor in
             var tick = 0
             var message = 0
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(20))
+                // Nothing comes from a Mac that is offline.
+                if source.offline { continue }
                 tick += 1
                 store.receive(.subagentUpdate(subagentID: transcriptID, .agentMessageChunk(text: "token\(tick) ", messageId: "rig-live-m\(message)")))
                 if tick % 25 == 0 {
@@ -251,8 +275,26 @@ enum ListStressChatScreens {
     }
 }
 
-/// A chat with no records of its own: the rig writes them.
-private final class RigSource: AgentSessionSource {
+/// The rig's store, swapped for an empty one by `CMUX_MOBILE_LIST_EDGE=removed`.
+@MainActor @Observable
+final class RigStoreHolder {
+    var store: AgentChatStore
+    init(store: AgentChatStore) { self.store = store }
+}
+
+private struct RigTranscript: View {
+    let holder: RigStoreHolder
+
+    var body: some View {
+        SubagentTranscriptScreen(store: holder.store, surface: AgentChatSurface(), subagentID: ListStressChatScreens.transcriptID)
+    }
+}
+
+/// A chat with no records of its own: the rig writes them. `offline`: its Mac can't be reached.
+@Observable
+final class RigSource: AgentSessionSource {
+    var offline = false
+    var isOffline: Bool { offline }
     let summary = AgentSessionSummary(id: "rig", name: "Rig chat", harness: "claude", agentName: "Claude", cwd: "~/Development/cmux",
                                       workspaceTitle: "cmux", macName: "Studio")
     func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
