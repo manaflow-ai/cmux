@@ -105,9 +105,6 @@ final class CloudService {
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
     /// Whether a create no person started asks first (`cloud.agentsStartWithoutAsking` off); unset, nothing asks.
     @ObservationIgnored var agentsAskFirst: @MainActor () -> Bool = { false }
-    /// The default-off backend VM gateway slice. AppServices wires this to
-    /// `labs.backendVMGateway`; other Cloud machine callers keep their existing idle policy.
-    @ObservationIgnored var backendVMGateway: @MainActor () -> Bool = { false }
     /// At the plan's cap: the card's pick for a person's create (nil: Not now), and the notice naming the machine paused to make room.
     @ObservationIgnored var chooseAtCap: (@MainActor (CloudMachineCap) async -> CloudMachineCap.Choice?)?
     @ObservationIgnored var madeRoom: (@MainActor (String) -> Void)?
@@ -680,7 +677,7 @@ final class CloudService {
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
-        let idlePause = request.idlePauseMinutes(backendVMGateway: backendVMGateway())
+        let idlePause = request.persistent ? 0 : nil
         let asksFirst = !startedByPerson && agentsAskFirst()
         var machine = try await CloudMachineCap.creating(person: startedByPerson && capCard, cap: { [weak self] error in
             guard case CloudMachineCreateFlow.Failure.upgradeRequired(let reason) = error else { return CloudMachineCap.refusal(error) }

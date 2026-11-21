@@ -8,8 +8,6 @@ public import Foundation
 /// --bootstrap-script tools/lane-vm-bootstrap` (leo-workspace machines/lane-vms.md). A bare
 /// New Cloud Machine (palette, menu, a plain CLI run) is ``isDefault`` and takes the old path.
 public struct CloudMachineRequest: Equatable, Sendable {
-    /// The first gateway slice's idle pause interval. The gateway design starts at five minutes.
-    public static let backendVMGatewayIdlePauseMinutes = 5
     public var name: String?
     /// The size's name (`medium`) and its memory, which the create sends (`memoryMb`); the
     /// server's size ladder picks the vCPUs from it.
@@ -101,13 +99,6 @@ public struct CloudMachineRequest: Equatable, Sendable {
     }
 
     public var isDefault: Bool { name == nil && size == nil && !persistent && bootstrapPath == nil && machineConfigPath == nil && repo == nil }
-
-    /// The gateway experiment's idle policy. It only applies to new nonpersistent machines;
-    /// persistent machines retain their explicit no-idle-pause contract.
-    public func idlePauseMinutes(backendVMGateway: Bool) -> Int? {
-        if persistent { return 0 }
-        return backendVMGateway ? Self.backendVMGatewayIdlePauseMinutes : nil
-    }
 
     /// The create takes the plain path (the New Cloud Workspace dialog, or the bare create). One with an
     /// ``environment`` never does: that path would make the machine without it.

@@ -96,8 +96,6 @@ extension SettingsSchema {
         "labs.machineJoin": .network,
         // On, a live code build loads Swift patches into the running app: only the person turns that on.
         "labs.liveCode": .userOnly,
-        // Whether new nonpersistent Cloud machines opt into the backend VM gateway pause/resume experiment: the person decides this lifecycle change.
-        "labs.backendVMGateway": .userOnly,
         // Whether cmux's own pages open developer tools, which read and change their live content: the person's call.
         "developerTools.appPages": .userOnly,
         // Whether the person's Command Palette lists the debug commands: the person's call.
