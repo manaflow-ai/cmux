@@ -212,6 +212,8 @@ await requireBrowserLane("agent-pane-scrolled-up-bottom-trim.test.ts", async () 
           await settle(page);
           for (const [dir, kind, msg] of each.arrive) pane.record(kind, msg, dir);
           await settle(page);
+          // fixed-wait: past the page's own arrival holds (a sent prompt's room is held FLOOR_HOLD_MS on its
+          // timer), so what the reader comes back down to is what those timers left, not what they will cut.
           await page.waitForTimeout(500);
           await settle(page);
           const parked = await view(page);
@@ -240,6 +242,8 @@ await requireBrowserLane("agent-pane-scrolled-up-bottom-trim.test.ts", async () 
             pane.stall([]);
           }
           await settle(page);
+          // fixed-wait: the timing is the behaviour under test: the room kept at the end must still be there
+          // after the page's FLOOR_HOLD_MS (1000 ms) timer, which is when a cut would come.
           await page.waitForTimeout(1500);
           await settle(page);
           const later = await view(page);
