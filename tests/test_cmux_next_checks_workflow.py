@@ -2877,10 +2877,11 @@ class PortablePlacementBootstrapAdmission(unittest.TestCase):
         bootstrap = one_runs_on(jobs["portable-placement"])
         for fleet in ("", "cmux-fleet-linux-x64", "stale-fleet-label"):
             # Never GitHub-hosted Ubuntu (it left the job queued for hours, cmux#45735). A same-repository pull
-            # request's first attempt takes the reserved PR control label (#48405); a re-run takes Blacksmith, the
+            # request's first attempt takes the persistent pool's cmux-linux (it took the reserved PR control
+            # label, #48405, until that label's one-job VMs queued 1,860 jobs); a re-run takes Blacksmith, the
             # 2 vCPU size like the other placement bootstraps, overflow or not.
-            for attempt, overflow, expected in ((1, "", "cmux-gcp-pr-control-jit-x64"),
-                                                (1, "1", "cmux-gcp-pr-control-jit-x64"),
+            for attempt, overflow, expected in ((1, "", "cmux-linux"),
+                                                (1, "1", "cmux-linux"),
                                                 (2, "", "blacksmith-2vcpu-ubuntu-2404"),
                                                 (2, "1", "blacksmith-2vcpu-ubuntu-2404")):
                 with self.subTest(fleet=fleet, attempt=attempt, overflow=overflow):
