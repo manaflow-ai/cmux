@@ -138,7 +138,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_git_batch_prefetch.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. git_batch.cat_file runs only in the local pre-push hook and guardrails; run python3 -I tests/test_cmux_next_git_batch_prefetch.py yourself after changing scripts/cmux-next/git_batch.py (a few seconds, git over file:// only, no build)."
+reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). git_batch.cat_file runs only in the local pre-push hook and guardrails; run python3 -I tests/test_cmux_next_git_batch_prefetch.py yourself after changing scripts/cmux-next/git_batch.py (a few seconds, git over file:// only, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_guardrails.py"

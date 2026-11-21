@@ -5,8 +5,8 @@ Status: living plan (started 2026-10-23). Owner: the Performance Lead (Lawrence 
 refactor"). Every row moves only with a measured number from a real build on the fleet (never
 Lawrence's Mac) and a perf test or bench that is red before and green after. Lawrence
 (2026-10-23): each agent runs its tests and benches itself on the fleet and records the numbers
-here and in the commit message (his "no new gates or tests in CI" was lifted 2026-11-18; CI adds
-to that run, never replaces it).
+here and in the commit message (his "not to add gates/tests in CI, but you have to run them
+yourself" was lifted 2026-11-18 for its CI half; CI adds to that run, never replaces it).
 
 Related references (not repeated here): [speed-of-sound-DESIGN.md](speed-of-sound-DESIGN.md)
 (floors and idle/memory rows), [instant-new-surfaces.md](instant-new-surfaces.md),
