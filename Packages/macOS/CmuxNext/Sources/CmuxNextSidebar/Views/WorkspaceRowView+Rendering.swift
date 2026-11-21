@@ -235,6 +235,7 @@ extension WorkspaceRowView {
         (closeSlot.frame, moreSlot.frame) = (closeFrame, moreFrame)
         let pinStart = layoutPin(rowWidth: b.width, showMore: showMore, moreFrame: moreFrame, control: control, fades: controlFades)
         let overlayStart = [showClose ? closeFrame.minX : nil, showMore ? moreFrame.minX : nil, pinStart].compactMap { $0 }.min()
+        let shownControls = [showClose ? closeFrame : nil, showMore ? moreFrame : nil, pinStart.map { _ in pinSlot.frame }].compactMap { $0 }
         let ind = SidebarStyle.indicatorSize
         if markReplacesStatus, columnMark?.view !== agentMark {
             agentMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: SidebarStyle.statusGlyphSize, height: SidebarStyle.statusGlyphSize))
@@ -323,8 +324,9 @@ extension WorkspaceRowView {
             let status = mark === activity || (mark === agentMark && markReplacesStatus)
             let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay
                 : (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
-            fadeOpacity(mark, to: covered ? 0 : 1, fades: fades)
+            fadeOpacity(mark, to: covered || Self.covers(shownControls, mark) ? 0 : 1, fades: fades)
         }
+        giveWayToControls(shownControls, fades: fades)
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
         if titleArrivalPending && !titleArrivalScheduled {
             titleArrivalScheduled = true
