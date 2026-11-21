@@ -453,7 +453,7 @@ pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>, listed: &Listed<'_>) -
                     catalog.rejected.push((
                         dir,
                         format!("{}: a setup layer loads only from the setups folder", package.id),
-                    ))
+                    ));
                 }
                 // First source wins: the first-party directory, then bundled,
                 // then local (a local package never shadows a shipped id).

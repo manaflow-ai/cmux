@@ -61,7 +61,7 @@ fn the_grammar_takes_each_verb_and_refuses_the_rest() {
 
 /// A repo on disk and an App Store that records what it was asked.
 struct World {
-    repo: std::path::PathBuf,
+    repo: PathBuf,
     commit: RefCell<String>,
     installed: RefCell<Vec<String>>,
     removed: RefCell<Vec<String>>,
