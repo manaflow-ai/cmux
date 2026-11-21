@@ -159,8 +159,12 @@ Blacksmith has room (STALL_MOVE, stall_scan(), stall_move()).
 One bound overrides those soft holds (OWNED_WAIT_BOUND_SECONDS, 45 minutes; Leo, 2026-11-16: "no required check
 waits past a bound on any owned label; past it, it moves to Blacksmith"): a job of a pull request's run that has
 waited that long for a runner moves to Blacksmith though the label has no free slot, is stalled, or has a deeper
-queue, and past the sweeper's move cap (one move a scan still). A running sibling, a delivery run, a re-run that would
-stay on the owned labels, and vars.CI_BLACKSMITH_MACOS off still keep it.
+queue, and past the sweeper's move cap (one move a scan still). A running sibling, a delivery run, and a re-run that
+would stay on the owned labels still keep it. vars.CI_BLACKSMITH_MACOS off does not: the pickers keep the paid escape
+label for re-runs then too (simple_pool_picker._retry_label(), ios_runner_pool.resolve()), so the bot's re-run of a
+test-ios.yml attempt 1 or a ci.yml attempt 2 still leaves the minis (bot_rerun_leaves_owned()); only the cmux-next
+stall scan, whose re-run takes the side label while the switch is off, moves between owned labels instead
+(OWNED_STALL_MOVE).
 
 E2E runs (test-e2e.yml) are watched the same way. Its `runner` job runs
 e2e_runner_pool.py, which may pick an owned pool, and uploads the same marker
@@ -625,6 +629,10 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/main-compile-probe.yml":
         "one optional compile data point for main's compile attribution; its dispatcher already sends a probe "
         "that has not started to Blacksmith, and nothing waits on it",
+    ".github/workflows/fast-checks.yml":
+        "feat-cmux-next's checks-mac job (setup=kernel-free, cmux#46651) names a literal glaeda-side-light label on "
+        "every attempt, so a re-run would not move it; a run no mini starts stays queued until the cmux-ci "
+        "client's fallback moves it to the build fleet",
     ".github/workflows/seed-derived-data.yml":
         "a cache seed on the trusted pool that nothing waits on; the next main push seeds again from the newest "
         "earlier seed",
@@ -1014,10 +1022,10 @@ def signing_stall(jobs: Sequence[Mapping[str, Any]], now: dt.datetime,
                   if job.get("status") != "completed" and not any(job is other for other in stalled))
     if busy:
         return Look("watch", f"{names} queued on {label} with no runner past the {SIGN_STALL_SECONDS}s Blacksmith "
-                             f"stall time, but {', '.join(busy)} not finished; cancelling the run would lose that "
+                             f"wait time, but {', '.join(busy)} not finished; cancelling the run would lose that "
                              "work, so it is not rescued on this look", waiting=True)
     return Look("stalled", f"{names} queued on {label} with no runner past the {SIGN_STALL_SECONDS}s Blacksmith "
-                           "stall time, and every other job of the run has finished")
+                           "wait time, and every other job of the run has finished")
 
 
 def gated_signing_stall(jobs: Sequence[Mapping[str, Any]], now: dt.datetime, first_seen: Mapping[Any, dt.datetime],
@@ -3444,7 +3452,8 @@ def nightly_retry_destinations(api: GitHub, target: Target, sleep: Callable[[flo
 
 # The Blacksmith label a re-run of a picker-routed workflow takes after the picker put attempt 1 on an owned pool
 # (the only placement the sweeper watches): test-ios.yml's jobs read `retry_runs_on` from its runner job, which
-# ios_runner_pool.py sets to SMALL_RUNNER for a persistent placement (a test keeps them equal). retry_labels()
+# ios_runner_pool.py sets to SMALL_RUNNER for a persistent placement, whatever vars.CI_BLACKSMITH_MACOS says (a test
+# keeps them equal: BotRerunRouteTests). retry_labels()
 # cannot see through a picker output (PICKED_RETRY), so without this every Blacksmith label counted: on
 # 2026-11-16 one Seed DerivedData job queued on blacksmith-12vcpu-macos-26 from 09:33Z held run 43863208774's
 # ios-simulator-build on glaeda-ios-sim, whose every carrier was held off, from 13:21Z on.

@@ -5,7 +5,10 @@ name: CI hosted backlog rescue
 # Ubuntu (2026-11-17 21:34Z to 2026-11-18 02:34Z, cmux#45710) stayed there for hours after the routes came back.
 # The minute pass (ci-owned-pool-rescue.yml) only covers declared light jobs under 90 minutes old; this pass covers
 # the rest: a run at its pull request's head is cancelled and re-run on today's routes, a superseded one only
-# cancelled (scripts/ci/hosted_light_rescue.py --backlog). Off: set CI_HOSTED_LIGHT_RESCUE_DISABLED to 1.
+# cancelled (scripts/ci/hosted_light_rescue.py --backlog). A pass never waits for a cancel to settle: it ends its log
+# with a journal of the current-head runs it cancelled, and the next pass reads that log and re-runs them. Each pass
+# makes at most 150 GitHub calls and none when cmux-bot's budget is below that plus 500. Off: set
+# CI_HOSTED_LIGHT_RESCUE_DISABLED to 1.
 on:
   schedule:
     - cron: "3-59/10 * * * *"
@@ -21,6 +24,16 @@ on:
         required: false
         default: "20"
         type: string
+      run_ids:
+        description: "Act on exactly these runs (comma-separated ids) under the pass's rules, instead of listing the queue"
+        required: false
+        default: ""
+        type: string
+      recover_since:
+        description: "Re-run what every pass since this UTC time left cancelled (e.g. 2026-11-18T08:50:00Z), not just the newest journal's"
+        required: false
+        default: ""
+        type: string
 
 permissions: {}
 
@@ -31,7 +44,7 @@ concurrency:
 jobs:
   backlog:
     if: github.repository == 'manaflow-ai/cmux' && vars.CI_HOSTED_LIGHT_RESCUE_DISABLED != '1'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: Actions write stays on a fresh runner; never an owned label, never the hosted queue it drains
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-fleet-linux-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: Actions write stays on a fresh one-job VM; the owned fleet first (off the pool it drains), never a persistent owned machine, never the hosted queue it drains
     timeout-minutes: 10
     permissions:
       actions: write
@@ -70,9 +83,22 @@ jobs:
           permission-contents: read
           permission-pull-requests: read
 
+      # The cmux-bot installation's hour before the pass (GET /rate_limit is free), as an `app-spend-pool:` line
+      # HQ's spend publisher sums, and the floor: below it the pass is skipped, every queued run stays as it is and
+      # the next pass looks again. The App ran dry by mid-hour every hour on 2026-11-18, and this pass then fell back
+      # to the repository's shared GITHUB_TOKEN pool the NEXT nightly needs (scripts/ci/app_spend_mark.py).
+      - name: Read the cmux-bot budget before the pass
+        id: app-spend
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py start ci-hosted-backlog-rescue/backlog --floor pass
+
       # Reads and writes go out as cmux-bot (its own installation pool); the repository's shared GITHUB_TOKEN pool,
       # which the NEXT nightly needs, answers reads only while cmux-bot is low or refused.
       - name: Cancel and re-run the hosted backlog
+        if: steps.app-spend.outputs.low != 'true'
         timeout-minutes: 6
         env:
           HOSTED_LIGHT_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
@@ -80,7 +106,19 @@ jobs:
           GH_REPO: ${{ github.repository }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
           BACKLOG_ACTIONS: ${{ github.event_name == 'workflow_dispatch' && inputs.actions || '' }}
+          BACKLOG_RUN_IDS: ${{ github.event_name == 'workflow_dispatch' && inputs.run_ids || '' }}
+          BACKLOG_RECOVER_SINCE: ${{ github.event_name == 'workflow_dispatch' && inputs.recover_since || '' }}
         run: >-
           python3 scripts/ci/hosted_light_rescue.py
           --backlog
           --policy .rescue-workflows/.github
+
+      # This job's spend: the pool again and the difference from the reading above (an upper bound, since every job
+      # holding a cmux-bot token spends the same pool).
+      - name: Read the cmux-bot budget after the pass
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py end ci-hosted-backlog-rescue/backlog
