@@ -25,6 +25,10 @@ enum SocketCommandTaskPolicy {
     /// Whether the connection's peer runs as the same user as cmux, or nil
     /// for an in-process call. The caller cannot set it.
     @TaskLocal static var peerHasSameUID: Bool?
+    /// The connection's descriptor, or nil for an in-process call. A worker
+    /// body that blocks on outside work (a Cloud VM call) watches it so it
+    /// stops waiting, and frees its slot, when the client hangs up (#48314).
+    @TaskLocal static var clientSocket: Int32?
 }
 
 /// The two execution lanes a socket connection task may hop onto, each kept
@@ -243,12 +247,15 @@ extension TerminalController {
         let policyStack = SocketCommandTaskPolicy.focusAllowanceStack
         let focusAllowed = CmuxAutomationInvocationContext.focusAllowed
         let eventOrigin = CmuxAutomationInvocationContext.eventOrigin
+        let clientSocket = SocketCommandTaskPolicy.clientSocket
         return await withCheckedContinuation { continuation in
             Self.socketBlockingWorkerQueue.async {
                 let value = Self.withSocketCommandPolicyStack(policyStack) {
                     CmuxAutomationInvocationContext.$focusAllowed.withValue(focusAllowed) {
                         CmuxAutomationInvocationContext.$eventOrigin.withValue(eventOrigin) {
-                            body()
+                            SocketCommandTaskPolicy.$clientSocket.withValue(clientSocket) {
+                                body()
+                            }
                         }
                     }
                 }
