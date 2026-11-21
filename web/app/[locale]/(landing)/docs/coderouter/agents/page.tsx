@@ -70,12 +70,21 @@ cr pi --model <model>`}</CodeBlock>
       <DocsHeading level={3} id="claude-code">{t("claudeTitle")}</DocsHeading>
       <p>{t("claudeDesc")}</p>
       <p>{t("apiKeyCreate")} <Link href="/dashboard/coderouter" className={linkClass}>cmux.com/dashboard/coderouter</Link></p>
-      <CodeBlock lang="bash">{`# Claude Code and Anthropic Messages API clients
-export ANTHROPIC_BASE_URL=https://coderouter.dev
-export ANTHROPIC_API_KEY=crk_...
-claude
-
-# OpenAI Responses API clients
+      <p>{t("claudeSettings")}</p>
+      <CodeBlock title="~/.claude/settings.json" lang="json">{`{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://coderouter.dev",
+    "ANTHROPIC_API_KEY": "crk_..."
+  }
+}`}</CodeBlock>
+      <CodeBlock lang="bash">{`claude`}</CodeBlock>
+      <ol>
+        <li>{t("claudeApprove")}</li>
+        <li>{t("claudeVerify")}</li>
+      </ol>
+      <p>{t("claudeRecover")}</p>
+      <p>{t("claudeEnvironment")}</p>
+      <CodeBlock lang="bash">{`# OpenAI Responses API clients
 export OPENAI_BASE_URL=https://coderouter.dev/v1
 export OPENAI_API_KEY=crk_...`}</CodeBlock>
       <p>{t("apiKeyScope")}</p>
