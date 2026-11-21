@@ -149,10 +149,19 @@ import CmuxNextDesignTokens
         container.layer?.backgroundColor = groundColor.nsColor.cgColor
         let window = NSWindow(contentRect: container.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        // The capture is read as sRGB: a window in the screen's (or a headless Mac's generic) space
+        // painted the danger fill #d93b31 as #d84d3c, which misread white on it as 4.16:1.
+        window.colorSpace = .sRGB
         window.contentView = container
         defer { window.close() }
         scope.adopt(window)
         scope.root(container)
+        // A swatch of a known color: the capture must give it back, or no reading of it can be trusted.
+        let swatchColor = ThemeRGB(red: 0xd9 / 255.0, green: 0x3b / 255.0, blue: 0x31 / 255.0)
+        let swatch = NSView(frame: NSRect(x: 0, y: 0, width: 8, height: 8))
+        swatch.wantsLayer = true
+        swatch.layer?.backgroundColor = swatchColor.nsColor.cgColor
+        container.addSubview(swatch)
         let samples = catalog(scope: scope, disabled: disabled)
         // The most any ink reaches on a see-through ground: the theme's own primary text there.
         let ceiling = ground == .seeThrough ? tokens.textPrimary.withAlpha(1).contrast(with: groundColor) : .infinity
@@ -173,6 +182,10 @@ import CmuxNextDesignTokens
         let rep = try #require(container.bitmapImageRepForCachingDisplay(in: container.bounds))
         container.cacheDisplay(in: container.bounds, to: rep)
         let scale = CGFloat(rep.pixelsWide) / container.bounds.width
+        let painted = try #require(rep.colorAt(x: Int(4 * scale), y: rep.pixelsHigh - Int(4 * scale))?.usingColorSpace(.sRGB))
+        let drift = max(abs(painted.redComponent - swatchColor.red), abs(painted.greenComponent - swatchColor.green),
+                        abs(painted.blueComponent - swatchColor.blue))
+        #expect(drift < 2.5 / 255, "the capture shifts colors: #d93b31 read back as \(painted)")
         return samples.compactMap { sample in
             // The label sits in the middle of the control: its edges are the bezel's border and the ground.
             let frame = sample.view.frame
