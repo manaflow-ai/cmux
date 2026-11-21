@@ -1083,7 +1083,7 @@ jobs:
               keep=()
               [[ "$DEV_LANDING_COMPILE" == 0 ]] && keep=(--keep scheme)
               python3 scripts/ci/cmux_next_base_tier.py defer "$routed" "${keep[@]}" >> "$GITHUB_OUTPUT"
-              echo '- base tier (daemon tests, generated files, scheme compile): left to the cmux-next base tier run on the tip, at most 15 minutes away (cmux-next-base-tier-kick.yml).' >> "$GITHUB_STEP_SUMMARY"
+              echo '- base tier (daemon tests, generated files, scheme compile): left to the cmux-next base tier run on the tip, at most 15 minutes away (cmux-next-base-tier-kick.yml); the Swift canary is left to the scheduled tip Swift suite.' >> "$GITHUB_STEP_SUMMARY"
             fi
             # Why: docs/ci/cmux-next-workflow-notes.md#note-365
             if [[ "$EVENT_NAME" == workflow_dispatch && -z "$SAME_TREE_SHA" && "$FULL_DISPATCH" != true \
