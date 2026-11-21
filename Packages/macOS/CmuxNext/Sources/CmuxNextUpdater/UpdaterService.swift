@@ -168,10 +168,10 @@ public final class UpdaterService {
     @ObservationIgnored public var writeSetting: ((UpdaterSetting, Bool) -> Void)?
     /// A failed check after an update (``UpdateHealthCheck``) that offers Go Back on the notice card.
     public internal(set) var healthFailure: UpdateHealthFailure?
-    /// This app's control socket, which the check after an update asks (set by the App).
-    @ObservationIgnored public var healthCheckSocket: (() -> String?)?
-    /// Files a failed check after an update (set by the App: the crash reporter's non-fatal report).
-    @ObservationIgnored public var healthCheckFailed: ((UpdateHealthFailure) -> Void)?
+    /// This app's control socket, which the check after an update asks (``attachHealthCheck(socket:file:)``).
+    @ObservationIgnored var healthCheckSocket: (() -> String?)?
+    /// Files a failed check after an update (the App's crash reporter's non-fatal report).
+    @ObservationIgnored var healthCheckFile: UpdateHealthFailure.File?
     /// When this updater was made, early in the launch: the check counts relay refusals since then.
     @ObservationIgnored let launchedAt = Date()
     /// BOTTOM-LEFT-CARDS K1: today's "Did you know" tip (nil: none, or
