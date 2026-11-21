@@ -35,6 +35,8 @@ extension AgentPaneView {
         model.becomeNewTab(page)
         // With what a new chat of the window left, as a handshake gives it (cmux#32276).
         show(page, sending: model.newTabForPage)
+        // The New Tab data a chat page was not sent (``AgentPaneShownPushes/push(_:to:newTabOnly:_:)``).
+        shownPushes.flush(self)
     }
 
     /// The open tabs and workspaces changed while this page shows (Leo 2026-10-11: rows for New

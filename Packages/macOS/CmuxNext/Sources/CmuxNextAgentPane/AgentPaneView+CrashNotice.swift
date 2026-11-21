@@ -85,6 +85,8 @@ extension AgentPaneView {
     func pageLoadedAgain() {
         // Every host's load lands here: a start's card is gone with the old document, so its question moves to a dialog.
         model.cloudAsks.pageReloaded()
+        // The new document starts seen: an unseen page (the parked spare) hears it is not.
+        shownPushes.seen.pageLoaded(self)
         // A page that came back before its owed retry ran needs none.
         crashRetry.cancel()
         guard let notice = crashNotice else { return }

@@ -125,6 +125,9 @@ async function openPage(page: Page, port: number, size: number, newTab: boolean,
       };
       mock.cmuxAcpmuxMockListSize = count;
       if (shape === "fleet") mock.cmuxAcpmuxMockListShape = "fleet";
+      // The list's row log, as acpmux follows it (hub/row_log.rs): a watch from a position reads the
+      // rows changed since.
+      (mock as { cmuxAcpmuxMockCapabilities?: string[] }).cmuxAcpmuxMockCapabilities = ["session-list-follow-v1"];
       // A New Tab page as the app opens one (a tab's New Tab, or the prewarmed spare): the host
       // injects its context before the page's first render (newtab/adoption.ts).
       if (newTab) mock.__cmuxNewTabContext = {};
@@ -252,11 +255,19 @@ try {
         return node.scrollHeight - node.clientHeight;
       });
       if (range < STEP * 4) throw new Error(`scroll bench: the chat scrolls only ${range} px; raise --short`);
+      // The pages nobody sees (the chat no tab shows, the New Tab pages: a tab's behind another and the
+      // spare off screen), told so as the app's host tells them once they painted
+      // (AgentPaneShownPushes.swift `AgentPageSeenSignal`). A build before the switch ignores it.
+      for (const page of pages.slice(1)) await page.evaluate(() => (window as any).cmuxPageSeen?.(false));
       for (const page of pages) await page.evaluate(() => (window as any).__scale.start());
       // fixed-wait: the change stream reaches its steady state (every page's list and caches warm) first.
       await shown.waitForTimeout(SETTLE_MS);
       // Every page's committed renders from here on (the first call turns counting on and resets it).
       await Promise.all(pages.map((page) => page.evaluate(() => (window as any).cmuxAcpmuxDebug.renders())));
+      // `session_changed` notices each page's daemon sent it from here on (mock.ts `deliver`).
+      const noticesAt = () =>
+        Promise.all(pages.map((page) => page.evaluate(() => Number((window as any).cmuxAcpmuxMockNotices ?? 0))));
+      const noticesBefore = await noticesAt();
       await shown.evaluate(() => {
         const w = window as unknown as { __frames: number[]; __framesRun: boolean };
         w.__frames = [];
@@ -300,6 +311,15 @@ try {
       const renders = (await Promise.all(
         pages.map((page) => page.evaluate(() => (window as any).cmuxAcpmuxDebug.renders())),
       )) as Record<string, number>[];
+      const notices = (await noticesAt()).map((count, index) => count - noticesBefore[index]!);
+      // The spare shown (adopted): what it draws in its first 500 ms to catch up on what it missed.
+      const spare = pages.at(-1)!;
+      await spare.evaluate(() => (window as any).cmuxAcpmuxDebug.renders());
+      await spare.evaluate(() => (window as any).cmuxPageSeen?.(true));
+      await spare.waitForTimeout(500);
+      const showRenders = Object.values(
+        (await spare.evaluate(() => (window as any).cmuxAcpmuxDebug.renders())) as Record<string, number>,
+      ).reduce((sum, count) => sum + count, 0);
       const changes = await Promise.all(pages.map((page) => page.evaluate(() => (window as any).__scale.stop())));
       const gaps = frames.slice(1).map((at, index) => at - frames[index]!);
       const sorted = [...gaps].sort((a, b) => a - b);
@@ -324,13 +344,16 @@ try {
         dropped_per_s: round1((dropped * 1000) / wall),
         busy_pct: round1((busy / wall) * 100),
         outside_renders: outside,
+        notices,
+        spare_show_renders: showRenders,
         changes: changes.reduce((sum, value) => sum + value, 0),
       };
       results.push(row);
       console.log(
         `n=${size} pages=${PAGES} (${NEWTABS} new tab) rate=${RATE}/s: frame p50 ${row.frame_p50} p95 ${row.frame_p95} ` +
           `max ${row.frame_max} ms, dropped ${row.dropped} (${row.dropped_per_s}/s), main thread busy ${row.busy_pct} %, ` +
-          `renders outside the transcript per page ${outside.join("/")}`,
+          `renders outside the transcript per page ${outside.join("/")}, session_changed per page ${notices.join("/")}, ` +
+          `spare renders on show ${showRenders}`,
       );
       renders.forEach((byName, index) => {
         const top = Object.entries(byName)

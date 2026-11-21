@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextPages
 import CmuxNextWakeups
 
 /// Display frames for ``AgentPaneFramePacer`` (the window's ``FrameScheduler``; a fake in tests).
@@ -101,10 +102,24 @@ import CmuxNextWakeups
         self.probe = probe
     }
 
-    /// Whether nobody can see `view`: out of a window, hidden, or its window covered or minimized.
+    /// Whether nobody can see `view` (an agent pane, its page, or a view in either): out of a window,
+    /// hidden, its window covered or minimized, or parked out of sight once its page painted (the New
+    /// Tab spare, a retired page): the shared check, ``NSView/nobodySees(painted:)``.
     static func nobodySees(_ view: NSView) -> Bool {
-        guard let window = view.window else { return true }
-        return view.isHiddenOrHasHiddenAncestor || !window.occlusionState.contains(.visible)
+        view.nobodySees(painted: painted(view))
+    }
+
+    /// Whether the page `view` is or sits in drew its first frame: its pane's paint
+    /// (``AgentPaneModel/hasPainted``), else the page's own; true for a view in neither.
+    static func painted(_ view: NSView) -> Bool {
+        var current: NSView? = view
+        var page: PageWebView?
+        while let ancestor = current {
+            if let pane = ancestor as? AgentPaneView { return pane.model.hasPainted }
+            if page == nil, let found = ancestor as? PageWebView { page = found }
+            current = ancestor.superview
+        }
+        return page?.hasPainted ?? true
     }
 
     public func schedule(_ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) {
