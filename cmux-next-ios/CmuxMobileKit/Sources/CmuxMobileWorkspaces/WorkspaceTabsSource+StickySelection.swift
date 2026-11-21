@@ -39,6 +39,12 @@ extension WorkspaceTabsSource {
             heldTab = (workspace.tabs[index], index)
             return workspace
         }
+        // A tab picked since the last publish (`activate` does not refresh) is held from the list on screen.
+        if heldTab?.tab.id != id {
+            stopHoldClock()
+            let shown = workspaceSnapshot?.tabs ?? []
+            heldTab = shown.firstIndex { $0.id == id }.map { (shown[$0], $0) }
+        }
         guard let held = heldTab, held.tab.id == id, !removedHere.contains(id),
               !store.pendingWorkspaceIDs.contains(workspace.id) else {
             return releaseHold(workspace)
