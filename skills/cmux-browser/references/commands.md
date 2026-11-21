@@ -184,12 +184,15 @@ browser inspector returns `invalid_state` with reason
 attached inspector while emulation is active resets the viewport to native
 sizing.
 
-## Known WKWebView gaps (`not_supported`)
+## Known WKWebView gaps in the per-command CLI (`not_supported`)
 
 `browser.trace.start|stop`,
 `browser.network.route|unroute|requests`, `browser.screencast.start|stop`, and
 `browser.input_mouse|input_keyboard|input_touch` are not supported by the
-WKWebView engine.
+WKWebView engine. `cmux browser repl` covers trusted mouse and keyboard input
+(`page.mouse`, `page.keyboard`) and recording (`session.record()`); see
+[Browser REPL](../SKILL.md#browser-repl) and `cmux browser repl guide`. Network
+route interception has no REPL equivalent: WebKit has no request interception.
 
 `browser.geolocation.set` (`latitude`, `longitude`, optional `accuracy`, or
 `clear: true`) and `browser.offline.set` (`enabled`) work on WebKit. The
