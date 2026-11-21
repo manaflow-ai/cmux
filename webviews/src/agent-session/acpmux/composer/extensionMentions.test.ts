@@ -1,7 +1,7 @@
 // l10n-allow-file: synthetic extension mention labels.
 import { describe, expect, test } from "bun:test";
 import { MockAppPanelsClient } from "../../../apps/scene/panelsMock";
-import { mentionInsert, mentionItems, mentionSelection } from "../mentionItems";
+import { type MentionItem, mentionInsert, mentionItems, mentionSelection } from "../mentionItems";
 import {
   ExtensionMentionProviders,
   extensionMentionsFrom,
@@ -63,9 +63,13 @@ describe("extension @ mentions (cmux.composer.mention/1)", () => {
     expect(mentionItems({ ...base, extensionFirst: true })[0]?.kind).toBe("extension");
   });
 
-  test("while files are on their way, Return picks no extension row unless the word named its provider", () => {
+  test("while files are on their way, Return prefers a row that is not an extension's unless the word named its provider", () => {
     const after = mentionItems({ query: "app", files: [], sessions: [], extension: [PR] });
-    expect(mentionSelection(after, undefined, true)).toBe(-1);
+    // A listed row is always chosen (#47787): with only the extension's row, it is the one.
+    expect(mentionSelection(after, undefined, true)).toBe(0);
+    const harness: MentionItem = { kind: "harness", key: "harness:codex", harnessId: "codex", name: [] };
+    expect(mentionSelection([after[0]!, harness], undefined, true)).toBe(1);
+    expect(mentionSelection([after[0]!, harness], undefined, true, true)).toBe(0);
     const first = mentionItems({ query: "pr", files: [], sessions: [], extension: [PR], extensionFirst: true });
     expect(mentionSelection(first, undefined, true, true)).toBe(0);
   });

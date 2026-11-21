@@ -385,3 +385,25 @@ export function mentionSelection(
       )
     : 0;
 }
+
+/// What a pick writes in place of the `@word`: a file's or folder's `@path ` (a folder's with its
+/// slash), which the agent CLIs read as a path in the chat's folder; a chat's title, quoted as a
+/// JSON string so a `"` in it does not end it, and full id, which an agent can look up with cmux
+/// and the transcript links (#22055).
+export function mentionInsert(item: MentionItem): { markdown: string; shown: string } {
+  if (item.kind === "harness") return mentionText(item.harnessId);
+  // An extension's item writes its own text (a PR's link and title, a ticket), not an `@` path.
+  if (item.kind === "extension") {
+    const shown = `${item.mention.insert.replace(/\s+/g, " ").trim()} `;
+    // Inline marks are escaped as a chat's are; a start that reads as a block (`> `, `- `, `1. `,
+    // `# `, `+ `) is escaped too, since the pick can sit at the start of a line.
+    const markdown = shown
+      .replace(/[\\`*_[\]~<&]/g, "\\$&")
+      .replace(/^(#{1,6}|[>+-])(?= )/, "\\$1")
+      .replace(/^(\d+)([.)])(?= )/, "$1\\$2");
+    return { markdown, shown };
+  }
+  if (item.kind !== "session") return mentionText(item.kind === "folder" ? `${item.path}/` : item.path);
+  const shown = `cmux session ${JSON.stringify(item.title)} (${item.sessionId}) `;
+  return { markdown: shown.replace(/[\\`*_[\]~<&]/g, "\\$&"), shown };
+}
