@@ -97,19 +97,27 @@ impl Hub {
             }
             {
                 let mut m = session.meta.lock().unwrap_or_else(|error| error.into_inner());
-                // A child may have been added to a candidate after the tree was read.
-                // Each publication or new link advances the revision under its writer's lock.
-                if self.archive_tree_revision.load(Ordering::SeqCst) != revision {
-                    break;
-                }
                 // A recent event, pin or new parent link wins until the tag write.
                 if !due(&m, cutoff, now) {
                     continue;
                 }
-                m.tags.insert(
+                let previous = m.tags.insert(
                     ARCHIVED_TAG.into(),
                     crate::store::Tag { value: now.to_string(), expires_at: None },
                 );
+                // A local child may have appeared since the tree was read. Validate
+                // after inserting, while the tentative tag is still private to this lock.
+                if self.archive_tree_revision.load(Ordering::SeqCst) != revision {
+                    match previous {
+                        Some(tag) => {
+                            m.tags.insert(ARCHIVED_TAG.into(), tag);
+                        }
+                        None => {
+                            m.tags.remove(ARCHIVED_TAG);
+                        }
+                    }
+                    break;
+                }
             }
             match self.persist_tags(&session) {
                 Ok(()) => archived += 1,
