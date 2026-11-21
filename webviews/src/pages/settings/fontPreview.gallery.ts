@@ -3,6 +3,7 @@
 // or sliders to adjust for the font". Each variant opens the row and waits for its pictures to draw
 // at the size the fixture sets, so a capture shows the faces, not the fallback.
 import { settingsPageEntry, type SettingsPageVariant } from "../../gallery/format";
+import { sectionShowing } from "./categories";
 
 const variant = (
   section: string,
@@ -11,7 +12,9 @@ const variant = (
   note: string,
   size: number,
 ): SettingsPageVariant => ({
-  section,
+  // Refused at once when `section` does not open the page `focus`'s row is on, rather than captured
+  // as the wrong page with a `play` that waits forever (categories.ts sectionShowing).
+  section: sectionShowing(section, focus),
   focus,
   options: { values },
   note,
@@ -34,14 +37,14 @@ export default settingsPageEntry({
   covers: ["page:cmux.settings", "pages/settings/components/FontPreview.tsx"],
   variants: {
     "chat-default": variant(
-      "personalization",
+      "chat",
       "agentPane.display.font.ui",
       {},
       "Chat Text: a tile per Interface Font in its own face at the chat's 14 px, System marked In Use.",
       14,
     ),
     "chat-cmux-sans-large": variant(
-      "personalization",
+      "chat",
       "agentPane.display.font.ui",
       {
         "agentPane.display.font.ui": "cmux-sans",
