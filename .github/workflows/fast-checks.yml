@@ -29,9 +29,9 @@ on:
         default: '3600'
       runner:
         description: >-
-          A Blacksmith Linux label (8, 16 or 32 vCPU) to run on instead of the default, or empty.
-          The lane-gh broker sets it when it dispatches a run again because the first one waited 3 minutes on a
-          label that started no job; any other value is ignored
+          Ignored. The lane-gh broker still sets it when it dispatches a run again after a 3-minute wait;
+          the job now always asks for vars.CI_OVERFLOW_LINUX || 'cmux-linux', and Blacksmith is reached only
+          through the overflow switch
         default: ''
 
 # Same read-only checkout scope as the existing Linux test jobs. No secrets,
@@ -51,7 +51,7 @@ jobs:
     # tests/test_ci_runner_set.py fails any job whose label comes only from literals.
     # The fork pull request branch is never taken (this workflow is dispatch-only); it is the shape
     # tests/test_ci_repo_variable_defaults.py asks of every RUNNER_POOLS read, which has no literal fallback.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 195
     defaults:
       run:

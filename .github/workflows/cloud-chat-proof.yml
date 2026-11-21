@@ -133,11 +133,11 @@ concurrency:
 jobs:
   signin:
     if: github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey != '' && inputs.signin_backend != 'production'
-    # Holds the stack pair: an ephemeral Blacksmith Linux runner, never an owned pool (cloud-newlink-e2e.yml).
+    # Holds the stack pair (test credentials only) on our pool, as cloud-newlink-e2e.yml does.
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
       - name: Checkout cmux
