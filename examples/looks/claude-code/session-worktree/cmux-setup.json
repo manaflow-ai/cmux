@@ -1,0 +1,12 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/session-worktree",
+  "name": "Session Worktrees",
+  "description": "Choose a worktree when starting or forking a local chat.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "settings": {
+    "agentPane.sessionWorktrees": "project"
+  }
+}
