@@ -168,6 +168,8 @@ export const SUBAGENT_NAMES_TASK = "Watch CI for #33005";
 /// Four background agents in mixed states (Leo, 2026-11-03, watching Claude Code Desktop run agents in
 /// parallel: "yo wtf i want this kind of feature in cmux-next too", then "Tray only, richer").
 export const PARALLEL_AGENTS_SESSION = "mock-parallel-agents";
+/// A wrap-up question another agent's turn came after: it waits pinned above the composer.
+export const WAITING_ASK_SESSION = "mock-waiting-ask";
 
 export const mockSessions: MockSession[] = [
   {
@@ -286,6 +288,52 @@ export const mockSessions: MockSession[] = [
           },
         },
       },
+      { ago: at, mux: "turn_result", msg: { status: "completed" } },
+    ],
+  },
+  {
+    // A wrap-up question still waiting on the person after another agent's message opened a turn
+    // (#38964): the question pins above the composer (PendingAsks.tsx) under "Needs your input".
+    sessionId: WAITING_ASK_SESSION,
+    title: "Check the lock path",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 20,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Noted. I'll wait for the run.",
+    history: (at) => [
+      { ago: at + 120_000, mux: "user_message", msg: { text: "Why does capture stop on lock?" } },
+      { ago: at + 120_000, mux: "turn_started" },
+      { ago: at + 90_000, update: text("The lock screen pauses the capture session, not acpmux.") },
+      {
+        ago: at + 85_000,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "mock-waiting-ask-wrap-up",
+          kind: "other",
+          title: "mcp__acpmux__wrap_up",
+          status: "completed",
+          rawInput: {
+            recap: "The lock screen pauses the capture session, not acpmux.",
+            ask: "Do you mean computer use, still working while the Mac is locked?",
+            actions: ["Yes, computer use", "No, the capture"],
+          },
+        },
+      },
+      { ago: at + 80_000, mux: "turn_result", msg: { status: "completed" } },
+      {
+        ago: at + 60_000,
+        mux: "user_message",
+        msg: {
+          text: "Pushed abc123; the focused checks are running.",
+          _meta: { provenance: { kind: "session_message", from: "mock-session", fromShortName: "ci-lane" } },
+        },
+      },
+      { ago: at + 60_000, mux: "turn_started" },
+      { ago: at + 10_000, update: text("Noted. I'll wait for the run.") },
       { ago: at, mux: "turn_result", msg: { status: "completed" } },
     ],
   },
