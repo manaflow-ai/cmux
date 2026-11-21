@@ -11,6 +11,8 @@ mod agent_config;
 mod agent_input_hint;
 mod agent_message;
 #[cfg(unix)]
+mod agent_move;
+#[cfg(unix)]
 mod agent_names;
 #[cfg(unix)]
 mod agent_start;
@@ -931,7 +933,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         Err(code) => return code,
     };
     #[cfg(unix)]
-    if let Some(code) = agent_start::run_if_requested(args)
+    if let Some(code) = agent_move::run_if_requested(args)
+        .or_else(|| agent_start::run_if_requested(args))
         .or_else(|| agent_config::run_if_requested(args))
         .or_else(|| chat_start::run_if_requested(args))
         .or_else(|| mcp::run_if_requested(args))
