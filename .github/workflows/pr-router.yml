@@ -9,6 +9,9 @@ name: pr router
 # gated on the router's `start` list: a workflow it does not start costs no runner and reports one
 # skipped check under its own name; one it starts reports `<its name> / <job>` as before.
 #
+# pr-pipeline.yml is the step table's callee (ci/steps.toml, the CI v2 design): the router starts it when
+# the change routes a step of one of its jobs, so a new check is a step there, not a callee here.
+#
 # Adding a workflow: move its pull_request trigger (types, paths) into pr_router.json, give it
 # `workflow_call:`, add its caller job here, run `python3 scripts/ci/pr_router.py check`.
 on:
@@ -51,9 +54,17 @@ jobs:
             scripts/ci/docs_only_paths.py
             scripts/ci/workflow_paths_cover_inputs.py
             scripts/ci/gh_expressions.py
+            scripts/ci/head_tier.py
+            scripts/ci/ci_steps.py
+            ci/steps.toml
           sparse-checkout-cone-mode: false
       - name: Route
         id: route
+        # A draft head starts only callees marked `draft` (scripts/ci/head_tier.py); 0 turns that off.
+        env:
+          CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          # A head that only merges the base into a PR idle 24 h starts nothing (head_tier.py); 0 turns that off.
+          CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
         run: python3 -I scripts/ci/pr_router.py route
 
   size-budget:
@@ -72,3 +83,29 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+
+  swift-linux-packages:
+    name: Swift packages on Linux
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'swift-linux-packages.yml') }}
+    uses: ./.github/workflows/swift-linux-packages.yml
+    # A called workflow may ask no more than its caller job grants; with none granted here, every run
+    # ended startup_failure with 0 jobs (swift-linux-packages.yml asks contents: read).
+    permissions:
+      contents: read
+
+  web-validation:
+    name: Web validation
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'web-validation.yml') }}
+    uses: ./.github/workflows/web-validation.yml
+    permissions:
+      contents: read
+
+  pipeline:
+    name: pr pipeline
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml') }}
+    uses: ./.github/workflows/pr-pipeline.yml
+    permissions:
+      contents: read

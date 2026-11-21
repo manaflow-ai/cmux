@@ -268,6 +268,45 @@ class PullRequestShardsTest(unittest.TestCase):
         self.assertEqual(self.touched("unrelated/tool.py"), [])
         self.assertEqual(self.touched("schemas/settings/settings-schema.json"), [])
 
+    def test_a_test_helper_or_webviews_script_touches_its_importers(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        self.assertTrue(ps.HOP.search("webviews/test/support/papercutChat.ts"))
+        self.assertTrue(ps.HOP.search("webviews/scripts/design-tokens-baseline.jsonl"))
+        self.assertFalse(ps.HOP.search("webviews/package.json"))
+        self.assertFalse(ps.HOP.search("webviews/test/preload.ts"))
+        (self.root / "webviews/test/support").mkdir(parents=True, exist_ok=True)
+        (self.root / "webviews/test/support/helper.ts").write_text("export const h = 1;\n")
+        (self.root / "webviews/test/helped.test.ts").write_text('import { h } from "./support/helper";\n')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "helper")
+        self.assertEqual(self.touched("webviews/test/support/helper.ts"), ["webviews/test/helped.test.ts"])
+        self.assertEqual(self.touched("webviews/scripts/baseline.jsonl"), [])
+        self.assertIsNone(self.touched("webviews/test/preload.ts"))
+
+    def test_a_script_a_build_input_loads_or_a_file_reads_runs_every_shard(self) -> None:
+        (self.root / "webviews/scripts/lint").mkdir(parents=True, exist_ok=True)
+        (self.root / "webviews/scripts/plugin.mjs").write_text('import { d } from "./dep.mjs";\nexport const p = d;\n')
+        (self.root / "webviews/scripts/dep.mjs").write_text("export const d = 1;\n")
+        (self.root / "webviews/scripts/lint/rule.mjs").write_text("export default {};\n")
+        (self.root / "webviews/scripts/table-baseline.tsv").write_text("a\t1\n")
+        (self.root / "webviews/scripts/other-baseline.tsv").write_text("b\t2\n")
+        (self.root / "webviews/scripts/check-only.mjs").write_text("export {};\n")
+        (self.root / "webviews/package.json").write_text('{"scripts": {"check": "bun scripts/check-only.mjs"}}\n')
+        (self.root / "webviews/vite.config.ts").write_text(
+            'import { p } from "./scripts/plugin.mjs";\n'
+            'const rule = new URL("./scripts/lint/rule.mjs", import.meta.url);\nexport default { p, rule };\n')
+        (self.root / "webviews/test/table.test.ts").write_text(
+            'import { readFileSync } from "node:fs";\nreadFileSync("scripts/table-baseline.tsv");\n'
+            'readFileSync(join(dir, "other-baseline.tsv"));\n')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "scripts")
+        self.assertIsNone(self.touched("webviews/scripts/plugin.mjs"))
+        self.assertIsNone(self.touched("webviews/scripts/dep.mjs"))  # through the plugin
+        self.assertIsNone(self.touched("webviews/scripts/lint/rule.mjs"))  # named, not imported
+        self.assertIsNone(self.touched("webviews/scripts/table-baseline.tsv"))  # read as data
+        self.assertIsNone(self.touched("webviews/scripts/other-baseline.tsv"))  # a file reader names its basename
+        self.assertEqual(self.touched("webviews/scripts/check-only.mjs"), [])  # only shard 1's checks run it
+
     def test_build_and_runner_inputs_and_deleted_sources_run_every_shard(self) -> None:
         self.assertIsNone(self.touched("webviews/package.json"))
         self.assertIsNone(self.touched("scripts/ci/webviews_affected.py"))
@@ -276,7 +315,7 @@ class PullRequestShardsTest(unittest.TestCase):
     def test_no_touched_test_runs_shard_1_and_all_means_all(self) -> None:
         import webviews_pr_shards as ps  # noqa: PLC0415
         self.touched("unrelated/tool.py")
-        self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 12), ([1], "the change touches no webviews test"))
+        self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 12), ([1], "the change touches no webviews test", {}))
         run = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_pr_shards.py"), "--all", "--count", "3"],
                              capture_output=True, text=True, check=True)
         self.assertEqual(run.stdout.strip(), '[{"shard":1,"shard_count":3},{"shard":2,"shard_count":3},{"shard":3,"shard_count":3}]')
@@ -296,6 +335,26 @@ class PullRequestShardsTest(unittest.TestCase):
         finally:
             ps.shard_files = real
         self.assertEqual(seen, [1, 2])
+
+    def test_a_picked_shard_past_1_owns_only_its_touched_tests(self) -> None:
+        """--direct-out: one job past shard 1 runs the touched tests the pick found, not any shard's closure share."""
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        self.touched("webviews/src/leaf.ts")
+        split = {2: {"webviews/test/leaf.test.ts", "webviews/test/a.test.ts"}, 3: {"webviews/test/other.test.ts"},
+                 4: set()}
+        real = ps.shard_files
+        ps.shard_files = lambda repo, shard, count, selected: split[shard]
+        try:
+            shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 4)
+            self.assertEqual((shards, own), ([1, 2], {2: ["test/leaf.test.ts"]}))
+            # Touched tests in several shards past 1 become one job, under the lowest of them.
+            self.touched("webviews/test/other.test.ts", "webviews/test/leaf.test.ts")
+            shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 4)
+            self.assertEqual((shards, own), ([1, 2], {2: ["test/leaf.test.ts", "test/other.test.ts"]}))
+        finally:
+            ps.shard_files = real
+        self.touched("webviews/package.json")
+        self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 3)[2], {})  # every shard runs its whole split
 
     def test_files_of_refuses_shards_outside_the_count(self) -> None:
         run = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_pr_shards.py"), "--base", "HEAD^1",
