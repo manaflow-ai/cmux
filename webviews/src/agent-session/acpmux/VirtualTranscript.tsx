@@ -1,5 +1,12 @@
 import { PendingEntrances } from "./conversation/pendingEntrances";
-import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP, transcriptLiveVars } from "./transcriptGrid";
+import {
+  gridScale,
+  MARK_INDICATOR,
+  MARK_PROMPT,
+  rowMark,
+  TRANSCRIPT_COMPOSER_GAP,
+  transcriptLiveVars,
+} from "./transcriptGrid";
 import React, {
   useCallback,
   useDeferredValue,
@@ -15,6 +22,7 @@ import React, {
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
 import { LayeredMap } from "./conversation/layeredMap";
+import { KeptLayouts } from "./conversation/keptLayouts";
 import { isAgentMotionOff } from "../shared/motion";
 import { LOAD_FADE_CLASS, LoadFadeWindow } from "../shared/loadFade";
 import { entranceAllowed, pageAway } from "../shared/pageReveal";
@@ -1666,6 +1674,9 @@ function estimateFrom(
   };
 }
 
+/// The layouts of the chats this page's transcripts showed (conversation/keptLayouts.ts).
+const keptLayouts = new KeptLayouts<DrawnHeights, AcpmuxRow>();
+
 /// The rows around the ones the last placement mounted, in `rows` (layoutConversation `near`): the same
 /// rows by id, where `rows` kept their indices or took an older page before them. Undefined for another
 /// chat or rows it cannot find there, so every row is measured.
@@ -2674,10 +2685,18 @@ function TranscriptView({
   if (measurementSession.current !== sessionId) {
     // Row ids and versions are local to an acpmux session. A new session can reuse both, so
     // prepared markdown and DOM heights from the old transcript must never place the new one.
+    // The chat shown takes the layout it left in this page, if any: its rows place at the heights they
+    // drew, and its estimates measure none of them again (conversation/keptLayouts.ts).
     measurementSession.current = sessionId;
     measurementCache.current.clear();
     rowHeights.current = { registry, heights: new WeakMap() };
     pendingDrawn.current.clear();
+    const shown =
+      sessionId === undefined
+        ? undefined
+        : keptLayouts.show(sessionId, chatLook, attachmentView, registry, gridScale());
+    // Its drawn heights name it (`DrawnHeight.sessionId`), so they place only its rows.
+    if (shown && shown !== drawn) setDrawn(shown);
   }
   const drawnRef = useRef(drawn);
   drawnRef.current = drawn;
@@ -4044,13 +4063,17 @@ function TranscriptView({
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
     // Keep the session in this memo's inputs: its cache is cleared synchronously above even
     // when a host reuses the same rows array for a newly selected chat.
-    const cache = measurementSession.current === sessionId ? measurementCache.current : new Map();
+    const sameSession = measurementSession.current === sessionId;
+    const cache = sameSession ? measurementCache.current : new Map();
     const lookChanged = measuredLook.current !== chatLook || measuredView.current !== attachmentView;
     measuredLook.current = chatLook;
     measuredView.current = attachmentView;
-    const fresh = rowHeights.current.registry !== registry || measurementSession.current !== sessionId || lookChanged;
-    if (rowHeights.current.registry !== registry || lookChanged)
+    const fresh = rowHeights.current.registry !== registry || !sameSession || lookChanged;
+    if (rowHeights.current.registry !== registry || lookChanged) {
       rowHeights.current = { registry, heights: new WeakMap() };
+      // A kept layout was measured with the look and registry before: none of it places a row now.
+      if (sessionId !== undefined) keptLayouts.forget(sessionId);
+    }
     const rowWidth = scaledRowWidth;
     // A live resize's frame at a new width: only the rows around the mounted ones are measured, the
     // rest keep the last layout's heights (O(rows in view), not O(rows)). Its settle (`resizeSettled`)
@@ -4070,7 +4093,9 @@ function TranscriptView({
       rowWidth,
       cache,
       (row, measureWidth) => registry[rowKind(row)]?.measure?.(row, measureWidth),
-      measurementSession.current === sessionId ? rowHeights.current.heights : undefined,
+      // A chat shown again takes its rows' heights from the layout it left, by id, version and text: its
+      // estimate measures only the rows that changed since (conversation/keptLayouts.ts).
+      sameSession ? keptLayouts.seed(sessionId, rows, rowHeights.current.heights, gridScale()) : undefined,
       kept,
       sessionId,
       resizing,
@@ -4091,6 +4116,20 @@ function TranscriptView({
       ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0,
     };
   }, [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth, resizeSettled]);
+  // What this chat laid out, for its next show in this page (conversation/keptLayouts.ts): references
+  // only, so recording after each commit is O(1).
+  useLayoutEffect(() => {
+    const last = lastEstimate.current;
+    if (sessionId === undefined || last?.sessionId !== sessionId) return;
+    keptLayouts.record(sessionId, {
+      drawn,
+      rows: last.rows,
+      heights: rowHeights.current.heights,
+      look: chatLook,
+      view: attachmentView,
+      registry: rowHeights.current.registry,
+    });
+  }, [sessionId, drawn, estimated, chatLook, attachmentView]);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
