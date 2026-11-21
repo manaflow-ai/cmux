@@ -114,6 +114,11 @@ struct Manifest {
     /// pushes.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     links: BTreeMap<String, Linked>,
+    /// The base of a projected folder ([`project`]): this Mac made it when the folder was
+    /// projected, not a push, so the machine holds no record of it until the first Bring Back,
+    /// and a file not read back since is named by its stat then ([`project::stand_in`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    projected: bool,
 }
 
 /// A symlink the sync keeps: its text on the machine, relative and inside
@@ -1251,7 +1256,7 @@ fn push_inner(
     let checking_total = set.files.len() as u64;
     let mut tally = Tally {
         summary,
-        next: Manifest { version: 1, files: BTreeMap::new(), git, links: BTreeMap::new() },
+        next: Manifest { version: 1, files: BTreeMap::new(), git, ..Manifest::default() },
         save_every_files: SAVE_EVERY_FILES.max(done.files_total / 20),
         since_save: (0, 0),
         done,
@@ -1588,8 +1593,13 @@ fn save_partway(
         .map(|(relative, pushed)| (relative.clone(), pushed.clone()))
         .collect();
     files.extend(next.files.iter().map(|(relative, pushed)| (relative.clone(), pushed.clone())));
-    let partway =
-        Manifest { version: 1, files, git: previous.git.clone(), links: previous.links.clone() };
+    let partway = Manifest {
+        version: 1,
+        files,
+        git: previous.git.clone(),
+        links: previous.links.clone(),
+        projected: false,
+    };
     let bytes = serde_json::to_vec(&partway)?;
     remote
         .write(manifest_path, &mut bytes.as_slice(), 0o600)
