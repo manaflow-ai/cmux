@@ -4,8 +4,9 @@
 // User 2026-11-20, after the bookmark editor's More…/Remove read as nearly invisible: "we should do
 // audit of all surfaces like this to make sure all buttons have proper contrasts in all
 // themes/modes". The contrast is read from the pixels the browser painted, not from the CSS: every
-// control is captured twice, once as drawn and once with its ink hidden (text and `currentColor` made
-// transparent, SVG icons hidden), so each ink pixel is compared with the very pixel behind it. That
+// control is captured twice, once as drawn and once with its ink hidden (text made clear, SVG icons and
+// marks hidden, everything drawn in `currentColor` that is not ink left as it is: hideInk), so each
+// ink pixel is compared with the very pixel behind it. That
 // counts opacity, blending, glass, a picture behind a see-through window and any fill the CSS cascade
 // gives, which a stylesheet resolver cannot.
 //
@@ -144,54 +145,53 @@ export function markControls(): Control[] {
 }
 
 /**
- * Hides (or shows again) every control's ink: text, `currentColor` and SVG. Layout does not move.
+ * Hides (or shows again) every control's ink: its text, its SVG icons and its marks. Layout does not move.
  *
- * Borders, outlines, shadows and the fill of any element with content keep the color they were drawn
- * in (frozen inline before `color` goes): a `currentColor` border or a 7% `currentColor` wash is the
- * control's shape, not its ink, and WCAG does not hold a button's edge to 3:1 when its label names
- * it. A mask icon or an empty mark (a tick, a dot) still hides, so it is read as the icon it is.
- * An agent's brand mark in its owner's colors (`svg.agent-mark`, the "brand" logo style) is a logo,
- * which WCAG exempts: it stays drawn, so only a mark tinted in the control's ink is read.
+ * `currentColor` is never changed: a border, a hover pill or a 7% wash drawn in it is the control's
+ * ground, not its ink, so it stays as painted and the ink is read against it. Text goes clear through
+ * `-webkit-text-fill-color` (pseudo-element text too), an SVG hides, and so does a mark: a mask icon
+ * (an element's or its `::before`/`::after`'s) or an empty element of at most 32 px a side that paints
+ * a fill (a tick, a dot, a bar). An agent's brand mark in its owner's colors (`svg.agent-mark`, the
+ * "brand" logo style) is a logo, which WCAG exempts: it stays drawn.
  */
 export function hideInk(hidden: boolean): void {
   const id = "contrast-audit-hide-ink";
-  const frozen = "data-contrast-audit-frozen";
+  const mark = "data-contrast-audit-mark";
   document.getElementById(id)?.remove();
-  for (const el of document.querySelectorAll<HTMLElement>(`[${frozen}]`)) {
-    const before = el.getAttribute(frozen)!;
-    if (before === "\u0000") el.removeAttribute("style");
-    else el.setAttribute("style", before);
-    el.removeAttribute(frozen);
-  }
+  for (const el of document.querySelectorAll(`[${mark}]`)) el.removeAttribute(mark);
   if (!hidden) return;
-  const pending: [HTMLElement, string][] = [];
+  const masked = (css: CSSStyleDeclaration) =>
+    (css.maskImage !== "none" && css.maskImage !== "") ||
+    (css.getPropertyValue("-webkit-mask-image") || "none") !== "none";
+  const paints = (css: CSSStyleDeclaration) =>
+    (css.backgroundColor !== "rgba(0, 0, 0, 0)" && css.backgroundColor !== "transparent") ||
+    css.backgroundImage !== "none";
   for (const el of document.querySelectorAll<HTMLElement>("body *")) {
     if (el instanceof SVGElement) continue;
     const css = getComputedStyle(el);
-    const masked = css.maskImage !== "none" || css.getPropertyValue("-webkit-mask-image") !== "none";
-    const mark = el.childNodes.length === 0;
-    let rules = "";
-    for (const side of ["top", "right", "bottom", "left"])
-      rules += `border-${side}-color: ${css.getPropertyValue(`border-${side}-color`)} !important;`;
-    rules += `outline-color: ${css.outlineColor} !important; box-shadow: ${css.boxShadow} !important;`;
-    if (!masked && !mark) rules += `background-color: ${css.backgroundColor} !important;`;
-    pending.push([el, rules]);
-  }
-  for (const [el, rules] of pending) {
-    el.setAttribute(frozen, el.getAttribute("style") ?? "\u0000");
-    el.setAttribute("style", `${el.getAttribute("style") ?? ""};${rules}`);
+    const parts: string[] = [];
+    const rect = el.getBoundingClientRect();
+    const small = rect.width <= 32 && rect.height <= 32 && rect.width > 0 && rect.height > 0;
+    if (masked(css) || (el.childNodes.length === 0 && small && paints(css))) parts.push("self");
+    for (const pseudo of ["::before", "::after"] as const) {
+      const p = getComputedStyle(el, pseudo);
+      if (p.content === "none" || p.content === "normal") continue;
+      if (masked(p)) parts.push(pseudo.slice(2));
+    }
+    if (parts.length) el.setAttribute(mark, parts.join(" "));
   }
   const style = document.createElement("style");
   style.id = id;
   style.textContent = `
     *, *::before, *::after {
-      color: transparent !important;
       -webkit-text-fill-color: transparent !important;
       text-shadow: none !important;
       text-decoration-color: transparent !important;
       caret-color: transparent !important;
     }
-    svg:not(.agent-mark) { visibility: hidden !important; }`;
+    svg:not(.agent-mark) { visibility: hidden !important; }
+    [${mark}~="self"] { visibility: hidden !important; }
+    [${mark}~="before"]::before, [${mark}~="after"]::after { visibility: hidden !important; }`;
   document.head.append(style);
 }
 
