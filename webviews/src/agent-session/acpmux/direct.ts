@@ -2431,12 +2431,14 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// Puts back the earlier object of each row a rebuild made again unchanged (same kind, version and
   /// plain fields: a turn's totals change with what was folded before it, not its version), so what
   /// is keyed on the object (drawn heights, memoized rows, reused turns) survives the rebuild: paging
-  /// older history in rebuilds every row.
+  /// older history in rebuilds every row. A background turn's line is compared whole: how it ended
+  /// is in its `background`, and a line a prompt ended whose own result then arrived late has the
+  /// same version either way (started, ended), so the earlier object kept "ended by a prompt".
   keepSame(previous: ReadonlyMap<string, AcpmuxRow>): void {
     const plainSame = (a: AcpmuxRow, b: AcpmuxRow) => {
       const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof AcpmuxRow>;
       for (const key of keys) if (typeof a[key] !== "object" && a[key] !== b[key]) return false;
-      return true;
+      return a.background === b.background || JSON.stringify(a.background) === JSON.stringify(b.background);
     };
     let changed = false;
     // Only the rows `previous` holds can be kept (a rebuild past a cut passes the refolded ones).
@@ -8469,7 +8471,10 @@ export class AcpmuxDirectClient {
     // attach is not shown past it (`keepPeerCopy`); the next attach reads on from its newest seq.
     const copy = this.peerCopy;
     if (copy?.offline && !copy.attaching && copy.sessionId === event.sessionId && event.seq > copy.lastSeq) return;
-    if (event.seq <= this.lastSeq) return;
+    if (event.seq <= this.lastSeq) {
+      this.mergeLate(event);
+      return;
+    }
     this.holdLive(event);
     this.sawPrompt(event);
     this.lastSeq = event.seq;
@@ -8495,6 +8500,24 @@ export class AcpmuxDirectClient {
       this.shedOlderHeld();
       if (this.events.length > HELD_RECORDS) this.shedRetryAt = this.events.length + HELD_RETRY;
     }
+  }
+
+  /// A live record at or below the newest seq folded. One the pane holds is a duplicate and is dropped. One it
+  /// does not hold came late (a later record overtook it, or acpmux sent it again after a loss): it takes its place
+  /// among the held records and the rows from its turn on are folded again, as a read-back record is
+  /// (`repairTurns`), so the transcript is what in-order delivery draws. Dropped as stale, it stayed missing until
+  /// its turn ended, and a prompt or a reply's chunk could be gone for the whole turn
+  /// (test/transcript-delivery-property.test.ts). A record older than every one held belongs to a page not
+  /// loaded: scrolling up reads it.
+  private mergeLate(event: EventRecord): void {
+    if (this.replayThrough !== undefined) return;
+    const oldest = this.events[0]?.seq;
+    if (oldest === undefined || event.seq < oldest) return;
+    if (this.events[firstHeldFrom(this.events, event.seq)]?.seq === event.seq) return;
+    mergeIntoHeld(this.events, [event]);
+    this.sawPrompt(event);
+    this.rebuildKeepingLiveState(event.seq - 1);
+    this.emit("connected");
   }
 
   /// The pane's transcript follows its latest row, or the reader scrolled away (VirtualTranscript `following`).
