@@ -199,7 +199,10 @@ def blockers(workflow: dict, job_id: str) -> list[str]:
     if (isinstance(permissions, dict) and "write" in permissions.values()) or \
             (isinstance(permissions, str) and "write" in permissions):
         found.append("writes to GitHub (a write permission): a side effect, not a verdict on the tree")
-    meta = sorted(set(m.group(0) for m in META.finditer(text)))
+    # The job's own `if:` only decides whether it runs (a Tier B full-ci label skip, say); when it runs, its verdict
+    # is still a function of the tree, so only the rest of the job is held to no pull request metadata.
+    verdict = job_text({key: value for key, value in job.items() if key != "if"})
+    meta = sorted(set(m.group(0) for m in META.finditer(verdict)))
     if meta:
         found.append(f"reads pull request metadata or the base ({', '.join(meta[:3])}), not only the tree")
     for step in job.get("steps") or []:
