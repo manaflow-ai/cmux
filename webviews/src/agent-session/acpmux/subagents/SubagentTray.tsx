@@ -779,6 +779,7 @@ export const SubagentTray = memo(function SubagentTray({
               t={t}
               parts={headParts}
               plan={planText}
+              lead={!working && items.length > 0 ? t("bgWork.running") : ""}
               separator={KIND_LINE_SEPARATOR[kindLine]}
               chatHarness={chatHarness}
             />
@@ -1415,12 +1416,16 @@ function HeadKinds({
   t,
   parts,
   plan,
+  lead,
   separator,
   chatHarness,
 }: {
   t: Translate;
   parts: readonly TrayHeadPart[];
   plan: string;
+  /// Between turns, "Running in background" leads the kinds, as it leads the counts (trayHeadKinds.ts
+  /// `trayHead`): the header says the work outlives the turn in every arm.
+  lead: string;
   /// Between the kinds (trayKindLine.experiment.ts), so the header reads as the counts did.
   separator: string;
   chatHarness: string | undefined;
@@ -1433,9 +1438,17 @@ function HeadKinds({
           <span className="acpmux-running-tray__kind-text">{plan}</span>
         </span>
       )}
+      {lead && (
+        <>
+          {plan && <span className="acpmux-running-tray__kind-sep">{separator}</span>}
+          <span className="acpmux-running-tray__kind-text" data-kind="background">
+            {lead}
+          </span>
+        </>
+      )}
       {parts.map((part, index) => (
         <Fragment key={part.key}>
-          {(plan || index > 0) && <span className="acpmux-running-tray__kind-sep">{separator}</span>}
+          {(plan || lead || index > 0) && <span className="acpmux-running-tray__kind-sep">{separator}</span>}
           <HeadKind t={t} part={part} chatHarness={chatHarness} />
         </Fragment>
       ))}

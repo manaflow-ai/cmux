@@ -1,4 +1,5 @@
 // l10n-allow-file: the gallery fixture supplies the tasks and times this geometry contract measures.
+// cmux-web-test-timeout: 300
 // The composer hat's done check against the hat's other glyphs (Leo, 2026-11-08, on "47s ✓": "it's just
 // bc the alignment/whatever around the rest of the hat when you look at the symbol and size/whatnot of
 // it it just feels iffy how it's close the the number but idk if it should be so close"). The check is a

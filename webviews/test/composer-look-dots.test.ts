@@ -75,7 +75,9 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
         expect(await dots(page, ".nt-style")).toEqual([]);
         expect(await page.$(".nt-composer[data-composer-look]")).toBeNull();
         expect(await page.$(".nt-composer .nt-foot .acpmux-model")).not.toBeNull();
-        expect(await page.locator(".nt-create button").count()).toBe(3);
+        // New Tab draws no fixed creation buttons (#47719's templates; NewTabScreen.gallery.ts
+        // `noFixedCreateButtons`).
+        expect(await page.locator(".nt-create button").count()).toBe(0);
         expect(await page.evaluate(() => localStorage.getItem("cmux.composer.look"))).toBe(saved);
         await page.reload();
         await ready(page);
@@ -116,7 +118,8 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     try {
       await open(page, "agent-pane.composer", "idle");
       const composer = page.locator(".acpmux-composer");
-      const footer = composer.locator(":scope > .acpmux-composer-foot");
+      // The quiet row sits in the composer's chrome area (ComposerBox.tsx `quietRow`), not as its child.
+      const footer = composer.locator(".acpmux-composer-foot");
       await footer.hover();
       expect(await composer.getAttribute("data-composer-look")).toBeNull();
       expect(await composer.locator(".acpmux-look-dots").count()).toBe(0);
