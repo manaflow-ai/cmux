@@ -49,7 +49,9 @@ async fn any_other_start_with_a_taken_name_is_still_refused() {
     // `new --reuse` finds the running session by this refusal (`find_or_create`).
     let hub = test_hub();
     hub.new_session(named("lane-a", false)).await.unwrap();
-    let e = hub.new_session(named("lane-a", false)).await.unwrap_err();
+    let Err(e) = hub.new_session(named("lane-a", false)).await else {
+        panic!("a taken name was not refused")
+    };
     assert!(e.message.contains("is taken"), "{}", e.message);
 }
 
