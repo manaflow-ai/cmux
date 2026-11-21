@@ -67,8 +67,8 @@ jobs:
         run: |
           set -uo pipefail
           out="$RUNNER_TEMP/cloud-claude-matrix"
-          bun scripts/cmux-next/cloud-claude-matrix.ts --backend prod --auth "$AUTH" --models "$MODELS" --out "$out"
-          code=$?
+          code=0
+          bun scripts/cmux-next/cloud-claude-matrix.ts --backend prod --auth "$AUTH" --models "$MODELS" --out "$out" || code=$?
           cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "(no matrix written)" >> "$GITHUB_STEP_SUMMARY"
           exit "$code"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
