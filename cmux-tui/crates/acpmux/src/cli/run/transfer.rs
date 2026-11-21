@@ -41,11 +41,20 @@ pub(super) async fn run(
     Ok(())
 }
 
-/// A move begun on the source: the chat is frozen there and its bundle made.
+/// A move begun on the source: the chat is frozen there and its bundle made. `stage_id`: the
+/// target's staged prefix of a pre-copied move, whose bundle holds only what follows it.
 pub(super) struct Begun {
-    begin: Value,
-    transfer_id: String,
-    epoch: u64,
+    pub(super) begin: Value,
+    pub(super) transfer_id: String,
+    pub(super) epoch: u64,
+    pub(super) stage_id: Option<String>,
+}
+
+/// A prefix of the chat staged on the target before the freeze (`hub/transfer_precopy.rs`).
+pub(super) struct Staged {
+    pub(super) prepare_id: String,
+    pub(super) after_seq: u64,
+    pub(super) stage_id: String,
 }
 
 /// Freezes the chat `id` on `src` and makes its bundle (`_acpmux/transfer_begin`). `watch` is
@@ -55,7 +64,37 @@ pub(super) async fn begin_move(
     src: &Client,
     id: &str,
     watch: Option<Value>,
+    running: (bool, bool),
+) -> Result<Begun> {
+    begin_move_after(src, id, watch, running, None).await
+}
+
+/// [`begin_move`] after `staged` (see [`precopy`]), whose bundle then holds only the records
+/// past its prefix; a prefix the source no longer holds as it was is moved in full (the refusal
+/// gave the chat back first).
+pub(super) async fn begin_staged(
+    src: &Client,
+    id: &str,
+    watch: Option<Value>,
+    running: (bool, bool),
+    staged: Option<&Staged>,
+) -> Result<Begun> {
+    if let Some(staged) = staged {
+        match begin_move_after(src, id, watch.clone(), running, Some(staged)).await {
+            Err(e) if refused_as(&e, "transfer.diverged") => {}
+            begun => return begun,
+        }
+    }
+    begin_move(src, id, watch, running).await
+}
+
+/// [`begin_move`]; after `staged`, the bundle holds only the records past its prefix.
+async fn begin_move_after(
+    src: &Client,
+    id: &str,
+    watch: Option<Value>,
     (interrupt, after_turn): (bool, bool),
+    staged: Option<&Staged>,
 ) -> Result<Begun> {
     // This client hands the bundle on only to a receiver whose own `initialize` listed queue
     // approval when it carries approved prompts that still wait (`receiver_takes`).
@@ -66,6 +105,10 @@ pub(super) async fn begin_move(
     if let Some(to) = watch {
         begin_params.set("to", to);
     }
+    if let Some(staged) = staged {
+        begin_params.set("prepareId", json!(staged.prepare_id));
+        begin_params.set("afterSeq", json!(staged.after_seq));
+    }
     let begin = src.request("_acpmux/transfer_begin", begin_params).await?;
     let transfer_id = begin["transferId"].as_str().unwrap_or_default().to_owned();
     let epoch = match begin.get("epoch") {
@@ -74,7 +117,8 @@ pub(super) async fn begin_move(
             .as_u64()
             .ok_or_else(|| anyhow!("transfer_begin: epoch must be an unsigned integer"))?,
     };
-    Ok(Begun { begin, transfer_id, epoch })
+    let stage_id = staged.filter(|_| begin.get("prefix").is_some()).map(|s| s.stage_id.clone());
+    Ok(Begun { begin, transfer_id, epoch, stage_id })
 }
 
 /// Gives the chat back on the source: the move did not happen.
@@ -99,8 +143,80 @@ pub(super) async fn move_chat(
     running: (bool, bool),
     to_meta: Value,
 ) -> Result<Value> {
+    // Pre-copied when both daemons can: the freeze then costs only what changed since. A target
+    // that lost its stage refuses the bundle, and the move is made again in full.
+    let staged = precopy(src, dst, dst_init, id).await;
+    let begun = begin_staged(src, id, watch.clone(), running, staged.as_ref()).await?;
+    if begun.stage_id.is_some() {
+        let (cwd, name, meta) = (cwd.clone(), name.clone(), to_meta.clone());
+        match finish_move(src, dst, dst_init, id, &begun, cwd, name, meta).await {
+            Err(e) if refused_as(&e, "transfer.unstaged") => {}
+            moved => return moved,
+        }
+    } else {
+        return finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await;
+    }
     let begun = begin_move(src, id, watch, running).await?;
     finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await
+}
+
+pub(super) fn refused_as(e: &anyhow::Error, code: &str) -> bool {
+    format!("{e:#}").contains(code)
+}
+
+/// Whether a daemon's `initialize` or `_acpmux/status` reply lists pre-copy.
+pub(super) fn lists_precopy(reply: &Value, pointer: &str) -> bool {
+    let ids = reply.pointer(pointer).and_then(Value::as_array);
+    ids.is_some_and(|ids| ids.iter().any(|id| id == crate::capabilities::TRANSFER_PRECOPY))
+}
+
+/// The chat's history as of now staged on `dst`, with no freeze, when both daemons list
+/// pre-copy; None (a full move) when either does not or any step fails.
+pub(super) async fn precopy(
+    src: &Client,
+    dst: &Client,
+    dst_init: &Value,
+    id: &str,
+) -> Option<Staged> {
+    if !lists_precopy(dst_init, "/_meta/acpmux/capabilities") {
+        return None;
+    }
+    let status = src.request(method::MUX_STATUS, json!({})).await.ok()?;
+    if !lists_precopy(&status, "/capabilities") {
+        return None;
+    }
+    // The copy `dst` still holds from the chat's last move, if any: the source prepares only
+    // what came after it. A base either side refuses falls back to a full prefix.
+    let base = dst.request("_acpmux/transfer_base", json!({"sessionId": id})).await.ok();
+    let base = base.map(|b| b["base"].clone()).filter(|b| !b.is_null());
+    if let Some(base) = base
+        && let Some(staged) = stage_prefix(src, dst, id, Some(base)).await
+    {
+        return Some(staged);
+    }
+    stage_prefix(src, dst, id, None).await
+}
+
+/// One prepare on `src`, staged on `dst`: from `base` when it is given and the source holds it.
+async fn stage_prefix(src: &Client, dst: &Client, id: &str, base: Option<Value>) -> Option<Staged> {
+    let mut params = json!({"sessionId": id});
+    if let Some(base) = &base {
+        params.set("base", base.clone());
+    }
+    let prepared = src.request("_acpmux/transfer_prepare", params).await.ok()?;
+    if base.is_some() && prepared["base"].is_null() {
+        return None;
+    }
+    let stage = dst.request("_acpmux/transfer_stage", json!({"manifest": prepared})).await.ok()?;
+    let stage_id = stage["stageId"].as_str()?.to_owned();
+    let receive_id = json!(stage_id);
+    page_files(src, dst, &prepared, &prepared["prepareId"], &receive_id, None).await.ok()?;
+    dst.request("_acpmux/transfer_stage_finish", json!({"stageId": stage_id})).await.ok()?;
+    Some(Staged {
+        prepare_id: prepared["prepareId"].as_str()?.to_owned(),
+        after_seq: prepared["afterSeq"].as_u64()?,
+        stage_id,
+    })
 }
 
 /// Whether the receiver may take the bundle `begin` made: one that carries prompts the owner
@@ -144,7 +260,11 @@ pub(super) async fn finish_move(
         abort_move(src, id, begun).await;
         return Err(e);
     }
-    let receive = match dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await {
+    let mut receive_params = json!({"manifest": begin});
+    if let Some(stage_id) = &begun.stage_id {
+        receive_params.set("stageId", json!(stage_id));
+    }
+    let receive = match dst.request("_acpmux/transfer_receive", receive_params).await {
         Ok(receive) => receive,
         Err(e) => {
             abort_move(src, id, begun).await;
@@ -218,20 +338,7 @@ async fn copy(
     cwd: Option<String>,
     name: Option<String>,
 ) -> Result<Value> {
-    for file in begin["files"].as_array().into_iter().flatten() {
-        let path = &file["path"];
-        let mut offset = 0u64;
-        loop {
-            let read = json!({"transferId": begin["transferId"], "path": path, "offset": offset, "epoch": epoch});
-            let page = src.request("_acpmux/transfer_read", read).await?;
-            let write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": page["data"], "epoch": epoch});
-            dst.request("_acpmux/transfer_write", write).await?;
-            offset = page["next"].as_u64().ok_or_else(|| anyhow!("transfer_read: no next"))?;
-            if page["eof"] == true {
-                break;
-            }
-        }
-    }
+    page_files(src, dst, begin, &begin["transferId"], receive_id, Some(epoch)).await?;
     let mut finish =
         json!({"receiveId": receive_id, "from": {"sessionId": begin["sessionId"]}, "epoch": epoch});
     if let Some(cwd) = cwd {
@@ -241,4 +348,57 @@ async fn copy(
         finish.set("name", json!(name));
     }
     dst.request("_acpmux/transfer_finish", finish).await
+}
+
+/// Pages every file `manifest` lists from `src`'s `transfer_id` into `receive_id` on `dst`.
+async fn page_files(
+    src: &Client,
+    dst: &Client,
+    manifest: &Value,
+    transfer_id: &Value,
+    receive_id: &Value,
+    epoch: Option<u64>,
+) -> Result<()> {
+    for file in manifest["files"].as_array().into_iter().flatten() {
+        let path = &file["path"];
+        let mut offset = 0u64;
+        loop {
+            let mut read = json!({"transferId": transfer_id, "path": path, "offset": offset});
+            let page = src.request("_acpmux/transfer_read", stamped(&mut read, epoch)).await?;
+            let mut write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": page["data"]});
+            dst.request("_acpmux/transfer_write", stamped(&mut write, epoch)).await?;
+            offset = page["next"].as_u64().ok_or_else(|| anyhow!("transfer_read: no next"))?;
+            if page["eof"] == true {
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `params` with the move's `epoch`, when it has one (a prepare's pages carry none).
+fn stamped(params: &mut Value, epoch: Option<u64>) -> Value {
+    if let Some(epoch) = epoch {
+        params.set("epoch", json!(epoch));
+    }
+    params.take()
+}
+
+/// A client of the target's daemon at `socket`, through an ssh forward of it unless `ssh` is
+/// empty (this machine's own daemon), and the receiving daemon's own `initialize` reply on it
+/// (`receiver_takes`).
+pub(super) async fn connect_target(
+    ssh: &str,
+    socket: &str,
+) -> Result<(Option<crate::ssh_forward::Forward>, std::sync::Arc<Client>, Value)> {
+    let (forward, dst) = if ssh.is_empty() {
+        (None, Client::connect(std::path::Path::new(socket)).await?)
+    } else {
+        let forward = crate::ssh_forward::Forward::open(ssh, socket).await?;
+        let dst = Client::connect(&forward.local).await?;
+        (Some(forward), dst)
+    };
+    let init = json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-move"}});
+    let dst_init = dst.request(method::INITIALIZE, init).await?;
+    Ok((forward, dst, dst_init))
 }
