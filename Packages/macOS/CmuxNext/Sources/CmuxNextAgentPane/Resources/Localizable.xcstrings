@@ -265,792 +265,6 @@
         }
       }
     },
-    "chiefScreenShare.indicator.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يستطيع Chief رؤية شاشتك"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief vidi vaš ekran"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief kan se din skærm"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief sieht deinen Bildschirm"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief can see your screen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief puede ver tu pantalla"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief voit votre écran"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief può vedere il tuo schermo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief はあなたの画面を見ています"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief អាចមើលឃើញអេក្រង់របស់អ្នក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief가 화면을 보고 있습니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief kan se skjermen din"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief widzi Twój ekran"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O Chief pode ver sua tela"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief видит ваш экран"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief มองเห็นหน้าจอของคุณ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief ekranınızı görebiliyor"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief бачить ваш екран"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief có thể thấy màn hình của bạn"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 可以看到你的屏幕"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 可以看到你的螢幕"
-          }
-        }
-      }
-    },
-    "chiefScreenShare.header.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "مشاركة الشاشة مع Chief"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Podijeli ekran s Chiefom"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Del skærm med Chief"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bildschirm mit Chief teilen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Share Screen with Chief"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Compartir pantalla con Chief"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Partager l’écran avec Chief"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Condividi lo schermo con Chief"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief と画面を共有"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ចែករំលែកអេក្រង់ជាមួយ Chief"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief와 화면 공유"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Del skjerm med Chief"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Udostępnij ekran Chiefowi"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Compartilhar tela com o Chief"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показать экран Chief"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แชร์หน้าจอกับ Chief"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ekranı Chief ile Paylaş"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показати екран Chief"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chia sẻ màn hình với Chief"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "与 Chief 共享屏幕"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "與 Chief 分享螢幕"
-          }
-        }
-      }
-    },
-    "chiefScreenShare.refusal.notSharing": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "أنت لا تشارك شاشتك مع Chief."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ne dijelite ekran s Chiefom."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Du deler ikke din skærm med Chief."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Du teilst deinen Bildschirm nicht mit Chief."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "You are not sharing your screen with Chief."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No estás compartiendo tu pantalla con Chief."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vous ne partagez pas votre écran avec Chief."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Non stai condividendo lo schermo con Chief."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief と画面を共有していません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "អ្នកមិនកំពុងចែករំលែកអេក្រង់ជាមួយ Chief ទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief와 화면을 공유하고 있지 않습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Du deler ikke skjermen med Chief."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie udostępniasz ekranu Chiefowi."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Você não está compartilhando sua tela com o Chief."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вы не показываете экран Chief."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "คุณไม่ได้แชร์หน้าจอกับ Chief"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ekranınızı Chief ile paylaşmıyorsunuz."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ви не показуєте екран Chief."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bạn không chia sẻ màn hình với Chief."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "你没有与 Chief 共享屏幕。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "你沒有與 Chief 分享螢幕。"
-          }
-        }
-      }
-    },
-    "chiefScreenShare.refusal.helperNotRunning": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تبدأ مشاركة الشاشة مع Chief عندما يعمل مساعد cmux Computer Use. شغّل Computer Use في الإعدادات إذا كان متوقفًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dijeljenje ekrana s Chiefom počinje kada radi pomoćnik cmux Computer Use. Uključite Computer Use u Postavkama ako je isključen."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skærmdeling med Chief starter, når hjælperen cmux Computer Use kører. Slå Computer Use til i Indstillinger, hvis den er slået fra."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Die Bildschirmfreigabe mit Chief startet, sobald der Helfer cmux Computer Use läuft. Schalte Computer Use in den Einstellungen ein, falls es aus ist."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Screen sharing with Chief starts when the cmux Computer Use helper runs. Turn on Computer Use in Settings if it is off."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Compartir la pantalla con Chief empieza cuando se ejecuta el asistente cmux Computer Use. Activa Computer Use en Ajustes si está desactivado."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le partage d’écran avec Chief démarre quand l’assistant cmux Computer Use tourne. Activez Computer Use dans les Réglages s’il est désactivé."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La condivisione dello schermo con Chief parte quando l’helper cmux Computer Use è in esecuzione. Attiva Computer Use nelle Impostazioni se è spento."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief との画面共有は cmux Computer Use ヘルパーが動作すると始まります。オフの場合は設定で Computer Use をオンにしてください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការចែករំលែកអេក្រង់ជាមួយ Chief ចាប់ផ្តើមនៅពេលកម្មវិធីជំនួយ cmux Computer Use ដំណើរការ។ បើក Computer Use នៅក្នុងការកំណត់ ប្រសិនបើវាបិទ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief와의 화면 공유는 cmux Computer Use 도우미가 실행되면 시작됩니다. 꺼져 있다면 설정에서 Computer Use를 켜세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skjermdeling med Chief starter når hjelperen cmux Computer Use kjører. Slå på Computer Use i Innstillinger hvis den er av."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Udostępnianie ekranu Chiefowi zacznie się, gdy działa pomocnik cmux Computer Use. Włącz Computer Use w Ustawieniach, jeśli jest wyłączone."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O compartilhamento de tela com o Chief começa quando o assistente cmux Computer Use está em execução. Ative o Computer Use nos Ajustes se estiver desligado."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показ экрана Chief начнётся, когда запустится помощник cmux Computer Use. Включите Computer Use в настройках, если он выключен."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การแชร์หน้าจอกับ Chief จะเริ่มเมื่อตัวช่วย cmux Computer Use ทำงาน เปิด Computer Use ในการตั้งค่าหากปิดอยู่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief ile ekran paylaşımı, cmux Computer Use yardımcısı çalıştığında başlar. Kapalıysa Ayarlar'da Computer Use'u açın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показ екрана Chief почнеться, коли запуститься помічник cmux Computer Use. Увімкніть Computer Use у Параметрах, якщо його вимкнено."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chia sẻ màn hình với Chief bắt đầu khi trình trợ giúp cmux Computer Use chạy. Bật Computer Use trong Cài đặt nếu đang tắt."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Computer Use 助手运行后，与 Chief 的屏幕共享就会开始。如果 Computer Use 已关闭，请在设置中打开。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux Computer Use 輔助程式執行後，與 Chief 的螢幕分享就會開始。如果 Computer Use 已關閉，請在設定中開啟。"
-          }
-        }
-      }
-    },
-    "chiefScreenShare.refusal.permission": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "اسمح لـ cmux Computer Use في إعدادات النظام > الخصوصية والأمن > تسجيل الشاشة وصوت النظام. تبدأ المشاركة تلقائيًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dozvolite cmux Computer Use u Postavke sistema > Privatnost i sigurnost > Snimanje ekrana i sistemskog zvuka. Dijeljenje počinje samo."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tillad cmux Computer Use i Systemindstillinger > Anonymitet og sikkerhed > Skærm- og systemlydoptagelse. Delingen starter af sig selv."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Erlaube cmux Computer Use unter Systemeinstellungen > Datenschutz & Sicherheit > Bildschirm- & Systemaudioaufnahme. Die Freigabe startet dann von selbst."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Allow cmux Computer Use in System Settings > Privacy & Security > Screen & System Audio Recording. Sharing starts by itself."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Permite cmux Computer Use en Ajustes del Sistema > Privacidad y seguridad > Grabación de pantalla y audio del sistema. Se empezará a compartir solo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Autorisez cmux Computer Use dans Réglages Système > Confidentialité et sécurité > Enregistrement de l’écran et de l’audio du système. Le partage démarre tout seul."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Consenti cmux Computer Use in Impostazioni di Sistema > Privacy e sicurezza > Registrazione schermo e audio di sistema. La condivisione parte da sola."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "システム設定 > プライバシーとセキュリティ > 画面収録とシステムオーディオ録音 で cmux Computer Use を許可してください。共有は自動で始まります。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "អនុញ្ញាត cmux Computer Use នៅក្នុង ការកំណត់ប្រព័ន្ធ > ឯកជនភាព និងសុវត្ថិភាព > ការថតអេក្រង់ និងសំឡេងប្រព័ន្ធ។ ការចែករំលែកនឹងចាប់ផ្តើមដោយខ្លួនឯង។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "시스템 설정 > 개인정보 보호 및 보안 > 화면 및 시스템 오디오 녹음에서 cmux Computer Use를 허용하세요. 공유는 자동으로 시작됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tillat cmux Computer Use i Systeminnstillinger > Personvern og sikkerhet > Skjerm- og systemlydopptak. Delingen starter av seg selv."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zezwól cmux Computer Use w Ustawieniach systemowych > Prywatność i ochrona > Nagrywanie ekranu i dźwięku systemowego. Udostępnianie zacznie się samo."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Permita o cmux Computer Use em Ajustes do Sistema > Privacidade e Segurança > Gravação de Tela e Áudio do Sistema. O compartilhamento começa sozinho."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Разрешите cmux Computer Use в Системных настройках > Конфиденциальность и безопасность > Запись экрана и системного звука. Показ начнётся сам."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "อนุญาต cmux Computer Use ใน การตั้งค่าระบบ > ความเป็นส่วนตัวและความปลอดภัย > การบันทึกหน้าจอและเสียงระบบ การแชร์จะเริ่มเอง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sistem Ayarları > Gizlilik ve Güvenlik > Ekran ve Sistem Sesi Kaydı'nda cmux Computer Use'a izin verin. Paylaşım kendiliğinden başlar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Дозвольте cmux Computer Use у Системних параметрах > Приватність і безпека > Запис екрана й системного звуку. Показ почнеться сам."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cho phép cmux Computer Use trong Cài đặt hệ thống > Quyền riêng tư & Bảo mật > Ghi màn hình & âm thanh hệ thống. Việc chia sẻ sẽ tự bắt đầu."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在“系统设置 > 隐私与安全性 > 录屏与系统录音”中允许 cmux Computer Use。共享会自动开始。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在「系統設定 > 隱私權與安全性 > 螢幕與系統錄音」中允許 cmux Computer Use。分享會自動開始。"
-          }
-        }
-      }
-    },
-    "chiefScreenShare.refusal.failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "توقفت مشاركة الشاشة مع Chief: لم يعد cmux قادرًا على قراءة الشاشة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dijeljenje ekrana s Chiefom je zaustavljeno: cmux više ne može čitati ekran."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skærmdeling med Chief stoppede: cmux kan ikke længere læse skærmen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bildschirmfreigabe für Chief beendet: cmux kann den Bildschirm nicht mehr lesen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Screen sharing with Chief stopped: cmux can no longer read the screen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Se detuvo el uso compartido con Chief: cmux ya no puede leer la pantalla."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le partage d’écran avec Chief s’est arrêté : cmux ne peut plus lire l’écran."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La condivisione con Chief si è interrotta: cmux non riesce più a leggere lo schermo."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief との画面共有が停止しました: cmux が画面を読み取れなくなりました。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការចែករំលែកអេក្រង់ជាមួយ Chief បានឈប់៖ cmux មិនអាចអានអេក្រង់បានទៀតទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief와의 화면 공유가 중지되었습니다. cmux가 더 이상 화면을 읽을 수 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skjermdeling med Chief stoppet: cmux kan ikke lenger lese skjermen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Udostępnianie ekranu Chiefowi zatrzymane: cmux nie może już odczytać ekranu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O compartilhamento com o Chief parou: o cmux não consegue mais ler a tela."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показ экрана Chief остановлен: cmux больше не может читать экран."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การแชร์หน้าจอกับ Chief หยุดแล้ว: cmux อ่านหน้าจอไม่ได้อีกต่อไป"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief ile ekran paylaşımı durdu: cmux artık ekranı okuyamıyor."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показ екрана Chief зупинено: cmux більше не може читати екран."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đã dừng chia sẻ màn hình với Chief: cmux không còn đọc được màn hình."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "与 Chief 的屏幕共享已停止：cmux 无法再读取屏幕。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "與 Chief 的螢幕分享已停止：cmux 無法再讀取螢幕。"
-          }
-        }
-      }
-    },
     "agentPane.nativeNewTab.agent": {
       "extractionState": "manual",
       "localizations": {
@@ -31207,127 +30421,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief لا يعمل. أعد فتح cmux وافتح الرئيسية لتشغيله."
+            "value": "Chief لا يعمل. أعد فتح cmux وافتح Chief لتشغيله."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief nije pokrenut. Ponovo otvorite cmux i otvorite Početna da ga pokrenete."
+            "value": "Chief nije pokrenut. Ponovo otvorite cmux i otvorite Chief da ga pokrenete."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief kører ikke. Åbn cmux igen, og åbn Hjem for at starte den."
+            "value": "Chief kører ikke. Genåbn cmux, og åbn Chief for at starte den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief läuft nicht. Öffne cmux erneut und öffne Home, um ihn zu starten."
+            "value": "Chief läuft nicht. Öffne cmux erneut und öffne Chief, um ihn zu starten."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Chief is not running. Reopen cmux and open Home to start it."
+            "value": "The Chief is not running. Reopen cmux and open Chief to start it."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief no se está ejecutando. Vuelve a abrir cmux y abre Inicio para iniciarlo."
+            "value": "Chief no se está ejecutando. Vuelve a abrir cmux y abre Chief para iniciarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief n’est pas en cours d’exécution. Rouvrez cmux et ouvrez Accueil pour le démarrer."
+            "value": "Chief n’est pas en cours d’exécution. Rouvrez cmux et ouvrez Chief pour le démarrer."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief non è in esecuzione. Riapri cmux e apri Home per avviarlo."
+            "value": "Chief non è in esecuzione. Riapri cmux e apri Chief per avviarlo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief が実行されていません。cmux を開き直してホームを開くと起動します。"
+            "value": "Chiefが実行されていません。cmuxを開き直し、Chiefを開いて起動してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief មិនកំពុងដំណើរការទេ។ បើក cmux ម្តងទៀត ហើយបើកទំព័រដើម ដើម្បីចាប់ផ្តើមវា។"
+            "value": "Chief មិនកំពុងដំណើរការទេ។ បើក cmux ឡើងវិញ ហើយបើក Chief ដើម្បីចាប់ផ្ដើមវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief가 실행 중이 아닙니다. cmux를 다시 열고 홈을 열면 시작됩니다."
+            "value": "Chief가 실행 중이 아닙니다. cmux를 다시 열고 Chief를 열어 시작하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief kjører ikke. Åpne cmux på nytt og åpne Hjem for å starte den."
+            "value": "Chief kjører ikke. Åpne cmux på nytt, og åpne Chief for å starte den."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief nie działa. Otwórz ponownie cmux i otwórz Start, aby go uruchomić."
+            "value": "Chief nie działa. Otwórz ponownie cmux i otwórz Chief, aby go uruchomić."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O Chief não está em execução. Reabra o cmux e abra Início para iniciá-lo."
+            "value": "O Chief não está em execução. Reabra o cmux e abra o Chief para iniciá-lo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief не запущен. Откройте cmux заново и откройте Главная, чтобы запустить его."
+            "value": "Chief не запущен. Откройте cmux заново и откройте Chief, чтобы запустить его."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief ไม่ได้ทำงานอยู่ เปิด cmux ใหม่แล้วเปิดหน้าหลักเพื่อเริ่มทำงาน"
+            "value": "Chief ไม่ได้ทำงานอยู่ เปิด cmux ใหม่แล้วเปิด Chief เพื่อเริ่มการทำงาน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief çalışmıyor. Başlatmak için cmux'u yeniden açın ve Ana Sayfa'yı açın."
+            "value": "Chief çalışmıyor. cmux'u yeniden açın ve başlatmak için Chief'i açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief не запущено. Відкрийте cmux знову й відкрийте Головна, щоб запустити його."
+            "value": "Chief не запущено. Відкрийте cmux знову й відкрийте Chief, щоб запустити його."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief không chạy. Mở lại cmux rồi mở Trang chủ để khởi động."
+            "value": "Chief không chạy. Hãy mở lại cmux và mở Chief để khởi động."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief 未在运行。重新打开 cmux 并打开主页即可启动。"
+            "value": "Chief 未运行。请重新打开 cmux，然后打开 Chief 以启动它。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief 未在執行。重新開啟 cmux 並開啟主頁即可啟動。"
+            "value": "Chief 未執行。請重新開啟 cmux，然後開啟 Chief 以啟動它。"
           }
         }
       }
