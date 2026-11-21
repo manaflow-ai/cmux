@@ -932,9 +932,9 @@ struct DockSocketLifecycleTests {
         #expect(!store.containsPanel(runtimePanelId))
     }
 
-    @Test("Child exit closes Dock terminal surfaces")
+    @Test("Child exit keeps Dock terminal surfaces for recovery")
     @MainActor
-    func childExitClosesDockTerminalSurfaces() throws {
+    func childExitKeepsDockTerminalSurfaceForRecovery() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
@@ -943,7 +943,7 @@ struct DockSocketLifecycleTests {
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let runtimeSurface = try #require((store.panels[panelId] as? TerminalPanel)?.surface)
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panelId, runtimeSurface: runtimeSurface)
-        #expect(!store.containsPanel(panelId))
+        #expect(store.containsPanel(panelId))
         #expect(manager.tabs.contains(where: { $0.id == workspace.id }))
     }
 
