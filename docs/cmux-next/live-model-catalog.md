@@ -51,7 +51,10 @@ versions; the scout's next run publishes the current projection again).
 "Cloud Machine 2" (since 2026-11-20; the Mac's launchd copy is deleted, so one copy runs), from a
 checkout the runner moves to the newest `feat-cmux-next` before each run. The first run on a machine
 clones the repo (about 1.1 GB, several minutes) detached from the start step, so it fits in the run's
-timeout; later runs only fetch:
+timeout; later runs only fetch. Make it with a CLI from nightly 4487759453601 or later (it has c8b0ee73,
+the detached clone, and 3a27f805, steps of at most 100 s: the Cloud cuts one machine exec at about
+120 s, so an older CLI's 280 s steps fail "the machine did not answer"). Proved 2026-11-21 by run
+run_6095baeb0a9532d05c31: a fresh clone, then the scout, in 216 s:
 
 ```sh
 cmux automation create models-scout --command 'bash scripts/models/run-scout.sh' \

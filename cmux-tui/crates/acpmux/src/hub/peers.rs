@@ -1584,6 +1584,21 @@ impl Hub {
             (if matches.len() == 1 { matches.pop().map(row) } else { None }, short)
         };
         drop(map);
+        // No peer's session has it as its name: one that had it before a rename
+        // (`former_names.rs`), only when no session here has or had it either.
+        let hit = match hit {
+            Some(hit) => Some(hit),
+            None => {
+                let route = self.former_remote_route(key)?.ok()?;
+                if self.local_match_counts(key) != [0, 0, 0]
+                    || self.resolve_former_here(key).is_some()
+                {
+                    return None;
+                }
+                let map = self.remote_sessions.read();
+                map.get(&route).map(|r| row(r))
+            }
+        };
         let (peer_name, id, summary) = hit?;
         // A bare short name gives way to any session here `key` names by id, name or prefix, to
         // a live one here with the short name, and, when this one is closed, to a closed one
