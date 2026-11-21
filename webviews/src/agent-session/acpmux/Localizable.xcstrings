@@ -134298,133 +134298,133 @@
       }
     },
     "newTab.placeholder": {
-      "comment": "Agent pane",
+      "comment": "Agent pane: the New Tab field's placeholder. Return asks the agent, runs a shell command, or opens an address, so it names all three (David Beyer 2026-11-20).",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "اسأل أي شيء أو اكتب URL"
+            "value": "اسأل أي شيء، أو اكتب أمرًا أو URL"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pitaj bilo šta ili upiši URL"
+            "value": "Pitaj bilo šta, ili upiši naredbu ili URL"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Spørg om hvad som helst, eller skriv en URL"
+            "value": "Spørg om hvad som helst, eller skriv en kommando eller URL"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Frag etwas oder gib eine URL ein"
+            "value": "Frag etwas oder gib einen Befehl oder eine URL ein"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ask anything or type a URL"
+            "value": "Ask anything, or type a command or URL"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pregunta lo que quieras o escribe una URL"
+            "value": "Pregunta lo que quieras o escribe un comando o una URL"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Posez une question ou saisissez une URL"
+            "value": "Posez une question, ou saisissez une commande ou une URL"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiedi qualsiasi cosa o digita un URL"
+            "value": "Chiedi qualsiasi cosa o digita un comando o un URL"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "何でも質問するか、URLを入力"
+            "value": "何でも質問するか、コマンドやURLを入力"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សួរអ្វីក៏បាន ឬវាយ URL"
+            "value": "សួរអ្វីក៏បាន ឬវាយពាក្យបញ្ជា ឬ URL"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "무엇이든 묻거나 URL 입력"
+            "value": "무엇이든 묻거나 명령어 또는 URL 입력"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Spør om hva som helst, eller skriv en URL"
+            "value": "Spør om hva som helst, eller skriv en kommando eller URL"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zapytaj o cokolwiek lub wpisz URL"
+            "value": "Zapytaj o cokolwiek lub wpisz polecenie albo URL"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pergunte qualquer coisa ou digite uma URL"
+            "value": "Pergunte qualquer coisa ou digite um comando ou uma URL"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Спросите что угодно или введите URL"
+            "value": "Спросите что угодно или введите команду или URL"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ถามอะไรก็ได้หรือพิมพ์ URL"
+            "value": "ถามอะไรก็ได้ หรือพิมพ์คำสั่งหรือ URL"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bir şey sor veya URL yaz"
+            "value": "Bir şey sor ya da bir komut veya URL yaz"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запитайте будь-що або введіть URL"
+            "value": "Запитайте будь-що або введіть команду чи URL"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hỏi bất cứ điều gì hoặc nhập URL"
+            "value": "Hỏi bất cứ điều gì, hoặc nhập lệnh hay URL"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "问任何问题或输入 URL"
+            "value": "问任何问题，或输入命令或 URL"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "問任何問題或輸入 URL"
+            "value": "問任何問題，或輸入指令或 URL"
           }
         }
       }
