@@ -101,8 +101,10 @@ import { composerShellLook } from "../agent-session/acpmux/composer/shellLook.ex
 import { composerFooterControls } from "../agent-session/acpmux/composer/footerControls.experiment";
 import { composerEmptyHeight } from "../agent-session/acpmux/composer/emptyHeight.experiment";
 import type { Experiment } from "./experiment";
+import { githubConnect } from "../agent-session/acpmux/conversation/githubConnect.experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
+  githubConnect,
   diffTreeDisclosure,
   treeNameFade,
   sessionReplay,

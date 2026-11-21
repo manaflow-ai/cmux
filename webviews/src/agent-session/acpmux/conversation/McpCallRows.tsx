@@ -51,6 +51,8 @@ import { toolFailure } from "./toolFailure";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord } from "./toolFailureCauseModel";
 import { RunningTime } from "./RunningTime";
+import { GitHubConnectRecovery } from "./GitHubConnectRecovery";
+import { needsGitHubConnection } from "./githubConnectModel";
 
 export function McpCallRows({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
   return items.length === 1 ? (
@@ -84,6 +86,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
     [t, calls, items, names, running],
   );
   const failures = items.filter((item) => isFailed(item.tool!)).length;
+  const githubRecovery = useMemo(() => items.find((item) => needsGitHubConnection(item.tool!)), [items]);
   return (
     <>
       <button
@@ -103,6 +106,9 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         </span>
         <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
+      {!fold.present && githubRecovery?.tool && (
+        <GitHubConnectRecovery key={githubRecovery.tool.id} tool={githubRecovery.tool} />
+      )}
       {fold.present && (
         <div {...fold.bodyProps}>
           <FoldPin.Provider value={pin}>
@@ -229,6 +235,7 @@ export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActiv
         </Row>
       </ToolVisualRow>
       <ToolFailureCause failure={failure} />
+      <GitHubConnectRecovery key={tool.id} tool={tool} />
       {video && <VideoFramesCard video={video} />}
       {hasDetails && fold.present && (
         <div {...fold.bodyProps}>
