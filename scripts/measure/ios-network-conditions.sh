@@ -53,6 +53,9 @@ cd "$root"
 work="$root/.build/ios-network-conditions"
 rm -rf "$work"
 mkdir -p "$work"
+# The terminal bench builds cmux-tui, whose ghostty-vt-sys compiles libghostty-vt from the
+# ghostty-next submodule; a CI checkout leaves it empty.
+git submodule update --init --depth 1 ghostty-next >/dev/null
 fetch_url="${IOS_NETCOND_FETCH_URL:-$(git remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)}"
 echo "NETCOND-MACHINE host=$(hostname) os=$(uname -sr) cores=$(getconf _NPROCESSORS_ONLN) rev=$(git rev-parse HEAD) before=${before:-none} load=\"$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || sysctl -n vm.loadavg)\""
 
@@ -119,6 +122,7 @@ if [[ -n "$before" ]]; then
   git fetch -q ${depth[@]+"${depth[@]}"} "$fetch_url" "$before"
   git worktree add -q --detach "$work/before-src" "$before"
   trap 'git -C "$root" worktree remove --force "$work/before-src" 2>/dev/null || true' EXIT
+  git -C "$work/before-src" submodule update --init --depth 1 ghostty-next >/dev/null
   [[ -f "$work/before-src/cmux-tui/crates/cmux-fault/src/shaper.rs" ]] || overlaid=1
   [[ -n "${overlaid:-}" ]] && { overlay "$work/before-src"; echo "NETCOND-OVERLAY before=$before: the harness files of $(git rev-parse HEAD) laid over it"; }
   for surface in "${surface_list[@]}"; do bench before "$work/before-src" "$surface" || status=3; done
