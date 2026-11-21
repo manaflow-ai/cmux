@@ -36,11 +36,8 @@ const CHATS: usize = 4;
 ///
 /// Its MCP servers are not processes of their own: the daemon serves them (`mcp_gateway.rs`).
 const PER_CHAT: usize = 2;
-/// How long the daemon's startup model probes may run before the baseline is taken: each ACP
-/// harness it found (here `fake`, and `chief` as `cmux-tui chief acp` when a `cmux-tui` binary
-/// sits beside acpmux) is started once to list its models and killed after, bounded at 60 s
-/// (`hub/model_probe.rs`). They belong to no chat, and a daemon with no chat runs nothing else.
-const STARTUP_PROBES: Duration = Duration::from_secs(75);
+/// How long a daemon with no chat may take to run no process at all once it is ready.
+const SETTLE: Duration = Duration::from_secs(10);
 /// How long the processes of a stopped chat may take to end.
 const CLEANUP: Duration = Duration::from_secs(20);
 /// How often the test looks while it waits.
@@ -263,6 +260,12 @@ fn start(scratch: &Path) -> Daemon {
         // No catalog fetch and no login shell: nothing reaches the network or the host's shell.
         .env("ACPMUX_CATALOG_FETCH", "0")
         .env("ACPMUX_LOGIN_ENV", "0")
+        // No model probe: at startup the daemon starts each ACP harness it found once to list its
+        // models (here `fake`, and `chief` as `cmux-tui chief acp` where a `cmux-tui` binary sits
+        // beside acpmux, as in a Cargo target folder), kills it after, bounded at 60 s
+        // (`hub/model_probe.rs`). They belong to no chat and start after the readiness line, so
+        // they would land in whichever chat's count ran then.
+        .env("ACPMUX_PROBE_HARNESSES", "")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -303,9 +306,8 @@ fn every_chat_runs_within_its_process_budget_and_leaves_none_behind() {
     fs::create_dir_all(&work).unwrap();
     let mut daemon = start(&scratch);
 
-    // The baseline: the daemon with no chat, once its startup probes ended. That is no process at
-    // all; one still there by the bound is a probe that outlived it.
-    let deadline = Instant::now() + STARTUP_PROBES;
+    // The baseline: the daemon with no chat runs no process.
+    let deadline = Instant::now() + SETTLE;
     let baseline = loop {
         let now = daemon.look();
         if now.is_empty() || Instant::now() >= deadline {
@@ -315,7 +317,7 @@ fn every_chat_runs_within_its_process_budget_and_leaves_none_behind() {
     };
     assert!(
         baseline.is_empty(),
-        "a daemon with no chat still runs {} processes {STARTUP_PROBES:?} after it was ready:\n{}",
+        "a daemon with no chat still runs {} processes {SETTLE:?} after it was ready:\n{}",
         baseline.len(),
         report(&baseline, daemon.pid())
     );
