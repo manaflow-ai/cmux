@@ -816,6 +816,10 @@ impl Driver {
                         self.endpoint.on_network_change();
                     }
                     Command::Close => {
+                        // What was queued before the close goes out first: a host's `ended`
+                        // reason sent just before it drops the link (`failed: <why>`) must reach
+                        // the viewer, not vanish behind the close packet.
+                        self.flush(now)?;
                         if self.endpoint.link().is_established() {
                             for t in self.endpoint.close()? {
                                 self.send(t.route, &t.packet, now);
