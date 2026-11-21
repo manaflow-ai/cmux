@@ -6,6 +6,40 @@ extension AgentPaneDisplaySettingsSchema {
         let group = SettingsText.keyed("settings.group.agentChat", "Agent Chat")
         return [
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.thinkingJumpButtonPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.thinking.jumpButton", "Jump to Latest While Working"),
+                help: SettingsText.keyed("settings.agentPane.display.thinking.jumpButton.help", "What the Jump to latest button shows while the agent works."),
+                kind: .choice([
+                    SettingChoice("arrow", SettingsText.keyed("settings.choice.thinkingJumpArrow", "Arrow")),
+                    SettingChoice("dots", SettingsText.keyed("settings.choice.dots", "Dots")),
+                    SettingChoice("glyph", SettingsText.keyed("settings.choice.thinkingJumpGlyph", "Thinking Glyph")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.thinkingJumpButtonDefault),
+                keywords: ["agent", "chat", "acp", "display", "thinking", "jump", "latest", "scroll", "button", "arrow", "dots", "claude"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.thinkingGlyphPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.thinking.glyph", "Thinking Glyph"),
+                help: SettingsText.keyed("settings.agentPane.display.thinking.glyph.help", "Dots a look plays while the agent works, as a cmux.particles/1 document."),
+                kind: .text,
+                default: nil,
+                keywords: ["agent", "chat", "acp", "display", "thinking", "glyph", "particles", "dots", "choreography", "animation", "claude"]
+            ).hiddenFromSettingsPage("a cmux.particles/1 document a look or cmux settings set writes, edited in cmux-next.json"),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.thinkingGlyphSizePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.thinking.glyphSize", "Jump Button Glyph Size"),
+                help: SettingsText.keyed("settings.agentPane.display.thinking.glyphSize.help", "The dot size of the thinking glyph in Jump to latest. 0 uses the glyph's own size."),
+                kind: .number(SettingNumber(AgentPaneDisplaySettingsSchema.thinkingGlyphSizeRange, step: 0.1, unit: .points, placeholder: AgentPaneDisplaySettingsSchema.thinkingGlyphSizePlaceholder)),
+                default: .number(AgentPaneDisplaySettingsSchema.thinkingGlyphSizeDefault),
+                keywords: ["agent", "chat", "acp", "display", "thinking", "glyph", "particles", "dots", "size", "jump", "claude"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.harnessPlacementPath,
                 section: .appearance,
                 group: group,
