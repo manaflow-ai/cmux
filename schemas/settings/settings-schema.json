@@ -422,6 +422,7 @@
               "sidebar.noFade",
               "sidebar.controlsOnHover",
               "sidebar.minimal",
+              "sidebar.look",
               "sidebar.style",
               "sidebar.density",
               "sidebar.textSize",
@@ -34543,7 +34544,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
@@ -34610,7 +34611,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -34622,11 +34623,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
@@ -67042,6 +67041,176 @@
     },
     {
       "accepts" : [
+        "cmux",
+        "claude",
+        "codex",
+        "studio"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarLookCmux",
+            "text" : "cmux"
+          },
+          "value" : "cmux"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarLookClaude",
+            "text" : "Claude"
+          },
+          "value" : "claude"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarLookCodex",
+            "text" : "Codex"
+          },
+          "value" : "codex"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarLookStudio",
+            "text" : "Studio"
+          },
+          "value" : "studio"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "cmux",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.look.help",
+        "text" : "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.look",
+      "keywords" : [
+        "sidebar",
+        "look",
+        "preset",
+        "style",
+        "claude",
+        "codex",
+        "studio",
+        "like",
+        "app"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "look"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.look"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.look",
+        "text" : "Sidebar Look"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "standard",
         "rail"
       ],
@@ -68665,7 +68834,6 @@
     },
     {
       "accepts" : [
-        "folder",
         "auto",
         "glass",
         "solid",
@@ -68674,13 +68842,6 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.groupBackgroundFolder",
-            "text" : "Folders"
-          },
-          "value" : "folder"
-        },
         {
           "title" : {
             "key" : "settings.choice.groupBackgroundAuto",
@@ -68713,7 +68874,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "folder",
+      "default" : "auto",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -105594,7 +105755,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
@@ -105658,7 +105819,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -105670,11 +105831,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
