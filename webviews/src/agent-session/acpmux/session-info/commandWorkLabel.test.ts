@@ -11,7 +11,7 @@ describe("commandWorkLabel", () => {
   test("a polling loop names its work once, never the shell grammar, pauses or log lines", () => {
     // Leo, 2026-11-21, on a tray row reading "pgrep · head · ps · until · do sleep 15 · done · sleep 70 · echo me…".
     const loop =
-      'until [ -z "$(pgrep -f slot.sh | head -1)" ] && [ -z "$(ps -o pid= -p 4242)" ]; do sleep 15; done; sleep 70; echo measured';
+      'until [ -z "$(pgrep -f worker.sh | head -1)" ] && [ -z "$(ps -o pid= -p 4242)" ]; do sleep 15; done; sleep 70; echo measured';
     expect(commandWorkLabel(loop)).toBe("pgrep · head · ps");
   });
 
