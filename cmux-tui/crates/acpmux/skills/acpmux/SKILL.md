@@ -498,6 +498,8 @@ cmux agent history NAME                            # what a session did, one tur
 acpmux ledger --since 30d --by pr              # what turns cost, per repo, pull request, day, model or account
 acpmux bead ls cx-cus7j.230                    # the sessions working on a tracker bead
 acpmux process list                            # background processes agents left running
+acpmux ps --json                               # every process and lock acpmux owns: owner now, session, state, why
+acpmux gc                                      # proven orphans only (dry run); --apply ends them, logged; never guess from ps/argv
 acpmux worktree list                           # this machine's worktrees and the agents that made them
 ```
 
