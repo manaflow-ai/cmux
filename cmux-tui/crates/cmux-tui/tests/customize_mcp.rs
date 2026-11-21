@@ -223,6 +223,7 @@ fn customize_use_returns_with_the_looks_views_loaded() {
         "id": "local/customize",
         "name": "Look",
         "version": "1.0.0",
+        "description": "A New Tab page of its own.",
         "engines": {"cmux": "^2.0"},
         "runtime": {"main": "main.js"},
         "implements": {"cmux.newtab/1": {"export": "renderHome", "title": "Look"}},
