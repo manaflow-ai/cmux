@@ -12,7 +12,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "home.show",
         group: GROUP,
-        title: t("ActionCatalog", "action.home.show", "Go to Home"),
+        title: t("ActionCatalog", "action.home.show", "Go to Chief"),
         keywords: &["home", "mux", "messages", "conversations", "orchestrator"],
         category: "window",
         symbol: "house",
@@ -52,7 +52,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "home.tab",
         group: GROUP,
-        title: t("HomeActions", "action.home.tab", "Open Home in Tab"),
+        title: t("HomeActions", "action.home.tab", "Open Chief in Tab"),
         keywords: &["home", "tab", "split", "pane", "messages", "conversations", "side by side"],
         category: "window",
         symbol: "house",
@@ -79,7 +79,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "home.switchView",
         group: GROUP,
-        title: t("HomeActions", "action.home.switchView", "Switch Home View"),
+        title: t("HomeActions", "action.home.switchView", "Switch Chief View"),
         keywords: &["home", "messages", "channels", "slack", "imessage", "view", "toggle", "switch", "layout"],
         category: "window",
         symbol: "arrow.left.arrow.right",
