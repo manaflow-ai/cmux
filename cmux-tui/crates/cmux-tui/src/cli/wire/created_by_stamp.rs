@@ -64,9 +64,12 @@ fn session_facts(id: &str) -> SessionFacts {
         value.as_str().map(str::trim).filter(|text| !text.is_empty()).map(str::to_owned)
     };
     SessionFacts {
-        name: text(&info["name"]),
-        title: text(&info["title"]).or_else(|| text(&info["summary"]["title"])),
-        host: text(&info["host"]),
+        name: info.get("name").and_then(text),
+        title: info
+            .get("title")
+            .and_then(text)
+            .or_else(|| info.get("summary").and_then(|s| s.get("title")).and_then(text)),
+        host: info.get("host").and_then(text),
     }
 }
 

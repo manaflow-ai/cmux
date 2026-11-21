@@ -93,7 +93,9 @@ fn room_value(
     if let Some(created_by) =
         super::created_by::made_by(connection, super::created_by::Made::Room, &profile.id)?
     {
-        value["created_by"] = created_by;
+        if let Some(object) = value.as_object_mut() {
+            object.insert("created_by".into(), created_by);
+        }
     }
     Ok(value)
 }
