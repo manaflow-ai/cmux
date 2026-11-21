@@ -11,10 +11,15 @@ import CmuxNextDesignTokens
 /// themes/modes". The native half of the control contrast audit (the web half is
 /// webviews/test/control-contrast-N.test.ts): every shared button look cmux draws in AppKit and
 /// SwiftUI is rendered for real in an offscreen window, in a spread of light, dark and
-/// terminal-tinted themes, on the three grounds a control sits on (the window, a popover's surface,
-/// and a see-through window over the worst desktop), enabled and disabled. The popover is a real
-/// ``OverlaySurfaceView`` on its opaque popup surface (Reduce Transparency; the glass does not render
-/// offscreen), so each control fits its inks to the ground it finds in the view tree, as in the app.
+/// terminal-tinted themes, on the grounds a control sits on (the window, a popover's opaque surface, a
+/// popover's glass over a white and over a black page, and a see-through window over the worst desktop),
+/// enabled and disabled. The opaque popover is a real ``OverlaySurfaceView`` on its popup surface (Reduce
+/// Transparency). The glass popover is a real menu panel (``Glass/makeMenuPanel(content:cornerRadius:interactive:)``,
+/// the bookmark bubble's and the host pressure popover's surface) over a white or a black page, on its
+/// blur material: its tint and veil draw offscreen (Liquid Glass draws black there). The suite checks that
+/// the ground reads back as the menu glass over that page. Each control fits its inks to the ground it finds in the view tree, as in
+/// the app. Hot Dog Stand's gray buttons read 2.66 to 3.68:1 on its popover glass in the real app while the
+/// opaque ground passed (fixed in e03795f).
 /// It was the ``CardMaterial`` fill over the worst desktop, which no native overlay draws. Each
 /// control's label is read from the painted pixels: its ink against its own fill must reach 4.5:1
 /// for text (3:1 for an icon), and a disabled control's 2.5:1, the legible floor.
@@ -45,7 +50,18 @@ import CmuxNextDesignTokens
     enum Ground: String, CaseIterable {
         case window
         case popover
+        case glassOverWhite = "popover glass over a white page"
+        case glassOverBlack = "popover glass over a black page"
         case seeThrough = "see-through window"
+
+        /// The page under a glass popover; nil for a ground with no glass.
+        var page: ThemeRGB? {
+            switch self {
+            case .glassOverWhite: .white
+            case .glassOverBlack: .black
+            case .window, .popover, .seeThrough: nil
+            }
+        }
     }
 
     /// One control as the audit draws it.
@@ -149,11 +165,13 @@ import CmuxNextDesignTokens
         let groundColor: ThemeRGB = switch ground {
         case .window: tokens.windowBackground.withAlpha(1)
         case .popover: tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)
+        case .glassOverWhite, .glassOverBlack: menuGlass(tokens, over: ground.page ?? .white)
         case .seeThrough: tokens.windowBackground.composited(over: desktop)
         }
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 760, height: 360))
         container.wantsLayer = true
-        container.layer?.backgroundColor = groundColor.nsColor.cgColor
+        // Under glass the container is the page: the menu panel lays its tint and veil on it.
+        container.layer?.backgroundColor = (ground.page ?? groundColor).nsColor.cgColor
         let window = NSWindow(contentRect: container.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         // The capture is read as sRGB: a window in the screen's space shifts the danger fill
@@ -167,6 +185,14 @@ import CmuxNextDesignTokens
         var host: NSView = container
         if ground == .popover {
             let surface = OverlaySurfaceView(material: .opaque, interactive: true, cornerRadius: 0)
+            surface.frame = container.bounds
+            container.addSubview(surface)
+            host = surface.contentView
+        } else if ground.page != nil {
+            let surface = Glass.makeMenuPanel(interactive: true)
+            // The blur before Liquid Glass: its tint and veil are views that draw offscreen, its blur draws nothing
+            // there, so the pixels are the menu glass over the page. Liquid Glass drew the whole panel black.
+            surface.materialOverride = .vibrancy
             surface.frame = container.bounds
             container.addSubview(surface)
             host = surface.contentView
@@ -208,6 +234,13 @@ import CmuxNextDesignTokens
         }
         let best = try #require(reads.min { $0.drift < $1.drift })
         let read = best.read
+        // Under glass, an empty corner of the panel must read back as the menu glass over the page, or the
+        // controls were not drawn on the ground the audit names.
+        if ground.page != nil {
+            let empty = try #require(read.color(rep, x: Int((container.bounds.width - 40) * scale), y: rep.pixelsHigh - Int(40 * scale)))
+            #expect(empty.drift(from: groundColor) < 3 / 255, Comment(rawValue: "\(theme.name) \(ground.rawValue): the ground read "
+                + "\(empty.auditHex), the menu glass is \(groundColor.auditHex)"))
+        }
         #expect(best.drift < 2.5 / 255, Comment(rawValue: "the capture shifts colors: #d93b31 read back as "
             + reads.map { "\($0.read): \($0.read.color(rep, x: swatchAt.x, y: swatchAt.y)?.auditHex ?? "-")" }.joined(separator: ", ")
             + " (rep \(rep.colorSpace.localizedName ?? rep.colorSpaceName.rawValue), \(rep.bitsPerSample) bits, format \(rep.bitmapFormat.rawValue))"))
@@ -231,6 +264,16 @@ import CmuxNextDesignTokens
     }
 
     private static func allViews(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(allViews) }
+
+    /// The theme's glass tint at the menu level, as a menu panel tints its glass.
+    static func menuTint(_ tokens: ThemeTokens) -> ThemeRGB {
+        tokens.glassTint.withAlpha(min(1, tokens.glassTint.alpha * GlassMenuMaterial.level.tintStrength))
+    }
+
+    /// A menu panel's glass over `page`: the tint, then the theme veil (``GlassMenuMaterial/veil``).
+    static func menuGlass(_ tokens: ThemeTokens, over page: ThemeRGB) -> ThemeRGB {
+        tokens.surfaceBackground.withAlpha(Double(GlassMenuMaterial.veil)).composited(over: menuTint(tokens).composited(over: page))
+    }
 
     /// Every shared button look, as the app constructs it.
     static func catalog(scope: ThemeScope, disabled: Bool) -> [Sample] {
