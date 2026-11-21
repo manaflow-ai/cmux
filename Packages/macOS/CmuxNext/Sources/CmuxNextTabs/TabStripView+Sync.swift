@@ -31,7 +31,7 @@ extension TabStripView {
 
     /// One tab or more: the pane lays out again, since a one-tab pane's row is no band over its chat
     /// (`TabStripModel.holdsOneTab`, the pane's `PaneTabRowSharing.offerTabRow(tabs:)`, #33132). Also on a
-    /// strip shown again after its tabs changed out of sight (`syncShown`).
+    /// strip shown again after its tabs changed out of sight (``TabStripSyncHold/syncOwed(_:)``).
     func layOutPaneIfOneTabChanged() {
         guard model.holdsOneTab != laidOutOneTab else { return }
         laidOutOneTab = model.holdsOneTab
@@ -40,7 +40,7 @@ extension TabStripView {
 
     /// No gesture, drop, close or override in flight: `displayed` is the model's order. `closing`: a
     /// tab that slides out still counts as at rest.
-    private func isAtRest(closing: Bool = false) -> Bool {
+    func isAtRest(closing: Bool = false) -> Bool {
         drag == nil && groups.drag == nil && pendingDrop == nil && (closing || dying.isEmpty) && orderOverride == nil
             && groups.membershipOverride.isEmpty && detachedID == nil && groups.detachedGroupID == nil
     }

@@ -372,6 +372,7 @@ pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> any
         typing: mux.conversation_typing_all(),
         running,
         deleted_chiefs: super::chief_registry_resource::deleted_chiefs(mux),
+        preview_words: preview_words(),
     };
     let rows = cmux_conversation::merge_rows(
         cmux_conversation::home_inbox(&conversations, &input),
@@ -749,6 +750,19 @@ pub(super) fn agent_token(
     // A replaced token also ends the connections bound with the old one.
     mux.unbind_conversation_participant(&params.participant);
     Ok(json!({"participant": params.participant, "token": token}))
+}
+
+/// The words a Home row's preview says for a table or pictures alone, in the
+/// person's language (the apps say the same: `home.preview.*`).
+fn preview_words() -> cmux_conversation::PreviewWords {
+    #[cfg(unix)]
+    {
+        cmux_conversation::PreviewWords::for_locale(crate::apps::person_locale())
+    }
+    #[cfg(not(unix))]
+    {
+        cmux_conversation::PreviewWords::english()
+    }
 }
 
 #[cfg(test)]
