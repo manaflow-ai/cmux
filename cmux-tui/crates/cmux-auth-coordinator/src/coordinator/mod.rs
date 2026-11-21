@@ -459,7 +459,7 @@ impl Coordinator {
                 self.on_phase_start_requested(phase, now_nanos, &mut fx);
             }
             Event::PhaseTimedOut { id, now_nanos } => {
-                self.on_phase_interrupted(id, false, now_nanos)
+                self.on_phase_interrupted(id, false, now_nanos);
             }
             Event::PhaseCallerCancelled { id, now_nanos } => {
                 self.on_phase_interrupted(id, true, now_nanos);
