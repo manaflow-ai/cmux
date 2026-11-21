@@ -1,0 +1,92 @@
+# cargo-deny baseline, written 2026-11-19 by scripts/static-analysis/daily_findings.py --write-deny-toml
+# from every Cargo workspace with a Cargo.lock. It records the tree as it was: every license in use
+# and every advisory already known, so `cargo deny check licenses advisories` (cargo-deny.sh, the
+# daily static-analysis run) reports only what is new since. Report-only: no pull request check
+# reads this file. Fix a finding, or add it here with a reason.
+
+[graph]
+all-features = true
+
+[advisories]
+# A yanked version is a warning, never a finding: the lockfile pins it on purpose until someone moves it.
+yanked = "warn"
+ignore = [
+  { id = "RUSTSEC-2021-0154", reason = "baseline 2026-11-19: fuser: Uninitalized memory read & leak caused by fuser crate" },
+  { id = "RUSTSEC-2023-0089", reason = "baseline 2026-11-19: atomic-polyfill: atomic-polyfill is unmaintained" },
+  { id = "RUSTSEC-2024-0320", reason = "baseline 2026-11-19: yaml-rust: yaml-rust is unmaintained." },
+  { id = "RUSTSEC-2024-0436", reason = "baseline 2026-11-19: paste: paste - no longer maintained" },
+  { id = "RUSTSEC-2025-0141", reason = "baseline 2026-11-19: bincode: Bincode is unmaintained" },
+  { id = "RUSTSEC-2026-0192", reason = "baseline 2026-11-19: ttf-parser: `ttf-parser` is unmaintained" },
+  { id = "RUSTSEC-2026-0367", reason = "baseline 2026-11-19: zip:  Insecure Preservation of SUID/SGID Bits during ZIP Extraction Leading to Potential Privilege Escalation" },
+  { id = "RUSTSEC-2026-0368", reason = "baseline 2026-11-19: zip: zip: `ZipArchive::extract` creates symbolic links whose attacker-controlled targets are outside the destination directory" },
+  { id = "RUSTSEC-2026-0369", reason = "baseline 2026-11-19: zip: ZipStreamReader::extract() and ZipArchive::extract() apply Unix permissions through symlinks without confining the target" },
+  { id = "RUSTSEC-2026-0370", reason = "baseline 2026-11-19: zvariant: `zvariant` is unmaintained" },
+  { id = "RUSTSEC-2026-0371", reason = "baseline 2026-11-19: zbus_names: `zbus_names` is unmaintained" },
+  { id = "RUSTSEC-2026-0372", reason = "baseline 2026-11-19: zvariant_derive: `zvariant_derive` is unmaintained" },
+  { id = "RUSTSEC-2026-0374", reason = "baseline 2026-11-19: basic-toml: `basic-toml` is unmaintained" },
+  { id = "RUSTSEC-2026-0385", reason = "baseline 2026-11-19: ctutils: Non-constant-time mask generation and `u128` comparisons" },
+  { id = "RUSTSEC-2026-0386", reason = "baseline 2026-11-19: tokio: `AsyncFd::new` and related constructors violate I/O safety" },
+  { id = "RUSTSEC-2026-0387", reason = "baseline 2026-11-19: crypto-bigint: Multiple timing variability issues in operations intended to be constant-time" },
+  { id = "RUSTSEC-2026-0414", reason = "baseline 2026-11-19: pulldown-cmark: Exponential event growth with `ENABLE_WIKILINKS`" },
+  { id = "RUSTSEC-2026-0429", reason = "baseline 2026-11-19: zip: zip: `ZipArchive::extract` aborts the process on a symlink entry with a large declared size" },
+  { id = "RUSTSEC-2026-0433", reason = "baseline 2026-11-19: pulldown-cmark: Quadratic parsing of nested image wikilinks with `ENABLE_WIKILINKS`" },
+  { id = "RUSTSEC-2026-0441", reason = "baseline 2026-11-19: pin-utils: `pin-utils` is unmaintained" },
+  { id = "RUSTSEC-2026-0459", reason = "baseline 2026-11-19: libsqlite3-sys: `libsqlite3-sys` via C SQLite CVE-2026-119375" },
+  { id = "RUSTSEC-2026-0543", reason = "baseline 2026-11-19: chrono: chrono is unmaintained" },
+  { id = "RUSTSEC-2026-0545", reason = "baseline 2026-11-19: zip: AES entries returned without checking their authentication code when the data ends early or is empty" },
+  { id = "RUSTSEC-2026-0548", reason = "baseline 2026-11-19: zip: `ZipStreamReader` extracts entries under local-header names that can differ from the central directory" },
+  { id = "RUSTSEC-2026-0555", reason = "baseline 2026-11-19: chrono-tz: chrono-tz is unmaintained" },
+  { id = "RUSTSEC-2026-0566", reason = "baseline 2026-11-19: wasmtime: wasmtime-wasi: Unbounded host memory growth via empty writes to `AsyncWriteStream`" },
+  { id = "RUSTSEC-2026-0567", reason = "baseline 2026-11-19: wasmtime: Abort in Wasmtime builds without the `threads` cargo feature" },
+  { id = "RUSTSEC-2026-0568", reason = "baseline 2026-11-19: wasmtime: Stale GC heap base pointer in compiled code lets a Wasm guest abort the host process" },
+  { id = "RUSTSEC-2026-0569", reason = "baseline 2026-11-19: wasmtime: Panic in `Caller::get_module_export` when a host function isn't called from WebAssembly" },
+  { id = "RUSTSEC-2026-0570", reason = "baseline 2026-11-19: wasmtime: Abort in Wasmtime builds without the `gc` cargo feature" },
+  { id = "RUSTSEC-2026-0571", reason = "baseline 2026-11-19: wasmtime: wasmtime-wasi-http: Empty Body Writes can result in Unbound Heap Usage with HTTP/2" },
+  { id = "RUSTSEC-2026-0572", reason = "baseline 2026-11-19: wasmtime: Panic when a component cancels a stream or future copy on the wrong end" },
+  { id = "RUSTSEC-2026-0573", reason = "baseline 2026-11-19: wasmtime: Process abort when a GC heap's reservation isn't a multiple of the page size" },
+]
+
+[licenses]
+confidence-threshold = 0.8
+allow = [
+  "0BSD",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+exceptions = [
+  { crate = "attohttpc", allow = ["MPL-2.0"] },
+  { crate = "cmux-sdk", allow = ["GPL-3.0-or-later"] },
+  { crate = "cmux-sidebar", allow = ["GPL-3.0-or-later"] },
+  { crate = "fiat-crypto", allow = ["BSD-1-Clause"] },
+  { crate = "imbl", allow = ["MPL-2.0"] },
+  { crate = "imbl-sized-chunks", allow = ["MPL-2.0"] },
+  { crate = "libbz2-rs-sys", allow = ["bzip2-1.0.6"] },
+  { crate = "libfuzzer-sys", allow = ["NCSA"] },
+  { crate = "option-ext", allow = ["MPL-2.0"] },
+  { crate = "progenitor", allow = ["MPL-2.0"] },
+  { crate = "progenitor-client", allow = ["MPL-2.0"] },
+  { crate = "progenitor-impl", allow = ["MPL-2.0"] },
+  { crate = "r-efi", allow = ["LGPL-2.1-or-later"] },
+  { crate = "uniffi", allow = ["MPL-2.0"] },
+  { crate = "uniffi_bindgen", allow = ["MPL-2.0"] },
+  { crate = "uniffi_core", allow = ["MPL-2.0"] },
+  { crate = "uniffi_internal_macros", allow = ["MPL-2.0"] },
+  { crate = "uniffi_macros", allow = ["MPL-2.0"] },
+  { crate = "uniffi_meta", allow = ["MPL-2.0"] },
+  { crate = "uniffi_pipeline", allow = ["MPL-2.0"] },
+  { crate = "uniffi_udl", allow = ["MPL-2.0"] },
+]
+
+[licenses.private]
+ignore = true

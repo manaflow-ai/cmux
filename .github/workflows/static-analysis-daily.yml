@@ -1,0 +1,66 @@
+name: static-analysis daily
+
+# Once a night: osv-scanner (advisories in every lockfile), cargo-deny (licenses and advisories in
+# every Cargo workspace, against the deny.toml baseline), cargo-machete (unused Rust deps) and knip
+# (unused TS files and deps), then ONE issue per finding that is new since
+# scripts/static-analysis/daily-baseline.txt and that no issue carries yet (the key sits in the
+# issue body; an open issue, or one closed as not planned, is never filed again).
+#
+# It is never a pull request check and nothing requires it: a new advisory or license lands on the
+# repo as an issue, not as a red on an unrelated pull request. Scheduled workflows run only from the
+# default branch, so main's static-analysis-daily-dispatch.yml starts this one on feat-cmux-next
+# each night; a person can dispatch it too (file=false only prints what it would file).
+#
+# Stop conditions: timeout-minutes, at most max_new issues per run (the rest on later runs), and a
+# tool that cannot run fails this run only, after the others' findings are filed.
+on:
+  workflow_dispatch:
+    inputs:
+      file:
+        description: "File issues (false: only print what would be filed)"
+        type: boolean
+        default: true
+      max_new:
+        description: "Most issues to file in this run"
+        type: string
+        default: "10"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: static-analysis-daily
+  cancel-in-progress: false
+
+jobs:
+  daily:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: stable
+      - name: Run the tools and file new findings
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SA_FILE: ${{ (github.ref == 'refs/heads/feat-cmux-next' && inputs.file) && '1' || '0' }}
+          SA_MAX_NEW: ${{ inputs.max_new }}
+          SA_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          FAST_CHECKS_OUT: ${{ runner.temp }}/static-analysis-out
+        run: bash scripts/static-analysis/daily.sh
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: static-analysis-daily
+          path: ${{ runner.temp }}/static-analysis-out
+          retention-days: 7
+          if-no-files-found: ignore
