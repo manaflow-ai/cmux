@@ -13055,11 +13055,16 @@ class FailedViewIsTheOnlyReader(unittest.TestCase):
                 controller = next_batch.Controller.__new__(next_batch.Controller)
                 controller.args = unittest.mock.Mock(repo=REPO)
                 controller.gh = unittest.mock.Mock()
+                # The base run is a post-merge batch run (cmux-next-post-merge.yml since 2026-11-21) whose web
+                # suite gave a verdict: next_batch reads a batch run as the base's only then.
+                web_status = {"id": 99, "run_id": 20, "head_sha": BASE_SHA, "name": "web / Web status",
+                              "status": "completed", "conclusion": "success", "steps": []}
                 controller.gh.api.side_effect = lambda route, **_: {"jobs": [
-                    copy.deepcopy(found) for found in github.jobs.values()
+                    copy.deepcopy(found) for found in [*github.jobs.values(), web_status]
                     if f"/runs/{found['run_id']}/" in route]}
                 controller.gh.runs.return_value = [{"id": 20, "head_branch": next_batch.BASE, "status": "completed",
-                                                    "event": "push", "conclusion": "failure", "head_sha": BASE_SHA}]
+                                                    "event": "workflow_dispatch", "display_title": "batch merge",
+                                                    "conclusion": "failure", "head_sha": BASE_SHA}]
                 controller.job_log = lambda job_id: github.logs[job_id]
                 batch = controller.judge_web({"id": 10, "conclusion": "failure"}, BASE_SHA)
                 self.assertEqual(judged.startswith("refused"), refused, judged)
