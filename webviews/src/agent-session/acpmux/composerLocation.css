@@ -1296,6 +1296,24 @@
 .acpmux-location-worktrees:hover { background: var(--ds-surface-hover); color: var(--agent-text); }
 .acpmux-location-worktrees[data-open] > .acpmux-icon:last-child { transform: rotate(90deg); }
 .acpmux-location-worktrees + .acpmux-location-check { margin-left: 0; }
+/* A folder row's + (FolderPopover `AlsoSee`, cmux#48299): the new chat also sees that folder. It
+   takes no room and no paint until its row is hovered or highlighted, so the rows read as before. */
+.acpmux-location-also {
+  display: none;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: auto;
+  border-radius: 4px;
+  color: var(--agent-muted);
+}
+.acpmux-menu-item:hover .acpmux-location-also,
+.acpmux-menu-item[data-highlighted] .acpmux-location-also { display: inline-flex; }
+.acpmux-location-also:hover { background: var(--ds-surface-hover); color: var(--agent-text); }
+.acpmux-location-also + .acpmux-location-worktrees,
+.acpmux-location-also + .acpmux-location-check { margin-left: 0; }
 
 /* A new Cloud chat's GitHub part (FolderPopover `github`, githubRepos.ts): its repositories under the
    folders, headed GitHub as the Computer menu heads its sections (`data-section`, below), each with

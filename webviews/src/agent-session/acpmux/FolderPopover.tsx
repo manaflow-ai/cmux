@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { useLocationShortcut } from "./composerControls";
 import { Combobox } from "../../ui/Combobox";
 import { Popover } from "../../ui/Popover";
@@ -23,13 +23,16 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// projects of their own), named by the repository and, dimmed, the worktree's branch or, only when
 /// another shares that name, a short suffix that tells it apart (projectSuffix.ts); the full path is
 /// the row's tooltip. A repository's row picks the current folder, else its main checkout, else its
-/// newest worktree; its other worktrees, newest first, open under it with → (← or the count closes
-/// them). The current folder is checked. The actions are fixed under the scrolling folders, each with
-/// its glyph in the folders' icon column (Leo, 2026-11-06: "it's just folder / that's your project"):
-/// Add folder…, the GitHub row, Add another folder…, New Worktree, New Project and No folder last,
-/// where the host offers them. The empty line (no folders yet, or none match the words) sits in the
-/// list's place, over the actions (Combobox `listEnd`); only the extra folders a chat already has
-/// (ExtraFolderList) are listed under them.
+/// newest worktree; its chevron (with the count of its other worktrees, when it has any) opens them
+/// under it, newest first, then New worktree, which makes one of that repository (→ opens, ← or the
+/// chevron closes). The current folder is checked. Only three actions are fixed under the scrolling
+/// folders, each with its glyph in the folders' icon column (cmux#48299: "why do we have so many
+/// buttons stuck to the bottom of this menu?"): Add folder…, the GitHub row only when a click on it
+/// does something, and No folder last, where the host offers them. A folder the new chat should also
+/// see is added from its own row (its + button, or Shift-Return), not from a second Add folder row.
+/// The empty line (no folders yet, or none match the words) sits in the list's place, over the
+/// actions (Combobox `listEnd`); only the extra folders a chat already has (ExtraFolderList) are
+/// listed under them.
 /// A folder is the one thing the menu picks (Leo, 2026-11-06: "what even is the deal with add
 /// project? ... why not just add fodler? what's special about project?"): Add folder… is the host's
 /// folder panel, and a folder picked there is listed with the others from then on. The shared
@@ -60,7 +63,6 @@ export function FolderPopover({
   onPick,
   onBrowse,
   onNewWorktree,
-  onNewProject,
   onNoProject,
   noProject = false,
   extra,
@@ -77,24 +79,20 @@ export function FolderPopover({
   onPick(cwd: string): void;
   /// The host's folder panel: Add folder….
   onBrowse?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
-  /// New Worktree of the current folder.
-  onNewWorktree?(): void;
-  /// New Project: the chat starts in a new folder with an empty git repository (newtab/newProject.ts).
-  onNewProject?(): void;
+  /// New worktree of a repository, from its row's chevron: `cwd` is its main checkout (else its row's folder).
+  onNewWorktree?(cwd: string): void;
   /// No folder (Leo 2026-10-18): the chat starts in no folder of
   /// the user's (its private one). Checked while `noProject`.
   onNoProject?(): void;
   noProject?: boolean;
-  /// The new chat's extra folders (extraFolders.ts): Add another folder… turns the list into a pick
-  /// of one more folder the chat sees beside its own, and the ones added are listed under it.
+  /// The new chat's extra folders (extraFolders.ts): a folder row's + (or Shift-Return) adds it as one
+  /// more folder the chat sees beside its own, and the ones added are listed under the actions.
   extra?: ExtraFolderRows;
   /// A new Cloud chat's GitHub repositories (githubRepos.ts); none for any other chat.
   github?: GitHubPicker;
   /// The repositories list above the folders (a chat set to Cloud); under them otherwise.
   githubFirst?: boolean;
 }) {
-  // Add another folder… was chosen: a pick adds a folder the chat also sees instead of moving the chat.
-  const [addingExtra, setAddingExtra] = useState(false);
   const [query, setQuery] = useState("");
   // The repositories whose worktrees are open under their row, by group key.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
@@ -120,7 +118,7 @@ export function FolderPopover({
     }
     // The side fits the rows and actions the menu has now (they are counted below, before any press),
     // the GitHub row its status may still add, and the chat's extra folders listed under the actions.
-    const below = pinned.length + (github && !githubAction && !addingExtra ? 1 : 0) + (extra?.folders.length ?? 0);
+    const below = pinned.length + (github && !githubAction ? 1 : 0) + (extra?.folders.length ?? 0);
     setPopoverOpen(next, folderMenuShortest(suggestions.length - pinned.length, below));
   };
   const press = usePopoverTrigger(open, (next) => {
@@ -128,30 +126,14 @@ export function FolderPopover({
     if (!next) {
       setQuery("");
       setExpanded(new Set());
-      setAddingExtra(false);
     }
   });
   useLocationOpener(menu, () => setOpen(true));
   const shortcut = useLocationShortcut(menu);
-  // Add another folder… gives the menu a fresh field (the Combobox's key): the keyboard stays in it.
-  useEffect(() => {
-    if (!addingExtra) return;
-    trigger.current?.ownerDocument
-      .querySelector<HTMLInputElement>(".acpmux-folder-popover .acpmux-location-search")
-      ?.focus();
-  }, [addingExtra]);
   const extraFolders = extra?.folders;
   // The filesystem root is no project, so it is never listed: a chat someone started there (a shell
   // at `/`) put a row among the folders that named no folder. Typing `/` still offers it as a path.
-  // While adding, the project and the folders already added are not offered again.
-  const offered = useMemo(
-    () =>
-      folders.filter(
-        (folder) =>
-          !/^\/+$/.test(folder.id) && !(addingExtra && (folder.id === current || extraFolders?.includes(folder.id))),
-      ),
-    [addingExtra, folders, current, extraFolders],
-  );
+  const offered = useMemo(() => folders.filter((folder) => !/^\/+$/.test(folder.id)), [folders]);
   const groups = useMemo(() => groupByRepo(offered, current), [offered, current]);
   // Repositories that share a name (two clones both called "cmux") are told apart by their path.
   const suffixes = useMemo(
@@ -159,15 +141,31 @@ export function FolderPopover({
     [groups],
   );
   const rows = useMemo(() => shownRepoRows(groups, query, expanded), [groups, query, expanded]);
-  // Each shown folder's row: a repository's (`group` only) or a worktree's under it.
-  const shown = useMemo(() => {
+  // A repository's chevron also offers New worktree, so every git repository has one, not only those
+  // with worktrees already. Never while words are typed (the rows are search results then).
+  const opensUnder = (group: (typeof groups)[number]) =>
+    group.members.length > 1 || (onNewWorktree !== undefined && folderRepo(group.lead) !== undefined);
+  // Each shown folder's row: a repository's (`group` only) or a worktree's under it, and the New
+  // worktree row (by its value) that ends an open repository's worktrees, with the folder it is made from.
+  const { shown, newWorktrees, listed } = useMemo(() => {
     const byValue = new Map<string, { group: (typeof groups)[number]; worktree?: FolderChoice }>();
+    const made = new Map<string, { group: (typeof groups)[number]; from: string }>();
+    const order: string[] = [];
     for (const { group, worktrees } of rows) {
       byValue.set(group.lead.id, { group });
-      for (const worktree of worktrees) byValue.set(worktree.id, { group, worktree });
+      order.push(group.lead.id);
+      for (const worktree of worktrees) {
+        byValue.set(worktree.id, { group, worktree });
+        order.push(worktree.id);
+      }
+      if (onNewWorktree && !query.trim() && expanded.has(group.key) && folderRepo(group.lead)) {
+        const value = NEW_WORKTREE + group.key;
+        made.set(value, { group, from: (group.members.find(isMainCheckout) ?? group.lead).id });
+        order.push(value);
+      }
     }
-    return byValue;
-  }, [rows]);
+    return { shown: byValue, newWorktrees: made, listed: order };
+  }, [rows, onNewWorktree, query, expanded]);
   const toggle = (key: string, open: boolean) =>
     setExpanded((before) => {
       if (before.has(key) === open) return before;
@@ -178,8 +176,7 @@ export function FolderPopover({
     });
   const typed = query.trim();
   const typedPath = /^(?:\/|~\/)/.test(typed) && !shown.has(typed) ? typed : undefined;
-  // The GitHub part: a pick of one more folder (Add another folder…) never lists repositories.
-  const githubStatus = !addingExtra ? github?.state.status?.state : undefined;
+  const githubStatus = github?.state.status?.state;
   const githubReady = githubStatus === "ready" && github?.state.error === undefined;
   const githubRepos = github?.state.repos;
   const repos = useMemo(
@@ -191,48 +188,32 @@ export function FolderPopover({
   // more repositories…, or Retry when the repositories' list failed. Connect to GitHub only where a
   // click can connect: not connected, or signed out (the click signs in first). Never while the check
   // did not answer (a connected team's check can fail), nor on a Cloud service with no GitHub App (#46018).
-  const githubAction =
-    github && !addingExtra
-      ? githubReady
-        ? GITHUB_MORE
-        : githubStatus === "ready"
-          ? GITHUB_RETRY
-          : githubStatus === "not_connected" ||
-              (githubStatus === "unavailable" && github.state.status?.reason === "signed_out")
-            ? GITHUB_ADD
-            : undefined
-      : undefined;
+  const githubAction = github
+    ? githubReady
+      ? GITHUB_MORE
+      : githubStatus === "ready"
+        ? GITHUB_RETRY
+        : githubStatus === "not_connected" ||
+            (githubStatus === "unavailable" && github.state.status?.reason === "signed_out")
+          ? GITHUB_ADD
+          : undefined
+    : undefined;
   const githubRows = repos.map((repo) => GITHUB_REPO + repo.fullName);
   const repoRows = useMemo(() => new Map(repos.map((repo) => [GITHUB_REPO + repo.fullName, repo])), [repos]);
   const currentRepo = githubFolderRepo(current);
-  // Actions stay under the folders; the arrows reach them after the last folder.
+  // Actions stay under the folders; the arrows reach them after the last folder. Only the ones that
+  // choose where the chat starts: Add folder… and No folder (cmux#48299). New worktree is a
+  // repository's (its chevron), and a folder the chat also sees is added from its row.
   const actions: {
     value: string;
     text: string;
     run(): Promise<BrowseResult> | BrowseResult | void;
-  }[] = addingExtra
-    ? extra?.onBrowse
-      ? [
-          {
-            value: ACTION + "browse",
-            text: t("composer.addFolder"),
-            run: () =>
-              Promise.resolve(extra.onBrowse?.()).then((path) => {
-                if (typeof path === "string" && path) extra.onAdd(path);
-                return undefined;
-              }),
-          },
-        ]
-      : []
-    : [
-        ...(onBrowse ? [{ value: ACTION + "browse", text: t("composer.addFolder"), run: onBrowse }] : []),
-        ...(extra
-          ? [{ value: ACTION_EXTRA, text: t("composer.addAnotherFolder"), run: () => setAddingExtra(true) }]
-          : []),
-        ...(onNewWorktree ? [{ value: ACTION + "worktree", text: t("worktree.new"), run: onNewWorktree }] : []),
-        ...(onNewProject ? [{ value: ACTION + "project", text: t("project.new"), run: onNewProject }] : []),
-        ...(onNoProject ? [{ value: ACTION + "none", text: t("project.noFolder"), run: onNoProject }] : []),
-      ];
+  }[] = [
+    ...(onBrowse ? [{ value: ACTION + "browse", text: t("composer.addFolder"), run: onBrowse }] : []),
+    ...(onNoProject ? [{ value: ACTION + "none", text: t("project.noFolder"), run: onNoProject }] : []),
+  ];
+  // A folder row's + : the chat also sees it. Not the chat's own folder, nor one already added.
+  const addsExtra = (id: string) => extra !== undefined && id !== current && !extraFolders?.includes(id);
   // The GitHub row sits right under Add folder….
   const actionValues = actions.map((action) => action.value);
   const afterBrowse = actionValues[0] === ACTION + "browse" ? 1 : 0;
@@ -243,7 +224,7 @@ export function FolderPopover({
   const suggestions = [
     ...pinned,
     ...(githubFirst ? githubRows : []),
-    ...shown.keys(),
+    ...listed,
     ...(typedPath ? [typedPath] : []),
     ...(githubFirst ? [] : githubRows),
   ];
@@ -257,6 +238,7 @@ export function FolderPopover({
   const fit = widestLines(
     (open ? suggestions.slice(pinned.length) : []).map((value): FitLine => {
       const place = shown.get(value);
+      if (newWorktrees.has(value)) return { text: t("worktree.new"), kind: "worktree" };
       if (!place) {
         const repo = repoRows.get(value);
         return repo
@@ -267,14 +249,15 @@ export function FolderPopover({
       const suffix = leadSuffix(place.group.lead);
       const others = place.group.members.length - 1;
       const name = suffix ? `${place.group.name} · ${suffix}` : place.group.name;
-      return others > 0 && !typed ? { text: `${name} ${others}`, kind: "count" } : { text: name, kind: "row" };
+      return opensUnder(place.group) && !typed
+        ? { text: others > 0 ? `${name} ${others}` : name, kind: "count" }
+        : { text: name, kind: "row" };
     }),
   );
   const close = () => {
     setOpen(false);
     setQuery("");
     setExpanded(new Set());
-    setAddingExtra(false);
     if (escaped.current) trigger.current?.focus();
     escaped.current = false;
   };
@@ -297,21 +280,11 @@ export function FolderPopover({
       github.onSearch(typed);
       return;
     }
-    // Add another folder… keeps the menu open: its list now adds a folder.
-    if (value === ACTION_EXTRA) {
-      setAddingExtra(true);
-      setQuery("");
-      setExpanded(new Set());
-      return;
-    }
     const action = actions.find((candidate) => candidate.value === value);
-    const addsExtra = addingExtra;
+    const worktreeOf = newWorktrees.get(value);
     close();
-    if (addsExtra && !action) {
-      if (value && (shown.has(value) || value === typedPath)) extra?.onAdd(value);
-      return;
-    }
-    if (action)
+    if (worktreeOf) onNewWorktree?.(worktreeOf.from);
+    else if (action)
       void Promise.resolve()
         .then(() => action.run())
         .catch(() => undefined);
@@ -322,7 +295,7 @@ export function FolderPopover({
     } else if (value && value !== current && (shown.has(value) || value === typedPath)) onPick(value);
   };
   // Under the repositories (a Cloud chat) the folders are headed This Mac, apart from the GitHub group.
-  const firstFolder = githubFirst && githubRows.length > 0 ? (shown.keys().next().value ?? typedPath) : undefined;
+  const firstFolder = githubFirst && githubRows.length > 0 ? (listed[0] ?? typedPath) : undefined;
   // The GitHub group's heading sits over its first row, and This Mac over the first folder after
   // the repositories (composerLocation.css `data-section`, drawn in the row's margin).
   const sectionOf = (value: string) =>
@@ -393,6 +366,17 @@ export function FolderPopover({
           </span>
         </span>
       );
+    if (newWorktrees.has(value))
+      return (
+        <span className="acpmux-location-row" data-worktree="" data-new-worktree="">
+          <span className="acpmux-location-branch-icon" aria-hidden="true">
+            <ActionIcon action={ACTION + "browse"} />
+          </span>
+          <span className="acpmux-menu-text acpmux-location-name">
+            <span className="acpmux-menu-label">{t("worktree.new")}</span>
+          </span>
+        </span>
+      );
     const action = actions.find((candidate) => candidate.value === value);
     if (action)
       return (
@@ -417,6 +401,7 @@ export function FolderPopover({
       return (
         <span className="acpmux-location-row" data-section={section}>
           <span className="acpmux-menu-label">{t("project.usePath", { path: value })}</span>
+          {addsExtra(value) && <AlsoSee name={value} onAdd={() => extra?.onAdd(value)} />}
         </span>
       );
     const { group, worktree } = place;
@@ -435,6 +420,7 @@ export function FolderPopover({
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">{worktreeName(worktree)}</span>
           </span>
+          {addsExtra(worktree.id) && <AlsoSee name={worktreeName(worktree)} onAdd={() => extra?.onAdd(worktree.id)} />}
           <span className="acpmux-location-check" aria-hidden="true">
             {worktree.id === current && <CheckIcon />}
           </span>
@@ -452,7 +438,7 @@ export function FolderPopover({
         title={folder.id}
         data-section={section}
         data-current={folder.id === current ? "" : undefined}
-        data-expanded={others > 0 && !typed ? String(open) : undefined}
+        data-expanded={opensUnder(group) && !typed ? String(open) : undefined}
       >
         <ProjectBadge project={{ cwd: folder.id, label: folder.label, ...(repo ? { repo } : {}) }} />
         <span className="acpmux-menu-text acpmux-location-name">
@@ -467,9 +453,11 @@ export function FolderPopover({
             </>
           )}
         </span>
-        {others > 0 && !typed && (
-          // The count opens or closes the repository's other worktrees; a press here never picks
-          // the row (the arrows do the same from the field).
+        {addsExtra(folder.id) && <AlsoSee name={group.name} onAdd={() => extra?.onAdd(folder.id)} />}
+        {opensUnder(group) && !typed && (
+          // The chevron (and the count, when there are other worktrees) opens or closes the
+          // repository's worktrees and its New worktree; a press here never picks the row (the
+          // arrows do the same from the field).
           <span
             className="acpmux-location-worktrees"
             aria-hidden="true"
@@ -487,8 +475,12 @@ export function FolderPopover({
               toggle(group.key, !open);
             }}
           >
-            <BranchIcon />
-            {others}
+            {others > 0 && (
+              <>
+                <BranchIcon />
+                {others}
+              </>
+            )}
             <ChevronRightIcon />
           </span>
         )}
@@ -503,7 +495,7 @@ export function FolderPopover({
   const arrow = (key: string) => {
     if (typed || (key !== "ArrowRight" && key !== "ArrowLeft")) return false;
     const place = highlighted.current ? shown.get(highlighted.current) : undefined;
-    if (!place || place.group.members.length < 2) return false;
+    if (!place || !opensUnder(place.group)) return false;
     const open = key === "ArrowRight";
     // Only from the repository's own row: collapsing under a worktree row would drop the highlight.
     if (!open && place.worktree) return false;
@@ -536,11 +528,9 @@ export function FolderPopover({
             close();
           } else {
             setOpen(next);
-            // Every close ends Add another folder…'s mode, an outside click as much as Escape (cmux#34408).
             if (!next) {
               setQuery("");
               setExpanded(new Set());
-              setAddingExtra(false);
             }
           }
         }}
@@ -562,8 +552,6 @@ export function FolderPopover({
           ))}
         </span>
         <Combobox
-          // A fresh field for Add another folder…'s pick.
-          key={addingExtra ? "extra" : "folder"}
           suggestions={suggestions}
           pinnedSuggestions={pinned}
           pinnedPlacement="bottom"
@@ -585,9 +573,22 @@ export function FolderPopover({
             if (event.key === "Escape") escaped.current = true;
             if (arrow(event.key)) event.preventDefault();
             if (event.key === "Tab" && highlighted.current?.startsWith("\u0000")) event.preventDefault();
+            // Shift-Return on a folder: the chat also sees it (its row's +), the menu still open.
+            const folder = highlighted.current;
+            if (
+              event.key === "Enter" &&
+              event.shiftKey &&
+              folder &&
+              (shown.has(folder) || folder === typedPath) &&
+              addsExtra(folder)
+            ) {
+              event.preventDefault();
+              event.preventBaseUIHandler?.();
+              extra?.onAdd(folder);
+            }
           }}
-          label={t(addingExtra ? "composer.addFolderSearch" : "composer.folderSearch")}
-          placeholder={t(addingExtra ? "composer.addFolderSearch" : "composer.folderSearch")}
+          label={t("composer.folderSearch")}
+          placeholder={t("composer.folderSearch")}
           inputClassName="acpmux-location-search"
           listClassName="acpmux-location-folders"
           itemClassName="acpmux-menu-item"
@@ -604,7 +605,7 @@ export function FolderPopover({
             ) : undefined
           }
         />
-        {extra && !addingExtra && <ExtraFolderList folders={extra.folders} onRemove={extra.onRemove} />}
+        {extra && <ExtraFolderList folders={extra.folders} onRemove={extra.onRemove} />}
       </Popover>
     </span>
   );
@@ -635,17 +636,46 @@ const FIT_KIND_LETTERS: Record<FitLine["kind"], number> = { row: 0, count: 5, wo
 
 /// An action row's value: never a path.
 const ACTION = "\u0000action:";
-const ACTION_EXTRA = ACTION + "extra";
+/// A repository's New worktree row, by its group key: never a path either.
+const NEW_WORKTREE = "\u0000worktree:new:";
 /// The GitHub part's rows: never a path either.
 const GITHUB_ADD = "\u0000github:add";
 const GITHUB_MORE = "\u0000github:more";
 const GITHUB_RETRY = "\u0000github:retry";
 const GITHUB_REPO = "\u0000github:repo:";
 
-/// An action's glyph in the folders' icon column: + adds, a folder with + adds one more, the branch
-/// is a worktree, × is no folder.
+/// A folder row's + : the new chat also sees that folder, beside its own (extraFolders.ts). A press
+/// never picks the row; it shows while the row is hovered or highlighted (composerLocation.css).
+function AlsoSee({ name, onAdd }: { name: string; onAdd(): void }) {
+  const label = t("composer.alsoSeeFolder", { name });
+  return (
+    <span
+      className="acpmux-location-also"
+      role="button"
+      aria-label={label}
+      // tooltip-allow: an icon-only control names what it does
+      title={label}
+      data-also-see=""
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onPointerUp={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
+      onMouseUp={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onAdd();
+      }}
+    >
+      <ActionIcon action={ACTION + "extra"} />
+    </span>
+  );
+}
+
+/// An action's glyph in the folders' icon column: + adds, a folder with + adds one more, × is no folder.
 function ActionIcon({ action }: { action: string }) {
-  if (action === ACTION + "worktree") return <BranchIcon />;
   return (
     <svg
       className="acpmux-icon"
@@ -662,7 +692,7 @@ function ActionIcon({ action }: { action: string }) {
     >
       {action === ACTION + "none" ? (
         <path d="m4.5 4.5 7 7M11.5 4.5l-7 7" />
-      ) : action === ACTION_EXTRA ? (
+      ) : action === ACTION + "extra" ? (
         <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.4 1.5h5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5zM8 7v4M6 9h4" />
       ) : (
         <path d="M8 3v10M3 8h10" />

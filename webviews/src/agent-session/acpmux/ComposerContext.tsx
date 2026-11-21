@@ -160,7 +160,6 @@ export function ComposerContext({
   onBrowseProject,
   onNewWorktree,
   onGitHubHere,
-  onNewProject,
   newProject = false,
   newProjectName,
   onNoProject,
@@ -231,9 +230,8 @@ export function ComposerContext({
   /// it (one of `candidates`, the folders here whose remote names it) or clones it, and the chat starts in a new
   /// worktree of that. Without it a GitHub pick moves the chat to Cloud.
   onGitHubHere?(repo: string, candidates: string[]): void;
-  /// A new chat's New Project (FolderPopover, newtab/newProject.ts); `newProject` while it is the choice:
-  /// the strip reads New Project until the send makes the folder.
-  onNewProject?(): void;
+  /// A new chat's New Project (newtab/newProject.ts) while it is the choice: the strip reads New Project
+  /// until the send makes the folder. The folder menu no longer offers it (cmux#48299).
   newProject?: boolean;
   /// The new project's name field, after the folder control while `newProject` (newtab/NewProjectName.tsx).
   newProjectName?: React.ReactNode;
@@ -799,35 +797,11 @@ export function ComposerContext({
   };
   const folderShown = !savedPick && !(readOnly && !newChats && !currentFolder);
   // The new chat's extra folders on the picked machine (a pick of the chat's own folder is never one).
-  // A Cloud or Sandboxed start carries none (cmux#34403), so those modes offer no Add another folder… or +N.
+  // A Cloud or Sandboxed start carries none (cmux#34403), so those modes offer no folder + or +N.
   const extraShown =
     extraFolders && !readOnly && !cloudPicked && !sandboxPicked
       ? draftFolders(extraFolders.draft, selectedComputer)
       : undefined;
-  // Add another folder…'s Add folder…: a refused or failed panel says why beside a Retry, which adds
-  // the folder it picks.
-  const browseExtra = extraFolders?.onBrowse
-    ? (): Promise<string | undefined> => {
-        const picks = folderPicks.current;
-        setBrowseError(undefined);
-        return (
-          Promise.resolve()
-            .then(() => extraFolders.onBrowse?.() ?? undefined)
-            // A folder or machine picked while the panel was open: its answer adds nothing.
-            .then((path) => (picks === folderPicks.current ? path : undefined))
-            .catch((error: unknown) => {
-              if (picks === folderPicks.current) {
-                browseRetry.current = () =>
-                  void browseExtra?.().then((path) => {
-                    if (path) extra?.onAdd(path);
-                  });
-                setBrowseError(browseFailureMessage(error));
-              }
-              return undefined;
-            })
-        );
-      }
-    : undefined;
   const extra: ExtraFolderRows | undefined =
     extraFolders && extraShown
       ? {
@@ -841,7 +815,6 @@ export function ComposerContext({
             if (next !== extraShown)
               extraFolders.onChange(next.length > 0 ? { machine: selectedComputer, folders: next } : undefined);
           },
-          ...(selectedComputer === "local" && browseExtra ? { onBrowse: browseExtra } : {}),
         }
       : undefined;
   // The folder control says how many more folders the chat sees: "cmux +2".
@@ -1050,8 +1023,8 @@ export function ComposerContext({
               }
               // Checked whenever the chip reads No folder, so the menu agrees with it.
               noProject={(noProject || !currentFolder) && !newProject}
-              onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
-              {...(onNewProject ? { onNewProject } : {})}
+              // A repository row's chevron makes a worktree of that repository (cmux#48299).
+              {...(onNewWorktree ? { onNewWorktree } : {})}
               {...(extra ? { extra } : {})}
               // A new chat on Cloud or on this Mac also offers the person's GitHub repositories, with This Mac
               // picked too, so Connect to GitHub is found without knowing to pick Cloud first. On Cloud the

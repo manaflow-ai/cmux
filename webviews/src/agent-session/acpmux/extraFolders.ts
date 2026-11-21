@@ -17,9 +17,6 @@ export type ExtraFolderRows = {
   folders: readonly string[];
   onAdd(path: string): void;
   onRemove(path: string): void;
-  /// The machine's folder chooser (this Mac's native panel); its pick is added. None on a machine
-  /// whose folders are only listed (a peer): the menu's rows and a typed path add one there.
-  onBrowse?(): Promise<string | undefined> | string | undefined | void;
 };
 
 const NONE: readonly string[] = [];
