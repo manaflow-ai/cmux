@@ -13,8 +13,6 @@ name: cmux-next iPhone INTERNAL builder trigger
 on:
   push:
     branches: [feat-cmux-next]
-  schedule:
-    - cron: "41 */2 * * *"
   workflow_dispatch:
 
 permissions: {}

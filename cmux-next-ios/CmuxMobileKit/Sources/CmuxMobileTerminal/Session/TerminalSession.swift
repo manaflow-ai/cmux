@@ -138,6 +138,8 @@ public enum TerminalConnectionState: Sendable, Equatable {
 
     /// Said once keys typed during an outage were dropped (``TerminalSessionEvent/inputNotSent(bytes:)``).
     public static let inputNotSentNotice = "Keys typed while your Mac was unreachable were not sent."
+    /// Said when the composer's message did not reach the Mac's terminal (its text is back in the composer).
+    public static let composerSendNotSentNotice = "Your message was not sent."
 }
 
 /// One terminal on a Mac, as the phone sees it: bytes in, input out, resize and
@@ -160,6 +162,17 @@ public protocol TerminalSession: AnyObject {
     /// scroll or a tap. A session that holds keys through an outage drops these
     /// instead, and never reports them as ``TerminalSessionEvent/inputNotSent(bytes:)``.
     func sendReply(_ bytes: Data)
+    /// The composer's Send: `text` as one paste and Return, in one request to
+    /// where the terminal runs, which brackets the paste by its own live
+    /// DEC mode 2004 and writes Return right after it (a Mac daemon's
+    /// `send {text, paste:true, submit:true}`). The phone's mirror may have
+    /// lost mode 2004 in a replay, and its paste and its Return were two
+    /// writes 60 ms apart: a draft could stay unsent in the program's prompt.
+    /// Returns false when this session cannot (no Mac daemon, or one without
+    /// `send-expect-agent-v1`): the screen then pastes through its mirror.
+    /// `notSent` is called once, on the main actor, if the text is dropped,
+    /// refused or answered with an error: the screen then gives it back.
+    func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool
     /// The screen's grid in cells: what a TUI should draw (rows between the
     /// toolbar and the composer with the keyboard down).
     func resize(columns: Int, rows: Int)
@@ -213,6 +226,9 @@ public protocol TerminalSession: AnyObject {
 extension TerminalSession {
     /// Sessions that never hold keys send a reply as they send keys.
     public func sendReply(_ bytes: Data) { send(bytes) }
+
+    /// Sessions with no Mac daemon paste through the screen's mirror.
+    public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool { false }
 
     /// Rows of the remote screen this session mirrors, when it mirrors one
     /// (a terminal on the Mac). The screen then maps the remote primary
