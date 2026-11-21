@@ -544,7 +544,7 @@ class WorkflowShape(unittest.TestCase):
 
     def test_a_stalled_install_ends_named_inside_the_job_limit(self):
         # 2026-11-09: the web lint's bun install hung on the registry with no idle limit of its own and sat silent
-        # until the job's 15-minute limit cancelled it; merge_hold refused the cancelled check.
+        # until the job's 15-minute limit cancelled it; land-judge refused the cancelled check.
         gates = job(workflow())
         run = step_named(gates["steps"], "Fast gates")
         self.assertEqual(run["env"]["BUN_CONFIG_HTTP_IDLE_TIMEOUT"], "30")

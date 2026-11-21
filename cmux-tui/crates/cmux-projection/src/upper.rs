@@ -248,17 +248,20 @@ impl Upper {
     pub fn rename(&self, from: &str, to: &str, flags: u32) -> Result<(), i32> {
         let (from_dir, from_name) = self.parent(from)?;
         let (to_dir, to_name) = self.parent(to)?;
-        // SAFETY: valid descriptors and C strings.
-        check(unsafe {
-            libc::renameat2(
+        // The raw syscall: musl, which the Linux release binaries link, has no `renameat2`
+        // wrapper, so `libc::renameat2` left the musl builds with an undefined symbol.
+        // SAFETY: valid descriptors and C strings; renameat2 takes exactly these arguments.
+        let done = unsafe {
+            libc::syscall(
+                libc::SYS_renameat2,
                 from_dir.as_raw_fd(),
                 from_name.as_ptr(),
                 to_dir.as_raw_fd(),
                 to_name.as_ptr(),
                 flags,
             )
-        })
-        .map(drop)
+        };
+        check(done as libc::c_int).map(drop)
     }
 
     /// Moves a file from outside the upper folder (the scratch folder, same disk) to `to`.
