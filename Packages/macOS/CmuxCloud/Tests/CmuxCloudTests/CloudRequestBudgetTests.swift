@@ -136,6 +136,15 @@ struct CloudRequestBudgetSocketParamTests {
         #expect(budget.workerWaitSeconds(limit: 90) == 90)
     }
 
+    @Test("a limit shorter than the minimum is never stretched")
+    func workerWaitNeverExceedsLimit() {
+        // Remote tmux and tests pass sub-second limits; the floor is for a spent
+        // client budget only, never a reason to wait longer than the caller asked.
+        #expect(budget.workerWaitSeconds(limit: 0.01) == 0.01)
+        let wait = budget.withBudgetSync(seconds: 0) { budget.workerWaitSeconds(limit: 0.01) }
+        #expect(wait == 0.01)
+    }
+
     @Test("a spent client budget still waits the minimum")
     func workerWaitSpentBudget() {
         let wait = budget.withBudgetSync(seconds: 0) { budget.workerWaitSeconds(limit: 90) }
