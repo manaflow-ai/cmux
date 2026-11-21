@@ -320,7 +320,7 @@ mod owner_keepers {
 
     #[test]
     fn an_owner_its_app_left_unattended_stops_and_its_peerless_hosts_end() {
-        // cosmic-gray, 2026-11-21: 43 `__terminal-host` processes and their
+        // A developer Mac, 2026-11-21: 43 `__terminal-host` processes and their
         // owners outlived their app by 2 to 34 days. The owner held a stream
         // to each host, so no host's no-client grace ever started, and the
         // live hosts kept the owner. Here the day is 2 s and the hosts'

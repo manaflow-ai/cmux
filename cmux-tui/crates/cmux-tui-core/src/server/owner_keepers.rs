@@ -41,7 +41,7 @@
 //! renamed build) ran forever: it held a stream to each of its terminal
 //! hosts, so no host ever counted as orphaned (their own no-client grace,
 //! `ABANDONED_HOST_GRACE`, never started), and the live hosts kept the
-//! owner. On cosmic-gray (2026-11-21) that loop had left such owners and
+//! owner. On a developer Mac (2026-11-21) that loop had left such owners and
 //! their hosts running for up to 34 days. Once the bound passes, the owner
 //! stops like any other orphan stop: no terminal ends, its hosts keep
 //! running for the next owner of the session to adopt, and with no peer

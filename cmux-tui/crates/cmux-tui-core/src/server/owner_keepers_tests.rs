@@ -48,7 +48,7 @@ fn terminals_are_read_only_when_nothing_cheaper_keeps_the_owner() {
     assert!(!Keepers { chief_brains: 1, ..idle() }.terminals_decide());
 }
 
-/// cosmic-gray, 2026-11-21: owners whose app never came back, and their
+/// A developer Mac, 2026-11-21: owners whose app never came back, and their
 /// terminal hosts, ran for up to 34 days, each keeping the other. Live
 /// terminals keep an owner only while a client came within the bound.
 #[test]
