@@ -65,11 +65,12 @@ type Wire = { attaches: { params: any; bytes: number }[]; gapReads: any[] };
 
 /// acpmux over a fake socket. `history` grows with `add` (records logged while no socket is open)
 /// or `push` (records sent live). `ignoresAfterSeq`: a daemon or peer that answers every attach
-/// with its newest page. `pageFrom`: where the first open's newest page starts (older records stay
+/// with its newest page. `refusesAfterSeq`: an app whose relay's params rule does not take
+/// `afterSeq` and refuses the attach as malformed (`transport.intent_invalid`). `pageFrom`: where the first open's newest page starts (older records stay
 /// for history reads).
 function daemon(
   history: Recorded[],
-  options: { ignoresAfterSeq?: boolean; pageFrom?: number; forwardLimit?: number } = {},
+  options: { ignoresAfterSeq?: boolean; refusesAfterSeq?: boolean; pageFrom?: number; forwardLimit?: number } = {},
 ) {
   let socket: any;
   let createdAt = CREATED;
@@ -146,11 +147,23 @@ function daemon(
         if (message.method === "_acpmux/attach") wire.attaches.push({ params: message.params, bytes: 0 });
         const asked = wire.attaches.at(-1);
         queueMicrotask(() => {
-          const data = JSON.stringify({
-            jsonrpc: "2.0",
-            id: message.id,
-            result: answer(message.method, message.params),
-          });
+          const refused =
+            options.refusesAfterSeq &&
+            message.method === "_acpmux/attach" &&
+            typeof message.params?.afterSeq === "number";
+          const data = JSON.stringify(
+            refused
+              ? {
+                  jsonrpc: "2.0",
+                  id: message.id,
+                  error: {
+                    code: -32600,
+                    message: "Refused by the cmux host",
+                    data: { code: "transport.intent_invalid", method: "_acpmux/attach" },
+                  },
+                }
+              : { jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) },
+          );
           if (message.method === "_acpmux/attach" && asked) asked.bytes = data.length;
           socket.onmessage?.({ data });
         });
@@ -307,6 +320,26 @@ test("a daemon that ignores afterSeq answers its newest page, laid as before wit
     expect(fake.wire.attaches.map((attach) => attach.params.afterSeq)).toEqual([undefined, 10]);
     await until(() => replies(session.snapshot()).includes(6), "the missed turn");
     expect(replies(session.snapshot())).toEqual([1, 2, 3, 4, 5, 6]);
+  } finally {
+    session.client.close();
+  }
+});
+
+// Leo, 2026-11-21, restarting to update: "cmux blocked opening this chat. That's a bug in cmux, not
+// something you did." Every chat that reopened held its rows and attached forward; the app's relay
+// did not take `afterSeq` and refused each one. An app that refuses it now costs a second attach for
+// the newest page, never an error line.
+test("a forward attach the host refuses as malformed is asked again for the newest page, with no error", async () => {
+  const fake = daemon(chat(5), { refusesAfterSeq: true });
+  const session = await connect(fake);
+  try {
+    fake.add(turn(11, 6));
+    await reconnect(fake, session);
+    expect(fake.wire.attaches.map((attach) => attach.params.afterSeq)).toEqual([undefined, 10, undefined]);
+    await until(() => replies(session.snapshot()).includes(6), "the missed turn");
+    expect(replies(session.snapshot())).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(session.snapshot().connection).toBe("connected");
+    expect(JSON.stringify(session.snapshot())).not.toContain("blocked");
   } finally {
     session.client.close();
   }
