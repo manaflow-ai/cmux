@@ -2,20 +2,10 @@ import { componentEntry } from "../../gallery/format";
 import { SkillsPage } from "./SkillsPage";
 import { MockSkillsProvider, sampleEntries } from "./mockProvider";
 
-function Gallery({
-  mode = "default",
-}: {
-  mode?: "default" | "filtered" | "empty";
-}) {
+function Gallery({ mode = "default" }: { mode?: "default" | "filtered" | "empty" }) {
   const entries =
-    mode === "empty"
-      ? []
-      : mode === "filtered"
-        ? sampleEntries.filter((entry) => entry.kind === "mcp")
-        : sampleEntries;
-  return (
-    <SkillsPage client={new MockSkillsProvider()} initialEntries={entries} />
-  );
+    mode === "empty" ? [] : mode === "filtered" ? sampleEntries.filter((entry) => entry.kind === "mcp") : sampleEntries;
+  return <SkillsPage client={new MockSkillsProvider()} initialEntries={entries} />;
 }
 
 export default componentEntry<{ mode?: "default" | "filtered" | "empty" }>({

@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { PageClient } from "../shared/pageClient";
-import {
-  SkillsOps,
-  type DirectoryEntry,
-  type DirectoryResult,
-  type Harness,
-  type SkillKind,
-} from "./types";
+import { SkillsOps, type DirectoryEntry, type DirectoryResult, type Harness, type SkillKind } from "./types";
 
 const harnesses: Harness[] = ["claude", "codex", "pi", "opencode"];
 const labels: Record<Harness, string> = {
@@ -23,9 +17,7 @@ export function SkillsPage({
   client: PageClient | null;
   initialEntries?: DirectoryEntry[];
 }) {
-  const [entries, setEntries] = useState<DirectoryEntry[]>(
-    initialEntries ?? [],
-  );
+  const [entries, setEntries] = useState<DirectoryEntry[]>(initialEntries ?? []);
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<SkillKind | "all">("all");
   const [busy, setBusy] = useState<string | null>(null);
@@ -41,11 +33,7 @@ export function SkillsPage({
       setEntries(result.entries);
       setError(null);
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "The directory is unavailable.",
-      );
+      setError(cause instanceof Error ? cause.message : "The directory is unavailable.");
     }
   }, [client, kind, query]);
   useEffect(() => {
@@ -55,18 +43,11 @@ export function SkillsPage({
   const visible = useMemo(
     () =>
       entries.filter(
-        (entry) =>
-          !query ||
-          `${entry.name} ${entry.description}`
-            .toLowerCase()
-            .includes(query.toLowerCase()),
+        (entry) => !query || `${entry.name} ${entry.description}`.toLowerCase().includes(query.toLowerCase()),
       ),
     [entries, query],
   );
-  const install = async (
-    entry: DirectoryEntry,
-    action: "install" | "remove",
-  ) => {
+  const install = async (entry: DirectoryEntry, action: "install" | "remove") => {
     if (!client) return;
     setBusy(entry.id);
     try {
@@ -88,9 +69,7 @@ export function SkillsPage({
         <div>
           <p className="skills-eyebrow">DIRECTORY</p>
           <h1>Skills, MCP servers and plugins</h1>
-          <p className="skills-subtitle">
-            Install once and keep every harness in sync.
-          </p>
+          <p className="skills-subtitle">Install once and keep every harness in sync.</p>
         </div>
         <div className="skills-count">{visible.length} available</div>
       </header>
@@ -104,11 +83,7 @@ export function SkillsPage({
         />
         <div className="skills-filters">
           {(["all", "skill", "mcp", "plugin"] as const).map((value) => (
-            <button
-              key={value}
-              className={kind === value ? "is-active" : ""}
-              onClick={() => setKind(value)}
-            >
+            <button key={value} className={kind === value ? "is-active" : ""} onClick={() => setKind(value)}>
               {value === "all"
                 ? "Everything"
                 : value === "mcp"
@@ -156,9 +131,7 @@ function EntryCard({
   return (
     <article className="skills-card">
       <div className="skills-card-top">
-        <span className={`skills-kind skills-kind-${entry.kind}`}>
-          {entry.kind === "mcp" ? "MCP" : entry.kind}
-        </span>
+        <span className={`skills-kind skills-kind-${entry.kind}`}>{entry.kind === "mcp" ? "MCP" : entry.kind}</span>
         <span className="skills-version">v{entry.version}</span>
       </div>
       <h2>{entry.name}</h2>
@@ -166,11 +139,7 @@ function EntryCard({
       <footer>
         <div className="skills-harnesses" aria-label="Supported harnesses">
           {entry.targets.map((harness) => (
-            <span
-              key={harness}
-              className={entry.installed[harness] ? "is-installed" : ""}
-              title={labels[harness]}
-            >
+            <span key={harness} className={entry.installed[harness] ? "is-installed" : ""} title={labels[harness]}>
               {labels[harness][0]}
             </span>
           ))}
@@ -178,11 +147,7 @@ function EntryCard({
         <button
           className="skills-action"
           disabled={busy}
-          onClick={() =>
-            onAction(
-              installed.length === entry.targets.length ? "remove" : "install",
-            )
-          }
+          onClick={() => onAction(installed.length === entry.targets.length ? "remove" : "install")}
         >
           {busy
             ? "Working…"

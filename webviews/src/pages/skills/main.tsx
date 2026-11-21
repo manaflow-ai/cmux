@@ -5,19 +5,13 @@ import { MockSkillsProvider } from "./mockProvider";
 import "../shared/pageBase.css";
 import "./styles.css";
 
-export function mountSkillsPage(
-  root: HTMLElement,
-  client: PageClient | null = defaultClient(),
-): void {
+export function mountSkillsPage(root: HTMLElement, client: PageClient | null = defaultClient()): void {
   createRoot(root).render(<SkillsPage client={client} />);
 }
 function defaultClient(): PageClient | null {
   return createPageClient(
-    new URLSearchParams(location.search).has("mock")
-      ? () => new MockSkillsProvider()
-      : undefined,
+    new URLSearchParams(location.search).has("mock") ? () => new MockSkillsProvider() : undefined,
   );
 }
 const root = document.getElementById("root");
-if (root && document.documentElement.dataset.cmuxPage === "skills")
-  mountSkillsPage(root);
+if (root && document.documentElement.dataset.cmuxPage === "skills") mountSkillsPage(root);

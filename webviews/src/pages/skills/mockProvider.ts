@@ -1,22 +1,12 @@
-import {
-  pageError,
-  type PageClient,
-  type PageHandler,
-} from "../shared/pageClient";
-import {
-  SkillsOps,
-  type DirectoryEntry,
-  type DirectoryResult,
-  type Harness,
-} from "./types";
+import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
+import { SkillsOps, type DirectoryEntry, type DirectoryResult, type Harness } from "./types";
 
 export const sampleEntries: DirectoryEntry[] = [
   {
     id: "terminal-workflows",
     kind: "skill",
     name: "Terminal workflows",
-    description:
-      "Reusable shell workflows for fast, repeatable agent sessions.",
+    description: "Reusable shell workflows for fast, repeatable agent sessions.",
     publisher: "cmux community",
     version: "1.0.0",
     targets: ["claude", "codex", "pi", "opencode"],
@@ -97,10 +87,7 @@ export const sampleEntries: DirectoryEntry[] = [
 export class MockSkillsProvider implements PageClient {
   private entries = structuredClone(sampleEntries);
   private readonly handlers = new Map<string, PageHandler>();
-  private readonly subscriptions = new Map<
-    number,
-    (data: unknown, seq: number) => void
-  >();
+  private readonly subscriptions = new Map<number, (data: unknown, seq: number) => void>();
   private next = 1;
 
   async call<R>(op: string, params: unknown): Promise<R> {
@@ -115,16 +102,14 @@ export class MockSkillsProvider implements PageClient {
       const entries = this.entries.filter(
         (entry) =>
           (!input.kind || entry.kind === input.kind) &&
-          (!query ||
-            `${entry.name} ${entry.description}`.toLowerCase().includes(query)),
+          (!query || `${entry.name} ${entry.description}`.toLowerCase().includes(query)),
       );
       return { schemaVersion: 1, entries } as R;
     }
     if (op === SkillsOps.install || op === SkillsOps.remove) {
       const entry = this.entries.find((candidate) => candidate.id === input.id);
       if (!entry) throw pageError("skills.directory.not_found", input.id ?? "");
-      for (const harness of input.targets ?? entry.targets)
-        entry.installed[harness] = op === SkillsOps.install;
+      for (const harness of input.targets ?? entry.targets) entry.installed[harness] = op === SkillsOps.install;
       this.emit(entry.id);
       return { id: entry.id, installed: entry.installed } as R;
     }
@@ -136,12 +121,8 @@ export class MockSkillsProvider implements PageClient {
     throw pageError("cmux.protocol.unknown_op", op);
   }
 
-  async subscribe<E>(
-    stream: string,
-    onEvent: (data: E, seq: number) => void,
-  ): Promise<() => void> {
-    if (stream !== "cmux.skills.directory.changed")
-      throw pageError("cmux.protocol.unknown_op", stream);
+  async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
+    if (stream !== "cmux.skills.directory.changed") throw pageError("cmux.protocol.unknown_op", stream);
     const id = this.next++;
     this.subscriptions.set(id, onEvent as (data: unknown, seq: number) => void);
     return () => this.subscriptions.delete(id);
@@ -152,7 +133,6 @@ export class MockSkillsProvider implements PageClient {
     return () => this.handlers.delete(op);
   }
   private emit(id: string): void {
-    for (const listener of this.subscriptions.values())
-      listener({ id }, this.next++);
+    for (const listener of this.subscriptions.values()) listener({ id }, this.next++);
   }
 }
