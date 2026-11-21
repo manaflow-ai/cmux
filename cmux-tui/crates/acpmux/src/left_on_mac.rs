@@ -49,7 +49,7 @@ pub fn part(cwd: &Path) -> Option<ContextPart> {
         measurement: "estimated".into(),
         source_bytes: Some(bytes),
         channel: Some(crate::context_inventory::USER_CONTEXT.into()),
-        text: Some(text),
+        text: Some(text.into()),
     })
 }
 
