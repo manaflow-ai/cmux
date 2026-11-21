@@ -87,16 +87,18 @@ for row in "${PLANS[@]}"; do
     fi
   fi
 
-  prices="$(get /prices --data-urlencode "lookup_keys[]=${lookup}" --data-urlencode "limit=1")"
+  prices="$(get /prices --data-urlencode "lookup_keys[]=${lookup}" --data-urlencode "expand[]=data.product" --data-urlencode "limit=1")"
   price="$(jq -r '.data[0].id // empty' <<<"$prices")"
   if [[ -n "$price" ]]; then
     # Checkout (resolveNextPlanPrice / assertPriceMatchesPlan) takes only an active USD Price billed every month at
     # this amount on this plan's Product: anything else is reported, never printed as the id to deploy.
-    shape="$(jq -r '.data[0] | [.unit_amount, .product, .active, .currency, .recurring.interval // "none", .recurring.interval_count // 0] | map(tostring) | join(" ")' <<<"$prices")"
-    want="${cents} ${product:-?} true usd month 1"
-    if [[ -z "$product" ]]; then want="${cents} $(cut -d' ' -f2 <<<"$shape") true usd month 1"; fi
+    # The Price's own Product must be this plan's (app=cmux, plan=<id>, not deleted), as checkout requires, even when
+    # the search found none (Stripe search lags behind writes): never accept a Product only because a Price names it.
+    shape="$(jq -r '.data[0] | [.unit_amount, (.product.id // .product), .active, .currency, .recurring.interval // "none", .recurring.interval_count // 0, (.product.deleted // false), (.product.metadata.app // "-"), (.product.metadata.plan // "-")] | map(tostring) | join(" ")' <<<"$prices")"
+    owner="$(cut -d' ' -f2 <<<"$shape")"
+    want="${cents} ${product:-$owner} true usd month 1 false cmux ${plan}"
     if [[ "$shape" != "$want" ]]; then
-      echo "Price ${price} (${lookup}) is [amount product active currency interval count] ${shape}, expected ${want}; left alone." >&2
+      echo "Price ${price} (${lookup}) is [amount product active currency interval count deleted app plan] ${shape}, expected ${want}; left alone." >&2
       exit 1
     fi
     say "price ${price} (${lookup}, ${cents} cents a month) is current"

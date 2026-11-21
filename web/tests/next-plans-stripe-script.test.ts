@@ -31,7 +31,7 @@ describe("provision-next-plans.sh (the cmux NEXT Stripe catalog)", () => {
 });
 
 // A fake Stripe: `curl` on PATH answers each request from the scenario's JSON and logs its arguments.
-async function runAgainstFakeStripe(price: Record<string, unknown> | null, args: string[] = ["test", "--apply"]) {
+async function runAgainstFakeStripe(price: Record<string, unknown> | null, args: string[] = ["test", "--apply"], searchFinds = true) {
   const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -40,7 +40,7 @@ async function runAgainstFakeStripe(price: Record<string, unknown> | null, args:
   mkdirSync(join(root, "home/.secrets"), { recursive: true });
   writeFileSync(join(root, "home/.secrets/cmux-stripe-test.env"), "STRIPE_TEST_PROVISION_KEY=sk_test_fake\n");
   const product = { id: "prod_existing", name: "", description: "" };
-  writeFileSync(join(root, "products.json"), JSON.stringify({ data: [product] }));
+  writeFileSync(join(root, "products.json"), JSON.stringify({ data: searchFinds ? [product] : [] }));
   writeFileSync(join(root, "prices.json"), JSON.stringify({ data: price ? [price] : [] }));
   writeFileSync(
     join(root, "bin/curl"),
@@ -69,7 +69,7 @@ esac
 const goodPrice = (over: Record<string, unknown> = {}) => ({
   id: "price_ok",
   unit_amount: 2000,
-  product: "prod_existing",
+  product: { id: "prod_existing", metadata: { app: "cmux", plan: "next_plus" } },
   active: true,
   currency: "usd",
   recurring: { interval: "month", interval_count: 1 },
@@ -78,12 +78,23 @@ const goodPrice = (over: Record<string, unknown> = {}) => ({
 
 describe("provision-next-plans.sh against Stripe (a fake one)", () => {
   test("an existing Price that checkout would refuse is reported, never printed as the id to deploy", async () => {
-    for (const bad of [{ active: false }, { currency: "eur" }, { recurring: { interval: "year", interval_count: 1 } }, { recurring: { interval: "month", interval_count: 3 } }]) {
+    for (const bad of [
+      { product: { id: "prod_other", metadata: {} } },
+      { product: { id: "prod_existing", deleted: true, metadata: { app: "cmux", plan: "next_plus" } } },
+      { active: false }, { currency: "eur" }, { recurring: { interval: "year", interval_count: 1 } }, { recurring: { interval: "month", interval_count: 3 } },
+    ]) {
       const out = await runAgainstFakeStripe(goodPrice(bad));
       expect(out.status).toBe(1);
       expect(out.stderr).toContain("left alone");
       expect(out.stdout).not.toContain("price_ok");
     }
+  });
+
+  test("with no Product found by search, a Price on a Product that is not this plan's is still refused", async () => {
+    const out = await runAgainstFakeStripe(goodPrice({ product: { id: "prod_foreign", metadata: { app: "other" } } }), ["test"], false);
+    expect(out.status).toBe(1);
+    expect(out.stderr).toContain("left alone");
+    expect(out.stdout).not.toContain("price_ok");
   });
 
   test("a matching Price is current for Plus; creates carry a stable Idempotency-Key", async () => {
