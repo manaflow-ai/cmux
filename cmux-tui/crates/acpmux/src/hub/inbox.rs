@@ -1580,6 +1580,15 @@ impl Hub {
                 // Nothing new but FYIs: they go with the next notice, or once the oldest is
                 // `FLUSH_MS` old (module docs).
                 let fyi_only = new.iter().all(|i| i.class == PromptClass::Fyi);
+                // Read before a Stop's `due_now` below takes the inbox mutably.
+                let urgent = new.iter().any(|i| steers_at_once(&meta, i));
+                let coalesced = new
+                    .iter()
+                    .filter(|i| i.class != PromptClass::Fyi)
+                    .map(|i| i.at)
+                    .min()
+                    .unwrap_or(oldest)
+                    .saturating_add(STEER_COALESCE_MS);
                 if new.is_empty()
                     || inbox.in_flight.is_some()
                     || meta.status == SessionStatus::Closed
@@ -1620,18 +1629,12 @@ impl Hub {
                                 // Stop's `due_now` still lets it in at once.
                                 // Results alone wait [`STEER_COALESCE_MS`] after the oldest that
                                 // is no FYI, so a burst is one steer (module docs).
-                                let urgent = new.iter().any(|i| steers_at_once(&meta, i));
                                 let flush = if inbox.due_now || urgent {
                                     0
                                 } else if fyi_only {
                                     oldest.saturating_add(FLUSH_MS)
                                 } else {
-                                    new.iter()
-                                        .filter(|i| i.class != PromptClass::Fyi)
-                                        .map(|i| i.at)
-                                        .min()
-                                        .unwrap_or(oldest)
-                                        .saturating_add(STEER_COALESCE_MS)
+                                    coalesced
                                 };
                                 let at = retry.max(flush);
                                 if at > now { Next::WakeAt(at) } else { Next::Steer }
