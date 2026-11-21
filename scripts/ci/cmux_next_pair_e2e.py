@@ -20,6 +20,11 @@ old 100 MiB cap, with marked pages at its start, middle and end, is streamed by 
 `LinkUpload.upload(fileAt:)` over the paired link to the Mac's Chat Folder; it passes when the file
 lands in `<folder>/.cmux/attachments/phone-<session>/` with the same size and SHA-256 and the app's
 memory footprint grew by less than a fifth of the file (no whole-file Data).
+Once paired, the theme-file leg: the rig's cmux-next.json names a theme file (`<rig>/themes/pair-e2e.json`),
+the phone opens the Mac's terminal, and ten atomic saves alternating two terminal backgrounds are each
+timed from the save to the phone's `terminal theme of ... background #hex` log line (with the Mac's
+hand-off to hostd and hostd's publish as hops); then a refused value and a half-written file must leave
+the phone's background as it was while the Mac's notice names the file.
 With CMUX_IOS_CLOUD_PROOF_FILE, also opens a probe-owned real Cloud session on
 the paired phone, copies its history, sends a fresh challenge, reads the
 assistant reply, and taps an injected notification. That injection proves
@@ -45,7 +50,7 @@ have to fake that stamp, so it would test around the very check this proves. The
 in-source DEBUG dev credential of the dev Stack project (the one verify/e2e/mac.py uses), not a
 production or personal account and not a secret.
 """
-import argparse, glob, hashlib, json, os, plistlib, pwd, re, secrets, shutil, socket, subprocess, sys, threading, time
+import argparse, calendar, glob, hashlib, json, math, os, plistlib, pwd, re, secrets, shutil, socket, statistics, subprocess, sys, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
@@ -111,15 +116,24 @@ def dev_credential():
     under those same names); the source holds no credential."""
     keys = ("CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD")
     found = {k: os.environ.get(k, "") for k in keys}
-    profile = os.path.expanduser("~/.secrets/cmuxterm-dev.env")
-    if not all(found.values()) and os.path.isfile(profile):
+    # A fleet step's HOME is its own empty job folder, so it reads the agent sign-in profile the
+    # fleet keeps beside the host lock (`<host dir>/secrets/ios-agent-stack.env`, the file the
+    # worker's `--sign-in agent` reads; cmuxterm-hq build-fleet/README.md, "Sign-in").
+    profiles = [os.path.expanduser("~/.secrets/cmuxterm-dev.env")]
+    if os.environ.get("CMUX_CI_HOST_LOCK"):
+        profiles.append(os.path.join(os.path.dirname(os.environ["CMUX_CI_HOST_LOCK"]),
+                                     "secrets", "ios-agent-stack.env"))
+    for profile in profiles:
+        if all(found.values()) or not os.path.isfile(profile):
+            continue
         for line in open(profile):
             k, sep, v = line.rstrip("\n").partition("=")
             if sep and k in keys and not found[k]:
-                found[k] = v
+                found[k] = v.strip().strip('"').strip("'")
     if not all(found.values()):
         raise SystemExit("DEBUG dev credential: set CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD "
-                         "(or provide ~/.secrets/cmuxterm-dev.env)")
+                         "(or provide ~/.secrets/cmuxterm-dev.env, or on a fleet worker "
+                         "<host dir>/secrets/ios-agent-stack.env)")
     return found[keys[0]], found[keys[1]]
 
 
@@ -192,10 +206,6 @@ def main():
     for flag in ("--mac-app", "--ios-app", "--sims", "--udid", "--bundle-id", "--work", "--out", "--summary"):
         ap.add_argument(flag, required=True)
     a = ap.parse_args()
-    # The theme leg runs on a tree that carries its Ghostty config (a demo branch adds it; the step
-    # takes no argument for it): the Mac runs that config, and once paired the phone opens that
-    # Mac's terminal; both screens are kept (screens/theme-*.png).
-    a.theme = THEME_CONFIG if os.path.isfile(THEME_CONFIG) else None
     proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
     proof = read_proof(proof_path, artifact_root=a.out) if proof_path else None
     cloud_ok = proof is None
@@ -236,8 +246,8 @@ def main():
                # (step 423a0bae's showed only other Macs) and name no host.
                CMUX_NEXT_MOBILE_DEVICE_NAME=RIG_MAC_NAME,
                CMUX_NEXT_SOCKET_MODE="automation")
-    if a.theme:
-        env["CMUX_NEXT_GHOSTTY_CONFIG"] = os.path.realpath(a.theme)
+    # The theme-file leg's folder: `themes/` beside the rig's cmux-next.json (ThemeFileSetting).
+    themes_dir = os.path.join(rig, "themes")
 
     def rpc(method, params=None, timeout=30):
         try:
@@ -300,7 +310,7 @@ def main():
 
     teardown = TagTeardown(a.mac_app)
     teardown.install()
-    streams, app, paired, url, uploaded = [], None, None, None, not probe
+    streams, app, paired, url, uploaded, theme_ok = [], None, None, None, not probe, True
     # The discovery leg: the phone's Allow request reaches the running Mac in seconds, and a Mac
     # restart with a second identity key beside its Keychain key heals with no action on the phone.
     # CMUX_PAIR_E2E_DISCOVERY=0 leaves it out (a ref before it).
@@ -310,7 +320,10 @@ def main():
     try:
         note(f"- Keychain: {keychain.start()}")
         os.makedirs(rig, mode=0o700, exist_ok=True)
-        settings = {"mobile": {"allowIPhoneConnections": True}}
+        # The Mac's look comes from a theme file the theme-file leg saves over (theme A at launch).
+        settings = {"mobile": {"allowIPhoneConnections": True}, "appearance": {"themeFile": THEME_FILE_NAME}}
+        os.makedirs(themes_dir, mode=0o700, exist_ok=True)
+        write_theme_file(themes_dir, theme_file_text(THEME_FILE_LOOKS[0]))
         if probe:
             os.makedirs(upload_root, mode=0o700)
             settings["agents"] = {"chats": {"roots": [upload_root]}}
@@ -434,8 +447,13 @@ def main():
             phone_log.wait(re.compile(r"live data on"), 60)
             time.sleep(5)  # bounded, as above
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
-            if a.theme and paired:
-                note(f"- theme: {theme_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot, rpc, screens)}")
+            if paired:
+                try:
+                    theme_ok = theme_file_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, mac_log, phone_shot,
+                                              rpc, screens, themes_dir, support, a.out, note)
+                except Exception as error:  # noqa: BLE001  the leg fails; the legs after it still run
+                    theme_ok = False
+                    note(f"- theme-file repaint: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
             if paired and probe:
                 # The phone lists this Mac by the rig's device name (CMUX_NEXT_MOBILE_DEVICE_NAME), not the
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
@@ -484,29 +502,201 @@ def main():
     if discovery:
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
-    return 0 if paired and uploaded and cloud_ok and ask_ok and restart_ok else 1
+    return 0 if paired and uploaded and theme_ok and cloud_ok and ask_ok and restart_ok else 1
 
 
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
 LINK_REFUSED = re.compile(r"mac_identity_changed|bad_mac_proof")
 
 
-THEME_CONFIG = os.path.join(ROOT, "cmux-next-ios/verify/pair-e2e-theme.ghostty")
+# The theme-file leg: the rig's cmux-next.json names this theme file (`<rig>/themes/<name>.json`), and
+# the leg saves looks A and B over it in turn. Each names a built-in Ghostty theme and its own terminal
+# colors (`colors` edit that theme), foreground on background well over 4.5:1, so the contrast guard
+# keeps them as written.
+THEME_FILE_NAME = "pair-e2e"
+THEME_FILE_LOOKS = [
+    {"appearance.theme": "Nord", "colors": {"background": "#14233a", "foreground": "#e6edf5"}},
+    {"appearance.theme": "Nord", "colors": {"background": "#3a1430", "foreground": "#f5e6ef"}},
+]
+THEME_FILE_SAMPLES = 10
+THEME_FILE_WAIT = 30  # seconds for one save to reach the phone
+THEME_FILE_HOLD = 5  # seconds a bad save must leave the phone's terminal as it was
+PHONE_THEME = re.compile(r"terminal theme of .*background (#[0-9a-fA-F]{6})")
 
 
-def theme_leg(simctl, udid, bundle_id, phone_env, phone_log, phone_shot, rpc, screens):
-    """The phone opens the paired Mac's first terminal (DEBUG demo `live-terminal`, which prints the
-    palette in it); the phone and the Mac window are captured. Returns the summary line."""
+def theme_file_text(look):
+    return json.dumps(look, indent=2) + "\n"
+
+
+def write_theme_file(themes_dir, text):
+    """Saves the active theme file as an editor's atomic save does: a new file renamed over it."""
+    path = os.path.join(themes_dir, f"{THEME_FILE_NAME}.json")
+    temp = path + ".saving"
+    with open(temp, "w") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temp, path)
+
+
+def percentile(values, fraction):
+    """The median, or the nearest-rank percentile."""
+    if fraction == 0.5:
+        return statistics.median(values)
+    ordered = sorted(values)
+    return ordered[max(0, min(len(ordered) - 1, math.ceil(fraction * len(ordered)) - 1))]
+
+
+def hostd_appearance_lines(support):
+    """hostd's `published a changed appearance` lines: (UTC epoch seconds, terminal background, line)."""
+    found = []
+    for path in glob.glob(os.path.join(support, "**/cmux-mobile-host.log"), recursive=True):
+        for line in open(path, errors="replace"):
+            if "published a changed appearance" not in line:
+                continue
+            m = re.match(r"\s*(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?Z", line)
+            bg = re.search(r"terminal_background=(\S+)", line)
+            if not m:
+                continue
+            seconds = calendar.timegm(time.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S")) + float("0." + (m.group(2) or "0"))
+            found.append((seconds, (bg.group(1) if bg else "none").strip('"').lower(), line))
+    return sorted(found)
+
+
+def terminal_share(bmp_path, colors, tolerance=12):
+    """The share of a BMP screenshot's (sampled) pixels within `tolerance` of each `#rrggbb` color."""
+    data = open(bmp_path, "rb").read()
+    if data[:2] != b"BM":
+        return None
+    offset = int.from_bytes(data[10:14], "little")
+    width = int.from_bytes(data[18:22], "little", signed=True)
+    height = abs(int.from_bytes(data[22:26], "little", signed=True))
+    bpp = int.from_bytes(data[28:30], "little")
+    if bpp not in (24, 32) or width <= 0:
+        return None
+    step, row = bpp // 8, ((bpp * width + 31) // 32) * 4
+    targets = [tuple(int(c[i:i + 2], 16) for i in (1, 3, 5)) for c in colors]
+    hits, total = [0] * len(targets), 0
+    for y in range(0, height, 6):
+        base = offset + y * row
+        for x in range(0, width, 6):
+            p = base + x * step
+            b, g, r = data[p], data[p + 1], data[p + 2]
+            total += 1
+            for i, (tr, tg, tb) in enumerate(targets):
+                if abs(r - tr) <= tolerance and abs(g - tg) <= tolerance and abs(b - tb) <= tolerance:
+                    hits[i] += 1
+    return [h / total for h in hits] if total else None
+
+
+def theme_file_leg(simctl, udid, bundle_id, phone_env, phone_log, mac_log, phone_shot, rpc, screens, themes_dir,
+                   support, out, note):
+    """A theme file saved on the Mac repaints the paired iPhone's terminal (the `appearance` channel):
+    the phone opens the Mac's first terminal (DEBUG demo `live-terminal`), then the leg saves looks A
+    and B in turn, each timed from the save to the phone's `terminal theme of ... background #hex`
+    line, with the Mac's hand-off to hostd and hostd's publish as the hops between. Then a refused
+    value and a half-written file: the phone keeps the last good background, and the Mac's notice
+    names the file. Returns whether the leg passed."""
+    ok = True
     since = time.monotonic()
     subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
     subprocess.run(simctl + ["launch", udid, bundle_id, "-cmux-mobile-no-restore", "-cmux-mobile-demo", "live-terminal"],
                    env=phone_env, check=True, capture_output=True)
     shown = phone_log.wait_at(re.compile(r"demo step: live-terminal (shown|no \w+)"), 240, since=since)
     outcome = shown[1].group(1) if shown else "timed out"
-    phone = phone_shot("theme-phone-terminal")
-    mac = rpc("debug.window_snapshot", {"path": os.path.join(screens, "theme-mac-window.png")}, timeout=60)
-    mac_line = "screens/theme-mac-window.png" if isinstance(mac, dict) and not mac.get("error") else f"no Mac snapshot ({mac.get('error')})"
-    return f"live-terminal {outcome}; phone {phone}; Mac {mac_line}"
+    looks = THEME_FILE_LOOKS
+    hexes = [look["colors"]["background"] for look in looks]
+    first = phone_log.wait_at(re.compile(rf"terminal theme of .*background {hexes[0]}", re.I), THEME_FILE_WAIT, since=since)
+    mac = rpc("debug.window_snapshot", {"path": os.path.join(screens, "theme-file-mac-window.png")}, timeout=60)
+    mac_line = "screens/theme-file-mac-window.png" if isinstance(mac, dict) and not mac.get("error") else f"no Mac snapshot ({mac.get('error')})"
+    note(f"- theme-file: phone live-terminal {outcome}; theme A ({hexes[0]}) on the phone "
+         f"{'before the first save' if first else f'NOT seen in {THEME_FILE_WAIT} s'}; Mac {mac_line}")
+
+    samples = []  # (index, hex, write->phone ms, write->Mac sent ms, write->hostd ms)
+    current = 0
+    for i in range(THEME_FILE_SAMPLES):
+        current = (i + 1) % len(looks)
+        target = hexes[current]
+        mark = time.monotonic()
+        t_write = time.time()
+        write_theme_file(themes_dir, theme_file_text(looks[current]))
+        hit = phone_log.wait_at(re.compile(rf"terminal theme of .*background {target}", re.I), THEME_FILE_WAIT, since=mark)
+        if not hit:
+            ok = False
+            note(f"- theme-file sample {i + 1}: TIMEOUT, no phone terminal theme with background {target} in {THEME_FILE_WAIT} s")
+            break
+        t_phone = log_time(hit[1].string) or (time.time() - (time.monotonic() - hit[0]))
+        sent = mac_log.wait_at(re.compile(rf"appearance to hostd: .*terminal background {target}", re.I), 5, since=mark)
+        t_sent = log_time(sent[1].string) if sent else None
+        samples.append([i + 1, target, (t_phone - t_write) * 1000, (t_sent - t_write) * 1000 if t_sent else None,
+                        None, t_write])
+    if samples and ok:
+        shot = phone_shot("theme-file-phone")
+        bmp = os.path.join(out, "theme-file-phone.bmp")
+        subprocess.run(simctl + ["io", udid, "screenshot", "--type=bmp", bmp], capture_output=True)
+        share = terminal_share(bmp, [hexes[current], hexes[1 - current]]) if os.path.isfile(bmp) else None
+        if os.path.isfile(bmp):
+            os.unlink(bmp)
+        if share is None:
+            note(f"- theme-file last screen: {shot}; background pixels not checked (no BMP screenshot)")
+        else:
+            matches = share[0] >= 0.05 and share[0] > share[1]
+            ok = ok and matches
+            note(f"- theme-file last screen: {shot}; {share[0]:.0%} of sampled pixels are {hexes[current]}, "
+                 f"{share[1]:.0%} the other look's {hexes[1 - current]}: {'PASS' if matches else 'FAIL'}")
+
+    # hostd's publish of each change (its own log, UTC, read once the samples are in).
+    published = hostd_appearance_lines(support)
+    with open(os.path.join(out, "hostd-appearance.log"), "w") as f:
+        f.writelines(redact(line) for _, _, line in published)
+    for sample in samples:
+        hop = next((t for t, bg, _ in published if bg == sample[1].lower() and t >= sample[5] - 0.05), None)
+        sample[4] = (hop - sample[5]) * 1000 if hop else None
+    if samples:
+        phone_ms = [s[2] for s in samples]
+        note(f"- theme-file repaint: n={len(phone_ms)} min {min(phone_ms):.0f} ms, median "
+             f"{percentile(phone_ms, 0.5):.0f} ms, p95 {percentile(phone_ms, 0.95):.0f} ms"
+             f"{'' if ok and len(samples) == THEME_FILE_SAMPLES else ' (FAIL)'}")
+        for name, column in (("Mac sent to hostd", 3), ("hostd published", 4)):
+            values = [s[column] for s in samples if s[column] is not None]
+            note(f"- theme-file hop, save to {name}: " + (
+                f"n={len(values)} min {min(values):.0f} ms, median {percentile(values, 0.5):.0f} ms, p95 "
+                f"{percentile(values, 0.95):.0f} ms" if values else "no timestamps read"))
+        note("- theme-file samples (save to Mac sent / hostd published / phone, ms): " + "; ".join(
+            f"{s[0]} {s[1]} {'-' if s[3] is None else f'{s[3]:.0f}'}/{'-' if s[4] is None else f'{s[4]:.0f}'}/{s[2]:.0f}"
+            for s in samples))
+    if not ok:
+        return False
+
+    # A refused value, then a half-written file: the phone keeps the last good background, and the
+    # Mac's settings notice (its toast) names the theme file.
+    good = hexes[current]
+    other = re.compile(rf"terminal theme of .*background (?!{good})#[0-9a-fA-F]{{6}}", re.I)
+    file_label = f"themes/{THEME_FILE_NAME}.json"
+    bad = [("a refused appearance.accent \"purple\"", theme_file_text({**looks[current], "appearance.accent": "purple"})),
+           ("a half-written file", theme_file_text(looks[current])[:20])]
+    results, fallback_ok, seen = [], True, set()
+    for what, text in bad:
+        mark = time.monotonic()
+        write_theme_file(themes_dir, text)
+        toasts, deadline = set(), time.monotonic() + THEME_FILE_HOLD
+        while time.monotonic() < deadline:
+            reply = rpc("debug.toast", {}, timeout=5)
+            for window in (reply.get("windows") or []) if isinstance(reply, dict) else []:
+                for toast in window.get("toasts") or []:
+                    if file_label in str(toast.get("message", "")):
+                        toasts.add(str(toast.get("message")))
+            time.sleep(0.5)
+        moved = phone_log.wait_at(other, 0, since=mark)
+        kept = moved is None
+        named = sorted(toasts - seen)  # this save's own notice, not the one before still on screen
+        seen |= toasts
+        fallback_ok = fallback_ok and kept and bool(named)
+        results.append(f"{what}: phone {'kept ' + good if kept else 'MOVED to ' + moved[1].group(0)[-7:]} for "
+                       f"{THEME_FILE_HOLD} s; Mac notice {('names it: ' + repr(named[0][:160])) if named else 'NAMES NO FILE'}")
+    write_theme_file(themes_dir, theme_file_text(looks[current]))  # the last good look again
+    note(f"- theme-file fallback {'PASS' if fallback_ok else 'FAIL'}: " + "; ".join(results))
+    return ok and fallback_ok
 
 
 def log_time(line):
