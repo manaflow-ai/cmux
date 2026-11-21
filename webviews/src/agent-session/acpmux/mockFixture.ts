@@ -44,6 +44,17 @@ export type MockSession = {
   history?: (at: number) => SeedStep[];
   /// Config options this chat offers beyond the harness's usual ones (the Options chip's).
   extraOptions?: Record<string, unknown>[];
+  /// The chat's task list across its turns (acpmux's summary `taskList`): the composer's hat keeps it
+  /// between turns while steps are left.
+  taskList?: {
+    source: "harness" | "agent" | "chief";
+    done: number;
+    total: number;
+    current?: string;
+    next?: string;
+    items: { content: string; status: "pending" | "in_progress" | "completed" }[];
+    updatedAt: number;
+  };
   /// The agent's suggested next prompt after its last turn. acpmux sends it live only (a page
   /// never holds it, hub/paging.rs NON_TRANSCRIPT_UPDATES), so the mock sends it when the chat opens.
   suggestion?: string;
@@ -584,6 +595,22 @@ export const mockSessions: MockSession[] = [
     host: LOCAL_HOST,
     hostKind: "local",
     reply: "Replaying 100k events takes 310 ms, 92% of it in JSON parsing.",
+    // l10n-allow: mock task steps
+    taskList: {
+      source: "harness",
+      done: 2,
+      total: 5,
+      current: "Parse events with simd-json",
+      next: "Rerun the 100k replay bench",
+      items: [
+        { content: "Profile the 100k replay", status: "completed" },
+        { content: "Find the hot path", status: "completed" },
+        { content: "Parse events with simd-json", status: "in_progress" },
+        { content: "Rerun the 100k replay bench", status: "pending" },
+        { content: "Post the before and after numbers", status: "pending" },
+      ],
+      updatedAt: 1_795_000_000_000,
+    },
   },
   {
     sessionId: "mock-home-screen",

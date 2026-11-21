@@ -54,6 +54,12 @@ class SidebarItemRowView: NSView {
     /// hover close (Lawrence msg 19392); Close Workspace is in that menu.
     var onMore: (() -> Void)?
     var hoverMore: OverflowButton?
+    /// A pinned workspace tile's hover Unpin, left of its more button (David Beyer 2026-11-20: pinning by drag is
+    /// awkward): `isPinned` reads the workspace's pin when the controls show, nil when the App offers no pin;
+    /// `onUnpin` runs Pin/Unpin Workspace (`SidebarModel.workspacePin`).
+    var isPinned: (() -> Bool?)?
+    var onUnpin: (() -> Void)?
+    var hoverUnpin: SidebarIconButton?
     /// A double-click on a pinned workspace's row renames it in place (`SidebarItemRowView+Rename`).
     var onRename: (() -> Void)?
     /// The inline rename's editor draws over the title, which stays hidden until it ends.
@@ -180,7 +186,7 @@ class SidebarItemRowView: NSView {
         self.style = style
         title.stringValue = style == .favorite ? info.caption ?? info.title : info.title
         title.isHidden = style.isIconOnly || isRenaming
-        pin.image = info.leadingPin ? NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide) : nil
+        pin.image = info.leadingPin ? NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide, style: .solid) : nil
         title.alignment = style == .favorite ? .center : .natural
         let trailingDot = info.unreadDot && !style.isIconOnly && style != .favorite
         rowBadge.configure(trailingDot ? [.success] : [], look: .plain)
@@ -299,7 +305,7 @@ class SidebarItemRowView: NSView {
         // The pin's image follows `pinGlyphSide`, which moves with the density and type scale while `configure`
         // (which sets it) can skip an unchanged row: a stale, smaller image would draw off center in its frame.
         if showsPin, pin.image?.size.width != SidebarStyle.pinGlyphSide {
-            pin.image = NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide)
+            pin.image = NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide, style: .solid)
         }
         let pinFrame = showsPin ? pinGlyphFrame(side: SidebarStyle.pinGlyphSide, leading: columns.lead, height: b.height) : .zero
         // After a pin, the row's own icon, color dot and title move one icon column in.
@@ -476,7 +482,7 @@ class SidebarItemRowView: NSView {
     }
 
     /// The cache key of the pin's ink (`SidebarGlyphInk`).
-    static let pinGlyph = "pin|\(IconName.statePinned.rawValue)"
+    static let pinGlyph = "pin|\(IconName.statePinned.rawValue)|solid"
 
     /// The leading pin's frame: its drawn ink, not its square, centers in the rows' one optical glyph square starting at
     /// `leading` (`SidebarOpticalGlyph`), the line Home's glyph centers on (#42431), centered on the row, on the device

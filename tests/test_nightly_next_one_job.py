@@ -96,6 +96,8 @@ class NightlyNextOneJobTests(unittest.TestCase):
 
     def test_no_artifact_carries_the_app_into_or_out_of_it(self) -> None:
         for step in self.job.get("steps") or []:
+            if "signer shadow" in str(step.get("name") or "").lower():
+                continue
             uses = str(step.get("uses") or "")
             self.assertNotIn("download-artifact", uses, f"{step.get('name')}: the one job downloads nothing")
             run = str(step.get("run") or "")
@@ -107,6 +109,29 @@ class NightlyNextOneJobTests(unittest.TestCase):
                 self.assertNotRegex(name, APP_ARTIFACT, f"{step.get('name')} uploads the app")
                 self.assertNotRegex(path, r"\.app\b|cmux-nightly-unsigned|prepared-app|signed-app",
                                     f"{step.get('name')} uploads the app")
+
+    def test_signer_shadow_handoff_is_explicitly_default_off_and_before_secrets(self) -> None:
+        steps = self.job.get("steps") or []
+        names = [str(step.get("name") or "") for step in steps]
+        package = names.index("Package unsigned app for signer shadow")
+        digest = names.index("Record unsigned app digest for signer shadow")
+        upload = names.index("Upload unsigned app for signer shadow")
+        retry = names.index("Retry unsigned app upload for signer shadow")
+        first_secret = next(
+            i for i, step in enumerate(steps)
+            if self.SIGNING_SECRET.search(json.dumps(step))
+        )
+        self.assertLess(package, digest)
+        self.assertLess(digest, upload)
+        self.assertLess(upload, retry)
+        self.assertLess(retry, first_secret)
+        for index in (package, digest, upload, retry):
+            condition = one_line(steps[index].get("if"))
+            self.assertIn("vars.NIGHTLY_SIGNER_SHADOW == 'on'", condition)
+            self.assertIn("!env.LEFT_SLOT", condition)
+        self.assertEqual(steps[upload].get("continue-on-error"), True)
+        self.assertEqual((steps[upload].get("with") or {}).get("retention-days"), 1)
+        self.assertEqual((steps[retry].get("with") or {}).get("overwrite"), True)
 
     def test_it_holds_its_own_concurrency_group_and_never_cancels_a_started_run(self) -> None:
         # The push slot (docs/ci/nightly-workflow-notes.md#note-19): a loop run's nightly-next-one takes
@@ -218,7 +243,7 @@ class NightlyNextOneJobTests(unittest.TestCase):
         signing = [i for i, b in enumerate(blobs) if self.SIGNING_SECRET.search(b)]
         publication = [i for i, b in enumerate(blobs) if self.PUBLICATION_SECRET.search(b)]
         self.assertTrue(signing and publication)
-        self.assertEqual(min(signing), first + 1, "the first check sits right before the first signing secret")
+        self.assertLess(first, min(signing), "the first check precedes the first signing secret")
         self.assertEqual(min(publication), second + 1, "the second check sits right before the publication secrets")
         self.assertLess(max(signing), second, "no signing secret after the publication check")
 

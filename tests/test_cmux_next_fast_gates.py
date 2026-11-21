@@ -1788,6 +1788,26 @@ class WebviewsChecksGate(unittest.TestCase):
         summary = "Found 5 warnings and 0 errors in 2481 files (1.0s)\n"
         self.assertEqual(self.module.findings(summary), [])
 
+    # In GitHub Actions `vp lint` prints each finding as a workflow command; GitHub turns the line into an annotation
+    # and its log keeps only `##[warning]MESSAGE`, so a new finding printed as that raw line names no file.
+    UNUSED = ("::warning file=src/agent-session/acpmux/ModelPicker.tsx,line={line},endLine={line},col=34,"
+              "endColumn=52,title=eslint(no-unused-expressions)::Expected expression to be used\n")
+
+    def test_an_annotation_finding_that_only_moved_lines_is_the_base_one(self):
+        merge = self.UNUSED.format(line=803) + "Found 1 warning and 0 errors.\n"
+        base = self.UNUSED.format(line=791) + "Found 1 warning and 0 errors.\n"
+        new, old = self.module.compare(merge, base)
+        self.assertEqual(new, [])
+        self.assertEqual(len(old), 1)
+
+    def test_a_new_annotation_finding_shows_its_file_and_line(self):
+        merge = self.UNUSED.format(line=791) + "::error file=src/a%2Cb.ts,line=4,col=2,title=x%3Ay::bad%25 one\n"
+        new = self.module.added(merge, "")
+        self.assertEqual(new, ["src/agent-session/acpmux/ModelPicker.tsx:791:34: Expected expression to be used "
+                               "[warning eslint(no-unused-expressions)]",
+                               "src/a,b.ts:4:2: bad% one [error x:y]"])
+        self.assertFalse([line for line in new if line.startswith("::")])
+
     def test_the_base_worktree_is_removed(self):
         base = self.findings({}, "base")
         self.findings({"check:fixed-waits": "  x\n"}, "red")
