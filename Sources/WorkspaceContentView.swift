@@ -3,6 +3,7 @@ import Foundation
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSettings
 import Bonsplit
 import CmuxWorkspaces
 import CmuxTerminal
@@ -584,9 +585,9 @@ struct WorkspaceContentView: View {
         workspace.bonsplitController.zoomedPaneId.map { "zoom:\($0.id.uuidString)" } ?? "unzoomed"
     }
 
-    static let tmuxPaneOverlayGeometry = TmuxPaneOverlayGeometry(
-        topChromeHeight: MinimalModeChromeMetrics.titlebarHeight
-    )
+    static var tmuxPaneOverlayGeometry: TmuxPaneOverlayGeometry {
+        TmuxPaneOverlayGeometry(topChromeHeight: SurfaceTabBarLayoutSettings().height)
+    }
 
     private static func tmuxWorkspacePaneRects(
         workspace: Workspace,

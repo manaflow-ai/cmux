@@ -51,11 +51,14 @@ General app preferences from Settings > App.
 
 ## surfaceTabBar
 
-Surface tab bar typography from Settings > Terminal.
+Surface tab bar typography and layout.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `surfaceTabBar.fontSize` | number | `11.0` | Default surface tab bar font size in points. The legacy Ghostty key `surface-tab-bar-font-size` remains a fallback alias. |
+| `surfaceTabBar.widthMode` | `"fixed"` or `"fill"` | `"fixed"` | How surface tabs share a pane's tab bar. `"fixed"` keeps each tab at its own width up to `maxTabWidth`; `"fill"` stretches the tabs so they split the bar evenly, and a single tab spans it. Both scroll when the tabs do not fit. |
+| `surfaceTabBar.maxTabWidth` | number | `220.0` | Largest width of one surface tab in points when `widthMode` is `"fixed"`. Longer titles are truncated. |
+| `surfaceTabBar.height` | number | `28.0` | Surface tab bar height in points. The default matches the window titlebar. |
 
 ## terminal
 
