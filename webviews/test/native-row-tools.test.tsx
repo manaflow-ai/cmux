@@ -35,6 +35,9 @@ import { applyHostEvent } from "../src/agent-session/acpmux/pageHost";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
 import { SummaryButton } from "../src/agent-session/acpmux/summary/SummaryButton";
+import { SEARCH_CHATS_ACTION } from "../src/agent-session/acpmux/header/glassToolbar.experiment";
+import { until } from "./support/until";
+import { settleReact } from "./support/domTeardown";
 
 function deferred<T = unknown>() {
   let resolve!: (value: T) => void;
@@ -227,6 +230,23 @@ test("native and DOM PR labels retain aggregate failure and pending state withou
       }
     }
   }
+});
+
+test("glass toolbar keeps quick tools and search in the native tab row", async () => {
+  const h = nativeHarness();
+  const searches: string[] = [];
+  await h.render({ glass: "keycaps", onSearch: () => searches.push("search") });
+
+  // The experiment changes the host row's treatment, not its owner. No duplicate web controls
+  // may appear beside the native buttons while the flag is on.
+  expect(h.tool("terminal")).toBeDefined();
+  expect(h.tool(SEARCH_CHATS_ACTION)).toEqual(expect.objectContaining({ symbol: "magnifyingglass", enabled: true }));
+  expect(h.container.querySelector("[data-quick-action]")).toBeNull();
+  expect(h.container.querySelector(".acpmux-glass-search")).toBeNull();
+  expect(h.container.querySelector(".acpmux-header-more")).toBeNull();
+
+  act(() => applyHostEvent({ kind: "tabRowToolInvoked", value: { id: SEARCH_CHATS_ACTION } }));
+  expect(searches).toEqual(["search"]);
 });
 
 test("native worktree uses the DOM refusal, retry, exclusion and removed state machine", async () => {
@@ -541,10 +561,14 @@ test("native Needs You surfaces rejected answer and ask actions while keeping re
     goTo: () => {},
   };
   await h.render({ nativeNeedsYou: { items: [item], mode: "pinned", actions } });
+  const refusal = (label: string) => h.tool("needsYou").menu![0]!.children!.some((entry) => entry.label === label);
   const answer = h.tool("needsYou").menu![0]!.children!.find((entry) => entry.id.includes(":answer:"))!;
   await act(async () => h.invoke("needsYou", answer.id));
   await act(async () => rejectAnswer(new Error("answer refused")));
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await until(
+    () => refusal("answer refused"),
+    () => act(async () => {}),
+  );
   expect(h.tool("needsYou").menu![0]!.children).toContainEqual(
     expect.objectContaining({ label: "answer refused", enabled: false }),
   );
@@ -555,7 +579,10 @@ test("native Needs You surfaces rejected answer and ask actions while keeping re
   const askItemId = h.tool("needsYou").menu![0]!.children!.find((entry) => entry.id.includes(":askAbout"))!.id;
   await act(async () => h.invoke("needsYou", askItemId));
   await act(async () => rejectAsk(new Error("ask refused")));
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await until(
+    () => refusal("ask refused"),
+    () => act(async () => {}),
+  );
   expect(h.tool("needsYou").menu![0]!.children).toContainEqual(
     expect.objectContaining({ label: "ask refused", enabled: false }),
   );
@@ -861,6 +888,7 @@ afterEach(async () => {
   if (previousTabRow) setTabRow(previousTabRow);
   previousTabRow = undefined;
   previousHeader = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, { had, value }] of saved) {

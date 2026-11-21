@@ -5,6 +5,12 @@
     owned_spm_scratch.py lease WORKSPACE [STORE]
     owned_spm_scratch.py evict [STORE]
     owned_spm_scratch.py drop-bundles BUILD
+    owned_spm_scratch.py seeded
+
+With CMUX_FAST_TIER_OWNED_SEED=1 (cmux-next.yml's fast tier, unless vars.CI_FAST_TIER_OWNED_SEED is "0"),
+`lease` first holds the mini's seed root (seed_lease): the workspace path the R2 base seed is built at,
+/Users/runner/_work/cmux/cmux, so the fast tier restores the seed there as Blacksmith does and builds only
+what differs from the base. It prints `root=` and `seed=1`; `seeded` then records the warm start.
 
 swift-package-tests, swift-test and fast-tier run `swift build` for the packages
 a change selects. On an owned Mac (a glaeda runner) the workspace is reused, but
@@ -265,6 +271,12 @@ def disk_reserve_bytes(manifests: tuple[Path, ...] = FLEET_MANIFESTS) -> int:
     """The free space the scratch leaves the mini: glaeda's runner floor (disk.min_free_gib, under which
     every job is refused) plus what one admitted job may still write (disk.job_growth_gib), from the
     glaeda mini-fleet manifest on the host (defaults.disk, then the host's overrides.disk)."""
+    floor, growth = disk_limits_gib(manifests)
+    return int((floor + growth) * 1024**3)
+
+
+def disk_limits_gib(manifests: tuple[Path, ...] = FLEET_MANIFESTS) -> tuple[float, float]:
+    """(disk.min_free_gib, disk.job_growth_gib) of the host's glaeda manifest, glaeda's defaults when unread."""
     disk: dict[str, object] = dict(GLAEDA_DISK_DEFAULTS)
     for manifest in manifests:
         try:
@@ -279,12 +291,12 @@ def disk_reserve_bytes(manifests: tuple[Path, ...] = FLEET_MANIFESTS) -> int:
             if isinstance(layer, dict):
                 disk.update({key: value for key, value in layer.items() if key in GLAEDA_DISK_DEFAULTS})
         break
-    gib = 0.0
+    limits = []
     for key in GLAEDA_DISK_DEFAULTS:
         value = disk[key]
-        gib += float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0 \
-            else float(GLAEDA_DISK_DEFAULTS[key])
-    return int(gib * 1024**3)
+        limits.append(float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0
+                      else float(GLAEDA_DISK_DEFAULTS[key]))
+    return limits[0], limits[1]
 
 
 def free_bytes(path: Path) -> int:
@@ -340,7 +352,10 @@ def hold(lock: Path, fd: int | None = None) -> subprocess.Popen[str]:
     holder = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                               text=True, start_new_session=True, pass_fds=() if fd is None else (fd,))
     if holder.stdout is None or holder.stdout.readline().strip() != HELD:
-        holder.kill()
+        try:
+            os.killpg(holder.pid, signal.SIGKILL)  # its whole group: it leads one (start_new_session)
+        except (ProcessLookupError, PermissionError):
+            pass
         raise OSError(f"could not hold {lock}")
     holder.stdout.close()
     HOLDERS.append(holder)
@@ -775,9 +790,91 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
     return source
 
 
+# The fast tier's base-seed root on an owned mini. cmux-next-fast-tier-seed.yml builds the fast tier's
+# Swift packages on Blacksmith at this workspace path every 30 minutes and saves the build to R2, and the
+# fast tier on Blacksmith restores it and replays its input times: 6.9 min for a head whose owned-mini
+# run was cancelled at 20. SwiftPM's build records absolute paths, so the seed is warm only
+# at this path; the same Xcode build makes the same key (fast-tier-cache-key.sh). On the minis the
+# shared roots above were warm on 3% of fast-tier jobs in 48 h to 2026-11-18 (cmux#44271): the light
+# 228 GiB minis rest at 32-48 GiB free and the lease's reserve never admitted a root there.
+SEED_WORKSPACE = Path("/Users/runner/_work/cmux/cmux")
+SEED_LOCK = ".cmux-seed-root.lock"
+# Provisioning writes this in the seed root's parent. The nightly-next builder's runner works in
+# /Users/runner/_work/cmux/cmux too, so the directory alone does not make the path ours.
+SEED_MARKER = ".cmux-seed-root"
+SEED_SETTING = "CMUX_FAST_TIER_OWNED_SEED"  # "1" from cmux-next.yml unless vars.CI_FAST_TIER_OWNED_SEED is "0"
+# The seed's CmuxNext and CmuxHomeRender builds (15 GiB `du` in seed job 134522053219), rounded up.
+SEED_BYTES_ESTIMATE = 16 * 1024**3
+SEED_BUILDS = ("Packages/macOS/CmuxNext/.build", "Packages/Shared/CmuxHomeRender/.build")
+
+
+def seed_fits(free: int, kept: int, floor_gib: float, growth_gib: float, footprint: int) -> bool:
+    """Whether a seed of FOOTPRINT bytes fits a mini with FREE bytes free, KEPT of them already held by the
+    last seed job's build (the restore replaces it). glaeda admitted this job against its floor plus its
+    growth, and a cold build would write the same bytes, so the seed needs room above the floor only for
+    what exceeds one job's growth: not the lease's floor + growth + a whole root (about 67 GiB)."""
+    return free + kept >= int(floor_gib * 1024**3) + max(0, footprint - int(growth_gib * 1024**3))
+
+
+def seed_lease(workspace: Path, seed_workspace: Path, runner: str,
+               verdict: dict[str, object] | None = None) -> Path | None:
+    """Hold the mini's seed root for this job and mirror WORKSPACE into it; return it, or None to take the
+    shared roots as before: not an owned runner, the root's parent not provisioned (the mini's user owns
+    /Users/runner/_work/cmux and marks it with SEED_MARKER), another job holding it, or no room above
+    glaeda's floor (seed_fits).
+    The packages' .build stay real directories there: the job restores the seed into them."""
+    if "-glaeda" not in runner or os.path.realpath(workspace) == os.path.realpath(seed_workspace):
+        return None
+    parent = seed_workspace.parent
+    if (not parent.is_dir() or parent.is_symlink() or not os.access(parent, os.W_OK)
+            or not (parent / SEED_MARKER).is_file()):
+        return None
+    fd = os.open(parent / SEED_LOCK, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        return None
+    try:
+        kept = sum(tree_bytes(seed_workspace / build) for build in SEED_BUILDS)
+        floor_gib, growth_gib = disk_limits_gib()
+        footprint = max(SEED_BYTES_ESTIMATE, kept)
+        if not seed_fits(free_bytes(parent), kept, floor_gib, growth_gib, footprint):
+            os.close(fd)
+            return None
+        hold(parent / SEED_LOCK, fd=fd)
+    except BaseException:
+        release_holders()
+        os.close(fd)
+        raise
+    os.close(fd)  # the holder keeps the lock from here
+    with contextlib.suppress(FileNotFoundError):
+        if seed_workspace.is_symlink() or not seed_workspace.is_dir():
+            seed_workspace.unlink()
+    seed_workspace.mkdir(exist_ok=True)
+    mirror(workspace, seed_workspace)
+    for package in packages(seed_workspace):
+        build = package / ".build"
+        if build.is_symlink():
+            build.unlink()  # a real directory: the seed is restored into it
+        else:
+            drop_resource_bundles(build)  # the last job may have built another branch (cmux#26961)
+    if verdict is not None:
+        verdict.update(state="cold", reason="seed root", bytes=0)
+    return seed_workspace
+
+
+def write_seeded(environ: Mapping[str, str] = os.environ) -> Path | None:
+    """The fast tier restored the base seed into the seed root: this job starts seeded, not cold."""
+    return write_warm_start("seeded", 0, "base seed", environ)
+
+
 def release_holders() -> None:
     for holder in HOLDERS:
-        holder.kill()
+        try:
+            os.killpg(holder.pid, signal.SIGKILL)  # its whole group: it leads one (start_new_session)
+        except (ProcessLookupError, PermissionError):
+            pass
         holder.wait()
     HOLDERS.clear()
 
@@ -808,6 +905,22 @@ def main(argv: list[str]) -> int:
         store = Path(argv[3]) if len(argv) == 4 else DEFAULT_STORE
         runner = os.environ.get("RUNNER_NAME", "")
         verdict = {}
+        if os.environ.get(SEED_SETTING) == "1":
+            seed = Path(os.environ.get("CMUX_FAST_TIER_SEED_WORKSPACE") or SEED_WORKSPACE)
+            try:
+                seeded = seed_lease(workspace, seed, runner, verdict=verdict)
+            except (OSError, subprocess.SubprocessError) as error:
+                release_holders()
+                print(f"owned SwiftPM scratch: no seed root ({error}); taking a shared root")
+                seeded, verdict = None, {}
+            if seeded is not None:
+                write_output("root", str(seeded))
+                write_output("seed", "1")
+                print(f"owned SwiftPM scratch: building in the mini's seed root {seeded} (the base seed restores here)")
+                report(verdict)
+                return 0
+            print("owned SwiftPM scratch: the seed root is busy, unprovisioned or has no room; taking a shared root")
+            verdict = {}
         try:
             source = lease(workspace, store, runner, verdict=verdict)
         except (OSError, subprocess.SubprocessError) as error:
@@ -851,6 +964,10 @@ def main(argv: list[str]) -> int:
         print(f"owned SwiftPM scratch: {len(linked)} packages keep their .build between jobs")
         if verdict:
             report(verdict)
+        return 0
+    if len(argv) == 2 and argv[1] == "seeded":
+        write_seeded()
+        print("owned SwiftPM scratch: the base seed was restored into the seed root (starts seeded)")
         return 0
     if len(argv) == 3 and argv[1] == "drop-bundles":
         dropped = drop_resource_bundles(Path(argv[2]))

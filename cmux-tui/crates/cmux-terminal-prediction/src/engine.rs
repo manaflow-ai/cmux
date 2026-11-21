@@ -15,6 +15,18 @@
 //! typed ahead of the prompt gets at most one echo before the prompt turns echo
 //! off, and a masked prompt's `*` never counts.
 //!
+//! One thing re-arms a run without echoes: the prompt. The row as it stood
+//! when the first key of a line was typed is a prompt candidate; once a run
+//! arms on that row with the candidate still at its start, the remote's line
+//! editor echoes after it, and the engine remembers it. When the remote answers the
+//! newest key sent (Return, Ctrl-C) and leaves the cursor row reading exactly
+//! like a remembered prompt, with nothing typed since, the shell is back at
+//! its line editor with every earlier key answered, so the run arms at once
+//! and the first key of the next command draws with the press instead of a
+//! round trip and two echoes later. A password prompt, a full-screen program,
+//! a row the engine cannot read (a cursor move, a tab) or a key typed before
+//! the answer arrived never matches, and keeps the two-echo rule.
+//!
 //! A line editor that moves back over text it echoed and prints the same text
 //! again (zsh after the first key, zsh-syntax-highlighting recolouring a word)
 //! is rewriting, not mispredicting: the engine remembers what it saw echoed on
@@ -41,6 +53,7 @@
 use crate::config::PredictionConfiguration;
 use crate::glyph::{PredictedGlyph, Standing};
 use crate::input::InputKind;
+use crate::row::RowText;
 use crate::scanner::{OutputSignal, TerminalOutputScanner};
 use std::time::Duration;
 
@@ -52,7 +65,8 @@ pub enum Status {
     Disabled = 0,
     /// The surface's shell runs on this Mac, or the host has not said otherwise.
     LocalSurface = 1,
-    /// No confirmed echo yet, or the last remote output ended the run.
+    /// No confirmed echo yet, the last remote output ended the run, or the
+    /// remote conceals what it prints (SGR 8): a glyph would show it.
     Listening = 2,
     /// The link is fast enough that there is no lag to hide.
     LinkIsFastEnough = 3,
@@ -187,6 +201,8 @@ impl Entry {
 }
 
 const MAXIMUM_LINE_MEMORY: usize = 512;
+/// Prompts remembered at most, oldest dropped first.
+const MAXIMUM_KNOWN_PROMPTS: usize = 8;
 
 #[derive(Clone, Debug)]
 pub struct TerminalPredictionEngine {
@@ -240,6 +256,18 @@ pub struct TerminalPredictionEngine {
     /// and cancel it (Backspace, then the same character again), so that
     /// nothing comes back for either.
     cancellable_key_at: Option<Duration>,
+    /// What the cursor row holds left of the cursor, from plain output.
+    row: RowText,
+    /// Rows the remote's line editor was seen echoing after, newest last:
+    /// the shell's prompts.
+    known_prompts: Vec<Vec<u8>>,
+    /// The row as it stood when the first key of this line was typed, while
+    /// it is not yet known to be a prompt.
+    prompt_candidate: Option<Vec<u8>>,
+    /// Whether the newest key sent had an effect the engine does not model
+    /// (Return, Ctrl-C, Backspace over echoed text), with nothing typed after
+    /// it: the remote's next prompt answers every key sent.
+    newest_key_is_unmodelled: bool,
 }
 
 impl Default for TerminalPredictionEngine {
@@ -274,6 +302,10 @@ impl TerminalPredictionEngine {
             untracked_bytes: Vec::new(),
             opaque_echo_until: None,
             cancellable_key_at: None,
+            row: RowText::new(),
+            known_prompts: Vec::new(),
+            prompt_candidate: None,
+            newest_key_is_unmodelled: false,
         }
     }
 
@@ -381,7 +413,7 @@ impl TerminalPredictionEngine {
         if self.suspended_until.is_some_and(|until| now < until) {
             return Status::Suspended;
         }
-        if !self.is_echo_run_active() {
+        if !self.is_echo_run_active() || self.scanner.is_concealed() {
             return Status::Listening;
         }
         match self.smoothed_echo_latency {
@@ -399,6 +431,8 @@ impl TerminalPredictionEngine {
     pub fn seed_alternate_screen(&mut self, is_active: bool) {
         if !self.has_observed_alternate_screen_switch {
             self.is_alternate_screen = is_active;
+            // The scanner's cursor saves are per screen; this is the screen.
+            self.scanner.seed_screen(is_active);
         }
     }
 
@@ -425,6 +459,10 @@ impl TerminalPredictionEngine {
             return false;
         }
         let expired = self.expire(now);
+        // Return behind a barrier too: the remote reads keys in order, so a
+        // prompt printed for the newest key answers every key before it.
+        self.newest_key_is_unmodelled = byte.is_none_or(|byte| !(0x20..=0x7E).contains(&byte));
+        self.note_prompt_candidate(byte);
         // Behind a barrier the remote's state is unknown, so nothing typed now
         // can be placed. Its echo arrives after the barrier resolves, which
         // starts the untracked window that covers it.
@@ -501,6 +539,7 @@ impl TerminalPredictionEngine {
         }
         let expired = self.expire(now);
         if self.has_barrier() {
+            self.newest_key_is_unmodelled = false;
             self.newest_untracked_keystroke = Some(now);
             self.mark_opaque_echo(now);
             return expired;
@@ -515,6 +554,7 @@ impl TerminalPredictionEngine {
             .find(|entry| entry.is_glyph() && !entry.is_retracted)
             .filter(|entry| room && entry.is_drawn());
         let Some(newest) = newest else {
+            self.newest_key_is_unmodelled = true;
             if self.raise_barrier_if_in_flight(now) {
                 return expired;
             }
@@ -526,6 +566,7 @@ impl TerminalPredictionEngine {
         // A glyph whose echo arrived but is still held for its frame is
         // retracted the same way: until the erase, its cell is blank.
         newest.is_retracted = true;
+        self.newest_key_is_unmodelled = false;
         newest.confirmed_at = None;
         self.entries.push(Entry::new(
             Keystroke::Erase(EraseProgress::AwaitingMoveLeft),
@@ -543,6 +584,7 @@ impl TerminalPredictionEngine {
             return false;
         }
         let expired = self.expire(now);
+        self.newest_key_is_unmodelled = !self.has_barrier();
         if self.has_barrier() {
             self.newest_untracked_keystroke = Some(now);
             self.mark_opaque_echo(now);
@@ -595,7 +637,7 @@ impl TerminalPredictionEngine {
                 break;
             }
             if let Some(signal) = self.scanner.next(byte) {
-                if signal != OutputSignal::Ignorable {
+                if !matches!(signal, OutputSignal::Ignorable | OutputSignal::Concealed(_)) {
                     moved_cursor = true;
                 }
                 changed = self.observe(signal, now) || changed;
@@ -605,19 +647,46 @@ impl TerminalPredictionEngine {
         if self.blank_count() < blanks_before && self.layout_held_since.is_none() {
             self.layout_held_since = Some(now);
         }
+        self.row.observe(bytes);
+        self.learn_prompt();
+        self.arm_at_known_prompt();
         changed || (moved_cursor && self.any_on_screen())
     }
 
     /// Output was lost before reaching the engine: nothing drawn can be placed
     /// any more, and a sequence may have been cut in half. A mode switch in the
     /// lost output went unseen too, so the next seed (the host's read of the
-    /// screen it replaced) counts again.
+    /// screen it replaced) counts again. Concealment stays as it was; a host
+    /// that has the bytes that replaced the screen passes them to
+    /// [`Self::observed_output`] next, which reads their modes with nothing in
+    /// flight to confirm.
     pub fn missed_output(&mut self, now: Duration) -> bool {
         self.has_observed_alternate_screen_switch = false;
         if !self.is_active() {
             return false;
         }
-        self.scanner = TerminalOutputScanner::new();
+        // The terminal kept its pen through a resize, and a replaced screen
+        // may still conceal: concealment lasts until output ends it.
+        self.scanner = self.scanner.restarted();
+        self.row.forget();
+        self.prompt_candidate = None;
+        let changed = self.withdraw_all(false, now, false);
+        self.mark_opaque_echo(now);
+        self.extend_untracked_deadline(now);
+        changed
+    }
+
+    /// The grid or the font changed under the glyphs (a resize, a new grid)
+    /// with no output lost: nothing drawn can be placed any more, but every
+    /// byte still reaches the engine, so what the scanner knows of the pen,
+    /// its saved copies and the screen stays true.
+    pub fn layout_changed(&mut self, now: Duration) -> bool {
+        if !self.is_active() {
+            return false;
+        }
+        // The row is kept: a resize moves no text left of the cursor on its
+        // line, and every byte still reaches the engine. A row only ever
+        // matches a prompt exactly, after the answer to Return.
         let changed = self.withdraw_all(false, now, false);
         self.mark_opaque_echo(now);
         self.extend_untracked_deadline(now);
@@ -670,7 +739,7 @@ impl TerminalPredictionEngine {
         if let Some(deadline) = self.untracked_echo_deadline {
             if now < deadline
                 && signal != OutputSignal::Ignorable
-                && !matches!(signal, OutputSignal::AlternateScreen(_))
+                && !matches!(signal, OutputSignal::AlternateScreen(_) | OutputSignal::Concealed(_))
             {
                 match self.classify_untracked_output(signal, now) {
                     UntrackedOutput::Older => {
@@ -696,7 +765,9 @@ impl TerminalPredictionEngine {
             }
         }
         match signal {
-            OutputSignal::Ignorable => false,
+            OutputSignal::Ignorable | OutputSignal::Concealed(false) => false,
+            // What was drawn would echo concealed; nothing new draws until it ends.
+            OutputSignal::Concealed(true) => self.withdraw_all(false, now, false),
             OutputSignal::AlternateScreen(entered) => {
                 self.is_alternate_screen = entered;
                 self.has_observed_alternate_screen_switch = true;
@@ -995,6 +1066,74 @@ impl TerminalPredictionEngine {
         self.echo_streak = 0;
         self.line.clear();
         self.rewound.clear();
+    }
+
+    /// The first printable key typed on a line, with nothing in flight and
+    /// the row known: the row is what the remote printed before it, a prompt
+    /// if its echo comes back after it. Any other key starts the line over.
+    fn note_prompt_candidate(&mut self, byte: Option<u8>) {
+        if !byte.is_some_and(|byte| (0x20..=0x7E).contains(&byte)) {
+            self.prompt_candidate = None;
+            return;
+        }
+        if self.prompt_candidate.is_some() || !self.entries.is_empty() || self.is_alternate_screen {
+            return;
+        }
+        self.prompt_candidate = self.row.text().map(<[u8]>::to_vec);
+    }
+
+    /// A run is armed by echoes on a row that still starts with the line's
+    /// prompt candidate and holds more after it: the remote's line editor
+    /// echoes after that text, so it is a prompt. Read once the chunk is in.
+    fn learn_prompt(&mut self) {
+        if !self.is_echo_run_active() || self.is_alternate_screen {
+            return;
+        }
+        let (Some(candidate), Some(row)) = (self.prompt_candidate.as_deref(), self.row.text())
+        else {
+            return;
+        };
+        if row.len() <= candidate.len()
+            || !row.starts_with(candidate)
+            || !candidate.iter().any(|&byte| byte != b' ')
+        {
+            return;
+        }
+        // The candidate stays for the rest of the line, so a later key typed
+        // with nothing in flight does not take the row so far for a prompt.
+        if self.known_prompts.iter().any(|known| known.as_slice() == candidate) {
+            return;
+        }
+        let prompt = candidate.to_vec();
+        if self.known_prompts.len() >= MAXIMUM_KNOWN_PROMPTS {
+            self.known_prompts.remove(0);
+        }
+        self.known_prompts.push(prompt);
+    }
+
+    /// The remote answered the newest key sent with a row that reads exactly
+    /// like a known prompt: its line editor waits there, every earlier key's
+    /// output has arrived, so the run arms and nothing that follows is an
+    /// older key's echo.
+    fn arm_at_known_prompt(&mut self) {
+        if self.is_echo_run_active()
+            || !self.newest_key_is_unmodelled
+            || !self.entries.is_empty()
+            || !self.rewound.is_empty()
+            || self.is_alternate_screen
+        {
+            return;
+        }
+        let Some(row) = self.row.text() else { return };
+        if !self.known_prompts.iter().any(|known| known.as_slice() == row) {
+            return;
+        }
+        self.echo_streak = 2;
+        self.prompt_candidate = None;
+        self.line.clear();
+        self.close_untracked_window();
+        self.cancellable_key_at = None;
+        self.newest_untracked_keystroke = None;
     }
 
     fn remember(&mut self, byte: u8) {

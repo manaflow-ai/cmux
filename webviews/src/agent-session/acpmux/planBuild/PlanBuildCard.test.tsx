@@ -43,7 +43,8 @@ test("compare draws a column per build, with Keep only on a finished one", () =>
 test("a column lists six files and says how many more", () => {
   const html = render();
   expect(html.match(/acpmux-plan-builds-path/g)?.length).toBe(6);
-  expect(html).toContain("+2 more");
+  // Its "+" is the sign centred on the figures (ui/Typography.tsx).
+  expect(html).toContain('<span class="ui-sign">+</span>2 more');
   expect(html).toContain("No changes yet");
 });
 

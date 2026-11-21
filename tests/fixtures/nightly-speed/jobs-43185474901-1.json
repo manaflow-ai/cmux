@@ -1,0 +1,173 @@
+{
+"total_count": 11,
+"jobs": [
+{
+"name": "runner-preflight",
+"conclusion": "success",
+"created_at": "2026-11-12T08:45:05Z",
+"started_at": "2026-11-12T08:45:07Z",
+"completed_at": "2026-11-12T08:45:13Z",
+"runner_name": "GitHub Actions 1000793982",
+"steps": []
+},
+{
+"name": "promote-nightly-next",
+"conclusion": "skipped",
+"created_at": "2026-11-12T08:45:06Z",
+"started_at": "2026-11-12T08:45:06Z",
+"completed_at": "2026-11-12T08:45:05Z",
+"runner_name": null,
+"steps": []
+},
+{
+"name": "decide",
+"conclusion": "success",
+"created_at": "2026-11-12T08:45:13Z",
+"started_at": "2026-11-12T08:45:15Z",
+"completed_at": "2026-11-12T08:45:33Z",
+"runner_name": "cmux7s-mac-mini-glaeda-nightly-only-4",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T08:45:18Z",
+"completed_at": "2026-11-12T08:45:18Z"
+}
+]
+},
+{
+"name": "resolve-nightly-cmux-tui-client",
+"conclusion": "success",
+"created_at": "2026-11-12T08:45:33Z",
+"started_at": "2026-11-12T08:45:34Z",
+"completed_at": "2026-11-12T08:54:45Z",
+"runner_name": "cmux15-glaeda-nightly-only-5",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T08:45:40Z",
+"completed_at": "2026-11-12T08:54:07Z"
+}
+]
+},
+{
+"name": "pick-nightly-build-runner",
+"conclusion": "success",
+"created_at": "2026-11-12T08:45:33Z",
+"started_at": "2026-11-12T08:45:35Z",
+"completed_at": "2026-11-12T08:54:19Z",
+"runner_name": "cmux15-glaeda-nightly-only-6",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T08:45:41Z",
+"completed_at": "2026-11-12T08:54:06Z"
+}
+]
+},
+{
+"name": "build-nightly-remote-daemon",
+"conclusion": "success",
+"created_at": "2026-11-12T08:54:45Z",
+"started_at": "2026-11-12T08:54:47Z",
+"completed_at": "2026-11-12T08:55:13Z",
+"runner_name": "cmux7s-mac-mini-glaeda-nightly-only-4",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T08:54:52Z",
+"completed_at": "2026-11-12T08:54:52Z"
+}
+]
+},
+{
+"name": "build nightly inputs",
+"conclusion": "success",
+"created_at": "2026-11-12T08:54:45Z",
+"started_at": "2026-11-12T08:54:47Z",
+"completed_at": "2026-11-12T09:10:52Z",
+"runner_name": "cmux15-glaeda-nightly-only-6",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T08:54:53Z",
+"completed_at": "2026-11-12T09:07:22Z"
+}
+]
+},
+{
+"name": "build-nightly-app",
+"conclusion": "success",
+"created_at": "2026-11-12T08:54:46Z",
+"started_at": "2026-11-12T08:54:47Z",
+"completed_at": "2026-11-12T09:10:26Z",
+"runner_name": "ultra1-glaeda-nightly-only-xl-1",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T08:54:55Z",
+"completed_at": "2026-11-12T08:55:10Z"
+},
+{
+"name": "Build nightly app (Release)",
+"conclusion": "success",
+"started_at": "2026-11-12T08:57:29Z",
+"completed_at": "2026-11-12T09:06:48Z"
+}
+]
+},
+{
+"name": "resolve-nightly-ghostty-cli-helper",
+"conclusion": "success",
+"created_at": "2026-11-12T08:54:46Z",
+"started_at": "2026-11-12T08:54:48Z",
+"completed_at": "2026-11-12T09:07:59Z",
+"runner_name": "cmux15-glaeda-nightly-only-7",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T08:54:51Z",
+"completed_at": "2026-11-12T09:07:21Z"
+}
+]
+},
+{
+"name": "build-nightly-ghostty-cli-helper",
+"conclusion": "success",
+"created_at": "2026-11-12T09:08:00Z",
+"started_at": "2026-11-12T09:08:01Z",
+"completed_at": "2026-11-12T09:10:15Z",
+"runner_name": "cmux7s-mac-mini-glaeda-nightly-only-4",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:08:04Z",
+"completed_at": "2026-11-12T09:08:05Z"
+}
+]
+},
+{
+"name": "dispatch-nightly-next-sign",
+"conclusion": "success",
+"created_at": "2026-11-12T09:10:26Z",
+"started_at": "2026-11-12T09:10:27Z",
+"completed_at": "2026-11-12T09:11:48Z",
+"runner_name": "cmux15-glaeda-nightly-only-4",
+"steps": [
+{
+"name": "Set up runner",
+"conclusion": "success",
+"started_at": "2026-11-12T09:10:29Z",
+"completed_at": "2026-11-12T09:11:32Z"
+}
+]
+}
+]
+}

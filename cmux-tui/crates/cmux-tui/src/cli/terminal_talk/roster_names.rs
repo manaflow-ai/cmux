@@ -94,7 +94,8 @@ pub(in crate::cli) fn row_json(
 /// Longest NAME cell the table prints.
 const NAME_WIDTH: usize = 32;
 
-/// The roster's table with a NAME column first.
+/// The roster's table with a NAME column first and a REPLY column last
+/// (the first line of the agent's last reply, `-` when there is none).
 pub(in crate::cli) fn table(
     rows: &[AgentRow],
     facts: &HashMap<String, TabFacts>,
@@ -114,16 +115,47 @@ pub(in crate::cli) fn table(
         })
         .collect();
     let width = names.iter().map(|name| name.chars().count()).max().unwrap_or(0).max(4);
+    let replies = rows.iter().map(|row| {
+        facts
+            .get(&row.terminal)
+            .and_then(|known| known.last_reply.as_deref())
+            .map_or_else(|| "-".to_owned(), reply_cell)
+    });
     let body = roster::table(rows, now_ms);
-    let cells = std::iter::once("NAME".to_owned()).chain(names);
-    body.lines()
-        .zip(cells)
+    let lines: Vec<String> = body
+        .lines()
+        .zip(std::iter::once("NAME".to_owned()).chain(names))
         .map(|(line, name)| {
-            let pad = width - name.chars().count();
+            let pad = width.saturating_sub(name.chars().count());
             format!("{name}{}  {line}", " ".repeat(pad))
+        })
+        .collect();
+    let body_width = lines.iter().map(|line| line.chars().count()).max().unwrap_or(0);
+    lines
+        .iter()
+        .zip(std::iter::once("REPLY".to_owned()).chain(replies))
+        .map(|(line, reply)| {
+            let pad = body_width.saturating_sub(line.chars().count());
+            format!("{line}{}  {reply}", " ".repeat(pad))
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Longest REPLY cell the table prints, ellipsis included.
+const REPLY_WIDTH: usize = 60;
+
+/// The REPLY cell: the first non-blank line of the agent's last reply,
+/// control characters made inert, cut at [`REPLY_WIDTH`].
+fn reply_cell(reply: &str) -> String {
+    let line = reply.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or("-");
+    let clean: String = line.chars().map(|c| if c.is_control() { '\u{fffd}' } else { c }).collect();
+    if clean.chars().count() <= REPLY_WIDTH {
+        return clean;
+    }
+    let mut cut: String = clean.chars().take(REPLY_WIDTH - 1).collect();
+    cut.push('…');
+    cut
 }
 
 #[cfg(test)]

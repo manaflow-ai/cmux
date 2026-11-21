@@ -197,7 +197,8 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
       const context = await browsers.get(name)!.newContext({ viewport: { width: 900, height: 640 } });
       const painted = await newTab(context, { cwd: BILLING, handshakeDelay: 700 }, "billing");
       await context.close();
-      expect(painted.every((text) => !text.includes("Choose folder"))).toBe(true);
+      // The empty face (No folder, before it Choose folder) never paints before the project.
+      expect(painted.every((text) => !/Choose folder|No folder/.test(text))).toBe(true);
       expect(new Set(painted.map((text) => text.includes("billing")))).toEqual(new Set([true]));
       // The environment picker names this Mac "This Mac" (#28999), never its hostname.
       expect(painted.every((text) => text.includes("This Mac") && !text.includes("cosmic-gray"))).toBe(true);
@@ -216,7 +217,8 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
       listDelay = 900;
       const painted = await newTab(context, { cwd: HOME, handshakeDelay: 700 }, "atlas");
       await context.close();
-      expect(painted.every((text) => !text.includes("Choose folder"))).toBe(true);
+      // The empty face (No folder, before it Choose folder) never paints before the project.
+      expect(painted.every((text) => !/Choose folder|No folder/.test(text))).toBe(true);
       expect(painted.every((text) => text.includes("atlas"))).toBe(true);
       expect(new Set(painted).size).toBe(1);
     },
@@ -229,7 +231,8 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
       listDelay = 700;
       const painted = await newTab(context, { cwd: HOME, handshakeDelay: 300 }, "atlas");
       await context.close();
-      expect(painted.every((text) => !text.includes("Choose folder"))).toBe(true);
+      // The empty face (No folder, before it Choose folder) never paints before the project.
+      expect(painted.every((text) => !/Choose folder|No folder/.test(text))).toBe(true);
       // The machine shows at once; the folder's place stays empty until the chats answer.
       expect(painted.filter((text) => text.includes("atlas")).length).toBe(1);
       expect(painted.at(-1)).toContain("atlas");

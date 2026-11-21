@@ -9,6 +9,7 @@
 // (the Cloud machine sheet), so a remote computer has a visible way in from Home.
 import { useMemo } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { SplitEdge } from "../../ui/SplitEdge";
 import type { Strings } from "../shared/i18n";
 import { Avatar, ChannelMark } from "./Avatar";
 import { HomeIcon } from "./icons";
@@ -50,6 +51,9 @@ export interface ConversationListProps {
   actions: ListRowActions;
   /** The Chief records by id: a Chief's row names its engine when it is not the default. */
   chiefs?: ReadonlyMap<string, HomeChief>;
+  /** Why the last Cloud inbox read failed: the Cloud rows stay (the last good list) and this says
+   * so in the list's own note line while the page reads again. */
+  cloudError?: string;
 }
 
 export function ConversationList({
@@ -68,8 +72,9 @@ export function ConversationList({
   cloudEntry = "row",
   actions,
   chiefs,
+  cloudError,
 }: ConversationListProps) {
-  const { t } = strings;
+  const { t, format } = strings;
   const cloudRow = (look: CloudEntryLook) =>
     onNewCloudMachine &&
     cloudEntry === look && (
@@ -154,6 +159,11 @@ export function ConversationList({
         <kbd>⌘K</kbd>
       </button>
       {cloudRow("row")}
+      {cloudError && (
+        <output className="lg-list-empty lg-cloud-error selectable" data-cloud-error="">
+          {format("cloud.unreachable", cloudError)}
+        </output>
+      )}
       {pinned.length + rest.length === 0 && <p className="lg-list-empty">{t("rail.empty")}</p>}
       <div className="lg-list-rows">
         {pinned.length > 0 && (
@@ -169,6 +179,15 @@ export function ConversationList({
         <ul className={`lg-list-group${pinned.length > 0 ? " after-pinned" : ""}`}>{rest.map(renderRow)}</ul>
       </div>
       {cloudRow("footer")}
+      {/* Its line is the split's divider and drags as one (ui/SplitEdge.tsx); the page's grid reads the width. */}
+      <SplitEdge
+        side="end"
+        property="--home-channels-list-width"
+        storageKey="cmux.homeChannels.list.width"
+        min={200}
+        max={480}
+        on="parent"
+      />
     </nav>
   );
 }

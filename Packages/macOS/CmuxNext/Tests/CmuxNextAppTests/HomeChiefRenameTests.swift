@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextHomeEngine
+import CmuxNextTestSupport
 import Testing
 
 /// Renaming the Chief in Chief Settings sends the daemon's set-title op. A rename the daemon
 /// refused (or one with no daemon to send it to) was dropped silently: the field kept the new
 /// name over a Chief that kept its old one. It now shows the kept name again and says why.
-@MainActor @Suite struct HomeChiefRenameTests {
+@MainActor @Suite(.closesItsWindows) struct HomeChiefRenameTests {
     static func view() -> HomeChiefSettingsView {
         HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: AnsweringChief())
     }

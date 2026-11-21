@@ -75,7 +75,7 @@ pub(super) fn draw_composer(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
             let hint = if app.on_draft() {
                 "Ask anything. Enter starts the session"
             } else if app.selected_supports_steer() {
-                "Ask anything. Ctrl-s steers a running turn"
+                "Ask anything. Enter steers a running turn, Ctrl-s queues"
             } else {
                 "Ask anything"
             };

@@ -25,6 +25,11 @@ const errorKeys: Record<NonNullable<EnvironmentState["error"]>, string> = {
   value: L.envInvalidValue,
   retype: L.envSecretRetype,
   dropped: L.envRouteDropped,
+  vaultDown: L.envVaultDown,
+  vaultHost: L.envVaultPublicSuffix,
+  vaultText: L.envVaultNotPlainText,
+  vaultUnreadable: L.envVaultUnreadable,
+  vaultRefused: L.envVaultRefused,
 };
 const sections = {
   overview: L.envTitle,

@@ -28,7 +28,6 @@ use super::{Hub, Session};
 use crate::rpc::RpcError;
 use crate::store::SessionStatus;
 use cmux_json::JsonSet as _;
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -48,38 +47,7 @@ const MAX_FILES: usize = 200;
 /// The longest one build's git read takes before it is given up.
 const GIT_LIMIT: Duration = Duration::from_secs(10);
 
-/// One plan build, kept on the plan's chat (`SessionMeta::plan_builds`) by acpmux alone: which
-/// chats are its builds, and each one's worktree root and base as its start made them. Tags would
-/// not do: a build's agent can set its own chat's tags (`_acpmux/tag`), and compare runs git in
-/// the root it names.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlanBuildRecord {
-    pub build_id: String,
-    pub builds: Vec<PlanBuildEntry>,
-    /// The build kept (`_acpmux/plan/keep`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kept: Option<String>,
-}
-
-/// Whether a chat has no plan builds (`SessionMeta::plan_builds` is then left out).
-pub(crate) fn no_records(records: &Arc<Vec<PlanBuildRecord>>) -> bool {
-    records.is_empty()
-}
-
-/// One build of a [`PlanBuildRecord`].
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlanBuildEntry {
-    pub session_id: String,
-    /// Its worktree's root, from the start (the chat's folder is the started-from folder's place
-    /// in the worktree).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub root: Option<PathBuf>,
-    /// The branch its worktree was made from.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base: Option<String>,
-}
+pub use crate::plan_build_records::{PlanBuildEntry, PlanBuildRecord};
 
 /// Where an approved plan is built.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -110,6 +78,35 @@ impl Target {
 
 fn refused(reason: &str, message: impl Into<String>) -> RpcError {
     RpcError::invalid_params(message.into()).with_data(json!({"reason": reason}))
+}
+
+/// The plan approvals a build call is answering now, by `session:permission`: a second call for
+/// the same approval is refused while the first starts its builds, so two clicks (or two
+/// devices) never start two sets of worktrees.
+static CLAIMS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// A build call's hold on one plan approval ([`claim`]), released when dropped.
+#[derive(Debug)]
+pub struct PlanClaim(String);
+
+impl Drop for PlanClaim {
+    fn drop(&mut self) {
+        CLAIMS.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.0);
+    }
+}
+
+/// Holds plan approval `permission_id` of `session_id` for one build call, or refuses
+/// (`plan_build.in_progress`) while another call holds it.
+pub fn claim(session_id: &str, permission_id: &str) -> Result<PlanClaim, RpcError> {
+    let key = format!("{session_id}:{permission_id}");
+    if !CLAIMS.lock().unwrap_or_else(|e| e.into_inner()).insert(key.clone()) {
+        return Err(refused(
+            "plan_build.in_progress",
+            "another call is answering this plan build right now",
+        ));
+    }
+    Ok(PlanClaim(key))
 }
 
 /// The plan an ask approves, as the card reads it (webviews `direct.ts` `permissionPlan`): one
@@ -238,22 +235,38 @@ fn read_change(root: &Path, base: &str) -> Result<Change, String> {
 }
 
 /// The status a build shows: working while its harness runs a turn or waits on an answer, and
-/// before its first turn ended (its first prompt may wait for a run slot of the parent).
+/// before its first turn ended (its first prompt may wait for a run slot of the parent). Once idle,
+/// its last turn's own status (`last_turn.status`): done only for a completed turn, stopped
+/// ("closed") for a cancelled one, else failed.
 pub(crate) fn build_status(
     status: SessionStatus,
-    turn_ended: bool,
+    last_turn: Option<&str>,
     waits_for_slot: bool,
 ) -> &'static str {
     match status {
         SessionStatus::Running | SessionStatus::Waiting => "working",
         SessionStatus::Disconnected => "failed",
         SessionStatus::Closed => "closed",
-        SessionStatus::Idle | SessionStatus::Ready if waits_for_slot || !turn_ended => "working",
-        SessionStatus::Idle | SessionStatus::Ready => "done",
+        SessionStatus::Idle | SessionStatus::Ready if waits_for_slot => "working",
+        SessionStatus::Idle | SessionStatus::Ready => match last_turn {
+            None => "working",
+            Some("completed") => "done",
+            Some("cancelled") => "closed",
+            Some(_) => "failed",
+        },
     }
 }
 
 impl Hub {
+    /// Stops the plan's own turn `turn_id` once its approval was answered for a build elsewhere:
+    /// a harness may take the rejected plan as a tool denial and plan on, or ask again. Only
+    /// that turn: a later one the person started runs.
+    pub async fn stop_plan_turn(self: &Arc<Self>, session: &Arc<Session>, turn_id: Option<&str>) {
+        if let Some(turn_id) = turn_id {
+            self.cancel_turn(session, turn_id).await;
+        }
+    }
+
     /// The plan of `session`'s pending ask `permission_id`, with the ask itself.
     pub(crate) fn pending_plan(
         &self,
@@ -372,7 +385,11 @@ impl Hub {
                 let mut meta = parent.meta.lock().unwrap_or_else(|e| e.into_inner());
                 Arc::make_mut(&mut meta.plan_builds).push(record);
             }
-            self.save_meta(parent);
+            // Durable before the card's `started` record is appended, so a card that survives a
+            // restart always finds its builds for compare and keep.
+            if let Err(e) = self.save_meta_answered(parent) {
+                tracing::warn!(session = %parent.id, "plan build record not saved: {}", e.message);
+            }
         }
         (started, failed)
     }
@@ -405,7 +422,11 @@ impl Hub {
                 "name": m.name,
                 "shortName": m.subsession.as_ref().map(|l| l.short_name.clone()),
                 "harness": m.harness,
-                "status": build_status(m.status, m.last_turn.is_some(), self.waits_for_slot(&m)),
+                "status": build_status(
+                    m.status,
+                    m.last_turn.as_ref().map(|t| t.get("status").and_then(Value::as_str).unwrap_or("")),
+                    self.waits_for_slot(&m),
+                ),
                 "archived": archived,
                 "branch": branch,
                 "base": base,

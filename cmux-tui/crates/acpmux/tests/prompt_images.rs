@@ -503,9 +503,10 @@ async fn a_queued_prompts_pasted_blocks_are_named_while_it_waits_and_once_it_run
     assert_eq!(sent["pasted"], range, "{sent}");
 }
 
-// Review of #38707 (F1): a queued record carries its provenance before its marks, so another
-// agent's message that reads as an agent's handoff gets no `agentText` while it waits: its
-// sender already names it (`agent_message`), as it does once it runs.
+// Review of #38707 (F1): a queued record carries its provenance before its marks, so a prompt
+// no proof attributes (`unverified`) that reads as an agent's handoff gets no `agentText` while it
+// waits, as it gets none once it runs. A local client that claims a harness and names no agent is
+// such a prompt: no `fromAgent`, so only the provenance, read in order, leaves it unnoted.
 #[cfg(unix)]
 #[tokio::test]
 async fn a_queued_daemon_made_prompt_gets_no_agent_text_note() {
@@ -520,7 +521,7 @@ async fn a_queued_daemon_made_prompt_gets_no_agent_text_note() {
     let sent = q
         .send(
             "session/prompt",
-            json!({"sessionId": session, "prompt": [{"type": "text", "text": handoff}], "_meta": {"acpmux": {"promptId": "q-agent", "provenance": {"kind": "agent_message", "from": "acp:sender-1", "fromName": "builder", "to": format!("acp:{session}"), "msgId": "msg-1", "threadId": "thread-1"}}}}),
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": handoff}], "_meta": {"acpmux": {"promptId": "q-agent", "fromHarness": "hermes@box"}}}),
         )
         .await;
     wait_event(&mut c, &session, "queued record", |e| {
@@ -530,7 +531,8 @@ async fn a_queued_daemon_made_prompt_gets_no_agent_text_note() {
     let page = c.call("_acpmux/events", json!({"sessionId": session, "kinds": ["queued"]})).await;
     let events = page["result"]["events"].as_array().cloned().unwrap_or_default();
     let queued = events.iter().find(|e| e["msg"]["promptId"] == "q-agent").expect("queued");
-    assert_eq!(queued["msg"]["_meta"]["provenance"]["kind"], "agent_message", "{queued}");
+    assert_eq!(queued["msg"]["_meta"]["provenance"]["kind"], "unverified", "{queued}");
+    assert!(queued["msg"].get("fromAgent").is_none(), "{queued}");
     assert!(queued["msg"].get("agentText").is_none(), "{queued}");
     open(&gate);
     let answer = q.reply(sent).await;

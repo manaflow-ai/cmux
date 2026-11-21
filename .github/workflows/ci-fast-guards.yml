@@ -57,6 +57,7 @@ jobs:
             scripts/ci/runner_pools.py
             scripts/ci/pr_runner_pool.py
             scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/cloud_overflow_switch.py
             scripts/ci/runner_label_policy.py
@@ -78,6 +79,8 @@ jobs:
             .github/workflows/backend.yml
             scripts/ci/runner_pool_reconcile.py
             tests/test_ci_runner_pool_reconcile.py
+            tests/workflow_jobs.py
+            scripts/ci/gh_expressions.py
           persist-credentials: false
 
       - name: Validate fleet Linux runner-pool reconciliation

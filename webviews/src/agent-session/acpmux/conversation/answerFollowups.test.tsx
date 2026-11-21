@@ -14,6 +14,7 @@ import { nextStepAsk } from "./nextStepAsk";
 import { answerThrough } from "./turnActions";
 import { NEXT_STEP, turnViewFrom, waitingAsks } from "./turns";
 import { askKey, bottomAsks, claimAnswer, dismissAsk, dismissedAsks, resetAnswerClaims } from "./waitingAskStore";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -49,6 +50,7 @@ beforeEach(() => {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

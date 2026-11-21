@@ -6,6 +6,13 @@ import CmuxNextRemoteFetch
 public protocol BrowserFaviconLoading: AnyObject {
     /// The favicon at `url` for a page of `profile`, or nil.
     func favicon(at url: URL, profile: BrowserProfileID) async -> NSImage?
+    /// The icon at `url` for `profile` when it is already loaded (by any fetch, a tab's own included); never fetches.
+    func cachedFavicon(at url: URL, profile: BrowserProfileID) -> NSImage?
+}
+
+extension BrowserFaviconLoading {
+    /// A loader without a cache has none loaded.
+    public func cachedFavicon(at url: URL, profile: BrowserProfileID) -> NSImage? { nil }
 }
 
 /// Fetches favicons and keeps a small in-memory LRU per profile.

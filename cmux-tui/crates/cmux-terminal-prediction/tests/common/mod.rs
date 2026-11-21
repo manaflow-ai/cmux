@@ -97,7 +97,7 @@ impl fmt::Display for SimulatedKey {
 /// How the remote line editor erases one character at the end of the line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SimulatedEraseForm {
-    /// bash readline with TERM=xterm-ghostty, as captured on big-red.
+    /// bash readline with TERM=xterm-ghostty, as captured on a Linux host.
     BackspaceClearToEnd,
     /// Canonical tty echo.
     BackspaceSpaceBackspace,
@@ -128,7 +128,7 @@ pub struct SimulatedLineEditor {
 }
 
 impl SimulatedLineEditor {
-    pub const PROMPT: &'static [u8] = b"leo@big-red:~$ ";
+    pub const PROMPT: &'static [u8] = b"leo@devhost:~$ ";
 
     /// Applies a key and returns what the remote writes back.
     pub fn read(&mut self, key: SimulatedKey, erase_form: SimulatedEraseForm) -> Vec<u8> {

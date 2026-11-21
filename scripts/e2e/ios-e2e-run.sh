@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # iOS e2e terminal driver: the six-step terminal script of the PR e2e gate.
 #
-# Runs against an ALREADY signed-in, paired, connected tagged pair — locally
-# the pair `scripts/run-iroh-release-gate.sh --keep-simulator` leaves behind,
-# on CI the pair the ios-e2e workflow launches. This script only drives and
+# Runs against an ALREADY signed-in, paired, connected tagged pair: the pair
+# the ios-e2e workflow launches. (The local source, the app-rpc modes of
+# scripts/run-iroh-release-gate.sh, is refused: the cmux-next Mac app no
+# longer runs the iroh phone listener.) This script only drives and
 # asserts; it never builds, signs in, or pairs.
 #
 # Every step asserts BOTH sides of the transport:

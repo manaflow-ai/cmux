@@ -1,6 +1,7 @@
 //! Typed flag values: parse one flag's string as a bool, number, decimal, color,
 //! JSON object, id or selector, validate it, and insert it into request params.
 
+use cmux_tui_core::resource::id_prefix_parts;
 use serde_json::Number;
 
 use super::*;
@@ -402,10 +403,29 @@ pub(super) fn insert_viewport_width(
 
 pub(super) fn validate_selector(scope: &str, prefix: &str, value: &str) -> Result<(), UsageError> {
     let selector = Selector::parse(value).map_err(|error| UsageError::new(error.message))?;
-    if matches!(selector, Selector::Id(_)) {
+    if matches!(selector, Selector::Id(_)) && !is_expanded_id_form(scope, prefix, value) {
+        // A prefix of another kind's ids (`ws_1` for a tab) names no object
+        // of this scope.
+        if let Some((given, _)) = id_prefix_parts(value) {
+            return Err(UsageError::new(format!(
+                "{value} is not an id of a {scope}: a {scope} id starts with {prefix}_ \
+                 ({given}_ is another kind); pass name:{value} for a name"
+            )));
+        }
         validate_prefixed_id(scope, prefix, value)?;
     }
     Ok(())
+}
+
+/// Whether `value` is a prefixed id form the daemon expands for `scope`
+/// (W5-P): a unique prefix of `prefix`'s ids (`pane_3f`), and for a
+/// terminal also a tab or pane id, full or prefix (the terminal that tab or
+/// pane shows). A bare or host id parses as a name and the daemon takes it
+/// as an id when no object has that name.
+fn is_expanded_id_form(scope: &str, prefix: &str, value: &str) -> bool {
+    let views: &[&str] = if scope == "terminal" { &["tab", "pane"] } else { &[] };
+    id_prefix_parts(value).is_some_and(|(given, _)| given == prefix || views.contains(&given))
+        || views.iter().any(|view| validate_prefixed_id(scope, view, value).is_ok())
 }
 
 pub(super) fn validate_prefixed_id(

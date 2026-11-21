@@ -13,6 +13,7 @@ import type { HomeMessage, HomeRun, HomeRunStep } from "../src/pages/home-channe
 import table from "../src/pages/home-channels/generated/strings.json";
 import paneTable from "../src/pages/home-channels/generated/pane-strings.json";
 import { createStrings } from "../src/pages/shared/i18n";
+import { settleReact } from "./support/domTeardown";
 
 const strings = createStrings(table, ["en"]);
 let dom: JSDOM;
@@ -52,9 +53,10 @@ function installDom() {
   root = createRoot(container);
   return container;
 }
-afterEach(() => {
+afterEach(async () => {
   if (root) act(() => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];

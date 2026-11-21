@@ -269,6 +269,7 @@ test("an agent run is one transcript line, its model and machine beside its name
   expect(container.querySelector(".cv-agent-card")).toBeNull();
   const row = container.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!;
   expect(row.querySelector(".cv-disclosure__label")?.textContent).toBe("review");
+  expect(row.querySelector(".cv-rotor")).toBeNull();
   expect(row.querySelector(".cv-disclosure__meta")?.textContent).toBe("codex gpt-6-astra · huge-blue");
   expect(container.textContent).not.toContain("Reviewed.");
   await act(async () => row.click());

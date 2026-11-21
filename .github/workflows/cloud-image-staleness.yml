@@ -12,8 +12,6 @@ name: cloud image staleness
 # a rebake from the tip and a promotion (images/cmux-vm/promote.ts), never a change here.
 
 on:
-  schedule:
-    - cron: "41 8 * * *"
   workflow_dispatch:
 
 permissions:
@@ -41,6 +39,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - run: bun install --frozen-lockfile
       - name: Compare the channel images with the tip's capabilities
         id: staleness

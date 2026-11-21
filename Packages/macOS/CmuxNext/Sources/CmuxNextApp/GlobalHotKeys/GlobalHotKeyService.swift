@@ -7,7 +7,7 @@ import os
 import CmuxNextFocusUI
 
 /// Registers every catalog action marked `isGlobalHotKey` as a system-wide
-/// hot key with its effective shortcut, so it runs while another app is
+/// hot key with every effective single-key binding, so it runs while another app is
 /// frontmost. Follows rebinds (Settings, cmux.json) and keyboard layout
 /// changes. A press runs the action through `ActionRegistry.perform`, the
 /// same path as the palette, the menu and the CLI.
@@ -30,16 +30,11 @@ final class GlobalHotKeyService {
     @ObservationIgnored private let showHideEnabled: @MainActor () -> Bool
     /// `app.startAgentGlobalHotKey`, read the same way.
     @ObservationIgnored private let startAgentEnabled: @MainActor () -> Bool
-    @ObservationIgnored private var registered: [ActionID: Registration] = [:]
+    @ObservationIgnored private var registered: [GlobalHotKeyBinding: UInt32] = [:]
     @ObservationIgnored private var nextNumber: UInt32 = 1
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     @ObservationIgnored private var layoutObserver: KeyboardLayoutObserver?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.hotkeys")
-
-    struct Registration: Equatable {
-        var hotKey: CarbonHotKey
-        var number: UInt32
-    }
 
     init(
         registry: ActionRegistry,
@@ -62,7 +57,7 @@ final class GlobalHotKeyService {
 
     /// The global hot keys that may register now: the catalog's, without
     /// each gated action whose setting is off.
-    private func allowedHotKeys() -> [ActionID: Shortcut] {
+    private func allowedHotKeys() -> [ActionID: [Shortcut]] {
         var keys = registry.globalHotKeys()
         if !showHideEnabled() { keys[Self.gatedAction] = nil }
         if !startAgentEnabled() { keys[Self.startAgentAction] = nil }
@@ -80,7 +75,7 @@ final class GlobalHotKeyService {
         tasks.append(Task { [weak self] in
             // Suspension reads the whole focus context, so skip the changes
             // that move neither the keys nor the suspension.
-            var last: (keys: [ActionID: Shortcut], suspended: Bool, enabled: Bool, startAgent: Bool)?
+            var last: (keys: [ActionID: [Shortcut]], suspended: Bool, enabled: Bool, startAgent: Bool)?
             for await next in ObservationStream({
                 (keys: registry.globalHotKeys(), suspended: registry.globalHotKeysSuspended, enabled: showHideEnabled(),
                  startAgent: startAgentEnabled())
@@ -97,7 +92,7 @@ final class GlobalHotKeyService {
         tasks.forEach { $0.cancel() }
         tasks.removeAll()
         layoutObserver = nil
-        for registration in registered.values { registrar.unregister(number: registration.number) }
+        for number in registered.values { registrar.unregister(number: number) }
         registered.removeAll()
     }
 
@@ -106,33 +101,36 @@ final class GlobalHotKeyService {
     /// keeps its last value; closing it registers them again.
     func apply() {
         if registry.globalHotKeysSuspended {
-            for registration in registered.values { registrar.unregister(number: registration.number) }
+            for number in registered.values { registrar.unregister(number: number) }
             registered.removeAll()
             return
         }
         let layout = layout()
-        var wanted: [ActionID: CarbonHotKey] = [:]
-        for (id, shortcut) in allowedHotKeys() {
-            guard let hotKey = CarbonHotKey(shortcut, layout: layout) else {
-                let name = id.rawValue
-                let keys = shortcut.displayString
-                logger.notice("global hot key \(name, privacy: .public): no key types \(keys, privacy: .public)")
-                continue
+        var wanted: Set<GlobalHotKeyBinding> = []
+        for (id, shortcuts) in allowedHotKeys() {
+            for shortcut in shortcuts {
+                guard let hotKey = CarbonHotKey(shortcut, layout: layout) else {
+                    let name = id.rawValue
+                    let keys = shortcut.displayString
+                    logger.notice("global hot key \(name, privacy: .public): no key types \(keys, privacy: .public)")
+                    continue
+                }
+                wanted.insert(GlobalHotKeyBinding(id: id, hotKey: hotKey))
             }
-            wanted[id] = hotKey
         }
-        for (id, registration) in registered where wanted[id] != registration.hotKey {
-            registrar.unregister(number: registration.number)
-            registered[id] = nil
+        for (registration, number) in registered where !wanted.contains(registration) {
+            registrar.unregister(number: number)
+            registered[registration] = nil
         }
         var refused: Set<ActionID> = []
         // Two shortcuts can land on one physical key (a character the layout
         // lacks falls back to its ANSI key). An action already holding the
         // key keeps it; among new registrations, catalog order decides.
-        var taken = Set(registered.values.map(\.hotKey))
+        var taken = Set(registered.keys.map(\.hotKey))
         let order = Dictionary(registry.descriptors.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
-        for id in wanted.keys.sorted(by: { order[$0, default: .max] < order[$1, default: .max] }) where registered[id] == nil {
-            guard let hotKey = wanted[id] else { continue }
+        for registration in wanted.sorted(by: { order[$0.id, default: .max] < order[$1.id, default: .max] }) where registered[registration] == nil {
+            let id = registration.id
+            let hotKey = registration.hotKey
             guard !taken.contains(hotKey) else {
                 refused.insert(id)
                 let name = id.rawValue
@@ -142,7 +140,7 @@ final class GlobalHotKeyService {
             let number = nextNumber
             nextNumber += 1
             if registrar.register(hotKey, number: number) {
-                registered[id] = Registration(hotKey: hotKey, number: number)
+                registered[registration] = number
                 taken.insert(hotKey)
             } else {
                 refused.insert(id)
@@ -154,7 +152,7 @@ final class GlobalHotKeyService {
     }
 
     private func press(_ number: UInt32) {
-        guard let id = registered.first(where: { $0.value.number == number })?.key else { return }
+        guard let id = registered.first(where: { $0.value == number })?.key.id else { return }
         registry.perform(id)
     }
 }

@@ -21,6 +21,19 @@
 //! `autoAllowBashIfSandboxed: false`, disable bypass mode, and add an ask
 //! rule for every tool that acts, which wins over the user's own allow rules.
 //!
+//! For the same reason the chain sets `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0`
+//! (`SANDBOXED_SCRUB`). Claude Code (2.1.310 on) implements that scrub with
+//! its own bwrap: with it on, every Bash call needs that inner sandbox, which
+//! cannot listen on its socket inside this one (no Unix sockets, user
+//! namespaces off), so every call is refused; with it on and no bwrap at all,
+//! as on a Mac, Claude refuses to start. Claude's own credential is therefore
+//! in its children's env, inside this sandbox, which still confines them:
+//! their writes, network and sockets are the sandbox's. The scrub never kept
+//! the credential from them fully: Claude's own process env stays readable to
+//! them as the same user (on Linux `/proc/PPID/environ`, in the sandbox's own
+//! `/proc`). Only a `vmBoundary` session, which runs
+//! with no outer sandbox, keeps the scrub on (its bwrap can start there).
+//!
 //! The spawn canary: before every such spawn, the same `sandbox-exec`, the
 //! same profile and the same parameters (the keeper on Linux) run a shell that tries to write a
 //! file outside the allowed folders and to connect to a loopback port acpmux
@@ -55,8 +68,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
-/// The checked-in Seatbelt profile.
-pub(crate) const PROFILE: &str = include_str!("../../sandbox/remote-chain.sb");
+pub(crate) use crate::remote_chain_profile::PROFILE;
 const LINUX_PROFILE_NOTE: &str = ";; Linux enforces this same parsed policy through bwrap, seccomp, the\n;; user-notify supervisor and the proxy, with a canary at every spawn.\n";
 
 /// The identity of what a remote chain runs under: the profile and the env
@@ -66,7 +78,7 @@ pub(super) fn profile_id() -> String {
 }
 
 fn platform_profile_id(linux: bool) -> String {
-    const ENV_POLICY: &str = "env-v5: explicit cleared host projection, fixed remote allowlist, nested-parent credential and endpoint excluded, credential by explicit profile/login env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint";
+    const ENV_POLICY: &str = "env-v6: explicit cleared host projection, fixed remote allowlist, nested-parent credential and endpoint excluded, credential by explicit profile/login env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0 in the sandbox and 1 at a vmBoundary, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint";
     // Preserve the established macOS adoption identity across this Linux-only note.
     let profile = if linux { PROFILE.to_owned() } else { PROFILE.replace(LINUX_PROFILE_NOTE, "") };
     let identity = format!("{profile}\n{ENV_POLICY}");
@@ -101,52 +113,8 @@ fn linux_identity_sources() -> Vec<(&'static str, &'static str)> {
     ]
 }
 
-/// glibc sysdeps/generic/unsecvars.h (including legacy MALLOC_CHECK_) plus
-/// every LD_* control: none may reach an unsandboxed Linux exec.
 #[cfg(target_os = "linux")]
-pub(crate) fn loader_env_key(key: &str) -> bool {
-    key.starts_with("LD_")
-        || matches!(
-            key,
-            "GCONV_PATH"
-                | "GETCONF_DIR"
-                | "GLIBC_TUNABLES"
-                | "HOSTALIASES"
-                | "LOCALDOMAIN"
-                | "LOCPATH"
-                | "MALLOC_ARENA_MAX"
-                | "MALLOC_ARENA_TEST"
-                | "MALLOC_CHECK_"
-                | "MALLOC_TCACHE_COUNT"
-                | "MALLOC_TCACHE_MAX"
-                | "MALLOC_TCACHE_UNSORTED_LIMIT"
-                | "MALLOC_PERTURB_"
-                | "MALLOC_TOP_PAD_"
-                | "MALLOC_TRACE"
-                | "MALLOC_MMAP_MAX_"
-                | "MALLOC_MMAP_THRESHOLD_"
-                | "MALLOC_TRIM_THRESHOLD_"
-                | "NIS_PATH"
-                | "NLSPATH"
-                | "RESOLV_HOST_CONF"
-                | "RES_OPTIONS"
-                | "TMPDIR"
-                | "TZDIR"
-        )
-}
-
-/// Finite scan of inherited and explicitly merged keys; never mutates the daemon env.
-#[cfg(target_os = "linux")]
-pub(crate) fn scrub_loader_env(command: &mut tokio::process::Command) {
-    let keys: Vec<_> = std::env::vars_os()
-        .map(|(k, _)| k)
-        .chain(command.as_std().get_envs().map(|(k, _)| k.to_owned()))
-        .filter(|k| crate::linux_sandbox::keeper::loader_env_key(&k.to_string_lossy()))
-        .collect();
-    for key in keys {
-        command.env_remove(key);
-    }
-}
+pub(crate) use crate::linux_sandbox::{loader_env_key, scrub_loader_env};
 
 /// The system `sandbox-exec`.
 pub(super) const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
@@ -323,6 +291,17 @@ async fn claude_credential(
     Ok((!token.is_empty()).then(|| ("CLAUDE_CODE_OAUTH_TOKEN", token.to_owned())))
 }
 
+/// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` for a remote chain's Claude: `0` inside
+/// the sandbox, set explicitly so nothing a profile or login env carries turns
+/// it on (it would refuse every Bash call there, module doc); `1` at a
+/// `vmBoundary`, which has no outer sandbox for it to nest in.
+const SANDBOXED_SCRUB: &str = "0";
+
+fn scrub_env(profile: &mut HarnessProfile, sandboxed: bool) {
+    let value = if sandboxed { SANDBOXED_SCRUB } else { "1" };
+    profile.env.insert("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB".into(), value.into());
+}
+
 /// A daemon started inside Claude/Chief carries that parent turn's token in
 /// its process environment. A remote child may use the person's imported
 /// login credential, never the parent agent's turn-scoped credential.
@@ -468,14 +447,13 @@ fn refused_folder(cwd: &Path, home: &Path, tmp: &Path, path_dirs: &[PathBuf]) ->
 /// that `uid` owns.
 #[cfg(unix)]
 fn own_dir(dir: &Path, uid: u32) -> Result<(), String> {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    use std::os::unix::fs::MetadataExt;
     match std::fs::symlink_metadata(dir) {
         Ok(m) if m.is_dir() && m.uid() == uid => Ok(()),
         Ok(_) => Err(format!("{} is not a folder this user owns", dir.display())),
-        Err(_) => std::fs::DirBuilder::new()
-            .mode(0o700)
-            .create(dir)
-            .map_err(|e| format!("{}: {e}", dir.display())),
+        Err(_) => {
+            crate::home_fs::create_dir(dir, 0o700).map_err(|e| format!("{}: {e}", dir.display()))
+        }
     }
 }
 
@@ -574,12 +552,8 @@ impl Bound {
             return Err("a remote chain needs a session id".into());
         }
         let tmp = shared_tmp.join(format!("acpmux-remote-{safe}"));
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            let mut b = std::fs::DirBuilder::new();
-            b.recursive(true).mode(0o700);
-            b.create(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
-        }
+        crate::home_fs::create_dir_all(&tmp, 0o700)
+            .map_err(|e| format!("{}: {e}", tmp.display()))?;
         let tmp = canon(&tmp)?;
         // SAFETY: getuid has no preconditions and cannot fail.
         let uid = unsafe { libc::getuid() };
@@ -802,7 +776,22 @@ fn claude_args(
         return Err(format!("a remote chain never runs Claude Code with {bad} set"));
     }
     args.push("--settings".into());
-    args.push(claude_settings(endpoint.map(|e| e.url.as_str())));
+    let settings = claude_settings(endpoint.map(|e| e.url.as_str()));
+    // Team mode on a Cloud machine (`claude_cloud_auth.rs`): the pair and no personal credential
+    // from a project or local settings file either.
+    let settings = match crate::claude_cloud_auth::marked_pair(&profile.env) {
+        Some(pair) => {
+            let own = serde_json::from_str::<serde_json::Map<String, Value>>(&settings).ok();
+            let headers = profile.env.get(crate::claude_cloud_auth::HEADERS);
+            crate::claude_cloud_auth::team_settings(
+                own.as_ref(),
+                &pair,
+                headers.map(String::as_str).unwrap_or(""),
+            )
+        }
+        None => settings,
+    };
+    args.push(settings);
     if endpoint.is_some_and(|e| e.own) {
         args.push("--setting-sources".into());
         args.push("project,local".into());
@@ -918,7 +907,7 @@ if [ -n "$6" ]; then
   fi
 fi
 if [ -n "$persistence" ]; then
-  echo "acpmux-canary outside=$o loopback=$l tmp=$i git=$g claude=$c rename_git=$rg rename_claude=$rc cwd=$w unix=$u"
+  echo "acpmux-canary outside=$o loopback=$l tmp=$i git=$g claude=$c rename_git=$rg rename_claude=$rc cwd=$w unix=$u alias=${a:-unknown}"
 else
   echo "acpmux-canary outside=$o loopback=$l tmp=$i"
 fi"#;
@@ -992,7 +981,7 @@ fn canary_persistence_probe(cwd: &Path, linux: bool) -> Result<Option<Persistenc
         return Ok(None);
     }
     let probe = cwd.join(format!(".acpmux-canary-{}", uuid::Uuid::now_v7()));
-    std::fs::create_dir_all(probe.join(".git/hooks"))
+    crate::home_fs::create_dirs(probe.join(".git/hooks"))
         .map_err(|e| format!("canary setup persistence probe: {e}"))?;
     #[cfg(not(target_os = "linux"))]
     {
@@ -1012,6 +1001,38 @@ fn canary_persistence_probe(cwd: &Path, linux: bool) -> Result<Option<Persistenc
     }
     #[cfg(target_os = "linux")]
     Ok(Some(PersistenceProbe { path: probe, fd: unsafe { OwnedFd::from_raw_fd(raw) } }))
+}
+
+/// Shell-quote one path for the alias prelude (paths are UTF-8, never NUL).
+fn shell_quote(path: &Path) -> String {
+    format!("'{}'", path.to_string_lossy().replace('\'', r"'\''"))
+}
+
+/// The Linux canary's alias probe, run inside the sandbox before the rest:
+/// every denied name at every second view of the HOME must be absent, and a
+/// write at every read-only view path must fail. `a=0` only when all held.
+/// Both loops end after the finite lists the plan's view finder produced.
+fn alias_prelude(absent: &[PathBuf], read_only: &[PathBuf]) -> String {
+    let list =
+        |paths: &[PathBuf]| paths.iter().map(|p| shell_quote(p)).collect::<Vec<_>>().join(" ");
+    format!(
+        "a=0\nfor p in {}; do if [ -e \"$p\" ] || [ -L \"$p\" ]; then a=1; fi; done\nfor p in {}; do if ( : > \"$p\" ) 2>/dev/null; then a=1; rm -f \"$p\"; fi; done\n",
+        list(absent),
+        list(read_only)
+    )
+}
+
+/// The alias probe holds when there was none to run, or when the sandbox
+/// reported `alias=0` and no probe write reached the host. Any other count,
+/// a missing field or a landed write refuses.
+fn canary_alias_held(probed: bool, alias: Option<i32>, landed: bool) -> bool {
+    !probed || (alias == Some(0) && !landed)
+}
+
+/// The `alias=` field of the single report line: 0 only when the probe held.
+fn parse_canary_alias(text: &str) -> Option<i32> {
+    let line = text.lines().find_map(|line| line.strip_prefix("acpmux-canary "))?;
+    line.split_whitespace().find_map(|w| w.strip_prefix("alias=")).and_then(|v| v.parse().ok())
 }
 
 type CanaryFields = [Option<i32>; 9];
@@ -1071,6 +1092,25 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
         l.set_nonblocking(true).map_err(|e| format!("listen: {e}"))?;
     }
     let port6 = listener6.as_ref().and_then(|l| l.local_addr().ok()).map_or(0, |a| a.port());
+    // The plan accepts a second view of the HOME because it rebuilds
+    // it; the canary proves that view inside the sandbox before any spawn.
+    #[cfg(target_os = "linux")]
+    let alias_probe = if linux {
+        let paths = crate::linux_sandbox::bwrap::Paths {
+            cwd: bound.cwd.clone(),
+            tmp: bound.tmp.clone(),
+            home: bound.home.clone(),
+            claude_tmp_project: bound.claude_tmp_project.clone(),
+            claude_project: bound.claude_project.clone(),
+        };
+        let probe = crate::linux_sandbox::keeper::remote_alias_probe(&paths)
+            .map_err(|e| format!("canary alias probe: {e}"))?;
+        Some((probe.absent, probe.read_only))
+    } else {
+        None
+    };
+    #[cfg(not(target_os = "linux"))]
+    let alias_probe: Option<(Vec<PathBuf>, Vec<PathBuf>)> = None;
     let persistence_probe = canary_persistence_probe(&bound.cwd, linux)?;
     let outside = bound.home.join(format!(".acpmux-sandbox-canary-{}", uuid::Uuid::now_v7()));
     #[cfg(unix)]
@@ -1100,7 +1140,11 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
         .as_ref()
         .filter(|_| linux)
         .map_or_else(String::new, |probe| probe.path.to_string_lossy().into_owned());
-    let canary_args = ["/bin/bash", "-c", CANARY, "acpmux-canary"]
+    let script = match &alias_probe {
+        Some((absent, read_only)) => alias_prelude(absent, read_only) + CANARY,
+        None => CANARY.to_owned(),
+    };
+    let canary_args = ["/bin/bash", "-c", script.as_str(), "acpmux-canary"]
         .into_iter()
         .map(str::to_owned)
         .chain([
@@ -1146,7 +1190,16 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     let run = tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output()).await;
     let landed = std::fs::symlink_metadata(&outside).is_ok();
     if landed {
-        let _ = std::fs::remove_file(&outside);
+        let _ = crate::home_fs::remove_file(&outside);
+    }
+    // A read-only view write that reached the host refuses even when the
+    // report says otherwise. The loop ends after the finite probe list.
+    let mut alias_landed = false;
+    for path in alias_probe.iter().flat_map(|(_, read_only)| read_only) {
+        if std::fs::symlink_metadata(path).is_ok() {
+            alias_landed = true;
+            let _ = crate::home_fs::remove_file(path);
+        }
     }
     #[cfg(target_os = "linux")]
     let probe_paths_absent =
@@ -1160,10 +1213,10 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     #[cfg(not(target_os = "linux"))]
     let sources_intact = true;
     if let Some(probe) = &persistence_probe {
-        let _ = std::fs::remove_dir_all(&probe.path);
+        let _ = crate::home_fs::remove_dir_all(&probe.path);
     }
     #[cfg(unix)]
-    let _ = std::fs::remove_file(&socket_path);
+    let _ = crate::home_fs::remove_file(&socket_path);
     let arrived =
         listener.accept().is_ok() || listener6.as_ref().is_some_and(|l| l.accept().is_ok());
     #[cfg(unix)]
@@ -1180,16 +1233,20 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     let text = String::from_utf8_lossy(&out.stdout);
     let fields = parse_canary_report(&text).unwrap_or([None; 9]);
     let [o, l, t, u, _, _, _, _, _] = fields;
+    let alias = parse_canary_alias(&text);
+    let alias_held = canary_alias_held(alias_probe.is_some(), alias, alias_landed);
     let held = canary_verdict(out.status.success(), fields, linux, probe_paths_absent)
         && sources_intact
         && !landed
         && !arrived
-        && (!linux || !arrived_unix);
+        && (!linux || !arrived_unix)
+        && alias_held;
     if held {
         return Ok(());
     }
+    let alias_write = if alias_landed { "write landed" } else { "no write landed" };
     Err(format!(
-        "the sandbox canary shows no sandbox (outside write {}, loopback connect {}, temp write {}, unix connect {}, persistence {fields:?}, sources intact {sources_intact}, file landed {landed}, connection arrived {arrived}/{arrived_unix}; status {}, stderr {:?})",
+        "the sandbox canary shows no sandbox (outside write {}, loopback connect {}, temp write {}, unix connect {}, persistence {fields:?}, sources intact {sources_intact}, file landed {landed}, connection arrived {arrived}/{arrived_unix}, home views hidden {alias:?}/{alias_write}; status {}, stderr {:?})",
         o.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
         l.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
         t.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
@@ -1275,9 +1332,10 @@ impl Hub {
     /// The profile it returns carries the remote chain's env: Claude's own
     /// credential (the keychain is closed to the sandbox; read only with the
     /// setting `KEYCHAIN_LOGIN_SETTING` on) and
-    /// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, so Claude's Bash and other
-    /// children never inherit that credential. Env, never argv: argv is
-    /// visible to every process of the user.
+    /// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` (`scrub_env`): off in the sandbox,
+    /// where Claude's own scrub sandbox cannot start (module doc), on at a
+    /// `vmBoundary`. Env, never argv: argv is visible to every process of the
+    /// user.
     pub(super) async fn remote_chain_plan<'p>(
         &self,
         session: &Session,
@@ -1348,7 +1406,7 @@ impl Hub {
                 self.append(session, "mux", "remote_sandbox", json!({"refused": why}));
                 refused(why)
             })?;
-            profile.env.insert("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB".into(), "1".into());
+            scrub_env(&mut profile, false);
             self.append(session, "mux", "remote_sandbox", json!({"vmBoundary": true}));
             // Unsandboxed on purpose: Web control stays refused (`remote_floor.rs`), as for
             // any agent no canary proved (`hosts.rs` reads it back the same way).
@@ -1357,7 +1415,7 @@ impl Hub {
         }
         let (program, args) =
             self.sandboxed_claude_plan(session, &profile, plan.program, plan.args).await?;
-        profile.env.insert("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB".into(), "1".into());
+        scrub_env(&mut profile, true);
         Ok((crate::claude_stdio::SpawnPlan { program, args }, std::borrow::Cow::Owned(profile)))
     }
 
@@ -1481,8 +1539,25 @@ mod endpoint_tests {
     fn macos_profile_identity_stays_at_base() {
         assert_eq!(
             platform_profile_id(false),
-            "dfe0fa2509e4121cda90d0e4fb84e961ba886c72a73385954dcbb48774058054"
+            "c1bc6b9ad4bfc49398fb0d7427fef225ed3490688ba6de654ab69a73e3b22954"
         );
+    }
+
+    /// Claude Code's scrub starts its own bwrap, which cannot start inside the remote sandbox:
+    /// a sandboxed chain turns it off over whatever the profile set; a `vmBoundary` keeps it.
+    #[test]
+    fn only_a_vm_boundary_chain_scrubs_claudes_children_env() {
+        for (sandboxed, inherited, want) in
+            [(true, Some("1"), "0"), (true, None, "0"), (false, Some("0"), "1"), (false, None, "1")]
+        {
+            let mut p = profile(&["claude"], &[]);
+            if let Some(v) = inherited {
+                p.env.insert("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB".into(), v.into());
+            }
+            scrub_env(&mut p, sandboxed);
+            let got = p.env.get("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB").map(String::as_str);
+            assert_eq!(got, Some(want), "sandboxed={sandboxed} inherited={inherited:?}");
+        }
     }
 
     #[test]
@@ -1695,6 +1770,51 @@ mod endpoint_tests {
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(root2);
         assert_eq!(result.ok(), Some(false), "probe check did not reject quickly");
+    }
+
+    #[test]
+    fn canary_refuses_a_nonzero_or_missing_alias_count_and_a_landed_write() {
+        assert!(canary_alias_held(false, None, false), "no second view: nothing to prove");
+        assert!(canary_alias_held(true, Some(0), false));
+        for alias in [Some(1), Some(2), None] {
+            assert!(!canary_alias_held(true, alias, false), "{alias:?}");
+        }
+        assert!(!canary_alias_held(true, Some(0), true), "a probe write reached the host");
+    }
+
+    #[test]
+    fn canary_alias_field_is_parsed_and_reported() {
+        assert_eq!(parse_canary_alias("acpmux-canary outside=1 unix=1 alias=0\n"), Some(0));
+        assert_eq!(parse_canary_alias("acpmux-canary outside=1 alias=1\n"), Some(1));
+        assert_eq!(parse_canary_alias("acpmux-canary outside=1 alias=unknown\n"), None);
+        assert_eq!(parse_canary_alias("acpmux-canary outside=1\n"), None);
+        assert!(CANARY.contains("alias=${a:-unknown}"));
+        let quoted = alias_prelude(&[PathBuf::from("/a/it's")], &[]);
+        assert!(quoted.contains(r"'/a/it'\''s'"), "{quoted}");
+    }
+
+    /// The probe itself, run by bash: a present denied name or a write that
+    /// works sets a=1; absent names and refused writes leave a=0.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn canary_alias_prelude_fails_on_a_visible_name_or_a_working_write() {
+        let root = std::env::temp_dir().join(format!("alias-prelude-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(root.join("present")).unwrap();
+        let run = |absent: &[PathBuf], read_only: &[PathBuf]| {
+            let script = format!("{}echo \"a=$a\"", alias_prelude(absent, read_only));
+            let out =
+                std::process::Command::new("/bin/bash").args(["-c", &script]).output().unwrap();
+            String::from_utf8_lossy(&out.stdout).trim().to_owned()
+        };
+        let missing = root.join("missing");
+        let unwritable = root.join("no-such-dir/w");
+        assert_eq!(run(std::slice::from_ref(&missing), std::slice::from_ref(&unwritable)), "a=0");
+        assert_eq!(run(&[root.join("present")], &[unwritable]), "a=1");
+        let writable = root.join("w");
+        assert_eq!(run(&[missing], std::slice::from_ref(&writable)), "a=1");
+        assert!(!writable.exists(), "the probe removes a write that worked");
+        assert_eq!(run(&[], &[]), "a=0");
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

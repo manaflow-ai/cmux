@@ -261,11 +261,16 @@ struct WorkspaceTabHoverCardTests {
     /// spans the list's width, its words start on the tab titles' column, and its chevron says
     /// which way it goes.
     @Test func showDetailsIsStyledLikeTheTabRows() throws {
+        _ = NSApplication.shared
         let card = WorkspaceHoverCardView()
         card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal,
                        facts: [.init(icon: .folder, text: "docs", kind: "folder")]))
         card.tabList.configure(title: "project", tabs: [SidebarTab(id: TabID("only"), title: "shell")])
         card.frame = NSRect(x: 0, y: 0, width: 280, height: 400)
+        let window = NSWindow(contentRect: card.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.closeAfterTest() }
+        window.contentView = card
         card.layoutSubtreeIfNeeded()
         let toggle = card.detailsToggle
         #expect(!toggle.isHidden)
@@ -277,9 +282,14 @@ struct WorkspaceTabHoverCardTests {
         let title = try #require(Self.descendants(of: row).compactMap { $0 as? ChromeLabel }.first)
         let labelX = label.convert(NSPoint.zero, to: card).x
         let titleX = title.convert(NSPoint.zero, to: card).x
-        #expect(abs(labelX - titleX) < 0.5, "Show details at \(labelX), tab titles at \(titleX)")
+        // Each edge lands on a whole device pixel: on a 1x screen (a fleet display worker) a fractional density's
+        // two columns can round a point apart. A Retina screen keeps the tight check.
+        let allowed: CGFloat = window.backingScaleFactor >= 2 ? 0.5 : 1 / max(window.backingScaleFactor, 1) + 0.01
+        #expect(abs(labelX - titleX) <= allowed, "Show details at \(labelX), tab titles at \(titleX)")
         #expect(!toggle.isExpanded)
         toggle.performClick(nil)
+        // A press runs at the start of the card window's next frame (d699764e).
+        card.runPendingDetailsPresses()
         #expect(toggle.isExpanded && card.isDetailsExpanded)
     }
 

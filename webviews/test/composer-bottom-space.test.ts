@@ -6,10 +6,10 @@
 // it: the row's own 10 px margin and the composer form's 16 px bottom padding (styles.css), and on
 // the New Tab page's stage the page's 16 px bottom padding in the form's place.
 //
-// In the chat pane, idle and with a turn running (a queue over the box), and on the New Tab page's
-// stage (Minimal with its widgets on and the template dots off, the composer at the page's foot): the row's bottom sits at
+// In the chat pane, idle and with a turn running (a queue over the box): the row's bottom sits at
 // most 8 px above the pane's bottom edge (Claude Code leaves about 8), and its controls keep at least 2 px of it, so a focus
-// outline or a hover pill still draws whole.
+// outline or a hover pill still draws whole. (The New Tab stage, the Default template, no longer
+// ships: Leo 2026-11-18.)
 //
 // Real Chromium and WebKit on the gallery stage. CI fails the file when it cannot launch them
 // (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/composer-bottom-space.test.ts
@@ -54,13 +54,6 @@ await requireBrowserLane("composer-bottom-space.test.ts", async () => {
       pane: ".acpmux-main",
       height: 480,
     },
-    {
-      name: "New Tab stage",
-      entry: "agent-pane.new-tab",
-      variant: "minimal-stage-foot",
-      pane: ".nt-screen",
-      height: 640,
-    },
   ];
 
   const { createServer } = await import("vite");
@@ -80,7 +73,7 @@ await requireBrowserLane("composer-bottom-space.test.ts", async () => {
     for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
     const browser = browsers.get("chromium") ?? browsers.get("webkit");
     // The first load can run Vite's dependency optimizer and reload mid-compile.
-    for (const stage of [...STAGES, dotsStage])
+    for (const stage of STAGES)
       await warmGalleryFrame(vite, stage.entry, { browser, params: { variant: stage.variant } });
   });
   afterAll(async () => {
@@ -116,31 +109,4 @@ await requireBrowserLane("composer-bottom-space.test.ts", async () => {
           expect(drawn.row, "a few px under the row, as Claude Code's").toBeLessThanOrEqual(8);
           expect(drawn.controls, "room for a control's focus outline").toBeGreaterThanOrEqual(2);
         });
-
-  // The template dots (a widget, off by default) sit absolutely at the page's foot: with them on,
-  // the page keeps its band, so the quiet row never draws over them.
-  const dotsStage: Stage = {
-    name: "New Tab stage with the template dots",
-    entry: "agent-pane.new-tab",
-    variant: "minimal-widgets",
-    pane: ".nt-screen",
-    height: 640,
-  };
-  for (const [engine] of engines)
-    test(`${engine}: ${dotsStage.name}: the quiet row stays clear of the dots`, async () => {
-      const page = await browsers.get(engine)!.newPage({ viewport: { width: 760, height: dotsStage.height } });
-      await page.goto(stageURL(dotsStage));
-      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
-        timeout: 120_000,
-      });
-      // The templates group, not the composer look dots (#24367), which share its class.
-      await page.getByRole("group", { name: "New Tab templates" }).waitFor();
-      await page.locator(".acpmux-composer-foot button:visible").first().waitFor();
-      const drawn = await page.evaluate(() => ({
-        foot: document.querySelector(".acpmux-composer-foot")!.getBoundingClientRect().bottom,
-        dots: document.querySelector(".nt-style:not(.nt-look-dots) .nt-style-options")!.getBoundingClientRect().top,
-      }));
-      await page.close();
-      expect(drawn.foot, "the row ends over the dots").toBeLessThanOrEqual(drawn.dots + 0.5);
-    });
 });
