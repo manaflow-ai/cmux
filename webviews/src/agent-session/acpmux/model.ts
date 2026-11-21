@@ -1223,6 +1223,8 @@ export type AcpmuxOverlap = {
   }[];
   suggestedOrder: "smallerFirst";
   smallerSessionId: string;
+};
+
 /** Incremental journal attribution for the Session Info "Where the time went" chart. */
 export type AcpmuxTimeCategory = {
   id: string;

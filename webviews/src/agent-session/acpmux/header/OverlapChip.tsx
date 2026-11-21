@@ -42,8 +42,6 @@ export function OverlapChip({
         type="button"
         className="acpmux-header-tool acpmux-header-overlap"
         aria-label={label}
-        aria-haspopup="dialog"
-        aria-expanded={open}
         {...trigger}
       >
         <Icon name="git.worktree" size={14} />
