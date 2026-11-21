@@ -450,23 +450,13 @@ struct EnvInspectorDirection: View {
                             .font(.system(size: TypeScale.caption)).foregroundStyle(EnvInk.secondary)
                     }
                 }
-                section("Keep it in") {
-                    ForEach(Array(EnvSecretsEntry.Scope.allCases.reversed())) { scope in  // visible-only: the three scopes
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: scope == .chat ? "largecircle.fill.circle" : "circle")
-                                .foregroundStyle(scope == .chat ? Color.accentColor : EnvInk.tertiary)
-                            VStack(alignment: .leading, spacing: 1) {
-                                EnvScopeTag(scope: scope, strong: scope == .chat)
-                                Text(scope == .team ? "Needs an admin's Touch ID." : scope.caption)
-                                    .font(.system(size: TypeScale.caption)).foregroundStyle(EnvInk.secondary)
-                            }
-                        }
-                    }
+                section("Where to keep it") {
+                    EnvRequestScopePicker(model: model)
                 }
                 HStack {
                     Spacer()
                     Button("Decline") {}
-                    Button("Save secret") {}.buttonStyle(.borderedProminent)
+                    Button(model.requestSaveTitle) {}.buttonStyle(.borderedProminent)
                 }
             }
             .padding(20)
