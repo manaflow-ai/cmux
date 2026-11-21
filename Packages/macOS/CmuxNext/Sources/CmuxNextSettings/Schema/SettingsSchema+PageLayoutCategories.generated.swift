@@ -30,7 +30,7 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.tasks"),
             GroupSpec(group: "settings.group.announcements"),
         ],
-        actions: [.general], aliases: [.general]
+        lead: [.textSize], actions: [.general], aliases: [.general]
     )
 
     /// The app update's status, how this Mac updates, then every channel's recent builds (docs/release-rings.md in hq). After the groups: the Web UI card (the web half of Updates; NIGHTLY only), then the channels.

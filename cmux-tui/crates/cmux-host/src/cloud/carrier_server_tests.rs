@@ -978,13 +978,10 @@ fn a_resume_before_a_seeded_bind_is_handled_prefetches_for_register() {
     });
     resumes.note();
 
-    let asking = {
-        let path = path.clone();
-        std::thread::spawn(move || {
-            let started = Instant::now();
-            (ask(&path, r#"{"carrier_ticket": {}}"#), started.elapsed())
-        })
-    };
+    let asking = std::thread::spawn(move || {
+        let started = Instant::now();
+        (ask(&path, r#"{"carrier_ticket": {}}"#), started.elapsed())
+    });
     release_fetcher.send(()).unwrap();
     let (reply, took) = asking.join().unwrap();
     eprintln!("reconnect Register wait: {took:?}");
