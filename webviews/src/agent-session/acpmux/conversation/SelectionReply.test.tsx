@@ -457,7 +457,7 @@ function layOutParagraph(doc: Document): () => void {
   };
   view.Element.prototype.getBoundingClientRect = function (this: Element) {
     if (this.id === "para" || this.getAttribute("data-row-id") === "prompt")
-      return box(0, 760, { top: 100, bottom: 188 });
+      return box(0, 760, { top: PARAGRAPH_LINES.p0!.top, bottom: PARAGRAPH_LINES.p3!.bottom });
     const line = PARAGRAPH_LINES[this.id];
     return line ? box(24, 24 + (this.textContent?.length ?? 0) * 8, line) : box(0, 0, { top: 0, bottom: 0 });
   };
@@ -511,5 +511,66 @@ test("the chip never covers the selected text: it goes above or below the select
     expect(pill.bottom <= PARAGRAPH_LINES.p1!.top || pill.top >= PARAGRAPH_LINES.p2!.bottom).toBe(true);
   } finally {
     restore();
+  }
+});
+
+test("a row opening or closing above the selection moves the chip with its words, never over them", () => {
+  // Leo's 2026-11-21 05:30Z video: the chip was placed on pointerup, the click then opened a row
+  // above, the words moved down under the chip and it stayed, covering them. Leo: "there are like 10
+  // different extremely odd situations that go on here."
+  const doc = mount(`<div id=scroller style="overflow-y: auto">${PARAGRAPH}</div>`);
+  const view = doc.defaultView! as unknown as Record<string, unknown>;
+  const observers: { fire: () => void; observed: Element[] }[] = [];
+  view.ResizeObserver = class {
+    observed: Element[] = [];
+    constructor(callback: () => void) {
+      observers.push({ fire: () => callback(), observed: this.observed });
+    }
+    observe(element: Element) {
+      this.observed.push(element);
+    }
+    unobserve() {}
+    disconnect() {
+      this.observed.length = 0;
+    }
+  };
+  const original = Object.fromEntries(Object.entries(PARAGRAPH_LINES).map(([id, line]) => [id, { ...line }]));
+  const restore = layOutParagraph(doc);
+  try {
+    const range = doc.createRange();
+    range.setStart(doc.getElementById("p2")!.firstChild!, 0);
+    range.setEnd(doc.getElementById("p2")!.firstChild!, 6);
+    doc.getSelection()!.removeAllRanges();
+    doc.getSelection()!.addRange(range);
+    act(() => {
+      doc.dispatchEvent(new doc.defaultView!.Event("pointerup", { bubbles: true }));
+    });
+    const before = parseFloat(chip(doc)!.style.top);
+    expect(Number.isFinite(before)).toBe(true);
+    // The transcript's content is watched while the chip shows.
+    expect(observers.some((o) => o.observed.length > 0)).toBe(true);
+    // A row above opens: every line moves 40 px down.
+    for (const line of Object.values(PARAGRAPH_LINES)) {
+      line.top += 40;
+      line.bottom += 40;
+    }
+    act(() => observers.forEach((o) => o.fire()));
+    const button = chip(doc)!;
+    const top = parseFloat(button.style.top);
+    expect(top).toBe(before + 40);
+    const left = parseFloat(button.style.left);
+    const pill = { left, top, right: left + 72, bottom: top + 28 };
+    for (const id of Object.keys(PARAGRAPH_LINES)) {
+      const line = PARAGRAPH_LINES[id]!;
+      const text = { left: 24, right: 24 + doc.getElementById(id)!.textContent!.length * 8, ...line };
+      const crosses =
+        Math.min(pill.right, text.right) - Math.max(pill.left, text.left) > 0.5 &&
+        Math.min(pill.bottom, text.bottom) - Math.max(pill.top, text.top) > 0.5;
+      expect({ id, crosses }).toEqual({ id, crosses: false });
+    }
+  } finally {
+    restore();
+    for (const [id, line] of Object.entries(original)) Object.assign(PARAGRAPH_LINES[id]!, line);
+    delete view.ResizeObserver;
   }
 });
