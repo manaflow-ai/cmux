@@ -28,7 +28,7 @@ import Testing
     @Test(arguments: DensityPreset.allCases)
     func theIconAndTheTextShareOneCenterLine(preset: DensityPreset) throws {
         try DensityTokens.$scoped.withValue(preset.tokens) {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
+            let window = TwoXWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
                                   backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             defer { window.orderOut(nil) }
