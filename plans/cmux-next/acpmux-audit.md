@@ -380,3 +380,17 @@ peer against the binary it runs. The wrapper text is now a contract: a change to
 `cli_caller.rs` must change `acpmux_wrapper.rs` too (the `BinChoice::Wrapper` doc says so).
 Next (F3b): the Swift app's `ACPMUX_BIN` override and `mux/host` `acpmux-daemon.ts` must not
 take the wrapper as the daemon binary either.
+
+## Notice to PL-acpmux: terminal children say TERM_PROGRAM=cmux; acpmux launches keep ghostty (2026-11-12)
+
+- cmux terminals now say `TERM_PROGRAM=cmux` with cmux's `TERM_PROGRAM_VERSION`
+  (`cmux_pty::TERMINAL_IDENTITY`, replacing `UNSET_IN_TERMINAL_CHILDREN`).
+- In acpmux only a doc comment changed: `cli/cli_agent.rs` `attach_tty` now names
+  `TERMINAL_IDENTITY`. That protocol-adapter PTY still sets no terminal identity.
+- The acpmux daemon launches on Cloud (`web/services/vms/drivers/acpmuxPersonKey.ts`,
+  `backend/apps/api/src/cloud-acpmux-guest.ts`) are unchanged: `TERM_PROGRAM=ghostty` and the
+  baked Ghostty version. Agents keep the Ghostty identity, matching the `claude`/`codex` wrappers
+  in cmux-tui (`agent_terminal_identity.rs`): Claude Code and Codex key notifications, links and
+  the progress bar on `ghostty`, and a Ghostty version turns their copy-on-select off (cmux#22585).
+- Nothing needed from you unless an acpmux path starts a person-facing terminal; that one must
+  call `PtyCommand::terminal_identity()`.

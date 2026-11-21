@@ -88,7 +88,7 @@ fn measure(rows: usize) -> Cost {
     // The rows as they are now, so the flap below lists exactly what is on disk.
     let current: Vec<Value> = {
         let rows = hub.remote_sessions.read();
-        rows.of_peer(name).map(|(_, r)| r.summary.clone()).collect()
+        rows.of_peer(name).map(|(_, r)| r.summary.value()).collect()
     };
     let start = wrote(&hub);
     peer.seed_last_seen(Some(now_ms() - 40_000));

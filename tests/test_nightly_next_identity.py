@@ -16,10 +16,11 @@ import json
 import plistlib
 import re
 import sys
-from nightly_workflow_text import nightly_text
+from nightly_workflow_text import nightly_text, write_out_step_aliases
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = nightly_text()
+# Anchored steps written out, so `- name: <step>` finds each in place (nightly-next-one reuses them).
+WORKFLOW = write_out_step_aliases(nightly_text())
 HOST = "https://files-next.cmux.com/"
 
 

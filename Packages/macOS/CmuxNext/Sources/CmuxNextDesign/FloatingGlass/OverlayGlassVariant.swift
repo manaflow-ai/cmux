@@ -17,8 +17,11 @@ public nonisolated enum OverlayGlassVariant: Int, Sendable, CaseIterable {
     /// The floating surfaces' variant. Change this one line to apply another gallery pick everywhere.
     public static let picked: OverlayGlassVariant = .appKitRegular
 
-    /// Whether the role's veil tints the glass.
-    var tintsGlass: Bool { self != .appKitRegular }
+    /// Whether the role's veil tints the glass. Variant 1 drops the neutral gray veil, never a veil in
+    /// the theme's tint (``FloatingGlassStyle/veilTakesThemeTint``: toasts and the Import Cookies card),
+    /// so a red theme's toast is red Liquid Glass, on the ground its text is fitted to
+    /// (`Palette.toastText`; Leo 2026-11-07: "these toasts are still coloured unthemed").
+    func tintsGlass(_ style: FloatingGlassStyle) -> Bool { self != .appKitRegular || style.veilTakesThemeTint }
     /// Whether the neutral rim draws over the glass's own edge.
     var drawsRim: Bool { self != .appKitRegular }
     /// Whether the frosted blur stands where this Mac would draw Liquid Glass.

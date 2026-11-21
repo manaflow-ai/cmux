@@ -71,6 +71,8 @@ fn trim(v: Value) -> Value {
     for key in [
         "os",
         "arch",
+        "device",
+        "deviceSymbol",
         "cpus",
         "load",
         "ram",
@@ -79,6 +81,9 @@ fn trim(v: Value) -> Value {
         "liveSessions",
         "pressure",
         "pressureAgeMs",
+        // Auto chat placement weighs a peer's lid, battery and network (`host_power.rs`).
+        "power",
+        "network",
     ] {
         if let Some(x) = v.get(key).filter(|x| !x.is_null()) {
             out.insert(key.to_owned(), x.clone());

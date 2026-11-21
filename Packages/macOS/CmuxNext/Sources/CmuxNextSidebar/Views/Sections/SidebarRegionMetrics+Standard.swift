@@ -7,13 +7,12 @@ extension SidebarRegionMetrics {
     /// `sidebar.density` (`SidebarDensityTokens`).
     @MainActor static var standard: SidebarRegionMetrics { standard(rowHeight: SidebarDensityTokens.rowHeight) }
 
-    /// The bands above the list in Minimal Mode (`sidebar.minimal`): their rows (Home, App Store, pinned
-    /// items) take the list's minimal row height, so a pinned row is as tall as the workspace rows and
-    /// group headers under it at every density (Lawrence 2026-10-22). They were 24 pt over 20 pt rows.
-    /// Otherwise their rows are the band's (``SidebarRowTokens/band``): at Expanded, Comfortable's 28 pt
-    /// row, not the app's one-line 24 pt under 37 pt list rows (Lawrence 2026-11-04).
-    @MainActor static func standard(minimal: Bool) -> SidebarRegionMetrics {
-        standard(rowHeight: minimal ? SidebarLayoutMetrics.standard.minimal.rowHeight : SidebarRowTokens.current.band.listRowHeight)
+    /// The bands above the list: their rows (Home, App Store, pinned items) are the band's
+    /// (``SidebarRowTokens/band``), as tall as a one-line workspace row (Lawrence 2026-10-22); at
+    /// Expanded, Comfortable's 28 pt row, not the app's one-line 24 pt under 37 pt list rows (Lawrence
+    /// 2026-11-04). Minimal Mode does not change them (Lawrence 2026-11-15).
+    @MainActor static var bands: SidebarRegionMetrics {
+        standard(rowHeight: SidebarRowTuning.rowHeight.tunable.override ?? SidebarRowTokens.current.band.listRowHeight)
     }
 
     @MainActor private static func standard(rowHeight row: CGFloat) -> SidebarRegionMetrics {
@@ -23,7 +22,7 @@ extension SidebarRegionMetrics {
             // corner. The same grid step as the row's horizontal breathing
             // room keeps the Settings and account destinations aligned with
             // the top of the sidebar.
-            inset: SidebarStyle.horizontalInset, sectionGap: Metrics.space2, padding: Metrics.space2,
+            inset: SidebarStyle.horizontalInset, sectionGap: SidebarRowTuning.bandGap.value, padding: Metrics.space2,
             cardPadding: Metrics.space1, tileMinWidth: row * 1.5,
             tileHeight: row + Metrics.space2, tileGap: Metrics.space2,
             iconButtonWidth: row + Metrics.space2, lineWidth: Metrics.dividerThickness,

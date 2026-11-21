@@ -1,0 +1,40 @@
+{
+  "$schema": "../../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/pr-card",
+  "name": { "en": "PR card" },
+  "version": "1.0.0",
+  "description": { "en": "An example chat widget built only on cmux-extension-sdk: when an agent reads a GitHub pull request, a card under the call shows its state and checks, paged five at a time. The pull requests it showed are listed in a sidebar section." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "arrow.triangle.pull" },
+  "categories": ["git"],
+  "keywords": ["github", "pull request", "chat", "widget", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.chat.widget/1": {
+      "export": "renderCard",
+      "title": { "en": "Pull request" },
+      "symbol": "arrow.triangle.pull",
+      "options": { "tools": ["mcp__github__get_pull_request", "mcp__github__pull_request_read", "mcp__github__*pull_request_status*"] }
+    },
+    "cmux.section/1": {
+      "export": "renderSection",
+      "title": { "en": "PR cards" },
+      "symbol": "arrow.triangle.pull",
+      "options": { "defaultRegion": "bottom", "maxRows": 8 }
+    }
+  },
+  "scopes": {
+    "net:api.github.com": "Read the public pull request and its checks when GitHub is not connected.",
+    "actions:run": "Open the pull request or a check in a browser tab when you click it.",
+    "storage:local": "Remember which page of checks each card shows, and the pull requests the cards showed."
+  },
+  "optionalScopes": {
+    "integration:github:read": "Use your connected GitHub account (private repositories) without seeing its token."
+  },
+  "activation": ["onInterface:cmux.chat.widget/1", "onInterface:cmux.section/1"],
+  "files": ["dist/"]
+}

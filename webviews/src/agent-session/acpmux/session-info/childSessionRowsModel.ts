@@ -12,6 +12,11 @@ const SESSION_STATE: Record<StartedState, { word: StringKey; status: SubagentSta
   idle: { word: "subagents.state.completed", status: "done" },
 };
 
+/// A sub-session whose last turn was stopped reads stopped, not done (it offers Resume).
+const STOPPED = { word: "subagents.state.cancelled", status: "stopped" } as const;
+const stateOf = (child: StartedSession) =>
+  child.state === "idle" && child.stoppedAt !== undefined ? STOPPED : SESSION_STATE[child.state];
+
 /// The retry acpmux waits to run for a started chat's failed turn (retryState.ts ``sessionRetry``).
 const retryOf = (child: StartedSession) => {
   const phase = sessionRetry(child);
@@ -21,15 +26,13 @@ const retryOf = (child: StartedSession) => {
 /// A started chat's status as a subagent's reads, for the counts and the Active and Done lists: one
 /// acpmux retries is running again.
 export const sessionStatus = (child: StartedSession): SubagentStatus =>
-  retryOf(child) ? "running" : SESSION_STATE[child.state].status;
+  retryOf(child) ? "running" : stateOf(child).status;
 
 /// A started chat's state in words ("Running", "Done", "Retrying (2/4) after a capacity error"), as
 /// its row says it, and whether it works (the turning ring) while acpmux retries it.
 export function sessionStateText(t: Translate, child: StartedSession): { text: string; working: boolean } {
   const retry = retryOf(child);
-  return retry
-    ? { text: retryLabel(t, retry), working: true }
-    : { text: t(SESSION_STATE[child.state].word), working: false };
+  return retry ? { text: retryLabel(t, retry), working: true } : { text: t(stateOf(child).word), working: false };
 }
 
 /// The started chats in list order: waiting on the person first, then running, failed and idle,

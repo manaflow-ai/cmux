@@ -16,7 +16,7 @@ struct FolderCornerPlaygroundVariants {
 }
 
 /// One row of the Folder Corners page: a window corner, its sidebar, the tab row and the content card below it.
-final class FolderCornerPlaygroundRow: NSView {
+final class FolderCornerPlaygroundRow: NSView, TabBarPlaygroundRow {
     enum Look: CaseIterable {
         case oneColor
         case subtleMiddle

@@ -1,6 +1,8 @@
 //! One segment record: `len u32 | seq u64 | rowId u64 | rev u32 | raw_file u32 |
 //! raw_off u64 | raw_len u32 | row text | crc32`, little endian. `len` is the row
-//! text's length; the crc covers everything before it.
+//! text's length; the crc covers everything before it. `raw_len == u32::MAX` is
+//! an unknown-end sentinel for spans above `u32::MAX - 1` source places. `raw_off`
+//! remains exact; recovery skips the source-end comparison for that sentinel.
 
 use super::RawRange;
 use crate::row::MAX_ROW_TEXT;

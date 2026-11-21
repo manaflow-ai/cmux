@@ -15,6 +15,7 @@ import { withoutSkillDollars } from "../slashCommands";
 import { currentLanguage, type Translate } from "../i18n";
 import { replyMenuTime } from "./relativeTime";
 import { selectionText } from "./chipCopy";
+import { onVisualViewport } from "../../../ui/visualViewportBox";
 import {
   sendPromptAgainMenu,
   sendPromptAgainTarget,
@@ -100,6 +101,14 @@ export const switchForks = (snapshot: AcpmuxSnapshot) => Boolean(snapshot.canFor
 /// The turn footer's Fork shows on the same rule. The whole chat forks while it works too
 /// (`forkToTarget`).
 export const canFork = (snapshot: AcpmuxSnapshot) => forkServed(snapshot) && !snapshot.isWorking;
+
+/// Whether the Fork under a finished turn's footer or a prompt can show now. Claude and Codex fork
+/// through any finished turn (`forksAnyTurn`), also while a later turn runs: a turn an agent's
+/// message or a background finish started would otherwise hide every earlier turn's Fork until it
+/// ended (Leo, 2026-11-21: "inconsistent forking button appearing that is somehow dependent on
+/// future tool calls?"). Another agent forks only at a chat's end, so it waits for the idle chat.
+export const canForkTurn = (snapshot: AcpmuxSnapshot) =>
+  forkServed(snapshot) && (!snapshot.isWorking || forksAnyTurn(snapshot.summary?.family));
 
 /// Why Fork Conversation from the app (the palette's step, the chat's right-click menu, its
 /// shortcut: `chat.forkTo`) cannot fork the chat now, or undefined when it can: "unavailable" when
@@ -187,7 +196,7 @@ export function messageMenuTarget(
   // still owns the rail chapter marker shown by PinButton.
   const completedTurnSeq = turnRows(snapshot.rows, id).find((candidate) => candidate.kind === "turnSummary")?.seq;
   const forkSeq =
-    canFork(snapshot) &&
+    canForkTurn(snapshot) &&
     completedTurnSeq !== undefined &&
     (forksAnyTurn(snapshot.summary?.family) || completedTurnSeq === latestForkSeq(snapshot.rows))
       ? completedTurnSeq
@@ -341,7 +350,9 @@ export const hasMessageMenuHost = () => menuHandler() !== undefined;
 export function openForkMenu(throughSeq: number, anchor?: Element): boolean {
   const handler = menuHandler();
   if (!handler) return false;
-  const { left, top, right, bottom } = (anchor ?? document.body).getBoundingClientRect();
+  const at = anchor ?? document.body;
+  // Where the anchor shows under a trackpad pinch, so the App's menu opens under it.
+  const { left, top, right, bottom } = onVisualViewport(at.getBoundingClientRect(), at.ownerDocument.defaultView);
   // Its opener stays lit while the destination menu is open, as More's does; the host reports the close.
   clearMessagePopup();
   const popupId = anchor ? crypto.randomUUID() : undefined;
@@ -369,7 +380,10 @@ export function openMessageMenu(rowId: string, anchor: Element): boolean {
   if (!message || !handler) return false;
   reportedImage = undefined;
   reportedPicture = undefined;
-  const { left, top, right, bottom } = anchor.getBoundingClientRect();
+  const { left, top, right, bottom } = onVisualViewport(
+    anchor.getBoundingClientRect(),
+    anchor.ownerDocument.defaultView,
+  );
   clearMessagePopup();
   const popupId = crypto.randomUUID();
   openPopup = { id: popupId, anchor };

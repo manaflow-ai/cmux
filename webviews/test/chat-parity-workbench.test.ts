@@ -6,7 +6,22 @@ import { GALLERY_NOW } from "../src/gallery/clock";
 import { WORKED, WORKING, turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
 import fullConversation from "../src/gallery/parity/fullConversation.gallery";
 import { turnFiles } from "../src/agent-session/acpmux/diff";
+import { stackMaterialsSnapshot, STACK_QUESTION } from "../src/gallery/parity/stackMaterials.gallery";
+import { waitingAsks } from "../src/agent-session/acpmux/conversation/turns";
+import { hatQuestions, hatShows } from "../src/agent-session/acpmux/question/hatModel";
+import { startedSessions } from "../src/agent-session/acpmux/started/startedSessions";
+import {
+  createLinger,
+  stepLinger,
+  lingeringTrayItems,
+  trayItemEnd,
+} from "../src/agent-session/acpmux/subagents/trayLinger";
+import { trayItems, finishedTrayItems, trayItemKey } from "../src/agent-session/acpmux/subagents/runningTray";
 import { withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
+
+import { backgroundWorkSnapshot } from "../src/gallery/parity/backgroundWork.gallery";
+import { transcriptBackgroundTasks } from "../src/agent-session/acpmux/summary/sessionSummary";
+import { backgroundCommands } from "../src/agent-session/acpmux/session-info/processes";
 
 test("every curated scenario resolves to a real seeded chat fixture", async () => {
   const entries = new Map<string, GalleryEntry>();
@@ -99,4 +114,66 @@ test("the full conversation combines real turn, file, Chief, subagent and live-w
     ),
   ).toBe(true);
   expect(fullConversation.variants.tour!.play).toBeDefined();
+});
+
+test("the stacked-material screenshot keeps every panel and all five tray entries", () => {
+  const snapshot = stackMaterialsSnapshot;
+  const view = turnViewFrom(snapshot.rows, new Set());
+  expect(waitingAsks(view).map((row) => row.nextStep?.ask.question)).toEqual([STACK_QUESTION]);
+  const questions = hatQuestions({
+    sessionId: snapshot.sessionId,
+    nextStepOwner: snapshot.sessionId,
+    rows: view.rows,
+    sessions: snapshot.sessions,
+    asks: [],
+  });
+  expect(hatShows(questions)).toBe(true);
+  expect(questions[0]?.prompt).toBe(STACK_QUESTION);
+  const children = startedSessions(snapshot.sessions, snapshot.sessionId);
+  const agents = snapshot.rows.flatMap((row) => row.subagents ?? []);
+  expect(trayItems(agents, [], children, false).map((item) => item.kind)).toEqual(["session", "session"]);
+  const ended = finishedTrayItems(agents, children);
+  const linger = stepLinger(createLinger(), {
+    live: trayItems(agents, [], children, false).map(trayItemKey),
+    ended: ended.map((item) => ({ key: trayItemKey(item), endedAt: trayItemEnd(item) })),
+    hold: false,
+    now: GALLERY_NOW,
+  });
+  expect(lingeringTrayItems(ended, linger.kept, linger.ends)).toHaveLength(3);
+  expect(snapshot.summary?.goal?.status).toBe("running");
+  const scenario = selectedScenario("stack-materials");
+  expect(new URL(scenarioFrame(scenario, "dark", 920), "http://localhost").searchParams.get("background")).toBe("busy");
+});
+
+test("background scenarios contain one wait, four completed commands, and optional agent logos", () => {
+  for (const mixed of [false, true]) {
+    const snapshot = backgroundWorkSnapshot(mixed);
+    const commands = backgroundCommands([], transcriptBackgroundTasks(snapshot.rows), false);
+    expect(commands.filter((command) => command.state === "running").map((command) => command.command)).toEqual([
+      "sleep 300",
+    ]);
+    const ended = commands
+      .filter((command) => command.state === "completed")
+      .map((command) => ({ kind: "command" as const, id: command.id, command }));
+    const agents = snapshot.rows.flatMap((row) => row.subagents ?? []);
+    const live = trayItems(agents, commands, [], snapshot.isWorking);
+    expect(live).toHaveLength(mixed ? 3 : 1);
+    const state = createLinger();
+    const initial = backgroundWorkSnapshot(mixed, false);
+    const initialCommands = backgroundCommands([], transcriptBackgroundTasks(initial.rows), false);
+    stepLinger(state, {
+      live: trayItems(agents, initialCommands, [], true).map(trayItemKey),
+      ended: [],
+      hold: false,
+      now: GALLERY_NOW - 1000,
+    });
+    const linger = stepLinger(state, {
+      live: live.map(trayItemKey),
+      ended: ended.map((item) => ({ key: trayItemKey(item), endedAt: trayItemEnd(item) })),
+      hold: false,
+      now: GALLERY_NOW,
+    });
+    expect(lingeringTrayItems(ended, linger.kept, linger.ends)).toHaveLength(4);
+    expect(agents.map((agent) => agent.harness)).toEqual(mixed ? ["claude", "codex"] : []);
+  }
 });

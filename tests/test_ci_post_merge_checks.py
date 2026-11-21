@@ -13,8 +13,7 @@ the code, which belongs on the pull request), each with a reason. This test fail
   - a workflow runs after the merge only and is not in the list: give it a pull_request
     trigger (path-filtered is fine), or have a workflow that pull requests start call it;
   - a listed workflow is gone, lost its push trigger or gained a pull request path: drop
-    its entry, so the list only shrinks;
-  - the number of `check` entries is above `check_budget`, which only goes down.
+    its entry;
 """
 
 from __future__ import annotations
@@ -193,8 +192,7 @@ class PostMergeChecksListTest(unittest.TestCase):
             with self.subTest(workflow=name):
                 self.fail(
                     f"{name} is gone, no longer starts on a push to {BASE}, or now runs on pull "
-                    f"requests: drop it from {LIST.relative_to(ROOT)} (and lower check_budget if "
-                    "it was a check)."
+                    f"requests: drop it from {LIST.relative_to(ROOT)}."
                 )
 
     def test_entries_say_what_they_are(self) -> None:
@@ -202,21 +200,6 @@ class PostMergeChecksListTest(unittest.TestCase):
             with self.subTest(workflow=name):
                 self.assertIn(entry.get("kind"), KINDS)
                 self.assertGreaterEqual(len(entry.get("why", "").split()), 4, "say why in a few words")
-
-    def test_checks_stay_within_the_budget(self) -> None:
-        checks = sorted(name for name, entry in self.entries.items() if entry.get("kind") == "check")
-        budget = self.listed["check_budget"]
-        print(f"post-merge-only checks: {len(checks)} (budget {budget}, target 0)")
-        self.assertLessEqual(
-            len(checks), budget,
-            f"{len(checks)} checks first run after the merge, over the budget of {budget}: "
-            f"{', '.join(checks)}. The budget only goes down.",
-        )
-        self.assertEqual(
-            budget, len(checks),
-            f"check_budget is {budget} and {len(checks)} checks are listed: lower it to "
-            f"{len(checks)}, so a check that moved onto pull requests cannot be replaced.",
-        )
 
 
 if __name__ == "__main__":

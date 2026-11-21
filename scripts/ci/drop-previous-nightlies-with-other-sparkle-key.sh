@@ -21,7 +21,7 @@ for dmg in "$dir"/*.dmg; do
   embedded=""
   if hdiutil attach -nobrowse -readonly -noverify -mountpoint "$mount" "$dmg" >/dev/null 2>&1; then
     app="$(find "$mount" -maxdepth 1 -name '*.app' -print -quit)"
-    if [ -n "$app" ]; then
+    if [ -n "$app" ] && [ -f "$app/Contents/Info.plist" ]; then
       embedded="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$app/Contents/Info.plist" 2>/dev/null || true)"
     fi
     hdiutil detach "$mount" -quiet || hdiutil detach "$mount" -force -quiet || true

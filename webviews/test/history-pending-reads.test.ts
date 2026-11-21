@@ -128,7 +128,7 @@ test("a re-read that fails does not end the reads: the list is still not complet
   jest.advanceTimersByTime(1000);
   await settle();
   expect(lists(provider)).toBe(2);
-  expect(store.getSnapshot().error).toBe("history is busy");
+  expect(store.getSnapshot().error).toBe("Something went wrong. Try again.");
   expect(store.getSnapshot().pending).toBe(true);
   fail = false;
   jest.advanceTimersByTime(2000);

@@ -101,7 +101,8 @@ impl Hub {
     /// cancelled this turn, its Web control ended (the sticky flag), or its
     /// current mode does not ask.
     pub(super) fn remote_floor_breach(&self, session: &Session) -> Option<&'static str> {
-        let turn = session.turn().map(|t| t.turn_id);
+        let (turn, device) = session.turn().map(|t| (t.turn_id, t.device)).unzip();
+        let device = device.flatten();
         if turn.is_some()
             && *session.floor.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) == turn
         {
@@ -109,6 +110,13 @@ impl Hub {
         }
         if session.floor.unsandboxed.load(Ordering::SeqCst) {
             return Some("remote.unsandboxed_agent");
+        }
+        // The owner's own phone with Full access on drives the chat in the mode it has
+        // (`Hub::owner_phone_full_access`), read again here, so removing the phone or turning
+        // its setting off holds the turn at its next request. The device is the turn's own,
+        // read with its id (`TurnInfo::device`).
+        if self.owner_phone_full_access(device.as_deref()) {
+            return None;
         }
         if session.web_control_ended.load(Ordering::SeqCst) {
             return Some("remote.mode_left_asking_table");

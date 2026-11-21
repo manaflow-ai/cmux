@@ -16,9 +16,12 @@ export function RevealedMarkdown({
   artifactIdentity,
   artifactRevision,
   claims,
+  className,
 }: {
   text: string;
   claims?: readonly ClaimCheck[];
+  /** Classes beside `cv-md` (a reply's `cv-reply`, conversation.css). */
+  className?: string;
   streaming: boolean;
   githubRepository?: string;
   messageAt?: number;
@@ -28,6 +31,9 @@ export function RevealedMarkdown({
   return (
     <MessageBoundary source={text}>
       <Revealed
+        // A recreated reply gets a fresh reveal loop; unmount cancels the old queued frame.
+        // Keep this key separate from artifactIdentity, which must remain the original row ID.
+        key={`${artifactIdentity ?? ""}:${messageAt ?? ""}`}
         text={text}
         streaming={streaming}
         githubRepository={githubRepository}
@@ -35,6 +41,7 @@ export function RevealedMarkdown({
         artifactIdentity={artifactIdentity}
         artifactRevision={artifactRevision}
         claims={claims}
+        className={className}
       />
     </MessageBoundary>
   );
@@ -48,9 +55,12 @@ function Revealed({
   artifactIdentity,
   artifactRevision,
   claims,
+  className,
 }: {
   text: string;
   claims?: readonly ClaimCheck[];
+  /** Classes beside `cv-md` (a reply's `cv-reply`, conversation.css). */
+  className?: string;
   streaming: boolean;
   githubRepository?: string;
   messageAt?: number;
@@ -72,6 +82,7 @@ function Revealed({
       artifactIdentity={artifactIdentity}
       artifactRevision={artifactRevision}
       claims={whole ? claims : undefined}
+      className={className}
     >
       {visible}
     </Markdown>

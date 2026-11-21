@@ -67,11 +67,14 @@ jobs:
               Packages/Shared/NoTests
           - group: one
             packages: Packages/Shared/Single
+          - group: vendored
+            packages: vendor/sdk-prerelease
     steps:
       - run: echo Packages/Shared/Other
 YML
 touch "$W/Packages/Shared/Port/Tests/.keep" "$W/Packages/Shared/NoTests/Package.swift"
 mkdir -p "$W/Packages/Shared/Single" && touch "$W/Packages/Shared/Single/Package.swift"
+mkdir -p "$W/vendor/sdk-prerelease" && touch "$W/vendor/sdk-prerelease/Package.swift"
 for t in a b; do printf '#!/bin/bash\necho "cpp %s" >> "%s"\n[[ "%s" != "${CPP_RED:-}" ]]\n' "$t" "$TMP/calls" "$t" >"$W/scripts/cmux-next/test-$t-cpp.sh"; done
 printf '#!/bin/bash\necho "run-tests $*" >> "%s"\n' "$TMP/calls" >"$W/web/scripts/run-tests.sh"
 # The web step's bun is the one webviews/package.json pins (scripts/webviews_bun_version.py).
@@ -199,8 +202,10 @@ rc=0; out=$(run CMUX_CI_STEP_KEY=k FAKE_OS=Darwin) || rc=$?
 [[ "$rc" == 78 ]] || fail "swift-portable on macOS exited $rc, want 78 (no Linux evidence): $out"
 ARGS=(swift-portable Packages/Shared/Single)
 run CMUX_CI_STEP_KEY=k >/dev/null || fail "swift-portable refused a one-line packages: group"
+ARGS=(swift-portable vendor/sdk-prerelease)
+run CMUX_CI_STEP_KEY=k >/dev/null || fail "swift-portable refused a vendor/ package its matrix lists"
 rm -f "$TMP/calls"
-for bad in Packages/Shared/Other Packages/Shared ../Packages/Shared/Port; do
+for bad in Packages/Shared/Other Packages/Shared ../Packages/Shared/Port vendor ../vendor/sdk-prerelease; do
   ARGS=(swift-portable "$bad")
   run CMUX_CI_STEP_KEY=k >/dev/null && fail "swift-portable accepted $bad"
 done

@@ -40,8 +40,8 @@ extension LayoutModel {
             canvasViewports[id] = nil
             return false
         }
-        var canvas = CanvasScreen(seed: seed.filter { screen.layout.contains($0.key) }, viewport: viewport)
-        if !screen.zoomed { canvas.reconcile(panes: screen.layout.panes, anchor: focusedPane) }
+        var canvas = CanvasScreen(seed: seed.filter { screen.contains($0.key) }, viewport: viewport)
+        if !screen.zoomed { canvas.reconcile(panes: screen.panes, anchor: focusedPane) }
         canvases[id] = canvas
         canvasViewports[id] = viewport
         return true
@@ -155,7 +155,7 @@ extension LayoutModel {
             }
             // A zoomed screen lists only its zoomed pane: the canvas keeps the others for after.
             guard !screen.zoomed else { continue }
-            next[id]?.reconcile(panes: screen.layout.panes, anchor: focusedPane)
+            next[id]?.reconcile(panes: screen.panes, anchor: focusedPane)
         }
         guard next != canvases else { return }
         // The focus a split asked for can land before its pane: the camera shows the pane once placed.

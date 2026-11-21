@@ -13,7 +13,7 @@
 // like, shrinks the thing, the circle into the Thinking... portion afterwards which is cute"), and
 // when an ask opens under a line already drawn, the dot grows in the same way (Leo, 2026-11-08: "I
 // mostly just meant the yellow circle thing. I thought that was cute").
-import { type RefObject, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useContext, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
@@ -21,6 +21,7 @@ import { compactingLine } from "./compactingLine.experiment";
 import { liveLineTimes } from "./liveLineTimes.experiment";
 import { oneRowPerCall } from "./oneRowPerCall.experiment";
 import { Spinner } from "./icons";
+import { RunningTime } from "./RunningTime";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { LiveShimmer } from "./LiveShimmer";
@@ -37,35 +38,98 @@ import { verbLeads } from "./toolVerbModel";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
 import type { AcpmuxCompaction, AcpmuxTurnRetry } from "../model";
-import { retryParts, WRITING_MS, liveLead } from "./thinkingModel";
+import { retryParts, SILENT_MS, WRITING_MS, liveLead } from "./thinkingModel";
+import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
+import type { LiveLinePulse } from "./liveLinePulse";
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
 /// `since`, when known, is when the key's text was written: a key that was already that old when the
 /// line mounted (a chat opened long after its reply paused) is quiet from the first frame, instead
 /// of counting `ms` from the mount as if it had just moved.
-function useQuiet(key: string | undefined, ms: number, since?: number, now: () => number = Date.now): boolean {
+/// `pulse`, on the transcript's live line, moves the key on each chunk without a draw (liveLinePulse.ts):
+/// the line draws only when it turns quiet or a chunk ends its quiet.
+function useQuiet(
+  key: string | undefined,
+  ms: number,
+  since?: number,
+  now: () => number = Date.now,
+  pulse?: LiveLinePulse,
+): boolean {
   const age = () => (since === undefined ? 0 : Math.max(0, now() - since));
   const [quiet, setQuiet] = useState(() => key === undefined || age() >= ms);
   // The key the line mounted with: only that one is timed from `since`; a later key just moved.
   const mounted = useRef(key);
+  // The newest key the line has heard, from its props or the pulse, and when its window ends. A draw
+  // that brings a key the pulse already brought (the frame drew for its place, long after the chunk)
+  // keeps that window: it is no new chunk.
+  const latest = useRef<{ key: string; until: number } | undefined>(undefined);
   // The first streamed assistant chunk inserts the answer and changes `key` in the same commit.
   // The line reads "Writing" before that commit paints; an effect would leave one frame of
   // "Thinking" under the first token. The timer remains an ordinary effect so it never blocks layout.
   useLayoutEffect(() => {
     if (key === undefined) {
+      latest.current = undefined;
       setQuiet(true);
       return;
     }
-    const left = key === mounted.current ? ms - age() : ms;
-    if (left <= 0) {
-      setQuiet(true);
-      return;
+    // When the window ends: `ms` after the key last moved. The timer looks again when it fires, so a
+    // chunk heard in between only moves this, never a timer.
+    if (latest.current?.key !== key)
+      latest.current = { key, until: now() + (key === mounted.current ? ms - age() : ms) };
+    const span = latest.current;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settle = () => {
+      const left = span.until - now();
+      timer = undefined;
+      if (left > 0) timer = setTimeout(settle, left);
+      else setQuiet(true);
+    };
+    if (span.until <= now()) setQuiet(true);
+    else {
+      setQuiet(false);
+      timer = setTimeout(settle, span.until - now());
     }
-    setQuiet(false);
-    const timer = setTimeout(() => setQuiet(true), left);
-    return () => clearTimeout(timer);
+    const off = pulse?.subscribe(() => {
+      const moved = pulse.line()?.quietKey;
+      if (moved === undefined || moved === span.key) return;
+      span.key = moved;
+      span.until = now() + ms;
+      setQuiet(false);
+      if (timer === undefined) settle();
+    });
+    return () => {
+      off?.();
+      if (timer !== undefined) clearTimeout(timer);
+    };
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `since` only seeds the mounted key
-  }, [key, ms]);
+  }, [key, ms, pulse]);
   return quiet;
+}
+
+/// When the transcript's live line last heard anything, to the next whole second, for one heard
+/// without a draw (liveLinePulse.ts `heard`); undefined off the transcript. It draws the line at most
+/// once a second while events stream, as its clock does, and at once when a silent line hears one.
+function useHeardPulse(pulse: LiveLinePulse | undefined): number | undefined {
+  const heard = () => pulse?.heard();
+  return useSyncExternalStore(pulse?.subscribe ?? noSubscription, heard, heard);
+}
+const noSubscription = () => () => {};
+
+/// When `key` last changed while the line was mounted (on `now`'s clock), or undefined while it is
+/// still the key the line mounted with: the moment the line saw a new event or a new state, for
+/// what carries no time of its own (a streamed reply's chunks, a state the line itself derives).
+/// `earlier` says when a key was already heard without a draw (the live line's pulse): a draw that
+/// brings it late takes that time, or none, never the draw's.
+function useChangedAt(
+  key: string | undefined,
+  now: () => number,
+  earlier?: (key: string | undefined) => number | null | undefined,
+): number | undefined {
+  const [seen, setSeen] = useState<{ key: string | undefined; at?: number }>({ key });
+  if (seen.key === key) return seen.at;
+  const before = earlier?.(key);
+  const next = { key, at: before === undefined ? now() : (before ?? undefined) };
+  setSeen(next);
+  return next.at;
 }
 
 /// The words the live line said before its latest change, and how many changes it has rolled.
@@ -291,7 +355,9 @@ export function Thinking({
   liveState,
   liveAgents = 0,
   liveCompaction,
-  thoughtMs,
+  phaseAt,
+  heardAt,
+  heardKey,
   turnTotal = false,
   untimed = false,
   verbKey,
@@ -300,6 +366,7 @@ export function Thinking({
   below = false,
   command = false,
   retry,
+  pulse,
 }: {
   /// The prompt waits for its agent to start (harnessSwitch.ts): the start look's arm draws it.
   starting?: boolean;
@@ -328,8 +395,12 @@ export function Thinking({
   liveState?: "subagents" | "writing" | "compacting";
   liveAgents?: number;
   liveCompaction?: AcpmuxCompaction;
-  /// "Thinking" past the first step: the turn's summed thinking time, shown beside the word.
-  thoughtMs?: number;
+  /// "Thinking" past the first step: when this stretch of thinking began (turns.ts `liveClock`), the
+  /// time beside the word ticking from it; and when the turn last heard anything (`heardAt`, and
+  /// `heardKey`, which changes with every event), after which SILENT_MS of nothing reads "Waiting".
+  phaseAt?: number;
+  heardAt?: number;
+  heardKey?: string;
   /// Past the turn's first step the clock reads as the turn's whole time ("2s · 4m"), after the
   /// finished step's own time when it has one, so no wait reads as that long a think or call.
   turnTotal?: boolean;
@@ -348,6 +419,8 @@ export function Thinking({
   /// The harness retries a failed model request (acpmux `turn_retrying`): the line says that,
   /// never "Thinking" (`retryParts`).
   retry?: AcpmuxTurnRetry;
+  /// The transcript's live line hears its chunks and events here without a draw (liveLinePulse.ts).
+  pulse?: LiveLinePulse;
 } = {}) {
   const t = useT();
   const waiting = useContext(WaitingOnContext);
@@ -356,7 +429,7 @@ export function Thinking({
   const startLook = starting && !waiting ? experimentArm(agentStartLook) : "thinking";
   // A reply that paused only a moment is still being written; one silent for longer is the agent
   // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
-  const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now);
+  const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now, pulse);
   // Once the reply has stopped, nothing the agent does is timed until its next step: the line says
   // "Thinking" with no clock or token count, which until the turn's end ticked on under the reply as if
   // the agent still worked (Leo, 2026-11-12: "the thinking timer is overstaying its welome after you
@@ -366,7 +439,10 @@ export function Thinking({
   // never starts again at a call (Leo, 2026-11-01: "it should just keep going").
   const from = untimed || replied ? undefined : since;
   const timed = !waiting && from !== undefined;
-  const time = useTicking(timed, now);
+  // The clock also runs on a line with no time of its own (the turn's clock over the work,
+  // liveTurnClock.experiment.ts `top`) while it could fall silent, so it can say "Waiting".
+  const listening = !waiting && turnTotal && heardAt !== undefined && doing === undefined;
+  const time = useTicking(timed || listening, now);
   const statusVerbConfig = useStatusVerbConfig();
   const thinkingVerbs = useContext(ThinkingVerbsContext);
   const verbs = useMemo(
@@ -383,17 +459,47 @@ export function Thinking({
   const compactLook = compacting ? experimentArm(compactingLine) : undefined;
   const elapsedMs = timed ? Math.max(0, time - from) : 0;
   const turnVerb = thinkingVerb(thinkingVerbs, verbKey);
-  const decorative = doing === undefined && !waitsOnAgents && !writing && !compacting;
+  // The line's state is the live one, read on the page's clock each second, never the last event's
+  // kind: a turn past its first step that has heard nothing for SILENT_MS is not seen thinking, so
+  // it says "Waiting" with the time since it last heard, never a stale "Thinking 683ms" (Leo,
+  // 2026-11-12: "the whatever ms gets stuck and becomes false really quickly.... or else gets
+  // stale?"). It last heard at the rows' latest dated moment, or when a new event reached the line.
+  const heardChanged = useChangedAt(
+    heardKey,
+    now,
+    pulse && ((key) => (key !== undefined && pulse.line()?.heardKey === key ? (pulse.heard() ?? null) : undefined)),
+  );
+  const heardPulse = useHeardPulse(pulse);
+  const heard = heardAt === undefined ? undefined : Math.max(heardAt, heardChanged ?? heardAt, heardPulse ?? heardAt);
+  const thinkingNow = doing === undefined && !waitsOnAgents && !writing && !compacting;
+  const silent = thinkingNow && listening && heard !== undefined && time - heard >= SILENT_MS;
+  // How long it has heard nothing: the one time on a waiting line, whichever clock the turn shows.
+  const silentFor = silent && heard !== undefined ? formatDuration(Math.max(0, time - heard)) : undefined;
+  // This stretch of thinking began when the turn's rows say (`phaseAt`), or later, when the line
+  // itself turned to Thinking (a reply gone quiet, a silence that ended).
+  const stateChanged = useChangedAt(silent ? "waiting" : thinkingNow ? "thinking" : "other", now);
+  const thinkingFrom = phaseAt === undefined ? stateChanged : Math.max(phaseAt, stateChanged ?? phaseAt);
+  const decorative = thinkingNow && !silent;
   const label =
     doing === undefined
       ? compacting
-        ? t(liveCompaction?.reason === "account_switch" ? "compaction.runningAccountSwitch" : "turn.live.compacting")
+        ? t(
+            liveCompaction?.reason === "account_switch"
+              ? "compaction.runningAccountSwitch"
+              : liveCompaction?.reason === CACHE_EXPIRY_REASON
+                ? "compaction.runningCacheExpiry"
+                : "turn.live.compacting",
+          )
         : waitsOnAgents
           ? t("turn.live.waitingOnSubagents", { n: liveAgents })
           : writing
             ? t("turn.live.writing")
-            : (turnVerb ??
-              (statusVerbConfig.mode === "custom" ? statusVerbAt(elapsedMs, { mode: "custom", verbs }) : t("thinking")))
+            : silent
+              ? t("turn.live.waiting")
+              : (turnVerb ??
+                (statusVerbConfig.mode === "custom"
+                  ? statusVerbAt(elapsedMs, { mode: "custom", verbs })
+                  : t("thinking")))
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
         : doingShell
@@ -417,30 +523,39 @@ export function Thinking({
   // that keeps ticking from the prompt.
   const total = turnTotal && turnTime !== undefined;
   // What stands beside the label then, never a clock that starts again at a call (Leo, 2026-11-01:
-  // "it should just keep going"): a finished step's own start to end, or the turn's summed thinking.
+  // "it should just keep going"): a finished step's own start to end, the time since this stretch of thinking began, or since a
+  // silent turn last heard anything ("Waiting 12s").
   const compactMs = compacting && timed && doingAt !== undefined ? Math.max(0, time - doingAt) : undefined;
   const ownMs = compacting
     ? compactLook === "turn"
       ? compactMs
       : undefined
     : doing === undefined
-      ? waitsOnAgents || writing
-        ? undefined
-        : thoughtMs
+      ? silent && heard !== undefined
+        ? Math.max(0, time - heard)
+        : waitsOnAgents ||
+            writing ||
+            from === undefined ||
+            thinkingFrom === undefined ||
+            thinkingFrom - from < 1_000 ||
+            time - thinkingFrom < 1_000
+          ? undefined
+          : time - thinkingFrom
       : done
         ? doneMs
         : undefined;
-  // Under a second it says its milliseconds, as the step's own row does ("856ms"), never "0s".
+  // A finished step's time under a second says its milliseconds, as the step's own row does
+  // ("856ms"), never "0s"; a live clock ticks in whole seconds, like the turn's beside it.
   // Two bare durations never stand side by side: each is named, "step 3s · turn 21s" (Leo's capture,
   // 2026-11-07, of "python3 - <<'EOF' 3s · 21s · 549 tokens"; liveLineTimes.experiment.ts).
   const timesLook = experimentArm(liveLineTimes);
   const ownTime =
     timesLook !== "turn" && total && ownMs !== undefined
-      ? compacting
+      ? compacting || doing === undefined
         ? formatDuration(ownMs)
         : spanDuration(t, ownMs)
       : undefined;
-  // Only a finished step's time is named "step": the summed thinking beside "Thinking" (or a
+  // Only a finished step's time is named "step": the thinking time beside "Thinking" (or a
   // compaction's clock beside its words) already reads as that word's.
   const own =
     ownTime && timesLook === "labelled" && doing !== undefined ? t("turn.live.stepTime", { time: ownTime }) : ownTime;
@@ -457,7 +572,9 @@ export function Thinking({
       : compactLook === "turn"
         ? (own ?? turnTime)
         : undefined
-    : (own ?? turnTime);
+    : silentFor !== undefined && own === undefined
+      ? silentFor
+      : (own ?? turnTime);
   // Background-work counts remain available when the running tray is off.
   const counts = useContext(WorkingCountsContext);
   // The label already names the subagents it waits on: no second count of them.
@@ -475,6 +592,8 @@ export function Thinking({
     .join(" · ");
   const roll = useRoll(away ? undefined : decorative ? "" : sameCall ? `\u0000${call}` : label, label, lead, tail);
   const lineRef = useRef<HTMLDivElement>(null);
+  // A wait draws its words plainly, like a calm compaction: no sweep says work goes on.
+  const calm = compactLook === "calm" || silent;
   useRollOutWidth(lineRef, roll.turns);
   useCountGlide(lineRef, roll.turns);
   // The question card already asks for an answer above the composer.
@@ -567,12 +686,12 @@ export function Thinking({
             />
           )}
           <output
-            className={`cv-thinking${compactLook === "calm" ? "" : " is-shimmer"}`}
+            className={`cv-thinking${calm ? "" : " is-shimmer"}`}
             data-roll={roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}
             aria-label={decorative ? t("thinking") : undefined}
             aria-live={decorative ? "off" : undefined}
           >
-            {compactLook === "calm" ? (
+            {calm ? (
               label
             ) : (
               <LiveWords
@@ -590,6 +709,9 @@ export function Thinking({
               {elapsed}
             </span>
           )}
+          {/* With the turn's clock over the work ("Working for"), the line has no time of its own: a
+              call running there counts how long it has run, from a few seconds on (RunningTime.tsx). */}
+          {untimed && !elapsed && !done && !waiting && doing !== undefined && <RunningTime startedAt={doingAt} local />}
         </span>
       )}
       {own && !waiting && timesLook !== "hover" && (
