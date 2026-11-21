@@ -73,6 +73,8 @@ public final class CloudSpareReadiness {
     private var keyed: [String: Keyed] = [:]
     private var links: [String: Held] = [:]
     private var primes: [String: Task<Void, Never>] = [:]
+    /// Machines whose session asked for a link while their prime still read the team: that prime links nothing.
+    private var asked: Set<String> = []
     /// When a key ahead of `machine` last did not key it: not tried again for ``keyRetry``, so a spare whose daemon is
     /// busy or too old is not read (or restarted) on every app activation.
     private var keyMissed: [String: ContinuousClock.Instant] = [:]
@@ -104,9 +106,11 @@ public final class CloudSpareReadiness {
         sweep()
         guard Self.signedIn(scope), !machine.isEmpty, primes[machine] == nil else { return }
         // task-owner: primes[machine]; one bounded prime (the keyed start's and the link's own deadlines end it), removed when it ends
+        asked.remove(machine)
         primes[machine] = Task { [weak self] in
             await self?.primed(machine, team: team, scope: scope)
             self?.primes[machine] = nil
+            self?.asked.remove(machine)
         }
     }
 
@@ -116,7 +120,10 @@ public final class CloudSpareReadiness {
     /// The link made ahead for `machine`, for its session to take, when it is still for the scope signed in, `team` and
     /// not past ``linkKept``; else nil, and a link that no longer fits is ended. Taken once.
     public func link(for machine: String, team: String?) -> CloudCarrierServe? {
-        guard let held = links.removeValue(forKey: machine) else { return nil }
+        guard let held = links.removeValue(forKey: machine) else {
+            if primes[machine] != nil { asked.insert(machine) }
+            return nil
+        }
         guard fits(held, scope: dependencies.scope()), held.team == team else {
             let why = held.team == team ? "it expired, was fenced or the account changed" : "it was made for team \(held.team ?? "none"), the record is in \(team ?? "none")"
             Self.log.info("cloud spare \(machine, privacy: .public): link ahead not taken (\(why, privacy: .public)); the start links it")
@@ -135,13 +142,12 @@ public final class CloudSpareReadiness {
         links = [:]
         keyed = [:]
         keyMissed = [:]
+        asked = []
         resets += 1
     }
 
     private func primed(_ machine: String, team: String?, scope: Scope) async {
-        let resolved: String?
-        if let team { resolved = team } else { resolved = await dependencies.team() }
-        async let linked: Void = linkAhead(machine, team: resolved, scope: scope)
+        async let linked: Void = linkAhead(machine, team: team, scope: scope)
         await keyAhead(machine, scope: scope)
         await linked
     }
@@ -165,7 +171,11 @@ public final class CloudSpareReadiness {
 
     private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.spare")
 
-    private func linkAhead(_ machine: String, team: String?, scope: Scope) async {
+    private func linkAhead(_ machine: String, team named: String?, scope: Scope) async {
+        let team: String?
+        if let named { team = named } else { team = await dependencies.team() } // read beside the keying, never ahead of it
+        // Its session asked for the link while the team was read, and links its own: a second serve nobody takes is not dialed.
+        guard !asked.contains(machine), dependencies.scope() == scope else { return }
         if let held = links[machine], fits(held, scope: scope), held.team == team { return }
         if let stale = links.removeValue(forKey: machine) { end(stale.link) }
         guard let link = dependencies.link(machine, team) else { return }
