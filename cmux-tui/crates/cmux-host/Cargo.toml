@@ -33,6 +33,8 @@ cmux-server = { path = "../cmux-server" }
 # The signed envelope of the update channels (`updater/channel.rs`).
 cmux-signed-envelope.workspace = true
 cmux-server-core = { path = "../cmux-server-core" }
+# Role processes die with cmux-host (`ChildGroup`).
+cmux-process.workspace = true
 libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true

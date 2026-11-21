@@ -16,6 +16,7 @@
 
 pub mod bindings;
 pub mod catalog;
+pub mod customize_elements;
 pub mod ffi;
 pub mod json;
 pub mod model;

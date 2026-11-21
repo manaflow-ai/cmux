@@ -21,6 +21,7 @@ struct BrowserFileImport {
 
     func run(profile: String) {
         let services = services
+        let reader = services.browserDataReader
         services.registry.track(Task { @MainActor in
             guard let source = await Self.chooseBrowser(), await Self.showSteps(source),
                   let urls = await services.viewers.picker.open(.init(choose: .files, allowsMultiple: true,
@@ -29,7 +30,7 @@ struct BrowserFileImport {
             else { return nil }
             var failures: [String] = []
             for url in urls {
-                switch await Task.detached(operation: { Self.kind(of: url) }).value {
+                switch await reader.exportKind(of: url) {
                 case .bookmarks?: BookmarkFiles(services: services).importFile(url, profile: profile)
                 case .passwords?:
                     if let failure = await PasswordCSVFiles(services: services).importFile(url, profile: profile) {
@@ -52,34 +53,6 @@ struct BrowserFileImport {
     static func toast(_ services: AppServices, id: String, _ message: String) {
         guard let window = services.windows.active?.window ?? NSApp.mainWindow else { return }
         _ = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, duration: .seconds(12)), in: window)
-    }
-
-    nonisolated enum FileKind: Sendable {
-        case passwords
-        case bookmarks
-        /// A zip: Safari's Export Browsing Data, or Google Takeout.
-        case archive
-        /// Safari's History.json or Takeout's Chrome history.
-        case history
-    }
-
-    /// By content, not name: a zip archive; JSON with a history list; a
-    /// Netscape bookmarks file is HTML with a `<DL>` list; any other text
-    /// with commas goes to the CSV import, which names a file without
-    /// website and password columns.
-    nonisolated static func kind(of url: URL) -> FileKind? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
-        defer { try? handle.close() }
-        let bytes = (try? handle.read(upToCount: 4096)) ?? Data()
-        if ExportArchive.isArchive(bytes) { return .archive }
-        let head = String(decoding: bytes, as: UTF8.self)
-        let text = head.drop(while: { $0.isWhitespace || $0 == "\u{FEFF}" })
-        if ExportedHistory.looksLikeHistory(String(text)) { return .history }
-        if text.first == "<" {
-            let upper = text.uppercased()
-            return upper.contains("NETSCAPE-BOOKMARK-FILE") || upper.contains("<DL") ? .bookmarks : nil
-        }
-        return text.contains(",") ? .passwords : nil
     }
 
     private static var scope: CmuxDialogScope { (NSApp.keyWindow ?? NSApp.mainWindow).map { .window($0) } ?? .app }

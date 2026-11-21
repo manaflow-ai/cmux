@@ -51,7 +51,7 @@ extension BrowserHostProvider {
         // A Chromium session's new tab is a Chromium tab: never the WebKit driver's.
         if method == "tabs.open", case .object(let fields) = params, fields["engine"] == .string(ProviderEngine.cef.rawValue) {
             let url: String? = if case .string(let value)? = fields["url"], !value.isEmpty { value } else { nil }
-            openChromiumTab(id: id, url: url)
+            openChromiumTab(id: id, url: url, place: AutomationTabPlace(params))
             return
         }
         guard let driver else {
@@ -78,7 +78,7 @@ extension BrowserHostProvider {
     /// `tabs.open` on a Chromium session, through the app's tab opener. The
     /// host learns the new tab (`tab.announced`) before the reply names it,
     /// so the session's next call finds it.
-    private func openChromiumTab(id: UInt64, url: String?) {
+    private func openChromiumTab(id: UInt64, url: String?, place: AutomationTabPlace) {
         guard let opener else {
             send(.result(id: id, result: nil, error: DriverError(.unsupported, "tabs.open: this app cannot open Chromium tabs").json))
             return
@@ -88,7 +88,7 @@ extension BrowserHostProvider {
             let frame: ProviderFrame
             var opened = false
             do throws(DriverError) {
-                let targetID = try await opener.openProviderTab(engine: .cef, url: url)
+                let targetID = try await opener.openProviderTab(engine: .cef, url: url, place: place)
                 frame = .result(id: id, result: .object(["targetId": .string(targetID)]), error: nil)
                 opened = true
             } catch {

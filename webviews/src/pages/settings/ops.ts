@@ -45,6 +45,13 @@ export type ListRow = {
 
 export type Diagnostic = { path: string | string[]; message: string; kind?: string };
 
+/**
+ * A note at a row, not a problem (#44894): where its value comes from or why it does not draw.
+ * `setByThemeFile` and `overThemeFile` name the theme file (`themes/<name>.json`); `plainBackgrounds`
+ * marks the window background rows while Plain Backgrounds is on.
+ */
+export type RowNoteData = { path: string; kind: string; file?: string };
+
 /** `recent_fonts`: font families written lately to any font setting, newest first (RecentFonts.swift). */
 export type Domains = { themes: string[]; font_families: string[]; sounds: string[]; recent_fonts: string[] };
 
@@ -57,6 +64,8 @@ export type SnapshotResult = {
   effective: Record<string, unknown>;
   managed: Record<string, ManagedInfo>;
   diagnostics: Diagnostic[];
+  /** Row notes; absent from an older host. */
+  notes?: RowNoteData[];
   domains?: Partial<PublishedDomains> | null;
 };
 
@@ -410,7 +419,18 @@ export type ComputerUseState = {
   host_unverified?: boolean;
   /** Driver "upstream" was chosen, but this build has no upstream helper: the legacy helper runs. */
   upstream_fallback?: boolean;
+  /** The engine's version line ("cmux Computer Use 1.0"), localized by the host; absent while unknown. */
+  engine?: string | null;
+  /** The worker process: `running` (with its pid), `starting`, `stopped` or `failed`; absent while unknown. */
+  worker?: { state: "running" | "starting" | "stopped" | "failed"; pid?: number | null } | null;
+  /** Saved per-app answers (Approved apps): "Always allow" or "Never", newest first. */
+  approvals?: ComputerUseApproval[];
+  /** Apps running now, offered by the Denied Apps editor's Add menu. */
+  running_apps?: Array<{ id: string; name: string }>;
 };
+
+/** One saved Computer Use answer for an app (`computerUse.approval.*` actions change it). */
+export type ComputerUseApproval = { app_id: string; name: string; decision: "always" | "never" };
 
 /** One button of the Accounts part; the host localizes every text. */
 export type AccountsButton = {
@@ -550,11 +570,21 @@ export type GitHubConnectionState = {
   busy: boolean;
   connect: string;
   disconnect: string;
+  /** Reconfigure's title (absent from an older host, which has no Reconfigure). */
+  reconfigure?: string;
   confirm: string;
   cancel: string;
   refresh: string;
   canConnect: boolean;
-  connections: Array<{ id: string; account: string; status: string; permissions: string[]; canDisconnect: boolean }>;
+  connections: Array<{
+    id: string;
+    account: string;
+    status: string;
+    permissions: string[];
+    canDisconnect: boolean;
+    /** An active connection: Reconfigure opens its installation's page on GitHub (repositories, account access). */
+    canReconfigure?: boolean;
+  }>;
   /** The Sign In button's title while nobody is signed in to cmux; null (or absent from an older host) otherwise. */
   signIn?: string | null;
 };
@@ -784,6 +814,10 @@ export type HarnessRow = {
   problem: string | null;
   /** From `_acpmux/harness/health` (absent from an older daemon): installed and newest versions. */
   version?: string | null;
+  /** Where acpmux found its program, and the npm package or Homebrew formula behind it: two rows
+   * with the same are one install, with one update card. */
+  path?: string | null;
+  package?: string | null;
   latest?: string | null;
   outdated?: boolean;
   /** Only from evidence (a profile's check or a probe's sign-in error). */
@@ -1280,6 +1314,41 @@ export type IntegrationRow = {
   errorKind?: "noAnswer" | "notFinished" | null;
 };
 
+/** One coding agent of Settings > Agents > Agents on This Mac: whether it gets cmux's MCP server when
+ * cmux starts it (`cmux setup mcp`). The name is the product's own, never translated. */
+export type AgentToolsCardRow = {
+  id: string;
+  name: string;
+  /** `terminals`: started in cmux, it gets cmux's tools; `ready`: not yet (the answer is not on). */
+  state: "ready" | "terminals" | "failed";
+  /** The line that removes a `cmux` entry in the agent's own settings that runs `cmux mcp serve`, used
+   * outside cmux (not this build's own manual line); null or absent for none. Remove runs it only on
+   * the person's click. */
+  leftover?: string | null;
+};
+
+/** Agents on This Mac (`SettingsAgentTools.state`). */
+export type AgentToolsCardState = {
+  /** The first read answered (an empty list then says none was found). */
+  loaded: boolean;
+  /** Turn On runs. */
+  applying: boolean;
+  /** The answer could not be saved. */
+  failed: boolean;
+  /** `agents.cmuxMcp` now. Absent from older hosts. */
+  choice?: "ask" | "on" | "off";
+  rows: AgentToolsCardRow[];
+  /** The lines a person runs themselves to use cmux's tools in agents started elsewhere (cmux never
+   * runs them). Absent from older hosts. */
+  manual?: string[];
+  /** Why the last Remove kept the entry (it holds settings cmux could not put back), as the CLI
+   * says it; null or absent otherwise. */
+  note?: string | null;
+};
+
+/** One Agents on This Mac gesture; `turnOn` and `removeLeftover` run only on a click. */
+export type AgentToolsCardRun = { action: "refresh" | "turnOn" } | { action: "removeLeftover"; id: string };
+
 /** The Agent integrations part (`SettingsAgentIntegrations.state`). */
 export type IntegrationsState = {
   loading: boolean;
@@ -1289,6 +1358,107 @@ export type IntegrationsState = {
   command: string;
   providers: IntegrationRow[];
 };
+
+/** One saved MCP server (Settings > MCP Servers; optchat-chief `settings_row`). Never a secret. */
+export type McpServerRow = {
+  name: string;
+  /** `remote`: a URL; `local`: a command on this Mac. */
+  kind: "remote" | "local";
+  address: string;
+  /** The publisher's domain, or `local`. */
+  publisher: string;
+  /** The address is exactly the one cmux knows for that service. */
+  verified: boolean;
+  state: "connected" | "signInNeeded" | "failed" | "unknown";
+  /** Why the last connect failed, in the server's own words. */
+  problem: string | null;
+  /** Who has it, as the person chose on the connect card. */
+  scope: "chat" | "chief" | "allChiefs" | "agents" | "everywhere";
+  tools: number;
+  /** A sign-in waits for the person; `page` is its sign-in page. */
+  signingIn: boolean;
+  page: string | null;
+  /** The last gesture's refusal ("" when it gave no words of its own). */
+  error: string | null;
+};
+
+/** Settings > MCP Servers (`SettingsMcpServers.state`). */
+export type McpServersState = {
+  loading: boolean;
+  /** `unavailable`: this build has no Chief helper; `failed`: the list did not answer. */
+  problem: "unavailable" | "failed" | null;
+  servers: McpServerRow[];
+};
+
+/** One MCP Servers gesture; sign in and remove run only on a click. */
+export type McpServersRun = { action: "refresh" } | { action: "signin" | "remove"; name: string };
+
+/** One MCP server Claude Code or Codex starts, from its own config files (`cmux agent-config mcp
+ * list --json`, cmux-agent-customize `mcp.rs`). Never a secret: env and header values are names only. */
+export type AgentMcpServer = {
+  agent: "claude" | "codex";
+  name: string;
+  /** `user`: every folder; `local`: Claude, this folder only; `project`: the folder's own file; `plugin`: Codex, a plugin's. */
+  scope: "user" | "local" | "project" | "plugin";
+  transport: "stdio" | "http" | "sse";
+  command: string | null;
+  /** Arguments, a secret-looking flag's value masked. */
+  args: string[];
+  /** The URL without its password. */
+  url: string | null;
+  /** Whether the agent starts it (in the shown folder, for Claude's per-folder switches). */
+  enabled: boolean;
+  /** Claude project servers: approved in Claude, or waiting for the person there. */
+  approval?: "approved" | "pending";
+  env: string[];
+  headers: string[];
+  file: string;
+  plugin?: string;
+  /** Another scope's server of the same name runs instead. */
+  shadowed: boolean;
+  removable: boolean;
+};
+
+/** Settings > MCP Servers, Claude Code and Codex (`SettingsAgentMcpServers.state`); `enabled` false
+ * while Labs `labs.agentCustomization` is off, and then nothing else. */
+export type AgentMcpState = {
+  enabled: boolean;
+  loading?: boolean;
+  /** `unavailable`: no bundled cmux CLI; `failed`: the list did not answer. */
+  problem?: "unavailable" | "failed" | null;
+  /** The folder Claude's per-folder switches and the project files are read for. */
+  project?: string;
+  servers: AgentMcpServer[];
+  problems?: { agent: string; why: string }[];
+  /** The last edit's refusal, for the row `agent:scope:name`. */
+  error?: { key: string; why: string } | null;
+  /** The last list: click to rows, and the CLI's own share (ms). */
+  listMs?: number | null;
+  cliMs?: number | null;
+};
+
+/** One Claude Code / Codex MCP gesture; all but refresh run only on a click. */
+export type AgentMcpRun =
+  | { action: "refresh" | "pickFolder" }
+  | {
+      action: "enable" | "disable" | "remove";
+      agent: AgentMcpServer["agent"];
+      name: string;
+      scope: AgentMcpServer["scope"];
+    }
+  | {
+      action: "add";
+      agent: AgentMcpServer["agent"];
+      name: string;
+      scope: "user" | "local" | "project";
+      command?: string;
+      args?: string[];
+      url?: string;
+      transport?: "http" | "sse";
+      /** `KEY=VALUE` lines. */
+      env?: string[];
+      headers?: string[];
+    };
 
 /** One Agent integrations gesture; each runs only on a click. */
 export type IntegrationsRun = { action: "refresh" } | { action: "install" | "repair" | "remove"; id: string };
@@ -1460,7 +1630,7 @@ export type SettingsOps = {
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
   "cmux.settings.shares.revoke": [{ share_id: string }, unknown];
-  /** Native: one `cmux customize library` verb through the bundled CLI (Personalization >
+  /** Native: one `cmux customize library` verb through the bundled CLI (Appearance >
    * Customization Library). A change runs only on the person's click or key in the page. */
   "cmux.settings.customize.library": [LibraryRun, LibraryAnswer];
   /** Native: Settings > Keys: this Mac's keys (`cmux keys ls`, never a value) and the waiting requests. */
@@ -1487,6 +1657,18 @@ export type SettingsOps = {
   "cmux.settings.integrations.state": [Record<string, never>, IntegrationsState];
   /** Native: one Agent integrations gesture (`agent hook install|uninstall <id>`, or a refresh). */
   "cmux.settings.integrations.run": [IntegrationsRun, unknown];
+  /** Native: the coding agents and whether their configs hold cmux's MCP server (Settings > Agents). */
+  "cmux.settings.agentTools.state": [Record<string, never>, AgentToolsCardState];
+  /** Native: Turn On (`agents.cmuxMcp` on), Remove an agent's old cmux entry (`cmux setup mcp --remove ID`) or a refresh. */
+  "cmux.settings.agentTools.run": [AgentToolsCardRun, AgentToolsCardState];
+  /** Native: the person's saved MCP servers (Settings > MCP Servers). */
+  "cmux.settings.mcp.state": [Record<string, never>, McpServersState];
+  /** Native: one MCP Servers gesture (`optchat-chief integrations --json signin|remove`, or a refresh). */
+  "cmux.settings.mcp.run": [McpServersRun, unknown];
+  /** Native: the MCP servers Claude Code and Codex start, from their own files (Labs `labs.agentCustomization`). */
+  "cmux.settings.agentMcp.state": [Record<string, never>, AgentMcpState];
+  /** Native: one Claude Code / Codex MCP gesture (`cmux agent-config mcp enable|disable|remove|add`, a folder pick or a refresh). */
+  "cmux.settings.agentMcp.run": [AgentMcpRun, unknown];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */
@@ -1648,6 +1830,7 @@ export const settingsPageActions = [
   "browserProfile.new",
   "server.addServer",
   "device.add",
+  "remote.newGroup",
   "browserProfile.rename",
   "browserProfile.setColor",
   "browserProfile.clearColor",
@@ -1661,6 +1844,10 @@ export const settingsPageActions = [
   "palette.computerUse.restart",
   "palette.computerUse.accessibility",
   "palette.computerUse.screenRecording",
+  // Settings > Computer Use > Saved Approvals: forget an app's answer or change it (args `{app_id}`,
+  // `{app_id, decision}`); the host runs them through the worker's approvals control message.
+  "computerUse.approval.forget",
+  "computerUse.approval.set",
   "import.card",
   "importFromBrowser",
   // Settings > Mobile's Sign In, where the iPhone card says to sign in (msg 3790).

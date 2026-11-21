@@ -43,6 +43,8 @@
 # a 600 s timeout. A missing or unreadable file skips nothing, so every red file is retried as before.
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
+# CMUX_WEB_TEST_SIZED_FOR_VCPU: optional vCPU count the widths were set for; a runner with fewer cores
+# runs at that share of them and the shard split keeps the declared widths (see below).
 # CMUX_WEB_TEST_BROWSER_JOBS: plain files that drive a real browser at once (default a quarter of the
 # jobs); they run beside the other plain files, which take the rest of the jobs.
 # CMUX_WEB_TEST_FILES: optional newline-separated test files (relative to webviews/) to run instead
@@ -68,6 +70,7 @@
 # start longest first, so a long file never runs last alone.
 # CMUX_WEB_TEST_DURATIONS_OUT: optional file to write each file's first-run seconds into, as JSON,
 # for the next manifest (webviews_test_shards.py merge).
+# CMUX_WEB_TEST_LIST_ONLY: 1 prints the files this run (this shard) would test, one a line, and runs none.
 #
 # Files that start a Vite dev server run after the rest: the agent pane and gallery configs
 # (vite.config.acpmux-pane.mjs, vite.config.gallery-dev.ts), and files that spawn `vp dev`
@@ -335,6 +338,19 @@ plain_jobs=$((jobs - browser_jobs))
 # counts one plain lane, which only an unsharded run (the base replay) ever has.
 split_widths=""
 if [[ "${CMUX_WEB_TEST_JOBS:-}" =~ ^[1-9][0-9]*$ && "$browser_jobs$dev_jobs" =~ ^[0-9]+$ ]]; then split_widths="$((plain_jobs > 0 ? plain_jobs : 1)),$browser_jobs,$dev_jobs"; fi
+# CMUX_WEB_TEST_SIZED_FOR_VCPU: the vCPU count the widths above were set for (the workflow's declared
+# runner size). A runner with fewer cores (CMUX_CI_CPU_BUDGET, else the CPU count) runs its files at that
+# share of each width, at least 1; the split above keeps the declared widths, so every shard still picks
+# the same files. The 16 vCPU shards' 8 jobs on a 2 vCPU runner (a pool that held only small sizes) ran
+# every shard of run 44249075431 into its 40 min timeout.
+sized_for="${CMUX_WEB_TEST_SIZED_FOR_VCPU:-}"
+if [[ "$sized_for" =~ ^[1-9][0-9]*$ && "$default_jobs" =~ ^[1-9][0-9]*$ ]] && [ "$default_jobs" -lt "$sized_for" ]; then
+  fit_width() { local width=$(( $1 * default_jobs / sized_for )); echo $(( width > 0 ? width : 1 )); }
+  jobs="$(fit_width "$jobs")" dev_jobs="$(fit_width "$dev_jobs")" browser_jobs="$(fit_width "$browser_jobs")"
+  if [ "$browser_jobs" -gt "$jobs" ]; then browser_jobs="$jobs"; fi
+  plain_jobs=$((jobs - browser_jobs))
+  echo "this runner has $default_jobs of the $sized_for vCPU these widths are for: $jobs files at a time, $dev_jobs dev server files"
+fi
 shard="${CMUX_WEB_TEST_SHARD:-}"
 shard_count="${CMUX_WEB_TEST_SHARD_COUNT:-}"
 durations="${CMUX_WEB_TEST_DURATIONS:-/dev/null}"
@@ -357,6 +373,12 @@ count="$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')"
 if [ "$count" -eq 0 ]; then
   echo "error: no webviews test files found under $PWD${shard:+ for shard $shard/$shard_count}" >&2
   exit 1
+fi
+# CMUX_WEB_TEST_LIST_ONLY=1: print this shard's files, one a line, and run nothing (webviews_pr_shards.py
+# picks a pull request's shards from the very split each shard makes here).
+if [ "${CMUX_WEB_TEST_LIST_ONLY:-}" = 1 ]; then
+  tr '\0' '\n' < "$results/files"
+  exit 0
 fi
 xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/serial" || true
 serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"

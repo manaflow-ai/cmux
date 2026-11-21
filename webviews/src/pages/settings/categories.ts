@@ -18,6 +18,7 @@ export const CATEGORY_CARDS = [
   "accounts",
   "agentHarnesses",
   "agentIntegrations",
+  "agentTools",
   "chiefs",
   "advancedInfo",
   "advancedActions",
@@ -37,12 +38,12 @@ export const CATEGORY_CARDS = [
   "cloudModels",
   "worktreeSetup",
   "contextMenus",
-  "personalization",
   "sharedLinks",
   "customizeLibrary",
   "tailnet",
   "models",
   "keys",
+  "mcpServers",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */
@@ -91,8 +92,9 @@ const built = build();
 
 export const categories: readonly Category[] = built.categories;
 
-/** A titled run of categories in the sidebar; the lead run (General, Updates) is untitled. */
-export type SidebarSection = { id: string; title: LocalizedText | null; categories: string[] };
+/** A titled run of categories in the sidebar; the lead run (General, Updates) is untitled. A
+ * `collapsed` run (More, the last) is drawn closed until opened or until one of its categories shows. */
+export type SidebarSection = { id: string; title: LocalizedText | null; collapsed?: boolean; categories: string[] };
 
 /** The sidebar's sections, as the Swift layout exports them. */
 export const sidebarSections: readonly SidebarSection[] = schema.page.sidebar_sections;
