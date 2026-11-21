@@ -57,7 +57,7 @@ jobs:
     # Only pushes to feat-cmux-next decide anything: a pull request (and a workflow_call from one), a dispatch and any
     # other ref skip this job, so its outputs are empty and the caller's jobs run as before.
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       run: ${{ steps.decide.outputs.run }}
