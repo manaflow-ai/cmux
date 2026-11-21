@@ -358,7 +358,15 @@ class Loop:
         try:
             p.wait(timeout=90)
         except subprocess.TimeoutExpired:
-            raise RuntimeError("launch-ready %s did not end 90 s after its app quit" % label)
+            p.terminate()
+            try:
+                p.wait(10)
+            except subprocess.TimeoutExpired:
+                p.kill()
+            # Its own words, since the step returns only report.json: what it saw before it stopped.
+            tails = " | ".join("%s: %s" % (os.path.basename(f), open(f, errors="replace").read()[-600:].strip())
+                               for f in (outp, outp + ".err") if os.path.exists(f))
+            raise RuntimeError("launch-ready %s did not end 90 s after its app quit (%s)" % (label, tails or "no output"))
         lines = [l for l in open(outp).read().splitlines() if l.startswith("LR-RUN ")]
         if not lines:
             raise RuntimeError("launch-ready %s printed no LR-RUN (%s)" % (label, open(outp + ".err").read()[-800:]))
