@@ -417,6 +417,13 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("CI_EVAL_STEP_GATEWAY", text)
         self.assertNotIn("cmux-ci", text.replace("cmux-ci-", ""))
 
+    def test_pr_reads_wait_through_github_api_rate_limits(self) -> None:
+        for job in ("target", "publish"):
+            with self.subTest(job=job):
+                block = "\n".join(self.job_block(job))
+                self.assertIn("scripts/ci/gh_budget_wait.sh", block)
+                self.assertIn("bash scripts/ci/gh_budget_wait.sh --install", block)
+
     def test_the_plan_fetch_finds_the_merge_base_after_a_depth_one_checkout(self) -> None:
         # The fleet's looks on #43862, #43807, #43816 and #43779 failed at `git merge-base` (2026-11-15): the
         # checkout's depth-1 fetch left the base tip shallow and the step's --shallow-since fetch did not deepen it.
