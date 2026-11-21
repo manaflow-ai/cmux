@@ -27,7 +27,8 @@ fn a_rename_after_an_empty_title_request_stops_title_requests() {
 #[test]
 fn a_retried_title_reads_the_latest_prompt() {
     assert!(
-        request("Reply with only: OK", "", true).contains("first message:\nReply with only: OK")
+        request("Reply with only: OK", "", true)
+            .contains("first message:\nReply with only: OK")
     );
     assert!(
         request("Fix the sidebar spinner", "", false)
@@ -92,7 +93,11 @@ fn a_probe_titles_no_chat_and_the_first_real_message_does() {
     fallback_title_fields(&mut title, &mut source, &mut prompt, "Fix the sidebar spinner");
     assert_eq!(title.as_deref(), Some("Fix the sidebar spinner"));
     assert_eq!(source.as_deref(), Some(PROMPT));
-    assert_eq!(prompt.as_deref(), Some("Fix the sidebar spinner"), "the title request reads it");
+    assert_eq!(
+        prompt.as_deref(),
+        Some("Fix the sidebar spinner"),
+        "the title request reads it"
+    );
     fallback_title_fields(&mut title, &mut source, &mut prompt, "Now add a test");
     assert_eq!(title.as_deref(), Some("Fix the sidebar spinner"), "a later message keeps it");
 }
@@ -150,4 +155,46 @@ fn an_unclosed_context_block_gives_no_title() {
 fn a_line_that_only_looks_like_a_tag_still_titles() {
     assert_eq!(prompt_gist("<3 this app, make it faster").line, "<3 this app, make it faster");
     assert_eq!(prompt_gist("a < b: why").line, "a < b: why");
+}
+
+/// The standing block a fleet brief opens with (leo-workspace `tools/session_restrictions.py`):
+/// a heading tagged `[slug]`, a paragraph and a list, then a blank line and the task.
+const RESTRICTIONS: &str = "## Restrictions you will hit [session-restrictions]\n\nAny of these ends a session mid-work: usage limits, a NIGHTLY install,\nhost drains and reboots.\n- Push a draft PR within 15 minutes of your first edit. Push again\n  at least every 30 minutes.\n- Post a one-line check-in every 30 minutes.\n";
+
+#[test]
+fn a_standing_rules_preamble_never_titles_a_chat() {
+    // 2026-11-20: dozens of sessions were titled "Session restrictions and stalled PR batch"
+    // or the preamble's heading itself, from the block every brief opens with.
+    let text = format!("{RESTRICTIONS}\nTask: rename live sessions after their task.\nMore.");
+    let gist = prompt_gist(&text);
+    assert_eq!(gist.line, "Task: rename live sessions after their task.");
+    assert!(
+        !gist.body.contains("Restrictions"),
+        "the title model never reads it: {}",
+        gist.body
+    );
+    assert!(gist.body.contains("More."));
+}
+
+#[test]
+fn several_tagged_blocks_and_context_blocks_are_all_skipped() {
+    let text = format!(
+        "<chat>\nview\n</chat>\n{RESTRICTIONS}\n# Building what Leo asks [build-what-named]\n\n- Build exactly what he named.\n\nFix the sidebar spinner"
+    );
+    assert_eq!(prompt_gist(&text).line, "Fix the sidebar spinner");
+}
+
+#[test]
+fn a_prompt_that_is_only_a_preamble_gives_no_title() {
+    assert_eq!(prompt_gist(RESTRICTIONS).line, "");
+}
+
+#[test]
+fn an_untagged_heading_or_a_mere_mention_still_titles() {
+    assert_eq!(prompt_gist("## Fix the sidebar\n\nIt spins").line, "## Fix the sidebar");
+    assert_eq!(
+        prompt_gist("fix [session-restrictions] parsing").line,
+        "fix [session-restrictions] parsing"
+    );
+    assert_eq!(prompt_gist("## Ship it [wip]\n\nnow").line, "## Ship it [wip]");
 }

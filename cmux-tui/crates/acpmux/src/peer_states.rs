@@ -12,7 +12,9 @@
 //! short-lived peers does not grow it without bound.
 
 use crate::no_panic::LockExt;
-use crate::protocol::peer_state::{Carrier, DownCause, MachineLink, PeerStateChanged};
+use crate::protocol::peer_state::{
+    Carrier, DownCause, MachineLink, OfflineReason, PeerStateChanged,
+};
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -139,6 +141,8 @@ pub struct Observed {
     pub link: MachineLink,
     pub carrier: Option<Carrier>,
     pub cause: Option<DownCause>,
+    /// Why a down link will not heal by retrying alone (`reason`; its `action` follows).
+    pub reason: Option<OfflineReason>,
     /// When `link` took its value.
     pub since: u64,
     pub next_retry_at: Option<u64>,
@@ -148,20 +152,29 @@ pub struct Observed {
 
 /// What makes a note news: a change of any of these sends one; `since`, `lastSeen` and
 /// `error` ride along.
-type Key = (MachineLink, Option<Carrier>, Option<DownCause>, Option<u64>);
+type Key = (MachineLink, Option<Carrier>, Option<DownCause>, Option<OfflineReason>, Option<u64>);
 
 fn key(note: &PeerStateChanged) -> Key {
-    (note.link, note.carrier, note.cause, note.next_retry_at)
+    (note.link, note.carrier, note.cause, note.reason, note.next_retry_at)
 }
 
 impl Observed {
     /// `link` with no carrier, cause or retry, since now.
     pub fn new(link: MachineLink, last_seen: Option<u64>, error: Option<String>) -> Self {
-        Self { link, carrier: None, cause: None, since: 0, next_retry_at: None, last_seen, error }
+        Self {
+            link,
+            carrier: None,
+            cause: None,
+            reason: None,
+            since: 0,
+            next_retry_at: None,
+            last_seen,
+            error,
+        }
     }
 
     fn key(&self) -> Key {
-        (self.link, self.carrier, self.cause, self.next_retry_at)
+        (self.link, self.carrier, self.cause, self.reason, self.next_retry_at)
     }
 
     fn note(self, name: &str) -> PeerStateChanged {
@@ -174,6 +187,8 @@ impl Observed {
             cause: self.cause,
             since: if self.since == 0 { at } else { self.since },
             next_retry_at: self.next_retry_at,
+            reason: self.reason,
+            action: self.reason.map(OfflineReason::action),
             last_seen: self.last_seen,
             error: self.error,
             at,

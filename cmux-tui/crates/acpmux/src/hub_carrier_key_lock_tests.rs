@@ -1,3 +1,5 @@
+//! The hub carrier and the node key lock (split out of `hub_carrier.rs`).
+
 use super::*;
 use cmux_link::key_holder::KeyHolder;
 

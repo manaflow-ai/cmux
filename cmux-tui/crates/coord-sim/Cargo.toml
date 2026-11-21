@@ -1,0 +1,23 @@
+[package]
+name = "coord-sim"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Synthetic coordinator chats and a multi-coordinator load driver: generates chats shaped like a heavy coordinator session from histograms only (no real transcripts), streams N of them at once into acpmux and the apps, and reports one set of numbers per run"
+
+# Own workspace, as cmux-cellgrid-bench: a bench tool the cmux-tui workspace build never pulls in.
+[workspace]
+
+[[bin]]
+name = "coord-sim"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Child processes with an owner (the repo's spawn-owner rule): the daemon and `acpmux send`.
+cmux-process = { path = "../cmux-process" }
+
+[profile.release]
+debug = 1

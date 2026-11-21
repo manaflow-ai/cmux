@@ -138,18 +138,72 @@ fn prompt_gist(text: &str) -> PromptGist<'_> {
     PromptGist { line, body }
 }
 
-/// `text` without the `<tag>…</tag>` blocks it opens with. A block that never
-/// closes leaves nothing: its first line is no title.
+/// `text` without the `<tag>…</tag>` blocks and standing-rules sections it opens
+/// with. A block that never closes leaves nothing: its first line is no title.
 fn strip_leading_blocks(text: &str) -> &str {
     let mut rest = text.trim_start();
-    while let Some(tag) = opening_tag(rest) {
-        let close = format!("</{tag}>");
-        match rest.find(&close) {
-            Some(at) => rest = rest[at + close.len()..].trim_start(),
-            None => return "",
+    loop {
+        if let Some(tag) = opening_tag(rest) {
+            let close = format!("</{tag}>");
+            match rest.find(&close) {
+                Some(at) => rest = rest[at + close.len()..].trim_start(),
+                None => return "",
+            }
+        } else if let Some(after) = skip_tagged_section(rest) {
+            rest = after.trim_start();
+        } else {
+            return rest;
         }
     }
-    rest
+}
+
+/// What follows a standing-rules section `text` opens with, if it opens with one: a
+/// Markdown heading tagged with a kebab-case `[slug]`, the way a fleet brief's
+/// boilerplate starts ("## Restrictions you will hit [session-restrictions]",
+/// 2026-11-20: dozens of chats were titled after it, not their task). The section's
+/// paragraph and list run to the first blank line that a list item or an indented line
+/// does not continue.
+fn skip_tagged_section(text: &str) -> Option<&str> {
+    let (first, _) = text.split_once('\n').unwrap_or((text, ""));
+    if !is_tagged_heading(first.trim()) {
+        return None;
+    }
+    let mut at = first.len() + 1;
+    let (mut seen_text, mut blank) = (false, false);
+    for line in text.get(at..).unwrap_or("").split_inclusive('\n') {
+        let t = line.trim();
+        if t.is_empty() {
+            blank |= seen_text;
+        } else if blank && !continues_section(line) {
+            return Some(&text[at..]);
+        } else {
+            (seen_text, blank) = (true, false);
+        }
+        at += line.len();
+    }
+    Some("")
+}
+
+/// `## Title [kebab-slug]`: a heading whose last word is a bracketed slug with a dash.
+fn is_tagged_heading(line: &str) -> bool {
+    if !line.starts_with('#') {
+        return false;
+    }
+    let Some(slug) = line.strip_suffix(']').and_then(|l| l.rsplit_once('[')).map(|(_, s)| s) else {
+        return false;
+    };
+    slug.contains('-')
+        && !slug.starts_with('-')
+        && slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// A list item or an indented line carries a section on past a blank line.
+fn continues_section(line: &str) -> bool {
+    let t = line.trim_start();
+    line.starts_with([' ', '\t'])
+        || t.starts_with("- ")
+        || t.starts_with("* ")
+        || t.starts_with("+ ")
 }
 
 /// The name of the tag `text` opens with (`<chat>`, `<context kind="x">`), if
@@ -494,9 +548,20 @@ fn request(prompt: &str, reply: &str, first: bool) -> String {
 }
 
 /// Run a title command with the request on stdin; its cleaned first line.
-pub(super) async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> {
+pub(super) async fn run(cmd: tokio::process::Command, request: &str) -> Option<String> {
+    clean(&run_command(cmd, request, TIMEOUT).await?)
+}
+
+/// Run a one-shot command (in its own process group) with `request` on stdin; its whole
+/// stdout when it exits 0 within `timeout`, else None (the group is killed at the timeout).
+/// Shared with `rolling_summary.rs`.
+pub(super) async fn run_command(
+    mut cmd: tokio::process::Command,
+    request: &str,
+    timeout: Duration,
+) -> Option<String> {
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
-    let mut child = cmd.spawn().map_err(|e| tracing::debug!("title command: {e}")).ok()?;
+    let mut child = cmd.spawn().map_err(|e| tracing::debug!("one-shot command: {e}")).ok()?;
     let pid = child.id();
     let mut stdin = child.stdin.take()?;
     let mut stdout = child.stdout.take()?;
@@ -509,7 +574,7 @@ pub(super) async fn run(mut cmd: tokio::process::Command, request: &str) -> Opti
         let status = child.wait().await.ok()?;
         status.success().then_some(out)
     };
-    let Ok(out) = tokio::time::timeout(TIMEOUT, answer).await else {
+    let Ok(out) = tokio::time::timeout(timeout, answer).await else {
         // The command runs in its own group (a wrapper's children too): end it
         // all while its leader, not yet reaped, still holds the group's id.
         #[cfg(unix)]
@@ -521,7 +586,7 @@ pub(super) async fn run(mut cmd: tokio::process::Command, request: &str) -> Opti
         drop(child);
         return None;
     };
-    clean(&out?)
+    out
 }
 
 /// The title in a model's answer: its first line without quotes, a

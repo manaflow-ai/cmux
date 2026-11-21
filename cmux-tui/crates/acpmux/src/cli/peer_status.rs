@@ -115,10 +115,23 @@ pub fn print(reply: &Value) {
     }
 }
 
+/// Why a machine `machine ls` lists as connected has no health reading here.
+fn hub_only_why(name: &str) -> String {
+    format!(
+        "connected through the hub, not by a link from this machine, so it reports no health here; `acpmux machine doctor {name}` checks a direct route"
+    )
+}
+
 fn line(h: &Value) -> String {
     let name = h.get("name").and_then(Value::as_str).unwrap_or("?");
     let me = h.get("self").and_then(Value::as_bool).unwrap_or(false);
     let label = if me { format!("{name} (this)") } else { name.to_owned() };
+    if h.get("via").and_then(Value::as_str) == Some("hub")
+        && h.get("reachable").and_then(Value::as_bool) == Some(false)
+        && h.get("state").and_then(Value::as_str) == Some("connected")
+    {
+        return format!("{label:<20} via the hub  {}", hub_only_why(name));
+    }
     if !h.get("reachable").and_then(Value::as_bool).unwrap_or(false) {
         let why = h.get("error").and_then(Value::as_str).unwrap_or("unreachable");
         return format!("{label:<20} unreachable  {why}");

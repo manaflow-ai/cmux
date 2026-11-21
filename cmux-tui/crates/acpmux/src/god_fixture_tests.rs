@@ -10,6 +10,21 @@ fn a_peer_row_has_exactly_its_keys() {
 }
 
 #[test]
+fn a_seeded_chat_is_its_size_and_listed_by_the_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let bytes = 1 << 20;
+    let (written, last_seq) = write_chat(dir.path(), "sized", "sized", "/w", bytes).unwrap();
+    assert!(written.abs_diff(bytes) * 10 <= bytes, "{written} of {bytes}");
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Local;
+    let store = crate::store::open(&cfg.store, dir.path()).unwrap();
+    let metas = store.list().unwrap();
+    assert_eq!(metas.len(), 1);
+    assert_eq!((metas[0].id.as_str(), metas[0].last_seq), ("sized", last_seq));
+    assert_eq!(last_seq, bytes.div_ceil(SEED_TURN_BYTES) * 4);
+}
+
+#[test]
 fn the_small_home_is_the_god_shape_at_its_size() {
     let dir = tempfile::tempdir().unwrap();
     let (home, claude) = (dir.path().join("acpmux"), dir.path().join("claude"));

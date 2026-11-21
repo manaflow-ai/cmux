@@ -1,6 +1,7 @@
 use super::*;
 
-const LINUX: &str = "os\tLinux\nagent\tclaude\t/home/leo/.local/bin/claude\t1\nagent\tcodex\t\t\n";
+const LINUX: &str =
+    "os\tLinux\nagent\tclaude\t/home/leo/.local/bin/claude\t1\nagent\tcodex\t\t\n";
 
 #[test]
 fn the_probe_lines_read_back() {
@@ -23,19 +24,35 @@ fn the_probe_lines_read_back() {
 }
 
 #[test]
-fn offers_follow_the_state_and_never_install_codex_off_macos() {
+fn offers_follow_the_state_and_install_codex_on_linux() {
     let found = parse(LINUX);
     let claude = agent_json("hb", "Linux", &found.agents[0]);
     assert_eq!(claude["login"], "acpmux machine agents hb --login claude");
     assert!(claude.get("install").is_none());
     let codex = agent_json("hb", "Linux", &found.agents[1]);
-    assert!(codex.get("install").is_none() && codex.get("login").is_none());
-    assert_eq!(codex["installPage"], "https://developers.openai.com/codex/cli");
+    assert_eq!(codex["install"], "acpmux machine agents hb --install codex");
+    assert_eq!(codex["next"], "acpmux machine agents hb --install codex");
     let mac_codex = agent_json("mini", "Darwin", &found.agents[1]);
     assert_eq!(mac_codex["install"], "acpmux machine agents mini --install codex");
     let ready = Agent { id: "claude".into(), path: Some("/c".into()), signed_in: Some(true) };
     let v = agent_json("hb", "Linux", &ready);
     assert!(v.get("login").is_none() && v.get("install").is_none());
+}
+
+#[test]
+fn local_rows_offer_harness_actions_without_mutating_state() {
+    let missing = Agent { id: "claude".into(), path: None, signed_in: None };
+    let row = agent_json_for("this machine", "Linux", &missing, true);
+    assert_eq!(row["installed"], false);
+    assert_eq!(row["signedIn"], Value::Null);
+    assert_eq!(row["next"], "acpmux harness install claude");
+    let signed_out = Agent {
+        id: "claude".into(),
+        path: Some("/home/user/.local/bin/claude".into()),
+        signed_in: Some(false),
+    };
+    let row = agent_json_for("this machine", "Linux", &signed_out, true);
+    assert_eq!(row["next"], "acpmux harness login claude");
 }
 
 #[test]
@@ -62,7 +79,10 @@ fn the_step_warns_with_the_first_offer_and_is_ok_once_one_agent_is_ready() {
 #[test]
 fn codex_login_forwards_its_callback_port_and_claude_does_not() {
     let codex = login_argv("leo@box", "codex").unwrap();
-    assert_eq!(&codex[..5], ["-t", "-o", "ExitOnForwardFailure=yes", "-L", "1455:localhost:1455"]);
+    assert_eq!(
+        &codex[..5],
+        ["-t", "-o", "ExitOnForwardFailure=yes", "-L", "1455:localhost:1455"]
+    );
     assert!(codex.last().unwrap().contains("~/.local/bin/acpmux harness login codex"));
     let claude = login_argv("leo@box", "claude").unwrap();
     assert_eq!(claude[0], "-t");

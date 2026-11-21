@@ -167,7 +167,7 @@ fn origin(value: Option<String>) -> Result<String> {
 }
 
 fn local_name(name: Option<String>) -> String {
-    name.unwrap_or_else(crate::pairing::machine_name)
+    name.unwrap_or_else(crate::pairing::host_label)
 }
 
 fn save(record: &MachineCredential) -> Result<()> {

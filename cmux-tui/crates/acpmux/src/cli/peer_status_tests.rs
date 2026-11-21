@@ -13,7 +13,10 @@ fn vm_host_line_says_why() {
     );
     // A Mac: its Seatbelt sandbox always runs.
     let v = json!({"vmHost": false, "cmuxVm": false, "configured": null});
-    assert_eq!(super::vm_host_line(None, &v), "this machine: vmHost off (always sandboxed here)");
+    assert_eq!(
+        super::vm_host_line(None, &v),
+        "this machine: vmHost off (always sandboxed here)"
+    );
 }
 
 use super::*;
@@ -26,7 +29,10 @@ fn outdated_hint_names_the_peer_and_avoids_cross_platform_update() {
     let hint = outdated_hint("my-linux", &other).unwrap();
     assert!(hint.contains("acpmux machine update my-linux --binary-dir DIR"), "{hint}");
     assert!(hint.contains("DIR/acpmux-"), "{hint}");
-    assert!(hint.contains("or rebuild acpmux on my-linux for its OS and architecture"), "{hint}");
+    assert!(
+        hint.contains("or rebuild acpmux on my-linux for its OS and architecture"),
+        "{hint}"
+    );
     let same =
         json!({"outdated": true, "os": std::env::consts::OS, "arch": std::env::consts::ARCH});
     assert_eq!(
@@ -64,9 +70,21 @@ fn a_reachable_peer_reads_its_numbers_and_an_unreachable_one_its_next_step() {
         l[0],
         "huge-blue (this)     ok  disk 25.0 GB free of 252.0 GB  ram 40.0 GB free of 128.0 GB  load 3.2/32 cpus  9 live sessions  build abc"
     );
-    assert!(l[1].starts_with("big-red              unreachable  connection refused;"), "{}", l[1]);
-    assert!(l[1].ends_with("`acpmux machine doctor big-red` checks it step by step"), "{}", l[1]);
-    assert!(l[2].contains("41 ms") && l[2].contains("acpmux machine update cmux16"), "{}", l[2]);
+    assert!(
+        l[1].starts_with("big-red              unreachable  connection refused;"),
+        "{}",
+        l[1]
+    );
+    assert!(
+        l[1].ends_with("`acpmux machine doctor big-red` checks it step by step"),
+        "{}",
+        l[1]
+    );
+    assert!(
+        l[2].contains("41 ms") && l[2].contains("acpmux machine update cmux16"),
+        "{}",
+        l[2]
+    );
     assert_eq!(l.len(), 3, "no problems, no extra lines: {l:?}");
 }
 
@@ -127,4 +145,16 @@ fn a_host_ls_row_reads_the_last_health_and_an_old_peer_reads_unknown() {
     assert_eq!(resources(&healthy), "disk 31.0 GB free");
     assert_eq!(resources(&json!({"health": {"unsupported": true}})), "resources unknown");
     assert_eq!(resources(&json!({"health": null})), "resources unknown");
+}
+
+#[test]
+fn a_hub_carried_machine_is_not_called_unreachable() {
+    let row = serde_json::json!({"name": "ab", "reachable": false, "state": "connected", "via": "hub"});
+    let text = line(&row);
+    assert!(text.contains("via the hub"), "{text}");
+    assert!(!text.contains("unreachable"), "{text}");
+    assert!(text.contains("acpmux machine doctor ab"), "{text}");
+    let down =
+        serde_json::json!({"name": "ab", "reachable": false, "state": "down", "via": "hub"});
+    assert!(line(&down).contains("unreachable"));
 }

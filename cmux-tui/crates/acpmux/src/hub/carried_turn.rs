@@ -348,7 +348,7 @@ impl Hub {
     /// As a recovered turn (`hosts.rs` `recover_work`): a Web turn in an agent the sandbox did
     /// not start, or in a mode only a machine's Full-access setting allows, does not go on.
     pub(super) fn recovered_floor(&self, session: &Session, control: Control) {
-        session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+        session.floor.mark_last_turn(control == Control::Web, None);
         if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
             self.remote_floor_cancel(session, "remote.unsandboxed_agent");
         }
@@ -382,7 +382,7 @@ impl Hub {
         self.lane_turn_on(session, continues.reports);
         self.lane_turn_asked(session, continues.asked.as_ref());
         if turn.control == Control::Web {
-            session.floor.last_turn_web.store(true, Ordering::SeqCst);
+            session.floor.mark_last_turn(true, turn.device.clone());
         }
         let msg = json!({
             "prompt": turn.prompt_preview,
@@ -395,6 +395,8 @@ impl Hub {
             "cloudMobile": session.floor.cloud_mobile_turn.load(Ordering::SeqCst),
             "trigger": turn.trigger,
             "carried": {"fromTurnId": from, "promptIds": c.prompt_ids},
+            // The paired device that drove it, read back after a restart (`hosts.rs`).
+            "device": turn.device.as_deref().filter(|_| turn.control == Control::Web),
         });
         if turn.trigger {
             self.start_trigger_background(session, &turn.turn_id);

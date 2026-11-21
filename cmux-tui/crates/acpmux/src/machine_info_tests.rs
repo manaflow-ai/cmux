@@ -8,7 +8,9 @@ fn local_state_reports_jobs_repo_and_unavailable_capabilities() {
         workspace_id: Some("local-workspace".into()),
         repo_root: Some("/work/repo".into()),
         branch: Some("feature/local".into()),
-        background_jobs: vec![json!({"id": "job-1", "command": "cargo test", "state": "running"})],
+        background_jobs: vec![
+            json!({"id": "job-1", "command": "cargo test", "state": "running"}),
+        ],
         browser_available: Some(false),
         display_available: Some(false),
         secrets: vec![SecretStatus { name: "API_TOKEN".into(), status: "pending".into() }],
@@ -41,6 +43,7 @@ fn cloud_state_includes_preview_and_never_serializes_a_secret_value() {
         joined_by: None,
         capabilities: None,
         cloned_on: None,
+        named: false,
     };
     let identity = MachineIdentity::from_record(&credential);
     let result = render(State {
@@ -53,7 +56,10 @@ fn cloud_state_includes_preview_and_never_serializes_a_secret_value() {
         workspace_id: Some("cloud-workspace".into()),
         repo_root: Some("/workspace/repo".into()),
         branch: Some("main".into()),
-        ports: Some(vec![Port { port: 3000, preview_url: Some("https://preview.example".into()) }]),
+        ports: Some(vec![Port {
+            port: 3000,
+            preview_url: Some("https://preview.example".into()),
+        }]),
         preview_urls: Some(vec!["https://preview.example".into()]),
         browser_available: Some(true),
         display_available: Some(true),

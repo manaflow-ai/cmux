@@ -19,7 +19,10 @@ fn join_origin_cannot_carry_secrets_paths_or_non_http_schemes() {
         let error = origin(Some(url.to_owned())).unwrap_err().to_string();
         assert!(!error.contains("secret"));
     }
-    assert_eq!(origin(Some("https://EXAMPLE.com:443/".to_owned())).unwrap(), "https://example.com");
+    assert_eq!(
+        origin(Some("https://EXAMPLE.com:443/".to_owned())).unwrap(),
+        "https://example.com"
+    );
     assert!(origin(Some("http://127.0.0.1:1234".to_owned())).is_ok());
 }
 
@@ -39,6 +42,43 @@ fn joined_on(home: &std::path::Path, fingerprint: Option<&str>) -> Vec<u8> {
     super::save_at(home, &record).unwrap();
     crate::cli::mesh_node_key::load_or_create_at(home).unwrap();
     std::fs::read(home.join("node.wg.key")).unwrap()
+}
+
+/// Two VMs made from one image share a host name: each one joined under its own name
+/// (`machine join --name`) is that name to its peers, so neither shadows the other on the
+/// hub. A default join, a revoked or copied record, or a name no session name may be keeps
+/// the host name.
+#[test]
+#[cfg(unix)]
+fn a_machine_named_at_its_join_is_that_name_to_its_peers() {
+    let home = tempfile::tempdir().unwrap();
+    let named_at = |record: &super::MachineCredential, here: Option<&str>| {
+        super::save_at(home.path(), record).unwrap();
+        crate::machine_record::joined_name_at(home.path(), here)
+    };
+    assert_eq!(crate::machine_record::joined_name_at(home.path(), Some("fp")), None);
+    let record = super::MachineCredential {
+        credential: "cmm_x".into(),
+        name: "lane-7".into(),
+        host_fingerprint: Some("fp".into()),
+        named: true,
+        ..Default::default()
+    };
+    assert_eq!(named_at(&record, Some("fp")).as_deref(), Some("lane-7"));
+    assert_eq!(named_at(&record, None).as_deref(), Some("lane-7"), "no fingerprint here");
+    let default = super::MachineCredential { named: false, ..record.clone() };
+    assert_eq!(named_at(&default, Some("fp")), None, "took the host name");
+    let revoked = super::MachineCredential { revoked: true, ..record.clone() };
+    assert_eq!(named_at(&revoked, Some("fp")), None);
+    let cloned = super::MachineCredential { cloned: true, ..record.clone() };
+    assert_eq!(named_at(&cloned, Some("fp")), None);
+    assert_eq!(named_at(&record, Some("other-box")), None, "a copy on another box");
+    let odd = super::MachineCredential { name: "Lane 7".into(), ..record.clone() };
+    assert_eq!(named_at(&odd, Some("fp")), None, "not a session name");
+    // An older build's record has no `named`: the host name, as before.
+    let older: super::MachineCredential =
+        serde_json::from_str(r#"{"credential":"cmm_x","machine_id":"m","team_id":"t","name":"lane-7","hub_origin":"https://h","last_heartbeat":null,"revoked":false,"wgPublicKey":"k"}"#).unwrap();
+    assert!(!older.named);
 }
 
 /// The cmux link's Cloud tunnel runs only for a live join of this box: a sign-out's leave
@@ -89,7 +129,8 @@ fn the_tunnel_runs_only_for_a_live_join_of_this_box() {
     // One owed for this join itself stops it, by its row or by its credential.
     super::to_revoke::queue(home.path(), &super::to_revoke::Row::of(&record, false)).unwrap();
     assert_eq!(super::joined_device_at(home.path()), None, "this join's row is queued");
-    let own_credential = super::MachineCredential { machine_id: String::new(), ..record.clone() };
+    let own_credential =
+        super::MachineCredential { machine_id: String::new(), ..record.clone() };
     let other = tempfile::tempdir().unwrap();
     joined_on(other.path(), current.as_deref());
     super::to_revoke::queue(other.path(), &super::to_revoke::Row::of(&own_credential, true))
@@ -120,7 +161,9 @@ fn the_shared_clone_check_reads_the_named_home() {
     let mut record = super::load_at(home.path()).unwrap().unwrap();
     record.cloned = true;
     super::save_at(home.path(), &record).unwrap();
-    assert!(super::copied_at(home.path(), Some("box-a")) && super::copied_at(home.path(), None));
+    assert!(
+        super::copied_at(home.path(), Some("box-a")) && super::copied_at(home.path(), None)
+    );
 }
 
 /// Review F1 at d1e8f0ed: a copy found and not settled records its node key as copied
@@ -247,7 +290,8 @@ fn pending_on(home: &std::path::Path, made: &str) {
 #[cfg(unix)]
 fn a_start_on_a_copied_home_racing_a_host_join_keeps_the_registered_key() {
     use crate::cli::mesh_node_key::{
-        load_or_create_at, public_key_at, record_copied_key, replace_copied_at, serves_copied_key,
+        load_or_create_at, public_key_at, record_copied_key, replace_copied_at,
+        serves_copied_key,
     };
     use base64::Engine as _;
     let home = tempfile::tempdir().unwrap();
@@ -280,7 +324,11 @@ fn a_start_on_a_copied_home_racing_a_host_join_keeps_the_registered_key() {
     super::settle_clone_at_start_in(home.path()).unwrap();
     let registered = registered.get().expect("the join ran");
     assert_ne!(registered, copied);
-    assert_eq!(public_key_at(home.path()), Some(registered), "the start deleted the join's key");
+    assert_eq!(
+        public_key_at(home.path()),
+        Some(registered),
+        "the start deleted the join's key"
+    );
     assert!(!serves_copied_key(home.path()));
     // With no join in between, the start replaces the copied key itself.
     let alone = tempfile::tempdir().unwrap();
@@ -377,8 +425,10 @@ fn a_pending_join_begun_on_another_box_makes_the_home_a_copy_for_every_caller() 
     assert!(super::other_box(home.path(), Some("box-a"), Some("box-b")));
     assert!(!super::other_box(home.path(), Some("box-a"), Some("box-a")));
     // A record joined here does not hide a pending join copied from elsewhere.
-    let mine =
-        super::MachineCredential { host_fingerprint: Some("box-b".into()), ..Default::default() };
+    let mine = super::MachineCredential {
+        host_fingerprint: Some("box-b".into()),
+        ..Default::default()
+    };
     assert!(super::copied_here(home.path(), &mine, Some("box-b")));
 }
 
@@ -436,7 +486,10 @@ fn an_older_record_adopts_the_box_it_starts_on_and_no_identity_compares_nothing(
     let home = tempfile::tempdir().unwrap();
     let key = joined_on(home.path(), None);
     let before = super::load_at(home.path()).unwrap().unwrap();
-    assert!(!super::copied_here(home.path(), &before, Some("box-a")), "no fingerprint is no clone");
+    assert!(
+        !super::copied_here(home.path(), &before, Some("box-a")),
+        "no fingerprint is no clone"
+    );
     assert_eq!(super::settle_clone_at(home.path(), None).unwrap(), super::CloneCheck::Unknown);
     assert_eq!(
         super::settle_clone_at(home.path(), Some("box-a")).unwrap(),
@@ -527,13 +580,20 @@ fn an_older_record_reads_unfingerprinted_and_not_cloned() {
 fn a_join_grants_the_same_person_and_keeps_the_owners_own_entries() {
     use crate::mesh_http::{MeshControlFrom, MeshRelayConfig};
     assert_eq!(super::joined_control_from(None), vec![MeshControlFrom::same_user()]);
-    let own =
-        MeshControlFrom { daemon_id: "d1".into(), ops: vec!["stop".into()], ..Default::default() };
+    let own = MeshControlFrom {
+        daemon_id: "d1".into(),
+        ops: vec!["stop".into()],
+        ..Default::default()
+    };
     let previous = MeshRelayConfig { control_from: vec![own.clone()], ..Default::default() };
-    assert_eq!(super::joined_control_from(Some(previous)), vec![own, MeshControlFrom::same_user()]);
+    assert_eq!(
+        super::joined_control_from(Some(previous)),
+        vec![own, MeshControlFrom::same_user()]
+    );
     // An owner who narrowed or emptied `sameUser` keeps that choice across a rejoin.
     let narrowed = MeshControlFrom { ops: vec![], ..MeshControlFrom::same_user() };
-    let previous = MeshRelayConfig { control_from: vec![narrowed.clone()], ..Default::default() };
+    let previous =
+        MeshRelayConfig { control_from: vec![narrowed.clone()], ..Default::default() };
     assert_eq!(super::joined_control_from(Some(previous)), vec![narrowed]);
 }
 
@@ -571,6 +631,7 @@ fn identity_projection_drops_the_bearer_credential() {
         joined_by: None,
         capabilities: None,
         cloned_on: None,
+        named: false,
     };
     let identity = MachineIdentity::from_record(&record);
     let serialized = serde_json::to_string(&identity).unwrap();
