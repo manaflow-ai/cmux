@@ -1,5 +1,5 @@
 /* Harness updates available (HarnessUpdates.tsx): the model menus' update footer. The reference's
-   order: a heading with Update all, one row per agent CLI, the reason under them. One hairline sets
+   order: a heading with Update all, one row per agent CLI. One hairline sets
    the footer off from the model list; the rows sit together under their heading with none between
    them (David Beyer, Nov 20: messy). It stays put while the model list above it scrolls. */
 .acpmux-harness-updates {
@@ -25,7 +25,7 @@
 }
 .acpmux-harness-updates-list {
   margin: 0;
-  padding: 0;
+  padding: 0 0 var(--ds-space-1);
   list-style: none;
 }
 .acpmux-harness-update-label {
@@ -58,16 +58,21 @@
   font: inherit;
   cursor: default;
 }
-.acpmux-harness-update-run {
-  min-width: 56px;
-  background: var(--ds-surface-inset);
-  color: var(--agent-text);
-}
-.acpmux-harness-updates-all:hover,
+.acpmux-harness-update-run { min-width: 56px; color: var(--agent-text); }
+/* A row's Update and Skip This Version are quiet; the default button (Update all, or the one row's
+   Update) is the footer's one filled button, in the theme's accent. */
+.acpmux-harness-update-run:hover:not(:disabled),
 .acpmux-harness-update-skip:hover { background: var(--acpmux-menu-hover); color: var(--agent-text); }
-.acpmux-harness-update-run:hover:not(:disabled) { background: color-mix(in srgb, var(--agent-text) 16%, transparent); }
-.acpmux-harness-updates :is(button):disabled { opacity: 0.6; }
-.acpmux-harness-updates-hint {
-  margin: 0;
-  padding: var(--ds-space-1) var(--ds-space-3) var(--ds-space-2);
+.acpmux-harness-updates [data-default] {
+  background: var(--agent-accent);
+  color: var(--agent-accent-text, var(--agent-page-bg));
 }
+.acpmux-harness-updates [data-default]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--agent-accent) 88%, var(--agent-text));
+  color: var(--agent-accent-text, var(--agent-page-bg));
+}
+.acpmux-harness-updates :is(button):disabled { opacity: 0.6; }
+/* Beside Update all, a row's Update (or a failed row's Try Again) shows on the row's hover or focus
+   only; it keeps its space, so nothing moves when it appears. A running update's spinner always shows. */
+.acpmux-harness-update-run[data-reveal] { opacity: 0; }
+.acpmux-harness-update:is(:hover, :focus-within) .acpmux-harness-update-run[data-reveal] { opacity: 1; }

@@ -188,4 +188,52 @@ import Testing
         #expect(returning(c) == 0, "Reduce Motion: the row still animates back")
         #expect(c.swipe.rowOffset == 0)
     }
+
+    /// The capture's player (`debug.home.drive` `swipe`, TrackpadSwipePlayer) on the newest Chief
+    /// bubble, stepped at `hz` through the swipe's monitor path; returns every event it sent. With
+    /// `reenter`, the first event the swipe leaves runs the next frame from inside its delivery, as a
+    /// scroll view tracking a phased gesture in its own run loop lets the display link do.
+    private func play(_ r: HomeChatRig, _ c: ChatController, _ p: CGPoint, dx: CGFloat, dy: CGFloat = 0,
+                      duration: TimeInterval, hz: Double, reenter: Bool = false) -> [NSEvent] {
+        var sent: [NSEvent] = []
+        var frame = 1
+        var reentered = false
+        var holder: TrackpadSwipePlayer?
+        let player = TrackpadSwipePlayer(point: p, dx: dx, dy: dy, duration: duration, hold: 0, window: r.window) { e in
+            sent.append(e)
+            if c.swipe.monitored(e, at: p) != nil, reenter, !reentered {
+                reentered = true
+                frame += 1
+                holder?.advance(to: Double(frame) / hz)
+            }
+            return "monitor"
+        }
+        holder = player
+        player.begin()
+        while !player.advance(to: Double(frame) / hz) { frame += 1 }
+        return sent
+    }
+
+    /// The fleet capture's diagonal (100 pt right, 90 pt up or down), at 60 and 120 Hz, entered again
+    /// from inside its delivery. The player once sent the gesture's start a second time from there: the
+    /// capture showed the diagonal claimed as a swipe.
+    @Test(arguments: [60.0, 120.0], [-90.0, 90.0])
+    func thePlayersDiagonalStaysAScroll(hz: Double, dy: Double) async throws {
+        let (r, c, p) = try await rig()
+        defer { r.stop() }
+        let sent = play(r, c, p, dx: 100, dy: dy, duration: 0.4, hz: hz, reenter: true)
+        #expect(sent.filter { $0.phase.contains(.began) }.count == 1, "starts sent: \(sent.map(\.phase.rawValue))")
+        #expect(sent.reduce(0) { $0 + $1.scrollingDeltaX } == 100 && sent.reduce(0) { $0 + $1.scrollingDeltaY } == dy,
+                "the steps do not add up to the path")
+        #expect(openThread(c) == nil, "the player's diagonal (dy \(dy)) opened the reply at \(hz) Hz")
+        #expect(c.swipe.rowOffset == 0)
+    }
+
+    @Test(arguments: [60.0, 120.0])
+    func thePlayersFullSwipeOpensTheReply(hz: Double) async throws {
+        let (r, c, p) = try await rig()
+        defer { r.stop() }
+        _ = play(r, c, p, dx: 160, duration: 0.35, hz: hz)
+        #expect(openThread(c) != nil, "the player's full swipe did not open the reply at \(hz) Hz")
+    }
 }
