@@ -19,6 +19,7 @@ mod ab;
 mod compare;
 mod host;
 mod profile;
+mod pty;
 mod report;
 mod sim;
 mod stats;
@@ -29,6 +30,8 @@ pub(super) const DEFAULT_PROFILE_SECONDS: u64 = 10;
 pub(super) const MAX_PROFILE_SECONDS: u64 = 600;
 pub(super) const DEFAULT_SIM_SECONDS: u64 = 60;
 pub(super) const DEFAULT_SIM_EVENTS: u64 = 10_000;
+/// The longest a sim's build may take before it is cut short and the run starts.
+pub(super) const DEFAULT_SIM_BUILD_SECONDS: u64 = 180;
 
 /// A parsed `cmux perf` command.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,7 +68,10 @@ pub(super) struct AbArgs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct SimArgs {
     pub profile: String,
+    /// The run's length, counted from the end of the build.
     pub seconds: u64,
+    /// The build's hard deadline; what is not made by then is not made.
+    pub build_seconds: u64,
     /// Lines per burst; the shape's `burst_lines` when not given.
     pub events: Option<u64>,
     /// A shape file to use instead of the profile's.
@@ -137,8 +143,11 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
             }))
         }
         "sim" => {
-            let options =
-                Options::parse(rest, &["profile", "seconds", "events", "shape", "scale"], &[])?;
+            let options = Options::parse(
+                rest,
+                &["profile", "seconds", "build-seconds", "events", "shape", "scale"],
+                &[],
+            )?;
             let profile = options.value("profile").unwrap_or(sim::DEFAULT_PROFILE).to_owned();
             if options.value("shape").is_none() && !sim::is_known_profile(&profile) {
                 return Err(UsageError::new(messages.unknown_profile.replace("{name}", &profile)));
@@ -155,6 +164,11 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
             Ok(Command::Sim(SimArgs {
                 profile,
                 seconds: seconds(options.value("seconds"), DEFAULT_SIM_SECONDS, 24 * 3600)?,
+                build_seconds: seconds(
+                    options.value("build-seconds"),
+                    DEFAULT_SIM_BUILD_SECONDS,
+                    3600,
+                )?,
                 events,
                 shape: options.value("shape").map(PathBuf::from),
                 scale: match options.value("scale") {

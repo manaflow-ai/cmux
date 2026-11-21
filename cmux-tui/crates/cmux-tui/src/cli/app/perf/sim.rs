@@ -1,5 +1,10 @@
-//! `cmux perf sim [--profile cosmic-gray|unreasonable] [--scale N] [--seconds N] [--events N] [--shape FILE]`:
-//! load on the app behind a named socket (`--app-socket` or `--socket`; it never guesses).
+//! `cmux perf sim [--profile cosmic-gray|unreasonable] [--scale N] [--seconds N] [--build-seconds N]
+//! [--events N] [--shape FILE]`: load on the app behind a named socket (`--app-socket` or
+//! `--socket`; it never guesses).
+//!
+//! It builds first (cut short after `--build-seconds`, default 180), then runs for `--seconds`
+//! from the moment the build ends; the summary gives `build_ms` and `run_ms` apart. Before it
+//! builds it caps its terminals at the host's free PTYs less a headroom (pty.rs) and says so.
 //!
 //! The shape is data: `--shape FILE`, else `$CMUX_PERF_SIM_DIR/<profile>.json` (default
 //! `~/.local/share/cmux-perf-sim/`; a mirror tool may write it from a real session), else the
@@ -175,6 +180,80 @@ pub(super) fn scale(mut shape: Shape, factor: usize) -> Shape {
 /// How many panes workspace `index` of `shape` gets.
 pub(super) fn panes_in(shape: &Shape, index: usize) -> usize {
     shape.panes_per_workspace.get(index).copied().unwrap_or(shape.splits_per_workspace + 1).max(1)
+}
+
+/// How many terminals (each one PTY) `shape`'s build opens.
+pub(super) fn terminals_in(shape: &Shape) -> usize {
+    (0..shape.workspaces).map(|i| panes_in(shape, i) * (1 + shape.extra_tabs_per_pane)).sum()
+}
+
+/// `shape` trimmed so its build opens at most `cap` terminals: workspaces keep their panes in
+/// order, the one that crosses the cap gets what is left and the rest are not made.
+pub(super) fn cap_terminals(mut shape: Shape, cap: usize) -> Shape {
+    if terminals_in(&shape) <= cap {
+        return shape;
+    }
+    let per_pane = 1 + shape.extra_tabs_per_pane;
+    let mut left = cap;
+    let mut panes = Vec::new();
+    for index in 0..shape.workspaces {
+        let fit = panes_in(&shape, index).min(left / per_pane);
+        if fit == 0 {
+            break;
+        }
+        panes.push(fit);
+        left -= fit * per_pane;
+    }
+    shape.workspaces = panes.len();
+    shape.panes_per_workspace = panes;
+    shape
+}
+
+/// The sim's two phases on one clock: the build, cut short at its own deadline, then the run,
+/// whose `--seconds` start when the build ends (a slow build never eats the run's window).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Phases {
+    pub build_started: Instant,
+    pub build_until: Instant,
+    pub run_started: Option<Instant>,
+    pub run_until: Option<Instant>,
+}
+
+impl Phases {
+    pub fn new(now: Instant, build_limit: Duration) -> Self {
+        Self {
+            build_started: now,
+            build_until: now + build_limit,
+            run_started: None,
+            run_until: None,
+        }
+    }
+
+    /// The build's deadline has passed.
+    pub fn build_over(&self, now: Instant) -> bool {
+        now >= self.build_until
+    }
+
+    /// Ends the build at `now` and starts the run's `seconds`.
+    pub fn start_run(&mut self, now: Instant, seconds: u64) {
+        self.run_started = Some(now);
+        self.run_until = Some(now + Duration::from_secs(seconds));
+    }
+
+    /// The run has time left at `now` (false before it starts).
+    pub fn running(&self, now: Instant) -> bool {
+        self.run_until.is_some_and(|until| now < until)
+    }
+
+    /// How long the build took (up to `now` while it is still going).
+    pub fn build_time(&self, now: Instant) -> Duration {
+        self.run_started.unwrap_or(now).saturating_duration_since(self.build_started)
+    }
+
+    /// How long the run took up to `now`.
+    pub fn run_time(&self, now: Instant) -> Duration {
+        self.run_started.map(|start| now.saturating_duration_since(start)).unwrap_or_default()
+    }
 }
 
 fn builtin_capture(name: &str) -> Option<Capture> {
@@ -359,6 +438,12 @@ struct Sim<'a> {
     refusals: Vec<String>,
     sidebar_toggles: usize,
     actions: u64,
+    /// While building: the build's deadline; every wait ends by it.
+    build_until: Option<Instant>,
+    /// The most terminals the sim may open (the host's PTYs less headroom); `None`: no cap.
+    terminal_cap: Option<usize>,
+    /// Terminals the churn's splits opened.
+    churn_terminals: usize,
 }
 
 fn interrupted() -> bool {
@@ -398,7 +483,10 @@ impl Sim<'_> {
         seconds: u64,
         mut probe: impl FnMut(&Value) -> Option<T>,
     ) -> Option<T> {
-        let deadline = Instant::now() + Duration::from_secs(seconds);
+        let mut deadline = Instant::now() + Duration::from_secs(seconds);
+        if let Some(until) = self.build_until {
+            deadline = deadline.min(until);
+        }
         while Instant::now() < deadline && !interrupted() {
             if let Some(found) = probe(&self.topology()) {
                 return Some(found);
@@ -463,11 +551,24 @@ impl Sim<'_> {
         );
     }
 
-    fn build(&mut self, pages: Option<&Pages>) {
+    /// Interrupted, or the build's deadline passed.
+    fn stop_building(&self) -> bool {
+        interrupted() || self.build_until.is_some_and(|until| Instant::now() >= until)
+    }
+
+    /// Builds the shape until its deadline; whether it was cut short.
+    fn build(&mut self, pages: Option<&Pages>) -> bool {
+        let cut = self.build_workspaces(pages);
+        self.build_until = None;
+        self.start_roles();
+        cut
+    }
+
+    fn build_workspaces(&mut self, pages: Option<&Pages>) -> bool {
         let shape = self.shape;
         for index in 0..shape.workspaces {
-            if interrupted() {
-                return;
+            if self.stop_building() {
+                return !interrupted();
             }
             let Some(workspace) = self.new_workspace() else { continue };
             let Some(first) =
@@ -477,8 +578,8 @@ impl Sim<'_> {
             };
             let mut ws_panes = vec![first];
             for split in 0..panes_in(shape, index) - 1 {
-                if interrupted() {
-                    return;
+                if self.stop_building() {
+                    return !interrupted();
                 }
                 let verb = if split % 2 == 0 { "splitRight" } else { "splitDown" };
                 let at = ws_panes[ws_panes.len() - 1].clone();
@@ -523,26 +624,7 @@ impl Sim<'_> {
                 self.state.terminals.len()
             );
         }
-        let terminals = self.state.terminals.clone();
-        for (tab, role) in terminals.iter().zip(roles(shape, terminals.len())) {
-            match role {
-                Role::Busy => self.send(
-                    tab,
-                    command(&shape.busy_command, &[("sleep", shape.busy_sleep_s.to_string())]),
-                ),
-                Role::Agent(n) => self.send(
-                    tab,
-                    command(
-                        &shape.agent_command,
-                        &[
-                            ("name", format!("agent-{n}")),
-                            ("sleep", shape.agent_sleep_s.to_string()),
-                        ],
-                    ),
-                ),
-                Role::Idle => {}
-            }
-        }
+        false
     }
 
     fn burst(&mut self, total: u64) {
@@ -560,7 +642,8 @@ impl Sim<'_> {
         }
     }
 
-    fn restart_roles(&mut self) {
+    /// Starts (or, after a burst, restarts) each terminal's busy loop or fake agent.
+    fn start_roles(&mut self) {
         let terminals = self.state.terminals.clone();
         let shape = self.shape;
         for (tab, role) in terminals.iter().zip(roles(shape, terminals.len())) {
@@ -608,13 +691,18 @@ impl Sim<'_> {
             "split" if !panes_made.is_empty() => {
                 let (workspace, pane) = &panes_made[tick % panes_made.len()];
                 let count = panes(&self.topology(), workspace).len();
-                if count < self.shape.max_panes_per_workspace
+                let at_cap = self
+                    .terminal_cap
+                    .is_some_and(|cap| self.state.terminals.len() + self.churn_terminals >= cap);
+                if !at_cap
+                    && count < self.shape.max_panes_per_workspace
                     && let Some(new) = self.split(
                         workspace,
                         pane,
                         if tick % 2 == 0 { "splitRight" } else { "splitDown" },
                     )
                 {
+                    self.churn_terminals += 1;
                     self.state.panes.push((workspace.clone(), new));
                     self.save();
                 }
@@ -710,6 +798,30 @@ fn run_in<'scope, 'env>(
         Ok(found) => found,
         Err(message) => return print_error("perf.bad_shape", message),
     };
+    // The host's PTYs are shared with every other terminal on it: keep some free.
+    let pool = super::pty::read_pool();
+    let terminal_cap = pool.map(|pool| super::pty::cap(pool, super::pty::HEADROOM));
+    let wanted = terminals_in(&shape);
+    let shape = match terminal_cap {
+        Some(cap) => cap_terminals(shape, cap),
+        None => shape,
+    };
+    if let (Some(pool), Some(cap)) = (pool, terminal_cap) {
+        eprintln!(
+            "{}",
+            super::fill(
+                messages.sim_pty_cap,
+                &[
+                    ("max", pool.max.to_string()),
+                    ("used", pool.in_use.map_or_else(|| "?".to_owned(), |n| n.to_string())),
+                    ("headroom", super::pty::HEADROOM.to_string()),
+                    ("cap", cap.to_string()),
+                    ("wanted", wanted.to_string()),
+                    ("terminals", terminals_in(&shape).to_string()),
+                ],
+            )
+        );
+    }
     let mut stream = match super::super::connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return super::super::super::wire::print_local_error(&error, output, 3),
@@ -746,14 +858,29 @@ fn run_in<'scope, 'env>(
         refusals: Vec::new(),
         sidebar_toggles: 0,
         actions: 0,
+        build_until: None,
+        terminal_cap,
+        churn_terminals: 0,
     };
     sim.save();
-    let started = Instant::now();
-    sim.build(pages.as_ref());
-    let built_ms = started.elapsed().as_millis();
+    let mut phases = Phases::new(Instant::now(), Duration::from_secs(args.build_seconds));
+    sim.build_until = Some(phases.build_until);
+    let build_cut = sim.build(pages.as_ref());
+    phases.start_run(Instant::now(), args.seconds);
+    let build_ms = phases.build_time(Instant::now()).as_millis();
+    eprintln!(
+        "{}",
+        super::fill(
+            if build_cut { messages.sim_built_cut } else { messages.sim_built },
+            &[
+                ("build_s", format!("{:.1}", build_ms as f64 / 1000.0)),
+                ("terminals", sim.state.terminals.len().to_string()),
+                ("seconds", args.seconds.to_string()),
+            ],
+        )
+    );
     let events = args.events.unwrap_or(shape.burst_lines).clamp(1, MAX_EVENTS);
     let mut bursts = 0;
-    let run_until = Instant::now() + Duration::from_secs(args.seconds);
     if !interrupted() {
         sim.burst(events);
         bursts += 1;
@@ -761,7 +888,7 @@ fn run_in<'scope, 'env>(
     let mut last_burst = Instant::now();
     let interval = Duration::from_millis(shape.churn_interval_ms.max(10));
     let mut tick = 0usize;
-    while Instant::now() < run_until && !interrupted() {
+    while phases.running(Instant::now()) && !interrupted() {
         if !shape.churn.is_empty() {
             let step = shape.churn[tick % shape.churn.len()].clone();
             sim.churn(&step, tick);
@@ -771,13 +898,14 @@ fn run_in<'scope, 'env>(
             && last_burst.elapsed() >= Duration::from_secs(shape.burst_every_s)
         {
             sim.burst(events);
-            sim.restart_roles();
+            sim.start_roles();
             bursts += 1;
             last_burst = Instant::now();
         }
         std::thread::sleep(interval);
     }
     let interrupted = interrupted();
+    let run_ms = phases.run_time(Instant::now()).as_millis();
     sim.cleanup(shown);
     drop(pages);
     let summary = json!({
@@ -790,7 +918,13 @@ fn run_in<'scope, 'env>(
         "events_per_burst": events,
         "churn_steps": tick,
         "actions": sim.actions,
-        "build_ms": built_ms,
+        "build_ms": build_ms,
+        "build_cut_short": build_cut,
+        "build_seconds_max": args.build_seconds,
+        "run_ms": run_ms,
+        "seconds": args.seconds,
+        "terminal_cap": terminal_cap,
+        "terminals_wanted": wanted,
         "interrupted": interrupted,
         "refusals": sim.refusals.iter().take(20).collect::<Vec<_>>(),
         "refusal_count": sim.refusals.len(),

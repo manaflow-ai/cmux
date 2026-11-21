@@ -162,6 +162,12 @@ pub(crate) struct PerfMessages {
     pub sim_needs_socket: &'static str,
     /// `{profile}`, `{from}`, `{seconds}`, `{events}`.
     pub sim_start: &'static str,
+    /// The PTY cap: `{max}`, `{used}`, `{headroom}`, `{cap}`, `{wanted}`, `{terminals}`.
+    pub sim_pty_cap: &'static str,
+    /// The build ended: `{build_s}`, `{terminals}`, `{seconds}`.
+    pub sim_built: &'static str,
+    /// The build hit its deadline: `{build_s}`, `{terminals}`, `{seconds}`.
+    pub sim_built_cut: &'static str,
     /// No checkout with hot-apply.py.
     pub ab_no_repo: &'static str,
     /// Over ssh on macOS.
@@ -378,7 +384,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         unreadable: "cannot read {path}: {error}",
     },
     perf: PerfMessages {
-        usage: "usage: cmux perf profile [--seconds N] [--out FILE.json] [--label L] [--probe]\n       cmux perf compare BEFORE.json AFTER.json\n       cmux perf ab --patch SHA [--rollback] [--seconds N] [--probe] [--out-dir DIR] [--repo DIR] [--parts web,rust,ffi]\n       cmux perf sim [--profile cosmic-gray|unreasonable] [--scale N] [--seconds N] [--events N] [--shape FILE.json]\n  profile  samples the app for N seconds (default 10) against a 120 Hz frame (8.33 ms): frames, main-thread\n           stalls, layout shifts, responsiveness (--probe drives tab, workspace, sidebar, palette and typing),\n           CPU, RAM, GPU and disk; each row names its source and whether a Release build has it\n  compare  two reports side by side with the change and a verdict per row\n  ab       profile, hot-apply SHA (scripts/cmux-next/hot-apply.py), profile, compare; --rollback undoes it\n  sim      drives load on the app behind --app-socket or --socket (required) and closes what it made on exit\nSee docs/cmux-next/perf-loop.md.",
+        usage: "usage: cmux perf profile [--seconds N] [--out FILE.json] [--label L] [--probe]\n       cmux perf compare BEFORE.json AFTER.json\n       cmux perf ab --patch SHA [--rollback] [--seconds N] [--probe] [--out-dir DIR] [--repo DIR] [--parts web,rust,ffi]\n       cmux perf sim [--profile cosmic-gray|unreasonable] [--scale N] [--seconds N] [--build-seconds N] [--events N] [--shape FILE.json]\n  profile  samples the app for N seconds (default 10) against a 120 Hz frame (8.33 ms): frames, main-thread\n           stalls, layout shifts, responsiveness (--probe drives tab, workspace, sidebar, palette and typing),\n           CPU, RAM, GPU and disk; each row names its source and whether a Release build has it\n  compare  two reports side by side with the change and a verdict per row\n  ab       profile, hot-apply SHA (scripts/cmux-next/hot-apply.py), profile, compare; --rollback undoes it\n  sim      drives load on the app behind --app-socket or --socket (required) and closes what it made on exit\nSee docs/cmux-next/perf-loop.md.",
         seconds: "--seconds takes a whole number from 1 to {max}",
         events: "--events takes a whole number from 1 to 1000000",
         scale: "--scale takes a whole number from 1 to 100",
@@ -415,6 +421,9 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         compare_summary: "{fixed} fixed, {broke} broke, {better} better, {worse} worse, {over} over budget after",
         sim_needs_socket: "cmux perf sim needs the app named: pass --app-socket PATH (or --socket PATH); it never picks an app for you",
         sim_start: "cmux perf sim: profile {profile} ({from}), {seconds} s, {events} lines a burst; Ctrl-C stops and cleans up",
+        sim_pty_cap: "cmux perf sim: {max} PTYs on this host, {used} in use, {headroom} kept free: at most {cap} terminals (the shape asks for {wanted}, building {terminals})",
+        sim_built: "cmux perf sim: built in {build_s} s ({terminals} terminals); running {seconds} s from now",
+        sim_built_cut: "cmux perf sim: build cut short at {build_s} s (--build-seconds) with {terminals} terminals; running {seconds} s from now",
         ab_no_repo: "no cmux checkout here with scripts/cmux-next/hot-apply.py: run from one or pass --repo DIR",
         ab_ssh: "Over ssh: hot-apply cannot restart sessions (--restart-sessions) from here; the daemon swap and web bundle still go in.",
         ab_profiling: "profiling {label} for {seconds} s",
@@ -597,7 +606,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         unreadable: "{path} を読み取れません: {error}",
     },
     perf: PerfMessages {
-        usage: "使い方: cmux perf profile [--seconds N] [--out FILE.json] [--label L] [--probe]\n        cmux perf compare BEFORE.json AFTER.json\n        cmux perf ab --patch SHA [--rollback] [--seconds N] [--probe] [--out-dir DIR] [--repo DIR] [--parts web,rust,ffi]\n        cmux perf sim [--profile cosmic-gray|unreasonable] [--scale N] [--seconds N] [--events N] [--shape FILE.json]\n  profile  アプリを N 秒 (既定 10) 計測し、120 Hz のフレーム (8.33 ms) と比べます: フレーム、メインスレッドの停止、\n           レイアウトシフト、応答性 (--probe でタブ、ワークスペース、サイドバー、パレット、入力を操作)、\n           CPU、RAM、GPU、ディスク。各行に取得元と Release ビルドで取れるかを示します\n  compare  2 つのレポートを並べ、変化と行ごとの判定を表示します\n  ab       計測、SHA のホット適用 (scripts/cmux-next/hot-apply.py)、再計測、比較。--rollback で元に戻します\n  sim      --app-socket または --socket (必須) のアプリに負荷をかけ、終了時に作ったものだけを閉じます\n詳細は docs/cmux-next/perf-loop.md を参照してください。",
+        usage: "使い方: cmux perf profile [--seconds N] [--out FILE.json] [--label L] [--probe]\n        cmux perf compare BEFORE.json AFTER.json\n        cmux perf ab --patch SHA [--rollback] [--seconds N] [--probe] [--out-dir DIR] [--repo DIR] [--parts web,rust,ffi]\n        cmux perf sim [--profile cosmic-gray|unreasonable] [--scale N] [--seconds N] [--build-seconds N] [--events N] [--shape FILE.json]\n  profile  アプリを N 秒 (既定 10) 計測し、120 Hz のフレーム (8.33 ms) と比べます: フレーム、メインスレッドの停止、\n           レイアウトシフト、応答性 (--probe でタブ、ワークスペース、サイドバー、パレット、入力を操作)、\n           CPU、RAM、GPU、ディスク。各行に取得元と Release ビルドで取れるかを示します\n  compare  2 つのレポートを並べ、変化と行ごとの判定を表示します\n  ab       計測、SHA のホット適用 (scripts/cmux-next/hot-apply.py)、再計測、比較。--rollback で元に戻します\n  sim      --app-socket または --socket (必須) のアプリに負荷をかけ、終了時に作ったものだけを閉じます\n詳細は docs/cmux-next/perf-loop.md を参照してください。",
         seconds: "--seconds には 1 から {max} までの整数を指定してください",
         events: "--events には 1 から 1000000 までの整数を指定してください",
         scale: "--scale には 1 から 100 までの整数を指定してください",
@@ -634,6 +643,9 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         compare_summary: "修正 {fixed}、予算超過に悪化 {broke}、改善 {better}、悪化 {worse}、変更後に予算超過 {over}",
         sim_needs_socket: "cmux perf sim には対象アプリの指定が必要です: --app-socket PATH (または --socket PATH) を渡してください。アプリを自動では選びません",
         sim_start: "cmux perf sim: プロファイル {profile} ({from})、{seconds} 秒、1 回のバーストで {events} 行。Ctrl-C で停止して片付けます",
+        sim_pty_cap: "cmux perf sim: このホストの PTY は {max} 個、使用中 {used} 個、空けておく分 {headroom} 個: ターミナルは最大 {cap} 個 (形状の要求は {wanted} 個、作成するのは {terminals} 個)",
+        sim_built: "cmux perf sim: {build_s} 秒で構築しました (ターミナル {terminals} 個)。ここから {seconds} 秒実行します",
+        sim_built_cut: "cmux perf sim: 構築を {build_s} 秒で打ち切りました (--build-seconds、ターミナル {terminals} 個)。ここから {seconds} 秒実行します",
         ab_no_repo: "ここに scripts/cmux-next/hot-apply.py のある cmux チェックアウトがありません: その中で実行するか --repo DIR を渡してください",
         ab_ssh: "ssh 経由: ここからはセッションの再起動 (--restart-sessions) はできません。デーモンの差し替えと Web バンドルは適用されます。",
         ab_profiling: "{label} を {seconds} 秒計測しています",

@@ -307,6 +307,7 @@ fn perf_parse_accepts_each_verb() {
         Command::Sim(SimArgs {
             profile: "unreasonable".into(),
             seconds: super::DEFAULT_SIM_SECONDS,
+            build_seconds: super::DEFAULT_SIM_BUILD_SECONDS,
             events: Some(10_000),
             shape: None,
             scale: 1,
@@ -329,6 +330,8 @@ fn perf_parse_refuses_bad_input() {
         &["sim", "--events", "2000000"],
         &["sim", "--scale", "0"],
         &["sim", "--scale", "101"],
+        &["sim", "--build-seconds", "0"],
+        &["sim", "--build-seconds", "3601"],
         &["bogus"],
         &[],
     ] {
@@ -346,6 +349,7 @@ fn builtin_shapes_parse_and_both_profiles_are_known() {
         let shape = sim::load_shape(&SimArgs {
             profile: name.clone(),
             seconds: 1,
+            build_seconds: 1,
             events: None,
             shape: None,
             scale: 1,
@@ -441,6 +445,7 @@ fn the_cosmic_gray_capture_is_read_as_captured() {
     let builtin = sim::load_shape(&SimArgs {
         profile: "cosmic-gray".into(),
         seconds: 1,
+        build_seconds: 1,
         events: None,
         shape: None,
         scale: 1,
@@ -458,6 +463,7 @@ fn scale_and_unreasonable_multiply_the_capture() {
         sim::load_shape(&SimArgs {
             profile: profile.into(),
             seconds: 1,
+            build_seconds: 1,
             events: None,
             shape: None,
             scale,
@@ -478,4 +484,67 @@ fn scale_and_unreasonable_multiply_the_capture() {
     assert_eq!(load("unreasonable", 2).workspaces, 213 * 8);
     let parsed = super::parse(&words(&["sim", "--scale", "5"])).unwrap();
     assert!(matches!(parsed, Command::Sim(SimArgs { scale: 5, .. })));
+}
+
+#[test]
+fn sim_run_window_starts_when_the_build_ends() {
+    use std::time::{Duration, Instant};
+    let t0 = Instant::now();
+    let mut phases = sim::Phases::new(t0, Duration::from_secs(180));
+    assert!(!phases.running(t0), "no run before the build ends");
+    assert!(!phases.build_over(t0 + Duration::from_secs(179)));
+    assert!(phases.build_over(t0 + Duration::from_secs(180)));
+    // A 150 s build does not eat a 120 s run: the run ends 120 s after the build.
+    let built = t0 + Duration::from_secs(150);
+    phases.start_run(built, 120);
+    assert_eq!(phases.run_until, Some(built + Duration::from_secs(120)));
+    assert!(phases.running(built + Duration::from_secs(119)));
+    assert!(!phases.running(built + Duration::from_secs(120)));
+    assert_eq!(phases.build_time(built + Duration::from_secs(60)), Duration::from_secs(150));
+    assert_eq!(phases.run_time(built + Duration::from_secs(60)), Duration::from_secs(60));
+}
+
+#[test]
+fn pty_cap_keeps_headroom_free() {
+    use super::pty::{self, Pool};
+    // macOS default pool, 200 already in use by other sessions.
+    assert_eq!(pty::cap(Pool { max: 511, in_use: Some(200) }, 64), 247);
+    // In use unknown: only the headroom below the pool.
+    assert_eq!(pty::cap(Pool { max: 511, in_use: None }, 64), 447);
+    // A pool already nearly full gives no terminals rather than wrapping.
+    assert_eq!(pty::cap(Pool { max: 511, in_use: Some(500) }, 64), 0);
+    assert!(pty::is_pty_slave("ttys012"));
+    assert!(!pty::is_pty_slave("ttys"));
+    assert!(!pty::is_pty_slave("ttyp0"));
+    assert!(!pty::is_pty_slave("ttys01a"));
+}
+
+#[test]
+fn sim_shape_is_trimmed_to_the_terminal_cap() {
+    let shape = sim::Shape {
+        workspaces: 3,
+        panes_per_workspace: vec![4, 4, 4],
+        extra_tabs_per_pane: 1,
+        ..sim::Shape::default()
+    };
+    assert_eq!(sim::terminals_in(&shape), 24);
+    assert_eq!(sim::cap_terminals(shape.clone(), 24), shape);
+    let capped = sim::cap_terminals(shape.clone(), 13);
+    // 4 panes x 2 terminals, then 2 panes (4 terminals) fit; the third workspace is not made.
+    assert_eq!(capped.workspaces, 2);
+    assert_eq!(capped.panes_per_workspace, vec![4, 2]);
+    assert_eq!(sim::terminals_in(&capped), 12);
+    assert_eq!(sim::cap_terminals(shape, 1).workspaces, 0);
+    // The unreasonable profile's build fits a nearly full macOS pool.
+    let (unreasonable, _) = sim::load_shape(&SimArgs {
+        profile: "unreasonable".into(),
+        seconds: 1,
+        build_seconds: 1,
+        events: None,
+        shape: None,
+        scale: 1,
+    })
+    .unwrap();
+    let capped = sim::cap_terminals(unreasonable, 447);
+    assert!(sim::terminals_in(&capped) <= 447);
 }
