@@ -243,7 +243,7 @@ pub(super) async fn send(
         // Sent either way; unrecorded, its status is gated as a team message's (`status`).
         hub.outbox.record_mesh_origin(&receipt.message_id, target, caller, false, warning);
     }
-    Ok(status_of(&receipt, target, warning.as_deref()))
+    Ok(status_of(&receipt, target, warning))
 }
 
 /// `_acpmux/send_status` of a delivery the hub holds: its receipt, read once.
