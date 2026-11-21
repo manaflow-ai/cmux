@@ -45,7 +45,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_bench_cli_calls.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_bench_cli_calls.py"
 
 [[test]]
 path = "tests/test_cmux_next_checkout_retry.py"

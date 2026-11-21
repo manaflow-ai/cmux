@@ -53,6 +53,10 @@ UNWIRED: set[str] = {
     # --affected's per-diff guard step selection; it reads the workflows as data. Run it by hand when
     # scripts/ci/guard_step_inputs.py or run_ci_guards.py changes. Exit: as below.
     "tests/test_guard_step_inputs.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, Lawrence 2026-10-23). The pre-push hook
+    # refuses a push that adds an unbounded job (prepush-gate.py JOB_BOUNDS_CHECK); it reads the workflows as data.
+    # Run it by hand after changing scripts/ci/workflow_job_bounds.py or .github/workflow-job-bounds.json.
+    "tests/test_ci_workflow_job_bounds.py",
     # lane = "manual" in tests/test-execution.d/nightly.toml (no new CI tests, CLAUDE.md). Checks the nightly health
     # gate's verdicts; it reads nightly-next-health.yml only as data. Run it by hand when nightly_next_health.py or
     # that workflow changes. Exit: as below.
@@ -93,6 +97,12 @@ UNWIRED: set[str] = {
     # lane = "manual" (no new CI tests, CLAUDE.md). It checks pool reads against .github/runners.json and that
     # copy against main's; run it by hand when a pool read or the pools change. Exit: as below.
     "tests/test_ci_runner_pools_copy.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). Both read every workflow only
+    # as data: a job whose need runs past a skipped ancestor has a status function in its if (tree-owner-wait,
+    # runs 44818589673, 44834489171), and a fleet-reachable job sources ensure-gh-attestation.sh before
+    # `gh attestation` (#48350). Run them by hand when a job's needs/if or a gh attestation step changes. Exit: as below.
+    "tests/test_ci_needs_skip_propagation.py",
+    "tests/test_ci_gh_attestation_has_gh.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It reads workflows and scripts only as data: which callers
     # read reload.sh's App path after --build-only without --keep-app. Run it after adding such a caller. Exit: as below.
     "tests/test_reload_build_only_app_path_readers.py",

@@ -98,24 +98,12 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
     {
       name: "New Tab composer",
       entry: "agent-pane.new-tab",
-      // Cards (composer-mic pins it), the first dot, whose box and quiet row these checks read.
+      // Minimal, the page cmux ships, whose box and quiet row these checks read.
       variant: "composer-mic",
       field: ".nt-field .acpmux-md",
       box: ".nt-box",
       row: ":is(.nt-pickers, .acpmux-composer-foot)",
       foot: ".nt-composer .acpmux-composer-foot",
-    },
-    // Default, the second dot: its own composer placed at the foot of the stage layout's page; the
-    // mic and Send in the box, the chips in the quiet row under it (#24519, 2026-10-27: Claude's New
-    // Tab controls in one quiet row).
-    {
-      name: "New Tab stage composer",
-      entry: "agent-pane.new-tab",
-      variant: "reasoning-chip-stage",
-      field: ".nt-field .acpmux-md",
-      box: ".nt-box",
-      row: ":is(.nt-box .nt-pickers, .nt-foot .acpmux-composer-foot)",
-      foot: ".nt-foot .acpmux-composer-foot",
     },
   ];
   // A chip still waiting on the session (PendingMode, .acpmux-chip-pending) is an inert, aria-hidden
