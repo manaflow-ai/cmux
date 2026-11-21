@@ -180,6 +180,12 @@ public final class CloudSetup {
         return await routed(read()).choice(family: family, model: model, account: account)
     }
 
+    /// Whether a start has a selected local connection or can choose one for its agent.
+    public func hasConnection(_ connection: String?, harness: String?, model: String?) async -> Bool {
+        if connection != nil { return true }
+        return await choose(harness: harness, model: model, account: nil).connectionID != nil
+    }
+
     /// The families whose organization shared key a start found unrouted (``organizationUnrouted(_:)``).
     public private(set) var unroutedOrganization: Set<String> = []
 
