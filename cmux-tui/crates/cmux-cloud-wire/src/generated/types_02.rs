@@ -4,6 +4,8 @@
 #[allow(unused_imports)]
 use super::*;
 
+pub type EmailAddress = String;
+
 /// A lowercase DNS name such as acme.com.
 pub type EmailDomain = String;
 
@@ -895,11 +897,4 @@ pub struct HostNetworkPeer {
     pub authority_version: String,
     pub inbound: Vec<HostNetworkPeerInboundItem>,
     pub outbound: Vec<HostNetworkPeerOutboundItem>,
-}
-
-wire_enum! {
-    HostNetworkPeerInboundItemVariant1Protocol {
-        Tcp = "tcp",
-        Udp = "udp",
-    }
 }
