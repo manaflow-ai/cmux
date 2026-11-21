@@ -94,6 +94,8 @@ import Testing
         ]
         let json = (try? JSONSerialization.data(withJSONObject: line, options: [.sortedKeys])).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
         print("LINKBENCH \(json)")
+        // The simulator step keeps attachments in its evidence (kit-attachments/), not stdout.
+        Attachment.record("LINKBENCH \(json)\n", named: "linkbench-\(scenario)-\(steady ? "after" : "before").txt")
     }
 
     /// The `acpmux` channel goes quiet while the Mac's link stays up (its heartbeat probes the
