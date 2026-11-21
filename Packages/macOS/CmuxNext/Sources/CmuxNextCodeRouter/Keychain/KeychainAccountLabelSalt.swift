@@ -30,7 +30,7 @@ public struct KeychainAccountLabelSalt: AccountLabelSaltProviding {
         add[kSecValueData as String] = fresh
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         add[kSecAttrLabel as String] = "cmux account label salt"
-        let status = SecItemAdd(add as CFDictionary, nil)
+        let status = loginKeychain.withoutUI { SecItemAdd(add as CFDictionary, nil) }
         if status == errSecSuccess { return fresh }
         // Another process created it first: use that one.
         if status == errSecDuplicateItem, let existing = try read() { return existing }

@@ -715,7 +715,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
     }
 
-    /// The table cards that name `source` (a path or web picture whose thumbnail arrived) draw again with it.
+    /// The table cards and picture bubbles that name `source` (a path or web picture whose thumbnail arrived) draw again with it.
     func refreshTablePictures(source: String) {
         guard !stopped, let store = controller.store else { return }
         for item in shown where !item.isRetracted && HomeMapping.isAgent(item.author, shownSummary) {
@@ -725,7 +725,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
             }
             let id = HomeMapping.id(item, aliases: aliases)
             guard names, let message = store.state.message(id) else { continue }
-            redrawTableCards(item, id: id, in: message)
+            redrawPictures(item, id: id, in: message)
         }
         tableShimmer.place()
     }
@@ -733,16 +733,33 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// A table card whose pictures changed (one became ready) draws again with them, in place.
     private func refreshTablePictures(_ item: TranscriptItem, id: ID, in message: Message) {
         guard !tableHashes(item).isEmpty else { return }
-        redrawTableCards(item, id: id, in: message)
+        redrawPictures(item, id: id, in: message)
     }
 
-    private func redrawTableCards(_ item: TranscriptItem, id: ID, in message: Message) {
+    /// `item`'s table cards and Markdown picture bubbles (HomeMapping.pictureParts) draw again, in place, with the
+    /// pictures that are ready now. A picture whose file could not be made shows as its words instead: its bubble
+    /// goes, so the rows map again.
+    private func redrawPictures(_ item: TranscriptItem, id: ID, in message: Message) {
         let parts = HomeMapping.projectedParts(item, summary: shownSummary, media: core.media, links: core.links).parts
+        func isPicture(_ part: Part?) -> Bool {
+            if case let .attachment(a)? = part { return HomeMapping.pictureSource(a.id) != nil }
+            return false
+        }
+        guard parts.count == message.parts.count else {
+            if message.parts.contains(where: isPicture) { rebuild() }
+            return
+        }
+        var pictured = message.parts
         for (index, part) in parts.enumerated() {
+            if isPicture(part), isPicture(message.parts[checked: index]), message.parts[checked: index] != part {
+                pictured.update(at: index) { $0 = part }
+                continue
+            }
             guard case let .custom(want) = part, want.kind == HomeTableRowProvider.kind,
                   case let .custom(have)? = message.parts[checked: index], have.kind == want.kind, have != want else { continue }
             controller.dispatch(.setCustomPart(id, index, want))
         }
+        if pictured != message.parts { controller.dispatch(.cmuxSetParts(id, pictured)) }
     }
 
     /// A link preview's picture, fetched by its hash like an attachment's
@@ -813,6 +830,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let opener = HomeAttachmentOpen(folder: HomeMedia.directory)
         return (try? opener.namedCopy(of: local.fileURL, name: local.ref.name, hash: local.ref.hash)) ?? local.fileURL
     }
+    /// A picture the person deleted keeps its prepared file here until a send or `removeDraft`:
+    /// Edit > Undo can put it back in the field, and the send still has its file.
+    func canRestoreDraftAttachment(_ id: ID) -> Bool { drafts[id] != nil }
     func takeDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { (onAttachmentDrop ?? onAttachmentPasteboard)(pasteboard) }
     func acceptsDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { (acceptsAttachmentDrop ?? acceptsAttachmentDrag)(pasteboard) }
     func attachmentDropTargeted(_ targeted: Bool) { onAttachmentDropTarget(targeted) }
