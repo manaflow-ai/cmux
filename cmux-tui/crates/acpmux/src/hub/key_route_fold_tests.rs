@@ -244,6 +244,11 @@ async fn a_peer_agent_id_beats_a_local_short_name() {
         Some("6e0bad7d-1100-4000-8000-000000000001"),
     );
     assert_eq!(hub.remote_strict_matches("6e0bad7d-1100-4000-8000-000000000001"), 1);
+    assert_eq!(hub.remote_matches("lanevm-7/6e0bad"), 1);
+    assert!(!hub.mesh_may_route("6e0bad"));
+    list_with_agent_id(&hub, "lanevm-8", "mux-two", "other", "idle", Some("6e0badff"));
+    assert_eq!(hub.remote_matches("6e0bad"), 2);
+    assert!(!hub.mesh_may_route("6e0bad"), "an ambiguous prefix stays on known peers");
     assert!(hub.resolve("6e0bad7d-1100-4000-8000-000000000001").is_err());
     assert_eq!(
         hub.key_route("6e0bad7d-1100-4000-8000-000000000001").unwrap().as_deref(),

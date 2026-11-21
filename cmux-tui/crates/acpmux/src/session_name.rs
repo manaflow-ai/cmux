@@ -90,10 +90,8 @@ pub fn candidates<'a>(names: impl IntoIterator<Item = &'a str>, key: &str) -> Ve
                 Some((1, 0))
             } else if n.contains(&lower) {
                 Some((2, 0))
-            } else if let Some(distance) = id_prefix_distance(&n, &lower) {
-                Some((3, distance))
             } else {
-                None
+                id_prefix_distance(&n, &lower).map(|distance| (3, distance))
             };
             rank.map(|(rank, distance)| (rank, distance, name))
         })

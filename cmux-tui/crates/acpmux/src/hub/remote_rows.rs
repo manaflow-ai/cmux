@@ -239,6 +239,37 @@ impl RemoteRows {
         keys.into_iter().filter_map(|k| self.rows.get_key_value(k.as_str())).collect()
     }
 
+    /// The best strict matches, in routing order: mux id or name, full agent id, agent prefix.
+    /// Read only indexed candidates, including for host-qualified selectors.
+    pub(super) fn strict_matches(&self, key: &str) -> Vec<&RemoteSession> {
+        use crate::session_identity::{AgentIdMatch, match_agent_session_id};
+        if let Some(row) = self.get(key) {
+            return vec![row];
+        }
+        let (peer, agent_key) = key.split_once('/').map_or((None, key), |(p, k)| (Some(p), k));
+        let mut named = Vec::new();
+        let mut exact = Vec::new();
+        let mut prefix = Vec::new();
+        for (id, row) in self.named(key) {
+            if super::peers::names_remote(id, row, key) {
+                named.push(row.as_ref());
+            } else if peer.is_none_or(|p| p == row.peer) {
+                match match_agent_session_id(row.summary.agent_session_id(), agent_key) {
+                    Some(AgentIdMatch::Full) => exact.push(row.as_ref()),
+                    Some(AgentIdMatch::Prefix) => prefix.push(row.as_ref()),
+                    None => {}
+                }
+            }
+        }
+        if !named.is_empty() {
+            named
+        } else if !exact.is_empty() {
+            exact
+        } else {
+            prefix
+        }
+    }
+
     /// The rows whose name ends in `key`'s last segment: every row `key` can be the short name
     /// of ([`super::peers::remote_segment`] decides which are).
     pub(crate) fn short_named<'a>(
