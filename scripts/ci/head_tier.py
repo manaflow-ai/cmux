@@ -96,15 +96,23 @@ def head_facts(event: dict, depth: int = 30) -> dict | None:
             return subprocess.run(["git", "cat-file", "-e", f"{rev}^{{commit}}"], capture_output=True,
                                   timeout=30).returncode == 0
 
+        # A depth only bounds the download in a checkout that is already shallow (CI's); in a full clone it would
+        # write .git/shallow for every worktree (tests/test_ci_no_shallow_dev_fetch.py).
+        shallow = _git("rev-parse", "--is-shallow-repository").strip() == "true"
+
+        def fetch(rev: str, depth_wanted: int) -> None:
+            _git("fetch", "--no-tags", "--quiet", *([f"--depth={depth_wanted}"] if shallow else []),
+                 "--filter=tree:0", "origin", rev)
+
         if not have(sha):
-            _git("fetch", "--no-tags", "--quiet", "--depth=1", "--filter=tree:0", "origin", sha)
+            fetch(sha, 1)
         parents, _, message = commit(sha)
         if len(parents) != 2 or not merge.match(message):
             return {"base_merge_only": False, "own_last": None}
         rev = parents[0]
         for _ in range(depth):  # first parents: past earlier base merges to the branch's own last commit
             if not have(rev):
-                _git("fetch", "--no-tags", "--quiet", f"--depth={depth}", "--filter=tree:0", "origin", rev)
+                fetch(rev, depth)
             parents, when, message = commit(rev)
             if not (len(parents) == 2 and merge.match(message)):
                 return {"base_merge_only": True, "own_last": when}

@@ -15,6 +15,14 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import head_tier  # noqa: E402
 import pr_router  # noqa: E402
 
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", str(Path(__file__).resolve().parent / "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+
 
 def event(draft: bool, labels: tuple[str, ...] = (), action: str = "synchronize") -> dict:
     return {"action": action, "pull_request": {"draft": draft, "labels": [{"name": n} for n in labels]}}
@@ -71,7 +79,7 @@ class IdleTests(unittest.TestCase):
     """A real repository: a branch with its own commit, then two base merges on top."""
 
     def git(self, *args: str, when: int | None = None) -> str:
-        env = dict(os.environ)
+        env = git_fixture_env.fixture_env()
         if when is not None:
             env.update(GIT_AUTHOR_DATE=f"{when} +0000", GIT_COMMITTER_DATE=f"{when} +0000")
         return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
@@ -82,7 +90,7 @@ class IdleTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.dir = self.tmp.name
         self.now = 1_800_000_000
-        self.git("init", "-q", "-b", "feat-cmux-next")
+        git_fixture_env.init_repo(self.dir, "-b", "feat-cmux-next")
         self.git("commit", "-q", "--allow-empty", "-m", "base", when=self.now - 10 * DAY)
         self.git("checkout", "-q", "-b", "lane/x")
         self.git("commit", "-q", "--allow-empty", "-m", "own work", when=self.now - 3 * DAY)
