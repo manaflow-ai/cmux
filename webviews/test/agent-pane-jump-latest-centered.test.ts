@@ -61,9 +61,21 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
       ({ JUMP_LATEST }) => {
         const center = (selector: string) =>
           document.querySelector(selector)?.getBoundingClientRect().right ?? Number.NaN;
+        const box = document
+          .querySelector(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box")
+          ?.getBoundingClientRect();
+        const main = document.querySelector(".acpmux-main")!;
+        // The column's end: where the card ends when it fits (--cv-inset-end, from the pane's right).
+        const columnEnd =
+          main.getBoundingClientRect().right -
+          (Number.parseFloat(getComputedStyle(document.querySelector(".acpmux-composer")!).paddingRight) || 0);
+        const button = document.querySelector(".acpmux-jump-latest")?.getBoundingClientRect();
         return {
           button: center(".acpmux-jump-latest"),
+          buttonLeft: button?.left ?? Number.NaN,
           composer: center(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box"),
+          composerMiddle: box ? box.left + box.width / 2 : Number.NaN,
+          overflows: box ? box.right > columnEnd + 0.5 : false,
           shown: document.querySelector(JUMP_LATEST)?.hasAttribute("data-shown") ?? false,
         };
       },
@@ -146,6 +158,17 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
             const seen = await centers(page);
             const label = `${width}px ${JSON.stringify(state)}`;
             expect(seen.shown, label).toBe(true);
+            if (seen.overflows) {
+              // A pane too narrow for the card beside the computer use preview: the card runs past its
+              // column's end (a min width of its own), and the stack keeps to the column. It still
+              // stands inside the card's end half, clear of the middle the hat's pill takes.
+              if (!(seen.button <= seen.composer && seen.buttonLeft > seen.composerMiddle))
+                off.push(
+                  `${label}: card overflows; button ${seen.buttonLeft}-${seen.button}, ` +
+                    `card middle ${seen.composerMiddle}, end ${seen.composer}`,
+                );
+              continue;
+            }
             // Inside the card's end edge, by the same gap everywhere.
             gap ??= seen.composer - seen.button;
             if (!(gap >= 0 && Math.abs(seen.composer - seen.button - gap) <= 0.5))
