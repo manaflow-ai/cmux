@@ -76,11 +76,28 @@ const webviews = path.resolve(import.meta.dir, "..");
 const A = "0190a000-0000-7000-8000-00000000fd01";
 const B = "0190a000-0000-7000-8000-00000000fd02";
 const S = "0190a000-0000-7000-8000-00000000fd03";
-const MARK = `Answer ${TURNS}:`;
+/// Each chat's own words and row ids: B's answers read differently, and B's and S's records start one and two later,
+/// so a switch from A changes every row in view (identical chats would read as no change at all).
+const WORD = new Map([
+  [A, "Answer"],
+  [B, "Reply"],
+  [S, "Answer"],
+]);
+const markOf = (chat: string) => `${WORD.get(chat)} ${TURNS}:`;
 
 type Chat = { session: Record<string, unknown>; events: Record<string, unknown>[] };
 const chatOf = (sessionId: string, title: string, running: boolean): Chat => {
-  const { events, session } = papercutEvents({ turns: TURNS, running });
+  const word = WORD.get(sessionId)!;
+  const { events, session } = papercutEvents({
+    turns: TURNS,
+    running,
+    answer: (n) => `${word} ${n}: the checks on the merged head are green.`,
+    lead: Array.from({ length: sessionId === B ? 1 : sessionId === S ? 2 : 0 }, () => [
+      "mux",
+      "user_message",
+      { text: "Before we start" },
+    ]),
+  });
   return {
     session: { ...session, sessionId, title },
     events: events.map((event) => ({ ...event, sessionId })),
@@ -300,10 +317,49 @@ function streamView(frame: FrameRecord): FrameRecord {
   return { ...frame, rows: rows.filter((_, at) => at !== bottom) };
 }
 
+/**
+ * The stream arm's judge. The view follows the growing reply, so rows leave the top of the view and the reply's own
+ * row grows and may change identity (the working row becomes the answer): none of that is a shift. A shift is a row
+ * seen in two frames in a row (the bottom-most left out) whose content position changed, or a composer that moved.
+ * Settled: the first frame from which no such move happens again and the final bottom row is already shown.
+ */
+function judgeStream(frames: FrameRecord[], t0: number): Judged {
+  const views = frames.map(streamView);
+  const moved = (a: FrameRecord, b: FrameRecord): string | null => {
+    const before = new Map(a.rows.map((row) => [row.id, row.top]));
+    for (const row of b.rows) {
+      const top = before.get(row.id);
+      if (top !== undefined && Math.abs(top - row.top) > 0.5)
+        return `row ${row.id} ${top.toFixed(1)} -> ${row.top.toFixed(1)}`;
+    }
+    const [ca, cb] = [a.composer, b.composer];
+    if (ca && cb && (Math.abs(ca.top - cb.top) > 0.5 || Math.abs(ca.height - cb.height) > 0.5))
+      return `composer ${ca.top.toFixed(1)}+${ca.height.toFixed(1)} -> ${cb.top.toFixed(1)}+${cb.height.toFixed(1)}`;
+    return null;
+  };
+  const bottomOf = (frame: FrameRecord) =>
+    frame.rows.reduce<{ id: string; top: number } | null>((best, row) => (!best || row.top >= best.top ? row : best), null)
+      ?.id ?? null;
+  const finalBottom = frames.length ? bottomOf(frames.at(-1)!) : null;
+  const why: string[] = [];
+  let lastMove = -1;
+  for (let at = 1; at < views.length; at += 1) {
+    const reason = moved(views[at - 1]!, views[at]!);
+    if (!reason) continue;
+    lastMove = at;
+    if (why.length < 5) why.push(`@${(frames[at]!.t - t0).toFixed(0)}ms ${reason}`);
+  }
+  let settled = Math.max(0, lastMove);
+  while (settled < frames.length - 1 && bottomOf(frames[settled]!) !== finalBottom) settled += 1;
+  const shifts = views.slice(1).filter((view, at) => moved(views[at]!, view)).length;
+  return { settledMs: frames.length ? Math.max(0, frames[settled]!.t - t0) : 0, shifts, why, frames: frames.length };
+}
+
 type Judged = { settledMs: number; shifts: number; why: string[]; frames: number };
 function judge(read: Read, arm: Arm): Judged {
   const frames = read.frames.filter((frame) => frame.t >= read.t0);
-  const view = arm === "stream" ? frames.map(streamView) : frames;
+  if (arm === "stream") return judgeStream(frames, read.t0);
+  const view = frames;
   const metrics = classifyFrames(view);
   const settledAt = metrics.finalFirstPaintMs ?? frames.at(-1)?.t ?? read.t0;
   return {
@@ -368,18 +424,23 @@ function fromRestartBench(scenario: "open_recent" | "restart", arm: Arm): Round[
     shiftFrames: number;
     frames: number;
     boundMs: number | null;
+    attachAnsweredMs: number | null;
     shifts: { index: number; why: string }[];
   };
   const got = JSON.parse(line.slice("FIRST_LOAD_JSON ".length)) as Record<string, { rounds: Got[] }>;
   return got[mode]!.rounds.map((r) => {
     if (r.finalFirstPaintMs === null || r.boundMs === null) throw new Error(`MODE=${mode}: a round never settled`);
+    // No page can draw data before it exists: when the settled state came after acpmux answered the attach (the
+    // running turn moved on since the copy was kept), the bound starts from that answer.
+    const ready = r.attachAnsweredMs !== null && r.finalFirstPaintMs > r.attachAnsweredMs ? r.attachAnsweredMs : 0;
+    const boundMs = ready + r.boundMs;
     return {
       settledMs: r.finalFirstPaintMs,
       shifts: r.shiftFrames,
       why: r.shifts.slice(0, 5).map((one) => `frame ${one.index} ${one.why}`),
       frames: r.frames,
-      boundMs: r.boundMs,
-      ratio: r.finalFirstPaintMs / Math.max(r.boundMs, 1),
+      boundMs,
+      ratio: r.finalFirstPaintMs / Math.max(boundMs, 1),
     };
   });
 }
@@ -467,7 +528,7 @@ try {
         context = await newContext();
         page = await context.newPage();
         await page.goto(urlFor(A));
-        await waitPainted(page, MARK);
+        await waitPainted(page, markOf(A));
         await settleIdle(page);
         await start(page);
         if (arm === "stream") startStream();
@@ -484,7 +545,7 @@ try {
         context = await newContext();
         page = await context.newPage();
         await page.goto(urlFor(target));
-        await waitPainted(page, MARK);
+        await waitPainted(page, markOf(target));
         await settleIdle(page);
         await page.evaluate(() => {
           (window as unknown as { __hidden: boolean }).__hidden = true;
@@ -500,7 +561,7 @@ try {
           document.dispatchEvent(new Event("visibilitychange"));
         });
       } else throw new Error(`${scenario} runs in first-load-after-restart.bench.ts`);
-      const read = await framesOf(page, MARK);
+      const read = await framesOf(page, markOf(target));
       stopStream();
       const judged = judge(read, arm);
       const copy = await settledCopy(page);
