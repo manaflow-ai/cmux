@@ -53,7 +53,7 @@ case "${1:-}" in
     if [ -n "$tmp" ] && [ -d "$tmp" ] && [ "$tmp" != / ] && [ "$tmp" != "$HOME" ]; then
       find "$tmp" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
     fi
-    rm -rf signed signed-app-handoff final-dmg nightly-out tested cef-runtime
+    rm -rf signed signed-app-handoff final-dmg nightly-out nightly-deltas tested cef-runtime
     rm -f "${CHANNEL_DMG_PREFIX:-cmux-nightly-next-macos}"-*.delta
     python3 "$(dirname "$0")/../nightly_build_state.py" release || true
     ;;
