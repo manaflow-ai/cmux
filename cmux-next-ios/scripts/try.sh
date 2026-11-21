@@ -3,7 +3,7 @@
 # the iPhone twin of `cmux app try PR` (cmuxterm-hq docs/design/ios-dev-channels.md).
 #
 #   cmux-next-ios/scripts/try.sh <PR number|PR URL|branch|sha|.> [--device-id UDID] [--target-worker W]
-#       [--backend ORIGIN] [--sign-in] [--dry-run]
+#       [--backend ORIGIN] [--sign-in] [--urgent] [--dry-run]
 #   cmux-next-ios/scripts/try.sh status      what cmux Dev runs on each phone, and the last tries' times
 #
 # Leo, 2026-11-21: "what is a dev build of iPhone? ... if I want to just have a bunch of fucking YOLO
@@ -23,7 +23,9 @@
 #     the commit, so a rerun or a second Mac reattaches to the same step. Nothing builds here.
 #     A commit whose cmux-next-ios-sim.sh predates the try mode (read before sending) builds through
 #     the older handoff mode with tag dev instead (same bundle id; it carries the dev:dev build space until the PR
-#     takes feat-cmux-next with the try mode) and the report says so.
+#     takes feat-cmux-next with the try mode) and the report says so. A cold build waits in the
+#     simulator queue (13+ min behind 30 steps on 2026-11-21); --urgent puts it first (cmux-ci run
+#     --urgent, logged with a reason): only for the person waiting on their phone.
 #  3. On every connected iPhone (scripts/lib/iphone-review-targets.sh; --device-id for one): signs a
 #     copy with this Mac's Apple Development identity (sign_device_app.py: the team wildcard
 #     profile covers dev.cmux.mobile.dev), installs it through the sanctioned install and launches
@@ -45,9 +47,9 @@ source "$TRY_SCRIPT_DIR/review.sh"
 TRY_BUNDLE_ID=dev.cmux.mobile.dev
 TRY_REPO="${CNX_TRY_REPO:-manaflow-ai/cmux}"
 TRY_HOME="${CNX_TRY_HOME:-$HOME/Library/Application Support/cmux-dev/cnx-ios-try}"
-TRY_TARGET="" TRY_SIGN_IN=0 TRY_DRY_RUN=0 TRY_HOW="" TRY_NOTE=""
+TRY_URGENT=0 TRY_TARGET="" TRY_SIGN_IN=0 TRY_DRY_RUN=0 TRY_HOW="" TRY_NOTE=""
 
-try_usage() { sed -n '2,37p' "$0"; }
+try_usage() { awk 'NR > 1 && !/^#/ { exit } NR > 1' "$0"; }
 try_die() { echo "try.sh: $*" >&2; exit 2; }
 now_s() { /usr/bin/python3 -c 'import time; print(f"{time.time():.1f}")'; }
 since() { /usr/bin/python3 -c "import sys,time; print(f'{time.time()-float(sys.argv[1]):.0f}')" "$1"; }
@@ -90,6 +92,7 @@ try_fleet() {
   # Through the controller's shots form until it lists the modes (cmux-next-ios-sim.sh header).
   if [[ "$mode" == try ]]; then args+=(--arg shots --arg try=dev); else args+=(--arg shots --arg handoff=dev); fi
   [[ -z "$TARGET_WORKER" ]] || args+=(--target-worker "$TARGET_WORKER")
+  [[ $TRY_URGENT -eq 0 ]] || args+=(--urgent --reason "try.sh: $TRY_LABEL on the person's iPhone as cmux Dev; they are waiting")
   echo "==> cmux Dev for $TRY_LABEL: fleet step cmux-next-ios-sim.sh $mode (log: $STATE/fleet-$mode.log)"
   cmux_ci "${args[@]}" >"$STATE/fleet-$mode.log" 2>"$STATE/fleet-$mode.err"
 }
@@ -233,6 +236,7 @@ try_main() {
       --target-worker) TARGET_WORKER="${2:-}"; shift 2 ;;
       --backend) BACKEND_ARG="${2:-}"; [[ -n "$BACKEND_ARG" ]] || try_die "--backend needs a value"; shift 2 ;;
       --sign-in) TRY_SIGN_IN=1; shift ;;
+      --urgent) TRY_URGENT=1; shift ;;
       --dry-run) TRY_DRY_RUN=1; shift ;;
       -h|--help|help) try_usage; exit 0 ;;
       status) try_status; exit 0 ;;

@@ -1521,6 +1521,18 @@ class TryScriptTests(unittest.TestCase):
                 self.assertIn('--no-supersede', args)
                 # No session: cmux Dev keeps the person's own sign-in; nothing is sealed to the worker.
                 self.assertNotIn('--sign-in', args)
+                self.assertNotIn('--urgent', args)
+
+    def test_urgent_puts_the_step_first_with_a_reason(self):
+        with tempfile.TemporaryDirectory() as temp:
+            ci = Path(temp) / 'cmux-ci'
+            ci.write_text('#!/bin/sh\n[ "$1" = run ] && for a in "$@"; do echo "$a"; done > "%s/args"\n' % temp)
+            ci.chmod(0o755)
+            bash(f'source "{TRY}"; SHA={SHA} STATE="{temp}" TRY_LABEL="PR #1" TRY_URGENT=1 CMUX_CI="{ci}"; try_fleet try',
+                 {'CMUX_CI': str(ci)})
+            args = (Path(temp) / 'args').read_text().splitlines()
+            self.assertIn('--urgent', args)
+            self.assertIn('PR #1', args[args.index('--reason') + 1])
 
     def test_a_script_without_the_try_mode_builds_through_handoff(self):
         with tempfile.TemporaryDirectory() as temp:
