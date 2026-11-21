@@ -56,6 +56,14 @@ mod load_trial;
 mod local_reload;
 #[cfg(unix)]
 mod locale;
+
+/// The person's locale as a BCP-47 tag (`ja-JP`), read once (`locale::current`): the language of Home's
+/// preview words (`server::conversations`).
+#[cfg(unix)]
+pub(crate) fn person_locale() -> &'static str {
+    locale::current()
+}
+
 #[cfg(unix)]
 mod mirror;
 #[cfg(unix)]
@@ -107,6 +115,8 @@ mod subscriptions;
 mod supervisor;
 #[cfg(all(test, unix))]
 mod supervisor_tests;
+#[cfg(unix)]
+mod system_calendar;
 #[cfg(unix)]
 mod terminal_backends;
 #[cfg(unix)]
