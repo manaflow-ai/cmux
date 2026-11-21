@@ -48,6 +48,9 @@ pub struct ForkParams {
 pub struct SessionSummary {
     pub session_id: String,
     pub name: String,
+    /// The session's spoken handle, independent of its task name and ids. Older peers omit it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
     /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
     /// default. Absent otherwise, from a session named before it was kept, and from a peer on an
     /// older acpmux.
@@ -170,6 +173,19 @@ pub struct SessionSummary {
     /// One sidebar line; null before the first prompt.
     pub last_message: Option<LastMessage>,
     pub queued: u64,
+    /// Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
+    /// that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
+    /// a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub has_draft: bool,
+    /// Work runs below it with no turn open: a background subagent, a harness background process,
+    /// or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
+    /// update that installs when idle waits for it. Absent otherwise, and from a peer on an older
+    /// acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub working_below: bool,
     /// A turn failed: the prompts behind it wait for a client to resume them.
     pub queue_paused: bool,
     /// A daemon start holds what this chat queued until a person opens it: its folder is guarded
