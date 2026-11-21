@@ -102,6 +102,7 @@ fn browser_pane_split_frontend_replays_after_close_with_a_stale_revision() {
 
     request("tab.close", "close-browser-tab", json!({"tab":path["tab_id"]}));
     let remaining = mux.surface_count();
+    assert_eq!(remaining, before, "the split's browser was closed before replay");
     let retry = with_fields(fields, json!({"expected_revision":"0","url":"about:blank"}));
     for key in ["split-attempt", "split-retry-attempt"] {
         let replayed = request("pane.split", key, retry.clone());

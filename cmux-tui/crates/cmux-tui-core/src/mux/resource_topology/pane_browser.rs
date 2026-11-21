@@ -14,8 +14,8 @@ use crate::workspace_registry::FrontendBrowserRecord;
 /// Daemon-internal `pane.split` field: the new pane holds a browser at this
 /// URL instead of a terminal.
 pub(crate) const PANE_BROWSER_URL_FIELD: &str = "pane_browser_url";
-/// Renderer chosen for a public browser split, stored in the effect but
-/// excluded from the request fingerprint so replay needs no live renderer.
+/// Renderer chosen for a public browser split: a frontend engine name or
+/// null for a provider. The effect retains it; the fingerprint does not.
 pub(crate) const PANE_BROWSER_ENGINE_FIELD: &str = "pane_browser_frontend_engine";
 
 /// A new pane on the `direction` side of `pane` (`right`, `down`, `left` or
@@ -98,6 +98,30 @@ impl SpawnedPaneSurface<'_> {
 }
 
 impl Mux {
+    /// The split's effect may have registered its browser before failing to
+    /// place it (or before an interruption). Drop only uncommitted records
+    /// that this public split owned; older/raw requests can supply their own.
+    pub(super) fn discard_unplaced_frontend_split_browser(
+        &self,
+        intent: &Value,
+    ) -> anyhow::Result<()> {
+        if !intent["fields"][PANE_BROWSER_ENGINE_FIELD].is_string() {
+            return Ok(());
+        }
+        let browser_id = intent["browser_reservation"]["browser_id"]
+            .as_str()
+            .context("stored browser reservation omitted its browser id")?;
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        if !crate::state::frontend_browser_keys::browser_committed(
+            &registry.connection.get(),
+            browser_id,
+        )? {
+            registry.delete_frontend_browser(browser_id)?;
+            self.reload_presentation(&registry)?;
+        }
+        Ok(())
+    }
+
     /// Raw `split` (and `new-pane-right` with `viewport_width`) whose new
     /// pane holds a browser at `url`. Same commit path as a terminal split.
     pub(crate) fn split_browser_pane_as(

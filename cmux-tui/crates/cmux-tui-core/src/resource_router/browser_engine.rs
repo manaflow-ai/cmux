@@ -46,17 +46,19 @@ pub(super) fn route_to_frontend(
     {
         let url = request.fields.remove("url").unwrap_or_else(|| json!("about:blank"));
         request.fields.insert(PANE_BROWSER_URL_FIELD.into(), url);
-        if mux.browser_provider_snapshot().is_none()
+        let frontend_engine = if mux.browser_provider_snapshot().is_none()
             && mux.control_clients.any_client_supports(FRONTEND_BROWSER_TABS_CAPABILITY)
-            && !received_before(mux, request)
         {
             let engine = crate::browser_profile_ops::requested_or_default_engine(
                 mux,
                 None,
                 super::required_string(&request.fields, PANE_BROWSER_URL_FIELD)?,
             )?;
-            request.fields.insert(PANE_BROWSER_ENGINE_FIELD.into(), json!(engine.to_string()));
-        }
+            json!(engine.to_string())
+        } else {
+            Value::Null
+        };
+        request.fields.insert(PANE_BROWSER_ENGINE_FIELD.into(), frontend_engine);
         return Ok(());
     }
     if operation != ResourceOperation::TabCreateBrowser
@@ -126,9 +128,6 @@ pub(super) fn refuse_without_provider(
     let name = operation_name(operation);
     let daemon_rendered = match operation {
         ResourceOperation::TabCreateBrowser => !request.fields.contains_key("frontend_browser_id"),
-        ResourceOperation::PaneSplit if request.fields.contains_key(PANE_BROWSER_URL_FIELD) => {
-            !request.fields.contains_key(PANE_BROWSER_ENGINE_FIELD)
-        }
         ResourceOperation::BrowserClose => false,
         _ if name.starts_with("browser.") && operation.class() == OperationClass::Mutation => {
             starting_daemon_browser(mux, request)
