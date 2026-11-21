@@ -4719,8 +4719,9 @@ def one_check(found: list[dict], name: str, sha: str, repo: str, github, seen: d
     a caller can type -- unlike superseding_run, which keys on path precisely because two workflows can share a
     display name. Two such workflows are grouped as one here and the newest of them answers, the way an unreadable
     workflow degrades below: the name the caller can give cannot tell them apart either, so neither can we.
-    One group answers a name that leaves the workflow open, or one it cannot read; a name that does name a workflow
-    and names none of theirs is not theirs, so it has not run (None) rather than taking the only group on offer."""
+    One group answers a name that leaves the workflow open, one it cannot read, or one that is the tail of the check
+    name (the caller-job spelling spelled_check is for); a name whose own prefix names a workflow and names another
+    than theirs is not theirs, so it has not run (None) rather than taking the only group on offer."""
     if len(found) < 2:
         return next(iter(found), None)
     groups: dict[tuple, list[dict]] = {}
@@ -4730,9 +4731,13 @@ def one_check(found: list[dict], name: str, sha: str, repo: str, github, seen: d
              if workflow and name == f"{workflow} / {check_name}"]
     if len(named) != 1 and len(groups) == 1:
         [((workflow, check_name), only)] = groups.items()
-        if not workflow or name == check_name:
+        # The direction of the extra part decides. A check name ending in " / NAME" is the caller-job spelling
+        # spelled_check is for (cmux#38644: check run 'web / Web tests (2/4)', caller 'Web tests (2/4)'), so the part
+        # the caller left off is a caller job and this group answers. A NAME ending in " / CHECK_NAME" whose prefix is
+        # not this group's workflow does name a workflow, and names another: the caller's check has not run here.
+        if not workflow or name == check_name or check_name.endswith(f" / {name}"):
             return max(only, key=lambda check: check["id"])
-        return None  # the name names a workflow, and this group's is another: the caller's check has not run here
+        return None
     if len(named) == 1:
         return max(named[0], key=lambda check: check["id"])
     labels = sorted({f"{workflow} / {check_name}" if workflow else check_name for workflow, check_name in groups})

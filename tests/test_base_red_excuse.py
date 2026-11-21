@@ -16203,16 +16203,19 @@ class SameNamedChecksTellApartByWorkflow(unittest.TestCase):
     JOBS = {BROKER: 131000000001, SKILLS: 131000000002, RECONCILERS: 131000000003}
 
     class Fake:
-        def __init__(self, runs):
-            self.runs, self.routes = runs, []  # runs: run id -> workflow name, one check run named 'tests' each
+        def __init__(self, runs, check_name="tests"):
+            # runs: run id -> workflow name, one check run of CHECK_NAME each. A check run's own name carries the
+            # caller job of a reusable workflow ahead of the job's name ('web / Web tests (2/4)'), which is the
+            # spelling cmux#38644 is about, so it is a parameter here rather than always the plain job name.
+            self.runs, self.check_name, self.routes = runs, check_name, []
 
         def json(self, route, *, paginate=False):
             self.routes.append(route)
             outer = SameNamedChecksTellApartByWorkflow
             if route.endswith("/check-runs?filter=all&per_page=100"):
-                return [{"check_runs": [outer.check_run(run) for run in self.runs]}]
+                return [{"check_runs": [outer.check_run(run, self.check_name) for run in self.runs]}]
             if "/actions/jobs/" in route:
-                return outer.job(int(route.rsplit("/", 1)[1]))
+                return outer.job(int(route.rsplit("/", 1)[1]), self.check_name)
             if route.endswith("/status?per_page=100"):
                 return {"statuses": []}
             if "/actions/runs?head_sha=" in route:
@@ -16223,20 +16226,20 @@ class SameNamedChecksTellApartByWorkflow(unittest.TestCase):
             raise AssertionError(route)
 
     @classmethod
-    def check_run(cls, run):
+    def check_run(cls, run, check_name="tests"):
         job = cls.JOBS[run]
-        return {"app": {"slug": "github-actions"}, "check_suite": {"id": 900000 + run}, "id": job, "name": "tests",
+        return {"app": {"slug": "github-actions"}, "check_suite": {"id": 900000 + run}, "id": job, "name": check_name,
                 "status": "completed", "conclusion": "failure", "head_sha": cls.SHA,
                 "details_url": f"https://github.com/{REPO}/actions/runs/{run}/job/{job}"}
 
     @classmethod
-    def job(cls, job_id):
+    def job(cls, job_id, check_name="tests"):
         run = next(run for run, found in cls.JOBS.items() if found == job_id)
-        return {"id": job_id, "run_id": run, "name": "tests", "status": "completed", "conclusion": "failure",
+        return {"id": job_id, "run_id": run, "name": check_name, "status": "completed", "conclusion": "failure",
                 "head_sha": cls.SHA, "steps": [{"name": "Run tests", "status": "completed", "conclusion": "failure"}]}
 
-    def found(self, name, runs=None):
-        gh = self.Fake(runs if runs is not None else dict(self.WORKFLOWS))
+    def found(self, name, runs=None, check_name="tests"):
+        gh = self.Fake(runs if runs is not None else dict(self.WORKFLOWS), check_name)
         audit: list[str] = []
         jobs = excuse.head_jobs(REPO, self.SHA, [], [name], gh, excused=audit)
         return [job["id"] for job in jobs], audit, gh
@@ -16301,6 +16304,20 @@ class SameNamedChecksTellApartByWorkflow(unittest.TestCase):
         runs = {self.BROKER: "lane-gh-broker tests", self.RECONCILERS: "lane-gh-broker tests"}
         with self.assertRaisesRegex(excuse.Refused, "has not run on exact head"):
             self.found("web / tests", runs=runs)
+
+    def test_the_caller_job_spelling_still_answers_when_its_workflow_ran_twice(self):
+        """cmux#38644's spelling, at a head where the workflow ran more than once -- the ordinary shape, 20 of the 92
+        names at 8375182a4233. A reusable workflow's check run carries its caller job first ('web / Web tests (2/4)')
+        and a caller names the inner part, so spelled_check feeds one_check a name that is deliberately not the check
+        run's own name. Telling a contradicted workflow apart by the prefix must not swallow that: the group's
+        workflow is readable and is not what this name spells either, but the name is the tail of the check name, so
+        the part the caller left off is a caller job, not a workflow that says no. Refusing here would answer 'has
+        not run on exact head' for a check that did run, which is the complaint this class exists for."""
+        runs = {self.BROKER: "CI", self.RECONCILERS: "CI"}
+        jobs, audit, _ = self.found("Web tests (2/4)", runs=runs, check_name="web / Web tests (2/4)")
+        self.assertEqual(jobs, [max(self.JOBS[run] for run in runs)])
+        self.assertTrue(any("read 'Web tests (2/4)' as check run 'web / Web tests (2/4)'" in line for line in audit),
+                        audit)
 
     def test_a_workflow_no_run_list_names_degrades_to_the_newest_rather_than_refusing(self):
         """When the run list cannot name the workflows, every candidate of one check name groups as one: the answer is
