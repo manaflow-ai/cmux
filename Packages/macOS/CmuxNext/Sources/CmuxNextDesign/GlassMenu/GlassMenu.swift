@@ -104,6 +104,7 @@ public final class GlassMenu {
         list.needsLayout = true
         holdsSelf = self
         panel.makeFirstResponder(list)
+        list.postAccessibility(list, GlassMenuListView.menuOpened, nil)
         return true
     }
 
@@ -320,6 +321,7 @@ public final class GlassMenu {
         guard !closed else { return }
         closed = true
         closeChild()
+        list.postAccessibility(list, GlassMenuListView.menuClosed, nil)
         host.hide()
         holdsSelf = nil
         guard parentMenu == nil else { return }
