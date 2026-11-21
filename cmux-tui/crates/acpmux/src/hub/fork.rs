@@ -528,6 +528,8 @@ impl Hub {
                 &fork_env,
                 &id,
                 all,
+                crate::agent_tools::takes_http(session.meta().agent_capabilities.as_ref()),
+                std::path::Path::new(&cwd),
                 codex,
             );
             // The person's own stdio `cmux` entry learns which chat starts it, where cmux gives none.
