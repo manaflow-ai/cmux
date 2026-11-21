@@ -343,9 +343,10 @@ async fn move_steps(
     };
     let checkout = checkout_unless_named(&cwd, args, source).await?;
     o.preflight.dirty = Some(checkout.as_ref().is_some_and(|c| c.dirty));
-    // --after-turn defers the move to the turn's end (`transfer_begin`), so a running turn is
-    // no refusal with it either.
-    let proceed = args.interrupt || args.after_turn;
+    // --after-turn defers a real move to the turn's end (`transfer_begin`), so a running turn
+    // is no refusal for it. A dry run still reports the turn (`running_turn`): it is how the
+    // palette learns to offer "Move after this turn" or "Move now".
+    let proceed = args.interrupt || (args.after_turn && !args.dry_run);
     if let Some(why) = plan::refusal(&info, proceed) {
         o.error_code = preflight::session_refusal_code(&info, proceed);
         bail!("{why}");
