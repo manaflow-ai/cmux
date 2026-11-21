@@ -1761,7 +1761,9 @@ def relaunch_restored(bundle: str, config: dict, extra: dict, socket_path: str, 
         end_processes(left)
     # By executable path too (bundle_processes): the holder and the daemon's children start with a bare
     # argv[0], so a command-line match (bundle_pids) misses them, and the relaunch would reattach to them.
-    first = bundle_processes(process_table(), bundle)
+    table = process_table()
+    first = bundle_processes(table, bundle)
+    first_cmd = {pid: cmd for pid, _, cmd in table if pid in first}
     survivors = sorted(kind for kind, _ in first.values())
     info["after_quit"] = survivors
     print(f"== relaunch: after the quit (mode {mode}): {survivors}", flush=True)
@@ -1769,7 +1771,9 @@ def relaunch_restored(bundle: str, config: dict, extra: dict, socket_path: str, 
         # Taken before end_bundle: once the daemon is gone the holder (a copy outside the bundle, found only
         # through its parent or owner) is launchd's child and bundle_processes no longer sees it.
         end_bundle(bundle)
-        end_processes(set(first))
+        # Only a pid whose command line is unchanged: one that exited during end_bundle may be another process now.
+        now_cmd = {pid: cmd for pid, _, cmd in process_table()}
+        end_processes({pid for pid in first if now_cmd.get(pid) == first_cmd[pid]})
         left = still_running(set(first), 0) | set(bundle_processes(process_table(), bundle))
         if left:
             raise SystemExit(f"bench-memory --relaunch-restored cold: processes of the first launch are still up "
