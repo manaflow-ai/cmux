@@ -328,11 +328,19 @@ final class AppearanceSettingsUserDefaultsObserver {
         if let source {
             self.source = source
         }
-        lastObservedRawValue = environment.currentRawValue()
         guard defaultsObserver == nil else { return }
+        let rawValue = environment.currentRawValue()
+        lastObservedRawValue = rawValue
         defaultsObserver = environment.addDefaultsObserver { [weak self] in
             self?.applyIfChanged()
         }
+
+        // App.init applies the stored mode before AppKit has materialized the
+        // WindowGroup's first window. Re-apply it after launch has installed
+        // the observer so that the first window receives the persisted
+        // appearance instead of keeping AppKit's default Light appearance.
+        let appliedMode = environment.applyStoredMode(rawValue, self.source)
+        lastObservedRawValue = appliedMode.rawValue
     }
 
     func stopObserving() {
