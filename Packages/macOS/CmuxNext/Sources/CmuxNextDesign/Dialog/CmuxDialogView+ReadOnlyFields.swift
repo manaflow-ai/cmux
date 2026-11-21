@@ -104,7 +104,7 @@ extension CmuxDialogView {
         if truncates {
             code.maximumNumberOfLines = 1
             code.lineBreakMode = .byTruncatingMiddle
-            code.toolTip = text
+            code.themedToolTip = text
         }
         code.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.code")
         // VoiceOver reads the groups, not one long word.

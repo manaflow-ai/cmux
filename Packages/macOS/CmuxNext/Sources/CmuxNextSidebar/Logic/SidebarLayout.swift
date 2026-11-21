@@ -405,7 +405,21 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     isCollapsed: false, childCount: indices.count, groupColor: nil
                 ))
                 y += m.groupHeaderHeight + m.rowSpacing
-                for index in indices { emit(index, nodes[index]) }
+                guard !o.settled.isEmpty else {
+                    for index in indices { emit(index, nodes[index]) }
+                    continue
+                }
+                // Settled chats (`sidebar.settleFinished`) fold at the end of their project's rows. Only them: a
+                // folder keeps its Done and archived rows, and every row, as it always did.
+                var settling = o
+                (settling.foldsDone, settling.foldsArchived, settling.rowLimit) = (false, false, 0)
+                let fold = SidebarDoneFoldID(section: section.id, group: nil, kind: .settled, folder: folder)
+                let drawn = Self.foldingDone(indices.map { ($0, 0) }, workspace: { if case let .workspace(ws) = nodes[$0].node { ws } else { nil } },
+                                             fold: fold, options: settling)
+                for (index, depth) in drawn {
+                    guard index < 0 else { emit(index, nodes[index]); continue }
+                    Self.appendFold(index, fold, count: depth, parent: nil, color: nil, last: false, options: o, to: &rows, y: &y, metrics: m)
+                }
             }
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }
