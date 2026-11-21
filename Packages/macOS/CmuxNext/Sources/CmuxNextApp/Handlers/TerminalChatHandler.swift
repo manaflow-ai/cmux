@@ -133,8 +133,7 @@ enum TerminalChatHandler {
         facts.running = !terminals.isEmpty
         facts.busy = tab.agentSession.map(turnOpen) ?? false
         facts.handOff = handOff
-        // The terminal's tab, on the machine it was made on only (a fork keeps its ids).
-        facts.handOffOpen = handOff.flatMap { made in made.tab.flatMap { id in made.machine.flatMap { services.locateTab(id, onMachine: $0) } } } != nil
+        facts.handOffOpen = handOff.flatMap { made in made.tab.flatMap { id in made.machine.flatMap { services.locateTab(id, onMachine: $0) } } } != nil // its own machine's
         facts.now = Date().timeIntervalSince1970
         return (facts, key, terminals)
     }
@@ -196,10 +195,7 @@ enum TerminalChatHandler {
             target.newTerminalTab(cwd: cwd, typing: resumeHere(acpmux, run: run) + "\r",
                                   placementOwner: HomeDockOpens.opensBeside(target.pane, services: services),
                                   then: HomeDockOpens.placing(target.pane, services: services, focus: true, then: { surface in
-                if let made = target.daemon.store.tab(surface: surface) {
-                    tabs.terminalHandOffs[key]?.tab = made.id
-                    tabs.terminalHandOffs[key]?.machine = target.daemon.machineID
-                }
+                if let made = target.daemon.store.tab(surface: surface) { tabs.terminalHandOffs[key]?.tab = made.id; tabs.terminalHandOffs[key]?.machine = target.daemon.machineID }
             }))
         }
         if work.isEmpty { tabs.terminalHandOffs[key] = nil; throw ActionFailure(message: MiscHandlerStrings.terminalChatNoPane) }
