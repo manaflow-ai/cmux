@@ -16,7 +16,9 @@ import {
   devboxEdgeResolverPathUnit,
   devboxEdgeResolverScript,
   devboxEdgeResolverServiceUnit,
+  devboxEdgeResolverSettledCommand,
   devboxEdgeResolverTlsCheckCommand,
+  DEVBOX_EDGE_RESOLVER_STAMP,
 } from "../services/vms/images/dns";
 import { DEVBOX_SOURCE_SCHEMA, devboxBakeGeneratedInputs, devboxSourceManifest } from "../scripts/devbox-image-common";
 import { egressDestinations, freestyleEdgeAddresses } from "../services/vms/drivers/freestyleNetworkPolicy";
@@ -79,8 +81,9 @@ type Guest = {
   readonly root: string;
   readonly resolv: string;
   readonly dropIns: string;
+  readonly stamp: string;
   /** Runs the fixer, expecting `expectStatus` (default 0); returns how many times it asked resolved to reload. */
-  readonly run: (expectStatus?: number) => Promise<number>;
+  readonly run: (expectStatus?: number, env?: Record<string, string>) => Promise<number>;
   readonly reloads: () => number;
 };
 
@@ -102,7 +105,8 @@ async function withGuest(setup: (guest: Guest) => void, body: (guest: Guest) => 
     resolv,
     dropIns,
     reloads,
-    run: async (expectStatus = 0) => {
+    stamp: path.join(root, "applied"),
+    run: async (expectStatus = 0, env = {}) => {
       const before = reloads();
       const result = await runChild("sh", [script], {
         env: {
@@ -111,11 +115,13 @@ async function withGuest(setup: (guest: Guest) => void, body: (guest: Guest) => 
           CMUX_RESOLVED_DROP_IN_DIR: dropIns,
           CMUX_RESOLVED_RELOAD: reloadScript,
           CMUX_RESOLVED_RELOAD_PENDING: path.join(root, "reload-pending"),
+          CMUX_EDGE_RESOLVER_STAMP: path.join(root, "applied"),
+          ...env,
         },
       });
       expect(result.status).toBe(expectStatus);
       if (expectStatus === 0) expect(result.stderr).toBe("");
-      expect(readdirSync(root).concat(readdirSync(dropIns)).filter((name) => name.endsWith(".cmux-tmp"))).toEqual([]);
+      expect(readdirSync(root).concat(readdirSync(dropIns)).filter((name) => name.endsWith(".cmux-tmp") || name.endsWith(".cmux-src"))).toEqual([]);
       return reloads() - before;
     },
   };
@@ -202,6 +208,62 @@ describe("cmux-edge-resolver (services/vms/images/dns.ts)", () => {
       expect(await guest.run()).toBe(0);
       expect(readFileSync(guest.resolv, "utf8")).toBe(FIXED_RESOLV_CONF);
       expect(resolvedGlobalServers(guest.dropIns)).toEqual([FREESTYLE_EDGE_IPV6, FREESTYLE_EDGE_IPV4]);
+    });
+  });
+
+  test("the agent restoring public DNS mid-run wins: the older read is never written back", async () => {
+    // Regression (review): the agent rewrites resolv.conf after the script
+    // read it but before the rename. The script must see the change, start
+    // again from the new contents, and leave the agent's public file alone.
+    await withGuest(tlsMachine, async (guest) => {
+      const once = path.join(guest.root, "agent-wrote");
+      const hook = `[ -e '${once}' ] || { : > '${once}'; cp '${path.join(guest.root, "public")}' '${guest.resolv}'; }`;
+      writeFileSync(path.join(guest.root, "public"), PUBLIC_RESOLV_CONF);
+      await guest.run(0, { CMUX_EDGE_RESOLVER_AFTER_READ: hook });
+      expect(existsSync(once)).toBe(true);
+      expect(readFileSync(guest.resolv, "utf8")).toBe(PUBLIC_RESOLV_CONF);
+    });
+  });
+
+  test("the agent rewriting its own file mid-run: the fix is applied to the newer contents", async () => {
+    await withGuest(tlsMachine, async (guest) => {
+      const once = path.join(guest.root, "agent-wrote");
+      const newer = AGENT_RESOLV_CONF.replace("options timeout:1 attempts:2", "options timeout:1 attempts:3");
+      writeFileSync(path.join(guest.root, "newer"), newer);
+      const hook = `[ -e '${once}' ] || { : > '${once}'; cp '${path.join(guest.root, "newer")}' '${guest.resolv}'; }`;
+      await guest.run(0, { CMUX_EDGE_RESOLVER_AFTER_READ: hook });
+      expect(readFileSync(guest.resolv, "utf8")).toBe(FIXED_RESOLV_CONF.replace("attempts:2", "attempts:3"));
+    });
+  });
+
+  test("a resolv.conf that keeps changing under every try fails the run for systemd to retry, without overwriting it", async () => {
+    await withGuest(tlsMachine, async (guest) => {
+      const hook = `echo '# agent write' >> '${guest.resolv}'`;
+      await guest.run(1, { CMUX_EDGE_RESOLVER_AFTER_READ: hook });
+      expect(readFileSync(guest.resolv, "utf8")).toBe(`${AGENT_RESOLV_CONF}${"# agent write\n".repeat(5)}`);
+      expect(existsSync(guest.stamp)).toBe(false);
+    });
+  });
+
+  test("each successful run leaves its completion stamp; the settle wait passes on it and times out on a newer agent write", async () => {
+    await withGuest(tlsMachine, async (guest) => {
+      // The settle wait as the verifier runs it, with the scratch tree for /etc and /run.
+      const settle = (seconds: number) =>
+        devboxEdgeResolverSettledCommand(seconds)
+          .replaceAll("/etc/systemd/resolved.conf.d", guest.dropIns)
+          .replaceAll("/etc/resolv.conf", guest.resolv)
+          .replaceAll(DEVBOX_EDGE_RESOLVER_STAMP, guest.stamp);
+      expect((await runChild("sh", ["-c", settle(1)])).stdout).toContain("edge-resolver-not-settled");
+      await guest.run();
+      const settled = await runChild("sh", ["-c", settle(5)]);
+      expect({ status: settled.status, out: settled.stdout.trim() }).toEqual({ status: 0, out: "edge-resolver-settled" });
+      // The agent writes again and the service has not run yet: not settled.
+      writeFileSync(guest.resolv, AGENT_RESOLV_CONF);
+      const stale = await runChild("sh", ["-c", settle(1)]);
+      expect(stale.status).toBe(1);
+      expect(stale.stdout).toContain("edge-resolver-not-settled");
+      await guest.run();
+      expect((await runChild("sh", ["-c", settle(5)])).status).toBe(0);
     });
   });
 
@@ -412,6 +474,9 @@ describe("cmux-edge-resolver (services/vms/images/dns.ts)", () => {
     expect(verify).toContain("const tlsOk = await verifyEdgeResolverWithTlsRule(fs, vmId, exec);");
     expect(verify).toContain("pass = pass && tlsOk;");
     expect(verify).toContain("devboxEdgeResolverTlsCheckCommand(TLS_RULE_PROBE_DOMAIN)");
+    // It waits on the service's completion stamp, bounded, not on a settling delay.
+    expect(verify).toContain("devboxEdgeResolverSettledCommand(TLS_RULE_SETTLE_SECONDS)");
+    expect(verify).not.toContain("break; sleep 1; done; sleep 2;");
     expect(verify).toMatch(/finally \{\s*if \(ruleId\) await fs\.tls\.rules\.delete\(ruleId\)/);
   });
 });

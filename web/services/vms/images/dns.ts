@@ -74,6 +74,11 @@ export const DEVBOX_RESOLVER_FALLBACK_DROP_IN = "62-cmux-edge-resolver-v6.conf";
 export const DEVBOX_EDGE_RESOLVER_SCRIPT = "/usr/local/libexec/cmux-edge-resolver";
 export const DEVBOX_EDGE_RESOLVER_SERVICE = "cmux-edge-resolver.service";
 export const DEVBOX_EDGE_RESOLVER_PATH_UNIT = "cmux-edge-resolver.path";
+/** Written by each successful run: a checksum of each resolver file as the run left it. */
+export const DEVBOX_EDGE_RESOLVER_STAMP = "/run/cmux-edge-resolver.applied";
+
+/** POSIX sh: prints one line per file, its cksum or `absent`. Shared by the script and the settle wait. */
+const EDGE_STATE_FUNCTION = 'edge_state() { for f in "$@"; do if [ -e "$f" ]; then cksum < "$f"; else echo absent; fi; done; }';
 
 /**
  * The script. POSIX sh, idempotent, exits 0 unless a write fails. The
@@ -96,25 +101,39 @@ RELOAD="\${CMUX_RESOLVED_RELOAD:-systemctl try-reload-or-restart systemd-resolve
 # Set while resolved has not yet applied a drop-in change; cleared only by a
 # successful reload, so a failed reload is retried on every later run.
 PENDING="\${CMUX_RESOLVED_RELOAD_PENDING:-/run/cmux-edge-resolver.reload-pending}"
+STAMP="\${CMUX_EDGE_RESOLVER_STAMP:-${DEVBOX_EDGE_RESOLVER_STAMP}}"
 
 # glibc reads the agent's resolv.conf directly. Put the IPv6 listener first,
 # and give each try 2 s: the listener takes about 1.5 s per query, and at the
 # agent's 1 s glibc abandons it before the answer arrives.
-if [ -f "$RESOLV" ] && [ ! -L "$RESOLV" ] &&
-  grep -qxF '${FREESTYLE_TLS_RESOLV_HEADER}' "$RESOLV" &&
-  grep -qxF "nameserver $V4" "$RESOLV"; then
+# Replace the file only while it still holds what was read: the agent can
+# rewrite it during this run (the last TLS rule removed restores public DNS),
+# and an edit of the older contents must never land over that newer write.
+# On a change, start again from the new contents; after 5 tries exit 1 and
+# let systemd run it again.
+tries=0
+while :; do
+  rm -f "$RESOLV.cmux-src" "$RESOLV.cmux-tmp"
+  [ -f "$RESOLV" ] && [ ! -L "$RESOLV" ] || break
+  tries=$((tries + 1))
+  [ "$tries" -le 5 ] || { echo "cmux-edge-resolver: $RESOLV kept changing; will retry" >&2; exit 1; }
+  cp "$RESOLV" "$RESOLV.cmux-src" || exit 1
+  grep -qxF '${FREESTYLE_TLS_RESOLV_HEADER}' "$RESOLV.cmux-src" &&
+    grep -qxF "nameserver $V4" "$RESOLV.cmux-src" || break
   has6=0
-  grep -qxF "nameserver $V6" "$RESOLV" && has6=1
+  grep -qxF "nameserver $V6" "$RESOLV.cmux-src" && has6=1
   awk -v v4="nameserver $V4" -v v6="nameserver $V6" -v has6="$has6" '
     $1 == "options" { for (i = 2; i <= NF; i++) if ($i == "timeout:1") $i = "timeout:2" }
     $0 == v4 && has6 == 0 { print v6 }
-    { print }' "$RESOLV" > "$RESOLV.cmux-tmp" || exit 1
-  if cmp -s "$RESOLV.cmux-tmp" "$RESOLV"; then
-    rm -f "$RESOLV.cmux-tmp"
-  else
+    { print }' "$RESOLV.cmux-src" > "$RESOLV.cmux-tmp" || exit 1
+  eval "\${CMUX_EDGE_RESOLVER_AFTER_READ:-}"
+  cmp -s "$RESOLV.cmux-tmp" "$RESOLV.cmux-src" && break
+  if cmp -s "$RESOLV.cmux-src" "$RESOLV"; then
     chmod 0644 "$RESOLV.cmux-tmp" && mv -f "$RESOLV.cmux-tmp" "$RESOLV" || exit 1
+    break
   fi
-fi
+done
+rm -f "$RESOLV.cmux-src" "$RESOLV.cmux-tmp"
 
 # resolved: the same resolver, IPv6 first, only while the agent's drop-in names it.
 if [ -f "$AGENT" ] && grep -qxF "DNS=$V4" "$AGENT"; then
@@ -132,6 +151,11 @@ if [ -e "$PENDING" ]; then
   $RELOAD || { echo "cmux-edge-resolver: systemd-resolved reload failed; will retry" >&2; exit 1; }
   rm -f "$PENDING"
 fi
+
+# The completion signal: what the three files held when this run finished.
+# The image verifier waits until it matches them (devboxEdgeResolverSettledCommand).
+${EDGE_STATE_FUNCTION}
+edge_state "$RESOLV" "$AGENT" "$OURS" > "$STAMP.cmux-tmp" && mv -f "$STAMP.cmux-tmp" "$STAMP" || exit 1
 exit 0
 `;
 }
@@ -217,6 +241,30 @@ export function devboxEdgeResolverCheckCommand(): string {
     `{ [ ! -f ${agentDropIn} ] || resolvectl dns 2>/dev/null | grep -i '^Global:' | grep -qw '${FREESTYLE_EDGE_IPV6}'; }`,
     "echo edge-resolver-ipv6-ok",
   ].join(" && ");
+}
+
+/**
+ * Root shell that waits, at most `timeoutSeconds`, until the agent has
+ * written its TLS resolver files and cmux-edge-resolver has finished a run
+ * over exactly those contents: the stamp its last successful run wrote
+ * equals the files' checksums now. That is the service's own completion
+ * signal, not a settling delay, so the TLS-rule check that follows reads
+ * the state the service produced. Prints `edge-resolver-settled`, or exits 1
+ * with `edge-resolver-not-settled` and both states.
+ */
+export function devboxEdgeResolverSettledCommand(timeoutSeconds: number): string {
+  const agentDropIn = `${DEVBOX_RESOLVED_DROP_IN_DIR}/${FREESTYLE_TLS_RESOLVER_DROP_IN}`;
+  const ours = `${DEVBOX_RESOLVED_DROP_IN_DIR}/${DEVBOX_RESOLVER_FALLBACK_DROP_IN}`;
+  const files = `/etc/resolv.conf ${agentDropIn} ${ours}`;
+  return [
+    EDGE_STATE_FUNCTION,
+    `deadline=$(($(date +%s) + ${Math.max(1, Math.floor(timeoutSeconds))}))`,
+    `until [ -f ${agentDropIn} ] && grep -qxF ${shellQuote(FREESTYLE_TLS_RESOLV_HEADER)} /etc/resolv.conf && [ -f ${DEVBOX_EDGE_RESOLVER_STAMP} ] && [ "$(edge_state ${files})" = "$(cat ${DEVBOX_EDGE_RESOLVER_STAMP})" ]; do`,
+    `  [ "$(date +%s)" -lt "$deadline" ] || { echo edge-resolver-not-settled; edge_state ${files}; cat ${DEVBOX_EDGE_RESOLVER_STAMP} 2>/dev/null; systemctl status --no-pager ${DEVBOX_EDGE_RESOLVER_SERVICE} 2>&1 | tail -5; exit 1; }`,
+    "  sleep 0.2",
+    "done",
+    "echo edge-resolver-settled",
+  ].join("\n");
 }
 
 /**

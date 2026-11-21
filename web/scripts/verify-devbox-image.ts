@@ -69,7 +69,7 @@ import {
   DEVBOX_DESKTOP_USER,
 } from "../services/vms/images/desktop";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
-import { devboxEdgeResolverCheckCommand, devboxEdgeResolverTlsCheckCommand } from "../services/vms/images/dns";
+import { devboxEdgeResolverCheckCommand, devboxEdgeResolverSettledCommand, devboxEdgeResolverTlsCheckCommand } from "../services/vms/images/dns";
 import { throwawayVmOptions } from "./cloud-vm/ci-leftovers";
 
 const pins = devboxAgentPins();
@@ -362,6 +362,8 @@ type Exec = (cmd: string, timeoutMs?: number) => Promise<{ exitCode: number; out
 
 /** A name the TLS rule steers through the edge for the resolver check; any public HTTPS name works. */
 const TLS_RULE_PROBE_DOMAIN = "files.cmux.com";
+/** How long the agent and cmux-edge-resolver get to apply a new TLS rule. */
+const TLS_RULE_SETTLE_SECONDS = 60;
 
 /**
  * Adds a TLS rule to the verify machine, waits for the provider's agent to
@@ -376,8 +378,14 @@ async function verifyEdgeResolverWithTlsRule(
   const created = await fs.tls.rules.create({ action: "allow", domain: TLS_RULE_PROBE_DOMAIN, source: { vmId }, destination: { public: true } }) as { id?: string; rule?: { id?: string } };
   const ruleId = created.id ?? created.rule?.id;
   try {
-    const agent = await exec("for i in $(seq 1 30); do [ -f /etc/systemd/resolved.conf.d/61-freestyle-tls.conf ] && grep -q freestyle-tls /etc/resolv.conf && break; sleep 1; done; sleep 2; ls /etc/systemd/resolved.conf.d", 60_000);
-    console.log(`  agent resolver files after the TLS rule: ${agent.output.trim().split("\n").join(" ")}`);
+    // Wait for the service's own completion signal (its stamp matches the
+    // agent's files), bounded, instead of a settling delay.
+    const settled = await exec(devboxEdgeResolverSettledCommand(TLS_RULE_SETTLE_SECONDS), (TLS_RULE_SETTLE_SECONDS + 30) * 1000);
+    console.log(`  after the TLS rule: exit=${settled.exitCode} ${settled.output.trim().split("\n").join(" | ")}`);
+    if (settled.exitCode !== 0) {
+      console.log("[freestyle-tls-rule] CHECKS FAILED");
+      return false;
+    }
     return await runChecks("freestyle-tls-rule", [devboxEdgeResolverTlsCheckCommand(TLS_RULE_PROBE_DOMAIN)], exec);
   } finally {
     if (ruleId) await fs.tls.rules.delete(ruleId).catch((err) => console.log(`could not delete TLS rule ${ruleId}: ${String(err)}`));
