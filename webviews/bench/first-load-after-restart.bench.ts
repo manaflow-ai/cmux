@@ -137,10 +137,11 @@ if (TRANSPORT !== "bridge" && TRANSPORT !== "websocket") throw new Error("TRANSP
 const BRIDGE = TRANSPORT === "bridge";
 const GATE = process.env.GATE === "1";
 const TRACE = process.env.TRACE === "1";
-/// PROFILE=1 (MODE=reopen-spare): a CPU profile of each adopt, from the event to the newest answer drawn,
-/// printed as the functions with the most self time over all rounds (an unminified build).
-const PROFILE = process.env.PROFILE === "1";
 const SOURCES = process.env.SOURCES === "1";
+/// BOUND=1 also times each round's derived bound (settled-page.bench.ts): the settled page, scripts and the
+/// copy's host removed, loaded as a static document in the same context state (a cold context with PAGES
+/// pages for a relaunch, the warm renderer for a reopen), navigation to its first painted frame.
+const BOUND = process.env.BOUND === "1";
 /// The theme key the copy is written under and the host says the page gets now (shared.ts `misfit`):
 /// the bench's host sends the page no theme, so any fixed key is the same theme on both loads.
 const THEME = "bench-theme";
@@ -538,82 +539,6 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
   });
 }
 
-type CpuProfile = {
-  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; children?: number[] }[];
-  samples: number[];
-  timeDeltas: number[];
-};
-/// PROFILE=1: self ms per function over every round's adopt, and how many adopts were profiled.
-const selfMs = new Map<string, number>();
-/// Inclusive ms: each function counted once per sample it is on the stack of.
-const totalMs = new Map<string, number>();
-/// A built-in's (no url: style reads, layout, DOM calls) self ms by the nearest bundle function that called it.
-const nativeByCaller = new Map<string, number>();
-let profiled = 0;
-/// MODE=reopen-spare: how long each adopt event's own task ran (ms), the synchronous React pass
-/// `useSessionAdoption` flushes inside the event, before the browser can paint anything.
-const adoptSyncMs: number[] = [];
-/// MODE=reopen-spare: the parked spare's own footprint before its adopt, after a full GC: the page's JS
-/// heap (MB) and its DOM nodes (CDP Performance.getMetrics). The renderer's other memory is shared.
-const spareHeapMb: number[] = [];
-const spareNodes: number[] = [];
-const OUTSIDE = new Set(["(idle)", "(program)", "(root)"]);
-type ProfileNode = CpuProfile["nodes"][number];
-const nodeKey = (frame: ProfileNode["callFrame"]) =>
-  `${frame.functionName || "(anonymous)"} ${frame.url.split("/").pop() ?? ""}:${frame.lineNumber + 1}`;
-const bump = (map: Map<string, number>, key: string, ms: number) => map.set(key, (map.get(key) ?? 0) + ms);
-/// Adds the samples of one adopt: from its first busy sample (the event's own turn, right after the
-/// profiler started) for the time it took to the newest answer drawn (`untilMs - atMs`), plus a frame.
-function addProfile(profile: CpuProfile, atMs: number, untilMs: number): void {
-  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
-  const parent = new Map<number, number>();
-  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
-  let t = 0;
-  let from: number | undefined;
-  const span = untilMs - atMs + 17;
-  profile.samples.forEach((id, index) => {
-    const ms = profile.timeDeltas[index] / 1000;
-    t += ms;
-    const node = byId.get(id);
-    if (!node) return;
-    const frame = node.callFrame;
-    if (from === undefined) {
-      if (OUTSIDE.has(frame.functionName)) return;
-      from = t;
-    }
-    if (t - from > span || frame.functionName === "(idle)") return;
-    bump(selfMs, nodeKey(frame), ms);
-    const seen = new Set<string>();
-    let caller: string | undefined;
-    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
-      const up = byId.get(at);
-      if (!up || up.callFrame.functionName === "(root)") break;
-      const key = nodeKey(up.callFrame);
-      if (!seen.has(key)) bump(totalMs, key, ms);
-      seen.add(key);
-      if (caller === undefined && at !== id && up.callFrame.url) caller = key;
-    }
-    if (!frame.url && caller) bump(nativeByCaller, `${frame.functionName} <- ${caller}`, ms);
-  });
-  profiled += 1;
-}
-function printProfile(): void {
-  if (!profiled) return;
-  const total = [...selfMs.values()].reduce((a, b) => a + b, 0);
-  const top = (title: string, map: Map<string, number>, count: number) => {
-    console.log(title);
-    for (const [key, ms] of [...map].sort((a, b) => b[1] - a[1]).slice(0, count))
-      console.log(`  ${(ms / profiled).toFixed(2).padStart(7)} ms  ${key}`);
-  };
-  top(
-    `reopen-spare adopt profile: ${(total / profiled).toFixed(1)} ms busy per adopt (n=${profiled}), top self time:`,
-    selfMs,
-    30,
-  );
-  top("reopen-spare adopt profile, inclusive:", totalMs, 45);
-  top("reopen-spare adopt profile, built-ins by caller:", nativeByCaller, 20);
-}
-
 type Round = {
   mode: Mode;
   metrics: FrameMetrics;
@@ -642,6 +567,8 @@ type Round = {
   /// navigation): the relink is the wait for that ask after acpmux came back, then the ask to the open.
   asks: number;
   lastAskMs: number | null;
+  /// The derived bound (BOUND=1), ms from navigation to the settled copy's first painted frame, else null.
+  boundMs: number | null;
 };
 
 const releases: [string, () => unknown][] = [];
@@ -737,8 +664,7 @@ try {
   await build({
     plugins: [{ name: "immutable-pane-baseline", enforce: "pre", load: (id) => priorSources.get(id) }],
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    // PROFILE=1 keeps names, so the adopt profile names the pane's own functions.
-    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
+    build: { outDir: out, emptyOutDir: true },
     logLevel: "error",
   });
   const bundle = async (entry: string): Promise<string> => {
@@ -810,9 +736,10 @@ try {
       '<main id="root"></main>\n<script async src="/__snapshot/chat.js"></script>\n<script src="/chat-snapshot.js"></script>',
   );
 
+  /// The settled page the bound loads (BOUND=1): scripts removed, offset restored inline, paint marked.
+  let boundHtml = "";
   /// The copy the host serves this load (`__snapshot/chat.js`): null on the warm load, as with none kept.
   let servedCopy: ChatSnapshot | null = null;
-  // A spare New Tab page's load (`servingSpare`) is served no restored chat: it is no chat's page until adopted.
   const script = (body: string) =>
     new Response(body, { headers: { "Content-Type": "text/javascript", "Cache-Control": "no-store" } });
   const statics = Bun.serve({
@@ -830,6 +757,8 @@ try {
           `self.${SNAPSHOT_GLOBAL}=${JSON.stringify(servedCopy)};self.${SNAPSHOT_THEME_GLOBAL}=${JSON.stringify(THEME)};self.__cmuxRestoredChat=${JSON.stringify(PAPERCUT_CHAT)};self.dispatchEvent(new Event('cmux-restored-chat'));self.${SNAPSHOT_BOOT_GLOBAL}?.();`,
         );
       if (pathname === "/chat-snapshot.js") return script(bootScript);
+      if (pathname === "/__bound.html")
+        return new Response(boundHtml, { headers: { "Content-Type": "text/html", "Cache-Control": "no-store" } });
       const file = Bun.file(path.join(out, pathname));
       return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
     },
@@ -987,9 +916,6 @@ try {
       if (CPU > 1) await (await warmContext.newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: CPU });
       await page.setViewportSize(RELAUNCH_VIEWPORT);
       await prepare(page, null, 600_000);
-      // PARK=visible: the spare parks its chat view drawn but invisible (App SPARE_PARK_VISIBLE).
-      if (process.env.PARK)
-        await page.addInitScript((park) => Object.assign(window, { __cmuxSparePark: park }), process.env.PARK);
       await page.goto(spareUrl);
       await page.waitForFunction(
         (quietMs) => {
@@ -1014,25 +940,6 @@ try {
             })),
           )}`,
         );
-      {
-        const metrics = await page.context().newCDPSession(page);
-        await metrics.send("HeapProfiler.collectGarbage");
-        await metrics.send("Performance.enable");
-        const { metrics: read } = (await metrics.send("Performance.getMetrics")) as {
-          metrics: { name: string; value: number }[];
-        };
-        const metric = (name: string) => read.find((entry) => entry.name === name)?.value ?? 0;
-        spareHeapMb.push(metric("JSHeapUsedSize") / 1048576);
-        spareNodes.push(metric("Nodes"));
-        await metrics.send("Performance.disable");
-        await metrics.detach();
-      }
-      const cdp = PROFILE ? await page.context().newCDPSession(page) : null;
-      if (cdp) {
-        await cdp.send("Profiler.enable");
-        await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
-        await cdp.send("Profiler.start");
-      }
       const start = await page.evaluate(
         ({ session, tail, recordMs }) => {
           const w = window as unknown as BenchWindow & { __firstLoadUntil?: number };
@@ -1042,11 +949,10 @@ try {
           window.dispatchEvent(
             new CustomEvent("acpmux-session-adopt", { detail: { sessionId: session, tail, scrollAnchor: null } }),
           );
-          return { at, shift, syncMs: performance.now() - at };
+          return { at, shift };
         },
         { session: PAPERCUT_CHAT, tail: keptTail, recordMs: RECORD_MS },
       );
-      adoptSyncMs.push(start.syncMs);
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
         timeout: RECORD_MS + 60_000,
         polling: 250,
@@ -1060,11 +966,6 @@ try {
           live: w.__firstLoad.liveLatestAt,
         };
       });
-      if (cdp) {
-        const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
-        await cdp.detach();
-        addProfile(profile, start.at, got.live > start.at ? got.live : start.at + RECORD_MS);
-      }
       if (TRACE)
         console.log(
           `reopen-spare rows in view at the end:\n  ${(
@@ -1087,7 +988,6 @@ try {
         frames,
         liveLatestMs: got.live > start.at ? got.live - start.at : null,
         layoutShift: got.layoutShift - start.shift,
-        // Only the entries from the adopt event on, timed from it like the frames.
         layoutShifts: got.layoutShifts
           .filter((shift) => shift.at >= start.at)
           .map((shift) => ({ ...shift, at: shift.at - start.at })),
@@ -1101,13 +1001,49 @@ try {
         socketOpenedMs: null,
         initializeAnsweredMs: null,
         attachAnsweredMs: null,
-        // The spare connected before its adopt event: no socket ask is timed from the event.
         asks: 0,
         lastAskMs: null,
+        boundMs: null,
       };
     } finally {
       servingSpare = false;
       await page.close();
+    }
+  };
+
+  /// The settled page as a static document: no scripts, no copy host, the scroller's offset restored inline.
+  const settledDocument = (page: Page) =>
+    page.evaluate((hostTag) => {
+      const clone = document.documentElement.cloneNode(true) as HTMLElement;
+      for (const node of clone.querySelectorAll(`script, ${hostTag}`)) node.remove();
+      const scrollTop = document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollTop ?? 0;
+      return `<!doctype html>${clone.outerHTML}`.replace(
+        "</body>",
+        `<script>{const s=document.querySelector(".acpmux-scroll");if(s)s.scrollTop=${scrollTop};` +
+          `requestAnimationFrame(()=>setTimeout(()=>{window.__boundPaint=performance.now()},0))}</script></body>`,
+      );
+    }, SNAPSHOT_HOST_TAG);
+  /// The derived bound: the settled document loaded in the same context state as the round.
+  const timeBound = async (mode: Mode, html: string): Promise<number> => {
+    boundHtml = html;
+    const context =
+      isReopen(mode) && warmContext ? warmContext : await browser.newContext({ viewport: RELAUNCH_VIEWPORT });
+    const pages = await Promise.all(Array.from({ length: PAGES }, () => context.newPage()));
+    try {
+      for (const one of pages) {
+        if (context === warmContext) await one.setViewportSize(RELAUNCH_VIEWPORT);
+        if (CPU > 1) await (await context.newCDPSession(one)).send("Emulation.setCPUThrottlingRate", { rate: CPU });
+      }
+      const base = `http://127.0.0.1:${statics.port}/__bound.html`;
+      await Promise.all(pages.map((one) => one.goto(base, { waitUntil: "commit" })));
+      await pages[0]!.waitForFunction(() => (window as unknown as { __boundPaint?: number }).__boundPaint, null, {
+        timeout: 30_000,
+        polling: 50,
+      });
+      return await pages[0]!.evaluate(() => (window as unknown as { __boundPaint: number }).__boundPaint);
+    } finally {
+      if (context === warmContext) for (const one of pages) await one.close();
+      else await context.close();
     }
   };
 
@@ -1161,7 +1097,9 @@ try {
       if (mode.startsWith("native-ready") && got.readyAnsweredAt < DOWN_MS - 20)
         throw new Error(`native ready delay was not exercised: ${got.readyAnsweredAt}`);
       const since = (epoch: number) => (epoch ? epoch - got.origin : null);
+      const boundMs = BOUND ? await timeBound(mode, await settledDocument(page)) : null;
       return {
+        boundMs,
         mode,
         metrics: classifyFrames(got.frames),
         frames: got.frames,
@@ -1421,21 +1359,7 @@ try {
         unit,
       });
   }
-  if (adoptSyncMs.length) {
-    const sorted = [...adoptSyncMs].sort((a, b) => a - b);
-    const at = (share: number) => sorted[Math.min(sorted.length - 1, Math.floor(share * sorted.length))]!;
-    console.log(
-      `reopen-spare adopt event's own task: p50 ${at(0.5).toFixed(1)} ms, p95 ${at(0.95).toFixed(1)} ms, max ${sorted.at(-1)!.toFixed(1)} ms (n=${sorted.length}${PROFILE ? ", profiled" : ""})`,
-    );
-    json.adoptSync = { p50: at(0.5), p95: at(0.95), max: sorted.at(-1), n: sorted.length };
-    const middle = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? 0;
-    console.log(
-      `reopen-spare parked spare before its adopt: JS heap p50 ${middle(spareHeapMb).toFixed(2)} MB, DOM nodes p50 ${middle(spareNodes)}`,
-    );
-    json.spare = { heapMbP50: middle(spareHeapMb), nodesP50: middle(spareNodes) };
-  }
   console.log(`FIRST_LOAD_JSON ${JSON.stringify(json)}`);
-  printProfile();
   if (GATE && failed) {
     console.error(
       "first-load-after-restart: a round exceeded 2000 ms to transcript, blanked after content, moved it, or never drew live content (GATE=1)",
