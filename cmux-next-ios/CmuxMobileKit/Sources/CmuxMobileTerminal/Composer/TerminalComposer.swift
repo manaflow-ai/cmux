@@ -31,6 +31,23 @@ struct TerminalComposer: View {
                     .padding(.leading, TerminalDockMetrics.control + 8)
                     .accessibilityIdentifier("terminal.composer.notSent")
             }
+            if let line = model.connectionLine {
+                // The connection's one quiet line, after 10 s of an outage; the
+                // page keeps its last frame meanwhile (no pill over it).
+                HStack(spacing: 6) {
+                    Text(verbatim: line)
+                    if let retry = model.reconnect {
+                        Text(verbatim: "·").accessibilityHidden(true)
+                        RetryButton(style: .inline, action: retry)
+                            .accessibilityIdentifier("terminal.retry")
+                    }
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.leading, TerminalDockMetrics.control + 8)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("terminal.connectionLine")
+            }
             if let error = model.attachmentError {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.footnote)
@@ -160,32 +177,8 @@ struct TerminalComposer: View {
                 shouldInsert: { model.composerShouldInsert($0) },
                 onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil
             )
-            let hasComposerWork = !(model.composerText.isEmpty && model.attachments.isEmpty)
-            if let retry = retryInField, !hasComposerWork {
-                // The connection's quiet line is the empty field's placeholder
-                // (`TerminalModel.composerPlaceholder`); its Retry sits where
-                // Send does, which an empty field can't use anyway.
-                RetryButton(style: .inline, inlineMinimumHeight: TerminalDockMetrics.sendDiameter, action: retry)
-                    .font(.subheadline)
-                    .frame(minHeight: TerminalDockMetrics.sendDiameter)
-                    .padding(.vertical, TerminalDockMetrics.fieldPadding)
-                    .padding(.trailing, 6)
-                    .accessibilityIdentifier("terminal.retry")
-            } else {
-                // Keep Send in its trailing slot when a draft or attachments
-                // are held, and put Retry beside it so either action is
-                // available without clearing the person's work.
-                if let retry = retryInField {
-                    RetryButton(style: .inline, inlineMinimumHeight: TerminalDockMetrics.sendDiameter, action: retry)
-                        .font(.subheadline)
-                        .frame(minHeight: TerminalDockMetrics.sendDiameter)
-                        .padding(.vertical, TerminalDockMetrics.fieldPadding)
-                        .padding(.trailing, 6)
-                        .accessibilityIdentifier("terminal.retry")
-                }
-                sendButton
-                    .padding(.vertical, TerminalDockMetrics.fieldPadding)
-            }
+            sendButton
+                .padding(.vertical, TerminalDockMetrics.fieldPadding)
         }
         .padding(.leading, 14)
         .padding(.trailing, TerminalDockMetrics.fieldPadding)
@@ -196,14 +189,6 @@ struct TerminalComposer: View {
         .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
         .clipShape(.rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
         .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
-    }
-
-    /// Retry is available while the outage's line shows (as the placeholder).
-    /// An empty composer uses the send circle's frame; populated composers
-    /// render it alongside Send so reconnecting never clears their work.
-    private var retryInField: (@MainActor () async -> Void)? {
-        guard model.connectionLine != nil, !model.isUploading else { return nil }
-        return model.reconnect
     }
 
     private var sendButton: some View {
