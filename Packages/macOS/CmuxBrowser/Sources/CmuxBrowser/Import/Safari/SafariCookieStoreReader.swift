@@ -4,8 +4,10 @@ public import Foundation
 ///
 /// The default profile's store lives in Safari's sandbox container on current
 /// macOS and in `~/Library/Cookies` on systems that predate the sandbox. A named
-/// profile keeps its store in the directory the browser detector reported for
-/// it; the detector recognizes a WebKit profile directory by that same file.
+/// profile's store is looked for in the directory the browser detector reported
+/// for it, then, when that directory is named by a profile UUID, in WebKit's
+/// per-profile website data store inside Safari's container
+/// (`WebKit/WebsiteDataStore/<UUID>/Cookies/`).
 ///
 /// Candidates are read in order, and the next one is tried only when the
 /// current one is confirmed absent. A store that exists but is denied (Full
@@ -71,7 +73,17 @@ public struct SafariCookieStoreReader: Sendable {
     /// The store paths tried for `profile`, in order.
     public func candidateURLs(for profile: InstalledBrowserProfile) -> [URL] {
         guard profile.isDefault else {
-            return [profile.rootURL.appendingPathComponent(Self.storeFileName, isDirectory: false)]
+            var candidates = [profile.rootURL.appendingPathComponent(Self.storeFileName, isDirectory: false)]
+            let profileID = profile.rootURL.lastPathComponent
+            if UUID(uuidString: profileID) != nil {
+                candidates.append(
+                    homeDirectory.appendingPathComponent(
+                        "Library/Containers/com.apple.Safari/Data/Library/WebKit/WebsiteDataStore/\(profileID)/Cookies/\(Self.storeFileName)",
+                        isDirectory: false
+                    )
+                )
+            }
+            return candidates
         }
         return [
             homeDirectory.appendingPathComponent(

@@ -139,6 +139,28 @@ struct ReadFailureCase: Sendable, CustomTestStringConvertible {
         #expect(reader.load(for: profile) == .loaded(url: store, data: Data("work".utf8)))
     }
 
+    /// A named profile whose directory is a profile UUID falls back to WebKit's
+    /// per-profile website data store when its own directory has no store.
+    @Test func aUUIDNamedProfileFallsBackToItsWebsiteDataStore() {
+        let profileID = "0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0"
+        let profileRoot = URL(
+            fileURLWithPath: "/Users/tester/Library/Containers/com.apple.Safari/Data/Library/Safari/Profiles/\(profileID)",
+            isDirectory: true
+        )
+        let profile = InstalledBrowserProfile(displayName: "Work", rootURL: profileRoot, isDefault: false)
+        let ownStore = profileRoot.appendingPathComponent("Cookies.binarycookies")
+        let dataStore = URL(
+            fileURLWithPath: "/Users/tester/Library/Containers/com.apple.Safari/Data/Library/WebKit/WebsiteDataStore/\(profileID)/Cookies/Cookies.binarycookies"
+        )
+        let reader = reader([
+            dataStore: .success(Data("work".utf8)),
+            containerStore: .success(Data("container".utf8)),
+        ])
+
+        #expect(reader.candidateURLs(for: profile) == [ownStore, dataStore])
+        #expect(reader.load(for: profile) == .loaded(url: dataStore, data: Data("work".utf8)))
+    }
+
     /// Reads real files through the default data reader.
     @Test func readsRealFilesThroughTheDefaultDataReader() throws {
         let home = FileManager.default.temporaryDirectory
