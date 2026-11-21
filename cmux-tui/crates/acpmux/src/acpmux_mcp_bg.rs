@@ -344,6 +344,8 @@ esac
     /// With glaeda-gh on PATH the wait is its daemon's (one poller for every session, PR events where GitHub
     /// grants them), pinned to the head it read; a daemon that is down (exit 3) or a glaeda-gh too old for the
     /// arguments (64) falls back to the gh watch, so the wait never gets less reliable.
+    // Shell-script stand-ins for gh and glaeda-gh run through `sh`: unix only.
+    #[cfg(unix)]
     #[test]
     fn run_wait_waits_through_glaeda_gh_and_falls_back_to_gh() {
         let dir = cmux_unix_socket::short_test_dir("run-wait-glaeda");
