@@ -4,7 +4,12 @@
 // its surface's sliders set, so moving a slider resizes every picture at once. A font family row (the
 // terminal's, the editor's) draws one sample of the picked family at its size. The stacks are the ones
 // the surfaces draw with (chatUiFont.ts, chatDisplay.ts, pages/markdown/settings.ts).
-import { chatUiFontVariables, isChatUiFont, isBundledChatFont } from "../../agent-session/acpmux/chatUiFont";
+import {
+  CHAT_UI_FONT_KEY,
+  chatUiFontVariables,
+  isBundledChatFont,
+  isChatUiFont,
+} from "../../agent-session/acpmux/chatUiFont";
 import { fontFace } from "./fontPickerModel";
 import { MARKDOWN_FONT_PRESETS, type MarkdownFontPreset } from "../markdown/settings";
 
@@ -34,23 +39,58 @@ export type FamilyPreview = {
 
 export type FontPreview = ChoicePreview | FamilyPreview;
 
-/** A Markdown preset's stack, with the page's variables resolved to what the Settings page has. */
-function markdownStack(preset: unknown): string {
+/** The keys a surface's code font resolves through, in order: the chat's own, else the Markdown
+ * viewer's, else the terminal's family, which is what `--cmux-diff-code-font-family` carries
+ * (chatDisplay.ts: "Code follows the terminal font ... unless a code font is set"). The first one set
+ * wins; with none set, code draws in the default mono stack. A family the host supplies but no key
+ * holds (Ghostty's own configured font, appearance.ts) is not among them, so an unset terminal family
+ * still previews as the default stack. */
+const CHAT_CODE_KEYS = ["agentPane.display.code.family", "markdown.code.family", "terminal.fontFamily"] as const;
+const MARKDOWN_CODE_KEYS = ["markdown.code.family", "terminal.fontFamily"] as const;
+
+/** Every key a picture reads besides its own row's: what FontPreview.tsx subscribes to, so moving any
+ * of them redraws the tiles that follow it. `MARKDOWN_CODE_KEYS` is a tail of `CHAT_CODE_KEYS`, so
+ * these are all of them. */
+export const PREVIEW_INPUTS = ["markdown.font.preset", CHAT_UI_FONT_KEY, ...CHAT_CODE_KEYS] as const;
+
+/** What `var(--cmux-md-code-font-family)` and a mono choice draw in, given the other keys. */
+function codeStack(values: Values, keys: readonly string[]): string {
+  for (const key of keys) {
+    const value = values(key);
+    if (typeof value === "string" && value.trim() !== "") return fontFace(value.trim());
+  }
+  return MONO;
+}
+
+/** What `var(--font-ui)` resolves to in the chat: the Interface Font's own stack. So a Chat Font
+ * choice that follows the interface face (System, and a Markdown viewer left on its system preset)
+ * draws in cmux Sans when that is the Interface Font, as the chat itself does (chatUiFont.ts). */
+function chatUiStack(values: Values): string {
+  const choice = values(CHAT_UI_FONT_KEY);
+  if (!isChatUiFont(choice)) return SYSTEM;
+  return chatUiFontVariables(choice)["--font-ui"] ?? SYSTEM;
+}
+
+/** A Markdown preset's stack, with the page's variables resolved to what the Settings page has: `ui`
+ * for the face the body inherits, `code` for the one its code draws in. */
+function markdownStack(preset: unknown, ui: string, code: string): string {
   const stack =
     MARKDOWN_FONT_PRESETS[
       (preset as MarkdownFontPreset) in MARKDOWN_FONT_PRESETS ? (preset as MarkdownFontPreset) : "system"
     ];
-  return stack.replace("var(--font-ui)", SYSTEM).replace("var(--cmux-md-code-font-family)", MONO);
+  return stack.replace("var(--font-ui)", ui).replace("var(--cmux-md-code-font-family)", code);
 }
 
-const chatPreset = (choice: string, values: Values): string =>
-  choice === "markdown"
-    ? markdownStack(values("markdown.font.preset"))
+const chatPreset = (choice: string, values: Values): string => {
+  const ui = chatUiStack(values);
+  return choice === "markdown"
+    ? markdownStack(values("markdown.font.preset"), ui, codeStack(values, MARKDOWN_CODE_KEYS))
     : choice === "serif"
       ? '"New York", ui-serif, "Iowan Old Style", Georgia, serif'
       : choice === "mono"
-        ? MONO
-        : SYSTEM;
+        ? codeStack(values, CHAT_CODE_KEYS)
+        : ui;
+};
 
 export const FONT_PREVIEWS: Readonly<Record<string, FontPreview>> = {
   "agentPane.display.font.ui": {
@@ -78,7 +118,12 @@ export const FONT_PREVIEWS: Readonly<Record<string, FontPreview>> = {
     kind: "choices",
     size: "markdown.font.size",
     lineHeight: "markdown.font.lineHeight",
-    face: (choice) => ({ family: markdownStack(choice), tracking: "0" }),
+    // The viewer is its own page: its body inherits that page's `--font-ui`, the system face, not the
+    // chat's Interface Font.
+    face: (choice, values) => ({
+      family: markdownStack(choice, SYSTEM, codeStack(values, MARKDOWN_CODE_KEYS)),
+      tracking: "0",
+    }),
   },
   "terminal.fontFamily": { kind: "family", size: "terminal.fontSize", fallback: null },
   "editor.fontFamily": { kind: "family", size: "editor.fontSize", fallback: "terminal.fontFamily" },
