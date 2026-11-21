@@ -16,6 +16,8 @@ const CLIENT_ID = "virtual:cmux-perf-lint-client";
 const RESOLVED_CLIENT_ID = `\0${CLIENT_ID}`;
 const EVENT = "cmux:perf-lint";
 const SOURCE = /\.(?:[cm]?[jt]sx?)$/;
+// Long enough for the hot update to reach the page first; the lint only warns, so later is fine.
+const LINT_AFTER_SAVE_MS = 300;
 
 export type PerfLintFinding = { file: string; line: number; rule: string; message: string };
 
@@ -82,12 +84,18 @@ export function perfLintOnSave(): Plugin {
       if (!SOURCE.test(file) || !file.startsWith(path.join(ROOT, "src") + path.sep)) return;
       const save = (latest.get(file) ?? 0) + 1;
       latest.set(file, save);
-      void lint(file).then((findings) => {
-        if (latest.get(file) !== save || !findings.length || !server) return;
-        for (const f of findings)
-          server.config.logger.warn(`[cmux perf lint] ${f.file}:${f.line} ${f.rule}: ${f.message}`);
-        server.ws.send({ type: "custom", event: EVENT, data: findings });
-      });
+      // Start the lint after the swap, not inside it: spawning `vp` forks this whole dev server
+      // (112-146 ms on Linux), and the hot update waits for this hook. A save that comes before
+      // the timer fires replaces this one.
+      setTimeout(() => {
+        if (latest.get(file) !== save) return;
+        void lint(file).then((findings) => {
+          if (latest.get(file) !== save || !findings.length || !server) return;
+          for (const f of findings)
+            server.config.logger.warn(`[cmux perf lint] ${f.file}:${f.line} ${f.rule}: ${f.message}`);
+          server.ws.send({ type: "custom", event: EVENT, data: findings });
+        });
+      }, LINT_AFTER_SAVE_MS);
     },
   };
 }
