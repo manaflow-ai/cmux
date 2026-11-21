@@ -155,6 +155,11 @@ FAST_CHECKS_ADMISSION_EXPRESSION = (
 TRUSTED_RUNNER_LINE = re.compile(
     r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$"
 )
+# An outsider-triggered job that reads untrusted source may also take the PR control one-job JIT VM, which no
+# persistent runner registers (web-complexity-trusted.yml); a fork running its own copy keeps hosted Ubuntu.
+PR_CONTROL_JIT_LINE = re.compile(
+    r"^\s*runs-on:\s*" + re.escape("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                                     "'cmux-gcp-pr-control-jit-x64' }}") + r"\s*(?:#.*)?$")
 # Merge-gating checks: a ruleset requires them, so they must not depend on one runner provider.
 TRUSTED_RUNNER_JOBS = (
     ("backend-migrations.yml", "plan"),
@@ -1052,7 +1057,8 @@ def outsider_runner_errors(name: str, text: str) -> list[str]:
         if OWNED_RUNNER_SELECTOR.search(line):
             errors.append(f"{name}:{number} reads a runner selector: {line.strip()}")
         elif (re.match(r"^\s*runs-on:", line) and not HOSTED_LITERAL_RUNNER.match(line)
-              and not TRUSTED_RUNNER_LINE.match(line)):
+              and not TRUSTED_RUNNER_LINE.match(line)
+              and not PR_CONTROL_JIT_LINE.match(line)):
             errors.append(f"{name}:{number} is not a GitHub-hosted label: {line.strip()}")
     return errors
 

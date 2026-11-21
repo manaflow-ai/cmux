@@ -45,6 +45,8 @@ POOL_READ = re.compile(r"fromJSON\(\s*vars\.RUNNER_POOLS\s*\)\.([A-Za-z0-9_]+)")
 PINNED: dict[str, tuple[str, set[str]]] = {
     'fast-checks.yml': ('the admission picker is a light read-only job on Blacksmith 2 vCPU; checks use its live fleet output',
      {'admit'}),
+    'web-complexity-trusted.yml': ('reads untrusted pull request source: only the one-job cmux-gcp-pr-control-jit-x64, never a pool a variable can move',
+     {'complexity'}),
     'auto-resume-nightly-notarization.yml': ('nightly signing and notarization: an ephemeral label the signing rule checks literally',
      {'poll', 'wait-and-staple', 'poll-outer', 'staple-outer', 'poll-stapled', 'staple-stapled', 'verify-stapled', 'publish', 'generate-deltas', 'republish-deltas'}),
     'cmux-next-pr-autofix-push.yml': ('holds the PR autofix App key (contents write): the fork-routing App-key rule forbids a variable-movable runner',
