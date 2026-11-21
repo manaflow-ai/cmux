@@ -12,6 +12,40 @@ use clap::Args;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
+/// Search every session on this daemon and its peers in the engine, returning one row per
+/// matching prompt or reply. The engine reports peers it could not search beside its hits.
+pub async fn all(client: Arc<Client>, query: String, limit: u32, json_out: bool) -> Result<()> {
+    let result = client
+        .request(method::MUX_SESSION_SEARCH, json!({"allSessions": true, "query": query, "limit": limit}))
+        .await
+        .map_err(|e| {
+            if e.downcast_ref::<crate::client::DaemonError>()
+                .is_some_and(|err| err.0.message == "sessionId or session is required")
+            {
+                anyhow::anyhow!("this daemon predates cross-session search; update the agent engine on this machine")
+            } else {
+                e
+            }
+        })?;
+    if json_out {
+        print_json(&result);
+    } else {
+        let answer: crate::hub::history_search::Answer = serde_json::from_value(result)?;
+        if answer.hits.is_empty() {
+            println!("No matching prompts or replies.");
+        } else {
+            println!("SESSION\tHOST\tTURN TIME\tPREVIEW");
+            for hit in answer.hits {
+                println!("{}\t{}\t{}\t{}", hit.session, hit.host, hit.turn_time, hit.preview);
+            }
+        }
+        for why in answer.incomplete {
+            eprintln!("Search incomplete: {why}");
+        }
+    }
+    Ok(())
+}
+
 #[derive(Args)]
 pub struct SearchArgs {
     /// The session: name, id, or host/name for a peer's.
