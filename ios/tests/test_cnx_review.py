@@ -193,7 +193,7 @@ class PhoneLaunchTests(unittest.TestCase):
     """phone_launch_and_check: the credentials reach only the signed-in launch, never argv; the
     credential-free relaunch carries none; the receipt of that very launch decides."""
 
-    def launch(self, session, receipt_fields, pair_url='', backend=''):
+    def launch(self, session, receipt_fields, pair_url='', backend='', mobile=''):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / 'bin').mkdir()
@@ -229,7 +229,7 @@ else:
 set -euo pipefail
 source "{REVIEW}"
 BUNDLE_ID=dev.cmux.mobile.{TAG} MAC_DEVICE_ID=mac-tagged CNX_REVIEW_RECEIPT_TIMEOUT=2 SHA={SHA} SLUG={TAG} STATE="{root}/state"
-BACKEND_URL="{backend}"
+BACKEND_URL="{backend}" BACKEND_MOBILE_URL="{mobile}"
 export DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND=https://ambient.example
 PERSONAL_EMAIL=me@example.com PERSONAL_PASSWORD=pw-secret PERSONAL_ACCOUNT=me@example.com
 export DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD=ambient-leak
@@ -289,6 +289,18 @@ if phone_launch_and_check {PHONE} client-1 {session} "{pair_url}"; then echo "PA
                       r.stdout)
         r, _, _ = self.launch('restored', {**self.linked, 'cloud_backend': ''}, backend=self.STACK)
         self.assertIn('FAIL: restored launch: the receipt names no cloud_backend', r.stdout)
+
+    STACK_MOBILE = 'https://cmux-dev-backend-1.tail137216.ts.net:3851'
+
+    def test_a_tag_stack_launch_must_use_the_stacks_own_mobile_worker(self):
+        # The tag's Mac registers with the stack's mobile Worker: a phone on the shared one never finds it.
+        on_stack = {**self.linked, 'cloud_backend': self.STACK, 'api_base_url': self.STACK_MOBILE}
+        r, _, _ = self.launch('restored', on_stack, backend=self.STACK, mobile=self.STACK_MOBILE)
+        self.assertIn('PASS: signed in (restored)', r.stdout, r.stderr)
+        shared = {**on_stack, 'api_base_url': 'https://cmux-mobile-api-dev.debussy.workers.dev'}
+        r, _, _ = self.launch('restored', shared, backend=self.STACK, mobile=self.STACK_MOBILE)
+        self.assertIn('FAIL: restored launch: the app uses the mobile service https://cmux-mobile-api-dev.debussy.workers.dev, '
+                      f'not the tag stack\'s {self.STACK_MOBILE}', r.stdout)
 
     def test_the_default_clears_a_kept_backend_and_proves_it(self):
         # `default` (not an empty value a launcher may drop) clears the kept override...
@@ -376,7 +388,7 @@ class BackendTests(unittest.TestCase):
         self.assertIn(f'URL={self.STACK}\n', r.stdout, r.stderr)
         self.assertIn(f'--backend {self.STACK}/', r.stdout)
         r = self.resolve('tag-stack')
-        self.assertIn(f"REPORT={self.STACK} (this tag's stack)", r.stdout, r.stderr)
+        self.assertIn(f"REPORT={self.STACK} (this tag's stack: API, mobile Worker and device hub)", r.stdout, r.stderr)
         self.assertIn('--backend tag-stack', r.stdout)
 
     def test_a_refused_backend_stops_before_any_build(self):
@@ -684,6 +696,24 @@ fleet_start_sim; fleet_finish_sim; echo "STEP=$SIM_STEP"''', {'CMUX_CI': str(ci)
         self.assertIn('--sign-in agent', ' '.join(args))
         self.assertNotIn('--label', args)
         self.assertNotIn('--detach', args)
+
+    def test_a_superseded_simulator_step_is_not_reported_as_a_failed_build(self):
+        # A newer head of the same tag cancels this head's step; the report said "the fleet iPhone build
+        # failed (exit 76)" for step f06392e4d16521e2f9762f4b (2026-11-19), though nothing failed.
+        with tempfile.TemporaryDirectory() as temp:
+            ci = Path(temp) / 'cmux-ci'
+            ci.write_text('#!/bin/sh\n'
+                          'if [ "$1" = status ]; then echo \'{"id": "f06392e4d16521e2f9762f4b", "state": "cancelled"}\'; exit 0; fi\n'
+                          'echo "cmux-ci: step f06392e4d16521e2f9762f4b (simulator, key k)" >&2\n'
+                          'echo "cmux-ci: step f06392e4d16521e2f9762f4b superseded by cda830322e8883a86b11d74f (a newer head of this lane)" >&2\n'
+                          'exit 76\n')
+            ci.chmod(0o755)
+            r = bash(f'''source "{REVIEW}"; SLUG={TAG} TAG={TAG} SHA={SHA} STATE="{temp}" CMUX_CI="{ci}"
+fleet_start_sim; fleet_finish_sim || echo "SIM=$REPORT_SIM"''', {'CMUX_CI': str(ci)})
+            self.assertIn('SIM=BLOCKED: not a failure', r.stdout, r.stderr)
+            self.assertIn('superseded by cda830322e8883a86b11d74f', r.stdout)
+            self.assertNotIn('build failed', r.stdout)
+            self.assertEqual((Path(temp) / 'sim-attempt').read_text().strip(), '1')
 
     def test_a_rerun_after_a_failed_simulator_step_sends_a_new_step(self):
         # The controller answers a --key with the step it already names, finished or not (hq
