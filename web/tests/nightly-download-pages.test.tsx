@@ -37,14 +37,29 @@ function render(page: () => React.ReactElement, locale: Locale): string {
 }
 
 describe("nightly download pages", () => {
-  test("/next downloads the latest cmux NEXT NIGHTLY arm64 DMG", () => {
+  test("/next downloads the update feed's newest cmux NEXT NIGHTLY build", () => {
     const html = render(NextNightlyPage, "en");
-    expect(html).toContain(
-      'href="https://github.com/manaflow-ai/cmux/releases/download/nightly-next/cmux-nightly-next-macos-arm64.dmg"',
-    );
-    expect(html).toContain('src="/logo-next-nightly.png"');
+    // The route resolves the live feed's newest DMG, so a fresh download is
+    // never the build before the one the app offers as an update.
+    expect(html).toContain('href="/api/download/next"');
+    expect(html).not.toContain("releases/download/nightly-next/");
+    expect(html).toContain('src="/next/icon-96.webp"');
     expect(html).toContain("cmux NEXT NIGHTLY");
     expect(html).not.toContain("cmux-nightly-macos.dmg");
+  });
+
+  test("/next shows the cmux NEXT feature list and real light/dark captures", () => {
+    const html = render(NextNightlyPage, "en");
+    for (const key of Object.keys(enMessages.next.landing.features)) {
+      const feature = enMessages.next.landing.features[key as keyof typeof enMessages.next.landing.features];
+      expect(html).toContain(feature.title.replace(/'/g, "&#x27;"));
+    }
+    expect(html).toContain('src="/next/hero-light.webp"');
+    expect(html).toContain('src="/next/hero-dark.webp"');
+    // Phones get the 720px file; only the default (dark) hero loads eagerly.
+    expect(html).toContain('media="(max-width: 640px)" srcSet="/next/hero-dark-720.webp"');
+    expect(html.match(/fetchPriority="high"/g)?.length).toBe(1);
+    expect(html.match(/loading="eager"/g)?.length).toBe(1);
   });
 
   test("/nightly keeps downloading the classic cmux NIGHTLY DMG", () => {
@@ -61,7 +76,7 @@ describe("nightly download pages", () => {
       const page = messagesByLocale[locale].next;
       expect(page).toBeDefined();
       const html = render(NextNightlyPage, locale);
-      expect(html).toContain("cmux-nightly-next-macos-arm64.dmg");
+      expect(html).toContain('href="/api/download/next"');
       expect(html).toContain("https://github.com/manaflow-ai/cmux/issues");
       if (locale !== "en") {
         expect(page.description).not.toBe(enMessages.next.description);

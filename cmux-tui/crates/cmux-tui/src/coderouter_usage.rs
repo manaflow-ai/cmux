@@ -524,6 +524,9 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let hits = Arc::new(AtomicUsize::new(0));
         let hits_for_server = hits.clone();
+        // The server holds the 404 until the test has read the readout, so the
+        // poller's next poll (1 ms later) cannot clear it before the read.
+        let (release_404, released) = std::sync::mpsc::channel::<()>();
         let server = std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { break };
@@ -552,6 +555,9 @@ mod tests {
                     "{request}"
                 );
                 let hit = hits_for_server.fetch_add(1, Ordering::AcqRel);
+                if hit >= 1 {
+                    let _ = released.recv();
+                }
                 let (status, body) =
                     if hit == 0 { ("200 OK", READY_BODY) } else { ("404 Not Found", "{}") };
                 let response = format!(
@@ -598,6 +604,7 @@ mod tests {
             &|event| matches!(event, cmux_tui_core::MuxEvent::MachineUsageChanged(Some(usage)) if usage.vm_id == "vm-123"),
         );
         assert_eq!(mux.machine_usage().map(|usage| usage.total_tokens), Some(17));
+        release_404.send(()).expect("the server waits for the release");
         wait(&|event| matches!(event, cmux_tui_core::MuxEvent::MachineUsageChanged(None)));
         assert_eq!(mux.machine_usage(), None);
         poller.stop();

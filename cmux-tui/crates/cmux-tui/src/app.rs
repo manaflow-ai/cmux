@@ -103,6 +103,12 @@ use crate::ui::{
     thumb_geometry, viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry,
 };
 
+mod attention_jump;
+pub(crate) mod copy_mode;
+mod host_notify_ops;
+#[cfg(test)]
+mod test_deadline;
+
 #[cfg(test)]
 thread_local! {
     static GRAPHICS_ROUTE_COMPARISONS: Cell<usize> = const { Cell::new(0) };
@@ -2303,6 +2309,10 @@ impl OrderedSession {
         self.inner.agents()
     }
 
+    fn acknowledge_tab_notifications(&self, surface: SurfaceId) {
+        self.inner.acknowledge_tab_notifications(surface);
+    }
+
     fn respond_pairing(&self, request: u64, approve: bool) -> anyhow::Result<()> {
         self.inner.respond_pairing(request, approve)
     }
@@ -4067,6 +4077,8 @@ pub(crate) enum WorkspaceRailSelection {
     Workspace,
     Recoverable,
     Action(SidebarActionTarget),
+    /// An agent of the agents section, by its tab.
+    Agent(SurfaceId),
 }
 
 impl WorkspaceRailSelection {
@@ -4084,6 +4096,7 @@ enum WorkspaceRailTarget {
     Workspace(WorkspaceId),
     Recoverable(String),
     Action(SidebarActionTarget),
+    Agent(SurfaceId),
 }
 
 fn rail_page_size(area: Option<Rect>) -> usize {
@@ -4157,6 +4170,11 @@ pub enum Hit {
     },
     RecoverableWorkspace {
         index: usize,
+    },
+    /// A row of the workspace rail's agents section: focus that agent's tab.
+    AgentRow {
+        surface: SurfaceId,
+        target: ProjectionTarget,
     },
     CreateWorkspace {
         mode: Option<WorkspaceCreationMode>,
@@ -4521,6 +4539,8 @@ pub enum MenuAction {
         visible: bool,
     },
     ShowShortcuts,
+    /// Focus a tab of the attention list (`attention-list`).
+    FocusAttention(SurfaceId),
     SetClientSizing {
         surface: SurfaceId,
         client: u64,
@@ -4643,6 +4663,10 @@ impl MenuAction {
             MenuAction::SetSidebarViewVisible { visible: false, .. } => menu.hide_sidebar_view,
             MenuAction::ShowShortcuts => {
                 localization::catalog().action_label(Action::ShowShortcuts)
+            }
+            // The list wraps every row in a labeled item; this is the fallback.
+            MenuAction::FocusAttention(_) => {
+                localization::catalog().action_label(Action::NextAttention)
             }
             MenuAction::SetClientSizing { enabled: true, .. } => menu.include_client_size,
             MenuAction::SetClientSizing { enabled: false, .. } => menu.excluded,
@@ -7366,6 +7390,9 @@ pub struct App {
     pub config: Config,
     #[cfg(test)]
     config_reload_applications: usize,
+    /// Ends the test binary when a test that owns this `App` hangs.
+    #[cfg(test)]
+    _test_deadline: Option<test_deadline::TestDeadline>,
     pub chrome: ChromeTheme,
     pub tree: TreeView,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
@@ -7393,6 +7420,10 @@ pub struct App {
     /// mouse-tracking state so the host owns clicks and selection whenever
     /// the inner application did not request mouse input.
     host_mouse_capture_applied: Option<bool>,
+    /// The capture a focus-in or resize re-assert cleared from
+    /// `host_mouse_capture_applied`. A frame that cannot read the inner
+    /// state (terminal lock busy) re-emits this value instead of guessing.
+    host_mouse_capture_before_reassert: Option<bool>,
     pub graphics_writer: Option<GraphicsWriter>,
     next_graphics_submission: u64,
     pending_graphics_submission: Option<u64>,
@@ -7435,6 +7466,7 @@ pub struct App {
     pending_size_releases: HashSet<SurfaceId>,
     geometry_authority_surface: Option<SurfaceId>,
     pub prefix_armed: bool,
+    pub(crate) copy_mode: Option<copy_mode::CopyModeSession>,
     pub session_label: String,
     /// Machine-level model spend readout from the session's daemon; `None`
     /// hides the sidebar readout.
@@ -7461,6 +7493,13 @@ pub struct App {
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
     projection_order_cache: AgentOrderCache,
+    /// Agent status for the default sidebar and tab chips, rebuilt with
+    /// the tree on each layout frame (`sync_layout`), read on every frame.
+    pub(crate) sidebar_status: crate::sidebar_status::SidebarStatus,
+    /// The agents section's scroll offset in rows.
+    pub(crate) agent_section_scroll: usize,
+    /// The done tab this client last acknowledged as viewed.
+    pub(crate) done_tab_ack_sent: Option<SurfaceId>,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
@@ -7559,6 +7598,11 @@ pub struct App {
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
+    /// Host terminal notification forwarding (`host_notify.rs`).
+    pub(crate) host_notify: crate::host_notify::HostNotifyGate,
+    /// The host terminal window has focus: false after a focus-out report,
+    /// true again after focus-in (and before any report).
+    pub(crate) host_focused: bool,
     /// Latest output per status-bar command segment, keyed by the segment's
     /// combined left-then-right index. Written by the status command worker.
     status_command_outputs: Arc<Mutex<HashMap<usize, String>>>,
@@ -9672,6 +9716,8 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         config,
         #[cfg(test)]
         config_reload_applications: 0,
+        #[cfg(test)]
+        _test_deadline: None,
         chrome,
         tree: TreeView::default(),
         tab_locations: HashMap::new(),
@@ -9684,6 +9730,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         desired_outer_cursor: OuterCursorSpec::Reset,
         applied_outer_cursor: initial_applied_outer_cursor(surface_only.is_some()),
         host_mouse_capture_applied: initial_host_mouse_capture(surface_only.is_some()),
+        host_mouse_capture_before_reassert: None,
         graphics_writer,
         next_graphics_submission: 0,
         pending_graphics_submission: None,
@@ -9711,6 +9758,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         pending_size_releases: HashSet::new(),
         geometry_authority_surface: None,
         prefix_armed: false,
+        copy_mode: None,
         session_label,
         surface_only,
         sidebar_visible: surface_only.is_none(),
@@ -9733,6 +9781,9 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
         projection_order_cache: AgentOrderCache::default(),
+        sidebar_status: crate::sidebar_status::SidebarStatus::default(),
+        agent_section_scroll: 0,
+        done_tab_ack_sent: None,
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -9811,6 +9862,10 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         encoder,
         encode_buf: Vec::with_capacity(64),
         quit: false,
+        host_notify: crate::host_notify::HostNotifyGate::new(
+            crate::host_notify::HostTerminalInfo::detect(|name| std::env::var(name).ok()),
+        ),
+        host_focused: true,
         status_command_outputs: Arc::new(Mutex::new(HashMap::new())),
         status_command_worker_stop: None,
         status_poke_pending: Arc::new(AtomicBool::new(false)),
@@ -10384,6 +10439,36 @@ impl App {
         }
     }
 
+    /// Rebuild the agent status index from the tree just adopted and the
+    /// session's agent roster, then treat a turn that finished while the
+    /// person views its tab as seen. Runs on layout frames only.
+    fn refresh_sidebar_status(&mut self) {
+        let agents = self.session.agents();
+        self.sidebar_status = crate::sidebar_status::SidebarStatus::build(&self.tree, &agents);
+        self.acknowledge_viewed_done_tab();
+    }
+
+    /// Done-until-seen: a turn that finished in the tab this client shows,
+    /// while the host terminal has focus, was seen as it finished, so ack it
+    /// and it is idle rather than done. Focusing or typing in a done tab
+    /// makes it the viewed tab, so this one path covers those too. A host
+    /// that never reports focus counts as focused, as for host
+    /// notifications. One ack per finished turn: the daemon's `tree-changed`
+    /// ends the done state.
+    fn acknowledge_viewed_done_tab(&mut self) {
+        let viewed = self.active_surface().filter(|_| self.host_focused).filter(|surface| {
+            self.sidebar_status.tab(*surface) == Some(cmux_tui_core::AgentStatus::Done)
+        });
+        if viewed.is_none() || viewed == self.done_tab_ack_sent {
+            self.done_tab_ack_sent = viewed;
+            return;
+        }
+        self.done_tab_ack_sent = viewed;
+        if let Some(surface) = viewed {
+            self.session.acknowledge_tab_notifications(surface);
+        }
+    }
+
     fn reconcile_workspace_rail_selection(&mut self) {
         let actions = self.workspace_sidebar_action_rows();
         let selection_is_valid = match self.workspace_rail_selection {
@@ -10393,6 +10478,10 @@ impl App {
             }),
             WorkspaceRailSelection::Action(target) => {
                 actions.iter().any(|action| action.target == target)
+            }
+            WorkspaceRailSelection::Agent(surface) => {
+                self.config.sidebar.agents
+                    && self.sidebar_status.agents().iter().any(|row| row.surface == surface)
             }
         };
         if self.workspace_rail_selection != WorkspaceRailSelection::Workspace && !selection_is_valid
@@ -12551,7 +12640,9 @@ impl App {
                 .pane(pane)
                 .and_then(|pane| pane.tabs.get(index))
                 .map(|tab| PointerHitIdentity::Tab(tab.surface)),
-            Hit::SidebarTab { surface, .. } => Some(PointerHitIdentity::Tab(surface)),
+            Hit::SidebarTab { surface, .. } | Hit::AgentRow { surface, .. } => {
+                Some(PointerHitIdentity::Tab(surface))
+            }
             Hit::ProjectionRow { target: ProjectionTarget::Surface { surface, .. }, .. } => {
                 Some(PointerHitIdentity::Tab(surface))
             }
@@ -12576,9 +12667,9 @@ impl App {
 
     fn menu_action_resource(&self, action: MenuAction) -> Option<MenuActionResource> {
         match action {
-            MenuAction::RenameSurface(surface) | MenuAction::MoveTabToWorkspace { surface, .. } => {
-                Some(MenuActionResource::Surface(surface))
-            }
+            MenuAction::RenameSurface(surface)
+            | MenuAction::MoveTabToWorkspace { surface, .. }
+            | MenuAction::FocusAttention(surface) => Some(MenuActionResource::Surface(surface)),
             MenuAction::CopyStatusMessage => {
                 self.status_message.clone().map(MenuActionResource::StatusMessage)
             }
@@ -13763,6 +13854,7 @@ impl App {
             stdout.write_all(sequence.as_bytes())?;
             stdout.flush()?;
             self.host_mouse_capture_applied = Some(desired_mouse_capture);
+            self.host_mouse_capture_before_reassert = None;
         }
         Ok(())
     }
@@ -13830,7 +13922,7 @@ impl App {
     /// inner application still holds. When the state is momentarily
     /// unknowable (terminal lock contended, surface gone during teardown)
     /// the client keeps the capture it last applied instead of toggling the
-    /// host.
+    /// host, including the capture a re-assert cleared.
     fn desired_host_mouse_capture(&self) -> bool {
         let Some(surface_id) = self.surface_only else { return true };
         let canonical = self
@@ -13841,7 +13933,11 @@ impl App {
                 PointerSemanticProbe::Ready(semantics) => Some(semantics.mouse_tracking),
                 PointerSemanticProbe::Contended => None,
             });
-        canonical.unwrap_or_else(|| self.host_mouse_capture_applied.unwrap_or(false))
+        canonical.unwrap_or_else(|| {
+            self.host_mouse_capture_applied
+                .or(self.host_mouse_capture_before_reassert)
+                .unwrap_or(false)
+        })
     }
 
     /// A scoped attach client mirrors the inner terminal's input modes onto
@@ -13865,16 +13961,12 @@ impl App {
         if self.surface_only.is_none() {
             return;
         }
-        // Keep the last applied state when the inner terminal cannot be
-        // probed. Clearing it here would make the next frame guess `false`
-        // and release host capture during a transient lock/contention.
-        let probe_available = self
-            .surface_only
-            .and_then(|surface_id| self.session.surface(surface_id))
-            .and_then(|surface| surface.try_pointer_semantics())
-            .is_some_and(|probe| matches!(probe, PointerSemanticProbe::Ready(_)));
-        if probe_available {
-            self.host_mouse_capture_applied = None;
+        // Clear even when the PTY reader holds the terminal lock: skipping
+        // the reset then would lose this re-assert for good. A frame that
+        // still cannot read the inner state re-emits the cleared value from
+        // `host_mouse_capture_before_reassert`, so it never guesses `false`.
+        if let Some(applied) = self.host_mouse_capture_applied.take() {
+            self.host_mouse_capture_before_reassert = Some(applied);
         }
         // The previous frame may have applied an authored style. If the
         // inner application reset DECSCUSR, clear the desired style now so
@@ -14839,6 +14931,7 @@ impl App {
             let _ = self.sync_sidebar_plugin(false);
         }
         self.replace_tree(self.session.tree());
+        self.refresh_sidebar_status();
         self.claim_active_terminal_geometry(false);
         if self.surface_only.is_none() {
             self.sidebar_workspace_selection = self
@@ -15789,6 +15882,14 @@ impl App {
                 self.refresh_size_state_label(surface);
                 Ok(RenderAction::Draw)
             }
+            AppEvent::Mux(MuxEvent::Notification(notification)) => {
+                self.forward_notification_to_host(&notification);
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::Bell(surface)) => {
+                self.forward_bell_to_host(surface);
+                Ok(RenderAction::Draw)
+            }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::BrowserResizeFailed(failure) => {
                 self.status_message =
@@ -16248,12 +16349,16 @@ impl App {
                 Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
             }
             TerminalInput::FocusGained => {
+                // The layout frame below acks a done agent tab the person
+                // now sees (done-until-seen).
+                self.host_focused = true;
                 self.advance_pointer_focus_generation();
                 self.reassert_scoped_host_terminal_state();
                 self.reassert_visible_surface_sizes();
                 Ok(RenderAction::Draw)
             }
             TerminalInput::FocusLost => {
+                self.host_focused = false;
                 let action = if self.cancel_pointer_interaction() {
                     RenderAction::Draw
                 } else {
@@ -16973,7 +17078,7 @@ impl App {
             .map(|pane| pane.id)
     }
 
-    fn active_surface(&self) -> Option<SurfaceId> {
+    pub(crate) fn active_surface(&self) -> Option<SurfaceId> {
         self.tree.active_surface()
     }
 
@@ -18453,6 +18558,15 @@ impl App {
                 .into_iter()
                 .map(|action| WorkspaceRailTarget::Action(action.target)),
         );
+        // The agents section sits below the action rows.
+        if self.config.sidebar.agents {
+            targets.extend(
+                self.sidebar_status
+                    .agents()
+                    .iter()
+                    .map(|row| WorkspaceRailTarget::Agent(row.surface)),
+            );
+        }
         targets
     }
 
@@ -18473,6 +18587,12 @@ impl App {
                 })
                 .map(|workspace| WorkspaceRailTarget::Recoverable(workspace.id.clone())),
             WorkspaceRailSelection::Action(action) => Some(WorkspaceRailTarget::Action(action)),
+            WorkspaceRailSelection::Agent(surface) => self
+                .sidebar_status
+                .agents()
+                .iter()
+                .any(|row| row.surface == surface)
+                .then_some(WorkspaceRailTarget::Agent(surface)),
         }
     }
 
@@ -18500,6 +18620,9 @@ impl App {
             }
             WorkspaceRailTarget::Action(action) => {
                 self.workspace_rail_selection = WorkspaceRailSelection::Action(action);
+            }
+            WorkspaceRailTarget::Agent(surface) => {
+                self.workspace_rail_selection = WorkspaceRailSelection::Agent(surface);
             }
         }
     }
@@ -18591,6 +18714,11 @@ impl App {
                 action,
                 prefix: KeyEvent::new(prefix.code, prefix.mods),
             });
+        }
+        if self.copy_mode_active()
+            && let Some(action) = self.copy_mode_key(&input)
+        {
+            return KeyboardIngress::Handled(action);
         }
         KeyboardIngress::Routed(TerminalInput::Keyboard(input))
     }
@@ -19353,6 +19481,18 @@ impl App {
                         Some(WorkspaceRailTarget::Recoverable(id)) => {
                             self.request_restore_managed_workspace(&id);
                             self.focus = FocusTarget::Pane;
+                        }
+                        Some(WorkspaceRailTarget::Agent(surface)) => {
+                            let target = self
+                                .sidebar_status
+                                .agents()
+                                .iter()
+                                .find(|row| row.surface == surface)
+                                .map(|row| row.target);
+                            if let Some(target) = target {
+                                self.activate_projection_target(target)?;
+                                self.focus = FocusTarget::Pane;
+                            }
                         }
                         None => {}
                     }
@@ -20188,6 +20328,12 @@ impl App {
             Action::ResizeShrink => self.resize_focused_split(-0.05),
             Action::ScrollUp => self.scroll_active(-10),
             Action::ScrollDown => self.scroll_active(10),
+            Action::ScrollPageUp => self.scroll_active_pages(-1, 1),
+            Action::ScrollPageDown => self.scroll_active_pages(1, 1),
+            Action::ScrollHalfPageUp => self.scroll_active_pages(-1, 2),
+            Action::ScrollHalfPageDown => self.scroll_active_pages(1, 2),
+            Action::CopyMode => self.enter_copy_mode(false),
+            Action::SearchScrollback => self.enter_copy_mode(true),
             Action::ClearHistory => {
                 if let Some(surface) = self.active_surface()
                     && self.tree.surface_kind(surface) == SurfaceKind::Pty
@@ -20217,6 +20363,18 @@ impl App {
                 if let Some(pane) = pane {
                     self.focus_omnibar(pane);
                 }
+                return Ok(RenderAction::Draw);
+            }
+            Action::NextAttention => {
+                self.jump_to_next_attention()?;
+                return Ok(RenderAction::Draw);
+            }
+            Action::AttentionList => {
+                self.finish_active_drag();
+                self.shortcut_help = None;
+                self.prompt = None;
+                self.omnibar = None;
+                self.open_attention_list();
                 return Ok(RenderAction::Draw);
             }
             Action::ShowShortcuts => {
@@ -20558,6 +20716,10 @@ impl App {
                 self.run_action(Action::ShowShortcuts)?;
                 return Ok(());
             }
+            MenuAction::FocusAttention(surface) => {
+                self.focus_attention_surface(surface)?;
+                return Ok(());
+            }
             _ => {}
         }
         if menu_action_prepares_pty_release(action) && !self.prepare_pty_input_before_mutation() {
@@ -20681,7 +20843,8 @@ impl App {
             | MenuAction::FocusSidebar
             | MenuAction::ActivateSidebarProfile(_)
             | MenuAction::SetSidebarViewVisible { .. }
-            | MenuAction::ShowShortcuts => unreachable!("shared menu actions return above"),
+            | MenuAction::ShowShortcuts
+            | MenuAction::FocusAttention(_) => unreachable!("shared menu actions return above"),
             MenuAction::SetClientSizing { surface, client, enabled } => {
                 self.session.set_client_sizing(surface, client, enabled);
             }
@@ -22884,6 +23047,12 @@ impl App {
                         self.focus = FocusTarget::Pane;
                     }
                 }
+                Hit::AgentRow { surface, target } => {
+                    self.workspace_rail_follow_selection = true;
+                    self.workspace_rail_selection = WorkspaceRailSelection::Agent(surface);
+                    self.activate_projection_target(target)?;
+                    self.focus = FocusTarget::Pane;
+                }
                 Hit::ProjectionToggle { view, branch } => {
                     let state = self.projection_rail_state_mut(view);
                     if !state.collapsed.remove(&branch) {
@@ -24916,8 +25085,16 @@ fn action_is_frontend_local(action: Action) -> bool {
             | Action::FocusNextPane
             | Action::ScrollUp
             | Action::ScrollDown
+            | Action::ScrollPageUp
+            | Action::ScrollPageDown
+            | Action::ScrollHalfPageUp
+            | Action::ScrollHalfPageDown
+            | Action::CopyMode
+            | Action::SearchScrollback
             | Action::BrowserEditUrl
             | Action::ShowShortcuts
+            | Action::NextAttention
+            | Action::AttentionList
     )
 }
 
@@ -24948,6 +25125,12 @@ fn action_available_in_mode(action: Action, surface_only: bool) -> bool {
                 | Action::RenameTab
                 | Action::ScrollUp
                 | Action::ScrollDown
+                | Action::ScrollPageUp
+                | Action::ScrollPageDown
+                | Action::ScrollHalfPageUp
+                | Action::ScrollHalfPageDown
+                | Action::CopyMode
+                | Action::SearchScrollback
                 | Action::ClearHistory
                 | Action::ShowShortcuts
                 | Action::Detach
@@ -24965,8 +25148,15 @@ fn action_prepares_pty_release(action: Action) -> bool {
             | Action::NewPaneRight
             | Action::ScrollUp
             | Action::ScrollDown
+            | Action::ScrollPageUp
+            | Action::ScrollPageDown
+            | Action::ScrollHalfPageUp
+            | Action::ScrollHalfPageDown
+            | Action::CopyMode
+            | Action::SearchScrollback
             | Action::BrowserEditUrl
             | Action::ShowShortcuts
+            | Action::AttentionList
     )
 }
 
@@ -25134,6 +25324,10 @@ fn browser_character_code(character: char) -> (&'static str, u32) {
 
 #[cfg(test)]
 mod tests {
+    mod attention;
+    mod copy_mode;
+    mod sidebar_agent_status;
+
     #[test]
     fn input_class_groups_routing_semantics() {
         let cases = [
@@ -26860,6 +27054,12 @@ mod tests {
                     | Action::RenameTab
                     | Action::ScrollUp
                     | Action::ScrollDown
+                    | Action::ScrollPageUp
+                    | Action::ScrollPageDown
+                    | Action::ScrollHalfPageUp
+                    | Action::ScrollHalfPageDown
+                    | Action::CopyMode
+                    | Action::SearchScrollback
                     | Action::ClearHistory
                     | Action::ShowShortcuts
                     | Action::Detach
@@ -32533,9 +32733,21 @@ mod tests {
         assert_eq!(initial_host_mouse_capture(false), Some(true));
     }
 
+    /// Surface options whose child writes nothing until it reads a line. A live
+    /// shell prints while a test inspects the terminal; the busy terminal lock
+    /// makes `try_pointer_semantics` report contention and the app then falls
+    /// back to the last applied capture, so tests that read terminal state
+    /// without a frame must not race a shell (port of feat ea2bf547).
+    fn quiet_surface() -> SurfaceOptions {
+        SurfaceOptions {
+            command: Some(vec!["/bin/sh".into(), "-c".into(), "IFS= read -r line".into()]),
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn desired_host_mouse_capture_follows_scoped_inner_terminal() {
-        let mux = Mux::new("scoped-mouse-capture-test", SurfaceOptions::default());
+        let mux = Mux::new("scoped-mouse-capture-test", quiet_surface());
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         assert!(app.desired_host_mouse_capture(), "full TUI always captures host mouse");
@@ -32566,7 +32778,7 @@ mod tests {
     /// the inner application still owns the mouse.
     #[test]
     fn scoped_host_mouse_capture_follows_canonical_state_without_a_rendered_frame() {
-        let mux = Mux::new("scoped-canonical-capture-test", SurfaceOptions::default());
+        let mux = Mux::new("scoped-canonical-capture-test", quiet_surface());
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.surface_only = Some(surface.id);
@@ -32702,6 +32914,54 @@ mod tests {
         )
         .expect("the re-derived frame must re-emit host mouse capture");
         assert!(reasserted.contains("\x1b[?1002h"));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    /// The PTY reader holds the terminal lock while it parses output, so the
+    /// inner state can be unknowable at the moment a resize arrives. The
+    /// re-assert must not be lost then: the next frame still re-emits host
+    /// mouse capture, from the capture last applied, and never guesses that
+    /// capture is off.
+    #[test]
+    fn scoped_resize_reasserts_host_mouse_capture_while_the_terminal_is_busy() {
+        let mux = Mux::new("scoped-resize-busy-reassert-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        app.host_mouse_capture_applied = Some(true);
+
+        // Hold the terminal lock on another thread, as the reader does.
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let holder_surface = surface.clone();
+        let holder = std::thread::spawn(move || {
+            holder_surface.with_terminal(|_| {
+                held_tx.send(()).unwrap();
+                let _ = release_rx.recv_timeout(Duration::from_secs(10));
+            });
+        });
+        held_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+
+        app.handle(AppEvent::Input(Event::Resize(120, 40))).unwrap();
+        let applied_after_resize = app.host_mouse_capture_applied;
+        let next_frame = host_mouse_capture_escape_if_changed(
+            app.host_mouse_capture_applied,
+            app.desired_host_mouse_capture(),
+        );
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+
+        assert_eq!(
+            applied_after_resize, None,
+            "a resize while the terminal is busy must still reset the applied host-capture bookkeeping"
+        );
+        let next_frame = next_frame
+            .expect("the next frame must re-emit host mouse capture while the terminal is busy");
+        assert!(
+            next_frame.contains("\x1b[?1002h"),
+            "the busy-terminal re-assert must keep the capture last applied, not release it: {next_frame:?}"
+        );
         mux.close_surface(surface.id).unwrap();
     }
 
@@ -46792,6 +47052,7 @@ mod tests {
             durable_notice_ack_retry_at: None,
             config: Config::default(),
             config_reload_applications: 0,
+            _test_deadline: Some(super::test_deadline::TestDeadline::arm()),
             chrome: ChromeTheme::dark(),
             tree: TreeView::default(),
             tab_locations: HashMap::new(),
@@ -46804,6 +47065,7 @@ mod tests {
             desired_outer_cursor: OuterCursorSpec::Reset,
             applied_outer_cursor: None,
             host_mouse_capture_applied: Some(true),
+            host_mouse_capture_before_reassert: None,
             graphics_writer: None,
             next_graphics_submission: 0,
             pending_graphics_submission: None,
@@ -46831,6 +47093,7 @@ mod tests {
             pending_size_releases: HashSet::new(),
             geometry_authority_surface: None,
             prefix_armed: false,
+            copy_mode: None,
             session_label: "test".to_string(),
             surface_only: None,
             sidebar_visible: true,
@@ -46853,6 +47116,9 @@ mod tests {
             tabs_footer_scroll: 0,
             projection_rails: HashMap::new(),
             projection_order_cache: AgentOrderCache::default(),
+            sidebar_status: crate::sidebar_status::SidebarStatus::default(),
+            agent_section_scroll: 0,
+            done_tab_ack_sent: None,
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
             tabs_rail_follow_selection: true,
@@ -46930,6 +47196,15 @@ mod tests {
             encoder: KeyEncoder::new().unwrap(),
             encode_buf: Vec::new(),
             quit: false,
+            // Tests never read the developer's environment for the host.
+            host_notify: crate::host_notify::HostNotifyGate::new(
+                crate::host_notify::HostTerminalInfo {
+                    terminal: crate::host_notify::HostTerminal::Ghostty,
+                    multiplexed: false,
+                    cmux_terminal: None,
+                },
+            ),
+            host_focused: true,
             status_command_outputs: Arc::new(Mutex::new(HashMap::new())),
             status_command_worker_stop: None,
             status_poke_pending: Arc::new(AtomicBool::new(false)),
@@ -46980,8 +47255,11 @@ mod tests {
                             browser_source: None,
                             browser_frames_stalled: false,
                             supports_clear_history_key_fallback: false,
-                            notification: unread
-                                .then_some(TabNotificationView { unread: true, level: "warning" }),
+                            notification: unread.then_some(TabNotificationView {
+                                unread: true,
+                                level: "warning",
+                                sequence: 1,
+                            }),
                         }],
                     }],
                 }],

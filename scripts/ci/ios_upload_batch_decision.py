@@ -18,9 +18,9 @@ A manual dispatch always uploads. "Commits" are main's first-parent commits
 (one per merged pull request), each diffed against its first parent; the time
 is the committer date, which is when the pull request landed on main.
 
-"Relevant" reuses the workflow's own filter: --paths-from-workflow reads the
-`const iosRelevantPaths = [...]` array out of the workflow's decide script, so
-there is a single list. The official lane uses --public-path-filter to skip only known unrelated
+"Relevant" can come from a workflow's own filter: --paths-from-workflow reads a
+`const iosRelevantPaths = [...]` array out of a workflow's decide script. No
+workflow uses it since the classic INTERNAL lane was retired. The cmux CLASSIC lane uses --public-path-filter to skip only known unrelated
 paths, matching its conservative decide gate. Without either filter all commits count.
 
 History comes from the checkout (ios/scripts/fetch-testflight-notes-history.sh
@@ -178,10 +178,7 @@ def public_path_relevant(path: str) -> bool:
     if path.startswith(("web/", "docs/", "tests/", "cmuxTests/")):
         return False
     if path.startswith(".github/workflows/"):
-        return path in {
-            ".github/workflows/ios-appstore-upload.yml",
-            ".github/workflows/ios-testflight.yml",
-        }
+        return path == ".github/workflows/ios-appstore-upload.yml"
     return True
 
 

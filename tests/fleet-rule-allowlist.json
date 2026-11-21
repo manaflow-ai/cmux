@@ -38,6 +38,7 @@
     "skills/cmux-testing/references/remote-tmux-sizing-e2e.md": {"count": 2, "reason": "debt: tells an agent to `pkill -9 -f` the fuzz drivers; point at the driver's recorded pid file instead"},
     "tests/test_ci_app_host_home_isolation.py": {"count": 1, "reason": "safe: the test forbids `pkill -f` in app-host cleanup"},
     "tests/test_reload_shared_derived_data.sh": {"count": 4, "reason": "safe: a test fake that records pkill arguments instead of running it"},
+    "tests/test_seed_zig_package_archives.sh": {"count": 1, "reason": "safe: pgrep -f of a pattern holding this run's own mktemp cache path, so it matches only the seed downloads the test started"},
     "tests_v2/test_ssh_remote_browser_favicon_uses_proxy.py": {"count": 1, "reason": "safe: the pattern is this test's own temp server script path on the test SSH host"},
     "tests_v2/test_ssh_remote_browser_move_rebinds_proxy.py": {"count": 1, "reason": "debt: `pkill -f 'python3 -m http.server PORT'` on the test SSH host; record the server PID"},
     "web/scripts/dev-local.sh": {"count": 1, "reason": "safe: -P <recorded pid>, the children of the dev server this script started"},
