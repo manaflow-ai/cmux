@@ -43,7 +43,6 @@ const KNOWN = new Set([
   'src/agent-session/acpmux/conversation/conversation.css: :root[data-code-actions="block-hover"] .cv-edit-diff:focus-within .cv-edit-diff__header > .cv-iconbtn',
   'src/agent-session/acpmux/conversation/conversation.css: :root[data-code-actions="block-hover"] .cv-shell:focus-within .cv-shell__actions',
   "src/agent-session/acpmux/conversation/conversation.css: .cv-shell:focus-within .cv-shell__wrap",
-  'src/agent-session/acpmux/conversation/conversation.css: :is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:is(:focus-within, [aria-expanded="true"], [data-popup-open], :has([aria-expanded="true"])) > .cv-tool__chevron',
   "src/agent-session/acpmux/conversation/conversation.css: .cv-sent-actions:focus-within",
   "src/agent-session/acpmux/conversation/conversation.css: .cv-received__hover:focus-within",
   "src/agent-session/acpmux/conversation/conversation.css: .cv-tool-output__actions:focus-within",

@@ -97,20 +97,23 @@ fn command_line(cmd: &tokio::process::Command) -> Vec<String> {
 }
 
 /// The arguments a session's harness, started in `cwd` with the profile's
-/// `env`, starts with: a `codex app-server` launch's with acpmux's
-/// overrides (`codex_args`), any other's as given. `None` for a launch
-/// without a session.
+/// `env`, starts with: a `codex app-server` launch's (`codex_launch`, decided on the
+/// profile's own program) with acpmux's overrides (`codex_args`), any other's as given.
+/// `None` for a launch without a session, whose overrides only move before the subcommand.
 pub fn launch_args(
-    program: &str,
+    codex_launch: bool,
     args: &[String],
     session: Option<(&std::path::Path, &std::collections::BTreeMap<String, String>)>,
 ) -> Vec<String> {
     match session {
-        Some((cwd, env)) if crate::codex_app_server::is_launch(program, args) => {
+        Some((cwd, env)) if codex_launch => {
             let home = env.get("CODEX_HOME").map(std::path::PathBuf::from);
             let configs = codex_configs(cwd, home);
             codex_args(args.to_vec(), &configs)
         }
+        // A launch with no session (a model probe) still has a credential's provider after the
+        // subcommand, which would drop a launcher wrapper's root overrides (cmux#48354).
+        _ if codex_launch => hoist_subcommand_config(args.to_vec()),
         _ => args.to_vec(),
     }
 }
@@ -158,7 +161,54 @@ pub fn codex_args(args: Vec<String>, configs: &[toml::Table]) -> Vec<String> {
         }
     }
     lifted.extend(args);
-    lifted
+    hoist_subcommand_config(lifted)
+}
+
+/// `args` with every `-c`/`--config` after the `app-server` word moved before it, in order
+/// (cmux#48354). Some codex builds (0.160, the cmux fork) drop every override before the
+/// subcommand once the subcommand has one of its own, so cmux's `app-server -c
+/// developer_instructions=…` (`context_inventory::launch_args`) and credentials' provider
+/// (`agent_credentials::codex_config_index`) dropped acpmux's lifted limits and the root-level
+/// overrides a launcher wrapper adds (a subrouter `codex` wrapper's `-c model_provider=…`): the
+/// chat went to the plain provider and was refused (400 `model_not_found`) while `codex` in a
+/// terminal worked. Every codex reads a root override, and the subcommand's come after the
+/// root's in its merge, so the order kept here keeps which one wins.
+fn hoist_subcommand_config(args: Vec<String>) -> Vec<String> {
+    let mut i = 0;
+    let sub = loop {
+        let Some(a) = args.get(i) else { return args };
+        if a == "app-server" {
+            break i;
+        }
+        if !a.starts_with('-') {
+            return args;
+        }
+        i += if a.contains('=') { 1 } else { 2 };
+    };
+    let mut hoisted = Vec::new();
+    let mut rest = Vec::new();
+    let mut after = args[sub + 1..].iter().cloned();
+    while let Some(a) = after.next() {
+        if a == "-c" || a == "--config" {
+            // A flag with no value stays where it was: codex refuses it there, rather than
+            // taking the subcommand as its value.
+            match after.next() {
+                Some(value) => hoisted.extend([a, value]),
+                None => rest.push(a),
+            }
+        } else if a.starts_with("--config=")
+            || (a.starts_with("-c") && a.len() > 2 && !a.starts_with("--"))
+        {
+            hoisted.push(a);
+        } else {
+            rest.push(a);
+        }
+    }
+    let mut out: Vec<String> = args[..sub].to_vec();
+    out.extend(hoisted);
+    out.push("app-server".into());
+    out.extend(rest);
+    out
 }
 
 /// Whether a `codex app-server` launch of `args` in `cwd` (`home`: the profile's `CODEX_HOME`)
@@ -260,4 +310,74 @@ fn sets_codex_key(args: &[String], key: &str) -> bool {
             .or_else(|| a.strip_prefix("-c").filter(|rest| !rest.is_empty()))
             .is_some_and(sets),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn words(w: &[&str]) -> Vec<String> {
+        w.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn overrides_after_the_subcommand_move_before_it_in_order() {
+        let args = words(&[
+            "-c",
+            "agents.max_depth=2",
+            "app-server",
+            "--listen",
+            "stdio://",
+            "-c",
+            "model_provider=\"openai_api_key\"",
+            "--config=x=1",
+            "-cy=2",
+            "-c",
+            "developer_instructions=\"rules\"",
+        ]);
+        assert_eq!(
+            hoist_subcommand_config(args),
+            words(&[
+                "-c",
+                "agents.max_depth=2",
+                "-c",
+                "model_provider=\"openai_api_key\"",
+                "--config=x=1",
+                "-cy=2",
+                "-c",
+                "developer_instructions=\"rules\"",
+                "app-server",
+                "--listen",
+                "stdio://",
+            ])
+        );
+        // No subcommand, or another one: as given.
+        let other = words(&["exec", "-c", "a=1"]);
+        assert_eq!(hoist_subcommand_config(other.clone()), other);
+        let none = words(&["-c", "a=1"]);
+        assert_eq!(hoist_subcommand_config(none.clone()), none);
+        // A dangling flag never takes the subcommand as its value.
+        let dangling = words(&["-c", "a=1", "app-server", "-c"]);
+        assert_eq!(hoist_subcommand_config(dangling.clone()), dangling);
+        // A launch with no session (a model probe) is moved too.
+        assert_eq!(
+            launch_args(true, &words(&["app-server", "-c", "model_provider=\"x\""]), None),
+            words(&["-c", "model_provider=\"x\"", "app-server"])
+        );
+        assert_eq!(
+            launch_args(false, &words(&["exec", "-c", "a=1"]), None),
+            words(&["exec", "-c", "a=1"])
+        );
+    }
+
+    #[test]
+    fn a_launch_has_no_override_after_app_server() {
+        let out = codex_args(
+            words(&["app-server", "-c", "developer_instructions=\"rules\""]),
+            &[toml::Table::new()],
+        );
+        let at = out.iter().position(|a| a == "app-server").unwrap();
+        assert_eq!(at, out.len() - 1, "{out:?}");
+        assert!(out.windows(2).any(|w| w == ["-c", "developer_instructions=\"rules\""]), "{out:?}");
+    }
 }

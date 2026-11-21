@@ -22,7 +22,7 @@ use lock::live_holder_pid;
 #[cfg(unix)]
 pub(crate) use lock::socket_held_by_other;
 use lock::{
-    DaemonLock, LockHeld, acquire_lock, lock_has_live_holder, wait_for_lock_release,
+    DaemonLock, LockHeld, acquire_lock, lock_has_live_holder, same_path, wait_for_lock_release,
     wait_for_lock_release_with_budget,
 };
 mod running;
@@ -485,6 +485,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     }
 
     let store = crate::store::open(&config.store, &home())?;
+    crate::mcp_gateway::start(&home()).await; // before any session starts
     let mut moved_listener = false;
     let ws_listener = match &ws {
         // cx-fcaq: a taken explicit `--listen` stops the daemon (the caller asked for that
@@ -1575,17 +1576,6 @@ async fn take_over_holder(socket: &std::path::Path) {
         .await;
 }
 
-/// Whether two paths name the same file: equal, or equal once canonical (a missing file through
-/// its canonical folder).
-fn same_path(left: &std::path::Path, right: &std::path::Path) -> bool {
-    fn canonical(path: &std::path::Path) -> Option<std::path::PathBuf> {
-        std::fs::canonicalize(path)
-            .ok()
-            .or_else(|| Some(std::fs::canonicalize(path.parent()?).ok()?.join(path.file_name()?)))
-    }
-    left == right || canonical(left).zip(canonical(right)).is_some_and(|(l, r)| l == r)
-}
-
 fn random_token() -> Result<String> {
     let mut bytes = [0u8; 24];
     getrandom::fill(&mut bytes).map_err(|e| anyhow!("the OS random generator: {e}"))?;
@@ -1670,6 +1660,12 @@ fn daemon_command(this: &crate::self_command::SelfCommand) -> std::process::Comm
     this.command(&["daemon", "run", "--ready-fd"])
 }
 
+/// The starter chat's session marks a daemon never keeps (`spawn_detached`, the upgrade
+/// handover in `daemon/exe_swap.rs`).
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(crate) const STARTER_SESSION_MARKS: [&str; 4] =
+    ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_NAME", "ACPMUX_HOST_NONCE", "ACPMUX_BG_TASK"];
+
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
 /// return the read end of its readiness pipe. With `key`, the daemon also
 /// gets `--person-key-fd M`, one end of a socket pair: the key is written
@@ -1700,6 +1696,12 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::F
     crate::config::scrub_nested_claude_env(&mut cmd);
     // The daemon serves every session: its starter's turn values are not its own.
     for k in crate::config::inherited_caller_scoped_keys() {
+        cmd.env_remove(k);
+    }
+    // Nor its starter's session marks: a daemon a chat's shell started carried that chat's id and
+    // host nonce, and so did everything it started for other sessions, which made them read as
+    // that chat's (`acpmux process owner`, `cli/process_owner.rs`).
+    for k in STARTER_SESSION_MARKS {
         cmd.env_remove(k);
     }
     // The daemon must use this client's state directory and socket, including a host
