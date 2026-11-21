@@ -36,6 +36,8 @@ public final class UIInspectorController {
     private weak var activePage: AgentPaneView?
     private var selectionGeneration = 0
     private var pendingAction: SelectionAction = .send
+    private var nativeSelecting = false // a native pick is capturing: events are held until it lands
+    private var swallowsRelease = false // the picker took the press, so the release is its too
     /// The native pick: empty until a pick's first move over native UI, cleared by `stop()`.
     public let native = UIPointerNativePicker()
 
@@ -106,7 +108,7 @@ public final class UIInspectorController {
             watchesToggle = true
             AgentPaneTunables.whenPointerInspectorTurnsOff { [weak self] in self?.stop() }
         }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .leftMouseUp, .rightMouseUp, .keyDown]) { [weak self] event in
             guard let self else { return event }
             guard Thread.isMainThread else { return event } // main-proof: AppKit local monitors are delivered on the main thread
             return self.handle(event, window: self.shellWindow(for: event.window), point: self.screenPoint(of: event))
@@ -117,6 +119,8 @@ public final class UIInspectorController {
         selectionGeneration &+= 1
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+        nativeSelecting = false
+        swallowsRelease = false
         deactivatePage()
         native.clear()
     }
@@ -126,6 +130,13 @@ public final class UIInspectorController {
     /// UI) it returns `event` untouched.
     public func handle(_ event: NSEvent, window: NSWindow?, point: NSPoint?) -> NSEvent? {
         if event.type == .keyDown, event.keyCode == 53 { stop(); return nil }
+        // A native pick is being captured: nothing reaches the views and nothing outlines until it lands.
+        if nativeSelecting { return event.type == .mouseMoved ? event : nil }
+        if event.type == .leftMouseUp || event.type == .rightMouseUp {
+            // The release of a press the picker took is the picker's too.
+            defer { swallowsRelease = false }
+            return swallowsRelease ? nil : event
+        }
         if event.type == .keyDown { return nativeKey(event) }
         guard let window, let point else { deactivatePage(); return event }
         guard let page = page(at: point, in: window) else {
@@ -192,22 +203,26 @@ public final class UIInspectorController {
             native.hover(at: point, in: window)
             return event
         case .leftMouseDown, .rightMouseDown:
+            // While picking a press is the picker's, even over nothing it names.
             native.hover(at: point, in: window, releasingHold: true)
-            guard let element = native.current else { return event }
-            selectNative(element, in: window, action: event.type == .rightMouseDown ? .copy : .send)
+            swallowsRelease = true
+            if let element = native.current {
+                selectNative(element, in: window, action: event.type == .rightMouseDown ? .copy : .send)
+            }
             return nil
         default:
             return event
         }
     }
 
-    /// Up and Down walk the outline out and in, Return picks it; other keys go on.
+    /// Up and Down walk the outline out and in, Return picks it; other keys (and any with a modifier) go on.
     private func nativeKey(_ event: NSEvent) -> NSEvent? {
+        guard event.modifierFlags.intersection([.command, .shift, .option, .control]).isEmpty else { return event }
         switch native.key(event.keyCode) {
         case .pass: return event
         case .handled: return nil
         case .pick(let element):
-            if let window = host.activeWindow() ?? NSApp.keyWindow { selectNative(element, in: window, action: .send) }
+            if let window = native.window { selectNative(element, in: window, action: .send) }
             return nil
         }
     }
@@ -217,6 +232,7 @@ public final class UIInspectorController {
         selectionGeneration &+= 1
         let generation = selectionGeneration
         native.clear() // the capture must not show the outline
+        nativeSelecting = true
         Task { [weak self, weak window] in
             guard let self, let window, self.selectionGeneration == generation else { return }
             let image = await self.host.capture(window)

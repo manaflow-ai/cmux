@@ -16,14 +16,22 @@ public final class UIPointerHighlightView: NSView {
     public static let chipHeight: CGFloat = 18
 
     /// The overlay's frame for an element at `frame` (window coordinates): the element plus the chip, above it
-    /// when there is room, else below.
+    /// when there is room, else below, else inside its top edge; never past the window's content.
     public static func frame(around frame: NSRect, in window: NSWindow) -> NSRect {
-        let height = window.contentView?.bounds.height ?? window.frame.height
+        let bounds = window.contentView?.bounds ?? NSRect(origin: .zero, size: window.frame.size)
         let ring = frame.insetBy(dx: -2, dy: -2)
-        let above = ring.maxY + chipHeight + 2 <= height
-        let chip = NSRect(x: ring.minX, y: above ? ring.maxY + 2 : ring.minY - chipHeight - 2,
-                          width: max(ring.width, 160), height: chipHeight)
-        return ring.union(chip)
+        var rect = ring
+        if let y = chipY(box: ring, height: bounds.height) {
+            rect = ring.union(NSRect(x: ring.minX, y: y, width: max(ring.width, 160), height: chipHeight))
+        }
+        return rect.intersection(bounds)
+    }
+
+    /// Where the chip sits (bottom edge, the same space as `box`): above, else below, else nil (inside the top).
+    private static func chipY(box: NSRect, height: CGFloat) -> CGFloat? {
+        if box.maxY + 2 + chipHeight <= height + 0.5 { return box.maxY + 2 }
+        if box.minY - chipHeight - 2 >= -0.5 { return box.minY - chipHeight - 2 }
+        return nil
     }
 
     public func show(_ element: UIPointerNativeElement, look: Look, outlineIn rect: NSRect, around frame: NSRect) {
@@ -65,9 +73,10 @@ public final class UIPointerHighlightView: NSView {
         }
         let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis), .foregroundColor: NSColor.white]
         let text = NSAttributedString(string: chip, attributes: attributes)
-        let above = box.maxY + 2 + Self.chipHeight <= bounds.height + 0.5
         let width = min(ceil(text.size().width) + 12, bounds.width)
-        let pill = NSRect(x: box.minX, y: above ? box.maxY + 2 : box.minY - Self.chipHeight - 2, width: width, height: Self.chipHeight)
+        let inside = NSRect(x: max(box.minX, 0) + 4, y: min(box.maxY, bounds.height) - Self.chipHeight - 4, width: width, height: Self.chipHeight)
+        let pill = Self.chipY(box: box, height: bounds.height)
+            .map { NSRect(x: max(box.minX, 0), y: $0, width: width, height: Self.chipHeight) } ?? inside
         blue.setFill()
         NSBezierPath(roundedRect: pill, xRadius: 4, yRadius: 4).fill()
         text.draw(with: pill.insetBy(dx: 6, dy: 2), options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])

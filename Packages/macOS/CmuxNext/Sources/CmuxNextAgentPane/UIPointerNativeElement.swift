@@ -32,7 +32,7 @@ public struct UIPointerNativeElement: Equatable {
         var found: [Self] = []
         for view in chain {
             let identifier = view.accessibilityIdentifier()
-            if identifier == Prefix.strip, let tab = tab(in: view, containing: window.convertPoint(toScreen: point), window: window) {
+            if isTabList(view, identifier: identifier), let tab = tab(in: view, containing: window.convertPoint(toScreen: point), window: window) {
                 found.append(tab)
             }
             guard let element = element(for: view, identifier: identifier, inPane: inPane) else { continue }
@@ -51,11 +51,16 @@ public struct UIPointerNativeElement: Equatable {
         guard let content = window.contentView else { return nil }
         switch target.kind {
         case .tab:
-            guard let strip = descendant(of: content, where: { $0.accessibilityIdentifier() == Prefix.strip && !$0.isHiddenOrHasHiddenAncestor }) else { return nil }
-            let wanted = Prefix.tab + target.id
-            guard let child = (strip.accessibilityChildren() ?? []).first(where: { ($0 as? NSAccessibilityElement)?.accessibilityIdentifier() == wanted }) as? NSAccessibilityElement
-            else { return nil }
-            return tab(child, window: window)
+            // Every pane has its own strip (and may show a vertical list): the tab is in whichever names it.
+            let wanted: Set = [Prefix.tab + target.id, Prefix.verticalTab + target.id]
+            var child: NSAccessibilityElement?
+            _ = descendant(of: content) { view in
+                guard isTabList(view, identifier: view.accessibilityIdentifier()), !view.isHiddenOrHasHiddenAncestor else { return false }
+                child = (view.accessibilityChildren() ?? []).lazy.compactMap { $0 as? NSAccessibilityElement }
+                    .first { wanted.contains($0.accessibilityIdentifier()) }
+                return child != nil
+            }
+            return child.map { tab($0, window: window) }
         case .pane, .workspace, .sidebarItem:
             let prefix = target.kind == .pane ? Prefix.pane : target.kind == .workspace ? Prefix.workspace : Prefix.item
             let wanted = prefix + target.id
@@ -83,6 +88,7 @@ public struct UIPointerNativeElement: Equatable {
     public enum Prefix {
         public static let strip = "cmux.tabs.strip"
         public static let tab = "cmux.tabs.tab."
+        public static let verticalTab = "cmux.tabs.vertical."
         public static let pane = "cmux.layout.pane."
         public static let workspace = "cmux.sidebar.workspace."
         public static let item = "cmux.sidebar.item."
@@ -94,8 +100,9 @@ public struct UIPointerNativeElement: Equatable {
         let kind: Kind
         switch identifier {
         case let id where id.hasPrefix(Prefix.pane): kind = .pane
-        case let id where id.hasPrefix(Prefix.workspace): kind = .workspace
-        case let id where id.hasPrefix(Prefix.item): kind = .sidebarItem
+        // A row's own buttons extend its identifier (`cmux.sidebar.workspace.<id>.close`): those are controls.
+        case let id where id.hasPrefix(Prefix.workspace): kind = view is NSControl ? .control : .workspace
+        case let id where id.hasPrefix(Prefix.item): kind = view is NSControl ? .control : .sidebarItem
         case let id where id.hasPrefix(Prefix.toolbar) || id.hasPrefix(Prefix.nativeToolbar): kind = .paneToolbar
         case Prefix.strip: kind = .tabStrip
         case let id where id.hasPrefix("cmux."): kind = .control
@@ -119,9 +126,15 @@ public struct UIPointerNativeElement: Equatable {
     private static func tab(_ element: NSAccessibilityElement, window: NSWindow) -> Self {
         let identifier = element.accessibilityIdentifier()
         let title = element.accessibilityLabel() ?? element.accessibilityTitle() ?? Kind.tab.rawValue
-        return Self(kind: identifier.hasSuffix(".close") ? .control : .tab, title: title, identifier: identifier,
+        let isTab = identifier.hasPrefix(Prefix.tab) || identifier.hasPrefix(Prefix.verticalTab)
+        return Self(kind: isTab ? .tab : .control, title: title, identifier: identifier,
                     frame: window.convertFromScreen(element.accessibilityFrame()),
                     role: element.accessibilityRole()?.rawValue, viewType: String(describing: type(of: element)))
+    }
+
+    /// A tab strip or the vertical tab list: tabs are its accessibility children, not views.
+    private static func isTabList(_ view: NSView, identifier: String) -> Bool {
+        identifier == Prefix.strip || view.accessibilityRole() == .tabGroup
     }
 
     private static func label(of view: NSView) -> String? {

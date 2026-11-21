@@ -123,6 +123,10 @@ import Testing
 
             let click = mouse(.leftMouseDown, at: inPane, in: window)
             #expect(inspector.handle(click, window: window, point: inPane) == nil, "the picker let a native click through")
+            let release = mouse(.leftMouseUp, at: inPane, in: window)
+            #expect(inspector.handle(release, window: window, point: inPane) == nil, "the picked press's release reached the view")
+            #expect(inspector.handle(move, window: window, point: overRow) === move)
+            #expect(!inspector.native.isShowing, "a move during the capture outlined again")
             #expect(!inspector.native.isShowing, "the outline stayed up for the capture")
         }
     }
@@ -159,6 +163,32 @@ import Testing
             // Up walks out, Down back in.
             #expect(inspector.native.key(125) == .handled)
             #expect(inspector.native.key(53) == .pass)
+            inspector.toggle()
+            // A tab in another pane's list (here a vertical one) is found too.
+            let list = Strip(frame: NSRect(x: 230, y: 300, width: 160, height: 200))
+            list.setAccessibilityRole(.tabGroup)
+            let row = NSAccessibilityElement()
+            row.setAccessibilityIdentifier("cmux.tabs.vertical.t2")
+            row.setAccessibilityLabel("build.log")
+            row.setAccessibilityFrame(window.convertToScreen(NSRect(x: 230, y: 470, width: 160, height: 26)))
+            list.tabs = [row]
+            window.contentView?.subviews.first { $0.accessibilityIdentifier() == "cmux.layout.pane.p1" }?.addSubview(list)
+            inspector.inspectFromContextMenu(menu: .tab, target: ActionTargetRef(kind: .tab, id: "t2"))
+            #expect(inspector.native.current?.kind == .tab)
+            #expect(inspector.native.current?.title == "build.log")
+        }
+    }
+
+    @Test func aRowsOwnButtonIsAControl() {
+        withInspectorOn {
+            let (window, row, _, _) = Self.nativeWindow()
+            defer { window.close() }
+            let close = NSButton(title: "Close", target: nil, action: nil)
+            close.frame = NSRect(x: row.frame.maxX - 24, y: row.frame.minY + 4, width: 20, height: 20)
+            close.setAccessibilityIdentifier("cmux.sidebar.workspace.w1.close")
+            window.contentView?.addSubview(close)
+            let found = UIPointerNativeElement.elements(at: NSPoint(x: close.frame.midX, y: close.frame.midY), in: window)
+            #expect(found.first?.kind == .control)
         }
     }
 

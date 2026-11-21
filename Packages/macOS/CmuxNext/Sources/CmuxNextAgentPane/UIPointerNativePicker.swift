@@ -18,6 +18,8 @@ public final class UIPointerNativePicker {
     public var current: UIPointerNativeElement? { hover?.current }
     /// The outlined element and its containers outward.
     public var path: [UIPointerNativeElement] { hover.map { Array($0.elements[$0.level...]) } ?? [] }
+    /// The window the outline is in (a key pick crops from it).
+    public var window: NSWindow? { hover?.window }
     /// Whether an outline is up (tests: none while idle).
     public var isShowing: Bool { hover?.highlight.map { !$0.isDismissed } ?? false }
 
@@ -108,6 +110,12 @@ public final class UIPointerNativePicker {
     private func show(_ elements: [UIPointerNativeElement], in window: NSWindow, hold: (point: NSPoint, uptime: TimeInterval)?) {
         guard let first = elements.first else { clear(); return }
         if var current = hover, current.window === window {
+            // The same chain (a jitter, or a move inside the element) keeps the level Up and Down chose.
+            if current.elements == elements {
+                current.hold = hold ?? current.hold
+                hover = current
+                return
+            }
             let same = current.current == first && current.level == 0
             current.elements = elements
             current.level = 0

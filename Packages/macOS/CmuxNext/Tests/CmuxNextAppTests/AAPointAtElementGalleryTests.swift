@@ -21,14 +21,15 @@ import Testing
         fill.wantsLayer = true
         fill.layer?.backgroundColor = root.performWithTheme { Palette.sidebarBackground.withAlphaComponent(1) }.cgColor
         pane.addSubview(fill, positioned: .below, relativeTo: nil)
-        let label = NSTextField(labelWithString: "notes.md")
-        label.frame = tab.insetBy(dx: 12, dy: 6)
-        root.addSubview(label)
+        // The tab's title, drawn inside the strip and passing the mouse to it as the real strip's cells do.
+        let strip = try #require(root.subviews.first { $0.accessibilityIdentifier() == "cmux.tabs.strip" })
+        let label = PassThroughLabel(labelWithString: "notes.md")
+        label.frame = strip.convert(tab, from: nil).insetBy(dx: 12, dy: 6)
+        strip.addSubview(label)
         for point in [NSPoint(x: row.frame.midX, y: row.frame.midY), NSPoint(x: tab.midX, y: tab.midY),
                       NSPoint(x: pane.frame.midX, y: pane.frame.midY)] {
             let element = try #require(UIPointerNativeElement.elements(at: point, in: window).first)
-            var rect = UIPointerHighlightView.frame(around: element.frame, in: window)
-            if element.kind == .pane { rect = rect.intersection(root.bounds) }
+            let rect = UIPointerHighlightView.frame(around: element.frame, in: window)
             let outline = UIPointerHighlightView(frame: rect)
             outline.show(element, look: look, outlineIn: rect, around: element.frame)
             outline.frame = rect
@@ -61,4 +62,8 @@ import Testing
         tar.waitUntilExit()
         #expect(tar.terminationStatus == 0)
     }
+}
+
+private final class PassThroughLabel: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
