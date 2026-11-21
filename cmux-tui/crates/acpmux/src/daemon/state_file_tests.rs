@@ -44,10 +44,13 @@ fn daemon_log_refuses_a_symlink() {
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn managed_unit_start_avoids_a_symlinked_default_home() {
-    let dir = std::env::temp_dir().join(format!(
-        "acpmux-managed-start-{}-{}",
+    // Under /tmp, not the temp dir: a long TMPDIR (a fleet worker's `/tmp/cbw-<id>`) puts
+    // `supervised/acpmux.sock` past the 96 bytes `socket_path_for` keeps, so the unit's socket
+    // becomes the `/tmp/acpmux-<uid>` alias, no longer the link's, and the CLI rightly skips it.
+    let dir = std::path::PathBuf::from(format!(
+        "/tmp/acpmux-ms-{}-{}",
         std::process::id(),
-        uuid::Uuid::now_v7()
+        uuid::Uuid::now_v7().simple()
     ));
     let supervised = dir.join("supervised");
     std::fs::create_dir_all(&supervised).unwrap();
