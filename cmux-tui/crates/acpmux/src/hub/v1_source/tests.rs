@@ -118,9 +118,25 @@ pub(super) fn wait_read(log: &V1Log<Arc<dyn Store>>, actor: &ChatActor) {
     }
 }
 
+/// The book opened after the actor that wrote it was joined. Its lock can outlive the actor
+/// for as long as another test's forked child, which holds a copy of every open file until it
+/// execs, takes to exec: under the whole suite's load that runs past `Log::open`'s own 200 ms
+/// (`Busy`), so wait that out here, bounded.
+fn open_book(book: &Path) -> Log {
+    let started = Instant::now();
+    loop {
+        match Log::open(book, Options::default()) {
+            Err(log::Error::Busy) if started.elapsed() < Duration::from_secs(60) => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            opened => return opened.unwrap().0,
+        }
+    }
+}
+
 /// The book's settled records, in seq order: rowId, rev and the first raw place.
 pub(crate) fn book_rows(book: &Path) -> Vec<(u64, u32, u64)> {
-    let (mut log, _) = Log::open(book, Options::default()).unwrap();
+    let mut log = open_book(book);
     let mut cursor = 0;
     let mut rows = Vec::new();
     loop {
@@ -135,7 +151,7 @@ pub(crate) fn book_rows(book: &Path) -> Vec<(u64, u32, u64)> {
 
 /// The book's settled rows with their text.
 fn book_texts(book: &Path) -> Vec<(u64, Vec<u8>)> {
-    let (mut log, _) = Log::open(book, Options::default()).unwrap();
+    let mut log = open_book(book);
     let mut cursor = 0;
     let mut rows = Vec::new();
     loop {
