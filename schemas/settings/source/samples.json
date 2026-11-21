@@ -302,7 +302,6 @@
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
         "el-greco-view-of-toledo",
-        "kuniyoshi-takiyasha",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -355,8 +354,6 @@
         "michelangelo-creation-of-adam",
         "hokusai-great-wave",
         "holbein-ambassadors",
-        "kuniyoshi-horyukaku",
-        "zhang-zeduan-qingming",
         "brueghel-wooden-vessel",
         "dahl-dresden-moonlight",
         "bosschaert-wan-li-vase",
@@ -409,18 +406,6 @@
         "van-gogh-fishing-boats",
         "hokusai-umezawa",
         "whistler-falling-rocket",
-        "hiroshige-gotenyama",
-        "hiroshige-asukayama",
-        "hokusai-yoshino",
-        "tohaku-pine-trees",
-        "sesshu-winter-landscape",
-        "fan-kuan-travelers",
-        "guo-xi-early-spring",
-        "wang-ximeng-thousand-li",
-        "ma-yuan-spring-path",
-        "jeong-seon-inwangsan",
-        "kim-hong-do-chuseongbu",
-        "sin-yun-bok-moonlit-lovers",
         "dore-fall-of-satan",
         "dore-wolves-sheep",
         "dore-leviathan",
@@ -516,6 +501,30 @@
         {"07:00": "folder:/Users/Shared/Wallpapers"},
         {"07:00": "__not_a_backdrop__"},
         {"07:00": 1}
+      ]
+    },
+    "domain:backdrop_memory": {
+      "accept": [
+        {},
+        {"rotate": "folder:/Users/Shared/Wallpapers", "folder": "folder:/Users/Shared/Wallpapers", "off": "file:/Users/Shared/Harbor.png"},
+        {"rotate": "daily", "folder": "folder:/Users/Shared/Wallpapers", "off": "none"},
+        {"off": "munch-scream"},
+        {"off": "system:/System/Library/Desktop Pictures/Sonoma.heic"}
+      ],
+      "refuse": [
+        "folder:/Users/Shared/Wallpapers",
+        [],
+        {"rotate": "munch-scream"},
+        {"rotate": "appearance"},
+        {"folder": "daily"},
+        {"folder": "folder:/"},
+        {"folder": "folder:relative"},
+        {"off": "daily"},
+        {"off": "schedule"},
+        {"off": "folder:/Users/Shared/Wallpapers"},
+        {"off": "__not_a_backdrop__"},
+        {"light": "munch-scream"},
+        {"rotate": 1}
       ]
     },
     "domain:backdrop_location": {

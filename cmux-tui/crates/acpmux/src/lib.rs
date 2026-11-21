@@ -49,6 +49,7 @@ pub mod chatgpt;
 pub mod chats;
 pub mod claude_auth;
 mod claude_cloud_auth;
+pub mod claude_inbox_relay;
 pub mod claude_peers;
 pub mod claude_stdio;
 pub mod cli;
@@ -142,6 +143,7 @@ pub mod hunk_summary;
 pub mod idempotency;
 #[cfg(windows)]
 mod job;
+mod joined_model_plane;
 pub mod launch_credential;
 pub mod launch_policy;
 pub mod left_on_mac;
@@ -169,12 +171,16 @@ pub mod machine_tunnel;
 pub mod machine_wake;
 pub mod mailbox;
 pub mod managed_codex;
+pub mod mcp_args;
+/// Each chat's `cmux` MCP server over loopback HTTP, started on use and stopped when idle.
+pub mod mcp_gateway;
 pub mod mcp_hint;
 pub mod mesh;
 pub mod mesh_control;
 pub mod mesh_http;
 pub mod mesh_node_key;
 pub mod mesh_relay_config;
+pub mod mesh_retry;
 pub mod meta_fields;
 pub mod model_copies;
 pub mod name_match;
@@ -302,6 +308,7 @@ pub mod subsession_worktree;
 pub mod suggestion_gate;
 pub(crate) mod supervise;
 pub mod tailnet;
+pub mod task_list;
 #[cfg(unix)]
 #[path = "daemon/term_sender.rs"]
 pub(crate) mod term_sender;
@@ -315,6 +322,7 @@ mod test_stack;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub mod test_support;
 pub(crate) mod time_breakdown;
+pub(crate) mod tool_env;
 pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;

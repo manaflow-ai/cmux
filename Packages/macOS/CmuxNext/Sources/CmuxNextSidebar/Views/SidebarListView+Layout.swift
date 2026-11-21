@@ -110,7 +110,7 @@ extension SidebarListViewComponents {
         // drop's result would show different rows.
         if shownDrag != nil || external != nil { o.rowLimit = 0 }
         // External tab drops still use the older reducer: keep its unfolded group-exit geometry and visible tab slots.
-        if external != nil { (o.foldsDone, o.foldsArchived, o.archiveSection) = (false, false, false) }
+        if external != nil { o.unfoldsAll() }
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
@@ -134,7 +134,7 @@ extension SidebarListViewComponents {
             o.excludedWorkspaces.formUnion(ids)
             o.dragClosesArchive = true
             // A drag that carries a Done row draws unfolded: the fold would move it out of the slot or add a fold row.
-            if SidebarLayout.dragUnfolds(ids.compactMap { model.workspace($0) }, options: o) { (o.foldsDone, o.foldsArchived, o.archiveSection) = (false, false, false) }
+            if SidebarLayout.dragUnfolds(ids.compactMap { model.workspace($0) }, options: o) { o.unfoldsAll() }
         case let .group(group):
             o.excludedGroup = group
         case let .item(item):
@@ -162,7 +162,8 @@ extension SidebarListViewComponents {
     /// How far left of its members' x `row` starts: a group header's reach over its rail (`SidebarStyle.groupLineX`)
     /// and the line layout's overhang past it (`groupHeaderOverhang`), never past the list's edge; 0 for other rows.
     func railReach(for row: SidebarRow) -> CGFloat {
-        guard case .group = row.key else { return 0 }
+        // A plain folder draws no rail: its header keeps the rows' own frame.
+        guard case .group = row.key, !indent.indentsTopLevel else { return 0 }
         let membersX = inset + indentOffset(for: row)
         return membersX - SidebarStyle.groupBarX(membersMinX: membersX)
     }
@@ -177,12 +178,18 @@ extension SidebarListViewComponents {
         return false
     }
     /// The indent rule every row, rail, lifted card and drop line of this list uses.
-    var indent: SidebarIndent { SidebarIndent(step: SidebarStyle.groupGutter) }
+    var indent: SidebarIndent {
+        SidebarIndent(step: SidebarStyle.groupGutter, indentsTopLevel: model.groupHeaderDetails.background.indentsMembers)
+    }
     /// The width a level-0 row has: the indent cap is computed from it.
     var indentWidth: CGFloat { max(0, bounds.width - inset * 2 - SidebarStyle.rowTrailingTrim) }
     /// How far `row` moves in from the list's inset.
     func indentOffset(for row: SidebarRow) -> CGFloat {
-        indent.offset(level: row.indentLevel, width: indentWidth)
+        let indent = indent
+        // A folder's header sits at its parent's members' x, one step left of its own members (a group header
+        // shares its members' level, `SidebarRow.indentLevel`).
+        let level = indent.indentsTopLevel && row.key.isGroupHeader ? row.indentLevel - 1 : row.indentLevel
+        return indent.offset(level: level, width: indentWidth)
     }
     func realizationRect() -> NSRect {
         // A space page never scrolls: the rows in its frame, no overscan.

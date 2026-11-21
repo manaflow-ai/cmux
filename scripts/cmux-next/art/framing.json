@@ -144,14 +144,7 @@
   "mode": "auto"
  },
  "fan-kuan-travelers": {
-  "mode": "side",
-  "side": "right",
-  "inset": [
-   0.02,
-   0.01,
-   0.02,
-   0.01
-  ]
+  "mode": "auto"
  },
  "fragonard-swing": {
   "mode": "auto"
@@ -190,18 +183,7 @@
   "mode": "auto"
  },
  "guo-xi-early-spring": {
-  "mode": "crop",
-  "box": [
-   0.0,
-   0.25,
-   1.0,
-   0.67
-  ],
-  "focal": [
-   0.5,
-   0.45
-  ],
-  "quiet": "left"
+  "mode": "auto"
  },
  "hesselbom-dusk": {
   "mode": "auto"
@@ -227,6 +209,18 @@
  "hiroshige-hota-coast": {
   "mode": "auto"
  },
+ "hiroshige-kanbara-snow": {
+  "mode": "auto"
+ },
+ "hiroshige-moon-pine": {
+  "mode": "auto"
+ },
+ "hiroshige-plum-garden": {
+  "mode": "auto"
+ },
+ "hiroshige-sudden-shower": {
+  "mode": "auto"
+ },
  "hiroshige-zoshigaya": {
   "mode": "auto"
  },
@@ -243,6 +237,15 @@
   ],
   "quiet": "right"
  },
+ "hokusai-kajikazawa": {
+  "mode": "auto"
+ },
+ "hokusai-red-fuji": {
+  "mode": "auto"
+ },
+ "hokusai-storm-below-fuji": {
+  "mode": "auto"
+ },
  "hokusai-umezawa": {
   "mode": "auto"
  },
@@ -258,7 +261,13 @@
  "holbein-ambassadors": {
   "mode": "auto"
  },
- "jeong-seon-inwangsan": {
+ "jakuchu-mandarin-ducks": {
+  "mode": "auto"
+ },
+ "jeong-seon-geumgang": {
+  "mode": "auto"
+ },
+ "jeong-seon-inwang": {
   "mode": "auto"
  },
  "kandinsky-composition-viii": {
@@ -284,6 +293,9 @@
   ],
   "quiet": "left"
  },
+ "kim-hong-do-samgong": {
+  "mode": "auto"
+ },
  "klee-fish-magic": {
   "mode": "auto",
   "quality": 38
@@ -301,6 +313,9 @@
   "mode": "auto"
  },
  "klimt-tree-of-life": {
+  "mode": "auto"
+ },
+ "korin-irises": {
   "mode": "auto"
  },
  "korovin-place-opera": {
@@ -336,6 +351,9 @@
   "mode": "auto"
  },
  "leonardo-vitruvian-man": {
+  "mode": "auto"
+ },
+ "ma-yuan-clouds-green-sea": {
   "mode": "auto"
  },
  "ma-yuan-spring-path": {
@@ -497,24 +515,7 @@
   "mode": "auto"
  },
  "tohaku-pine-trees": {
-  "mode": "crop",
-  "inset": [
-   0.025,
-   0.07,
-   0.025,
-   0.075
-  ],
-  "box": [
-   0.05,
-   0,
-   0.6,
-   1
-  ],
-  "focal": [
-   0.5,
-   0.45
-  ],
-  "quiet": "right"
+  "mode": "auto"
  },
  "toulmouche-reluctant-bride": {
   "mode": "auto"
@@ -584,16 +585,11 @@
  "wang-ximeng-thousand-li": {
   "mode": "crop",
   "box": [
-   0.0,
-   0.0,
-   0.35,
-   1.0
-  ],
-  "focal": [
+   0.02,
+   0,
    0.5,
-   0.45
-  ],
-  "quiet": "right"
+   1
+  ]
  },
  "waterhouse-lady-shalott": {
   "mode": "auto"
@@ -611,17 +607,7 @@
   "mode": "auto"
  },
  "zhang-zeduan-qingming": {
-  "mode": "crop",
-  "box": [
-   0.47,
-   0.0,
-   0.545,
-   1.0
-  ],
-  "focal": [
-   0.3,
-   0.4
-  ],
-  "quiet": "right"
+  "mode": "auto",
+  "quality": 38
  }
 }
