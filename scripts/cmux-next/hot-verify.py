@@ -1372,6 +1372,13 @@ def apply_ffi_baseline(rules: Path, planned: dict, side: Side) -> dict:
             "applied": receipt.get("applied")}
 
 
+# The copy's acpmux daemons take the change too. bin/acpmux is the same file as bin/cmux, but a running daemon keeps
+# the build it mapped until it restarts: without this, a look at an acpmux change showed the old daemon (the
+# hot-swap end to end test, 2026-11-21). hot-apply restarts only a daemon whose chats resume and whose launch
+# environment it can read, and names every other one in its receipt (acpmux_left_on_old_build).
+RESTART_ACPMUX = ("--restart-acpmux",)
+
+
 def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, scratch: Path,
                given: Path | None = None) -> dict:
     """The change's daemon into the copy (hot-apply.py apply --branch --parts rust): the published build of the
@@ -1381,7 +1388,7 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
     onto = planned.get("daemon_from")
     if onto:
         argv = [sys.executable, str(rules / "scripts/cmux-next/hot-apply.py"), "apply", onto, "--branch",
-                "--parts", "rust", "--app", str(side.app()), "--repo", str(rules)]
+                "--parts", "rust", "--app", str(side.app()), "--repo", str(rules), *RESTART_ACPMUX]
         if given is None and not hot().published(planned["tree_key"]):
             raise LookError(f"the daemon of the change applied onto the app's commit ({onto[:12]}) is not "
                             "published: build that commit's cmux-tui and pass it as --rust-binary")
@@ -1391,7 +1398,7 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
                else "published tree build of the change applied onto the app's commit")
         return run_hot_apply_rust(argv, side, how)
     argv = [sys.executable, str(rules / "scripts/cmux-next/hot-apply.py"), "apply", planned["head"], "--branch",
-            "--parts", "rust", "--app", str(side.app()), "--repo", str(rules)]
+            "--parts", "rust", "--app", str(side.app()), "--repo", str(rules), *RESTART_ACPMUX]
     if given is not None:
         # The look's own plan has no daemon_from, so a binary built for one (the worker's plan) is not this change's
         # daemon: swapping it in would label another daemon as the head's.
@@ -1423,7 +1430,12 @@ def run_hot_apply_rust(argv: list[str], side: Side, how: str) -> dict:
     receipt = {}
     with contextlib.suppress(ValueError, IndexError):
         receipt = json.loads(done.stdout.strip().splitlines()[-1])
-    return {"how": how, "phases": receipt.get("phases")}
+    steps = receipt.get("steps") if isinstance(receipt.get("steps"), dict) else {}
+    rust = steps.get("rust") if isinstance(steps.get("rust"), dict) else {}
+    # What the look's receipt says about the copy's acpmux: each daemon restarted onto the change, and each left on
+    # the build it had, with why (hot-apply's own receipt, which the look used to drop).
+    return {"how": how, "phases": receipt.get("phases"), "acpmux": steps.get("acpmux"),
+            "acpmux_left_on_old_build": rust.get("acpmux_left_on_old_build") or []}
 
 
 # ---------------------------------------------------------------- look
