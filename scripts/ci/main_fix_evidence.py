@@ -38,6 +38,15 @@ MAX_OUTPUT = 256 * 1024 * 1024
 MAX_ANCESTOR_DEPTH = 100
 MAX_ANCESTOR_NODES = 500
 PATH_FILTERED_PREFIXES = ("docs/", "plans/", "design/")
+# A red that refuses the exception. For the newest check run of a name, every one of these: that is the verdict for
+# the name and nothing else speaks for it. For an older same-named sibling -- another workflow's job of that name, or
+# an earlier run of the same workflow (check_runs_at) -- only the two that are a verdict a job actually reached.
+# `cancelled` and `stale` are what concurrency does to a superseded run, and a `startup_failure` attempt ran no job
+# at all (check_runs_at's own reading of it), so none of them is a result anybody must explain. Reading them as reds
+# would refuse nearly every real head: 8375182a4233 had three runs of each workflow, and three names whose newest was
+# green over a `cancelled` sibling (`language-boundaries`, `pr-capture-check, ...`, `risk evidence`).
+VERDICT_REDS = {"failure", "timed_out"}
+ALL_REDS = VERDICT_REDS | {"cancelled", "action_required", "startup_failure", "stale"}
 
 
 class Refused(RuntimeError):
@@ -202,7 +211,12 @@ def validate(repo: str, number: int, github: GitHub) -> str:
     head, base = pr["head"]["sha"], pr["base"]["sha"]
     if pr["base"]["ref"] != "feat-cmux-next":
         raise Refused("--main-fix compile evidence is defined for feat-cmux-next only; use normal green merging for other bases")
-    checks = latest_checks(repo, head, github)
+    at_head = check_runs_at(repo, head, github)
+    # The newest of each name for the build and web-validation reads below; the sweep over every failed check at the
+    # end reads at_head itself, since a red whose same-named sibling in another workflow is newer and green must not
+    # go unexplained -- this caller's whole job (hq#17005's class, in the one reader that grants the exception).
+    # A sibling is held to VERDICT_REDS only, so a run concurrency superseded does not refuse a merge.
+    checks = {name: found[0] for name, found in at_head.items()}
     jobs = {}
     audit = [f"--main-fix evidence for head `{head}`, base `{base}`:"]
     for name, build in BUILDS.items():
@@ -271,13 +285,20 @@ def validate(repo: str, number: int, github: GitHub) -> str:
         matched = True
     # A completed ci-status failure may aggregate the proven Swift test red;
     # unrelated failures still refuse the exception.
-    for name, check in checks.items():
-        if check.get("conclusion") in {"failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"}:
-            if name == SWIFT and matched:
+    for name, found in at_head.items():
+        for check in found:
+            # The waiver the base matching earned belongs to the check run it examined -- the newest of the name --
+            # and not to a sibling whose own job was never compared with the base.
+            newest = check["id"] == found[0]["id"]
+            if check.get("conclusion") not in (ALL_REDS if newest else VERDICT_REDS):
                 continue
-            if name == "ci-status" and matched and check.get("conclusion") == "failure":
+            if name == SWIFT and matched and newest:
                 continue
-            raise Refused(f"{name}: failed check has no same-base test match")
+            if name == "ci-status" and matched and newest and check.get("conclusion") == "failure":
+                continue
+            raise Refused(f"{name}: failed check has no same-base test match" if newest else
+                          f"{name}: failed check has no same-base test match (check run {check['id']}, "
+                          f"{check.get('conclusion')}, a same-named sibling of the newest {found[0]['id']})")
     status = checks.get("ci-status", {})
     if not completed_success(status) and not (matched and status.get("status") == "completed" and status.get("conclusion") == "failure"):
         raise Refused("ci-status must complete on the exact head")
