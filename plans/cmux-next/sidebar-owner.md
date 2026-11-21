@@ -1,5 +1,14 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-21 (a-tooltip-cuts): Sidebar-Look: Lawrence: "drastically simplify all parts of the UI" (a1315's tooltip
+  cuts, picked by Chief: a tooltip is a name and a shortcut on one line; none on a control that shows its text; none on
+  rows, which have hover cards). A workspace row carries no tooltip: its muted bell, usage warning triangle, badges,
+  presence dots and drive indicator say theirs in the row's hover card and to VoiceOver. The hover card gains a line per
+  usage warning (`usageWarning`) and "Notifications muted" (`muted`), in every layout. A folder header, the sidebar
+  card's text button and a favorite tile show their words and have no tooltip; a Cloud header's status and cost join
+  on one line. Calm mode, which opens no hover card, keeps a clipped name's tooltip. Nothing moves or redraws.
+  Regression: `SidebarUsageWarningTests`, `SidebarIconMeaningTests`, `SidebarRowBadgeStackCapTests`,
+  `SidebarStatusSimpleTests`, `CloudMachineCostTests`.
 - 2026-11-21 (hide-app-store-2): Sidebar-Look: David Beyer, Nov 20 call: "don't show the app store until it's ready, it takes too much space"; the person: hide it by default, keep a setting that turns it back on. With `labs.previewFeatures` off (the default) the App Store item is hidden in every look: the `cmux/app-store` app item (0aa5aa4a64043, `SidebarAppItemInfo`) and now the `app_store` built-in of a layout stored before it became an app (`SidebarBuiltIn.defaultInfo(showsStore:)`). The stored layout keeps both; Labs on draws them again. `AppStoreHiddenUntilReadyTests`.
 - 2026-11-21 (lane/sidebar-pin-archive): Sidebar-Look: Leo, 2026-11-21: "the pin button does not make sense. you
   expect this to be the pinned thing. but it isn't. when you pin it, the pin goes to teh left of the bar as an empty
