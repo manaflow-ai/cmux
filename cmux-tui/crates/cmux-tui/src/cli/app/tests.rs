@@ -1212,6 +1212,7 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::ChatPerf { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
+        | AppCommand::Health(_)
         | AppCommand::Live(_)
         | AppCommand::Try(_)
         | AppCommand::LaunchTimes(_)
