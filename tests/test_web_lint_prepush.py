@@ -132,6 +132,8 @@ class WebLintPrePushTests(unittest.TestCase):
         self.write(".gitignore", "node_modules/\n")
         self.write("scripts/cmux-next/lint-tools.lock", self.lint_tools_lock)
         self.commit("base")
+        # A checkout's installed webviews (the hook installs nothing: an area with no node_modules is left to CI).
+        (self.repo / "webviews/node_modules").mkdir()
         eslint = self.repo / "web/node_modules/.bin/eslint"
         eslint.parent.mkdir(parents=True)
         eslint.write_text(FAKE_ESLINT)
@@ -435,8 +437,10 @@ class WebLintPrePushTests(unittest.TestCase):
         before = self.remote_head()
         self.write("webviews/src/app.ts", "export const app = 2;\n")
         self.commit("a web change")
-        self.git("sparse-checkout", "set", "scripts", "web")
-        self.assertFalse((self.repo / "webviews").exists(), "the sparse worktree holds no webviews/")
+        # The worktree holds webviews/ and its node_modules but leaves the rest of the repository out (.gitignore).
+        self.git("sparse-checkout", "set", "--no-cone", "/scripts/", "/web/", "/webviews/")
+        self.assertTrue((self.repo / "webviews/node_modules").is_dir())
+        self.assertFalse((self.repo / ".gitignore").exists(), "the worktree must be sparse")
 
         result = self.push()
 
@@ -447,6 +451,19 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertIn("git sparse-checkout disable", result.stderr)
         self.assertIn("scripts/cmux-next/push-from-host.sh", result.stderr)
         self.assertEqual(self.remote_head(), before, "nothing reaches origin unlinted")
+
+    def test_a_web_push_from_a_sparse_worktree_with_no_webviews_goes_on_and_names_ci(self):
+        self.write("webviews/src/app.ts", "export const app = 2;\n")
+        self.commit("a web change")
+        self.git("sparse-checkout", "set", "scripts", "web")
+        self.assertFalse((self.repo / "webviews").exists(), "the sparse worktree holds no webviews/")
+
+        result = self.push(**HOOK_DEFAULT)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("pre-push: webviews: not linted here, it has no node_modules; CI's `web lint` job checks it",
+                      result.stderr)
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
 
     def test_a_lone_piece_tree_holds_what_the_piece_reads_and_no_more(self):
         self.text_focus_fixture()
