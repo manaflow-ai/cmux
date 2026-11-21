@@ -6721,6 +6721,13 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/bg/output", { sessionId, id, fromByte });
   }
 
+  /// The last `maxBytes` of chat `sessionId`'s background task `id`'s output, with its record
+  /// (`command`, `state`, `exitCode`, `startedAt`, `endedAt`; hub/bg_tasks.rs `bg_output`): what a
+  /// "Background task finished: bg-…" line opens to (BackgroundTurnLine.tsx).
+  bgTail(sessionId: string, id: string, maxBytes: number): Promise<unknown> {
+    return this.request("_acpmux/bg/output", { sessionId, id, maxBytes });
+  }
+
   /// Stops chat `sessionId`'s background task `id`.
   bgStop(sessionId: string, id: string): Promise<unknown> {
     return this.request("_acpmux/bg/stop", { sessionId, id }, 15_000);
