@@ -576,6 +576,7 @@ class DaemonGraph:
     """What the daemon tier reads, from the crate graph at ROOT's HEAD (affected_jobs.placement)."""
     inputs: list[str]
     placement: object  # affected_jobs.Placement
+    present: frozenset[str] = frozenset()  # every path in ROOT's HEAD tree
 
     def reason(self, path: str) -> str | None:
         if self.placement.unknown(path):
@@ -601,7 +602,8 @@ def daemon_graph(root: Path) -> DaemonGraph | None:
         if key not in _READ:
             with git_tree.GitTree(root, head) as tree:
                 found = affected_jobs.placement(DAEMON_JOB, tree, root)
-            _READ[key] = DaemonGraph(found.inputs, found)
+                present = frozenset(tree.entries())
+            _READ[key] = DaemonGraph(found.inputs, found, present)
         return _READ[key]
     except Exception:  # noqa: BLE001 - unreadable: never fewer daemon runs than the tree key gives
         return None
@@ -1387,9 +1389,14 @@ def path_route(root: Path, event: str, changed: list[str] | None, labels: set[st
         if path in FULL_INPUTS:
             result.everything(f"{path} is an input of every package test")
             continue
+        tree_key_hit = any(matches(path, prefix) for prefix in tree_inputs) or path in DAEMON_PATHS
         if daemon is not None:
             why = daemon.reason(path)
-        elif any(matches(path, prefix) for prefix in tree_inputs) or path in DAEMON_PATHS:
+            # The head's graph cannot name a file the change deletes (the false skip #45420 fixed for the cmux-tui
+            # jobs): a deleted path routes by the tree key's inputs, as before the graph.
+            if why is None and tree_key_hit and path not in daemon.present:
+                why = f"{path} is deleted at HEAD and is a tree key input: the daemon tier runs"
+        elif tree_key_hit:
             why = f"{path} reaches the daemon (a tree key input)"
         else:
             why = None

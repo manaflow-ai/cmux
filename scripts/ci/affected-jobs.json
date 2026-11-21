@@ -113,7 +113,7 @@
             "scripts/ci/cmux-tui-darwin-builder", "scripts/ci/macos-cross.sh", "scripts/ci/macos_stubs.py",
             "scripts/ci/macho_weaken.py", "scripts/ci/macos-stubs/", ".github/workflows/cmux-tui-build-package.yml",
             "scripts/cmux-next/cmux-tui-build-profiles.json", "scripts/ghostty-zig-version.sh",
-            "scripts/ci/stage-agent-detector.sh",
+            "scripts/ci/stage-agent-detector.sh", "scripts/ci/cmux-tui-mac-cargo-builds.sh",
             "scripts/select-ci-xcode.sh",
             "plans/cmux-next/daemon-capabilities.json", "scripts/cmux-next/pin-cmux-tui.sh",
             "scripts/cmux-next/check-daemon-capabilities.sh", "scripts/cmux-next/cmux-tui.pin",
