@@ -243,13 +243,16 @@ async fn daemon_client(stream: tokio::net::UnixStream, state: Arc<DaemonState>) 
         let Ok(request) = serde_json::from_str::<Value>(&line) else { continue };
         let mut answer = json!({"id": request["id"], "ok": true, "data": request});
         match request["cmd"].as_str() {
-            Some("list-workspaces") => answer["data"] = workspace_tree(state.workspaces.load(Ordering::Relaxed)),
+            Some("list-workspaces") => {
+                answer["data"] = workspace_tree(state.workspaces.load(Ordering::Relaxed))
+            }
             Some("list-personal") => answer["data"] = json!({"groups": [], "workspaces": []}),
             Some("send") => {
                 let text = request["text"].as_str().unwrap_or_default();
                 if let Some(spec) = text.strip_prefix("FLOOD:") {
                     let parts: Vec<u64> = spec.split(':').filter_map(|p| p.parse().ok()).collect();
-                    let (count, size, delay) = (parts[0], parts[1] as usize, parts.get(2).copied().unwrap_or(0));
+                    let (count, size, delay) =
+                        (parts[0], parts[1] as usize, parts.get(2).copied().unwrap_or(0));
                     let write = Arc::clone(&write);
                     let id = request["id"].clone();
                     // The flood runs beside this reader, so the daemon keeps
@@ -363,7 +366,9 @@ impl Lines {
             }
             match channel.recv().await {
                 Some(ChannelEvent::Data(data)) => self.buffered.extend_from_slice(&data),
-                Some(ChannelEvent::Closed(info)) => return Err(format!("closed {}: {}", info.code, info.reason)),
+                Some(ChannelEvent::Closed(info)) => {
+                    return Err(format!("closed {}: {}", info.code, info.reason));
+                }
                 None => return Err("channel ended".into()),
             }
         }
@@ -450,7 +455,8 @@ async fn cell_scale_session_list() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
 async fn cell_network_high_latency_and_loss() {
-    let toxics = Toxics { latency: Duration::from_millis(80), stall_chance: 0.03, stall: Duration::from_millis(250) };
+    let toxics =
+        Toxics { latency: Duration::from_millis(80), stall_chance: 0.03, stall: Duration::from_millis(250) };
     let mut results = Vec::new();
     for (variant, count) in [("small-1", 1usize), ("god-1000", 1000)] {
         let rig = Rig::start(count, toxics).await;
@@ -492,8 +498,11 @@ async fn head_of_line(cell: &str, lane: Lane) {
         let rig = Rig::start(1, toxics).await;
         let mut output = rig.daemon_channel(Lane::Bulk).await;
         let mut output_lines = Lines::new();
-        send_line(&output, &json!({"id": "flood", "cmd": "send", "surface": 13, "text": format!("FLOOD:{lines}:{size}:0")}))
-            .await;
+        send_line(
+            &output,
+            &json!({"id": "flood", "cmd": "send", "surface": 13, "text": format!("FLOOD:{lines}:{size}:0")}),
+        )
+        .await;
         // Let the flood get under way first.
         tokio::time::sleep(Duration::from_millis(30)).await;
         let mut samples = Vec::new();
@@ -511,10 +520,11 @@ async fn head_of_line(cell: &str, lane: Lane) {
             channel.close("eof", "matrix").await;
         }
         // The output arrives whole: every line once, in order.
-        let (_, events) = tokio::time::timeout(Duration::from_secs(60), output_lines.until_reply(&mut output, "flood"))
-            .await
-            .expect("tool output delivered within 60 s")
-            .expect("tool output");
+        let (_, events) =
+            tokio::time::timeout(Duration::from_secs(60), output_lines.until_reply(&mut output, "flood"))
+                .await
+                .expect("tool output delivered within 60 s")
+                .expect("tool output");
         let seqs: Vec<u64> = events.iter().filter_map(|e| e["seq"].as_u64()).collect();
         assert_eq!(seqs, (0..lines).collect::<Vec<_>>(), "tool output lost, duplicated or reordered lines");
         let p50 = median(samples);
@@ -611,13 +621,20 @@ async fn backlog_after_outage(cell: &str, per_delta: Duration) {
         );
         rig.finish().await;
         assert!(link_up, "{cell} {variant}: the link closed during a 3 s outage");
-        assert!(ping_ms < 2000.0, "{cell} {variant}: a ping took {ping_ms:.0} ms behind the backlog (the phone's probe gives up at 2 s and redials)");
+        assert!(
+            ping_ms < 2000.0,
+            "{cell} {variant}: a ping took {ping_ms:.0} ms behind the backlog (the phone's probe gives up at 2 s and redials)"
+        );
         assert!(
             matches!(drained, Ok(Ok(()))),
             "{cell} {variant}: the feed ended before its backlog: {drained:?} after {} of {deltas} deltas",
             seqs.len()
         );
-        assert_eq!(seqs.len() as u64, deltas, "{cell} {variant}: deltas lost or duplicated across the outage");
+        assert_eq!(
+            seqs.len() as u64,
+            deltas,
+            "{cell} {variant}: deltas lost or duplicated across the outage"
+        );
         assert!(in_order, "{cell} {variant}: deltas reordered across the outage");
         results.push(fresh_ms);
     }
@@ -679,7 +696,12 @@ async fn cell_host_daemon_restart() {
 
 /// The Mac sleeps under a live link (the stream goes silent and stays
 /// silent). The phone's link must notice and say so: closed within the
-/// keepalive bound, so the app redials instead of showing a frozen session.
+/// keepalive bound (one 15 s ping interval plus `KEEPALIVE_TIMEOUT`, 45 s
+/// since it outlasts a 30 s blackout: about 62 s, was 37 s), and not before
+/// the timeout, so a blackout the network comes back from keeps its link.
+/// It must turn suspect long before: within one ping interval plus
+/// `SUSPECT_AFTER` (about 20 s with no app probes; the app's own
+/// foreground probes make it about 5 s).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
 async fn cell_host_mac_asleep_link_notices() {
@@ -688,12 +710,23 @@ async fn cell_host_mac_asleep_link_notices() {
     rig.toxic.go_offline();
     let began = Instant::now();
     let mut closed = rig.phone.closed_state();
+    let mut suspect = rig.phone.suspect_state();
     let config = LinkConfig::default();
-    let bound = config.keepalive.unwrap_or_default() + config.keepalive_timeout + Duration::from_secs(2);
-    let noticed = tokio::time::timeout(bound, closed.wait_for(Option::is_some)).await.is_ok();
+    let interval = config.keepalive.unwrap_or_default();
+    let suspect_bound = interval + config.suspect_after.unwrap_or_default() + Duration::from_secs(2);
+    let suspected = tokio::time::timeout(suspect_bound, suspect.wait_for(|suspect| *suspect)).await.is_ok();
+    let suspect_after = began.elapsed();
+    assert!(suspected, "a silent link was not suspect after {suspect_after:?}");
+    let bound = interval + config.keepalive_timeout + Duration::from_secs(2);
+    let noticed = tokio::time::timeout_at(began + bound, closed.wait_for(Option::is_some)).await.is_ok();
     let elapsed = began.elapsed();
+    assert!(elapsed >= config.keepalive_timeout || !noticed, "closed after {elapsed:?}, inside the timeout");
     let reason = closed.borrow().clone();
-    report("host_mac_asleep_link_notices", "small", json!({"noticed_ms": ms(elapsed), "reason": reason}));
+    report(
+        "host_mac_asleep_link_notices",
+        "small",
+        json!({"suspect_ms": ms(suspect_after), "noticed_ms": ms(elapsed), "reason": reason}),
+    );
     assert!(noticed, "a silent link stayed open for {elapsed:?}");
     rig.finish().await;
 }

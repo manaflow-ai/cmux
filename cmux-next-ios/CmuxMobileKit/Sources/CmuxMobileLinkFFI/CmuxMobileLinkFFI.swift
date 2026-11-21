@@ -3769,7 +3769,7 @@ public func FfiConverterTypeCmuxMobileError_lower(_ value: CmuxMobileError) -> R
 /**
  * Link state events, in order: `Connecting`, then `Connected` (or
  * `Disconnected` when the dial fails), then any number of `PathChanged`,
- * `Rtt` and `Media`, then one `Disconnected`.
+ * `Rtt`, `Media` and `Suspect`, then one `Disconnected`.
  */
 
 public enum LinkEvent: Equatable, Hashable {
@@ -3788,6 +3788,17 @@ public enum LinkEvent: Equatable, Hashable {
     case media(state: MediaState
     )
     case disconnected(reason: String
+    )
+    /**
+     * The link heard nothing for `silent_millis` after a ping
+     * (`Link::suspect_state`): a dead or silent Mac, a dead network, a
+     * blackout. The link stays open and probes every second; the next
+     * `Rtt` says it answered again, and it closes (`Disconnected`) only
+     * after its keepalive timeout (45 s), so a blackout it survives keeps
+     * the session. Last in the enum so the other variants keep their
+     * numbers in the bindings.
+     */
+    case suspect(silentMillis: UInt32
     )
 
 
@@ -3828,6 +3839,9 @@ public struct FfiConverterTypeLinkEvent: FfiConverterRustBuffer {
         case 6: return .disconnected(reason: try FfiConverterString.read(from: &buf)
         )
         
+        case 7: return .suspect(silentMillis: try FfiConverterUInt32.read(from: &buf)
+        )
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -3865,6 +3879,11 @@ public struct FfiConverterTypeLinkEvent: FfiConverterRustBuffer {
         case let .disconnected(reason):
             writeInt(&buf, Int32(6))
             FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .suspect(silentMillis):
+            writeInt(&buf, Int32(7))
+            FfiConverterUInt32.write(silentMillis, into: &buf)
             
         }
     }
