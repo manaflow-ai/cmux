@@ -93,6 +93,9 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// A split that opens a terminal even where a person's split opens the New Tab page (the chat
     /// header's Terminal, cx-00n1). In-app only: the control socket never sets it.
     public var opensTerminal = false
+    /// An action's key binding ran this (``RegistryKeyBindings/run(_:keyContext:target:)``): a key
+    /// press on its shortcut, not a click, a menu item or a palette row. In-app only.
+    public var byShortcut = false
     /// A run the sidebar sends for one of its rows (a row's close button or speaker, a middle-click,
     /// Delete on the selection): each row by itself, never widened to the selection. In-app only.
     public var closesRowOnly = false
