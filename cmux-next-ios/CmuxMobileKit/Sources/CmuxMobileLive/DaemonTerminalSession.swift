@@ -246,6 +246,11 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Releases sent at once (``releaseNow()``) and not answered yet: a stop
     /// still sends its own, answered release before it closes the channel.
     private var releasesInFlight = 0
+    /// The write of the last release sent at once (``releaseNow()``). A
+    /// size claimed after it (shown again) waits for this write, so the Mac
+    /// reads the release and then the claim: two tasks raced for the
+    /// channel, and a claim that won left the Mac with no claim at all.
+    private var releaseWritten: Task<Void, Never>?
     /// When this view last told the Mac its size (a sized attach or a
     /// `resize-surface`). A grid the phone did not ask for that arrives
     /// within ``claimAnswerWindow`` of it is that claim's own round trip (an
@@ -1150,7 +1155,11 @@ public final class DaemonTerminalSession: TerminalSession {
         let surface = surface
         lastClaimAt = .now
         reclaimsSent += 1
-        Task { _ = try? await client.request("resize-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows]) }
+        let released = releaseWritten
+        Task {
+            await released?.value
+            _ = try? await client.request("resize-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows])
+        }
     }
 
     /// Releases this view's size now, not behind the outbox: a request there
@@ -1166,10 +1175,14 @@ public final class DaemonTerminalSession: TerminalSession {
         }
         let surface = surface
         releasesInFlight += 1
+        // Written first, in order (`submit` returns once the line is on the
+        // channel); the answer is read after.
+        let written = Task { try await client.submit("release-surface-size", params: ["surface": surface]) }
+        releaseWritten = Task { _ = try? await written.value }
         Task { [weak self] in
             defer { self?.releasesInFlight -= 1 }
             do {
-                let reply = try await client.request("release-surface-size", params: ["surface": surface])
+                let reply = try await client.reply(to: try await written.value)
                 if let error = Self.error(in: reply) {
                     log.error("release-surface-size failed: \(error, privacy: .public)")
                 }
@@ -1255,6 +1268,8 @@ public final class DaemonTerminalSession: TerminalSession {
                 let reply: Data
                 switch next {
                 case .size(let columns, let rows):
+                    // A release sent at once before this claim reaches the Mac first.
+                    await releaseWritten?.value
                     // Hidden since it was queued (shown and hidden again in
                     // one turn): never sent, or it would claim a size no
                     // release follows. Hidden and shown again: the show
