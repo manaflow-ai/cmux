@@ -144,8 +144,13 @@
    The popover level stays for glass in the page that is not a popup (the composer, Session Info,
    the running tray, side tabs). While the lens draws, every level takes the lens's clearer tint and
    frost (the mode, below). */
+/* .ui-glass-transient: a floating surface that is neither a Base UI popup nor a card (a hover preview,
+   a suggestion list, a hover action bar) takes the same level without their layout rules (Leo
+   2026-10-21: "WHERE IS THE GLASS EVERYWHERE ALL THESE STUPID FUCKIGN HOVER TOOLTIPS AND HOVER
+   PREVIEW SHIT"). */
 .ui-popup.ui-glass,
-.ui-card.ui-glass {
+.ui-card.ui-glass,
+.ui-glass.ui-glass-transient {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
   --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
   /* On the App's glass (HOST GLASS, below) a popup or card lays no veil of its own: the App draws its
@@ -156,7 +161,7 @@
      (cmux#37794), which matched native menus and no native popover. */
   --host-glass-fill: transparent;
 }
-:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) :is(.ui-popup, .ui-card, .ui-dialog).ui-glass {
+:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) :is(.ui-popup, .ui-card, .ui-dialog, .ui-glass-transient).ui-glass {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
   --glass-backdrop: var(--ds-glass-lens-blur);
 }
