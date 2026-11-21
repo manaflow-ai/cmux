@@ -309,6 +309,17 @@ fn app_store_changes_need_the_user_and_first_party_apps_are_hide_only() {
         "{tool}"
     );
 
+    // Discover lists the default first-party apps; a package from the apps
+    // directories is an SDK example, offered only to a developer.
+    assert_eq!((fp["shelf"].clone(), tool["shelf"].clone()), (json!("store"), json!("example")));
+    assert_eq!(catalog["examples"], json!(false), "{catalog}");
+    let reply = agent.store("cmux.apps.catalog.list", json!({ "shelf": "store" }), "cli");
+    let ids: Vec<&Value> =
+        ok(&reply)["listings"].as_array().unwrap().iter().map(|r| &r["app"]).collect();
+    assert_eq!(ids, [&json!("cmux/fp"), &json!("cmux/quiet")], "{reply}");
+    let reply = agent.store("cmux.apps.catalog.list", json!({ "developer": true }), "cli");
+    assert_eq!(ok(&reply)["examples"], json!(true), "{reply}");
+
     // An agent connection changes nothing, whatever origin it claims.
     for (key, field) in [("a1", "enabled"), ("a2", "hidden")] {
         let args = json!({ "app": "cmux/fp", field: field == "hidden", "idempotency_key": key });
@@ -1371,7 +1382,14 @@ fn a_first_party_store_app_built_into_the_store_folder_is_listed_not_installed()
         (json!(false), Value::Null),
         "{row}"
     );
-    listing(&catalog, "manaflow-ai/standup");
+    // cmux's own store app is on Discover; a sample in the same folder is an example.
+    assert_eq!(row["shelf"], json!("store"), "{row}");
+    assert_eq!(listing(&catalog, "manaflow-ai/standup")["shelf"], json!("example"), "{catalog}");
+    let reply = agent.v2("apps.catalog.list", json!({ "shelf": "store" }), json!({}));
+    let discover: Vec<&Value> =
+        v2_ok(&reply)["listings"].as_array().unwrap().iter().map(|r| &r["app"]).collect();
+    assert!(discover.contains(&&json!("cmux/store-fixture")), "{reply}");
+    assert!(!discover.contains(&&json!("manaflow-ai/standup")), "{reply}");
     assert!(
         catalog["listings"].as_array().unwrap().iter().all(|r| r["app"] != "cmux/bundled-fixture"),
         "{catalog}"
