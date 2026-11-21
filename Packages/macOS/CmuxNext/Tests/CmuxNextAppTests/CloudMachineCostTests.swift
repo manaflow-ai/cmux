@@ -120,17 +120,18 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
 
     // MARK: Surfaces
 
-    /// Hovering a Cloud machine's sidebar header shows its cost under the status.
+    /// Hovering a Cloud machine's sidebar header shows its cost after the status, on the tooltip's one line.
     @Test func theCloudHeaderTooltipCarriesTheCostLine() throws {
         let cost = SidebarMachine.Cost(hourlyRateUsd: 0.2645, runningSince: Date().addingTimeInterval(-8_040), cap: .capped(running: 2, max: 3))
         let tip = try #require(Self.header(SidebarMachine(id: MachineID("vm-cost"), name: "api", kind: .cloud, status: .connected, cost: cost)).themedToolTip)
-        let lines = tip.components(separatedBy: "\n")
-        #expect(lines.first == SidebarStrings.statusConnected)
-        #expect(lines.last == SidebarStrings.capOf(2, 3))
-        #expect(lines.count == 3)
+        #expect(!tip.contains("\n"), "the tooltip took more than one line")
+        let parts = tip.components(separatedBy: " · ")
+        #expect(parts.first == SidebarStrings.statusConnected)
+        #expect(parts.last == SidebarStrings.capOf(2, 3))
+        #expect(parts.count == 3)
 
         #expect(SectionHeaderRowView.machineToolTip(status: SidebarStrings.statusConnected, cost: cost, now: Self.now)
-            == ([SidebarStrings.statusConnected] + cost.lines(now: Self.now)).joined(separator: "\n"))
+            == ([SidebarStrings.statusConnected] + cost.lines(now: Self.now)).joined(separator: " · "))
         #expect(SectionHeaderRowView.machineToolTip(status: nil, cost: nil, now: Self.now) == nil)
     }
 
