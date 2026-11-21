@@ -13,6 +13,18 @@ public final class WindowRecordMirror {
     /// Whether this run read the daemon's records of this install once, so
     /// records of windows that are gone (an earlier run) get deleted.
     private var reconciled = false
+    /// The fields each written record was made from: a record whose fields are these again is not encoded. Its
+    /// workspace keys are the save's kept list (`WindowRecordMembership`), so the check answers from storage identity
+    /// and a switch, which changes no list, encodes no record.
+    private var writtenFields: [String: Fields] = [:]
+    /// Records this mirror encoded, since it was made (`SwitchSaveCostTests`).
+    public private(set) var encoded = 0
+
+    private struct Fields: Equatable {
+        var open: Bool
+        var keys: [WorkspaceKey]
+        var shown: WorkspaceKey?
+    }
 
     public init() {}
 
@@ -24,27 +36,33 @@ public final class WindowRecordMirror {
             // Known as written, so the loop below deletes the ones no window wants.
             for id in stored where written[id] == nil { written[id] = .null }
         }
-        var wanted: [String: JSONValue] = [:]
+        var wanted = Set<String>()
         for record in records {
-            var fields: [String: JSONValue] = ["id": .string(record.id), "open": .bool(!record.isClosed),
-                                               "workspace_keys": .array(record.workspaceKeys.map { .string($0.rawValue) })]
-            if let key = record.workspaceKey { fields["workspace_key"] = .string(key.rawValue) }
-            wanted[record.id] = .object(fields)
-        }
-        for (id, record) in wanted where written[id] != record {
+            wanted.insert(record.id)
+            let made = Fields(open: !record.isClosed, keys: record.workspaceKeys, shown: record.workspaceKey)
+            if written[record.id] != nil, writtenFields[record.id] == made { continue }
+            encoded += 1
+            var fields: [String: JSONValue] = ["id": .string(record.id), "open": .bool(made.open),
+                                               "workspace_keys": .array(made.keys.map { .string($0.rawValue) })]
+            if let key = made.shown { fields["workspace_key"] = .string(key.rawValue) }
+            let value = JSONValue.object(fields)
+            guard written[record.id] != value else { writtenFields[record.id] = made; continue }
             do {
-                try await client.putWindowRecord(installID: installID, windowID: id, record: record)
-                written[id] = record
+                try await client.putWindowRecord(installID: installID, windowID: record.id, record: value)
+                written[record.id] = value
+                writtenFields[record.id] = made
             } catch {
                 log("window_record.put failed: \(error)")
             }
         }
-        for id in Set(written.keys).subtracting(wanted.keys) {
+        for id in Set(written.keys).subtracting(wanted) {
             do {
                 try await client.deleteWindowRecord(installID: installID, windowID: id)
                 written[id] = nil
+                writtenFields[id] = nil
             } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
                 written[id] = nil
+                writtenFields[id] = nil
             } catch {
                 // Kept: the next sync tries the delete again.
                 log("window_record.delete failed: \(error)")
