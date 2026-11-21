@@ -9,11 +9,11 @@
 //! Only this crate's API from before the fix is used, so the same file measures both sides:
 //! `cargo test -p acpmux --release --lib log_read_ack_bench -- --ignored --nocapture`.
 
-use super::Origin;
-use super::ack_latency_bench::Client;
+use super::Client;
 use crate::config::{Config, StoreMode};
 use crate::god_fixture::{self, Shape};
 use crate::rpc::method;
+use crate::server::Origin;
 use serde_json::json;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

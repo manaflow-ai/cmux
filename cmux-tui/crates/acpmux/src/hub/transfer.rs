@@ -59,28 +59,24 @@ impl Hub {
         let mut out = std::io::BufWriter::new(file);
         let mut event_count = 0usize;
         let mut failed: Option<anyhow::Error> = None;
-        // The whole log: off the runtime's workers (`qos::off_worker`).
-        crate::qos::off_worker(|| {
-            self.store.scan(&meta.id, 0, &mut |mut e: EventRecord| {
-                // An ask carries the display line acpmux works out now, never a logged one.
-                self.display_logged(Some(&**session), &mut e);
-                let written =
-                    serde_json::to_string(&e).map_err(anyhow::Error::from).and_then(|line| {
-                        out.write_all(line.as_bytes())?;
-                        out.write_all(b"\n")?;
-                        Ok(())
-                    });
-                match written {
-                    Ok(()) => {
-                        event_count += 1;
-                        true
-                    }
-                    Err(err) => {
-                        failed = Some(err);
-                        false
-                    }
+        self.scan_off(&meta.id, 0, &mut |mut e: EventRecord| {
+            // An ask carries the display line acpmux works out now, never a logged one.
+            self.display_logged(Some(&**session), &mut e);
+            let written = serde_json::to_string(&e).map_err(anyhow::Error::from).and_then(|line| {
+                out.write_all(line.as_bytes())?;
+                out.write_all(b"\n")?;
+                Ok(())
+            });
+            match written {
+                Ok(()) => {
+                    event_count += 1;
+                    true
                 }
-            })
+                Err(err) => {
+                    failed = Some(err);
+                    false
+                }
+            }
         })?;
         if let Some(e) = failed {
             return Err(e);

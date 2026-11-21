@@ -864,37 +864,34 @@ impl Hub {
     fn btw_transcript(&self, session: &Session) -> String {
         // The two kinds it reads, parsed one record at a time (never the whole log).
         let mut lines: Vec<(&str, String)> = Vec::new();
-        // Unindexed kinds: the whole log, off the runtime's workers (`qos::off_worker`).
-        let _ = crate::qos::off_worker(|| {
-            self.store.scan_kinds(
-                &session.id,
-                &["user_message", "agent_message_chunk"],
-                &mut |e: EventRecord| {
-                    let (who, text) = match e.kind.as_str() {
-                        "user_message" => ("User", e.msg.get("text").and_then(Value::as_str)),
-                        "agent_message_chunk" => (
-                            "Assistant",
-                            e.msg
-                                .get("params")
-                                .filter(|p| !crate::subagents::is_subagents(p))
-                                .and_then(|p| p.pointer("/update/content/text"))
-                                .and_then(Value::as_str),
-                        ),
-                        _ => return true,
-                    };
-                    let Some(text) = text else { return true };
-                    // An answer streams in chunks: one line per answer.
-                    if let Some((_, said)) =
-                        lines.last_mut().filter(|(last, _)| who == "Assistant" && *last == who)
-                    {
-                        said.push_str(text);
-                        return true;
-                    }
-                    lines.push((who, text.to_owned()));
-                    true
-                },
-            )
-        });
+        let _ = self.scan_kinds_off(
+            &session.id,
+            &["user_message", "agent_message_chunk"],
+            &mut |e: EventRecord| {
+                let (who, text) = match e.kind.as_str() {
+                    "user_message" => ("User", e.msg.get("text").and_then(Value::as_str)),
+                    "agent_message_chunk" => (
+                        "Assistant",
+                        e.msg
+                            .get("params")
+                            .filter(|p| !crate::subagents::is_subagents(p))
+                            .and_then(|p| p.pointer("/update/content/text"))
+                            .and_then(Value::as_str),
+                    ),
+                    _ => return true,
+                };
+                let Some(text) = text else { return true };
+                // An answer streams in chunks: one line per answer.
+                if let Some((_, said)) =
+                    lines.last_mut().filter(|(last, _)| who == "Assistant" && *last == who)
+                {
+                    said.push_str(text);
+                    return true;
+                }
+                lines.push((who, text.to_owned()));
+                true
+            },
+        );
         let body: String = lines
             .iter()
             .map(|(who, text)| format!("{who}: {}\n\n", text.trim()))

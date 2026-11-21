@@ -494,84 +494,80 @@ impl Hub {
         let mut stopped = false;
         let mut tool_start = None;
         let mut tool_end = None;
-        // From byte 0: off the runtime's workers (`qos::off_worker`); a move runs it on one.
-        let _ = crate::qos::off_worker(|| {
-            self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
-                // Headers are cheap to inspect. Parse payloads only after the interrupted turn starts,
-                // and stop at its result so a long session does not deserialize historical tool I/O.
-                let kind = head.kind.strip_suffix(".replay").unwrap_or(head.kind);
-                let needs_record = matches!(
-                    kind,
-                    "turn_started"
-                        | "user_message"
-                        | "turn_control"
-                        | "remote_control_ended"
-                        | "remote_control_restored"
-                        | "remote_floor_cancel"
-                        | "turn_result"
-                        | "turn_stop_requested"
-                );
-                if !needs_record {
-                    return true;
+        let _ = self.scan_heads_off(&session.id, &mut |head: &RecordHead<'_>| {
+            // Headers are cheap to inspect. Parse payloads only after the interrupted turn starts,
+            // and stop at its result so a long session does not deserialize historical tool I/O.
+            let kind = head.kind.strip_suffix(".replay").unwrap_or(head.kind);
+            let needs_record = matches!(
+                kind,
+                "turn_started"
+                    | "user_message"
+                    | "turn_control"
+                    | "remote_control_ended"
+                    | "remote_control_restored"
+                    | "remote_floor_cancel"
+                    | "turn_result"
+                    | "turn_stop_requested"
+            );
+            if !needs_record {
+                return true;
+            }
+            let Some(e) = head.record() else { return true };
+            let is_turn = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id);
+            let field = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
+            match e.kind.as_str() {
+                "turn_started" if is_turn => {
+                    started = true;
+                    trigger = e.msg.get("trigger") == Some(&Value::Bool(true));
+                    tool_start = Some(e.seq);
+                    prompt_id = field("promptId");
+                    control = field("control");
+                    gate = e.msg.get("trustGate").and_then(Value::as_bool);
+                    cloud_mobile =
+                        e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
+                    let ids = e.msg.pointer("/carried/promptIds").and_then(Value::as_array);
+                    carried_ids = ids
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect();
                 }
-                let Some(e) = head.record() else { return true };
-                let is_turn = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id);
-                let field = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
-                match e.kind.as_str() {
-                    "turn_started" if is_turn => {
-                        started = true;
-                        trigger = e.msg.get("trigger") == Some(&Value::Bool(true));
-                        tool_start = Some(e.seq);
-                        prompt_id = field("promptId");
-                        control = field("control");
-                        gate = e.msg.get("trustGate").and_then(Value::as_bool);
-                        cloud_mobile =
-                            e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
-                        let ids = e.msg.pointer("/carried/promptIds").and_then(Value::as_array);
-                        carried_ids = ids
-                            .into_iter()
-                            .flatten()
-                            .filter_map(Value::as_str)
-                            .map(str::to_owned)
-                            .collect();
-                    }
-                    "turn_started" if e.msg.get("carried").is_none_or(Value::is_null) => {
-                        steered.clear();
-                    }
-                    "turn_control" if is_turn => {
-                        raised_to_web |= field("control").as_deref() == Some("web")
-                    }
-                    "remote_control_ended" if started => control_ended = true,
-                    "remote_control_restored" if started => control_ended = false,
-                    "remote_floor_cancel" if started && is_turn => floor_cancelled = true,
-                    "user_message"
-                        if !started
-                            && e.msg.get("steer").and_then(Value::as_bool) == Some(true) =>
-                    {
-                        if let Some(id) = field("promptId") {
-                            let named = e.msg.get("images").and_then(Value::as_array);
-                            let text = field("text").filter(|t| !t.trim().is_empty());
-                            steered.insert(id, (text, named.cloned().unwrap_or_default()));
-                        }
-                    }
-                    "turn_stop_requested" if is_turn => stopped = true,
-                    "user_message" if is_turn => {
+                "turn_started" if e.msg.get("carried").is_none_or(Value::is_null) => {
+                    steered.clear();
+                }
+                "turn_control" if is_turn => {
+                    raised_to_web |= field("control").as_deref() == Some("web")
+                }
+                "remote_control_ended" if started => control_ended = true,
+                "remote_control_restored" if started => control_ended = false,
+                "remote_floor_cancel" if started && is_turn => floor_cancelled = true,
+                "user_message"
+                    if !started && e.msg.get("steer").and_then(Value::as_bool) == Some(true) =>
+                {
+                    if let Some(id) = field("promptId") {
                         let named = e.msg.get("images").and_then(Value::as_array);
-                        let shown = named.map_or(0, Vec::len);
-                        images.extend(named.into_iter().flatten().cloned());
                         let text = field("text").filter(|t| !t.trim().is_empty());
-                        prompts.extend(text.or_else(|| {
-                            (shown > 0).then(|| format!("({shown} image(s), attached again below)"))
-                        }));
+                        steered.insert(id, (text, named.cloned().unwrap_or_default()));
                     }
-                    "turn_result" if is_turn => {
-                        tool_end = Some(e.seq);
-                        return false;
-                    }
-                    _ => {}
                 }
-                true
-            })
+                "turn_stop_requested" if is_turn => stopped = true,
+                "user_message" if is_turn => {
+                    let named = e.msg.get("images").and_then(Value::as_array);
+                    let shown = named.map_or(0, Vec::len);
+                    images.extend(named.into_iter().flatten().cloned());
+                    let text = field("text").filter(|t| !t.trim().is_empty());
+                    prompts.extend(text.or_else(|| {
+                        (shown > 0).then(|| format!("({shown} image(s), attached again below)"))
+                    }));
+                }
+                "turn_result" if is_turn => {
+                    tool_end = Some(e.seq);
+                    return false;
+                }
+                _ => {}
+            }
+            true
         });
         // The trigger dispatcher must reauthorize any retry. A generic restart
         // continuation would drop its principal and execute as the person.
@@ -600,26 +596,24 @@ impl Hub {
         let prompt_id = prompt_id.filter(|p| !p.is_empty())?;
         let own_session_id = session.meta().agent_session_id;
         let (unfinished, omitted_tools) = collect_unfinished(|page| {
-            let _ = crate::qos::off_worker(|| {
-                self.store.scan_heads(&session.id, &mut |head| {
-                    if tool_end.is_some_and(|end| head.seq >= end) {
-                        return false;
-                    }
-                    if tool_start.is_none_or(|start| head.seq <= start)
-                        || !matches!(
-                            head.kind.strip_suffix(".replay").unwrap_or(head.kind),
-                            "tool_call" | "tool_call_update"
-                        )
-                    {
-                        return true;
-                    }
-                    if let Some(record) = head.record()
-                        && let Some(update) = tool_update(&record, own_session_id.as_deref())
-                    {
-                        page.note(update);
-                    }
-                    true
-                })
+            let _ = self.scan_heads_off(&session.id, &mut |head| {
+                if tool_end.is_some_and(|end| head.seq >= end) {
+                    return false;
+                }
+                if tool_start.is_none_or(|start| head.seq <= start)
+                    || !matches!(
+                        head.kind.strip_suffix(".replay").unwrap_or(head.kind),
+                        "tool_call" | "tool_call_update"
+                    )
+                {
+                    return true;
+                }
+                if let Some(record) = head.record()
+                    && let Some(update) = tool_update(&record, own_session_id.as_deref())
+                {
+                    page.note(update);
+                }
+                true
             });
         });
         let (root, done) = split_attempt(&prompt_id);

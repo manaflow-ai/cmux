@@ -414,17 +414,14 @@ impl Hub {
             let mut cut_ms = u64::MAX;
             let mut turns = 0u64;
             let mut prompts = 0usize;
-            // From byte 0 to the cut: off the runtime's workers (`qos::off_worker`).
-            crate::qos::off_worker(|| {
-                self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-                    if e.seq > through {
-                        cut_ms = e.at;
-                        return false;
-                    }
-                    turns += u64::from(e.kind == "turn_result");
-                    prompts += usize::from(e.kind == "user_message");
-                    true
-                })
+            self.scan_off(&session.id, 0, &mut |e: EventRecord| {
+                if e.seq > through {
+                    cut_ms = e.at;
+                    return false;
+                }
+                turns += u64::from(e.kind == "turn_result");
+                prompts += usize::from(e.kind == "user_message");
+                true
             })
             .map_err(|e| RpcError::internal(e.to_string()))?;
             turn_count = turns;
@@ -926,61 +923,58 @@ impl Hub {
             self.ledger.suppress(&new.id);
             let order = new.append_lock.lock().unwrap_or_else(|e| e.into_inner());
             self.catch_up_locked(&new);
-            // The parent's whole history: off the runtime's workers (`qos::off_worker`).
-            let copied = crate::qos::off_worker(|| {
-                self.store.scan_kinds(&session.id, COPIED, &mut |e: EventRecord| {
-                    if empty || e.seq > fork_seq {
+            let copied = self.scan_kinds_off(&session.id, COPIED, &mut |e: EventRecord| {
+                if empty || e.seq > fork_seq {
+                    return false;
+                }
+                if super::fork_cancel::cancelled() {
+                    cancelled = true;
+                    return false;
+                }
+                if running.is_some() {
+                    note_open_tool(&mut open_tools, &e);
+                }
+                let starts_running = e.kind == "turn_started"
+                    && running.as_ref().is_some_and(|t| t.turn_seq == e.seq);
+                {
+                    // Each keeps its time: a later fork through it cuts Claude's
+                    // transcript there (`fork_at.rs`), and a replay plays it then.
+                    // A prompt's mark, or an answer's Pin (its `turn_result`), follows it.
+                    let marked = parent_meta.bookmarks.contains(&e.seq)
+                        && matches!(e.kind.as_str(), "user_message" | "turn_result");
+                    if before.is_some() && e.kind == "user_message" {
+                        new.meta.lock().unwrap_or_else(|e| e.into_inner()).last_prompt = e
+                            .msg
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .map(|text| short_text(text, 200));
+                    }
+                    let (copy, stored) = self.append_at_locked(
+                        &new,
+                        &e.dir,
+                        &e.kind,
+                        e.msg,
+                        None,
+                        Some(e.at),
+                        false,
+                        false,
+                    );
+                    if !stored {
+                        refused = true;
                         return false;
                     }
-                    if super::fork_cancel::cancelled() {
-                        cancelled = true;
-                        return false;
+                    if starts_running {
+                        running_turn_seq = Some(copy.seq);
                     }
-                    if running.is_some() {
-                        note_open_tool(&mut open_tools, &e);
+                    if marked {
+                        new.meta
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .bookmarks
+                            .insert(copy.seq);
                     }
-                    let starts_running = e.kind == "turn_started"
-                        && running.as_ref().is_some_and(|t| t.turn_seq == e.seq);
-                    {
-                        // Each keeps its time: a later fork through it cuts Claude's
-                        // transcript there (`fork_at.rs`), and a replay plays it then.
-                        // A prompt's mark, or an answer's Pin (its `turn_result`), follows it.
-                        let marked = parent_meta.bookmarks.contains(&e.seq)
-                            && matches!(e.kind.as_str(), "user_message" | "turn_result");
-                        if before.is_some() && e.kind == "user_message" {
-                            new.meta.lock().unwrap_or_else(|e| e.into_inner()).last_prompt = e
-                                .msg
-                                .get("text")
-                                .and_then(Value::as_str)
-                                .map(|text| short_text(text, 200));
-                        }
-                        let (copy, stored) = self.append_at_locked(
-                            &new,
-                            &e.dir,
-                            &e.kind,
-                            e.msg,
-                            None,
-                            Some(e.at),
-                            false,
-                            false,
-                        );
-                        if !stored {
-                            refused = true;
-                            return false;
-                        }
-                        if starts_running {
-                            running_turn_seq = Some(copy.seq);
-                        }
-                        if marked {
-                            new.meta
-                                .lock()
-                                .unwrap_or_else(|e| e.into_inner())
-                                .bookmarks
-                                .insert(copy.seq);
-                        }
-                    }
-                    true
-                })
+                }
+                true
             });
             drop(order);
             if cancelled {
