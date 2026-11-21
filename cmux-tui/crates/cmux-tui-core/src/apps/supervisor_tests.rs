@@ -1303,6 +1303,8 @@ mod servers;
 mod status_items;
 #[path = "supervisor_subscription_tests.rs"]
 mod subscriptions;
+#[path = "supervisor_toolbar_tests.rs"]
+mod toolbar;
 #[path = "supervisor_widget_tests.rs"]
 mod widget_tiles;
 
