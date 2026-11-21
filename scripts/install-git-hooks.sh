@@ -182,6 +182,8 @@ install -m 0644 scripts/ci/github_release_download.py "$TRUSTED_HOOK_DIR/github_
 # ...and the HTTP transport that fallback imports from beside itself.
 install -m 0644 scripts/ci/deadline_http.py "$TRUSTED_HOOK_DIR/deadline_http.py"
 install -m 0644 scripts/ci/base_merge_warning.py "$TRUSTED_HOOK_DIR/base_merge_warning.py"
+# pre-push renames ids that break a CI naming rule (scripts/ci/naming_autofix.py: experiment and gallery ids).
+install -m 0644 scripts/ci/naming_autofix.py "$TRUSTED_HOOK_DIR/naming_autofix.py"
 # ...and the workflow job-bounds reader its JOB_BOUNDS_CHECK loads from beside itself.
 install -m 0644 scripts/ci/workflow_job_bounds.py "$TRUSTED_HOOK_DIR/workflow_job_bounds.py"
 # The hooks are per clone: every worktree of it (main-based ones too) runs these copies. A push in another

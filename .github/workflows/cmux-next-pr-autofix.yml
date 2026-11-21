@@ -31,7 +31,8 @@ name: cmux-next PR autofix
 #   repair: runs the repairs the pull request's changed paths need
 #     (scripts/cmux-next/autofix-areas.sh), plus cargo clippy --fix
 #     (machine-applicable lints only) on the cmux-tui crates it changes
-#     (scripts/cmux-next/autofix-clippy.sh), with a read-only token, and uploads
+#     (scripts/cmux-next/autofix-clippy.sh), and the ids it defines against a CI
+#     naming rule (scripts/ci/naming_autofix.py), with a read-only token, and uploads
 #     the result as a patch (artifact pr-autofix-patch, also the fix for a fork
 #     pull request: its summary says how to apply it).
 #   push: same-repo pull requests only. Mints a token from the PR autofix App
@@ -824,6 +825,8 @@ jobs:
           CLOUD: ${{ steps.areas.outputs.cloud }}
           GHOSTTY: ${{ steps.areas.outputs.ghostty }}
           FMT: ${{ steps.areas.outputs.fmt }}
+          NAMING: ${{ steps.areas.outputs.naming }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           args=()
@@ -853,6 +856,9 @@ jobs:
           [[ "$CLOUD" == true ]] && args+=(--cloud-clients)
           [[ -s "$RUNNER_TEMP/webviews-fmt.patch" ]] && args+=(--webviews-fmt-patch "$RUNNER_TEMP/webviews-fmt.patch")
           [[ "$FMT" == true ]] || args+=(--no-fmt)
+          # Ids this pull request defines against their CI naming rule (scripts/ci/naming_autofix.py): only those
+          # in files it changed since its base, so a rename never reaches a file the push job drops as not its own.
+          [[ "$NAMING" == true ]] && grep -q -- '--naming-base)' "$AUTOFIX/base-autofix.sh" && args+=(--naming-base "$BASE_SHA")
           cat "$RUNNER_TEMP/clippy.txt" 2>/dev/null > "$RUNNER_TEMP/autofix.txt" || true
           "$AUTOFIX/base-autofix.sh" ${args[@]+"${args[@]}"} "$GITHUB_WORKSPACE" | tee -a "$RUNNER_TEMP/autofix.txt"
           # The GhosttyKit checksum, when the release for the pull request's

@@ -122,6 +122,7 @@ on:
       - scripts/cmux-next/check-daemon-capabilities-fresh.py
       - scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
       - scripts/cmux-next/pr-autofix-apply.sh
+      - scripts/ci/naming_autofix.py
       - scripts/cmux-next/base-autofix-frozen.txt
       - scripts/cmux-next/ci-target-graph.py
       - scripts/ci/check_cmux_tui_tree_inputs.py
@@ -839,6 +840,7 @@ jobs:
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
           LOCKS: ${{ steps.areas.outputs.locks }}
+          NAMING: ${{ steps.areas.outputs.naming }}
           FMT: ${{ steps.areas.outputs.fmt }}
           CLIPPY: ${{ steps.areas.outputs.clippy }}
           CLIPPY_CHANGED: ${{ runner.temp }}/changed.txt
@@ -926,6 +928,7 @@ jobs:
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
           LOCKS: ${{ steps.areas.outputs.locks }}
+          NAMING: ${{ steps.areas.outputs.naming }}
           FMT: ${{ steps.areas.outputs.fmt }}
           CLIPPY: ${{ steps.areas.outputs.clippy }}
           CLIPPY_CHANGED: ${{ runner.temp }}/changed.txt

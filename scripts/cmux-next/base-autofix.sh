@@ -46,6 +46,11 @@
 #     sources), so the patch may also carry
 #     Native/OptChat/optchat-chief/inspector/index.html (a stale page left after
 #     #22839 broke every webviews bundle build);
+#   - naming: an experiment or gallery id that breaks its CI naming rule is renamed to its canonical form with
+#     every exact reference (scripts/ci/naming_autofix.py --fix, the base's copy beside this script's folder; with
+#     --naming, or --naming-base SHA for only the ids defined in files changed since SHA). A rename that would
+#     touch a path outside webviews/ or a frozen one is left whole and reported. #48230's dotted experiment id
+#     was renamed by hand in #48723, #49075, #49086, #49236 and #49118;
 #   - cmux-tui tree inputs: reports each embed check_cmux_tui_tree_inputs.py
 #     finds missing;
 #   - the app FFI pin: reports a stale pin (Package.swift is frozen; the
@@ -76,10 +81,10 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--naming] [--naming-base SHA] [--locks] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" locks=0 fmt=1
+generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" naming=0 naming_base="" locks=0 fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
@@ -95,12 +100,14 @@ while (( $# > 1 )); do
     --ratchets) ratchets=1; shift ;;
     --cloud-clients) cloud_clients=1; shift ;;
     --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
+    --naming) naming=1; shift ;;
+    --naming-base) naming=1; naming_base="$2"; shift 2 ;;
     --locks) locks=1; shift ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--naming] [--naming-base SHA] [--locks] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--naming] [--naming-base SHA] [--locks] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -404,6 +411,18 @@ if [[ -n "$webviews_patch" && -s "$webviews_patch" ]]; then
         echo "fixed: vp fmt ${arg#--include=}"
       fi
     done
+  fi
+fi
+
+# 1i. Ids that break a CI naming rule (naming_autofix.py prints its own fixed:/left: lines). The base's copy
+# first, the checkout's while the base has none.
+if (( naming )); then
+  namer="$script_dir/../ci/naming_autofix.py"
+  [[ -f "$namer" ]] || namer="$repo/scripts/ci/naming_autofix.py"
+  if [[ -f "$namer" ]]; then
+    naming_args=(--fix --repo "$repo" --only webviews/ --frozen-list "$frozen_list")
+    [[ -n "$naming_base" ]] && naming_args+=(--base "$naming_base")
+    python3 -I "$namer" "${naming_args[@]}" || true
   fi
 fi
 

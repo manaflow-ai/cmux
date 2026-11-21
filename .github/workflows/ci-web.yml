@@ -705,6 +705,22 @@ jobs:
         continue-on-error: true
         run: python3 scripts/tests/test_pr_scoped_webviews_checks.py
 
+      # An experiment or gallery id this pull request defines against its naming rule (#48230's dotted experiment
+      # id): the line, its rename and the command. cmux-next-pr-autofix.yml pushes the same rename to a same-repo
+      # branch (base-autofix.sh --naming-base); the pre-push hook makes it before the push.
+      - name: Naming autofix check
+        id: naming-autofix
+        if: matrix.shard == 1
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 -I scripts/tests/test_naming_autofix.py
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            python3 -I scripts/ci/naming_autofix.py --check --base HEAD^1
+          else
+            python3 -I scripts/ci/naming_autofix.py --check
+          fi
+
       # One bun process per test file with a per-file timeout: a single
       # `bun test` stalled in a different file each run (scripts/ci/run-webviews-tests.sh).
       # ui-rules, gallery coverage, hairline rims, tooltip rules, theme colors and
@@ -728,7 +744,8 @@ jobs:
           ${{ !cancelled() && steps.engines.outcome != 'failure' && !(github.event_name == 'pull_request' && (
           steps.source-build.outcome == 'failure' || steps.bundles.outcome == 'failure' ||
           steps.merge-driver.outcome == 'failure' || steps.post-edit-format.outcome == 'failure' ||
-          steps.webviews-check.outcome == 'failure' || steps.pr-scoped-rules.outcome == 'failure')) }}
+          steps.webviews-check.outcome == 'failure' || steps.pr-scoped-rules.outcome == 'failure' ||
+          steps.naming-autofix.outcome == 'failure')) }}
         working-directory: webviews
         env:
           CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
@@ -875,6 +892,7 @@ jobs:
           REACT_COMPILER: ${{ steps.react-compiler.outcome }}
           WEBVIEWS_CHECK: ${{ steps.webviews-check.outcome }}
           PR_SCOPED_RULES: ${{ steps.pr-scoped-rules.outcome }}
+          NAMING_AUTOFIX: ${{ steps.naming-autofix.outcome }}
           # Warn-only: the next run's shard split, never this run's verdict.
           DURATIONS_UPLOAD: ${{ steps.durations-upload.outcome }}
           HISTORY_UPLOAD: ${{ steps.history-upload.outcome }}
@@ -905,7 +923,8 @@ jobs:
             "EAGER_JS_BUDGET|Check diff viewer eager JS budget" \
             "REACT_COMPILER|Verify React Compiler for webviews" \
             "WEBVIEWS_CHECK|Check webviews (Oxlint, Oxfmt, type check)" \
-            "PR_SCOPED_RULES|Check PR-scoped webview rules"; do
+            "PR_SCOPED_RULES|Check PR-scoped webview rules" \
+            "NAMING_AUTOFIX|Naming autofix check"; do
             var="${gate%%|*}"
             if [ "${!var}" = "failure" ]; then
               if [ "$CMUX_NEXT_STYLE_GUARDS" = warn ] && [[ " $STYLE_GATES " == *" $var "* ]]; then
