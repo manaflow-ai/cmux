@@ -2307,6 +2307,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       if (this.local.has(rowId) || order <= seq || (ended !== undefined && order >= ended.seq)) continue;
       const row = this.get(rowId);
       if (!row || row.kind === BACKGROUND_TURN || row.kind === "user" || row.inBackground === id) continue;
+      if (this.promptsReply(rowId, row, id)) continue;
       const tagged = { ...row, inBackground: id };
       claimed.push(rowId);
       if (!isVisiblyEmptyMessage(tagged)) hasRows = true;
@@ -2341,7 +2342,9 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// A background turn's ended record at `seq`, which says how it ended (`turn`).
   closeBackground(seq: number, turn: AcpmuxBackgroundTurn): void {
     const span = this.backgroundSpans.find((span) => span.id === turn.id);
-    if (span) span.to = seq;
+    // A span a prompt already closed (`openBackgroundsBefore`) keeps that end: acpmux's own ended
+    // record, heard later, says how the turn ended and never takes the prompt's rows back.
+    if (span) span.to = span.to === undefined ? seq : Math.min(span.to, seq);
     else this.backgroundEnds.set(turn.id, { seq, turn });
     // An older page's start can arrive before its end while newer rows are already held.
     // The start attributed those rows provisionally; the end bounds that attribution.
@@ -2367,6 +2370,21 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
         turn.id,
         replies.filter((id) => this.get(id)?.inBackground === turn.id),
       );
+  }
+
+  /// The background turns still open at `seq`: started before it, with no ended record heard.
+  openBackgroundsBefore(seq: number): string[] {
+    return this.backgroundSpans.filter((span) => span.to === undefined && span.from < seq).map((span) => span.id);
+  }
+
+  /// Whether a reply row is a prompt's turn's own, whatever span its event falls in: acpmux names a
+  /// reply's row by its segment, which starts with the acpmux turn it was written in, or "-" for a
+  /// turn the agent ran on its own (hub/stream.rs `before_agent_update`). A background finish's turn
+  /// is an acpmux turn the pane brackets itself (bgDoneNotice.ts), so its replies stay its own.
+  private promptsReply(id: string, row: AcpmuxRow, turn: string): boolean {
+    if (row.kind !== "assistant" || turn.startsWith("bg-done-")) return false;
+    const owner = /^assistant-([^.]+)\.[^.]+\.\d+$/.exec(id)?.[1];
+    return owner !== undefined && owner !== "-";
   }
 
   /// The background turn an event at `order` belongs to.
@@ -2498,6 +2516,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     let turn: string | undefined;
     if (this.backgroundSpans.length && row.kind !== BACKGROUND_TURN && row.kind !== "user" && !this.local.has(id)) {
       turn = this.backgroundAt(this.order.get(id)!);
+      if (turn !== undefined && this.promptsReply(id, row, turn)) turn = undefined;
       if (turn !== undefined && row.inBackground !== turn) row = { ...row, inBackground: turn };
     }
     if (!known && this.prepending && (this.order.get(id) ?? Infinity) < this.prepending.below)
@@ -3758,6 +3777,24 @@ export class AcpmuxDirectClient {
   /// it failed, and its turn id once a record names it (the prompt, or its `turn_started`), since a
   /// `turn_result` may name only the turn.
   private bgDoneTurns = new Map<string, { failed: boolean; turnId?: string }>();
+  /// A prompt that opens an acpmux turn ends every background turn still open before it: the rest
+  /// is the prompt's turn's (acpmux writes that end itself, reason `prompt`, hub/background_turn.rs).
+  /// acpmux keeps its running background turns in memory only, so after a restart or a hot swap
+  /// while Claude Code ran its own turn the ended record never comes, and the open span owned, and
+  /// hid, the reply of every turn after it (design/transcript-oddities.md T2).
+  private promptEndsBackground(event: EventRecord): void {
+    for (const id of this.rows.openBackgroundsBefore(event.seq)) {
+      if (this.bgDoneTurns.has(id)) this.endBgDoneTurn(event, id, "prompt");
+      else
+        this.reduceBackgroundTurn(event, {
+          id,
+          state: "ended",
+          quiet: isQuietReply(this.rows.backgroundReply(id)),
+          trigger: this.rows.get(backgroundTurnRowId(id))?.background?.trigger ?? "system",
+          reason: "prompt",
+        });
+    }
+  }
   /// Ends the background turn a background finish ran as (`bgDoneTurns`), at its result or at the
   /// person's message into it (`reason`, as acpmux's own `background_turn` records name it). It is
   /// quiet, its line standing alone, only when the task went well and the agent's acknowledgement
@@ -9344,7 +9381,11 @@ export class AcpmuxDirectClient {
     const existing = this.rows.get(id);
     // Its text, tool calls and plan never run on into the turn before it, nor the next turn's into its
     // own: a real turn that opens with a tool call or a thought gets a row of its own.
-    this.endAssistantSegment();
+    // A reply acpmux stamped with its segment is cut by the segment itself: the background turn's
+    // words carry another one ("-", hub/stream.rs), so they start their own row, and a prompt's
+    // reply a record split goes on in its row, never as a second row the background turn owns.
+    const stamped = this.streamingAssistant !== undefined && this.streamingSegment?.row === this.streamingAssistant;
+    if (!stamped) this.endAssistantSegment();
     this.streamingActivity = undefined;
     this.planRow = undefined;
     // Nor does a subagent group: the next subagent starts a group of its own, in its own turn.
@@ -10210,6 +10251,7 @@ export class AcpmuxDirectClient {
         // A background command's finish acpmux sent the agent as a prompt: no prompt row; its turn
         // draws as a background turn, one line under the turn before it (`bgDoneNotice`).
         const bgDone = msg.steer === true ? undefined : bgDoneNotice(msg);
+        if (msg.steer !== true) this.promptEndsBackground(event);
         // The continuation's raw instructions stay hidden. Its provenance supplies only the
         // attempt marker; a new prompt clears it, while a steer keeps the same turn's marker.
         if (msg.steer !== true) this.autoResumedAttempt = autoResumeAttempt(msg);
@@ -10477,6 +10519,8 @@ export class AcpmuxDirectClient {
         this.suggestionFenced(event.seq ?? 0);
         const startedTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
         const bgDoneStarting = typeof msg.promptId === "string" ? this.bgDoneTurns.get(msg.promptId) : undefined;
+        // A carried steer opens its turn with no prompt record of its own.
+        if (msg.carried) this.promptEndsBackground(event);
         if (bgDoneStarting && startedTurnId) bgDoneStarting.turnId = startedTurnId;
         // A prompt opens its turn (user_message); one opening with none open, and naming no turn, is
         // a turn the agent started on its own, never the turn before's.

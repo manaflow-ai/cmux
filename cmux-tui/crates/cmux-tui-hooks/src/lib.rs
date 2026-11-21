@@ -71,7 +71,7 @@ use status_conflict::{conflict_row, ensure_replaceable_target};
 /// `pre_tool_use`), for tools that list and edit Codex hooks
 /// (cmux-agent-customize).
 pub fn codex_hook_state_label(event: &str) -> anyhow::Result<&'static str> {
-    codex_trust::codex_event_state_label(event)
+    codex_event_state_label(event)
 }
 
 /// Codex's trust hash for one command handler as written in hooks.json:
@@ -99,7 +99,7 @@ pub fn codex_hook_trust_hash(
 /// `hooks_path` as Codex writes it into `hooks.state` keys (canonicalized
 /// when `CODEX_HOME` came from the environment).
 pub fn codex_hook_state_key_path(hooks_path: &Path, from_env_override: bool) -> PathBuf {
-    codex_trust::codex_state_key_hooks_path(hooks_path, from_env_override)
+    codex_state_key_hooks_path(hooks_path, from_env_override)
 }
 
 /// Whether a hook command is one this installer wrote (a journal hook).
