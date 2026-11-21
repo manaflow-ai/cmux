@@ -118,7 +118,8 @@ pub(crate) async fn host_health_with(
     match (machine_problems, daemon_rss_problem()) {
         (Some(mut problems), Some(rss)) => {
             if let Some(list) = problems.as_array_mut() {
-                list.push(rss);
+                // Keep the experiment visible even when the existing list is at its cap.
+                list.insert(0, rss);
             }
             v.set("problems", super::machine_health::sanitize(&problems));
         }
