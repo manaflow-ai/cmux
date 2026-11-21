@@ -70,6 +70,14 @@ def route(paths, event="pull_request", macos="false"):
 
 
 class LinuxGuardRoutingTests(unittest.TestCase):
+    def test_python_socket_client_edits_run_unicode_regression(self):
+        for path in ("tests/cmux.py", "tests_v2/cmux.py"):
+            with self.subTest(path=path):
+                outputs, groups = route_decision([path])
+                self.assertEqual(outputs["linux_guard_tests"], "true")
+                self.assertIn("quality-runtime", groups)
+                self.assertIn("quality-determinism", groups)
+
     def test_guard_ownership_manifest_has_no_duplicate_literal_keys(self):
         source = (ROOT / "scripts/ci/workflow_guard_groups.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
