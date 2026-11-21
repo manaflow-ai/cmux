@@ -38,6 +38,19 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
         attach(app, "first-launch")
     }
 
+    /// The video of this run is the evidence: the placeholders stay on screen from the
+    /// team's load through the Macs' lists' load until the rows arrive.
+    @MainActor
+    func testFirstLaunchHandOffKeepsThePlaceholders() {
+        let app = launch("retry-first-launch-handoff")
+        defer { app.terminate() }
+        XCTAssertTrue(app.descendants(matching: .any)["workspaces.loading"].waitForExistence(timeout: 30),
+                      "first-launch placeholders\n\(app.debugDescription)")
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "workspace.row.")).firstMatch.waitForExistence(timeout: 30),
+                      "the rows arrive\n\(app.debugDescription)")
+        attach(app, "first-launch-handoff")
+    }
+
     @MainActor
     func testFirstLaunchOfflineSaysItWaits() {
         let app = launch("retry-first-launch-offline")
