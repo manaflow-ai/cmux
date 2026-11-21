@@ -53,27 +53,46 @@ struct CloudStartRowTests {
         let titles = AgentCloudStartTitles(), store = DaemonStore(), page = try Self.page(store, surface: 64)
         titles.begin(page, task: "1+1", untitled: AgentPaneModel.tabTitle)
         #expect(titles.failedStart(of: page) == nil, "a running start is no failure")
-        titles.ended(page, opened: false, machine: "cloud-chats-12")
+        titles.ended(page, opened: false, row: CloudMoveStrings.startFailedRow(machine: "cloud-chats-12"))
         #expect(titles.startsInCloud(page) && titles.title(of: page) == "1+1")
-        #expect(titles.failedStart(of: page) == .some("cloud-chats-12"))
-        #expect(CloudMoveStrings.startFailedRow(machine: "cloud-chats-12") == "Cloud · cloud-chats-12 · Couldn't start")
+        #expect(titles.failedStart(of: page) == "Cloud · cloud-chats-12 · Couldn't start")
         #expect(CloudMoveStrings.startFailedRow(machine: nil) == "Cloud · Couldn't start")
         titles.begin(page, task: "1+1", untitled: AgentPaneModel.tabTitle)
         #expect(titles.failedStart(of: page) == nil && titles.startsInCloud(page), "Retry runs the start again")
-        titles.ended(page, opened: false, machine: nil)
-        #expect(titles.failedStart(of: page) == .some(nil), "failed before it had a machine")
-        titles.ended(page, opened: true, machine: nil)
+        titles.ended(page, opened: false, row: CloudMoveStrings.startFailedRow(machine: nil))
+        #expect(titles.failedStart(of: page) == "Cloud · Couldn't start", "failed before it had a machine")
+        titles.ended(page, opened: true, row: { Issue.record("an opened start built a failed row"); return "" }())
         #expect(!titles.startsInCloud(page), "an opened start's page reads as its page again")
 
         let local = try Self.page(store, surface: 65)
         titles.begin(local, task: "1+1", untitled: AgentPaneModel.tabTitle)
-        titles.ended(local, opened: false, machine: "cloud-chats-12")
+        titles.ended(local, opened: false, row: CloudMoveStrings.startFailedRow(machine: "cloud-chats-12"))
         var tab = TabSnapshot(surface: SurfaceID(rawValue: 65), kind: .conversation, title: "1+1", url: "about:blank")
         tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:this-mac", session: "chat-local", harness: "claude"))
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [tab])])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 6, key: nil, name: "workspace-6", screens: [screen])]))
         let sent = try #require(store.tab(surface: SurfaceID(rawValue: 65)))
         #expect(!titles.startsInCloud(sent) && titles.failedStart(of: sent) == nil, "a local chat sent after the failure read as Cloud")
+    }
+
+    /// A start that replaced the page's empty chat (`AgentPaneCloudStart.replacesChat`) began with that chat's session:
+    /// its failure still reads as Cloud, and only a chat other than that one ends it.
+    @Test func aFailedStartThatReplacedAnEmptyChatStillReadsAsCloud() throws {
+        let titles = AgentCloudStartTitles(), store = DaemonStore()
+        func chat(_ session: String) throws -> TabModel {
+            var tab = TabSnapshot(surface: SurfaceID(rawValue: 66), kind: .conversation, title: "1+1", url: "about:blank")
+            tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:this-mac", session: session, harness: "claude"))
+            let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [tab])])
+            store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 7, key: nil, name: "workspace-7", screens: [screen])]))
+            return try #require(store.tab(surface: SurfaceID(rawValue: 66)))
+        }
+        let empty = try chat("chat-empty")
+        titles.begin(empty, task: "1+1", untitled: AgentPaneModel.tabTitle)
+        titles.ended(empty, opened: false, row: CloudMoveStrings.startFailedRow(machine: "cloud-chats-12"))
+        #expect(titles.startsInCloud(empty) && titles.failedStart(of: empty) == "Cloud · cloud-chats-12 · Couldn't start",
+                "the failed start of a page that had an empty chat read as a local chat")
+        let sent = try chat("chat-local")
+        #expect(!titles.startsInCloud(sent) && titles.failedStart(of: sent) == nil, "a new local chat after the failure read as Cloud")
     }
 
     /// cmux#45947: New Cloud Chat opens a workspace of its own whose row reads as Cloud from the click, before any Send,

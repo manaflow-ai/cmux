@@ -359,7 +359,8 @@ public struct CloudOutdatedMachine {
         let read = answer(first)
         if !read.ok, !updatesBeforeCopyingAgain(ok: read.ok, errorCode: read.errorCode, side: read.side), !Task.isCancelled,
            await restarted(since: before, link: link) {
-            return (try? await copiedAgain(after: nil, before: before, socket: socket, link: link, relink: relink, copy)) ?? first
+            do { return try await copiedAgain(after: nil, before: before, socket: socket, link: link, relink: relink, copy) }
+            catch is RelinkMissing { return first } // no new link came: the first answer says why
         }
         guard updatesBeforeCopyingAgain(ok: read.ok, errorCode: read.errorCode, side: read.side), await update() else { return first }
         _ = await CloudWait.holds(within: relink) { CloudMoveCore().relinked(before: before, now: link(), refusedCounts: true) }

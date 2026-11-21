@@ -152,6 +152,19 @@ struct CloudStartChatMachineTests {
             } answer: { ($0.ok, $0.errorCode, $0.side) } update: { false }
         }
         #expect(sockets == ["link-1.sock"])
+
+        let rethrown = Link()
+        sockets = []
+        await #expect(throws: Closed.self, "a second copy's own error was dropped for the first answer") {
+            _ = try await CloudOutdatedMachine.copy(socket: { rethrown.socket }, link: { rethrown.key }, notConnected: CancellationError(),
+                                                    relink: .seconds(30)) { (socket: String) async throws -> CloudMoveCLI.Answer in
+                sockets.append(socket)
+                guard sockets.count == 1 else { throw Closed() }
+                rethrown.restart()
+                return failed
+            } answer: { ($0.ok, $0.errorCode, $0.side) } update: { false }
+        }
+        #expect(sockets == ["link-1.sock", "link-2.sock"])
     }
 
     /// cmux#47678: the composer's start holds its machine against the automatic update from the moment it knows it,
