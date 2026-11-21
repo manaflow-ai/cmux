@@ -85,6 +85,8 @@ import Testing
         let target = cv.contentOffset.y + r.scroll.shift
         let clip = r.scroll.clip
         let expected = clip.constrainBoundsRect(NSRect(origin: NSPoint(x: 0, y: target), size: clip.bounds.size)).origin.y
-        #expect(abs(clip.bounds.origin.y - expected) < 0.5, "the clip is at \(clip.bounds.origin.y), the model's offset constrains to \(expected)")
+        // AppKit rounds the clip's origin to the backing pixel grid (half a point at 2x, a point at 1x).
+        let pixel = 1 / max(1, r.window.backingScaleFactor)
+        #expect(abs(clip.bounds.origin.y - expected) <= pixel + 0.001, "the clip is at \(clip.bounds.origin.y), the model's offset constrains to \(expected)")
     }
 }
