@@ -91,7 +91,7 @@ import Security
 
         /// A generic password in this app's data-protection Keychain under `service`: only this app's
         /// access group reads or writes it, so `security`, `defaults write` or a file an agent writes
-        /// cannot turn it on.
+        /// cannot turn it on. Its calls never show UI; a Keychain that cannot answer reads as off.
         public static func keychain(service: String) -> Store {
             @Sendable func query() -> [String: Any] {
                 [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
@@ -103,14 +103,15 @@ import Security
                 read[kSecReturnData as String] = true
                 read[kSecMatchLimit as String] = kSecMatchLimitOne
                 var out: CFTypeRef?
-                return SecItemCopyMatching(read as CFDictionary, &out) == errSecSuccess && (out as? Data) == Data("on".utf8)
+                let status = SecItemCopyMatching(KeychainNoPromptContext.applied(to: read) as CFDictionary, &out)
+                return status == errSecSuccess && (out as? Data) == Data("on".utf8)
             }, write: { on in
-                SecItemDelete(query() as CFDictionary)
+                SecItemDelete(KeychainNoPromptContext.applied(to: query()) as CFDictionary)
                 guard on else { return }
                 var add = query()
                 add[kSecValueData as String] = Data("on".utf8)
                 add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-                SecItemAdd(add as CFDictionary, nil)
+                SecItemAdd(KeychainNoPromptContext.applied(to: add) as CFDictionary, nil)
             })
         }
     }

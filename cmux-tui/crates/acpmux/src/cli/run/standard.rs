@@ -9,11 +9,16 @@ pub(super) fn handles(cmd: &Command) -> bool {
     matches!(
         cmd,
         Command::Dispatch(..)
+            | Command::Bg(..)
+            | Command::Notices { .. }
+            | Command::Open(..)
+            | Command::OpenTab(..)
             | Command::Briefs(..)
             | Command::Wait { .. }
             | Command::Ensure { .. }
             | Command::Continue(..)
             | Command::History { .. }
+            | Command::Search { .. }
             | Command::SessionSearch(..)
             | Command::TagCmd { .. }
             | Command::RulesCmd { .. }
@@ -32,6 +37,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Inbox(..)
             | Command::Deliver { .. }
             | Command::Chats(..)
+            | Command::Board
             | Command::Process(..)
             | Command::Worktree(..)
             | Command::Group(..)
@@ -51,6 +57,31 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
     })?;
     match cmd {
         Command::Dispatch(args) => dispatch(connect(true).await?, args, json_out).await,
+        Command::Bg(cmd) => {
+            let client = connect(true).await?;
+            crate::cli::bg::run(client.as_ref(), cmd, json_out).await
+        }
+        Command::Notices { session, thread, mark_read } => {
+            let session = session
+                .or_else(|| std::env::var(crate::acpmux_mcp::SESSION_ENV).ok())
+                .filter(|id| !id.trim().is_empty())
+                .ok_or_else(|| {
+                    crate::cli::errors::AppError::usage(
+                        "notices needs a session, or ACPMUX_SESSION_ID inside an agent session",
+                    )
+                })?;
+            let client = connect(true).await?;
+            crate::cli::session_inbox::run(
+                client.as_ref(),
+                &session,
+                thread.as_deref(),
+                mark_read,
+                json_out,
+            )
+            .await
+        }
+        Command::Open(args) => crate::cli::app_bridge::run(args, false, json_out).await,
+        Command::OpenTab(args) => crate::cli::app_bridge::run(args, true, json_out).await,
         Command::Briefs(cmd) => briefs(connect(true).await?, cmd, json_out).await,
         Command::Wait {
             sessions,
@@ -113,6 +144,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::History { session, limit } => {
             orchestrate::history(connect(true).await?, &session, limit, json_out).await
+        }
+        Command::Search { query, limit } => {
+            crate::cli::session_search::all(connect(true).await?, query.join(" "), limit, json_out)
+                .await
         }
         Command::SessionSearch(args) => {
             crate::cli::session_search::run(connect(true).await?, args, json_out).await
@@ -396,7 +431,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         client =
                             before_deadline(deadline, setup_name, reconnect_after_update()).await?;
                     }
-                    found => break found?,
+                    // A machine this daemon has no peer for may still be reached by the
+                    // configured new relay (`new_relay.rs`).
+                    Err(error) => match crate::cli::new_relay::for_refusal(host.as_deref(), &error)
+                    {
+                        Some((relay, machine, words)) => {
+                            return crate::cli::new_relay::start(
+                                relay, &machine, words, json_out, deadline,
+                            )
+                            .await;
+                        }
+                        None => return Err(error),
+                    },
+                    Ok(found) => break found,
                 }
             };
             let id = crate::cli::resolve::routed_id(&v)?;
@@ -480,8 +527,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 } else {
                     println!(
                         "reused {name} ({}): it already runs, so the prompt was not sent again; \
-                         use `acpmux send {name}` to give it more",
-                        session_id.get(..8).unwrap_or(session_id)
+                         use `{} send {name}` to give it more",
+                        session_id.get(..8).unwrap_or(session_id),
+                        crate::cli::entry::program()
                     );
                 }
                 return Ok(());
@@ -1049,7 +1097,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     }
                 }
                 if let Some(next) = value.get("next").and_then(Value::as_u64) {
-                    println!("More: acpmux inbox --before {next}");
+                    let program = crate::cli::entry::program();
+                    let verb = if program == "cmux agent" { "team-inbox" } else { "inbox" };
+                    println!("More: {program} {verb} --before {next}");
                 }
             } else if method == method::MUX_TEAM_READ {
                 println!(
@@ -1105,6 +1155,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             Ok(())
         }
         Command::Chats(cmd) => crate::cli::chats::run(cmd, json_out).await,
+        Command::Board => super::board::run(json_out).await,
         Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
@@ -1577,16 +1628,15 @@ fn held_messages(sessions: &[Value]) -> Vec<Value> {
             let mut row = h.clone();
             row.set("session", name.clone());
             row.set("sessionId", id.clone());
-            row.set("answer", json!(HELD_ANSWER));
+            row.set("answer", json!(format!(
+                "Claude Code holds it for approval (it expires); acpmux cannot release it. Have the sender send it again with {} send",
+                crate::cli::entry::program()
+            )));
             out.push(row);
         }
     }
     out
 }
-
-/// What the person can do about a message Claude Code holds: Claude Code gives a host no way to
-/// release it, so it waits for that chat's approval or expires.
-const HELD_ANSWER: &str = "Claude Code holds it for approval (it expires); acpmux cannot release it. Have the sender send it again with acpmux send";
 
 /// One `pending` line for a held message.
 fn held_message_line(h: &Value) -> String {
@@ -1646,7 +1696,10 @@ fn team_receipt_line(receipt: &Value) -> String {
     let decision = receipt.get("startWork").and_then(Value::as_str).unwrap_or("information");
     let state = receipt.get("state").and_then(Value::as_str).unwrap_or("queued");
     let id = receipt.get("messageId").and_then(Value::as_str).unwrap_or("?");
-    format!("{state} to {canonical}; startWork={decision} (acpmux send --status mesh:{id})")
+    format!(
+        "{state} to {canonical}; startWork={decision} ({} send --status mesh:{id})",
+        crate::cli::entry::program()
+    )
 }
 
 /// The id of a `new`'s first prompt: it names the Claude Code subagent that sends it
