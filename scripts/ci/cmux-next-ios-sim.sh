@@ -99,6 +99,19 @@
 #           Then the upload leg: the phone streams a sparse ~150 MB file (past
 #           the old 100 MiB cap) to the Mac with its own LinkUpload, and the
 #           stored file's size and SHA-256 must match (UploadProbe.swift).
+#   timing  build, plus a tagged DEBUG cmux NEXT Mac app built here (as pair-e2e), the
+#           signed-in simulator paired with it by its code, and the open-to-first-terminal-frame
+#           timing of three scenarios, 5 runs each (cmux_next_ios_timing.py), read from
+#           `log stream` of subsystem dev.cmux.mobile, category timing:
+#             cold      launch into a terminal (`timing launch terminal_ready`)
+#             warm      the app in the background 30 s or more, then foreground
+#                       (`timing foreground terminal_frame`)
+#             browser   launch into a browser tab, then the terminal; records whether
+#                       "offline" was ever shown (`terminal_offline_shown`)
+#           Optional arguments (each one `--arg`): runs=N (1-10, default 5),
+#           background=S (30-600, default 30). Send it with --sign-in agent so the phone
+#           gets the step's session. The artifact has timing.json, timing.md (medians
+#           per scenario and ConnectTimeline stage), each run's timing-*.log, the Mac log.
 #   listperf
 #           build, plus the list frame-rate rig (ListStressRig,
 #           verify/listperf/): each case launches the Demo app with
@@ -188,7 +201,7 @@ if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == handoff=* ]]; then
   set -- handoff "tag=${2#handoff=}"
   mode=handoff
 fi
-case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy or handoff, got '$mode'" >&2; exit 2 ;; esac
+case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff|timing) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy, handoff or timing, got '$mode'" >&2; exit 2 ;; esac
 if [[ "$mode" == release-build && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
 fi
@@ -200,6 +213,19 @@ if [[ "$mode" == handoff ]]; then
   handoff_tag="${2#tag=}"
   [[ "$handoff_tag" =~ ^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$ && "$handoff_tag" != default ]] ||
     { echo "cmux-next-ios-sim.sh: handoff tag= wants lowercase letters, digits and dashes (at most 64), got '$handoff_tag'" >&2; exit 2; }
+fi
+timing_runs=5 timing_background=30
+if [[ "$mode" == timing ]]; then
+  for sel in "${@:2}"; do
+    case "$sel" in
+      runs=[0-9]|runs=10) timing_runs="${sel#runs=}" ;;
+      background=[0-9][0-9]|background=[0-9][0-9][0-9])
+        timing_background="${sel#background=}"
+        (( timing_background >= 30 && timing_background <= 600 )) ||
+          { echo "cmux-next-ios-sim.sh: timing background= wants 30 to 600 seconds, got '$sel'" >&2; exit 2; } ;;
+      *) echo "cmux-next-ios-sim.sh: timing takes runs=N (1-10) and background=S (30-600), got '$sel'" >&2; exit 2 ;;
+    esac
+  done
 fi
 if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
   echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
@@ -1602,7 +1628,7 @@ if [[ "$mode" == energy ]]; then
 fi
 
 # --- Pairing by QR code ----------------------------------------------------
-if [[ "$mode" == pair-e2e ]]; then
+if [[ "$mode" == pair-e2e || "$mode" == timing ]]; then
   t0=$SECONDS
   # A tag of this run only: its own bundle id, socket, settings and state.
   mac_tag="iospair-$(git rev-parse --short=8 HEAD)-$$"
@@ -1645,8 +1671,15 @@ if [[ "$mode" == pair-e2e ]]; then
   [[ $status -eq 0 && -d "$mac_app" ]] || { tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
   note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
   set +e
-  python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \
-    --udid "$udid" --bundle-id "$bundle_id" --work "$work" --out "$out" --summary "$summary"
+  if [[ "$mode" == timing ]]; then
+    python3 -I scripts/ci/cmux_next_ios_timing.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \
+      --udid "$udid" --bundle-id "$bundle_id" --work "$work" --out "$out" --summary "$summary" \
+      --runs "$timing_runs" --background-seconds "$timing_background" \
+      --device "${device_type##*.} on ${runtime##*.}" --ref "$(git rev-parse HEAD)"
+  else
+    python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \
+      --udid "$udid" --bundle-id "$bundle_id" --work "$work" --out "$out" --summary "$summary"
+  fi
   pair_status=$?
   set -e
 fi

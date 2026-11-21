@@ -286,7 +286,13 @@ public final class DaemonTerminalSession: TerminalSession {
         // gone says so; a reattach that gave up (its line says to type to try
         // again) shows its last screen too.
         if attached || ended { return .attached }
-        if macOffline { return .offline(mac: macName) }
+        if macOffline {
+            #if DEBUG
+            // The timing mode (cmux-next-ios-sim.sh) records whether a terminal ever said offline.
+            ConnectTimeline.shared.mark("terminal_offline_shown")
+            #endif
+            return .offline(mac: macName)
+        }
         // Plain words: the transport's error (`lastError`) goes to the log only.
         if gaveUp { return .failed(message: Self.unreachableMessage(macName)) }
         return everAttached ? .reattaching(mac: macName) : .connecting(mac: macName)

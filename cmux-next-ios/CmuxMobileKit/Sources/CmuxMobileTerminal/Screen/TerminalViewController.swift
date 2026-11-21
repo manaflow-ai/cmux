@@ -2577,7 +2577,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// last report, the last request), and the best match places it.
     private func surfacePresented() {
         if firstEcho.presented() { LaunchMarks.shared.mark("terminal_echo_presented") }
-        if model.connectionState.isAttached { LaunchMarks.shared.mark("terminal_ready") }
+        if model.connectionState.isAttached {
+            LaunchMarks.shared.mark("terminal_ready")
+            LaunchMarks.shared.terminalPresented()
+        }
         #if DEBUG
         if let probe = TerminalBenchProbe.shared {
             probe.presented()
