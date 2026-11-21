@@ -144,7 +144,7 @@ test("a re-run before the frame keeps the switch's fresh read", async () => {
     await act(async () => root.render(<Probe sessionId="chat-a" observed={0} />));
     await act(async () => {
       paint();
-      await tasks();
+      await until(() => reads.length === 1);
     });
     expect(reads).toEqual(["chat-a:probe"]);
 
@@ -152,11 +152,10 @@ test("a re-run before the frame keeps the switch's fresh read", async () => {
     // The read that goes out is still the switch's: one read, after the frame, and a fresh one.
     await act(async () => root.render(<Probe sessionId="chat-b" observed={0} />));
     await act(async () => root.render(<Probe sessionId="chat-b" observed={1} />));
-    await act(tasks);
     expect(reads).toEqual(["chat-a:probe"]);
     await act(async () => {
       paint();
-      await tasks();
+      await until(() => reads.length === 2);
     });
     expect(reads).toEqual(["chat-a:probe", "chat-b:probe"]);
   } finally {
