@@ -29,7 +29,10 @@ fn encode<T: Serialize>(value: &T) -> String {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Retry {
-    /// The chat may not have moved: run the move again, to this machine.
+    /// The chat may not have moved: run the move again, to this machine. An earlier build's
+    /// `askFirst` (Bring Back Local's "Ask first, then bring back", gone: the owner's Mac takes
+    /// the chat as it is) reads as this plain rerun.
+    #[serde(alias = "askFirst")]
     Move {
         #[serde(rename = "machineID")]
         machine_id: String,
@@ -38,11 +41,6 @@ pub enum Retry {
     Show {
         #[serde(rename = "_0")]
         shown: Shown,
-    },
-    /// Bring Back Local only: run the move again, narrowing the chat to an asking policy first.
-    AskFirst {
-        #[serde(rename = "machineID")]
-        machine_id: String,
     },
     /// The machine's cmux-tui is too old for the move: "Update Machine", then the move again.
     Update {

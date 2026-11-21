@@ -96,7 +96,6 @@ extension DebugCloudMove {
             let kind = switch retry {
             case .move: "move"
             case .show: "show"
-            case .askFirst: "ask_first"
             case .update: "update"
             }
             let machine: String? = switch retry {
@@ -126,7 +125,7 @@ extension DebugCloudMove {
             session: "\(id)-chat-a", harness: "claude", machineID: machine, folder: "/home/cmux/work/project",
             name: "\(id) chat", key: "\(id)-move-key", host: nil, movedSession: nil))
         cloud.moveRetries["\(id)-tab-update"] = .update(machineID: "\(id)-machine-2")
-        cloud.bringBackRetries["\(id)-tab-back"] = .askFirst(machineID: machine)
+        cloud.bringBackRetries["\(id)-tab-back"] = .move(machineID: machine)
         if let scope = CloudMoveAlwaysGrants.Scope(userID: "\(id)-user", teamID: "\(id)-team", cloudOrigin: "https://\(id).invalid") {
             CloudMoveAlwaysGrants.store(CloudMoveAlwaysGrants.stored(in: defaults) + [CloudMoveAlwaysGrants.Grant(scope: scope, folder: folder)], in: defaults)
         }

@@ -1,11 +1,14 @@
 //! Part of `Hub`; see `hub/mod.rs`. The guarded receive of a moved chat (`transfer_in.rs`):
-//! `_acpmux/transfer_receive {manifest, guard: {control, roots}}`, for a chat from a daemon this
-//! one does not take as its own user (Move to Cloud: a Mac's chat on a cloud machine, or a cloud
-//! machine's chat coming back to the Mac). Still the local socket only; the caller builds the
-//! guard itself and never takes it from the other side.
+//! `_acpmux/transfer_receive {manifest, guard: {control, roots}}`, for a chat from another
+//! daemon (Move to Cloud: a Mac's chat on a cloud machine, or a cloud machine's chat coming back
+//! to the Mac). Still the local socket only; the caller builds the guard itself and never takes
+//! it from the other side.
 //!
-//! - `control`: `peer` or `web`, the rules the chat's queued prompts run under here (`web`
-//!   also gates them on folder trust, `server/trust_gate.rs`).
+//! - `control`: `local`, `peer` or `web`, the rules the chat's queued prompts run under here
+//!   (`web` also gates them on folder trust, `server/trust_gate.rs`). `local` is the owner's own
+//!   machine taking its chat back (Bring Back Local): the chat comes back as it is, its policy,
+//!   rules and mode (Bypass and Full access included) kept, a local chat here, never refused or
+//!   narrowed for them (RFD 0006: trust the owner's own machine).
 //! - `roots`: existing folders strictly under the home folder the chat may work in: not the home
 //!   folder, not one in a hidden folder of it, and none holding `~/.claude`, `~/.codex` or
 //!   acpmux's own home.
@@ -53,10 +56,13 @@ impl Guard {
             return Err(bad(format!("unknown key {k:?}")));
         }
         let control = match obj.get("control").and_then(Value::as_str) {
+            Some("local") => Control::Local,
             Some("peer") => Control::Peer,
             Some("web") => Control::Web,
             other => {
-                return Err(bad(format!("control must be \"peer\" or \"web\", not {other:?}")));
+                return Err(bad(format!(
+                    "control must be \"local\", \"peer\" or \"web\", not {other:?}"
+                )));
             }
         };
         let raw = obj
@@ -106,6 +112,7 @@ impl Guard {
         };
         let v: Value = serde_json::from_slice(&raw).map_err(|e| guard_error("guard", e))?;
         let control = match v["control"].as_str() {
+            Some("local") => Control::Local,
             Some("peer") => Control::Peer,
             Some("web") => Control::Web,
             _ => return Err(guard_error("guard", "the stored guard is unreadable")),
@@ -276,9 +283,10 @@ impl Hub {
 
     /// Rewrites a guarded receive's `session.json` to the chat it may be here, before the import,
     /// or refuses it: its folder (`cwd`, else its own) under a root, spelled canonically; its
-    /// family from this daemon's profile; no policy is `ask`, and under `web` its policy,
-    /// rules, mode and options asking; no preset, session env, store roots, argv or tags, and a remote origin (no
-    /// preset args, no cmux MCP servers); a model only when the profile declares it; a Claude
+    /// family from this daemon's profile; no policy is `ask` (under `local` it stays none), and
+    /// under `web` its policy, rules, mode and options asking; no preset, session env, store
+    /// roots, argv or tags, and a remote origin (no preset args, no cmux MCP servers) unless it
+    /// comes back to the owner's own machine (`local`); a model only when the profile declares it; a Claude
     /// profile only when configured; and its agent store files exactly its session's. It keeps
     /// its agent session only with its file, which must not be here already unless it is the
     /// session of the chat's own moved-away copy (`replaceable`). Answers the chat and whether
@@ -323,11 +331,16 @@ impl Hub {
             meta.claude_profile =
                 meta.claude_profile.take().filter(|p| cfg.harnesses.contains_key(p));
         }
-        let policy = meta.permission_policy.get_or_insert_with(|| "ask".to_owned());
-        // Under the Web's control everything must ask. A peer guard moves the person's chat
-        // between their own machines, and a peer's prompts have no mode rule at dispatch, so it
-        // keeps its policy, rules and mode (`hub/web_control.rs`).
+        // The owner's own machine (`local`) takes its chat back as it is: a chat with no policy
+        // of its own keeps none, so a Full-access chat is not narrowed to ask on the way back.
+        if guard.control != Control::Local {
+            meta.permission_policy.get_or_insert_with(|| "ask".to_owned());
+        }
+        // Under the Web's control everything must ask. A peer or local guard moves the person's
+        // chat between their own machines, and their prompts have no mode rule at dispatch, so
+        // it keeps its policy, rules and mode (`hub/web_control.rs`).
         if guard.control == Control::Web {
+            let policy = meta.permission_policy.as_deref().unwrap_or("ask");
             if !person::asking_policy_value(Some(&json!(policy))) {
                 return Err(guard_error(
                     "policy",
@@ -361,7 +374,8 @@ impl Hub {
             }
         }
         meta.additional_directories = super::additional_dirs::without_cwd(dirs, &meta.cwd);
-        meta.remote_origin = true;
+        // Back on the owner's own machine it is a local chat again, with its cmux tools.
+        meta.remote_origin = guard.control != Control::Local;
         if let Some(sid) = meta.agent_session_id.as_deref()
             && !plain_agent_session(sid)
         {

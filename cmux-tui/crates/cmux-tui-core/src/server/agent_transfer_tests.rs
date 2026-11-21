@@ -249,8 +249,11 @@ fn a_cloud_host_receive_forwards_peer_control_rooted_at_home_work() {
     );
 }
 
+/// Bring Back Local lands on the owner's own Mac: the chat is the owner's, so the Mac takes it
+/// under its own local control (its policy and mode kept, Bypass and Full access included), never
+/// the Web's, which refused a chat that does not ask (RFD 0006: trust the owner's own machine).
 #[test]
-fn a_mac_receive_forwards_web_control_rooted_at_the_given_folder() {
+fn a_mac_receive_forwards_local_control_rooted_at_the_given_folder() {
     let fake = FakeAcpmux::start("xmac");
     let home = Home::new("mac");
     let mux = transfer_mux(&fake, "atx-mac", &home, false);
@@ -260,7 +263,7 @@ fn a_mac_receive_forwards_web_control_rooted_at_the_given_folder() {
     let sent = fake.frame();
     assert_eq!(
         sent["params"]["guard"],
-        json!({"control": "web", "roots": [home.canonical("code/project")]})
+        json!({"control": "local", "roots": [home.canonical("code/project")]})
     );
 }
 

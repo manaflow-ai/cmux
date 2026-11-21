@@ -12,8 +12,6 @@ public final class CloudMoveRetries {
         case move(machineID: String)
         /// The chat moved: only open its tab on the machine.
         case show(Shown)
-        /// Bring Back Local only: run the move again, narrowing the chat to an asking policy and mode first.
-        case askFirst(machineID: String)
         /// The machine's cmux-tui is too old for the move: "Update Machine", then the move again.
         case update(machineID: String)
     }
@@ -85,7 +83,7 @@ extension CloudMoveRetries.Retry {
     /// The machine a rerun goes to; none for a move that committed.
     public var machineID: String? {
         switch self {
-        case .move(let machineID), .askFirst(let machineID), .update(let machineID): machineID
+        case .move(let machineID), .update(let machineID): machineID
         case .show: nil
         }
     }

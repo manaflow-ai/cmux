@@ -108,6 +108,11 @@ fn retries_keep_the_earlier_builds_spelling() {
         ["tab-1", "tab-2", "tab-3", "tab-4"],
         "a retry this version can't read drops alone"
     );
+    assert_eq!(
+        all["tab-3"],
+        Retry::Move { machine_id: "vm-3".into() },
+        "an earlier build's ask-first retry is a plain rerun: the Mac takes the chat as it is"
+    );
     let Retry::Show { shown } = &all["tab-2"] else { panic!("not a show") };
     assert_eq!((shown.moved_session.as_deref(), shown.harness.as_deref()), (Some("m"), None));
     assert_eq!(
