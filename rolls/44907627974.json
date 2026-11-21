@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44907627974",
+  "recorded_at": "2026-11-21T13:24:31Z",
+  "reason": "cmux-tui c21056f56c59 changes the image's cmux-tui (pinned 68f3288992be)",
+  "dry_run": false,
+  "cmux_tui": "c21056f56c59fd6d3524b1aebaa895c0a8dcc645",
+  "fixes": [
+    {
+      "sha": "eb017d6a92c4ab4a4415ff3aef0e9c100384f28e",
+      "mergedAt": "2026-11-21T04:21:32-08:00",
+      "subject": "Tooltips: a live gallery of every tooltip state (Debug > Tooltip Gallery)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T13:24:31Z",
+    "snapshot_id": "sh-9c5de8eb4fee4f44bd1958037f5b7827",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44907627974): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6ecd6cc11cd2b7d2823c397bae50bed3e3760555",
+    "image": "cloud-native-auto-c21056f5-44907627974-1",
+    "revision": "ci-44907627974-1",
+    "at": "2026-11-21T13:24:31Z"
+  },
+  "rolled_back": false
+}
