@@ -245,7 +245,8 @@ fn chromium_extensions_keep_store_installs_and_unpacked_folders() {
         br#"{"APPNAME":{"message":"Mittel"}}"#,
     );
     let found = chromium::extensions(p);
-    let got: Vec<(&str, &str, Option<&str>, bool, bool, Option<&str>)> = found
+    type Row<'a> = (&'a str, &'a str, Option<&'a str>, bool, bool, Option<&'a str>);
+    let got: Vec<Row<'_>> = found
         .iter()
         .map(|e| {
             (
