@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -75,18 +76,23 @@ def find_sccache() -> str | None:
                 with urllib.request.urlopen(url, timeout=60) as r:
                     tgz.write_bytes(r.read())
                 break
-            except OSError as e:
+            # A cut-off body raises http.client.IncompleteRead, an HTTPException and not an OSError.
+            except (OSError, http.client.HTTPException) as e:
                 if attempt == 2:
                     print(f"::error title=rust compile cache::sccache download failed ({e}); compiling cold")
                     return None
         if hashlib.sha256(tgz.read_bytes()).hexdigest() != digest:
             print("::error title=rust compile cache::sccache download has the wrong sha256; compiling cold")
             return None
-        with tarfile.open(tgz) as tar:
-            member = tar.getmember(f"sccache-v{VERSION}-{triple}/sccache")
-            member.name = "sccache"
-            dest.mkdir(parents=True, exist_ok=True)
-            tar.extract(member, dest, filter="data")
+        try:
+            with tarfile.open(tgz) as tar:
+                member = tar.getmember(f"sccache-v{VERSION}-{triple}/sccache")
+                member.name = "sccache"
+                dest.mkdir(parents=True, exist_ok=True)
+                tar.extract(member, dest, filter="data")
+        except (OSError, tarfile.TarError, KeyError) as e:
+            print(f"::error title=rust compile cache::sccache archive could not be unpacked ({e}); compiling cold")
+            return None
     binary.chmod(0o755)
     return str(binary)
 

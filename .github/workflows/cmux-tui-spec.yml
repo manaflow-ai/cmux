@@ -191,7 +191,7 @@ jobs:
         run: |
           changed=true
           if [[ "$EVENT_NAME" == pull_request ]] && files=$(git diff --no-renames --name-only HEAD^1 HEAD 2>/dev/null); then
-            if ! grep -Eq '^(cmux-tui/crates/acpmux[^/]*/|cmux-tui/(Cargo\.lock|rust-toolchain(\.toml)?)$|scripts/cmux-next/(run-v2-gates\.sh|v2-gates\.d/)|scripts/ci/(cargo_test_verdict|git_tree|test_reds|affected_jobs)\.py$|scripts/ci/affected-jobs\.json$|tests/test_cargo_test_verdict\.py$|\.github/workflows/cmux-tui-spec\.yml$)' <<< "$files"; then
+            if ! grep -Eq '^(cmux-tui/crates/acpmux[^/]*/|cmux-tui/(Cargo\.lock|rust-toolchain(\.toml)?)$|scripts/cmux-next/(run-v2-gates\.sh|v2-gates\.d/)|scripts/ci/(cargo_test_verdict|git_tree|test_reds|affected_jobs|rust_compile_cache)\.py$|\.github/actions/rust-compile-cache/|scripts/ci/affected-jobs\.json$|tests/test_cargo_test_verdict\.py$|\.github/workflows/cmux-tui-spec\.yml$)' <<< "$files"; then
               changed=false
             fi
           fi
