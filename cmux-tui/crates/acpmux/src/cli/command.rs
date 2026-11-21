@@ -29,7 +29,8 @@ pub struct MoveSessionsArgs {
     /// Every open chat here that is between turns.
     #[arg(long, conflicts_with = "sessions")]
     pub all_idle: bool,
-    /// Stop a running turn instead of refusing the move.
+    /// Stop a running turn at once, even mid tool call. Without it a running turn moves with
+    /// the chat: the move waits for its tool call in flight to end, and the turn goes on there.
     #[arg(long, conflicts_with = "after_turn")]
     pub interrupt: bool,
     /// Let a running turn end on its own, then move: nothing is stopped or refused while it
