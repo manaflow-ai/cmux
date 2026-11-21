@@ -3,15 +3,26 @@
   "id": "local/standup",
   "name": "Standup",
   "version": "1.0.0",
-  "description": "A slash command and a mention provider for the agent chat composer.",
-  "engines": { "cmux": "^2.0" },
+  "description": "A slash command, a mention provider and footer controls for the agent chat composer.",
+  "engines": {
+    "cmux": "^2.0"
+  },
   "implements": {
     "cmux.composer.command/1": {
       "title": "Standup",
       "options": {
         "commands": [
-          { "name": "standup", "description": "Ask for today's standup notes", "insert": "Write my standup: what I did yesterday, what I do today, what blocks me." },
-          { "name": "review-pr", "description": "Review a pull request", "hint": "<number>", "insert": "Review pull request #" }
+          {
+            "name": "standup",
+            "description": "Ask for today's standup notes",
+            "insert": "Write my standup: what I did yesterday, what I do today, what blocks me."
+          },
+          {
+            "name": "review-pr",
+            "description": "Review a pull request",
+            "hint": "<number>",
+            "insert": "Review pull request #"
+          }
         ]
       }
     },
@@ -19,8 +30,51 @@
       "options": {
         "prefix": "ticket",
         "items": [
-          { "id": "ENG-1", "label": "ENG-1 Login fails on Safari", "insert": "ENG-1" },
-          { "id": "ENG-2", "label": "ENG-2 Slow sidebar", "detail": "In progress" }
+          {
+            "id": "ENG-1",
+            "label": "ENG-1 Login fails on Safari",
+            "insert": "ENG-1"
+          },
+          {
+            "id": "ENG-2",
+            "label": "ENG-2 Slow sidebar",
+            "detail": "In progress"
+          }
+        ]
+      }
+    },
+    "cmux.composer.control/1": {
+      "options": {
+        "controls": [
+          {
+            "id": "standup",
+            "kind": "button",
+            "label": "Standup",
+            "symbol": "text.bubble",
+            "tooltip": "Write my standup",
+            "placement": "left",
+            "insert": "Write my standup: what I did yesterday, what I do today, what blocks me."
+          },
+          {
+            "id": "mode",
+            "kind": "menu",
+            "label": "Mode",
+            "placement": "right",
+            "order": -1,
+            "items": [
+              {
+                "id": "palette",
+                "label": "Command Palette",
+                "action": "palette.open"
+              },
+              {
+                "id": "review",
+                "label": "Review",
+                "description": "Ask for a review",
+                "insert": "Review the diff."
+              }
+            ]
+          }
         ]
       }
     }

@@ -93,6 +93,13 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
             } catch {
                 throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: true)
             }
+        case Self.namespace + "composer.control":
+            // A footer control runs as its app with the person's click as the gesture; the daemon
+            // checks the app may run it (apps.composer.control.run).
+            guard context.userGesture else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: "A composer control can only be used by a person")
+            }
+            return try await composerControl(params)
         case Self.namespace + "mount":
             return try mount(params)
         case Self.namespace + "dispatch":
@@ -213,6 +220,24 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
         let payload = appJSON(params["payload"] ?? .object([:]))
         mount.dispatch(node: node, event: event, payload: payload)
         return .object([:])
+    }
+
+    /// `composer.control {app, control, item?}`: the person clicked an app's composer footer control
+    /// (or an item of its menu). The reply is the daemon's, `{insert}` or `{ran}`.
+    private func composerControl(_ params: JSONValue) async throws -> JSONValue {
+        guard let app = params["app"]?.stringValue, let control = params["control"]?.stringValue else {
+            throw PageError.invalidParams("app and control are required")
+        }
+        var args: [String: AppJSON] = ["app": .string(app), "control": .string(control)]
+        if let item = params["item"] {
+            guard let id = item.stringValue else { throw PageError.invalidParams("item is a menu item id") }
+            args["item"] = .string(id)
+        }
+        do {
+            return try await pageJSON(client.composerControl(.object(args)))
+        } catch {
+            throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: false)
+        }
     }
 
     private func unmount(_ params: JSONValue) throws -> JSONValue {

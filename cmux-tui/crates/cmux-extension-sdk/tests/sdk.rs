@@ -271,3 +271,29 @@ fn the_builder_makes_a_chat_widget_cmux_loads() {
         "the TypeScript package names the place too"
     );
 }
+
+/// Footer controls are data too: the builder writes them into the options cmux checks, and a
+/// button with both an action and insert text is refused.
+#[test]
+fn the_builder_adds_composer_footer_controls_cmux_accepts() {
+    let manifest = Manifest::new("local/footer", "Footer", "0.1.0", "Composer footer controls.")
+        .composer_control(serde_json::json!({
+            "id": "plan", "kind": "button", "label": "Plan", "symbol": "list.bullet", "insert": "Plan first: "
+        }))
+        .composer_control(serde_json::json!({
+            "id": "go", "kind": "menu", "label": "Go", "placement": "right", "items": [
+                { "id": "window", "label": "New window", "action": "newWindow" }
+            ]
+        }));
+    let issues = manifest.validate();
+    assert!(is_valid(&issues), "{issues:?}");
+    let json = manifest.to_json();
+    let controls = &json["implements"]["cmux.composer.control/1"]["options"]["controls"];
+    assert_eq!(controls[1]["items"][0]["action"], "newWindow");
+
+    let both = Manifest::new("local/footer", "Footer", "0.1.0", "Composer footer controls.")
+        .composer_control(serde_json::json!({
+            "id": "x", "kind": "button", "label": "X", "insert": "a", "action": "newWindow"
+        }));
+    assert!(both.validate().iter().any(|i| i.code == "interface.options"), "{:?}", both.validate());
+}

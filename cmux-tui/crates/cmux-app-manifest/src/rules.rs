@@ -85,7 +85,7 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
             if name == "cmux.widget/1" {
                 widget_rules(&at, imp, &mut out);
             }
-            for (list, key) in [("commands", "name"), ("items", "id")] {
+            for (list, key) in [("commands", "name"), ("items", "id"), ("controls", "id")] {
                 let mut seen = std::collections::HashSet::new();
                 let entries = imp.pointer(&format!("/options/{list}")).and_then(Value::as_array);
                 for (i, entry) in entries.into_iter().flatten().enumerate() {
@@ -95,6 +95,22 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
                             format!("{at}/options/{list}/{i}/{key}"),
                             "interface.options.duplicate",
                             format!("{name} is listed twice"),
+                        ));
+                    }
+                }
+            }
+            // A composer menu's item ids are what a click names, so each is one item.
+            let controls = imp.pointer("/options/controls").and_then(Value::as_array);
+            for (c, control) in controls.into_iter().flatten().enumerate() {
+                let mut seen = std::collections::HashSet::new();
+                let items = control.get("items").and_then(Value::as_array);
+                for (i, item) in items.into_iter().flatten().enumerate() {
+                    let Some(id) = item.get("id").and_then(Value::as_str) else { continue };
+                    if !seen.insert(id) {
+                        out.push(Issue::error(
+                            format!("{at}/options/controls/{c}/items/{i}/id"),
+                            "interface.options.duplicate",
+                            format!("{id} is listed twice"),
                         ));
                     }
                 }

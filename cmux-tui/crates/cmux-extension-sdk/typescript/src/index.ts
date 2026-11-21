@@ -178,6 +178,61 @@ export interface ComposerMentionOptions {
   items: ComposerMention[]
 }
 
+/** What a footer button or menu item does: run an action, or write text at the caret. */
+export type ComposerControlEffect =
+  | {
+      /** An action catalog id, or `cmuxConfig.<name>` (the customize app only). */
+      action: string
+      /** The action's arguments, as `action.run` takes them. */
+      args?: Record<string, unknown>
+      insert?: never
+    }
+  | {
+      /** Text written at the composer's caret. */
+      insert: string
+      action?: never
+      args?: never
+    }
+
+/** An item of a footer menu. */
+export type ComposerControlItem = ComposerControlEffect & {
+  id: string
+  label: string
+  description?: string
+  /** An SF Symbol name. */
+  symbol?: string
+}
+
+interface ComposerControlBase {
+  /** The control's id in this extension: lowercase letters, digits, `-` and `_`, at most 32. */
+  id: string
+  label: string
+  /** An SF Symbol name; a button then shows the symbol alone, its label as the tooltip. */
+  symbol?: string
+  tooltip?: string
+  /** `left`: after the + menu (the default); `right`: before the send control. */
+  placement?: "left" | "right"
+  /** Lower first within its placement, -100 to 100; 0 by default. */
+  order?: number
+}
+
+/**
+ * A control in the agent chat composer's footer (`cmux.composer.control/1`): a button, or a menu
+ * of items. A click runs its action as this extension (the person's click is the gesture) or
+ * writes its insert text at the caret. Actions the extension cannot run are not shown.
+ *
+ *     // cmux-app.json: "implements": { "cmux.composer.control/1": { "options": { "controls": [
+ *     //   { "id": "plan", "kind": "button", "label": "Plan", "symbol": "list.bullet", "insert": "Plan first: " } ] } } }
+ */
+export type ComposerControl =
+  | (ComposerControlBase & { kind: "button" } & ComposerControlEffect)
+  | (ComposerControlBase & { kind: "menu"; items: ComposerControlItem[] })
+
+/** The `options` of `cmux.composer.control/1`. Up to 8 controls; up to 16 items per menu. */
+export interface ComposerControlOptions {
+  controls: ComposerControl[]
+}
+
 // ---------------------------------------------------------------------------------------------
 // Events. An event is an invalidation with no payload; the live lists below re-read on it.
 

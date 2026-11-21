@@ -34,6 +34,29 @@ import Testing
         #expect(command?["extension"]?.stringValue == "Standup")
     }
 
+    /// A composer footer control runs only on the person's click, sent to the daemon with the user origin.
+    @Test func aComposerControlClickGoesToTheDaemonAsThePerson() async throws {
+        let transport = FakePanelsTransport()
+        let client = AppsClient(transport: transport)
+        client.start()
+        for _ in 0..<100 where !client.hasList { await Task.yield() }
+        let provider = AppsPanelsPageProvider(client: client)
+        let params: JSONValue = .object(["app": "local/footer", "control": "mode", "item": "plan"])
+        await #expect(throws: PageError.self) {
+            try await provider.call("cmux.apps.panels.composer.control", params: params, context: Self.page)
+        }
+        #expect(!transport.storeCalls.contains { $0.op == "apps.composer.control.run" }, "no run without a click")
+        _ = try await provider.call("cmux.apps.panels.composer.control", params: params, context: Self.click)
+        let sent = try #require(transport.storeCalls.last)
+        #expect(sent.op == "apps.composer.control.run")
+        #expect(sent.origin == .user)
+        #expect(sent.args["app"]?.stringValue == "local/footer")
+        #expect(sent.args["item"]?.stringValue == "plan")
+        await #expect(throws: PageError.self) {
+            try await provider.call("cmux.apps.panels.composer.control", params: .object(["app": "local/footer"]), context: Self.click)
+        }
+    }
+
     @Test func forwardsListMountSceneDispatchAndUnmountsOnClose() async throws {
         let transport = FakePanelsTransport()
         let client = AppsClient(transport: transport)

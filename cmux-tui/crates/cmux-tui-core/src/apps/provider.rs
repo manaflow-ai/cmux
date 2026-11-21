@@ -94,6 +94,10 @@ pub(super) enum Target {
     /// A web pane's call (`page_calls.rs`): its responder waits in
     /// `Inner::pages` under `waiter`.
     Page(super::page_calls::PageTarget),
+    /// A daemon store op that ran an app's action for the person
+    /// (`apps.composer.control.run`): it answered once the call was sent,
+    /// so nobody waits and a failure is only logged.
+    Store,
 }
 
 pub(super) struct ProviderCall {
@@ -447,6 +451,13 @@ impl Supervisor {
             Target::Page(target) => {
                 let (ok, body) = resolved(ending);
                 Self::page_answer_locked(inner, target, ok, body)
+            }
+            Target::Store => {
+                let (ok, body) = resolved(ending);
+                if !ok {
+                    eprintln!("cmux-tui: a composer control's {} failed: {body}", call.op);
+                }
+                vec![]
             }
             Target::Relay { app, generation, id, session } => {
                 let reply = super::relay::relay_reply(id, *session, ending);

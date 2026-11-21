@@ -48,6 +48,8 @@ import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDra
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
 import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
+import { ExtensionControls } from "./composer/ExtensionControls";
+import { useExtensionControls } from "./composer/extensionControlsModel";
 import { type Choice } from "./composerPickerModel";
 import { SendSlotGlyph } from "./composer/SendSlotGlyph";
 import { SendMenu } from "./composer/SendMenu";
@@ -1500,6 +1502,18 @@ function ComposerFrame({
     const next = applyCommand(text, caret, command);
     pendingCaret.current = next.caret;
     edit(next.text, next.caret);
+    field.current?.focus();
+  };
+  // Extension footer controls (cmux.composer.control/1), as the daemon lists them.
+  const extensionControls = useExtensionControls();
+  /// An extension control's text, written at the caret with the draft around it kept.
+  const insertAtCaret = (insert: string) => {
+    const existing = field.current?.value() ?? text;
+    const at = Math.min(caret, existing.length);
+    const next = existing.slice(0, at) + insert + existing.slice(at);
+    pendingCaret.current = at + insert.length;
+    edit(next, at + insert.length);
+    // focus-route: the person clicked the control; the prompt takes the keys back, as a + pick does.
     field.current?.focus();
   };
   const pickFromPlus = (command: SlashCommand) => {
@@ -3073,6 +3087,12 @@ function ComposerFrame({
                 onOpen={() => setRecentCommandNames(loadRecentCommandNames())}
               />
             )}
+            <ExtensionControls
+              controls={extensionControls.controls}
+              placement="left"
+              client={extensionControls.client}
+              onInsert={insertAtCaret}
+            />
           </>
         }
         chips={
@@ -3116,6 +3136,12 @@ function ComposerFrame({
         }
         actionsLead={
           <>
+            <ExtensionControls
+              controls={extensionControls.controls}
+              placement="right"
+              client={extensionControls.client}
+              onInsert={insertAtCaret}
+            />
             {dictation && <DictationStrip dictation={dictation} shown={!!listening} />}
             {quietActions && sendControl}
           </>

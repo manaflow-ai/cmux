@@ -118,9 +118,9 @@ Every first-party extension with tests runs them this way as a fork, with only t
 beside it (`bun first-party-apps/fork-check.ts`); `runtime-files.json` lists the runtime files the
 package ships.
 
-## Composer: slash commands and mentions
+## Composer: slash commands, mentions and footer controls
 
-Two places are data in the manifest, with no script: cmux's daemon reads them and answers the
+Three places are data in the manifest, with no script: cmux's daemon reads them and answers the
 agent chat composer, so saving `cmux-app.json` updates the composer without a restart.
 
 ```json
@@ -139,9 +139,24 @@ agent chat composer, so saving `cmux-app.json` updates the composer without a re
   name the agent or cmux already has stays theirs. Up to 32 commands per extension.
 - `cmux.composer.mention/1`: items the daemon ranks for a query (`apps.composer.mentions`). Up to
   200 per extension.
+- `cmux.composer.control/1`: buttons and menus in the composer's footer, beside its own pickers.
+  A button has an `action` (an action catalog id, with optional `args`) or `insert` text; a menu
+  has `items`, each with an `action` or `insert`. `placement` is `left` (after the + menu) or
+  `right` (before send), and `order` sorts within it. A click runs the action as the extension,
+  with the person's click as the gesture, so the extension needs `actions:run`; an action it may
+  not run is not shown. Up to 8 controls, 16 items per menu.
 
-The TypeScript types are `ComposerCommand` and `ComposerMention`; in Rust,
-`Manifest::slash_command` and `Manifest::mention`.
+```json
+"cmux.composer.control/1": { "options": { "controls": [
+  { "id": "plan", "kind": "button", "label": "Plan", "symbol": "list.bullet", "insert": "Plan first: " },
+  { "id": "go", "kind": "menu", "label": "Go", "placement": "right", "items": [
+    { "id": "palette", "label": "Command Palette", "action": "palette.open" }
+  ] }
+] } }
+```
+
+The TypeScript types are `ComposerCommand`, `ComposerMention` and `ComposerControl`; in Rust,
+`Manifest::slash_command`, `Manifest::mention` and `Manifest::composer_control`.
 
 ## The Rust API
 
