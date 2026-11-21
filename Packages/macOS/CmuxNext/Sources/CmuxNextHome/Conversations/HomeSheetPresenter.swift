@@ -34,7 +34,11 @@ public struct HomeSheetPresenter {
         content.setFrameSize(content.fittingSize)
         let handle = WindowOverlayHost.host(for: window).present(content, options: .dialog())
         sheet.dismissPresentation = { [weak handle] in handle?.dismiss() }
-        handle.onDismiss = { [weak sheet] in sheet?.presentationEnded() }
+        // The presentation owns the sheet until it ends: the overlay holds only its view, and the
+        // callers keep no reference. A released sheet left its field with no delegate and its
+        // buttons with no target, so New Chief's Create never enabled (cmux#38175). The handle
+        // drops `onDismiss` when it is dismissed (or its window closes), which releases the sheet.
+        handle.onDismiss = { sheet.presentationEnded() }
         if let responder = sheet.initialResponder { content.window?.makeFirstResponder(responder) }
     }
 }

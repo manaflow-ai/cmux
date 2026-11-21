@@ -142,6 +142,13 @@ public class HomeSheetController: NSViewController {
 
     func close(showing id: ConversationID?) {
         work?.cancel()
+        // Claim the finish before dismissing: the overlay's dismiss ends the presentation
+        // (``presentationEnded``), which must not report "nothing to show". `id` is reported after
+        // the dismiss, so a conversation that opens at once takes the keyboard after the overlay
+        // gave it back to the window.
+        let report = !finished
+        finished = true
+        defer { if report { onFinish(id) } }
         if let dismissPresentation {
             self.dismissPresentation = nil
             dismissPresentation()
@@ -150,7 +157,6 @@ public class HomeSheetController: NSViewController {
         } else if let window = view.window, let parent = window.sheetParent {
             parent.endSheet(window)
         }
-        end(showing: id)
     }
 
     /// The overlay ended on its own (Escape, its window closed): the action stops and
