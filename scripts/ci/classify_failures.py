@@ -37,7 +37,8 @@ labels like attempt 1, and a mini that is online but broken may fail it
 again; attempt 3 goes to Blacksmith, which ends it), or a later attempt a
 person started (this re-run then goes to Blacksmith), only while it is still
 the run's latest attempt, the pull request is open and its head has not
-moved. owned_pool_rescue.py may re-run a refused
+moved. A runner lost again on this bot's own re-run is reported, not re-run
+again. owned_pool_rescue.py may re-run a refused
 job first; the attempt check then skips, and GitHub refuses a second re-run of
 a run in progress. A cancelled run is reported, never re-run: the rescue
 cancels a stuck run before its own full re-run, and a re-run of failed jobs
@@ -89,6 +90,7 @@ from guard_attribution import (  # noqa: E402
     pr_number,
     upsert_comment,
 )
+import glaeda_log  # noqa: E402
 import pr_status  # noqa: E402
 import web_test_failure_census  # noqa: E402
 from test_touches_diff import RUNNER_FILES  # noqa: E402
@@ -100,9 +102,12 @@ BOT = "github-actions[bot]"
 RED = {"failure", "timed_out"}
 # Jobs that only read other jobs' results. Their names as the jobs API reports
 # them; tests/test_ci_classify_failures.py derives each from its workflow.
+# `web / react-apps-check` fails when a shard or replay under it did: judged as a gate, a replay that lost its runner
+# (cmux#33162's react-apps-base-check (3), job 126154996598, 2026-11-03) is the run's only failure, so it is re-run;
+# read as a job of its own, its unknown verdict kept the machine failure from being re-run at all.
 GATE_JOBS = frozenset({
     "ci-status", "CI timing", "linux-preflight", "macOS admission gate",
-    "macos / macOS status", "guards / Guard status", "web / Web status",
+    "macos / macOS status", "guards / Guard status", "web / Web status", "web / react-apps-check",
 })
 MAX_EVIDENCE_CHARS = 300
 MAX_RENDERED_JOBS = 20
@@ -406,7 +411,7 @@ def extract_failures(text: str, annotations: Iterable[str] = (), web_root: str =
 # change's own reds are the verdict's `::error title=Webview test red on this change::NAME` lines,
 # which reach the log as `##[error]NAME`. #28611's report listed the two composer tests the base
 # also failed and named neither of the two tests that were its own.
-BASE_CHECK_JOB = re.compile(r"(?:^|/ )react-apps-base-check \(\d+\)$")
+BASE_CHECK_JOB = re.compile(r"(?:^|/ )react-apps-base-check(?: \(\d+\))?$")  # one job since #42540, 12 before
 BASE_CHECK_RED = re.compile(r"^##\[error\](?P<file>\S+\.(?:test|spec)\.[cm]?[jt]sx?)(?: > (?P<test>.+))?$")
 BASE_CHECK_ROOT = "webviews/"
 
@@ -526,7 +531,8 @@ def job_text(gh: GitHub, job_id: int) -> tuple[str, list[str]]:
     """The job's log and its failure annotations (a lost runner leaves only an annotation)."""
     log, notes = "", []
     try:
-        log = str(gh.request("GET", f"repos/{gh.repo}/actions/jobs/{job_id}/logs", text=True))
+        kept = glaeda_log.cached_job_log(gh.repo, job_id)  # this host's glaeda-gh kept it: no API call
+        log = kept if kept is not None else str(gh.request("GET", f"repos/{gh.repo}/actions/jobs/{job_id}/logs", text=True))
     except RuntimeError as error:
         print(f"job {job_id}: no log: {error}", file=sys.stderr)
     try:
@@ -1113,7 +1119,14 @@ def rerun_decision(report: Mapping, latest: Mapping | Callable[[], Mapping]) -> 
     # (a full disk, a failed product restore) may have failed again, whose re-run (attempt 3) takes Blacksmith;
     # or a later attempt a person started, whose re-run by this bot takes Blacksmith
     # (pr_runner_pool.host_fault_retry()). Blacksmith ends the chain.
-    if report["attempt"] > LAST_OWNED_ATTEMPT and str((latest.get("triggering_actor") or {}).get("login") or "") in RESCUE_ACTORS:
+    automatic = str((latest.get("triggering_actor") or {}).get("login") or "") in RESCUE_ACTORS
+    # A lost runner is re-run once: lost again on this bot's own re-run, it is reported, not re-run in a loop.
+    lost = [j["name"] for j in jobs if j.get("signature") == "runner-lost"]
+    if lost and report["attempt"] > 1 and automatic:
+        return False, (f"{', '.join(f'`{n}`' for n in lost[:3])} lost its runner again on the automatic re-run "
+                       f"(attempt {report['attempt']}); reported, not re-run again. Re-run it by hand if it should go "
+                       "again.")
+    if report["attempt"] > LAST_OWNED_ATTEMPT and automatic:
         return False, (f"Every failure is a machine failure, but attempt {report['attempt']} was already an "
                        "automatic re-run. Re-run it by hand if it should go again.")
     return True, (f"Every failure is a machine failure: re-ran the failed jobs as attempt {report['attempt'] + 1} "

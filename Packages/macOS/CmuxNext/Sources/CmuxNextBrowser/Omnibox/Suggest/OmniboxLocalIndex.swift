@@ -6,10 +6,12 @@ public import Foundation
 public actor OmniboxLocalIndex {
     private var history: OmniboxQuickIndex
     private var bookmarks = OmniboxQuickIndex(admission: .all)
-    private var tabs: [OmniboxTabRow] = []
+    /// The profile's open tabs by tab key, as the App last set them.
+    private var openTabs: [String: OmniboxTabRow] = [:]
+    /// One row per open URL (the first tab on it, by key), for Switch to Tab rows.
     private var tabIndex = OmniboxQuickIndex(admission: .all)
-    /// Dedupe key of an open tab's URL to the tab (the first tab with it).
-    private var tabKeys: [String: String] = [:]
+    /// Dedupe key of an open URL to the tabs on it, in key order.
+    private var tabKeys: [String: [String]] = [:]
 
     public init(cap: Int = OmniboxQuickIndex.defaultCap) {
         history = OmniboxQuickIndex(cap: cap)
@@ -35,17 +37,43 @@ public actor OmniboxLocalIndex {
     /// omnibar started (its gate moved on): stale work never delivers.
     public func run(_ query: OmniboxLocalQuery) -> [BrowserSuggestion]? {
         guard query.gate.isCurrent(query.generation) else { return nil }
-        if query.tabs != tabs { indexTabs(query.tabs, now: query.now) }
         let rows = OmniboxPhaseA.rows(for: query, history: history, bookmarks: bookmarks, tabs: tabIndex, tabKeys: tabKeys)
         return query.gate.isCurrent(query.generation) ? rows : nil
     }
 
-    private func indexTabs(_ rows: [OmniboxTabRow], now: Date) {
-        tabs = rows
-        tabKeys = [:]
-        for tab in rows where tabKeys[BrowserHistoryRanker.dedupeKey(for: tab.url)] == nil {
-            tabKeys[BrowserHistoryRanker.dedupeKey(for: tab.url)] = tab.key
+    /// Tab `row.key` is open on `row.url` with `row.title` (opened, navigated or retitled): O(1) index work,
+    /// never a walk of the other tabs.
+    public func setOpenTab(_ row: OmniboxTabRow, now: Date) { // perf-hot: 0.1ms omnibar-key (each open, close or navigate of a tab)
+        if let old = openTabs.updateValue(row, forKey: row.key) { detach(old, now: now) }
+        let dedupe = BrowserHistoryRanker.dedupeKey(for: row.url)
+        var keys = tabKeys[dedupe] ?? []
+        keys.insert(row.key, at: keys.firstIndex { $0 > row.key } ?? keys.endIndex)
+        tabKeys[dedupe] = keys
+        reindex(dedupe, url: row.url, now: now)
+    }
+
+    /// Tab `key` closed, or shows nothing a Switch to Tab row can name (a New Tab page).
+    public func removeOpenTab(_ key: String, now: Date) {
+        guard let old = openTabs.removeValue(forKey: key) else { return }
+        detach(old, now: now)
+    }
+
+    private func detach(_ row: OmniboxTabRow, now: Date) {
+        let dedupe = BrowserHistoryRanker.dedupeKey(for: row.url)
+        var keys = tabKeys[dedupe] ?? []
+        keys.removeAll { $0 == row.key }
+        tabKeys[dedupe] = keys.isEmpty ? nil : keys
+        reindex(dedupe, url: row.url, now: now)
+    }
+
+    /// The index row of URL `dedupe`: the first tab still on it, or none. An open tab is open now: its row takes the
+    /// most recency (a `lastVisit` in the future clamps to an age of 0), the same for every tab, so tab rows rank by
+    /// their match alone and never by when a tab last changed (the list rebuild gave them all one time, too).
+    private func reindex(_ dedupe: String, url: URL, now: Date) {
+        if let first = tabKeys[dedupe]?.first, let row = openTabs[first] {
+            tabIndex.upsert(OmniboxHistoryRow(url: row.url, title: row.title, visitCount: 1, lastVisit: .distantFuture), now: now)
+        } else {
+            tabIndex.remove(url)
         }
-        tabIndex.reset(rows.map { OmniboxHistoryRow(url: $0.url, title: $0.title, visitCount: 1, lastVisit: now) }, now: now)
     }
 }

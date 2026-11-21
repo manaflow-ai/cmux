@@ -10,6 +10,7 @@ import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -70,12 +71,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   for (const key of added) delete scope[key];
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
@@ -140,8 +138,9 @@ async function railTabs(page: "newTab" | "chat", snapshot: Snap, typed?: string)
     const trigger = window.document.querySelector<HTMLElement>("[data-menu=Model]");
     expect(trigger).not.toBeNull();
     await act(async () => trigger!.click());
-    expect(window.document.querySelector(".acpmux-quick-menu")).not.toBeNull();
-    return [...window.document.querySelectorAll(".acpmux-quick-rail-tab")].map(
+    // A menu with a rail is the columns menu; one with no rail is the list menu.
+    expect(window.document.querySelector(".acpmux-cols, .acpmux-quick-menu")).not.toBeNull();
+    return [...window.document.querySelectorAll(".acpmux-cols-tab[role=tab]")].map(
       (tab) => tab.getAttribute("aria-label") ?? "",
     );
   } finally {

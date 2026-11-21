@@ -15,7 +15,7 @@ const TERMINATE: &str = "thread/backgroundTerminals/terminate";
 
 /// A Codex hub: the in-process bridge over the fake app-server, run as a
 /// program named `codex` under a fresh folder.
-async fn codex_hub() -> (Arc<Hub>, TestClient, std::path::PathBuf) {
+pub(super) async fn codex_hub() -> (Arc<Hub>, TestClient, std::path::PathBuf) {
     codex_hub_env(&[]).await
 }
 
@@ -66,7 +66,7 @@ async fn codex_hub_env(env: &[(&str, &str)]) -> (Arc<Hub>, TestClient, std::path
 }
 
 /// A new chat that ran `said` as its first turn.
-async fn chat(c: &mut TestClient, said: &str) -> String {
+pub(super) async fn chat(c: &mut TestClient, said: &str) -> String {
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
     let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": said}]});

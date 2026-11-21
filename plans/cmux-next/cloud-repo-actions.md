@@ -81,7 +81,7 @@ Running jobs expose `phase` and `progress:{received_bytes,objects,total_objects}
 `pending` array. Updates emit the existing `FrontendProjectionChanged` event for frontend
 `cloud-repos`, scope `session`, subject `catalog`, at most once per second while polling;
 completion always emits its final state. The UI refreshes attached repositories on this event.
-Successful attachments also retain optional `notes:["lfs_unavailable"|"lfs_failed"]`.
+Successful attachments also retain optional `notes:["lfs_unavailable"|"lfs_failed"|"push_credential_not_kept"]`. A clone through the Cloud agent keeps its helper in the checkout so the agent can push; `push_credential_not_kept` says that config write failed.
 
 The feature requires the machine daemon's git-seed-v1 clone-only implementation and a platform
 deployment with the GitHub connector enabled. The matching app changes provide startup sync,

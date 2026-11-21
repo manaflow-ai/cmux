@@ -31,7 +31,7 @@ final class ContentPresentationScheduler {
     private var pending: [ObjectIdentifier: any PresentablePane] = [:]
     private var order: [ObjectIdentifier] = []
     private var isScheduled = false
-    /// A surface was created since the last frame; the frame's budget is spent.
+    /// The frame's one new surface is spent: a surface was made since the last frame, or a show that makes one runs now.
     private var createdThisFrame = false
 
     init(frames: any ControlFrameSource = FrameBatcher(owner: "ContentPresentation")) {
@@ -46,22 +46,24 @@ final class ContentPresentationScheduler {
         schedule()
     }
 
-    /// Shows `pane`'s selection now when that fits this frame's budget (its
-    /// content is alive, or no surface was created since the last frame),
-    /// else queues it. Used when a pane comes on screen, so a split's new
-    /// pane draws in the same frame as the layout change instead of one
-    /// blank frame later. Returns true when it was shown now.
+    /// Shows `pane`'s selection now when that fits this frame's budget (its content is alive, or no surface was made since the
+    /// last frame: only a surface really made spends it), else queues it: a split's new pane shows with the layout change.
     @discardableResult
     func showNow(_ pane: any PresentablePane) -> Bool {
+        guard present(pane, span: "presentation.showNow") else { setNeedsShowSelected(pane); return false }
+        schedule()
+        return true
+    }
+
+    /// The one way a pane is shown, so `showNow` and the drain share the budget. A show that needs a surface holds it from its
+    /// start: its strip's sync can apply the layout, which shows the pane it mounts, before it makes its own surface.
+    private func present(_ pane: any PresentablePane, span: String) -> Bool {
         let alive = pane.selectedContentIsAlive
-        guard alive || !createdThisFrame else {
-            setNeedsShowSelected(pane)
-            return false
-        }
+        guard alive || !createdThisFrame else { return false }
         cancel(pane)
         if !alive { createdThisFrame = true }
-        BenchSpans.measure("presentation.showNow") { pane.showSelected() }
-        schedule()
+        BenchSpans.measure(span) { pane.showSelected() }
+        if !alive { createdThisFrame = pane.selectedContentIsAlive }
         return true
     }
 
@@ -83,22 +85,18 @@ final class ContentPresentationScheduler {
     }
 
     private func drain() {
-        var created = false
+        createdThisFrame = false
         var remaining: [ObjectIdentifier] = []
+        // The queue is taken first: a show can queue a pane (a stale strip's sync can apply the layout); it waits behind the panes kept here.
+        let queued = order
+        order = []
         // The focused pane first; the others keep their order.
-        let focused = order.filter { pending[$0]?.isFocusedInWorkspace == true }
-        for key in focused + order.filter({ !focused.contains($0) }) {
+        let focused = queued.filter { pending[$0]?.isFocusedInWorkspace == true }
+        for key in focused + queued.filter({ !focused.contains($0) }) {
             guard let pane = pending[key] else { continue }
-            if pane.selectedContentIsAlive || !created {
-                if !pane.selectedContentIsAlive { created = true }
-                pending[key] = nil
-                BenchSpans.measure("presentation.frame") { pane.showSelected() }
-            } else {
-                remaining.append(key)
-            }
+            if !present(pane, span: "presentation.frame") { remaining.append(key) }
         }
-        order = remaining
-        createdThisFrame = created
+        order = remaining + order
         schedule()
     }
 }

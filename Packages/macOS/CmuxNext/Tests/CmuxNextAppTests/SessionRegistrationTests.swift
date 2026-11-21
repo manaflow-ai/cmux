@@ -166,4 +166,26 @@ import Testing
         registration.showPendingNotices()
         #expect(notices.shown.count == 1, "a refusal the person already saw shows again: \(notices.shown)")
     }
+
+    private struct Listed {
+        let id: String
+        let session: String?
+        var local = false
+    }
+
+    /// Nine Cloud machines made from one image reported one registry id. Each sync put nine different
+    /// records under it; each put changed the row and the personal revision the registrar watches, so it
+    /// synced again at once: about 50 writes a second at idle, for good. One machine per registry id is sent:
+    /// this Mac first, then the lowest machine id, whatever order the machines are listed in.
+    @Test func oneMachinePerRegistryIDIsRegistered() {
+        let machines = [Listed(id: "vm-c", session: "reg-1"), Listed(id: "vm-a", session: "reg-1"),
+                        Listed(id: "vm-b", session: "reg-2"), Listed(id: "vm-d", session: nil),
+                        Listed(id: "vm-e", session: "reg-1")]
+        let picked = machines.onePerRegistryID(\.session, \.local, \.id)
+        #expect(picked.map(\.id) == ["vm-a", "vm-b"], "\(picked.map(\.id))")
+        let reversed = machines.reversed().onePerRegistryID(\.session, \.local, \.id)
+        #expect(reversed.map(\.id).sorted() == ["vm-a", "vm-b"], "the pick follows the list order: \(reversed.map(\.id))")
+        let home = (machines + [Listed(id: "local", session: "reg-1", local: true)]).onePerRegistryID(\.session, \.local, \.id)
+        #expect(home.map(\.id).sorted() == ["local", "vm-b"], "this Mac does not keep its own registry id: \(home.map(\.id))")
+    }
 }

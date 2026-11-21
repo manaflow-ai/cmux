@@ -1,10 +1,11 @@
 // l10n-allow-file: synthetic gallery labels, not shipped UI.
 import { useRef, useState } from "react";
+import type { IndicatorTravel } from "../../../ui/motion/SlidingIndicator";
 import { DotSwitch } from "./StyleSwitch";
 
 const options = ["Minimal", "Quick actions", "Compact"] as const;
 
-export default function DotSwitchFixture() {
+export default function DotSwitchFixture({ travel }: { travel?: IndicatorTravel }) {
   const [current, setCurrent] = useState<(typeof options)[number]>("Minimal");
   const returnTarget = useRef<HTMLButtonElement>(null);
   return (
@@ -19,6 +20,7 @@ export default function DotSwitchFixture() {
         name={(option) => option}
         onPick={setCurrent}
         onCancel={() => returnTarget.current?.focus()}
+        travel={travel}
       />
       <button type="button">After dots</button>
     </div>

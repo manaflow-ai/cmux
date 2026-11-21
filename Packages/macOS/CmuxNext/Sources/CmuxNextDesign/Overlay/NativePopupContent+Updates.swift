@@ -9,6 +9,7 @@ extension NativePopupContent {
         isPresentationActive = false
         presentationIdentity += 1
         pendingCompositionModel = nil
+        pendingInteractionModel = nil
         for field in fields.values { field.delegate = nil; _ = field.abortEditing() }
     }
 
@@ -22,9 +23,11 @@ extension NativePopupContent {
                 return row
             }
         }
-        guard structure(next.rows) == structure(model.rows), structure(next.rail) == structure(model.rail),
-              structure(next.footer) == structure(model.footer) else { return false }
-        let rows = (next.rail ?? []) + next.rows + (next.footer ?? [])
+        // Only the rows' structure counts: the revision and other fields change on every echo.
+        let incoming = next.mappingRows { structure($0) ?? [] }, shown = model.mappingRows { structure($0) ?? [] }
+        guard incoming.rows == shown.rows, incoming.rail == shown.rail, incoming.footer == shown.footer,
+              incoming.columns == shown.columns, incoming.searchAccessory == shown.searchAccessory else { return false }
+        let rows = next.allRows
         for row in rows where row.kind == .slider {
             if let view = rowView(id: row.id) as? NativePopupSliderView { view.update(row: row) }
             else if let slider = editableControls[row.id] as? NativePopupTrackingSlider, !slider.isInteracting {
@@ -33,5 +36,17 @@ extension NativePopupContent {
         }
         rowViews = rowViews.map { current in (rows.first { $0.id == current.0.id } ?? current.0, current.1) }
         return true
+    }
+
+    /// AppKit is tracking one of this popup's sliders (a drag, or a key on it).
+    var isTrackingSlider: Bool {
+        editableControls.values.contains { ($0 as? NativePopupTrackingSlider)?.isInteracting == true }
+    }
+
+    /// The update a slider drag deferred, once the drag has ended.
+    func applyPendingInteraction() {
+        guard isPresentationActive, !isTrackingSlider, let pending = pendingInteractionModel else { return }
+        pendingInteractionModel = nil
+        update(pending)
     }
 }

@@ -9,6 +9,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -74,12 +75,8 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
@@ -130,7 +127,7 @@ test("while it reads, the button shows Stop and keeps its row shown; a second pr
     expect(label(reading)).toBe("Stop reading");
     // A stop glyph, not the speaker; its row stays shown without the pointer on it (conversation.css).
     expect(reading.dataset.reading).toBe("true");
-    expect(reading.querySelector("[data-glyph='stop']")).not.toBeNull();
+    expect(reading.querySelector("[data-icon='media.stop.circle']")).not.toBeNull();
     const before = cancels;
     await act(async () => reading.click());
     expect(cancels).toBeGreaterThan(before);

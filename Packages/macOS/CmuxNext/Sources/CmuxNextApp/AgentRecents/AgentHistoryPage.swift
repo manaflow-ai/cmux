@@ -13,17 +13,17 @@ enum AgentHistoryPage {
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
             return
         }
-        var page = NewTabPage.page(services, selected: pane.selectedTab, pane: pane)
+        var page = NewTabPage.page(services, selected: pane.selectedTab, pane: pane, paletteActions: false)
         let cwd = page.cwd
         page.history = true
         page.focusesField = false
         let handler = NewTabPage.handler(services, cwd: cwd) { _, _ in }
-        pane.openAgentTab(seed: nil, newTab: (page, handler))
+        if pane.openAgentTab(seed: nil, newTab: (page, handler)) { NewTabPage.fillPaletteActions(services) }
     }
 
-    /// The strip title of tab `key` when it shows agent history, else nil.
-    static func title(_ key: String, _ services: AppServices) -> String? {
-        services.agentTabs.newTabPage(key)?.page.history == true ? Strings.agentHistory : nil
+    /// The strip title of tab `key` when it shows agent history, else nil. A tab's name passes its `machine`: a bare key lists every agent tab (NIGHTLY 85b099928a8a).
+    static func title(_ key: String, machine: String? = nil, _ services: AppServices) -> String? {
+        services.agentTabs.newTabPage(key, machine: machine)?.page.history == true ? Strings.agentHistory : nil
     }
 }
 

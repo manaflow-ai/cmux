@@ -10,8 +10,35 @@ import { NativeInfoActions } from "../src/agent-session/acpmux/session-info/nati
 import { outputsSection } from "../src/agent-session/acpmux/session-info/native/outputs";
 import { sourcesSection } from "../src/agent-session/acpmux/session-info/native/sources";
 import { safeExternalUrl } from "../src/agent-session/acpmux/session-info/native/links";
+import { until } from "./support/until";
 
 const t: Translate = (key, values) => translate(key, values, "en");
+
+test("screen sharing is one action below the named machine and preserves Cloud lifetime", async () => {
+  const actions = new NativeInfoActions();
+  let requests = 0;
+  const section = environmentSection(
+    {
+      summary: { sessionId: "cloud-chat", hostKind: "cloud", host: "Maple" },
+      onShareScreen: () => {
+        requests += 1;
+      },
+      screenShareKind: "view",
+      screenShareNote: "Host approval is required.",
+    },
+    actions,
+    t,
+  )!;
+  expect(section.rows[0]!.id).toBe("machine");
+  expect(section.rows[0]!.subtitle).toBe(t("cloudRepository.lifetime"));
+  const share = section.rows[1]!;
+  expect(share.id).toBe("screen-sharing");
+  expect(share.title).toBe(t("sessionInfo.environment.viewScreen"));
+  expect(share.subtitle).toBe("Host approval is required.");
+  actions.run(share.action!);
+  await Promise.resolve();
+  expect(requests).toBe(1);
+});
 
 test("Cloud environment actions retain anchors, grants and one Remote Control switch", async () => {
   const actions = new NativeInfoActions();
@@ -283,6 +310,58 @@ test("Changes exposes current overflow actions and line breakdown", async () => 
   for (const item of row.menu!) actions.run(item.action);
   await Promise.resolve();
   expect(copied).toEqual([url, "example/project#7"]);
+});
+
+test("a pull request's View diff opens its Files tab through the chat's link route, in Changes and in Sources", async () => {
+  const actions = new NativeInfoActions();
+  const beside: string[] = [];
+  const hosted: unknown[] = [];
+  setChipHost(async (method, params) => {
+    hosted.push([method, params]);
+    return {};
+  });
+  const url = "https://github.com/example/project/pull/7";
+  try {
+    const changes = changesSection(
+      {
+        pullRequests: [{ url, repo: "example/project", number: 7, title: "Update panel", state: "open", opened: true }],
+        statuses: {},
+        open: true,
+        onOpenBeside: (target) => beside.push(target),
+      },
+      actions,
+      t,
+    )!;
+    const changesMenu = changes.rows[0]!.menu!;
+    expect(changesMenu[0]!.label).toBe(t("sessionInfo.changes.viewDiff"));
+    actions.run(changesMenu[0]!.action);
+    const sources = sourcesSection(
+      {
+        sources: [
+          { url, label: "project #7", kind: "pullRequest" },
+          { url: "https://github.com/example/project/issues/8", label: "project #8", kind: "issue" },
+        ],
+        onOpenBeside: (target) => beside.push(target),
+        expanded: false,
+        onExpandedChange: () => undefined,
+        open: true,
+      },
+      actions,
+      t,
+    )!;
+    const [pull, issue] = sources.rows;
+    expect(pull!.menu!.map((item) => item.label)).toEqual([t("sessionInfo.changes.viewDiff")]);
+    // An issue has no diff.
+    expect(issue!.menu).toBeUndefined();
+    actions.run(pull!.menu![0]!.action);
+    await until(() => hosted.length >= 2);
+    // Never the preview beside the chat (a plain browser tab): the App's GitHub route takes the link.
+    expect(beside).toEqual([]);
+    const open = ["browser.openIn", { url: `${url}/files`, browserId: "cmux" }];
+    expect(hosted).toEqual([open, open]);
+  } finally {
+    setChipHost(undefined);
+  }
 });
 
 test("Changes uses the state color for every pull-request glyph", () => {

@@ -65,19 +65,17 @@ enum DebugHomeAPI {
     /// `rename_chief`: the header card's rename; `failure` is why it did not save, null when it did,
     /// and `names` every surface's name right after (``chiefNames(_:services:)``).
     @MainActor static func renameChief(_ id: String, to name: String, services: AppServices) async -> JSONValue {
-        let failure = await services.home.renameChief(conversation: id, to: name)
-        return .object(["ok": .bool(failure == nil), "failure": failure.map { .string(String(describing: $0)) } ?? .null,
-                        "names": chiefNames(id, services: services)])
+        let failure = await services.home.renameChief(conversation: id, to: name).map { JSONValue.string(String(describing: $0)) }
+        return .object(["ok": .bool(failure == nil), "failure": failure ?? .null, "names": chiefNames(id, services: services)])
     }
 
     /// `edit_picture`: Move and Scale over the Home view showing `conversation`'s Chief (else the
     /// default Chief's); `opened` is whether the editor showed, `saved` whether Save wrote the picture.
     @MainActor static func editPicture(_ conversation: String?, path: String, zoom: CGFloat?, save: Bool,
                                        services: AppServices) async -> JSONValue {
-        let home = services.home
-        guard let id = conversation ?? home.defaultChiefConversation else { return failure("no Chief conversation") }
+        guard let id = conversation ?? services.home.defaultChiefConversation else { return failure("no Chief conversation") }
         #if DEBUG || CMUX_BENCH_HOOKS
-        guard let view = home.debugHostViews.allObjects.first(where: { $0.debugConversation == id && $0.window != nil }) else {
+        guard let view = services.home.debugHostViews.allObjects.first(where: { $0.debugConversation == id && $0.window != nil }) else {
             return failure("no Home view shows \(id)")
         }
         let result = await view.debugEditPicture(URL(fileURLWithPath: path), zoom: zoom, save: save)

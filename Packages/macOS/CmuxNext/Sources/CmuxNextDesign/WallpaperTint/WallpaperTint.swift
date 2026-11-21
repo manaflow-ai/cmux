@@ -17,6 +17,9 @@ public nonisolated struct WallpaperTint: Equatable, Sendable {
     public let red: Double
     public let green: Double
     public let blue: Double
+    /// The picture's mean color in horizontal bands, top first (``bands(of:count:)``); empty when only the mean was
+    /// taken. The pictorial group palette draws a group from the band at its place.
+    public var bands: [WallpaperTint] = []
 
     /// How far a neutral theme tint moves toward the picture's hue at that tint's brightness.
     static let strength = 0.5
@@ -64,6 +67,39 @@ public nonisolated struct WallpaperTint: Equatable, Sendable {
                             shown: BackdropSelection?) -> NSColor {
         guard enabled, let wallpaper, material != .opaque, shown == nil || shown == .desktop else { return theme }
         return wallpaper.blended(into: theme)
+    }
+
+    /// The mean color of each of `count` horizontal bands of `image`, top first, read from a 16-pixel-wide copy, so
+    /// each is the band's color softened: what the picture shows behind that height. Empty for an image with no pixels.
+    /// - Parameters:
+    ///   - image: The desktop picture (a small decode is enough).
+    ///   - count: How many bands.
+    public static func bands(of image: CGImage, count: Int) -> [WallpaperTint] {
+        let width = 16
+        guard count > 0, image.width > 0, image.height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return [] }
+        var bytes = [UInt8](repeating: 0, count: width * count * 4)
+        let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: count, bitsPerComponent: 8,
+                                          bytesPerRow: width * 4, space: space,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return false }
+            context.interpolationQuality = .medium
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: count))
+            return true
+        }
+        guard drawn else { return [] }
+        // A bitmap context's first row in memory is the image's top.
+        return (0 ..< count).compactMap { row in
+            var sums = (red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0)
+            for pixel in stride(from: row * width * 4, to: (row + 1) * width * 4, by: 4) {
+                sums.red += Double(bytes[pixel])
+                sums.green += Double(bytes[pixel + 1])
+                sums.blue += Double(bytes[pixel + 2])
+                sums.alpha += Double(bytes[pixel + 3])
+            }
+            guard sums.alpha > 0 else { return nil }
+            return WallpaperTint(red: sums.red / sums.alpha, green: sums.green / sums.alpha, blue: sums.blue / sums.alpha)
+        }
     }
 
     /// The mean color of `image`, read from a 16 by 16 copy; nil for an image with no pixels.

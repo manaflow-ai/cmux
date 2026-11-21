@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
+use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 
 async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {
@@ -68,23 +69,35 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "ls",
             "last",
             "info",
+            "machine_info",
             "team_send",
             "team_inbox",
             "team_ack",
+            "search",
             "github_status",
             "bg_start",
             "bg_list",
             "bg_output",
             "bg_stop",
-            "pr_state"
+            "run_wait",
+            "pr_state",
+            "wrap_up",
+            "who_else",
+            "goal_set",
+            "goal_update",
+            "goal_get",
+            "watch_add",
+            "watch_ls",
+            "watch_rm",
+            "send_status"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();
     assert!(send.contains("Message another agent session"), "{send}");
-    assert!(send.contains("instead of running `acpmux send` in a shell"), "{send}");
+    assert!(send.contains("`cmux agent send` front door"), "{send}");
     assert!(send.contains("batch them in one call with messages"), "{send}");
-    assert_eq!(tools[6]["inputSchema"]["required"], json!(["to", "body"]));
-    assert_eq!(tools[8]["inputSchema"]["required"], json!(["id"]));
+    assert_eq!(tools[7]["inputSchema"]["required"], json!(["to", "body"]));
+    assert_eq!(tools[9]["inputSchema"]["required"], json!(["id"]));
 }
 
 /// The first shape's fields are as they were (a snapshot): only new optional fields were added,
@@ -109,6 +122,7 @@ fn the_send_schema_keeps_its_first_shape() {
     assert_eq!(
         names,
         [
+            "attach",
             "class",
             "file",
             "messages",
@@ -128,11 +142,23 @@ fn the_send_schema_keeps_its_first_shape() {
     item_keys.sort_unstable();
     assert_eq!(
         item_keys,
-        ["class", "file", "notice", "pr", "steer", "supersede", "tag", "text", "thread", "to"]
+        [
+            "attach",
+            "class",
+            "file",
+            "notice",
+            "pr",
+            "steer",
+            "supersede",
+            "tag",
+            "text",
+            "thread",
+            "to"
+        ]
     );
     assert_eq!(props["notice"]["required"], json!(["severity", "title"]));
     assert_eq!(props["notice"]["properties"]["severity"]["enum"], json!(["info", "warn", "fire"]));
-    assert_eq!(props["messages"]["maxItems"], json!(send::MAX_MESSAGES));
+    assert!(props["messages"].get("maxItems").is_none());
 }
 
 /// Waits for a user message carrying `needle` in `session`'s log.
@@ -218,15 +244,24 @@ fn top_level_fields_are_each_items_defaults() {
         ["give to or tag, not both", "give text or file, not both", "not an object"]
     );
     assert!(send::items(&json!({"messages": []})).is_err());
+}
+
+/// A large coordinator round is valid, including its final item; the delivery window must
+/// never become a count-based admission limit again.
+#[test]
+fn a_batch_has_no_message_count_cap() {
     let many: Vec<Value> =
-        (0..=send::MAX_MESSAGES).map(|_| json!({"to": "a", "text": "x"})).collect();
-    assert!(send::items(&json!({"messages": many})).unwrap_err().contains("at most 32"));
+        (0..1001).map(|n| json!({"to": format!("lane-{n}"), "text": "rebase"})).collect();
+    let items = send::items(&json!({"messages": many})).unwrap();
+    assert_eq!(items.len(), 1001);
+    assert!(items.iter().all(Result::is_ok));
+    assert_eq!(items.last().unwrap().as_ref().unwrap().to.as_deref(), Some("lane-1000"));
 }
 
 /// `notice`: a tool's notice, checked as the daemon checks it, its sender this session's name by
 /// default, its links `{url, label?}` or `--link` strings; the text (optional) is its body.
-#[test]
-fn a_notice_argument_is_checked_and_defaults_its_sender_and_host() {
+#[tokio::test]
+async fn a_notice_argument_is_checked_and_defaults_its_sender_and_host() {
     let env = |pairs: &'static [(&'static str, &'static str)]| {
         move |k: &str| pairs.iter().find(|(key, _)| *key == k).map(|(_, v)| (*v).to_owned())
     };
@@ -252,10 +287,19 @@ fn a_notice_argument_is_checked_and_defaults_its_sender_and_host() {
 
     // In a call: the item carries it, its body is optional, and the text is the rendered notice.
     let args = json!({"to": "coord", "notice": {"sender": "s", "host": "h", "severity": "warn", "title": "T"}});
-    let items: Vec<send::Item> =
+    let mut items: Vec<send::Item> =
         send::items(&args).unwrap().into_iter().map(Result::unwrap).collect();
     assert_eq!(items[0].notice.as_ref().unwrap()["severity"], "warn");
-    assert_eq!(send::body(&items[0]).unwrap(), "[notice from s on h · WARN] T");
+    assert_eq!(send::body(&mut items[0]).await.unwrap().0, "[notice from s on h · WARN] T");
+    let dir = tempfile::tempdir().unwrap();
+    let empty = dir.path().join("empty.txt");
+    std::fs::write(&empty, "").unwrap();
+    let mut from_file = send::Item {
+        file: Some(empty.to_str().unwrap().to_owned()),
+        notice: items[0].notice.clone(),
+        ..Default::default()
+    };
+    assert_eq!(send::body(&mut from_file).await.unwrap().0, "[notice from s on h · WARN] T");
     let bad = json!({"to": "coord", "text": "x", "notice": {"sender": "s", "severity": "fire"}});
     let errors: Vec<String> =
         send::items(&bad).unwrap().into_iter().map(Result::unwrap_err).collect();
@@ -293,7 +337,7 @@ async fn a_notice_sent_with_the_tool_is_recorded_as_a_notice() {
     );
 }
 
-/// `file`: the message is the file's contents, read from a file of the caller's, bounded.
+/// `file`: small text stays inline, while large files arrive as attachments.
 #[tokio::test]
 async fn a_message_can_be_a_file_of_yours() {
     let (hub, client, _dir) = daemon().await;
@@ -314,8 +358,6 @@ async fn a_message_can_be_a_file_of_yours() {
     assert_eq!(r["structuredContent"]["sessionId"], json!(lane), "{r}");
     assert!(received(&hub, &lane, "Brief: land #1 when green.").await, "the file never arrived");
 
-    let big = dir.path().join("big.md");
-    std::fs::write(&big, "x".repeat(usize::try_from(send::MAX_FILE_BYTES).unwrap() + 1)).unwrap();
     let binary = dir.path().join("bin");
     std::fs::write(&binary, [0xff, 0xfe, 0x00]).unwrap();
     let empty = dir.path().join("empty");
@@ -325,7 +367,6 @@ async fn a_message_can_be_a_file_of_yours() {
     )
     .unwrap();
     let cases = [
-        (big.clone(), "more than 256 KiB"),
         (binary, "not UTF-8 text"),
         (empty, "the file is empty"),
         (dir.path().to_owned(), "not a regular file"),
@@ -358,6 +399,156 @@ async fn a_message_can_be_a_file_of_yours() {
     let both = json!({"to": "file-lane", "text": "x", "file": brief});
     let r = call(&client, &tool("send", both)).await;
     assert_eq!(text(&r), "give text or file, not both", "{r}");
+}
+
+/// An image handed over with `attach` reaches the receiver as an image, as with `acpmux send
+/// --attach`: its chat draws a preview, never a name or an id nobody can open. A relative path is
+/// refused before anything is sent.
+#[tokio::test]
+async fn an_attached_image_reaches_the_receiver_as_an_image() {
+    let (hub, client, _dir) = daemon().await;
+    let lane = session(&client, "attach-lane").await;
+    let dir = tempfile::tempdir().unwrap();
+    let shot = dir.path().join("shot.png");
+    let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+    png.resize(4096, 7);
+    std::fs::write(&shot, &png).unwrap();
+    let args = json!({"to": "attach-lane", "text": "the broken card", "attach": [shot]});
+    let r = call(&client, &tool("send", args)).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(received(&hub, &lane, "the broken card").await, "never received");
+    let events = hub.events(&lane, 0, 1000).unwrap();
+    let message = events
+        .iter()
+        .find(|e| e.kind == "user_message" && e.msg.to_string().contains("the broken card"))
+        .expect("the message");
+    assert_eq!(message.msg["images"][0]["mimeType"], "image/png", "{}", message.msg);
+
+    let relative = json!({"to": "attach-lane", "text": "x", "attach": ["shot.png"]});
+    let r = call(&client, &tool("send", relative)).await;
+    assert_eq!(r["isError"], true, "{r}");
+    assert!(text(&r).contains("absolute file paths"), "{r}");
+}
+
+/// The send relay carries text alone: a send with `attach` to a session neither here nor on a peer
+/// is refused, never relayed without its files.
+#[tokio::test]
+async fn an_attach_to_an_unknown_session_is_refused_not_relayed_as_text() {
+    let item = send::Item { attach: vec!["/tmp/shot.png".into()], ..Default::default() };
+    let (to, text) = ("elsewhere".to_owned(), "the broken card".to_owned());
+    let target =
+        send::Target { index: 0, to: to.clone(), key: to, tag: None, text, file: None, item };
+    let row = send::relay(&target, &anyhow::anyhow!("no session named elsewhere"), None).await;
+    let row = row.expect("a refusal row, not the relay skipped or taken");
+    assert_eq!(row["ok"], false, "{row}");
+    assert!(row["error"].as_str().unwrap_or_default().contains("attachments"), "{row}");
+}
+
+/// Past both the old 256 KiB file refusal and the 31 MiB RPC envelope: the agent
+/// receives the complete file by reference, through the same durable outbox.
+#[tokio::test]
+async fn a_large_message_file_is_uploaded_and_reaches_the_agent_intact() {
+    large_message_arrives(true, false).await;
+}
+
+#[tokio::test]
+async fn text_past_the_rpc_envelope_reaches_the_agent_intact() {
+    large_message_arrives(false, false).await;
+}
+
+#[tokio::test]
+async fn a_large_notice_keeps_its_metadata_and_complete_body() {
+    large_message_arrives(true, true).await;
+    large_message_arrives(false, true).await;
+}
+
+#[test]
+fn json_expansion_is_counted_before_deciding_to_upload_text() {
+    let plain = "a".repeat(6 << 20);
+    assert!(!send::text_needs_file(&plain));
+    let escaped = "\0".repeat(6 << 20);
+    assert!(send::text_needs_file(&escaped));
+}
+
+async fn large_message_arrives(from_file: bool, notice: bool) {
+    use sha2::Digest;
+    use std::io::{Read, Write};
+    let (hub, client, _socket) = daemon().await;
+    let lane = session(&client, "large-file-lane").await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("instructions.md");
+    let chunk = b"Read every part of these instructions.\n".repeat(2048);
+    let mut expected = sha2::Sha256::new();
+    {
+        let mut file = std::fs::File::create(&path).unwrap();
+        for _ in 0..540 {
+            file.write_all(&chunk).unwrap();
+            expected.update(&chunk);
+        }
+    }
+    assert!(std::fs::metadata(&path).unwrap().len() > 40 << 20);
+    let mut args = if from_file {
+        json!({"to": "large-file-lane", "file": path})
+    } else {
+        json!({"to": "large-file-lane", "text": std::fs::read_to_string(&path).unwrap()})
+    };
+    if notice {
+        args.set(
+            "notice",
+            json!({"sender": "audit", "host": "test", "severity": "warn", "title": "large brief"}),
+        );
+    }
+    let name = if from_file { "instructions.md" } else { "message.txt" };
+    let started = std::time::Instant::now();
+    let r = call(&client, &tool("send", args)).await;
+    assert_eq!(r["isError"], false, "{r}");
+    eprintln!(
+        "41.133 MiB MCP message (from_file={from_file}) delivered in {:?}",
+        started.elapsed()
+    );
+    assert!(received(&hub, &lane, name).await, "file was not recorded");
+    if notice {
+        let events = hub.events(&lane, 0, 1000).unwrap();
+        let message = events
+            .iter()
+            .find(|e| e.kind == "user_message" && e.msg.to_string().contains("large brief"))
+            .expect("notice message");
+        let provenance = &message.msg["_meta"]["provenance"];
+        assert_eq!(provenance["kind"], "notice", "{}", message.msg);
+        assert_eq!(provenance["notice"]["severity"], "warn", "{}", message.msg);
+        assert!(message.msg.to_string().contains("[notice from audit on test · WARN] large brief"));
+    }
+    let finished = client
+        .request(
+            method::MUX_WAIT,
+            json!({"sessions": [lane], "until": ["ready"], "timeoutMs": 20000}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(finished["timedOut"], false, "{finished}");
+    let reply = last_replies(&client, &lane, 1).await.unwrap().pop().unwrap();
+    // The fake agent prints resource_link:name:mime:file:///path.
+    let uri = reply
+        .split_whitespace()
+        .find_map(|word| {
+            word.strip_prefix("resource_link:")?
+                .split_once(":file://")
+                .map(|(_, path)| format!("file://{path}"))
+        })
+        .unwrap_or_else(|| panic!("agent got no file reference: {reply}"));
+    let saved = reqwest::Url::parse(&uri).unwrap().to_file_path().unwrap();
+    assert_eq!(saved.file_name().unwrap(), name);
+    let mut file = std::fs::File::open(saved).unwrap();
+    let mut actual = sha2::Sha256::new();
+    let mut bytes = [0u8; 65536];
+    loop {
+        let n = file.read(&mut bytes).unwrap();
+        if n == 0 {
+            break;
+        }
+        actual.update(bytes.get(..n).unwrap());
+    }
+    assert_eq!(actual.finalize(), expected.finalize());
 }
 
 /// `supersede`: a second message under the same key replaces the first while it still waits.
@@ -411,6 +602,7 @@ fn target(index: usize, to: &str, key: &str) -> send::Target {
         key: key.to_owned(),
         tag: None,
         text: "x".to_owned(),
+        file: None,
         item: send::Item::default(),
     }
 }
@@ -596,6 +788,43 @@ async fn a_tag_expands_to_every_live_session_carrying_it() {
     assert_eq!(rows[1]["ok"], true, "{r}");
 }
 
+/// Both explicit messages and tag expansion cross the old 32-message, 32-tag and 64-recipient
+/// caps. Every session receives both messages, including those beyond the dispatch window.
+#[tokio::test]
+async fn large_batch_and_tag_sends_reach_every_recipient() {
+    let (hub, client, _dir) = daemon().await;
+    let mut lanes = Vec::new();
+    for n in 0..65 {
+        let name = format!("uncapped-{n}");
+        let s = client
+            .request(
+                method::SESSION_NEW,
+                json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                    "_meta": {"acpmux": {"name": name, "tags": {"area": "uncapped"}}}}),
+            )
+            .await
+            .unwrap();
+        lanes.push((name, s["sessionId"].as_str().unwrap().to_owned()));
+    }
+    let messages: Vec<Value> = lanes.iter().map(|(name, _)| json!({"to": name})).collect();
+    for (args, needle) in [
+        (json!({"messages": messages, "text": "large batch", "steer": false}), "large batch"),
+        (json!({"tag": "area=uncapped", "text": "large tag", "steer": false}), "large tag"),
+    ] {
+        let result = call(&client, &tool("send", args)).await;
+        assert_eq!(result["isError"], false, "{result}");
+        let rows = result["structuredContent"]["results"].as_array().unwrap();
+        assert_eq!(rows.len(), lanes.len(), "{result}");
+        assert!(rows.iter().all(|row| row["ok"] == true), "{result}");
+        let names: std::collections::BTreeSet<&str> =
+            rows.iter().map(|row| row["to"].as_str().unwrap()).collect();
+        assert_eq!(names, lanes.iter().map(|(name, _)| name.as_str()).collect());
+        for (name, id) in &lanes {
+            assert!(received(&hub, id, needle).await, "{name} never received {needle}");
+        }
+    }
+}
+
 #[tokio::test]
 async fn send_delivers_to_the_named_session_and_returns_its_prompt_id() {
     let (hub, client, _dir) = daemon().await;
@@ -639,6 +868,36 @@ async fn send_goes_through_the_outbox_and_names_its_delivery() {
         .unwrap();
     assert_eq!(status["status"], "delivered", "{status}");
     assert_eq!(status["promptId"], r["structuredContent"]["promptId"], "{status} {r}");
+}
+
+/// `send_status` reads a send's receipt by its deliveryId with the CLI's line, or lists the
+/// chat's sent messages; with neither an id nor a chat it is refused before the daemon.
+#[tokio::test]
+async fn send_status_reads_a_delivery_by_id_or_lists_the_chats() {
+    assert_eq!(
+        send_status::request("chat-1", &json!({})).unwrap(),
+        json!({"list": true, "caller": "chat-1", "limit": 20})
+    );
+    assert_eq!(
+        send_status::request("", &json!({"deliveryId": "d1"})).unwrap(),
+        json!({"deliveryId": "d1"})
+    );
+    assert!(send_status::request("", &json!({})).is_err());
+    let (_hub, client, _dir) = daemon().await;
+    session(&client, "lane-s").await;
+    let r = call(&client, &tool("send", json!({"to": "lane-s", "text": "status?"}))).await;
+    let delivery = r["structuredContent"]["deliveryId"].as_str().unwrap_or_default().to_owned();
+    client
+        .request(method::MUX_SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 5000}))
+        .await
+        .unwrap();
+    let s = send_status::call(&client, "", &json!({"deliveryId": delivery})).await;
+    assert_eq!(s["isError"], false, "{s}");
+    assert!(text(&s).starts_with("delivered  "), "{s}");
+    assert!(text(&s).contains("  attempt 1"), "{s}");
+    assert_eq!(s["structuredContent"]["status"], "delivered", "{s}");
+    let unknown = send_status::call(&client, "", &json!({"deliveryId": "nope"})).await;
+    assert_eq!(unknown["isError"], true, "{unknown}");
 }
 
 /// `class` (`prompt_class.rs`) goes with the message; a class that is not one of the four is
@@ -690,6 +949,16 @@ async fn ls_last_and_info_read_the_sessions() {
     assert!(text(&r).lines().any(|l| l.starts_with("lane-b  [")), "{r}");
     let r = call(&client, &tool("info", json!({"name": "lane-b"}))).await;
     assert_eq!(r["structuredContent"]["sessionId"], json!(lane), "{r}");
+    // `search` reads the named session, or this server's own chat when none is named.
+    let r = search_tool(&client, "", &json!({"query": "HELLO echo", "name": "lane-b"})).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(text(&r).ends_with("(assistant): echo: hello"), "{r}");
+    let r = search_tool(&client, &lane, &json!({"query": "hello", "role": "user"})).await;
+    let hits = r["structuredContent"]["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 1, "{r}");
+    assert_eq!(hits[0]["snippet"], "hello", "{r}");
+    let r = search_tool(&client, "", &json!({"query": "hello"})).await;
+    assert_eq!(r["isError"], true, "no chat and no name: {r}");
 }
 
 /// A fleet-sized list (thousands of closed sessions, each row carrying its last prompt and
@@ -774,6 +1043,25 @@ async fn bg_tools_refuse_arguments_that_are_not_an_object() {
         assert_eq!(r["isError"], true, "{name}: {r}");
         assert_eq!(text(&r), "arguments must be an object", "{name}: {r}");
     }
+}
+
+/// run_wait given a background task's id (`{"id": "bg-..."}`, the bounce "repo is required"
+/// agents met 6 times in a day) reads that task as bg_output does and says why, naming bg_output.
+#[tokio::test]
+async fn run_wait_given_a_bg_task_id_reads_the_task_and_names_bg_output() {
+    let (_hub, client, _dir) = daemon().await;
+    for args in
+        [json!({"id": "bg-581e5d78d9cd"}), json!({"task": "bg-581e5d78d9cd", "timeout": "600"})]
+    {
+        let r = bg::call(&client, "any", "run_wait", &args).await;
+        let t = text(&r);
+        assert!(!t.contains("repo is required"), "{args}: {r}");
+        assert!(t.contains("bg-581e5d78d9cd is a background task"), "{args}: {r}");
+        assert!(t.contains("bg_output"), "{args}: {r}");
+    }
+    // A run id with no repo is still the repo refusal: only a bg- value is a task.
+    let r = bg::call(&client, "any", "run_wait", &json!({"run": 5})).await;
+    assert!(text(&r).contains("repo is required"), "{r}");
 }
 
 /// Exercise the actual MCP-to-daemon socket path without substituting an MCP
@@ -867,7 +1155,7 @@ async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals(
 }
 
 /// A Chief turn's `CMUX_MCP_TOOLS` reaches this server too (`agent_tools::scoped`): standalone,
-/// without a `cmux` server to fold into, it lists only the six coordinator tools, never `bg_*` or
+/// without a `cmux` server to fold into, it lists only the seven coordinator tools, never `bg_*` or
 /// `team_*` (#30082 review).
 #[test]
 fn an_allowlist_keeps_only_the_acpmux_tools_it_names() {
@@ -875,7 +1163,10 @@ fn an_allowlist_keeps_only_the_acpmux_tools_it_names() {
     let all = tools();
     assert_eq!(names(&allowed(all.clone(), None)), names(&all));
     let chief = allowed(all.clone(), Some(crate::agent_tools::CHIEF_TURN_TOOLS));
-    assert_eq!(names(&chief), ["send", "inbox_read", "inbox_reply", "ls", "last", "info"]);
+    assert_eq!(
+        names(&chief),
+        ["send", "inbox_read", "inbox_reply", "ls", "last", "info", "send_status"]
+    );
     assert!(names(&allowed(all, Some("render,agents_wait"))).is_empty());
 }
 
@@ -888,9 +1179,90 @@ fn github_status_is_listed_with_its_instruction() {
     let text = instructions(&all).unwrap();
     assert!(text.contains("call github_status"), "{text}");
     assert!(text.contains("bg_start"), "{text}");
+    assert!(text.contains("as one batch of independent tool calls"), "{text}");
     let scoped = allowed(all.clone(), Some("acpmux_github_status"));
     assert_eq!(crate::mcp_hint::names(&scoped).collect::<Vec<_>>(), ["github_status"]);
     assert_eq!(instructions(&scoped).unwrap(), crate::github_status::STEER);
     let chief = allowed(all, Some(crate::agent_tools::CHIEF_TURN_TOOLS));
     assert!(!crate::mcp_hint::names(&chief).any(|n| n == crate::github_status::TOOL));
+}
+
+/// Every chat's `acpmux` server lists `wrap_up` and tells the agent to end a turn with it; a Chief
+/// turn's allowlist leaves it out like any other tool.
+#[test]
+fn wrap_up_is_listed_with_its_instruction() {
+    let all = tools_with_artifacts(false);
+    assert!(crate::mcp_hint::names(&all).any(|n| n == "wrap_up"));
+    let text = instructions(&all).unwrap();
+    assert!(text.contains("call wrap_up as your last step"), "{text}");
+    let chief = allowed(all, Some(crate::agent_tools::CHIEF_TURN_TOOLS));
+    assert!(!crate::mcp_hint::names(&chief).any(|n| n == "wrap_up"));
+}
+
+/// Every chat's `acpmux` server lists `who_else` and tells the agent to call it instead of git
+/// archaeology; its params name the chat's session, and `since` reads as a duration.
+#[test]
+fn who_else_is_listed_with_its_instruction_and_names_the_chat() {
+    let all = tools_with_artifacts(false);
+    assert!(crate::mcp_hint::names(&all).any(|n| n == "who_else"));
+    let text = instructions(&all).unwrap();
+    assert!(text.contains("call who_else"), "{text}");
+    let p = who_else::params("s1", &json!({"files": ["a.rs", " "], "since": "2h"})).unwrap();
+    assert_eq!(p, json!({"sessionId": "s1", "files": ["a.rs"], "sinceMs": 7_200_000}));
+    assert!(who_else::params("s1", &json!({"files": "a.rs"})).is_err());
+    let chief = allowed(all, Some(crate::agent_tools::CHIEF_TURN_TOOLS));
+    assert!(!crate::mcp_hint::names(&chief).any(|n| n == "who_else"));
+}
+
+/// The tool's text names the peers that gave no answer, as the CLI does: a quiet peer is not
+/// read as no one working there.
+#[test]
+fn who_else_text_names_the_peers_it_could_not_ask() {
+    let answer =
+        json!({"sessions": [], "unreached": [{"host": "my-vm", "error": "no answer in 5 s"}]});
+    assert_eq!(
+        who_else::text(&answer),
+        "No other session works on these.\n(not asked: my-vm: no answer in 5 s)"
+    );
+}
+
+/// Every chat's `acpmux` server lists the goal tools and says when to use them.
+#[test]
+fn goal_tools_are_listed_with_their_instruction() {
+    let all = tools_with_artifacts(false);
+    for name in ["goal_set", "goal_update", "goal_get"] {
+        assert!(crate::mcp_hint::names(&all).any(|n| n == name), "{name}");
+    }
+    let text = instructions(&all).unwrap_or_default();
+    assert!(text.contains("call goal_set with the objective and a checkable done-when"), "{text}");
+}
+
+/// The watch tools are listed with their instruction and build the CLI's requests; a malformed
+/// call is refused before it reaches the daemon.
+#[test]
+fn watch_tools_are_listed_and_build_the_cli_requests() {
+    let all = tools_with_artifacts(false);
+    let text = instructions(&all).unwrap_or_default();
+    assert!(text.contains("call watch_add once"), "{text}");
+    assert_eq!(
+        watch::request("watch_add", &json!({"sessions": ["w"], "match": "BLOCKER"})).unwrap(),
+        (method::MUX_WATCH_ADD, json!({"sessions": ["w"], "once": true, "match": "BLOCKER"}))
+    );
+    assert_eq!(
+        watch::request("watch_rm", &json!({"id": "w1"})).unwrap(),
+        (method::MUX_WATCH_RM, json!({"id": "w1"}))
+    );
+    assert!(watch::request("watch_add", &json!({"sessions": [1]})).is_err());
+    assert!(watch::request("watch_rm", &json!({})).is_err());
+}
+
+/// Every Claude chat loads these instructions on every turn, so they stay a short steer per tool
+/// (the tool descriptions carry the details): 2,842 bytes before the 2026-11-21 cut, 1,398 after.
+#[test]
+fn instructions_stay_short() {
+    let text = instructions(&tools_with_artifacts(false)).unwrap();
+    assert!(text.len() <= 1_600, "{} bytes: {text}", text.len());
+    assert!(crate::offer_mcp::INSTRUCTIONS.len() <= 300);
+    assert!(crate::subsession_mcp::instructions().len() <= 1_100);
+    assert!(crate::computer_use::tools::INSTRUCTIONS.len() <= 900);
 }

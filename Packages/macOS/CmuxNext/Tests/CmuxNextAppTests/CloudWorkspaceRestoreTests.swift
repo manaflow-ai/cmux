@@ -137,11 +137,7 @@ struct CloudWorkspaceRestoreTests {
 
     /// A Cloud machine this run has not loaded (paused by the idle auto-pause: never connected).
     static func pausedMachine(_ services: AppServices, id: String) -> CloudMachineSession {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-cloud-restore-\(UUID().uuidString.prefix(8))")
-        let paths = CloudPaths(root: root), binary = URL(fileURLWithPath: "/usr/bin/false"), api = services.cloud.api
-        let hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: "cn-restore-test")
-        let link = CloudMachineLink(machineID: id, api: api, hub: hub, paths: paths, binary: binary, deviceName: "cn-restore-test")
-        let session = CloudMachineSession(machine: CloudMachine(id: id, status: .paused, displayName: "Restore VM"), link: link, mainWork: services.mainWork)
+        let session = CloudTestLink.session(id: id, status: .paused, name: "Restore VM", mainWork: services.mainWork)
         services.machines.add(session)
         return session
     }

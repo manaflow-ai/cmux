@@ -13,9 +13,14 @@
 // JSON-RPC to a stand-in acpmux daemon that can push live events.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+//
+// The three live cases test the `runs` arm of live-turn-work, not the shipped `line` arm (`open` with
+// `liveRuns`): the call that says Approved is a finished call of a turn that still runs, which only `runs`
+// draws (support/liveTurnRuns.ts). The other cases take the shipped arms.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -84,8 +89,9 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     { permissionId: "perm-test", outcome },
   ];
   const picked = (optionId: string) => decided({ outcome: "selected", optionId });
-  /// The approved call runs to its end: while it runs the live line draws it, and its row (with its
-  /// "Approved" mark) once it is done.
+  /// The approved call runs to its end. While it runs, and while it is the turn's latest finished
+  /// step, the live line names it (turns.ts `liftedStep`); its row, with its "Approved" mark, is
+  /// drawn once the turn moves past it, here the reply's first words (`answered`).
   const ran: Step = [
     "in",
     "tool_call_update",
@@ -175,6 +181,8 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     "agent_message_chunk",
     update({ sessionUpdate: "agent_message_chunk", messageId: "reply-1", content: { type: "text", text } }),
   ];
+  /// The turn moves past the call that ran: the live line lets go of it and its row is drawn.
+  const answered = chunk("Tests pass.");
   const missed = [asked[3]!, picked("allow_once"), chunk("Tests")].map((step, index) => record(LAG, step, 4 + index));
   const session = (sessionId: string) => ({
     sessionId,
@@ -220,9 +228,11 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${session}`;
   };
-  const open = async (session: string, shown: string) => {
+  /// `liveRuns`: the `runs` arm of live-turn-work, for a test of a finished call of the running turn.
+  const open = async (session: string, shown: string, liveRuns = false) => {
     sockets.clear();
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    if (liveRuns) await pinLiveTurnRuns(page);
     await page.goto(url(session));
     await page.getByText(shown).first().waitFor({ timeout: 25_000 });
     return page;
@@ -325,11 +335,12 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
   });
 
   test("answered live, the card goes and its call says Approved once it ran", async () => {
-    const page = await open(LIVE, "Check the build");
+    const page = await open(LIVE, "Check the build", true);
     await page.locator(".acpmux-permission-ask").waitFor({ timeout: 5_000 });
     expect(await receipts(page)).toEqual([]);
     push(picked("allow_once"));
     push(ran);
+    push(answered);
     await page.locator(".cv-command__approved").first().waitFor({ timeout: 5_000 });
     expect(await page.locator(".acpmux-permission-ask").count()).toBe(0);
     expect(await receipts(page)).toEqual([]);
@@ -342,12 +353,13 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
       [SWITCH_LIVE, "bypassPermissions"],
       [CODEX_SWITCH_LIVE, "agent-full-access"],
     ] as const) {
-      const page = await open(chat, "Check the build");
+      const page = await open(chat, "Check the build", true);
       await page.locator(".acpmux-permission-ask").waitFor({ timeout: 5_000 });
       push(approvedAfterSwitch(mode), chat);
       push(picked("allow_once"), chat);
       await page.locator(".acpmux-permission-ask").waitFor({ state: "detached", timeout: 5_000 });
       push(ran, chat);
+      push(answered, chat);
       await page.locator(".cv-command__approved").first().waitFor({ timeout: 5_000 });
       expect(await receipts(page)).toEqual([]);
       expect(await approved(page)).toEqual(["call-test"]);
@@ -369,7 +381,7 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
   });
 
   test("a resync that brings the answer keeps one approval and the reply that streams after it whole", async () => {
-    const page = await open(LAG, "Check the build");
+    const page = await open(LAG, "Check the build", true);
     const send = (message: Record<string, unknown>) => {
       for (const ws of sockets) ws.send(JSON.stringify({ jsonrpc: "2.0", ...message }));
     };

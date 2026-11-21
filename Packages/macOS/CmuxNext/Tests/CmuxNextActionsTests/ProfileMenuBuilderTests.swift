@@ -63,6 +63,40 @@ struct ProfileMenuBuilderTests {
         #expect(updates.representedObject as? String == "palette.checkForUpdates")
     }
 
+    /// One settings area (David Beyer, 2026-11-20: "Personalization and Settings are redundant"):
+    /// Settings… follows Show Chief, and the menu has no second Personalization… row beside it,
+    /// even in a build that binds `appearance.personalize` (it opens Settings > Appearance).
+    @Test func oneSettingsRowFollowsShowChief() throws {
+        let registry = ActionRegistry.standard()
+        for id: ActionID in ["palette.toggleSetting", "appearance.personalize", "openSettings"] { registry.bind(id) {} }
+        let menu = ProfileMenuBuilder(registry: registry).make(profile: ProfileMenuProfile(name: "Default"), chiefPetShown: false)
+        let ids = menu.items.map { $0.identifier?.rawValue }
+        let chief = try #require(ids.firstIndex(of: "profileMenu.chiefPet"))
+        #expect(ids[chief + 1] == "cmux.action.openSettings")
+        #expect(!ids.contains("cmux.action.appearance.personalize"))
+        #expect(!menu.items.contains { $0.title == "Personalization…" })
+    }
+
+    /// The signed-in person leads the menu: their picture on their name's row.
+    @Test func thePersonLeadsWithTheirAvatar() throws {
+        let registry = ActionRegistry.standard()
+        registry.bind("openSettings") {}
+        let builder = ProfileMenuBuilder(registry: registry)
+        let menu = builder.make(profile: ProfileMenuProfile(name: "Default"))
+        let picture = NSImage(size: NSSize(width: 14, height: 14))
+        builder.addAccountRows(to: menu, who: ["Sample User", "user@example.com"], avatar: picture)
+        let first = try #require(menu.items.first)
+        #expect(first.identifier?.rawValue == "profileMenu.person")
+        #expect(first.title == "Sample User")
+        #expect(first.image === picture)
+        // The email is the person row's second line where the system draws one, else its own row.
+        if #available(macOS 14.4, *) {
+            #expect(first.subtitle == "user@example.com")
+        } else {
+            #expect(menu.items[1].title == "user@example.com")
+        }
+    }
+
     /// The account menu (PRIORITIES 1.14): Accounts… and Cloud sit under Settings, each a
     /// registry row, and a build that does not bind one leaves it out.
     @Test func accountsAndCloudFollowSettings() throws {

@@ -1,9 +1,11 @@
 #if os(iOS)
+import CmuxMobileBilling
 import CmuxMobileAgentChat
 import CmuxMobileAuth
 import CmuxMobileArtifacts
 import CmuxMobileBrowserStream
 import CmuxMobileChief
+import CmuxConnectivityTelemetry
 import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
@@ -14,7 +16,9 @@ import CmuxMobileOnboarding
 import CmuxMobileScreenSharing
 import CmuxMobileSettings
 import CmuxMobileVoice
+import CmuxMobileWorkspaces
 import CmuxMobileSupport
+import CmuxMobileTerminal
 import SwiftUI
 import OSLog
 import UIKit
@@ -89,8 +93,13 @@ public struct RootView: View {
     @State private var accountUserID: String?
     /// A pairing code opened while signed out: applied once the account's live data starts.
     @State private var heldInvite: PairInvite?
+    /// A Mac's invite for a new machine (`https://cmux.com/pair?i=…`): Pair Another Machine, its code filled in.
+    @State private var machineInvite: MachineInvite?
     /// The signed-in shell's one model, kept across this view's updates (`ShellView.init`).
     @State private var shellModel = KeptModel<ShellModel>()
+    /// App Store plans (Settings → Plan), built once for the process so its
+    /// `Transaction.updates` listener outlives every screen; nil hides Plan.
+    @State private var billing: BillingModel?
     private let options: ShellLaunchOptions
 
     public init(auth: CmuxMobileAuthModel, store: AppStore, options: ShellLaunchOptions = ShellLaunchOptions()) {
@@ -104,6 +113,10 @@ public struct RootView: View {
         }
         _store = State(initialValue: store)
         self.options = options
+        #if DEBUG
+        // `-cmux-mobile-mac-appearance NAME`: a Mac's appearance frame as a fixture (the chat's look).
+        CmuxMobileMacTheme.shared.applyLaunchFixture()
+        #endif
     }
 
     private enum Destination: Hashable { case welcome, setup, shell }
@@ -149,8 +162,8 @@ public struct RootView: View {
                 // transaction); every other swap crossfades, Welcome's exit
                 // after sign-in included.
                 .transition(welcomeCut && destination == .welcome
-                    ? .asymmetric(insertion: .identity, removal: .opacity.animation(theme.motion.gentle.animation))
-                    : .opacity.animation(theme.motion.gentle.animation))
+                    ? .asymmetric(insertion: .identity, removal: .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
+                    : .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
             } else {
                 // Welcome redraws this mark on its first frame and animates it
                 // from there, so on that path the swap is a true cut: an
@@ -161,11 +174,39 @@ public struct RootView: View {
                     .ignoresSafeArea()
                     .transition(destination == .welcome
                         ? .identity
-                        : .opacity.combined(with: .scale(scale: 0.92)).animation(theme.motion.snap.animation))
+                        : .opacity.combined(with: .scale(scale: 0.92)).animation(theme.motion.snap.animation.unlessReduceMotion))
             }
         }
-        .animation(theme.motion.gentle.animation, value: destination)
+        .animation(theme.motion.gentle.animation.unlessReduceMotion, value: destination)
         .environment(\.mobileKeyboardFrameTracker, keyboard)
+        // A fold or unfold resizes the window with no rotation: the app's orientations follow it.
+        .onGeometryChange(for: Bool.self) { proxy in
+            let insets = proxy.safeAreaInsets
+            return ScreenSharingOrientation.isUnfolded(windowSize: CGSize(
+                width: proxy.size.width + insets.leading + insets.trailing,
+                height: proxy.size.height + insets.top + insets.bottom))
+        } action: { _ in
+            ScreenSharingOrientation.shared.foldChanged()
+        }
+        .environment(billing)
+        // Plans follow the account: a purchase StoreKit still holds is delivered
+        // for whoever signs in; sign-out forgets the old account's plan.
+        .onChange(of: auth.isResolved ? auth.isSignedIn : nil, initial: true) { _, signedIn in
+            guard let signedIn else { return }
+            guard signedIn else { billing?.resetForSignOut(); return }
+            if let billing {
+                // Another account signed in: deliver what StoreKit still holds for it now.
+                Task { await billing.retryUndeliveredTransactions() }
+            } else {
+                // Built once, on the first sign-in (start() also retries held transactions).
+                billing = auth.makeBillingModel(bundleIdentifier: Bundle.main.bundleIdentifier)
+                #if DEBUG
+                // Screenshot rig (BillingDemo): the real plans screen over an in-memory server.
+                if let demo = BillingDemo() { billing = demo.makeModel(bundleIdentifier: Bundle.main.bundleIdentifier ?? "dev.cmux.mobile") }
+                #endif
+                billing?.start()
+            }
+        }
         // Settings → Require Face ID (audit B11).
         .cmuxMobileAppLock(enabled: settings.requireFaceID)
         .task {
@@ -191,10 +232,19 @@ public struct RootView: View {
                     launchFinished = true
                 }
             } else {
-                withAnimation(theme.motion.gentle.animation) { launchFinished = true }
+                withAnimation(theme.motion.gentle.animation.unlessReduceMotion) { launchFinished = true }
             }
             #if DEBUG
+            // Test-only (compiled out of Release): a launch is handed a URL as the system opens one
+            // (.onOpenURL below). `simctl openurl` of an https link cmux.com's site association does
+            // not claim lands in Safari, so UI tests and fleet simulator runs open `/pair?i=` here.
+            if let text = ProcessInfo.processInfo.environment["CMUX_MOBILE_OPEN_URL"], let url = URL(string: text),
+               let opened = OpenedURL(url: url) {
+                open(opened)
+            }
             if options.setupPairDemo { await runSetupPairDemo() }
+            // The hand-off's --no-auth proof (DogfoodReadiness): this launch resolved signed out.
+            if !auth.isSignedIn, !auth.isMock { DogfoodReadiness(auth: auth).writeSignedOut(apiBase: auth.apiBaseURL) }
             #endif
         }
         // Signed in (or out): live data and the team list follow the account.
@@ -217,18 +267,28 @@ public struct RootView: View {
             AccountPreferences.standard.activate(userID: id)
             accountUserID = id
         }
+        // Connectivity telemetry follows the account: the cmux team's own accounts
+        // (@manaflow.ai, @cmux.com) record verbosely, everyone else sampled and text-free.
+        .onChange(of: auth.isResolved && auth.isSignedIn && !auth.isMock ? auth.user?.email : nil, initial: true) { _, email in
+            ConnectivityTelemetry.shared.startOnPhone()
+            ConnectivityTelemetry.shared.setAccount(email: email)
+        }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
         // A Mac's pairing code from the Camera (`cmux-next://pair?…`); never logged, it holds a token.
+        // A Mac's invite for a new machine (`https://cmux.com/pair?i=…`) opens Pair Another Machine.
         // Any other cmux link (`cmux://tab/…`, Safari, Messages, Notes) opens what it names.
         .onOpenURL { url in
-            if let link = CmuxLink(url: url) { return NotificationRouter.shared.open(link: link) }
-            guard let invite = PairInvite(url: url) else { return }
-            if let live { live.accept(invite) } else { heldInvite = invite }
+            if let opened = OpenedURL(url: url) { open(opened) }
         }
-        // A universal link (`https://cmux.com/link/…`, `/deeplink/agent`, a cloud group's page).
+        // A universal link (`https://cmux.com/link/…`, `/deeplink/agent`, `/pair?i=`, a cloud group's page).
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
-            guard let url = activity.webpageURL, let link = CmuxLink(url: url) else { return }
-            NotificationRouter.shared.open(link: link)
+            guard let url = activity.webpageURL, let opened = OpenedURL(webpage: url) else { return }
+            open(opened)
+        }
+        .sheet(item: $machineInvite) { invite in
+            NavigationStack {
+                MachineInviteSheet(invite: invite) { machineInvite = nil }
+            }
         }
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
         .onChange(of: asksNotifications) { _, _ in planSetup() }
@@ -241,6 +301,18 @@ public struct RootView: View {
         }
         .onChange(of: settings.appearance, initial: true) { _, mode in
             applyAppearance(mode)
+        }
+    }
+
+    private func open(_ opened: OpenedURL) {
+        switch opened {
+        case .machineInvite(let invite):
+            log.info("opening a Mac's invite for a new machine")
+            machineInvite = invite
+        case .link(let link):
+            NotificationRouter.shared.open(link: link)
+        case .macPairingCode(let invite):
+            if let live { live.accept(invite) } else { heldInvite = invite }
         }
     }
 
@@ -260,6 +332,7 @@ public struct RootView: View {
         if !(store.activeTeam?.macs.contains(where: \.isOnline) ?? false) { steps.append(.pairMac) }
         if asksNotifications { steps.append(.notifications) }
         setupPlan = steps
+        log.info("setup plan: \(String(describing: steps), privacy: .public)")
         // Nothing to set up (one team, a Mac online, notifications decided).
         if steps.isEmpty, destination == .setup { setupComplete = true }
     }
@@ -370,12 +443,16 @@ public struct RootView: View {
             Task { await auth.selectTeam(teamID) }
         }
         live = coordinator
+        // The incident watch follows the app in front from UIKit, starting with its state now.
+        coordinator.followApplicationState()
         PushReplies.shared.attach(live: coordinator)
         // Before the session ends: stop pushes to this phone. The Macs keep
         // their approval of it (verify/persistence.md).
-        auth.willSignOut = AccountSignOut().willSignOut {
+        auth.willSignOut = AccountSignOut().willSignOut { [weak coordinator] in
             // Disarm queued replies before the sign-out network work suspends.
             PushReplies.shared.signedOut()
+            // Open connectivity incidents end now, sent while the token still works.
+            await coordinator?.endIncidentsBeforeSignOut()
             // Withhold content before network sign-out can leave this device.
             // The marker lives independently of the pairing keys we retain.
             await PushActiveAccountMirror.shared.clearBeforeSignOut()
@@ -398,6 +475,8 @@ public struct RootView: View {
         if let text = ProcessInfo.processInfo.environment["CMUX_MOBILE_PAIR_URL"], let invite = PairInvite(text: text) {
             coordinator.accept(invite)
         }
+        // The end-of-task hand-off's signed-in (and paired) proof, when its launcher asks.
+        DogfoodReadiness(auth: auth).start(auth: auth, live: coordinator, apiBase: base)
         #endif
     }
 
@@ -472,6 +551,8 @@ final class KeptModel<Model: AnyObject> {
 /// The signed-in shell: the UIKit drawer container with the team sidebar under
 /// a four-tab `TabView`.
 struct ShellView: View {
+    /// App Store plans from the root (nil hides Settings → Plan).
+    @Environment(BillingModel.self) private var billing: BillingModel?
     @State private var shell: ShellModel
     @State private var inviteEmail = ""
     private let options: ShellLaunchOptions
@@ -514,9 +595,14 @@ struct ShellView: View {
         SidebarContainer(
             model: shell.sidebar,
             sidebar: TeamSidebar(store: shell.store, shell: shell, sidebar: shell.sidebar),
-            content: ShellTabs(shell: shell).environment(shell.store)
+            // The container hosts the tabs in their own hosting controller: pass the
+            // root's objects across it (Settings → Plan reads the billing model).
+            content: ShellTabs(shell: shell).environment(shell.store).environment(billing)
         )
         .ignoresSafeArea()
+        #if DEBUG
+        .modifier(BillingDemoSheet(billing: billing))
+        #endif
         .cmuxMobileToast($shell.toast)
         .modifier(LiveCallHost(shell: shell))
         .sheet(item: $shell.shareURL) { item in
@@ -527,6 +613,9 @@ struct ShellView: View {
         }
         .sheet(item: $shell.messagingChief) { subject in
             ChiefMessageAboutSheet(subject: subject, sending: shell.sendingToChief) { text in shell.sendToChief(text, about: subject) }
+        }
+        .sheet(item: $shell.messagingChiefText) { draft in
+            ChiefMessageAboutSheet(subject: nil, initialText: draft.text, sending: shell.sendingToChief) { text in shell.sendToChief(text) }
         }
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }
@@ -567,7 +656,7 @@ struct ShellView: View {
         // A named Home conversation link may arrive before the Mac's Home
         // rows or Cloud Chief are loaded; continue the pending route as those
         // owners publish their identities, instead of opening another Chief.
-        .onChange(of: MacHomeFeed.shared.rows) { _, _ in
+        .onChange(of: MacHomeFeed.shared.rowsRevision) { _, _ in
             if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
         }
         .onChange(of: ChiefSources.shared.cloud.conversationID) { _, _ in
@@ -594,6 +683,9 @@ struct ShellView: View {
             PushRegistration.shared.setPreferences(preferences)
         }
         .onAppear {
+            LaunchMarks.shared.markNextFrame("shell_frame")
+            // The terminal engine starts when the main thread first idles, not in the first terminal tap.
+            TerminalEngineWarmup.shared.schedule()
             NotificationRouter.shared.isShowing = { [weak shell] route in shell?.isShowing(route) ?? false }
             // On the model SwiftUI keeps (init also builds throwaway ones).
             FeedRouting.shared.openTerminal = { [weak shell] item in shell?.openTerminal(item) }
@@ -698,6 +790,8 @@ private struct LinkSettingsObserver: ViewModifier {
                 // moment) still shows the page: only the background hides it.
                 // Hidden pages stop painting on the Mac and give up the lane.
                 StreamedBrowserDirectory.shared.setAppActive(phase != .background)
+                // Relative times stop ticking unseen, and read the time at once on return.
+                MinuteClock.shared.setActive(phase != .background)
                 // The notification preview shows these chats' last messages.
                 if phase == .background {
                     shell.live?.background()
@@ -726,6 +820,7 @@ extension CmuxMobileModel.TransportKind {
 private struct LiveCallHost: ViewModifier {
     let shell: ShellModel
     private let call = ChiefLiveCall.shared
+    private let voice = AgentVoiceMode.shared
 
     func body(content: Content) -> some View {
         content
@@ -734,9 +829,15 @@ private struct LiveCallHost: ViewModifier {
                     LiveCallPill(call: call, session: session)
                         .padding(.top, 2)
                         .transition(.move(edge: .top).combined(with: .opacity))
+                } else if let session = voice.session {
+                    // Voice mode on an agent session: captions, mute and end, over every screen.
+                    AgentVoiceBar(mode: voice, session: session)
+                        .padding(.top, 2)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            .animation(theme.motion.snappy.animation, value: call.isMinimized)
+            .animation(theme.motion.snappy.animation.unlessReduceMotion, value: call.isMinimized)
+            .animation(theme.motion.snappy.animation.unlessReduceMotion, value: voice.session?.id)
             .fullScreenCover(isPresented: Binding(
                 get: { call.showsScreen },
                 set: { if !$0 { call.isMinimized = true } }
@@ -749,14 +850,21 @@ private struct LiveCallHost: ViewModifier {
                 let user = shell.auth.isSignedIn ? shell.auth.user : nil
                 call.configure(store: shell.store, accountID: user?.id,
                                userName: user?.name.split(separator: " ").first.map(String.init))
-                ChiefCallLauncher.shared.handler = { [shell] in shell.callChief() }
+                ChiefCallLauncher.shared.handler = { [shell] chief in shell.callChief(chief) }
+                voice.install(accountID: user?.id)
+                voice.openKeySettings = { [shell] in shell.openChiefCallSettings() }
+                // One audio line at a time: voice mode ends a Chief call, a Chief call ends voice mode.
+                voice.endOtherAudio = { [call] in call.close() }
                 AgentChatLauncher.shared.handler = { [shell] prompt in shell.startAgentChat(prompt: prompt) }
                 ChiefMessenger.shared.compose = { [weak shell] subject in shell?.messagingChief = subject }
+                ChiefMessenger.shared.composeText = { [weak shell] text in shell?.messagingChiefText = ChiefTextDraft(text: text) }
             }
             .onDisappear {
                 ChiefCallLauncher.shared.handler = nil
+                voice.install(accountID: nil)
                 AgentChatLauncher.shared.handler = nil
                 ChiefMessenger.shared.compose = nil
+                ChiefMessenger.shared.composeText = nil
             }
     }
 }
@@ -779,12 +887,16 @@ struct ShellTabs: View {
             }
             Tab("Workspaces", systemImage: "square.stack.3d.up", value: RootTab.workspaces) {
                 WorkspacesScreen(shell: shell)
+                    .newTaskButton(creator: shell.creator, store: shell.store, atRoot: shell.workspacesPath.isEmpty,
+                                   started: { shell.startedTask($0) })
                     .modifier(TabBarVisibility(shell: shell, tab: .workspaces))
                     .modifier(TabBarProbeHost())
             }
             .badge(shell.store.attentionCount)
             Tab("Feed", systemImage: "bubble.left.and.text.bubble.right", value: RootTab.feed) {
                 FeedTabContent(shell: shell)
+                    .newTaskButton(creator: shell.creator, store: shell.store, atRoot: shell.feedPath.isEmpty,
+                                   started: { shell.startedTask($0) })
                     .modifier(TabBarVisibility(shell: shell, tab: .feed))
                     .modifier(TabBarProbeHost())
             }
@@ -800,6 +912,11 @@ struct ShellTabs: View {
                     sizing: shell.sizingService,
                     callChief: { shell.callChief() },
                     screenSharing: shell.screenSharing,
+                    cloudPages: shell.live == nil || ChiefCloudConfig.current(buildSpace: .nightly) == nil ? nil : SettingsCloudPages(
+                        machines: { AnyView(CloudMachinesScreen(openChats: { shell.cloudChats = ShellModel.CloudChatsPresentation(attention: nil) })) },
+                        automations: { AnyView(CloudAutomationsScreen()) },
+                        connectGitHub: { AnyView(GitHubConnectRow()) }
+                    ),
                     inviteToTeam: { shell.invite(to: $0) },
                     saveAppearance: { shell.saveAppearance($0, for: $1) }
                 ) {
@@ -812,6 +929,9 @@ struct ShellTabs: View {
         .tabBarMinimizeBehavior(.never)
         .tint(theme.colors.label.color)
         .cmuxMobileSensoryFeedback(.selection, trigger: shell.tab)
+        // A closed ask's notification leaves Notification Center; only when an ask opens or
+        // closes, or the Feed finishes reading its Macs.
+        .task(id: NeedsYouNotices.key(FeedStore.shared)) { await NeedsYouNotices.sync(FeedStore.shared) }
     }
 }
 

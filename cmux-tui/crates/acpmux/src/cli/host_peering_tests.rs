@@ -315,7 +315,7 @@ async fn peer_never_overwrites_a_name_taken_by_another_url() {
         let r = peer_with(&fake, &target(None), fix).await;
         assert_eq!(r.state, StepState::Fail);
         assert!(r.detail.contains("already the peer at ssh://other-box"), "{}", r.detail);
-        assert!(r.fix.as_deref().unwrap_or("").contains("host rm hb"));
+        assert!(r.fix.as_deref().unwrap_or("").contains("machine rm hb"));
     }
     assert!(!fake.mutated_here());
     // The same destination spelled with the default port is the same peer.
@@ -367,7 +367,7 @@ async fn peer_back_never_overwrites_a_name_taken_there() {
         let r = peer_back_with(&fake, &target(None), fix).await;
         assert_eq!(r.state, StepState::Fail);
         assert!(r.detail.contains("already has a peer named cosmic at ssh://somewhere-else"));
-        assert!(r.fix.as_deref().unwrap_or("").contains("host rm cosmic"));
+        assert!(r.fix.as_deref().unwrap_or("").contains("machine rm cosmic"));
     }
     assert!(!fake.mutated_there());
 }

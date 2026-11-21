@@ -19,7 +19,8 @@ export const newTabComposerTrailingGap = defineExperiment({
       description: "The legacy 8px action gap.",
     },
   },
-  defaultArm: "shared",
+  // Leo, 2026-11-04, picking among the review council's top three: "Tight is fine for that thing."
+  defaultArm: "tight",
 });
 
 export type NewTabComposerTrailingGapArm = keyof typeof newTabComposerTrailingGap.arms;

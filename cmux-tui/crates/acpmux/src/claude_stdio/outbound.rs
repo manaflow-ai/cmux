@@ -13,11 +13,13 @@ impl Translator {
                 match m.as_str() {
                     method::INITIALIZE => {
                         self.pending.lock().await.insert(id.to_string(), Pending::Initialize);
+                        let suggestions = prompt_suggestions::enabled_in_settings();
                         let mut lines = vec![json!({
                             "type": "control_request",
                             "request_id": format!("init-{}", id),
-                            "request": initialize_request()
+                            "request": initialize_request(suggestions)
                         })];
+                        lines.extend(self.suggestion_init(id, suggestions));
                         // Ultracode and fast mode survive a respawn on the live channel
                         // (no CLI flag); the answer ("boot-*") needs no reply.
                         let effort = self.effort.lock().await.clone();
@@ -115,6 +117,9 @@ impl Translator {
                         // Claude Code echoes the line with this uuid when it reads it.
                         let uuid = uuid::Uuid::now_v7().to_string();
                         let line = json!({"type": "user", "uuid": uuid, "message": {"role": "user", "content": content}});
+                        // Suggestions only after a person's own turn (`prompt_suggestions.rs`):
+                        // the pause line goes ahead of the prompt.
+                        let pause = self.suggestion_turn(&p, &uuid);
                         // A new prompt of the hub's: no carried turn waits for one any more.
                         self.clear_carry().await;
                         self.in_turn.store(true, Ordering::SeqCst);
@@ -124,6 +129,7 @@ impl Translator {
                         self.compacting.store(false, Ordering::SeqCst);
                         self.turn_output.store(false, Ordering::SeqCst);
                         *self.prompt_echo.lock().await = Some(uuid);
+                        self.prompt_queued.store(false, Ordering::SeqCst);
                         self.cancelled.store(false, Ordering::SeqCst);
                         self.step_stopped.store(false, Ordering::SeqCst);
                         let mut pending = self.pending.lock().await;
@@ -133,7 +139,7 @@ impl Translator {
                             .map(|(k, _)| k.clone())
                             .collect();
                         pending.insert(id.to_string(), Pending::Prompt);
-                        Outbound::Lines(vec![line])
+                        Outbound::Lines(pause.into_iter().chain([line]).collect())
                     }
                     method::SESSION_SET_MODE => {
                         let mode =
@@ -216,6 +222,7 @@ impl Translator {
                                     json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "apply_flag_settings", "settings": settings}}),
                                 ])
                             }
+                            prompt_suggestions::OPTION => self.set_suggestions(id, &val).await,
                             ULTRACODE_OPTION => {
                                 // On runs Ultracode (xhigh plus the setting); Off keeps xhigh.
                                 let effort = match val.as_str() {
@@ -317,6 +324,9 @@ impl Translator {
                             json!({"type": "control_request", "request_id": format!("bg-{}", id), "request": request}),
                         ])
                     }
+                    FOREGROUND_WORK => {
+                        Outbound::Reply(Message::ok(id.clone(), self.foreground_work().await))
+                    }
                     MCP_RECONNECT => {
                         let server = p.get("server").and_then(Value::as_str).unwrap_or("");
                         if server.is_empty() {
@@ -388,6 +398,7 @@ impl Translator {
                             "request": {"subtype": "side_question", "question": RECAP_PROMPT},
                         })])
                     }
+                    RENAME => self.rename(id, &p).await,
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     method::MUX_STEER_WITHDRAW => self.withdraw_steer(id, &p).await,
                     // Send now on a steer Claude Code has not read: its step stops, so it
@@ -438,6 +449,10 @@ impl Translator {
                 }
             }
             Message::Response { id, result, error } => {
+                // The hub answered the policy gate about a tool call (`policy_gate.rs`).
+                if let Some(reply) = self.gate_answer(id, result.as_ref(), error.is_some()).await {
+                    return Outbound::Lines(vec![reply]);
+                }
                 // The hub answered a permission request we raised.
                 // The request and its form (an elicitation's) are taken under
                 // the request map's lock, as a withdrawal takes them
@@ -552,11 +567,29 @@ fn resource_text(b: &Value) -> String {
 /// stopped by the user so it is never resumed. With it the interrupt stops only the turn, as Esc
 /// does in the CLI, and background work runs on and reports when it ends (Leo, 2026-10-31:
 /// "WELL THAT STOP BUTTON STOPPED LITERALLY EVERYTHING").
-pub(super) fn initialize_request() -> Value {
-    json!({
+///
+/// `promptSuggestions` asks for a predicted next prompt after each turn (`prompt_suggestions.rs`).
+pub(super) fn initialize_request(suggestions: bool) -> Value {
+    let mut request = json!({
         "subtype": "initialize",
         "hooks": {},
         "supportedDialogKinds": ["ask_user_question", "exit_plan_mode", "permission"],
         "perTaskStopAffordance": true,
-    })
+    });
+    // The policy gate is its own matcher: its own timeout, and a failure blocks the call
+    // (`policy_gate.rs`).
+    #[cfg(unix)]
+    request.set(
+        "hooks",
+        json!({"PreToolUse": [{
+            "matcher": "*", "hookCallbackIds": [super::hook_callback::SYNC_CALLBACK], "timeout": 90
+        }, {
+            "matcher": "*", "hookCallbackIds": [super::policy_gate::GATE_CALLBACK],
+            "timeout": super::policy_gate::GATE_TIMEOUT_S, "onFailure": "block"
+        }]}),
+    );
+    if suggestions {
+        request.set("promptSuggestions", json!(true));
+    }
+    request
 }

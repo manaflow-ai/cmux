@@ -4,6 +4,7 @@
 // ("session changed", a streamed event's kind) for a lost link and marked checkpoints unsupported.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "cmux-agent://pane/index.html",
@@ -55,12 +56,8 @@ const { createRoot } = await import("react-dom/client");
 const fixtures = await import("../src/gallery/fixtures/acpmux");
 const { AcpmuxApp } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
@@ -198,8 +195,10 @@ test("a Cloud chat whose open failed on an open socket shows its paused machine'
   const resume = () => dom.window.document.querySelector('[data-action="resumeMachine"]');
   try {
     await act(async () => root.render(<AcpmuxApp />));
-    for (let tries = 0; tries < 500 && !resume(); tries += 1)
-      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    // The paused card shows once the pause has lasted RESUME_NOTE_DELAY_MS (afterDelay.ts): wait
+    // for it, with a cap well past that threshold.
+    const deadline = Date.now() + 5_000;
+    while (!resume() && Date.now() < deadline) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(reads.length).toBeGreaterThan(0);
     expect(resume()).not.toBeNull();
   } finally {

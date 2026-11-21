@@ -137,6 +137,59 @@ fn snapshot_requests_are_throttled_per_viewer() {
     assert_eq!(gate.request(start + SNAPSHOT_REQUEST_MIN_INTERVAL), SnapshotAdmission::Accepted);
 }
 
+/// u2841 "scrollback breaks on resize": a view whose own history reflow did
+/// not match after a resize shows the READY without its scrollback and asks
+/// for READY + history. A throttled request (a full snapshot went out less
+/// than 500 ms before, as in a resize burst) must still get its snapshot when
+/// the interval ends, or the scrollback stays lost.
+#[test]
+fn throttled_snapshot_request_gets_its_snapshot_when_the_interval_ends() {
+    let lifecycle = AttachLifecycle::default();
+    let (_tap, receiver) = AttachTap::snapshot_pair(lifecycle, 16, 1 << 20);
+    let gate = SnapshotRequestGate::new(receiver.snapshot_request_handle());
+    let start = Instant::now();
+    receiver.finish_snapshot_locked();
+    gate.sent(start);
+    assert_eq!(
+        gate.request(start + Duration::from_millis(200)),
+        SnapshotAdmission::Throttled { retry_after_ms: 300 }
+    );
+    let due = start + SNAPSHOT_REQUEST_MIN_INTERVAL;
+    assert_eq!(gate.deferred_at(), Some(due));
+    // A second throttled request waits for the same snapshot.
+    assert_eq!(
+        gate.request(start + Duration::from_millis(300)),
+        SnapshotAdmission::Throttled { retry_after_ms: 200 }
+    );
+    assert!(!gate.fire_deferred(due - Duration::from_millis(1)));
+    assert!(gate.fire_deferred(due));
+    assert_eq!(gate.deferred_at(), None);
+    assert!(is_snapshot(&next_event(&receiver)));
+    receiver.finish_snapshot_locked();
+    gate.sent(due);
+    // One snapshot answered both requests.
+    assert!(!gate.fire_deferred(due + SNAPSHOT_REQUEST_MIN_INTERVAL));
+    assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
+}
+
+#[test]
+fn snapshot_sent_meanwhile_answers_a_throttled_request() {
+    let lifecycle = AttachLifecycle::default();
+    let (_tap, receiver) = AttachTap::snapshot_pair(lifecycle, 16, 1 << 20);
+    let gate = SnapshotRequestGate::new(receiver.snapshot_request_handle());
+    let start = Instant::now();
+    receiver.finish_snapshot_locked();
+    gate.sent(start);
+    assert!(matches!(
+        gate.request(start + Duration::from_millis(100)),
+        SnapshotAdmission::Throttled { .. }
+    ));
+    // A backlog or grid-change snapshot goes out before the interval ends.
+    gate.sent(start + Duration::from_millis(200));
+    assert_eq!(gate.deferred_at(), None);
+    assert!(!gate.fire_deferred(start + Duration::from_secs(5)));
+}
+
 #[test]
 fn snapshot_request_after_the_viewer_left_is_not_attached() {
     let lifecycle = AttachLifecycle::default();
@@ -179,7 +232,7 @@ fn flood_with_a_slow_snapshot_viewer_stays_bounded_and_resyncs() {
     let pty = surface.as_pty().unwrap();
     let cap = DEFAULT_VIEWER_BACKLOG_BYTES;
     let stream = surface.attach_snapshot_stream(AttachLifecycle::default(), cap, false).unwrap();
-    let first = surface.take_viewer_snapshot(&stream.receiver, None).unwrap();
+    let first = surface.take_viewer_snapshot(&stream.receiver).unwrap();
     stream.requests.sent(Instant::now());
 
     let file =
@@ -214,7 +267,7 @@ fn flood_with_a_slow_snapshot_viewer_stays_bounded_and_resyncs() {
     // The viewer drains: its next event is a snapshot, not the backlog.
     assert!(is_snapshot(&next_event(&stream.receiver)));
     let resync_started = Instant::now();
-    let last = surface.take_viewer_snapshot(&stream.receiver, None).unwrap();
+    let last = surface.take_viewer_snapshot(&stream.receiver).unwrap();
     let resync_elapsed = resync_started.elapsed();
     assert!(last.offset >= first.offset + fed as u64, "offset counts every published byte");
     let host = surface.encode_terminal_snapshot(SnapshotPhase::Ready).unwrap();
@@ -279,7 +332,7 @@ fn snapshot_encode_waits_for_an_oversized_escape_sequence_to_finish() {
         pty.broadcast_attach_output(&normalized);
     }
     assert!(is_snapshot(&next_event(&stream.receiver)));
-    assert!(surface.take_viewer_snapshot(&stream.receiver, None).is_err());
+    assert!(surface.take_viewer_snapshot(&stream.receiver).is_err());
     stream.receiver.defer_snapshot();
     // The sequence ends; the next output brings the snapshot back.
     {
@@ -288,7 +341,7 @@ fn snapshot_encode_waits_for_an_oversized_escape_sequence_to_finish() {
         pty.broadcast_attach_output(&normalized);
     }
     assert!(is_snapshot(&next_event(&stream.receiver)));
-    assert!(surface.take_viewer_snapshot(&stream.receiver, None).is_ok());
+    assert!(surface.take_viewer_snapshot(&stream.receiver).is_ok());
     drop(stream);
     surface.kill();
 }
@@ -300,7 +353,7 @@ fn only_a_grid_change_resyncs_a_snapshot_viewer() {
         Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
     let stream =
         surface.attach_snapshot_stream(AttachLifecycle::default(), 1 << 20, false).unwrap();
-    surface.take_viewer_snapshot(&stream.receiver, None).unwrap();
+    surface.take_viewer_snapshot(&stream.receiver).unwrap();
     let (generation, _) = surface.snapshot_stream_position().unwrap();
     let (width, height) = surface.cell_pixel_size();
     surface.set_cell_pixel_size(width + 1, height + 1).unwrap();
@@ -402,7 +455,6 @@ fn local_ready(generation: u64, offset: u64, cols: u16) -> Arc<LocalReadySnapsho
             colors: TerminalColors::default(),
             marker_epoch: 0,
             active_top_marker: 0,
-            images: None,
         },
         history_rows: 7,
         history_digest: vec![0xab; 32],
@@ -532,39 +584,4 @@ fn a_viewer_without_local_history_ignores_local_readies() {
     assert!(tap.try_send_resize(resized(60), Some(&ready)));
     assert_eq!(receiver.resyncs(), 1);
     assert!(is_snapshot(&next_event(&receiver)));
-}
-
-// ---- terminal-snapshot-images-v1 --------------------------------------
-
-/// The images of a READY are encoded at its cut with the viewer's cap: an
-/// image over the cap is counted in `skipped_images`, and a viewer without
-/// images gets none.
-#[test]
-fn viewer_snapshot_images_respect_the_cap_and_the_opt_in() {
-    let mux = Mux::new_for_test("snapshot-images-cap", SurfaceOptions::default());
-    let surface =
-        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-    let stream =
-        surface.attach_snapshot_stream(AttachLifecycle::default(), 1 << 20, false).unwrap();
-    // Two placed 4x4 RGBA images (64 decoded bytes each).
-    let pixels = format!("{}AA==", "A".repeat(84));
-    for id in [1, 2] {
-        let image = format!("\x1b_Ga=T,t=d,f=32,i={id},p=1,s=4,v=4,c=2,r=1,q=2;{pixels}\x1b\\\r\n");
-        surface.inject_output_for_test(image.as_bytes());
-    }
-    let stored = surface
-        .with_terminal(|term| term.kitty_graphics_snapshot().map(|graphics| graphics.images.len()))
-        .unwrap()
-        .unwrap();
-    assert_eq!(stored, 2, "the host stores both images");
-
-    let none = surface.take_viewer_snapshot(&stream.receiver, None).unwrap();
-    assert!(none.images.is_none(), "no images without the opt-in");
-    let all = surface.take_viewer_snapshot(&stream.receiver, Some(u64::MAX)).unwrap();
-    let all = all.images.expect("images at the cut");
-    assert_eq!((all.stats.images, all.stats.skipped_images), (2, 0), "{:?}", all.stats);
-    assert_eq!(all.data, surface.encode_kitty_replay_for_test(u64::MAX).unwrap().0);
-    let capped = surface.take_viewer_snapshot(&stream.receiver, Some(64)).unwrap();
-    let capped = capped.images.expect("images at the cut");
-    assert_eq!((capped.stats.images, capped.stats.skipped_images), (1, 1), "{:?}", capped.stats);
 }

@@ -49,7 +49,7 @@ extension SidebarController {
         guard let i = item(h), let c = Self.element(snapshot.items, i) else { return false }
         guard !Self.isExtra(c.id), delegate?.sidebar(self, actionsFor: c.id).contains(.pin) == true else { return false }
         let state = pinDragState
-        state.animates = CmuxSidebarView.animatesMovement
+        state.animates = animates && CmuxSidebarView.animatesMovement
         let frame: CGRect
         // Where the lifted avatar starts (ghost center and scale): a tile lifts in place; a row's
         // avatar leaves the row's own avatar and grows to a tile's under the pointer (no jump).
@@ -65,8 +65,9 @@ extension SidebarController {
             frame = CGRect(x: p.x - toAvatar.x - tileSize.width / 2, y: p.y - toAvatar.y - tileSize.height / 2,
                            width: tileSize.width, height: tileSize.height)
             state.drag = SidebarPinDrag(id: c.id, source: .row, pinned: pinnedIDs)
-            let scale = SidebarMetrics.avatar / max(1, ar.width)
-            let rowAvatar = CGPoint(x: metrics.rowAvatarX + SidebarMetrics.avatar / 2, y: rowRect(r).midY)
+            let row = rowRect(r), own = metrics.rowAvatar(rowHeight: row.height)
+            let scale = own.width / max(1, ar.width)
+            let rowAvatar = CGPoint(x: own.midX, y: row.minY + own.midY)
             start = (CGPoint(x: rowAvatar.x - toAvatar.x * scale, y: rowAvatar.y - toAvatar.y * scale), scale)
         }
         state.grab = CGSize(width: p.x - frame.midX, height: p.y - frame.midY)
@@ -90,12 +91,12 @@ extension SidebarController {
         guard state.animates else { return true }
         // The ghost's model follows the pointer on every move; the lift is an additive offset
         // that springs to zero, so the pointer is never waited for.
-        let lift = spring("transform.scale")
+        let lift = Self.pinDragSpring("transform.scale")
         lift.fromValue = start?.scale ?? 1
         lift.toValue = SidebarPinDragState.lift
         ghost.add(lift, forKey: "cmux.pinDrag.lift")
         if let start {
-            let offset = spring("position")
+            let offset = Self.pinDragSpring("position")
             offset.isAdditive = true
             offset.fromValue = NSValue(point: CGPoint(x: start.position.x - ghost.position.x, y: start.position.y - ghost.position.y))
             offset.toValue = NSValue(point: .zero)
@@ -143,7 +144,7 @@ extension SidebarController {
         avatar.contentsScale = renderContext.scale
         avatar.minificationFilter = .trilinear
         ghost.addSublayer(avatar)
-        if !metrics.compact, let name = SidebarDraw.tileNameImage(c, emphasized: false, keyWidth: SidebarDraw.tileNameKeyWidth(
+        if let name = SidebarDraw.tileNameImage(c, emphasized: false, keyWidth: SidebarDraw.tileNameKeyWidth(
             natural: SidebarDraw.tileNatural(c).name, tileWidth: tileSize.width), ctx: renderContext) {
             let label = CALayer()
             let w = CGFloat(name.width) / renderContext.scale
@@ -320,7 +321,7 @@ extension SidebarController {
             }
             let from = was.map { $0 - top(l) } ?? residual
             guard abs(from) > 0.01 else { continue }
-            let a = spring("transform.translation.y")
+            let a = Self.pinDragSpring("transform.translation.y")
             a.fromValue = from
             a.toValue = 0
             l.add(a, forKey: "cmux.pinDrag.shift")
@@ -330,11 +331,13 @@ extension SidebarController {
         if landedAsTile { ghost.removeFromSuperlayer(); return }
         // Unpinned, or a row that stayed a row: the ghost's avatar shrinks onto the row's avatar and fades.
         let ar = SidebarDraw.tileAvatar(metrics)
-        let scale = SidebarMetrics.avatar / max(1, ar.width)
+        var scale = SidebarMetrics.avatar / max(1, ar.width)
         var to = ghost.position
         if let id = landingID, case let .row(r)? = position(of: id) {
+            let row = rowRect(r), own = metrics.rowAvatar(rowHeight: row.height)
+            scale = own.width / max(1, ar.width)
             let offset = CGPoint(x: ar.midX - tileSize.width / 2, y: ar.midY - tileSize.height / 2)
-            to = CGPoint(x: metrics.rowAvatarX + SidebarMetrics.avatar / 2 - offset.x * scale, y: rowRect(r).midY - offset.y * scale)
+            to = CGPoint(x: own.midX - offset.x * scale, y: row.minY + own.midY - offset.y * scale)
         }
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.22)
@@ -371,17 +374,22 @@ extension SidebarController {
         l.add(a, forKey: "cmux.pinDrag.fade")
     }
 
-    private func spring(_ keyPath: String) -> CASpringAnimation {
+    /// The one spring of a pin drag (the lift, the drop and every row or tile that makes room). Not
+    /// private: `NoBouncePinDragSpringTests` steps the animation the drag adds.
+    static func pinDragSpring(_ keyPath: String) -> CASpringAnimation {
         let a = CASpringAnimation(keyPath: keyPath)
         a.mass = 1
-        a.stiffness = 320
-        a.damping = 30
+        // Critically damped (damping ratio 1): it never passes its target. 95 % of the way in 202 ms,
+        // the time of the spring before it (stiffness 320, damping 30, ratio 0.84, 0.8 % past the
+        // target): stiffness = (4.744 / 0.2019 s)^2.
+        a.stiffness = 552
+        a.damping = 2 * a.stiffness.squareRoot()
         a.duration = a.settlingDuration
         return a
     }
 
     private func animatePosition(_ l: CALayer, from: CGPoint) {
-        let a = spring("position")
+        let a = Self.pinDragSpring("position")
         a.fromValue = NSValue(point: from)
         a.toValue = NSValue(point: l.position)
         l.add(a, forKey: "cmux.pinDrag.position")
@@ -403,7 +411,7 @@ extension SidebarController {
         l.transform = CATransform3DMakeTranslation(0, dy, 0)
         CATransaction.commit()
         guard animated else { return }
-        let a = spring("transform.translation.y")
+        let a = Self.pinDragSpring("transform.translation.y")
         a.fromValue = from
         a.toValue = dy
         l.add(a, forKey: "cmux.pinDrag.shift")

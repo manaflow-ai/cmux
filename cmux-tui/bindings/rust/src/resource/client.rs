@@ -247,6 +247,9 @@ struct SharedClient {
 #[derive(Clone)]
 pub struct Client {
     shared: Arc<SharedClient>,
+    /// The request-origin claim this handle puts on every request
+    /// ([`Self::with_origin_claim`]); none keeps the derived origin.
+    origin: Option<&'static str>,
 }
 
 impl std::fmt::Debug for Client {
@@ -312,12 +315,31 @@ impl Client {
                 closed: AtomicBool::new(false),
                 capabilities,
             }),
+            origin: None,
         }
         .declared_on_control()
     }
 
     pub fn config(&self) -> &Config {
         &self.shared.config
+    }
+
+    /// A handle on the same connection whose requests carry the
+    /// request-origin claim `claim` (`page`, `agent`, `app` or `user`;
+    /// spec/resource-api-v2.md "origin"). A claim may only narrow the
+    /// origin the daemon derives for the connection, never widen it: an
+    /// agent's CLI says `agent` so history tells it from the person.
+    pub fn with_origin_claim(&self, claim: &str) -> Result<Self> {
+        let origin = match claim {
+            "page" => "page",
+            "agent" => "agent",
+            "app" => "app",
+            "user" => "user",
+            other => {
+                return Err(Error::InvalidArgument(format!("unknown origin claim {other:?}")));
+            }
+        };
+        Ok(Self { shared: Arc::clone(&self.shared), origin: Some(origin) })
     }
 
     /// Explicitly closes the shared control connection.
@@ -361,7 +383,7 @@ impl Client {
             operation,
             params,
             None,
-            OperationClass::Read,
+            ClassCheck::Table(OperationClass::Read),
             self.scoped_request_options(),
             &mut dispatched,
         )
@@ -377,7 +399,7 @@ impl Client {
             operation,
             params,
             None,
-            OperationClass::ConnectionControl,
+            ClassCheck::Table(OperationClass::ConnectionControl),
             self.scoped_request_options(),
             &mut dispatched,
         )
@@ -386,8 +408,18 @@ impl Client {
     pub(crate) fn mutate(
         &self,
         operation: &'static str,
+        params: Params,
+        options: MutationOptions,
+    ) -> Result<Value> {
+        self.mutate_checked(operation, params, options, ClassCheck::Table(OperationClass::Mutation))
+    }
+
+    fn mutate_checked(
+        &self,
+        operation: &str,
         mut params: Params,
         options: MutationOptions,
+        class: ClassCheck,
     ) -> Result<Value> {
         let request_options = options.request.merged_over(&self.scoped_request_options());
         let idempotency_key = options.idempotency_key;
@@ -399,7 +431,7 @@ impl Client {
             operation,
             params,
             Some(idempotency_key.clone()),
-            OperationClass::Mutation,
+            class,
             request_options,
             &mut dispatched,
         ) {
@@ -422,8 +454,79 @@ impl Client {
                 "{operation} is not a stream-open operation"
             )));
         }
-        let id = self.next_request_id();
         let item_validator = super::typed_stream::stream_item_validator(operation)?;
+        self.open_stream(operation, params, item_validator)
+    }
+
+    /// One generic `cmux.protocol/2` request for any daemon operation, by
+    /// name: the escape hatch beside the typed methods, so a new daemon
+    /// operation needs no SDK change. The caller states the operation's
+    /// kind instead of the SDK's table; the envelope, the request and
+    /// response limits, the deadline and cancellation scope ([`Self::with_request_options`]) and
+    /// the error decoding are the typed calls'. A [`CallKind::Mutation`]
+    /// carries its idempotency key: reuse the same [`MutationOptions`] to
+    /// retry a mutation whose outcome is unknown. `params` must be a JSON
+    /// object (or null for none) and is sent as given: name the `machine`
+    /// and `session` (`"current"`) when the operation takes them. Returns
+    /// the response's `result`.
+    pub fn call(&self, operation: &str, kind: CallKind, params: Value) -> Result<Value> {
+        let params = generic_params(operation, params)?;
+        match kind {
+            CallKind::Read => {
+                let mut dispatched = false;
+                self.request(
+                    operation,
+                    params,
+                    None,
+                    ClassCheck::Stated(OperationClass::Read),
+                    self.scoped_request_options(),
+                    &mut dispatched,
+                )
+            }
+            CallKind::Mutation(options) => self.mutate_checked(
+                operation,
+                params,
+                options,
+                ClassCheck::Stated(OperationClass::Mutation),
+            ),
+        }
+    }
+
+    /// Opens a generic `cmux.protocol/2` stream for any stream-open
+    /// operation, by name, on its own connection (as the typed streams do):
+    /// the SDK adds `stream_id`, and the stream yields every item as the
+    /// daemon sent it, up to the configured item and byte limits. Cancel it
+    /// with [`ResourceStream::cancel`]; dropping it closes its connection.
+    pub fn subscribe(&self, operation: &str, params: Value) -> Result<ResourceStream> {
+        let params = generic_params(operation, params)?;
+        self.open_stream(operation, params, accept_any_item)
+    }
+
+    /// Resolves a chat target selector (`cloud` or a machine id) against
+    /// the daemon's machine catalog, read now (`machine.list` with
+    /// `catalog: true`), and the caller's current cloud sign-in: see
+    /// [`crate::resolve_chat_target`]. The outer error is the read's; the
+    /// inner one is the refusal.
+    pub fn chat_target(
+        &self,
+        selector: &str,
+        signed_in: bool,
+    ) -> Result<std::result::Result<crate::ChatTarget, crate::ChatTargetRefusal>> {
+        let catalog =
+            self.call(ops::MACHINE_LIST, CallKind::Read, serde_json::json!({"catalog": true}))?;
+        Ok(crate::resolve_chat_target(selector, &catalog, signed_in))
+    }
+
+    fn open_stream(
+        &self,
+        operation: &str,
+        params: Params,
+        item_validator: super::stream::StreamItemValidator,
+    ) -> Result<ResourceStream> {
+        if self.is_closed() {
+            return Err(Error::Closed);
+        }
+        let id = self.next_request_id();
         let budget = CallBudget::new(self.scoped_request_options(), self.shared.config.timeout)?;
         budget.check(operation)?;
         let stream_id = random_stream_id()?;
@@ -434,7 +537,7 @@ impl Client {
         };
         let params = params.id(field::STREAM_ID, &stream_id);
         let cancel_params = params.cancellation_scope(&stream_id);
-        let envelope = request_envelope(&id, operation, params.into_value(), None);
+        let envelope = request_envelope(&id, operation, params.into_value(), None, self.origin);
         let mut connection = self.open_connection(operation, &budget)?;
         let send_timeout = budget.remaining(operation)?;
         connection.with_write_timeout(send_timeout, |connection| {
@@ -537,27 +640,36 @@ impl Client {
             cleanup_timeout: self.shared.config.timeout,
             item_validator,
             initial_envelopes,
+            origin: self.origin,
         })
     }
 
+    /// One request. `class` is checked against the SDK's operation table
+    /// (typed calls), or taken as the caller states it ([`Self::call`]).
     fn request(
         &self,
-        operation: &'static str,
+        operation: &str,
         params: Params,
         idempotency_key: Option<String>,
-        expected_class: OperationClass,
+        class: ClassCheck,
         request_options: RequestOptions,
         dispatched: &mut bool,
     ) -> Result<Value> {
         if self.is_closed() {
             return Err(Error::Closed);
         }
-        let actual_class = operation_class(operation);
-        if actual_class != expected_class {
-            return Err(Error::InvalidArgument(format!(
-                "{operation} is {actual_class:?}, not {expected_class:?}"
-            )));
-        }
+        let actual_class = match class {
+            ClassCheck::Table(expected_class) => {
+                let actual_class = operation_class(operation);
+                if actual_class != expected_class {
+                    return Err(Error::InvalidArgument(format!(
+                        "{operation} is {actual_class:?}, not {expected_class:?}"
+                    )));
+                }
+                actual_class
+            }
+            ClassCheck::Stated(class) => class,
+        };
         if (actual_class == OperationClass::Mutation) != idempotency_key.is_some() {
             return Err(Error::InvalidArgument(format!(
                 "{operation} has invalid idempotency policy"
@@ -569,7 +681,8 @@ impl Client {
         let budget = CallBudget::new(request_options, self.shared.config.timeout)?;
         budget.check(operation)?;
         let id = self.next_request_id();
-        let envelope = request_envelope(&id, operation, params.into_value(), idempotency_key);
+        let envelope =
+            request_envelope(&id, operation, params.into_value(), idempotency_key, self.origin);
         let mut connection = loop {
             match self.shared.control.try_lock() {
                 Ok(connection) => break connection,
@@ -639,7 +752,7 @@ impl Client {
             "request_id".to_string(),
             Value::String(target_id.to_string()),
         )]));
-        let envelope = request_envelope(&cancel_id, operation, params, None);
+        let envelope = request_envelope(&cancel_id, operation, params, None, self.origin);
         let send_timeout = budget.remaining(operation)?;
         connection.with_write_timeout(send_timeout, |connection| {
             connection.send_with_limit(&envelope, self.shared.config.max_request_bytes)
@@ -719,6 +832,39 @@ impl Client {
     }
 }
 
+/// What a [`Client::call`] does: a read, or a mutation with its
+/// idempotency key (and optional expected revision and request options).
+#[derive(Clone, Debug)]
+pub enum CallKind {
+    Read,
+    Mutation(MutationOptions),
+}
+
+/// Whether a request's class comes from the SDK's table or from its caller.
+#[derive(Clone, Copy, Debug)]
+enum ClassCheck {
+    Table(OperationClass),
+    Stated(OperationClass),
+}
+
+/// A generic call's params: a JSON object (null is none), sent as given;
+/// the operation name must be non-empty.
+fn generic_params(operation: &str, params: Value) -> Result<Params> {
+    if operation.trim().is_empty() {
+        return Err(Error::InvalidArgument("operation name must not be empty".to_string()));
+    }
+    match params {
+        Value::Null => Ok(Params::new()),
+        Value::Object(map) => Ok(Params::from_map(map)),
+        _ => Err(Error::InvalidArgument(format!("{operation} params must be a JSON object"))),
+    }
+}
+
+/// A generic stream's items are the daemon's, passed through unchanged.
+fn accept_any_item(_: &super::model::StreamItem) -> Result<()> {
+    Ok(())
+}
+
 fn discard_connection_after(error: &Error) -> bool {
     matches!(
         error,
@@ -736,6 +882,7 @@ pub(crate) fn request_envelope(
     operation: &str,
     params: Value,
     idempotency_key: Option<String>,
+    origin: Option<&str>,
 ) -> Value {
     let mut envelope = Map::from_iter([
         ("protocol".to_string(), Value::String(PROTOCOL.to_string())),
@@ -746,6 +893,10 @@ pub(crate) fn request_envelope(
     ]);
     if let Some(idempotency_key) = idempotency_key {
         envelope.insert("idempotency_key".to_string(), Value::String(idempotency_key));
+    }
+    if let Some(claim) = origin {
+        let claim = Map::from_iter([("claim".to_string(), Value::String(claim.to_string()))]);
+        envelope.insert("origin".to_string(), Value::Object(claim));
     }
     Value::Object(envelope)
 }

@@ -5,7 +5,7 @@ the clone about 1 s after the app exits. bench_memory.end_bundle and perf-bench 
 process of the bundle as soon as the app was gone, the helper too, so each launch left its clone until reboot
 (29 GB on cmux18, 2026-11-02). Fake process table and signals, no app, no process is started or signalled.
 Run: python3 -I scripts/cmux-next/tests/test_teardown_clone_cleanup.py"""
-import importlib.util, os, sys, unittest
+import importlib, os, sys, unittest
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -13,11 +13,13 @@ REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 
 
 def load(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
+    # Imported by name, never loaded by path: one module object per file (the script module load check).
+    assert os.path.splitext(os.path.basename(path))[0] == name, (name, path)
+    folder = os.path.dirname(path)
+    if folder not in sys.path:
+        sys.path.insert(0, folder)
     with mock.patch("ctypes.CDLL"):  # procs.py binds libproc at import; nothing here calls it
-        spec.loader.exec_module(module)
-    return module
+        return importlib.import_module(name)
 
 
 bench_memory = load("bench_memory", os.path.join(REPO, "scripts/cmux-next/bench_memory.py"))
@@ -102,6 +104,38 @@ class BenchMemoryEndBundle(unittest.TestCase):
         self.assertIn((CLEANUP, SIGTERM), host.sent)
         self.assertEqual(host.alive, {})
 
+
+
+class BenchMemoryEndProcesses(unittest.TestCase):
+    """end_processes waits once for the whole set and reaps its own exited children: kill(pid, 0) succeeds on an
+    unreaped zombie, so a probe-only wait held every exited child for both grace periods (20 s each)."""
+
+    def test_an_exited_child_is_reaped_not_waited_out(self):
+        import subprocess, time
+        child = subprocess.Popen(["sleep", "30"], start_new_session=True)  # this test's own child, never waited on
+        started = time.monotonic()
+        bench_memory.end_processes({child.pid})
+        elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 3, f"the teardown waited {elapsed:.1f} s on a zombie child")
+        with self.assertRaises(ChildProcessError):  # reaped: no zombie left behind
+            os.waitpid(child.pid, os.WNOHANG)
+
+    def test_one_deadline_for_every_pid(self):
+        clock, sent = [0.0], []
+
+        def kill(pid, sig):
+            sent.append((pid, sig))  # none of them ever exits
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        with mock.patch.object(bench_memory.os, "kill", kill), \
+                mock.patch.object(bench_memory.os, "waitpid", mock.Mock(side_effect=ChildProcessError)), \
+                mock.patch.object(bench_memory.time, "sleep", sleep), \
+                mock.patch.object(bench_memory.time, "monotonic", lambda: clock[0]):
+            bench_memory.end_processes({601, 602, 603}, grace=10, kill_grace=5)
+        self.assertLess(clock[0], 16, "each pid got its own grace period")
+        self.assertEqual(sorted(sig for _pid, sig in sent if sig), [SIGKILL] * 3 + [SIGTERM] * 3)
 
 class ProcsInstanceEnd(unittest.TestCase):
     def test_main_pid_is_never_the_cleanup_helper(self):

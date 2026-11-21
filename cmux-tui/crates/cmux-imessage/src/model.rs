@@ -47,6 +47,10 @@ pub struct Message {
     /// The text: `message.text`, or decoded from `attributedBody` when that column is empty.
     pub text: Option<String>,
     pub attachments: Vec<Attachment>,
+    /// The sender edited it after sending (`date_edited`); `text` is the latest version.
+    pub edited: bool,
+    /// The sender unsent it (`date_retracted`); `text` is then `None`.
+    pub unsent: bool,
 }
 
 /// An attachment's metadata. The mirror never copies the file.

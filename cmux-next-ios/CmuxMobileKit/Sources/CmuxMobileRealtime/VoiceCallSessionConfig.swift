@@ -83,6 +83,9 @@ public struct VoiceCallBriefing: Sendable, Equatable {
         You are \(chiefName), the user's chief of staff in cmux. cmux runs the user's coding agents \
         (Claude Code, Codex and others) in workspaces on their Macs. You are on a live voice call from \
         the user's iPhone. \(user) It is \(day).
+        The user called \(chiefName), and this call is with \(chiefName) only: read_chief_messages reads \
+        and send_to_chief writes \(chiefName)'s own chat. The user's other Chiefs are not on this call; \
+        never speak for them or say you sent them anything.
 
         How to talk:
         - Speak like a sharp, warm colleague on the phone: short sentences, one idea at a time, no lists \
@@ -106,7 +109,7 @@ public struct VoiceCallBriefing: Sendable, Equatable {
         \(chiefName) status: \(chiefStatus)
         """
         if !recentMessages.isEmpty {
-            text += "\n\nRecent messages in the Chief chat (oldest first):\n" + recentMessages.joined(separator: "\n")
+            text += "\n\nRecent messages in \(chiefName)'s chat (oldest first):\n" + recentMessages.joined(separator: "\n")
         }
         if !workspaces.isEmpty {
             text += "\n\nWorkspaces:\n" + workspaces.joined(separator: "\n")

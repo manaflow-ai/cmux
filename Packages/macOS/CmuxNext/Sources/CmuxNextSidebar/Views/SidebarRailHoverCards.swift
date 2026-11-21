@@ -35,6 +35,8 @@ final class SidebarRailHoverCards: HoverCardSource {
     // MARK: HoverCardSource
 
     var hoverCardWindow: NSWindow? { rail?.window }
+    /// The sidebar's rows and owner cards share one card that morphs between them.
+    var hoverCardGroup: HoverCardGroup? { .sidebar }
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
         guard let rail, let window = rail.window, !rail.isHiddenOrHasHiddenAncestor else { return nil }
@@ -89,7 +91,7 @@ final class SidebarRailCardView: NSView, HoverCardTextReporting {
         title.lineBreakMode = .byTruncatingTail
         key.font = Typography.caption
         dot.wantsLayer = true
-        dot.layer?.cornerRadius = 3
+        dot.layer?.cornerRadius = Metrics.capsuleRadius(CGSize(width: 6, height: 6))
         let stack = NSStackView(views: [dot, title, key])
         stack.orientation = .horizontal
         stack.alignment = .centerY

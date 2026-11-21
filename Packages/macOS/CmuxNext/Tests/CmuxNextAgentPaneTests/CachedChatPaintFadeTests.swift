@@ -18,7 +18,7 @@ struct CachedChatPaintFadeTests {
 
     @Test func aPaintReportCarriesWhetherThePageDrewAKeptTail() {
         let cached = AgentPaneRequest(body: ["method": "pane.painted", "params": ["drewKeptTail": true]])
-        guard case .painted(let fromKeptTail) = cached else { return #expect(Bool(false), "pane.painted did not parse") }
+        guard case .painted(let fromKeptTail, _) = cached else { return #expect(Bool(false), "pane.painted did not parse") }
         #expect(fromKeptTail, "the page said it drew a kept tail and the host did not keep that")
     }
 
@@ -26,11 +26,25 @@ struct CachedChatPaintFadeTests {
     /// is what the fade was made for, so the absent fact has to mean cold.
     @Test func aPaintReportWithoutTheFactMeansTheChatWasReadCold() {
         let bare = AgentPaneRequest(body: ["method": "pane.painted", "params": [:]])
-        guard case .painted(let fromKeptTail) = bare else { return #expect(Bool(false), "pane.painted did not parse") }
+        guard case .painted(let fromKeptTail, let settled) = bare else { return #expect(Bool(false), "pane.painted did not parse") }
         #expect(!fromKeptTail)
+        #expect(!settled, "a report that did not say settled was read as the settled view")
         let noParams = AgentPaneRequest(body: ["method": "pane.painted"])
-        guard case .painted(let withoutParams) = noParams else { return #expect(Bool(false), "pane.painted did not parse") }
+        guard case .painted(let withoutParams, let settledWithoutParams) = noParams else { return #expect(Bool(false), "pane.painted did not parse") }
         #expect(!withoutParams)
+        #expect(!settledWithoutParams)
+    }
+
+    /// hq#9655 stage 1: the page says its first frame was the chat's settled view; a value that is
+    /// not a Bool (a malformed or future page) reads as absent, never as settled.
+    @Test func aPaintReportCarriesWhetherItWasTheSettledView() {
+        let settled = AgentPaneRequest(body: ["method": "pane.painted", "params": ["settled": true]])
+        guard case .painted(let fromKeptTail, let isSettled) = settled else { return #expect(Bool(false), "pane.painted did not parse") }
+        #expect(isSettled, "the page said it drew the settled view and the host did not keep that")
+        #expect(!fromKeptTail)
+        let odd = AgentPaneRequest(body: ["method": "pane.painted", "params": ["settled": "yes"]])
+        guard case .painted(_, let oddSettled) = odd else { return #expect(Bool(false), "pane.painted did not parse") }
+        #expect(!oddSettled)
     }
 
     @Test func theModelKeepsWhatTheFirstPaintSaidItDrew() async {
@@ -42,6 +56,14 @@ struct CachedChatPaintFadeTests {
         _ = await cold.respond(to: AgentPaneRequest(body: ["method": "pane.painted"]))
         #expect(cold.hasPainted)
         #expect(!cold.paintedFromKeptTail)
+        #expect(!cold.paintedSettled)
+        let settled = AgentPaneModel(host: NoHost())
+        _ = await settled.respond(to: AgentPaneRequest(body: ["method": "pane.painted", "params": ["settled": true]]))
+        #expect(settled.hasPainted)
+        #expect(settled.paintedSettled)
+        // Only the first report describes the frame the hold ended on.
+        _ = await cold.respond(to: AgentPaneRequest(body: ["method": "pane.painted", "params": ["settled": true]]))
+        #expect(!cold.paintedSettled, "a later report rewrote what the first frame was")
     }
 
     /// The decision itself: a cached chat shows in one frame, a cold chat fades, and the two cases
@@ -52,5 +74,7 @@ struct CachedChatPaintFadeTests {
         #expect(AgentPaneView.pageFades(hasNewTab: false, isVisible: true, fromKeptTail: false))
         #expect(!AgentPaneView.pageFades(hasNewTab: true, isVisible: true, fromKeptTail: false))
         #expect(!AgentPaneView.pageFades(hasNewTab: false, isVisible: false, fromKeptTail: false))
+        #expect(!AgentPaneView.pageFades(hasNewTab: false, isVisible: true, fromKeptTail: false, settled: true),
+                "the settled view is the chat as it stands; the hold ends on it in one step")
     }
 }

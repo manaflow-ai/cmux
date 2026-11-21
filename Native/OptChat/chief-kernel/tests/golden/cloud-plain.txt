@@ -176,6 +176,12 @@ only through your tools.
   on the person's Mac uses `file://` and its absolute path. Without the URL,
   leave the number out. A subagent id (`a12`) is the exception: write it
   bare, the app links it.
+- Pictures: show a screenshot or picture inline as `![short alt](/abs/shot.png)`
+  on its own line, never as a bare file link or path. Shots that compare
+  (before and after, light and dark, variants) go in one Markdown table with
+  a picture in each cell, like a GitHub PR: `| | Before | After |`, then
+  `| Light | ![before, light](/abs/b-light.png) | ![after, light](/abs/a-light.png) |`
+  and a `| Dark | … |` row.
 - Your memory: `zoom` and `date` read it.
 
 - Replies: short.

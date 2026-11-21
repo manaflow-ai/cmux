@@ -20,7 +20,7 @@ Goal: ship the iOS path from current cmux main with Swift-owned app, session, tr
 
 ## Iroh Experiment
 
-`experiments/iroh-byte-transport` is the current Rust spike. It proves a single ALPN byte stream and prints an attach-route JSON object that the Swift `CmxAttachRoute` decoder accepts:
+`experiments/iroh-byte-transport` was the Rust spike (removed in #37552; see git history). It proved a single ALPN byte stream and printed an attach-route JSON object that the Swift `CmxAttachRoute` decoder accepts:
 
 ```text
 dev.cmux.mobile.terminal/0

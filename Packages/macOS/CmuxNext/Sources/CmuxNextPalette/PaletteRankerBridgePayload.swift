@@ -21,6 +21,7 @@ nonisolated struct PaletteRankerBridgeEntry: Encodable {
     let suggestedSectionIndex: Int?
     let entersScope: Bool
     let handles: [String]
+    let aliases: [String]
 
     init(_ entry: PaletteSearchEntry) {
         title = entry.title
@@ -43,6 +44,7 @@ nonisolated struct PaletteRankerBridgeEntry: Encodable {
         suggestedSectionIndex = entry.suggestedSectionIndex
         entersScope = entry.entersScope
         handles = entry.handles
+        aliases = entry.aliases
     }
 }
 
@@ -80,6 +82,22 @@ nonisolated struct PaletteRankerBridgeFrecency: Encodable {
         capacity = store.capacity
         let normalized = query.map(Self.normalized) ?? ""
         picks = store.picks.filter { !normalized.isEmpty && normalized.hasPrefix($0.prefix) }.map { pick in
+            PaletteRankerBridgePick(prefix: pick.prefix, key: pick.key, score: pick.score,
+                                    lastUsed: pick.lastUsed.timeIntervalSinceReferenceDate, last: pick.isLast)
+        }
+        pickHalfLife = store.pickHalfLife
+        hidden = store.hidden.sorted()
+    }
+
+    /// The whole history the ranker holds for a revision: every learned pick, since each query
+    /// reads its own starts' picks from it.
+    init(installing store: FrecencyStore) {
+        entries = store.entries.mapValues { entry in
+            PaletteRankerBridgeFrecencyEntry(score: entry.score, lastUsed: entry.lastUsed.timeIntervalSinceReferenceDate)
+        }
+        halfLife = store.halfLife
+        capacity = store.capacity
+        picks = store.picks.map { pick in
             PaletteRankerBridgePick(prefix: pick.prefix, key: pick.key, score: pick.score,
                                     lastUsed: pick.lastUsed.timeIntervalSinceReferenceDate, last: pick.isLast)
         }

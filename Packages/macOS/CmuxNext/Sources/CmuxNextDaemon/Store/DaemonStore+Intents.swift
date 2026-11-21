@@ -21,19 +21,21 @@ extension DaemonStore {
     /// carrying `transaction`, then calls `noteSettled` after the reply or
     /// `rejectIntent` when it failed.
     public func intend(_ intent: Intent, transaction: ClientTransactionID) {
+        // One monotonic read: the rollback record's time from shown to taken back (``SlowRequestLog``).
+        let shownAt = slowRequestLog?.uptime() ?? 0
         // A script batch's intent waits for its stage to commit (DaemonStore+Stage.swift).
         if let stage, stage.holds(intent, transaction: transaction, in: self) {
-            _ = intentLog.append(intent, transaction: transaction, held: true)
+            _ = intentLog.append(intent, transaction: transaction, held: true, shownAt: shownAt)
             return
         }
         if overlayLifted {
             // Applied with the rest when the lift ends.
-            _ = intentLog.append(intent, transaction: transaction)
+            _ = intentLog.append(intent, transaction: transaction, shownAt: shownAt)
             return
         }
         verifyMirrorUnchanged(before: "intent")
-        guard intentLog.append(intent, transaction: transaction) else { return }
-        if !intentLog.setUndo(IntentOverlay.apply(intent, to: self), at: intentLog.entries.count - 1) { reportMirrorViolation("intent log is empty after an append") }
+        guard intentLog.append(intent, transaction: transaction, shownAt: shownAt) else { return }
+        if !intentLog.setShown(IntentOverlay.show(intent, in: self), at: intentLog.entries.count - 1) { reportMirrorViolation("intent log is empty after an append") }
         recomputeSidebarIfNeeded()
         publishTabListChange()
         recordMirror()
@@ -66,8 +68,12 @@ extension DaemonStore {
 
     /// The command for `transaction` failed: the intent leaves the log and
     /// the visible state returns to the confirmed mirror (plus the others).
-    public func rejectIntent(_ transaction: ClientTransactionID) {
-        guard intentLog.contains(transaction) else { return }
+    /// `failure` is what refused it, for the slow request log's rollback record (its code only, never its message).
+    public func rejectIntent(_ transaction: ClientTransactionID, failure: (any Error)? = nil) {
+        guard let rejected = intentLog.entries.first(where: { $0.transaction == transaction }) else { return }
+        slowRequestLog?.noteRollback(name: rejected.kind.logName, startedAt: rejected.shownAt, failure: failure)
+        // A rejected close leaves its tabs: no longer closed (`closedLately`), so a new tab's move waits for them again.
+        if case .closeTabs(let surfaces)? = intentLog.entries.first(where: { $0.transaction == transaction })?.kind { intentLog.forgetClosed(Set(surfaces)) }
         withOverlayLifted(writer: "intent rejection") { settleIntent(transaction, .rejected) }
     }
 
@@ -115,9 +121,10 @@ extension DaemonStore {
         guard !overlayLifted else { return body() }
         verifyMirrorUnchanged(before: writer)
         overlayLifted = true
+        let held = holdOverlayPublication()
         liftOverlay()
         let result = body()
-        for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, in: self) }) {
+        for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, snapshot: snapshot, in: self) }) {
             intentSettlements.append((intent.transaction, .applied))
             noteIntentLeft(intent, rejected: false)
         }
@@ -127,15 +134,14 @@ extension DaemonStore {
         let confirmedTabs = debugTabCensus()
         restoreOverlay()
         overlayLifted = false
+        publishOverlayNetChange(held)
         recomputeSidebarIfNeeded()
         publishTabListChange()
         checkOverlayConservation(confirmed: confirmedTabs)
         recordMirror()
         workspaceListMayHaveChanged()
         // Observers see the visible state with the other intents on it.
-        let settled = intentSettlements
-        intentSettlements.removeAll()
-        for (transaction, settlement) in settled { onIntentSettled?(transaction, settlement) }
+        OverlayReports.send(from: self)
         CancelledCreation.requestCloses(in: self)
         // A create waiting for a stand-in's daemon pane goes on once this apply made or refused it.
         resolveStandInWaits()
@@ -146,8 +152,7 @@ extension DaemonStore {
     private func releaseSettledProvisionalPanes() {
         guard !provisionalPanes.isEmpty else { return }
         let pending = Set(intentLog.entries.compactMap { entry -> String? in
-            if !entry.closeWhenCreated, case .splitPane(_, _, _, let provisional) = entry.kind { return provisional.paneID }
-            return nil
+            entry.closeWhenCreated ? nil : entry.kind.provisionalPane?.paneID
         })
         provisionalPanes = provisionalPanes.filter { pending.contains($0.key) }
     }
@@ -240,7 +245,7 @@ extension DaemonStore {
     /// Applies every pending intent in order, recording each inverse.
     private func restoreOverlay() {
         for (index, entry) in intentLog.entries.enumerated() where !entry.held { // IntentOverlay never writes the log
-            if !intentLog.setUndo(IntentOverlay.restore(entry, to: self), at: index) { reportMirrorViolation("intent log has no entry \(index)") }
+            if !intentLog.setShown(IntentOverlay.showAgain(entry, in: self), at: index) { reportMirrorViolation("intent log has no entry \(index)") }
         }
     }
 }

@@ -1,4 +1,7 @@
 #if os(iOS)
+import CmuxMobileDesign
+import CmuxMobileMarkdown
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -27,16 +30,7 @@ struct ChiefLiveBubble: View {
         VStack(alignment: .leading, spacing: 6) {
             if let live = session.shownLive {
                 if let text = Self.replyText(live) {
-                    Text(text)
-                        .font(.body)
-                        .foregroundStyle(.primary)
-                        // The newest text: the head is cut, not the tail.
-                        .lineLimit(8)
-                        .truncationMode(.head)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(Color(uiColor: .systemGray5), in: .rect(cornerRadius: 18, style: .continuous))
-                        .frame(maxWidth: 300, alignment: .leading)
+                    ChiefLiveReplyText(text: text)
                         .transition(.opacity)
                         .accessibilityIdentifier("chief.live.reply")
                 }
@@ -57,17 +51,17 @@ struct ChiefLiveBubble: View {
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, 16)
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .animation(.easeOut(duration: 0.2), value: session.shownLive?.step)
-        .animation(.easeOut(duration: 0.2), value: expanded)
+        .animation(.easeOut(duration: 0.2).unlessReduceMotion, value: session.shownLive?.step)
+        .animation(.easeOut(duration: 0.2).unlessReduceMotion, value: expanded)
         // A new run starts collapsed.
         .onChange(of: session.shownLive?.key) { expanded = false }
         .accessibilityIdentifier("chief.live.bubble")
     }
 
     static func replyText(_ live: ChiefLive) -> String? {
-        let text = live.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = ChiefLive.liveTail(of: live.text).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
-        return live.truncated ? "…" + text : text
+        return live.truncated && !text.hasPrefix("…") ? "…" + text : text
     }
 
     /// The status line's text: the step the run is on, or "Thinking…".
@@ -85,6 +79,55 @@ struct ChiefLiveBubble: View {
     }
 }
 
+/// Lay out only the bounded tail, then expose its bottom eight lines. SwiftUI's
+/// multiline head truncation can retain the first wrapped lines instead of the
+/// newest words, even when the source string already contains only the tail.
+struct ChiefLiveReplyText: View {
+    let text: String
+    var body: some View {
+        ChiefLiveReplyViewport {
+            Text(ChiefMarkdownBold.attributed(text))
+                .font(.body)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+            // Measure SwiftUI's actual eight-line height in this environment.
+            // Scaling UIKit's lineHeight can cut through the first visible row.
+            Text("Ag\nAg\nAg\nAg\nAg\nAg\nAg\nAg")
+                .font(.body)
+                .fixedSize(horizontal: false, vertical: true)
+                .hidden()
+                .accessibilityHidden(true)
+        }
+        .clipped()
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(Color(uiColor: .systemGray5), in: .rect(cornerRadius: 18, style: .continuous))
+        .frame(maxWidth: 300, alignment: .leading)
+    }
+}
+
+/// A short reply keeps its natural bubble size. A long reply lays out at
+/// the available width with unlimited height, then shows its bottom edge
+/// through a bounded viewport instead of asking Text to truncate it.
+private struct ChiefLiveReplyViewport: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2, let text = subviews.first else { return .zero }
+        let width = min(276, max(0, proposal.width ?? 276))
+        let textProposal = ProposedViewSize(width: width, height: nil)
+        let size = text.sizeThatFits(textProposal)
+        let maxHeight = subviews[1].sizeThatFits(textProposal).height
+        return CGSize(width: min(width, size.width), height: min(maxHeight, size.height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(
+            at: CGPoint(x: bounds.minX, y: bounds.maxY),
+            anchor: .bottomLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: nil)
+        )
+    }
+}
+
 /// The one-line status: typing dots, the shimmering step text with its
 /// elapsed time, and a chevron when there are details to expand.
 struct ChiefLiveStatusLine: View {
@@ -97,7 +140,8 @@ struct ChiefLiveStatusLine: View {
         Button(action: toggle) {
             HStack(spacing: 8) {
                 ChiefTypingDots()
-                TimelineView(.periodic(from: .now, by: 1)) { context in
+                // One TimelineView either way: the shimmer keeps its sweep when a time starts.
+                TimelineView(ChiefStatusSchedule(ticks: Self.redrawSchedule(since: live.since, now: .now))) { context in
                     ChiefShimmerText(text: ChiefLiveBubble.activityLine(ChiefLiveBubble.statusText(live), since: live.since, now: context.date))
                 }
                 if canExpand {
@@ -109,11 +153,28 @@ struct ChiefLiveStatusLine: View {
             .padding(.leading, 4)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(!canExpand)
         .accessibilityLabel(Text(ChiefLiveBubble.statusText(live)))
         .accessibilityHint(canExpand ? Text(expanded ? "Hides the details" : "Shows the details") : Text(""))
         .accessibilityIdentifier("chief.live.status")
+    }
+
+    /// When the line redraws for its elapsed time: once a second from `now` while it has
+    /// one, never without (`since` nil: "Thinking…" or the step alone, which never change).
+    static func redrawSchedule(since: Date?, now: Date) -> PeriodicTimelineSchedule? {
+        since == nil ? nil : .periodic(from: now, by: 1)
+    }
+}
+
+/// The status line's schedule: `ticks`' entries, or with none only the moment it
+/// appears (a line without a time draws once, then again only when it changes).
+struct ChiefStatusSchedule: TimelineSchedule {
+    let ticks: PeriodicTimelineSchedule?
+
+    func entries(from startDate: Date, mode: TimelineScheduleMode) -> AnySequence<Date> {
+        guard let ticks else { return AnySequence(CollectionOfOne(startDate)) }
+        return AnySequence(ticks.entries(from: startDate, mode: mode))
     }
 }
 
@@ -152,14 +213,19 @@ struct ChiefLiveDetailRow: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 if !detail.text.isEmpty {
+                    // A long press opens Copy / Select Text (CMUX-33): `.textSelection` took the
+                    // press and selected the whole detail, with no range.
                     Text(detail.text)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                        .contextMenu {
+                            Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = detail.text }
+                            Button("Select Text", systemImage: "selection.pin.in.out") { SelectableTextView(detail.text).present() }
+                        }
                 }
             }
             if detail.isRunning {
-                ProgressView().controlSize(.mini)
+                CmuxSpinner().controlSize(.mini)
             }
         }
     }

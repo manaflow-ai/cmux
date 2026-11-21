@@ -3,12 +3,17 @@
  *
  * The checker is deliberately conservative. It reports only copy and row contracts that can be
  * proved from source; geometry belongs to the shared grid-lines browser check. Existing debt is
- * recorded in ui-review-allowlist.jsonl and every entry names an owner. The allowlist is a ratchet
- * that warns and never fails (style ratchets are warnings): a finding not present in it is reported
- * as a warning, and entries for fixed findings are reported as stale. Only a broken checker (an
- * exception while scanning) exits nonzero.
+ * recorded in ui-review-allowlist.jsonl and every entry names an owner. For the copy and row rules
+ * the allowlist is a ratchet that warns and never fails (style ratchets are warnings): a finding not
+ * present in it is reported as a warning, and entries for fixed findings are reported as stale.
+ *
+ * FAILING_RULES are the exception. `hand-set-role` (a menu, listbox, dialog or tab role written by
+ * hand outside the owned component layer in src/ui/) fails on a new finding AND on a stale entry, so
+ * its allowlist only shrinks: a migration PR that moves a surface onto ui/ runs
+ * `bun scripts/check-ui-review.ts --shrink-allowlist`, which drops the entries it fixed and never adds
+ * one. A broken checker (an exception while scanning) also exits nonzero.
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as ts from "typescript";
@@ -19,7 +24,11 @@ export type Rule =
   | "multi-space"
   | "repeated-leading-label"
   | "mixed-row-weight"
-  | "hard-coded-agent-icon";
+  | "hard-coded-agent-icon"
+  | "hand-set-role";
+
+/** Rules whose new findings and stale allowlist entries fail the check. */
+export const FAILING_RULES: ReadonlySet<Rule> = new Set<Rule>(["hand-set-role"]);
 
 export interface Finding {
   rule: Rule;
@@ -525,6 +534,109 @@ export function findHardCodedAgentIcons(file: string, source: string): Finding[]
   return findings;
 }
 
+/**
+ * Popup and composite-widget roles the owned component layer (src/ui/, on Base UI) provides. Writing
+ * one by hand means re-implementing its keyboard, focus and dismissal contract outside ui/.
+ */
+export const OWNED_ROLES: ReadonlySet<string> = new Set([
+  "menu",
+  "menuitem",
+  "menuitemradio",
+  "menuitemcheckbox",
+  "listbox",
+  "option",
+  "dialog",
+  "tablist",
+  "tab",
+]);
+
+/** Files that may set those roles: the component layer itself, tests and gallery scaffolding. */
+export function roleExempt(file: string): boolean {
+  const rel = relativeFile(file);
+  return (
+    rel.startsWith("src/ui/") ||
+    /(?:^|\/)(?:test|tests|__tests__|gallery)\//.test(rel) ||
+    /\.(?:test|gallery|experiment)\.tsx?$/.test(rel)
+  );
+}
+
+/** Every string a role value can evaluate to: literals and the branches of ?:, && and ||/??. */
+function roleLiterals(node: ts.Expression, out: string[] = []): string[] {
+  if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node))
+    roleLiterals(node.expression, out);
+  else if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) out.push(node.text);
+  else if (ts.isConditionalExpression(node)) {
+    roleLiterals(node.whenTrue, out);
+    roleLiterals(node.whenFalse, out);
+  } else if (ts.isBinaryExpression(node)) {
+    const operator = node.operatorToken.kind;
+    if (operator === ts.SyntaxKind.AmpersandAmpersandToken) roleLiterals(node.right, out);
+    else if (operator === ts.SyntaxKind.BarBarToken || operator === ts.SyntaxKind.QuestionQuestionToken) {
+      roleLiterals(node.left, out);
+      roleLiterals(node.right, out);
+    }
+  }
+  return out;
+}
+
+/** The nearest named function, method, class or variable around a node: a fingerprint that survives line moves. */
+function enclosingName(node: ts.Node): string {
+  for (const ancestor of ancestors(node)) {
+    if (
+      (ts.isFunctionDeclaration(ancestor) ||
+        ts.isClassDeclaration(ancestor) ||
+        ts.isMethodDeclaration(ancestor) ||
+        ts.isVariableDeclaration(ancestor) ||
+        ts.isPropertyAssignment(ancestor)) &&
+      ancestor.name &&
+      (ts.isIdentifier(ancestor.name) || ts.isStringLiteral(ancestor.name))
+    ) {
+      // A `role:` property names itself; look past it for the owner.
+      if (ts.isPropertyAssignment(ancestor) && propertyName(ancestor.name) === "role") continue;
+      return ancestor.name.text;
+    }
+  }
+  return "<module>";
+}
+
+/**
+ * Hand-set popup and composite roles in TSX outside src/ui/: a JSX `role="menu"` (or a conditional
+ * that can produce one) and a `role: "option"` property in a props object built for a spread.
+ * Fingerprint: `<role>|<tag or props>|<enclosing name>`.
+ */
+export function findHandSetRoles(file: string, source: string): Finding[] {
+  if (!file.endsWith(".tsx") || roleExempt(file)) return [];
+  const ast = parseSource(file, source);
+  const findings: Finding[] = [];
+  const report = (node: ts.Node, value: ts.Expression, host: string) => {
+    for (const role of new Set(roleLiterals(value))) {
+      if (!OWNED_ROLES.has(role)) continue;
+      findings.push(
+        finding(
+          "hand-set-role",
+          file,
+          source,
+          node.getStart(ast),
+          `${role}|${host}|${enclosingName(node)}`,
+          `hand-set role="${role}" outside src/ui/; use the ui/ component (Menu, Select, Listbox, Combobox, Dialog, Tabs) that owns its keyboard and focus contract`,
+        ),
+      );
+    }
+  };
+  const visit = (node: ts.Node) => {
+    if (ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && node.name.text === "role" && node.initializer) {
+      const value = ts.isJsxExpression(node.initializer) ? node.initializer.expression : node.initializer;
+      const tag = node.parent.parent;
+      if (value && ts.isExpression(value)) report(node, value, jsxName(tag.tagName));
+    } else if (ts.isPropertyAssignment(node) && propertyName(node.name) === "role") {
+      report(node, node.initializer, "props");
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(ast);
+  return findings;
+}
+
 function cssRowGroups(file: string, source: string): Finding[] {
   const groups = new Map<string, Array<{ weight: string; offset: number }>>();
   const block = /([^{}]+)\{([^{}]*)\}/g;
@@ -572,6 +684,7 @@ export function scanFile(file: string, source: string, translations: Map<string,
     ...findMultiSpace(file, source, translations),
     ...findRepeatedLeadingLabels(file, source, translations),
     ...findHardCodedAgentIcons(file, source),
+    ...findHandSetRoles(file, source),
   ];
 }
 
@@ -628,16 +741,48 @@ export function classifyFindings(findings: Finding[], allowlist: AllowlistEntry[
   return { findings, newFindings, staleAllowlist };
 }
 
+/** Exit code for a scan: 1 when a FAILING_RULES finding is new or one of its allowlist entries is stale. */
+export function failureCount(result: ScanResult): number {
+  return (
+    result.newFindings.filter((item) => FAILING_RULES.has(item.rule)).length +
+    result.staleAllowlist.filter((entry) => FAILING_RULES.has(entry.rule)).length
+  );
+}
+
+/** The allowlist with every stale entry removed. It never adds an entry, so it only shrinks. */
+export function shrinkAllowlist(allowlist: AllowlistEntry[], stale: AllowlistEntry[]): AllowlistEntry[] {
+  const drop = new Map<string, number>();
+  for (const entry of stale) drop.set(allowlistKey(entry), (drop.get(allowlistKey(entry)) ?? 0) + 1);
+  return allowlist.filter((entry) => {
+    const key = allowlistKey(entry);
+    const left = drop.get(key) ?? 0;
+    if (left === 0) return true;
+    drop.set(key, left - 1);
+    return false;
+  });
+}
+
 function main(): void {
-  const result = scanTree();
+  const allowlist = loadAllowlist();
+  const result = scanTree(SOURCE_ROOT, allowlist);
+  if (process.argv.includes("--shrink-allowlist")) {
+    const kept = shrinkAllowlist(allowlist, result.staleAllowlist);
+    writeFileSync(ALLOWLIST, kept.map((entry) => JSON.stringify(entry)).join("\n") + (kept.length ? "\n" : ""));
+    console.log(
+      `ui-review: allowlist ${allowlist.length} -> ${kept.length} entries (removed ${result.staleAllowlist.length} stale)`,
+    );
+    return;
+  }
   for (const item of result.newFindings) {
+    const level = FAILING_RULES.has(item.rule) ? "error" : "warning";
     console.warn(
-      `::warning file=webviews/${item.file},line=${item.line},title=UI review ${item.rule}::${item.message}`,
+      `::${level} file=webviews/${item.file},line=${item.line},title=UI review ${item.rule}::${item.message}`,
     );
   }
   for (const item of result.staleAllowlist) {
+    const level = FAILING_RULES.has(item.rule) ? "error" : "warning";
     console.warn(
-      `::warning file=webviews/${item.file},title=stale UI review allowlist entry::${item.rule}: ${item.fingerprint}`,
+      `::${level} file=webviews/${item.file},title=stale UI review allowlist entry::${item.rule}: ${item.fingerprint}; run bun scripts/check-ui-review.ts --shrink-allowlist`,
     );
   }
   const counts = new Map<Rule, number>();
@@ -646,7 +791,15 @@ function main(): void {
     `ui-review: scanned ${result.findings.length} finding(s); ${result.newFindings.length} new; ${result.staleAllowlist.length} stale baseline`,
   );
   for (const [rule, count] of counts) console.log(`  ${rule}: ${count}`);
-  // New findings warn and never fail; an exception from scanTree() is a broken checker and fails.
+  // Copy and row rules warn and never fail. FAILING_RULES fail on a new finding or a stale entry;
+  // an exception from scanTree() is a broken checker and fails too.
+  const failures = failureCount(result);
+  if (failures) {
+    console.error(
+      `ui-review: ${failures} failing finding(s) in ${[...FAILING_RULES].join(", ")}. Use the src/ui/ component, or drop fixed entries with --shrink-allowlist.`,
+    );
+    process.exitCode = 1;
+  }
 }
 
 if (import.meta.main) main();

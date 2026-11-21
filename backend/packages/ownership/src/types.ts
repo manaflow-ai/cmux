@@ -10,6 +10,13 @@ export interface Principal {
   readonly identity: string
   readonly user?: string
   readonly team?: string
+  /**
+   * The user's role in `team` (owner, admin, member), set only by the Worker from TeamDO's
+   * `memberRole` (`principalForOwner`); the personal team's user is `owner`. Owners that scope
+   * actions inside a team (SchedulerDO's private automations and editors) read it; a frame or
+   * params never carries it, and a principal without it is treated as a member.
+   */
+  readonly team_role?: string
   readonly install?: string
   readonly agent?: string
   /** Automation principals only (built by the API Worker): the run that is calling. */
@@ -34,6 +41,12 @@ export interface Principal {
   readonly display_name?: string
   /** The install's registered kind (mac, ios, web, cli, daemon, vm), resolved by UserDO with the grant. */
   readonly install_kind?: string
+  /**
+   * The dev build space the request came from (`dev:<slug>`, apps/api build-space.ts); absent for nightly and
+   * stable. Set only by the Worker: from the request's space, and for an install token only when the token was minted
+   * in that same space. Shared owners (TeamDO) keep what is per build, such as the host directory, apart by it.
+   */
+  readonly build_space?: string
   /** A VM install's one machine (kind vm, made at bind), resolved by UserDO with the grant. */
   readonly bound_machine?: string
   /**

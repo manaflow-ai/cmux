@@ -41,6 +41,31 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[("Restart the daemon; hosted sessions resume after", "acpmux daemon restart")],
     ),
     (
+        "daemon service",
+        &[
+            ("Keep the daemon running across logouts and reboots", "acpmux daemon service install"),
+            ("Whether the service is installed and running", "acpmux daemon service status"),
+        ],
+    ),
+    (
+        "daemon service install",
+        &[
+            (
+                "Install the LaunchAgent or systemd unit and start the daemon under it",
+                "acpmux daemon service install",
+            ),
+            ("The same, as JSON (manager, path, state)", "acpmux --json daemon service install"),
+        ],
+    ),
+    (
+        "daemon service uninstall",
+        &[("Stop the service's daemon and remove the service", "acpmux daemon service uninstall")],
+    ),
+    (
+        "daemon service status",
+        &[("Whether the service is installed and running", "acpmux daemon service status")],
+    ),
+    (
         "daemon shutdown",
         &[
             ("Stop the daemon; hosted agents keep running", "acpmux daemon shutdown"),

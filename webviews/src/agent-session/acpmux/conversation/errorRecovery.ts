@@ -42,10 +42,8 @@ export function errorRecovery(
     const { retryRowId, prompt } = row;
     return {
       label: "retry",
-      run: async () => {
-        retry(retryRowId, prompt);
-        return undefined;
-      },
+      // A send that did not go says so (cmux#34369), never Retrying… over nothing sent.
+      run: async () => ((await retry(retryRowId, prompt)) === false ? "retry.failed" : undefined),
     };
   }
   return undefined;

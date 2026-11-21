@@ -3,6 +3,7 @@ import CmuxHomeCore
 @testable import CmuxNextApp
 import CmuxNextDaemon
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
 import CmuxNextTestSupport
 import Foundation
@@ -97,7 +98,7 @@ import UniformTypeIdentifiers
 
         init() {
             let suite = "cmux.tests.homeLaunchList.\(UUID().uuidString)"
-            defaults = UserDefaults(suiteName: suite)!
+            defaults = UserDefaults(testSuiteName: suite)!
             defaults.removePersistentDomain(forName: suite)
             let ref = Ref()
             let rows: @MainActor @Sendable () -> [InboxRow] = {

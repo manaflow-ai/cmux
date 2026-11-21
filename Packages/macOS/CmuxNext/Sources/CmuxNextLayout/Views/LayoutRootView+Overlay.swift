@@ -37,8 +37,8 @@ extension LayoutRootView {
     /// Syncs the overlay when it is stale.
     func flushOverlaySync() {
         // A parked or hidden root keeps its overlay stale: nothing shows it, and it syncs once when it goes
-        // live again (`setLive`).
-        guard overlayIsStale, isLive else { return }
+        // live again (`setLive`). The frame tick's input keeps it stale for the frame's one sync (`LayoutFrameInput`).
+        guard overlayIsStale, isLive, !context.holdsPresentations else { return }
         syncOverlay()
     }
 
@@ -69,7 +69,6 @@ extension LayoutRootView {
         var shown: Set<ObjectIdentifier> = []
         var moved: Set<PaneID> = []
         for screen in screenViews.values where !screen.isHidden {
-            let screenAlpha = screen.alphaValue
             let docks = screen.coverRects
             let above = screen.panesAbove()
             for host in screen.displayedHosts {
@@ -77,9 +76,9 @@ extension LayoutRootView {
                 shown.insert(ObjectIdentifier(chrome))
                 // A ring never draws over a docked column (strip panes) or a pane in front of it.
                 let covers = screen.ringCovers(of: host, docks: docks, above: above)
-                let alpha = host.alphaValue * screenAlpha
-                let key = PaneOverlaySyncKey(hostFrame: host.frame, screenFrame: screen.frame, screenBounds: screen.bounds,
-                                             rootInWindow: inWindow, covers: covers, alpha: alpha, hidden: host.isHidden)
+                let alpha = host.alphaValue
+                let key = PaneOverlaySyncKey(hostFrame: host.frame, screenBounds: screen.bounds,
+                                             rootInWindow: inWindow, covers: covers, alpha: alpha, hidden: host.hidesRing)
                 if chrome.superview === plane, host.overlaySyncKey == key { continue }
                 host.overlaySyncKey = key
                 moved.insert(host.pane)
@@ -88,7 +87,7 @@ extension LayoutRootView {
                 if chrome.frame != rect { chrome.frame = rect }
                 chrome.setExcluded(covers.map { convert($0, from: screen).offsetBy(dx: -rect.minX, dy: -rect.minY) })
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
-                if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }
+                if chrome.isHidden != host.hidesRing { chrome.isHidden = host.hidesRing }
                 host.noteWindowFrame()
                 overlayHostsPlaced += 1
             }
@@ -96,6 +95,10 @@ extension LayoutRootView {
         // A retired host's ring is hidden with it and goes with its teardown, not in a close's first frame.
         for view in plane.subviews where view is PaneOverlayView && !shown.contains(ObjectIdentifier(view)) && !context.isRetiredChrome(view) {
             view.removeFromSuperview()
+        }
+        // A page or lens in a dragged pane hears the moves its held ancestors do not post (`FrameNoticeHold`).
+        if !moved.isEmpty {
+            for screen in screenViews.values where screen.paneFrameNotices.isHolding { screen.paneFrameNotices.noteFrame() }
         }
         panesMovedInLastOverlaySync = moved
         reportInteractiveRects()
@@ -108,8 +111,8 @@ extension LayoutRootView {
     /// nothing over panes (`dividerMouseAreas`).
     public var interactiveOverlayRects: [CGRect] {
         var rects: [CGRect] = []
-        if let active = model.activeScreenID, let screen = screenViews[active], !screen.isHidden {
-            rects += screen.dividerLineRects.map { convert($0, from: screen) }
+        if let active = model.layoutPassReads.activeScreenID, let screen = screenViews[active], !screen.isHidden {
+            rects += ScreenDividers(screen: screen).lineRects.map { convert($0, from: screen) }
         }
         return rects
     }
@@ -119,7 +122,7 @@ extension LayoutRootView {
     /// click-catching panel that forwards the mouse to this window, so the
     /// page keeps drawing edge to edge under them.
     public var dividerMouseAreas: [LayoutMouseArea] {
-        guard let active = model.activeScreenID, let screen = screenViews[active], !screen.isHidden else { return [] }
+        guard let active = model.layoutPassReads.activeScreenID, let screen = screenViews[active], !screen.isHidden else { return [] }
         return screen.dividerMouseAreas.map { area in
             var area = area
             area.rect = convert(area.rect, from: screen)
@@ -133,7 +136,7 @@ extension LayoutRootView {
         refreshDividerHover()
     }
 
-    /// Whether a layout motion runs (a split, close, zoom, New Column, column scroll): its springs
+    /// Whether a layout motion runs (a ratio or width change, a key resize, New Column's reveal, a column scroll): its springs
     /// move panes and dividers on every display frame until they land, including the frame they
     /// land in (``isLayoutInMotion``), or a change has started springs the display link has not
     /// stepped yet, or a divider drag moves them under the pointer. The window keeps what follows the dividers

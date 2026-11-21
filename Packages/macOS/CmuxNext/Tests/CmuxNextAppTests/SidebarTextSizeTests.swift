@@ -77,29 +77,31 @@ import Testing
         }
     }
 
-    @Test func defaultKeepsTheOriginalSize() throws {
+    @Test func standardTextOnCompactRows() throws {
         try DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
             let m = try Self.measure(.standard)
-            #expect(m.titlePoints == 12)
-            #expect(m.rowHeight == 24)
-            #expect(m.rowPitch == 26)
+            // Compact scales Default's 14 pt titles by 0.9, with the specified 28 pt rows and a 2 pt gap.
+            #expect(m.titlePoints == 12.6)
+            #expect(m.rowHeight == 28)
+            #expect(m.rowPitch == 30)
         }
     }
 
-    @Test func largerMatchesChatGPT() throws {
+    @Test func largerTextStepsUpOnCompactRows() throws {
         try DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
             let m = try Self.measure(.larger)
-            #expect(m.titlePoints == 14, "ChatGPT's sidebar titles are 14 pt; got \(m.titlePoints)")
-            #expect(m.rowPitch == 31, "ChatGPT's rows are 31 pt apart; got \(m.rowPitch)")
-            #expect(m.rowHeight == 29)
+            // Larger adds 2 pt to the title and 5 pt to the row independently of the density factor.
+            #expect(m.titlePoints == 14.6, "Larger titles are 14.6 pt; got \(m.titlePoints)")
+            #expect(m.rowPitch == 35, "rows are 35 pt apart; got \(m.rowPitch)")
+            #expect(m.rowHeight == 33)
         }
     }
 
     @Test func largeIsBetween() throws {
         try DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
             let m = try Self.measure(.large)
-            #expect(m.titlePoints == 13)
-            #expect(m.rowHeight == 27)
+            #expect(m.titlePoints == 13.6)
+            #expect(m.rowHeight == 31)
         }
     }
 
@@ -154,7 +156,7 @@ import Testing
             let natural = ceil(("Work on cmux" as NSString).size(withAttributes: [.font: font]).width)
             let room = short.title.frame.width
             print("TEXTSIZE|narrow \(narrowest)|short room \(room) natural \(natural)|long room \(long.title.frame.width)")
-            #expect(font.pointSize == 14)
+            #expect(font.pointSize == 14.6)
             #expect(room >= natural, "\(narrowest) pt: \"Work on cmux\" needs \(natural) pt, has \(room)")
             // About ten 14 pt characters before the fade: enough to tell rows apart.
             #expect(long.title.frame.width >= 80, "\(narrowest) pt: a long title has only \(long.title.frame.width) pt")

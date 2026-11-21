@@ -41,6 +41,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use cmux_message_preview::{MessagePreview, Words as PreviewWords};
 use cmux_mobile_link::api::{ApiClient, NotifyEvent};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -348,8 +349,13 @@ impl Classifier {
                 }
                 if kind == "chief" {
                     event.conversation_id = known.chief_home.as_deref().map(label_id_text);
-                    event.body =
-                        self.previews.get(session_id).map(|p| text_label(p, 400)).filter(|t| !t.is_empty());
+                    // The preview is the reply's Markdown; the banner says its words (a table by
+                    // its titles, a link by its label), in English like the push titles.
+                    event.body = self
+                        .previews
+                        .get(session_id)
+                        .map(|p| text_label(&MessagePreview::new(p).text(&PreviewWords::english()), 400))
+                        .filter(|t| !t.is_empty());
                 }
                 self.gate((self.scope(session_id), kind == "failed"), event, now)
             }
@@ -448,6 +454,8 @@ pub fn enabled() -> bool {
 #[derive(Clone)]
 pub struct Reporter {
     base_url: String,
+    /// A dev build's `x-cmux-build-space` (`HostConfig::build_space`).
+    build_space: Option<cmux_mobile_link::BuildSpace>,
     device_id: String,
     tokens: Arc<Tokens>,
     wants: Arc<Mutex<Wants>>,
@@ -461,7 +469,21 @@ pub struct Reporter {
 
 impl Reporter {
     pub fn new(base_url: String, device_id: String, tokens: Arc<Tokens>) -> Self {
-        Self { base_url, device_id, tokens, wants: Arc::default(), sealer: None, session_exposure: None }
+        Self {
+            base_url,
+            build_space: None,
+            device_id,
+            tokens,
+            wants: Arc::default(),
+            sealer: None,
+            session_exposure: None,
+        }
+    }
+
+    /// Sending a dev build's `x-cmux-build-space` on every notify.
+    pub fn with_build_space(mut self, build_space: Option<cmux_mobile_link::BuildSpace>) -> Self {
+        self.build_space = build_space;
+        self
     }
 
     /// With the sealer of a supervised hostd.
@@ -496,11 +518,14 @@ impl Reporter {
                 Err(error) => return tracing::warn!("no access token for a push ({error:#})"),
             };
             // Sealed to each paired phone's push key when it gave one (sealed_notify.rs).
+            // More phones than one request's boxes: the lead, then one batch per further 20.
             let body = serde_json::to_value(&event).unwrap_or_default();
-            let body = match &this.sealer {
-                Some(sealer) => sealer.body(body).await,
-                None => body,
-            };
+            let mut bodies = match &this.sealer {
+                Some(sealer) => sealer.bodies(body).await,
+                None => vec![body],
+            }
+            .into_iter();
+            let Some(body) = bodies.next() else { return };
             // Re-read after all fallible awaits.  Remote Control can be turned
             // off while a token or push-key lookup is pending.
             if let Some(exposure) = this.session_exposure.as_ref()
@@ -508,18 +533,38 @@ impl Reporter {
             {
                 return tracing::debug!(kind = event.kind, "push skipped: chat is not exposed");
             }
-            match ApiClient::new(&this.base_url, &token).notify_body(&this.device_id, &body).await {
+            let api = ApiClient::new(&this.base_url, &token).with_build_space(this.build_space.clone());
+            match api.notify_body(&this.device_id, &body).await {
                 Ok(result) => {
                     this.wants
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .learn(&result, Instant::now());
                     tracing::info!(kind = event.kind, %result, "push reported");
+                    if !batches_follow(&result) {
+                        return;
+                    }
                 }
-                Err(error) => tracing::warn!(kind = event.kind, %error, "push report failed"),
+                Err(error) => return tracing::warn!(kind = event.kind, %error, "push report failed"),
+            }
+            for batch in bodies {
+                match api.notify_body(&this.device_id, &batch).await {
+                    Ok(result) => tracing::info!(kind = event.kind, %result, "push batch reported"),
+                    Err(error) => tracing::warn!(kind = event.kind, %error, "push batch report failed"),
+                }
             }
         });
     }
+}
+
+/// Whether the batches after a lead go out, from the lead's answer: only when
+/// the backend takes batches (`batches`, API 0.16.0; an older one ignores
+/// `batch` and would push a batch to every phone again) and went on to send
+/// the lead, not when it coalesced the event (a burst of turn ends is one
+/// notification on every phone, batched or not).
+fn batches_follow(lead: &serde_json::Value) -> bool {
+    lead.get("batches").and_then(serde_json::Value::as_bool) == Some(true)
+        && lead.get("coalesced").and_then(serde_json::Value::as_bool) != Some(true)
 }
 
 /// Whether a notification may leave the Mac under the current per-chat policy.
@@ -533,10 +578,12 @@ fn exposure_allows(state: &crate::control::SessionExposure, event: &NotifyEvent)
     if event.session_id.as_deref().is_some_and(|id| state.blocked.contains(id)) {
         return false;
     }
+    // The Mac app's own Feed requests (`needs_you.rs`) are Mac-wide, like a terminal's.
     if state.configured
         && event.session_id.is_none()
         && event.notification_id.is_none()
         && event.agent.as_deref() != Some("Terminal")
+        && !event.event_id.starts_with(crate::needs_you::EVENT_PREFIX)
     {
         return false;
     }
@@ -544,8 +591,10 @@ fn exposure_allows(state: &crate::control::SessionExposure, event: &NotifyEvent)
 }
 
 /// Runs until the process stops: watch acpmux and the daemon's notifications, report events, reconnect.
+#[allow(clippy::too_many_arguments)] // the service, this Mac and its token, and the three sources it watches
 pub async fn run(
     base_url: String,
+    build_space: Option<cmux_mobile_link::BuildSpace>,
     device_id: String,
     tokens: Arc<Tokens>,
     acpmux: AcpmuxTarget,
@@ -554,12 +603,14 @@ pub async fn run(
     session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 ) {
     let reporter = Reporter::new(base_url, device_id, tokens)
+        .with_build_space(build_space)
         .with_sealer(sealer)
         .with_session_exposure(session_exposure.clone());
     let places = Arc::new(Places::default());
     if let Some(socket) = daemon_socket {
         tokio::spawn(crate::notify_terminal::run(socket, Arc::clone(&places), reporter.clone()));
     }
+    tokio::spawn(crate::needs_you::run(reporter.clone()));
     let mut classifier = Classifier::with_places(places);
     let mut backoff = Duration::from_secs(2);
     loop {
@@ -586,6 +637,17 @@ pub async fn run(
     }
 }
 
+/// The watch (id 2), its first page only: the rest comes by its `nextCursor`
+/// (`notify_waiting.rs` `next_page`). Asked whole, one Mac's list was 24.8 MB in one frame,
+/// past this socket's frame limit, so the watch failed and was asked again about every
+/// minute for hours (2026-11-06).
+fn watch_request() -> Value {
+    json!({"jsonrpc":"2.0","id":2,"method":"_acpmux/watch","params":{"enabled":true,"limit":WATCH_PAGE_ROWS}})
+}
+
+/// The sessions of the watch's first page.
+const WATCH_PAGE_ROWS: u64 = 200;
+
 async fn watch_once(
     reporter: &Reporter,
     acpmux: &AcpmuxTarget,
@@ -596,7 +658,7 @@ async fn watch_once(
     let (mut sink, mut source) = socket.split();
     let requests = [
         json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientInfo":{"name":"cmux-mobile-host-push","version":"1"},"clientCapabilities":{}}}),
-        json!({"jsonrpc":"2.0","id":2,"method":"_acpmux/watch","params":{"enabled":true}}),
+        watch_request(),
     ];
     for request in requests {
         sink.send(Message::Text(request.to_string().into())).await.map_err(|e| e.to_string())?;
@@ -620,7 +682,12 @@ async fn watch_once(
                     Some(at) => tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await,
                     None => std::future::pending().await,
                 }
-            } => return Err("pending-input lookup timed out".into()),
+            } => {
+                // A list page that never answered ends the watch; a lookup is asked again later.
+                let queries = waiting.expire(Instant::now())?;
+                report_and_query(&mut sink, queries, vec![], |event| reporter.send(event)).await?;
+                continue;
+            }
             () = async {
                 match due {
                     Some(at) => tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await,
@@ -683,6 +750,29 @@ mod tests {
     use tokio::sync::watch;
     use tokio::time::{Duration, timeout};
 
+    #[test]
+    fn batches_follow_a_lead_that_went_out() {
+        assert!(batches_follow(
+            &json!({"configured": true, "sent": 20, "failed": 0, "dropped": 0, "wants": [], "batches": true})
+        ));
+        assert!(!batches_follow(&json!({"configured": false, "sent": 0})));
+        assert!(!batches_follow(&json!({"configured": true, "sent": 0, "coalesced": true})));
+        // A Worker from before batches: the lead's 20 phones get it, and no phone twice.
+        assert!(!batches_follow(
+            &json!({"configured": true, "sent": 20, "failed": 0, "dropped": 0, "wants": []})
+        ));
+    }
+
+    /// The push watch never asks acpmux for its whole list in one reply: a first page, the rest
+    /// by its cursor.
+    #[test]
+    fn the_watch_asks_for_its_first_page_only() {
+        let request = watch_request();
+        assert_eq!(request["method"], "_acpmux/watch");
+        assert_eq!(request["params"]["enabled"], true);
+        assert_eq!(request["params"]["limit"], WATCH_PAGE_ROWS);
+    }
+
     fn watch() -> Value {
         json!({"sessions":[
             {"sessionId":"s1","harness":"claude-code","cwd":"/Users/me/secret-dir/cmuxterm-hq","name":"fix the bug"},
@@ -705,6 +795,18 @@ mod tests {
 
         let terminal = NotifyEvent { agent: Some("Terminal".into()), ..NotifyEvent::default() };
         assert!(exposure_allows(&state, &terminal));
+
+        // The Mac app's own Feed request (a held PR) is Mac-wide, as a terminal's is (#33818).
+        let feed = crate::needs_you::push_event(&crate::needs_you::Request {
+            id: "fi_held".into(),
+            title: "Held for your trial".into(),
+            body: String::new(),
+            kind: "review".into(),
+            source: "GitHub".into(),
+            url: None,
+            created_at_ms: 0,
+        });
+        assert!(exposure_allows(&state, &feed));
     }
 
     #[test]
@@ -788,6 +890,161 @@ mod tests {
             ..NotifyEvent::default()
         });
         assert!(timeout(Duration::from_millis(200), listener.accept()).await.is_ok());
+    }
+
+    /// Answers every request on `listener` with `answer`, and sends each request's JSON body.
+    fn notify_backend(listener: TcpListener, answer: Value) -> tokio::sync::mpsc::UnboundedReceiver<Value> {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let (tx, answer) = (tx.clone(), answer.to_string());
+                tokio::spawn(async move {
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 8192];
+                    loop {
+                        let Ok(n) = socket.read(&mut chunk).await else { return };
+                        if n == 0 {
+                            return;
+                        }
+                        buf.extend_from_slice(&chunk[..n]);
+                        let Some(end) = buf.windows(4).position(|w| w == b"\r\n\r\n") else { continue };
+                        let head = String::from_utf8_lossy(&buf[..end]).to_ascii_lowercase();
+                        let length = head
+                            .lines()
+                            .find_map(|l| l.strip_prefix("content-length:"))
+                            .and_then(|v| v.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
+                        if buf.len() < end + 4 + length {
+                            continue;
+                        }
+                        let _ = tx.send(
+                            serde_json::from_slice(&buf[end + 4..end + 4 + length]).unwrap_or_default(),
+                        );
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
+                            answer.len()
+                        );
+                        let _ = socket.write_all(response.as_bytes()).await;
+                        return;
+                    }
+                });
+            }
+        });
+        rx
+    }
+
+    /// A reporter whose sealer has `count` paired phones, each with a push key.
+    fn sealing_reporter(base_url: String, count: usize) -> (Reporter, Vec<String>) {
+        use crate::pairing::{DeviceTrust, MacIdentity, TrustedDevice};
+        let push = crate::seal::random_secret().unwrap();
+        let push_key = crate::seal::point_hex(&push.public_key());
+        let phones: Vec<String> = (0..count).map(|i| format!("00000000-0000-4000-8000-{i:012}")).collect();
+        let keys = crate::push_keys::PushKeys::memory();
+        for phone in &phones {
+            keys.set(phone, "identity", &push_key);
+        }
+        let trust = DeviceTrust {
+            devices: phones
+                .iter()
+                .map(|id| TrustedDevice {
+                    id: id.clone(),
+                    identity_key: "identity".into(),
+                    ..Default::default()
+                })
+                .collect(),
+            denied: vec![],
+        };
+        let sealer = crate::sealed_notify::Sealer {
+            mac: "mac-1".into(),
+            identity: watch::channel(Some(MacIdentity::generate().unwrap())).1,
+            trust: watch::channel(Some(trust)).1,
+            push_keys: Arc::new(keys),
+            acpmux: crate::config::AcpmuxTarget::Fixed { url: "ws://127.0.0.1:9".into(), token: None },
+        };
+        let (token_tx, token_rx) = watch::channel(Some("access-token".to_owned()));
+        // The token stays supplied for the test's life.
+        std::mem::forget(token_tx);
+        let tokens = Arc::new(Tokens::new(TokenSource::Supplied(token_rx)));
+        (Reporter::new(base_url, "mac-1".into(), tokens).with_sealer(Some(Arc::new(sealer))), phones)
+    }
+
+    #[tokio::test]
+    async fn twenty_five_paired_phones_all_get_their_sealed_push() {
+        // Before batching, one request carried all 25 boxes and the backend
+        // refused it (at most 20 per request): no phone got the push.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let mut posted = notify_backend(
+            listener,
+            json!({"configured": true, "sent": 1, "failed": 0, "dropped": 0, "wants": ["completed"], "batches": true}),
+        );
+        let (reporter, phones) = sealing_reporter(base_url, 25);
+        reporter.send(NotifyEvent {
+            event_id: "e25".into(),
+            kind: "completed".into(),
+            ..NotifyEvent::default()
+        });
+        let mut bodies = Vec::new();
+        for _ in 0..2 {
+            bodies.push(timeout(Duration::from_secs(5), posted.recv()).await.unwrap().unwrap());
+        }
+        assert!(
+            timeout(Duration::from_millis(200), posted.recv()).await.is_err(),
+            "only a lead and one batch"
+        );
+        for body in &bodies {
+            assert!(
+                body["sealed"].as_object().unwrap().len() <= 20,
+                "the backend refuses more boxes in one request"
+            );
+            assert_eq!(body["eventId"], "e25");
+        }
+        assert!(bodies[0].get("batch").is_none());
+        assert_eq!(bodies[1]["batch"], 1);
+        let mut reached: Vec<String> =
+            bodies.iter().flat_map(|b| b["sealed"].as_object().unwrap().keys().cloned()).collect();
+        reached.sort();
+        assert_eq!(reached, phones, "every phone has exactly one box");
+    }
+
+    #[tokio::test]
+    async fn a_worker_from_before_batches_gets_only_the_lead() {
+        // It ignores `batch`: a batch would reach every phone a second time.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let mut posted = notify_backend(
+            listener,
+            json!({"configured": true, "sent": 20, "failed": 0, "dropped": 0, "wants": ["completed"]}),
+        );
+        let (reporter, _) = sealing_reporter(base_url, 25);
+        reporter.send(NotifyEvent {
+            event_id: "e-old".into(),
+            kind: "completed".into(),
+            ..NotifyEvent::default()
+        });
+        let lead = timeout(Duration::from_secs(5), posted.recv()).await.unwrap().unwrap();
+        assert_eq!(lead["sealed"].as_object().unwrap().len(), 20);
+        assert!(timeout(Duration::from_millis(300), posted.recv()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_coalesced_lead_sends_no_batches() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let mut posted = notify_backend(
+            listener,
+            json!({"configured": true, "sent": 0, "coalesced": true, "wants": ["completed"], "batches": true}),
+        );
+        let (reporter, _) = sealing_reporter(base_url, 45);
+        reporter.send(NotifyEvent {
+            event_id: "e45".into(),
+            kind: "completed".into(),
+            ..NotifyEvent::default()
+        });
+        let lead = timeout(Duration::from_secs(5), posted.recv()).await.unwrap().unwrap();
+        assert_eq!(lead["batchedPhones"].as_array().unwrap().len(), 25);
+        assert!(timeout(Duration::from_millis(300), posted.recv()).await.is_err());
     }
 
     #[test]
@@ -880,6 +1137,23 @@ mod tests {
         assert_eq!(e.conversation_id.as_deref(), Some("c39c6f72"));
         assert_eq!(e.body.as_deref(), Some("Both branches merged. Gates are green."));
         assert_eq!(e.tail, ["Both branches merged.", "Gates are green."]);
+    }
+
+    /// Lawrence, 2026-11-20: a Chief reply's push banner said its raw Markdown (a before/after table read
+    /// "| | Before | After ||---|…"). The banner says its words, as the apps preview the same reply.
+    #[test]
+    fn a_chief_reply_push_says_its_words_not_its_markdown() {
+        let mut c = Classifier::default();
+        let preview = "**Done.** See [PR 12](https://github.com/manaflow-ai/cmux/pull/12).\n\n| | Before | After |\n|---|---|---|\n| Light | ![b](/tmp/b.png) | ![a](/tmp/a.png) |";
+        let reply = json!({"sessionId":"ct2","harness":"claude","preview":preview,
+            "tags":{"cmux.chief":"c39c6f72","cmux.chief.role":"turn"},"lastTurn":{"turnId":"b","status":"completed"}});
+        let e = c.handle_at(&turn_msg(reply), Instant::now()).unwrap();
+        assert_eq!(e.kind, "chief");
+        assert_eq!(e.body.as_deref(), Some("Done. See PR 12. Table: Before / After"));
+        let pictures = json!({"sessionId":"ct3","harness":"claude","preview":"![before](/tmp/a.png)\n![after](/tmp/b.png)",
+            "tags":{"cmux.chief":"d00dfeed","cmux.chief.role":"turn"},"lastTurn":{"turnId":"c","status":"completed"}});
+        let e = c.handle_at(&turn_msg(pictures), Instant::now()).unwrap();
+        assert_eq!(e.body.as_deref(), Some("2 images"));
     }
 
     #[test]

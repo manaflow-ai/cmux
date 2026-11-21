@@ -8,9 +8,10 @@
 //
 // A wide table scrolls in its own box (a sideways wheel, the trackpad swipe and Shift-wheel), the
 // page never scrolls sideways, nothing reaches past the pane's edge, the last column can be
-// reached, and a vertical wheel over any table scrolls the page. No edge of a table is ever faded
-// out: the text past the edge shows as is, and the box's thin sideways scrollbar says it scrolls
-// (user 2026-10-31, on a faded table edge: "why blur?"). A table that fits does not scroll.
+// reached, and a vertical wheel over any table scrolls the page. The box's thin sideways scrollbar
+// says it scrolls, and so does a short fade on each edge with more table past it: the right at
+// rest, the left once scrolled (user 2026-11-07: "markdown missing fade now"). A table that fits
+// does not scroll and never fades.
 //
 // One page per engine for every test, reset between tests, so a run takes seconds once Vite is
 // warm. The app draws the page in WebKit; Chromium runs too. An engine not installed is skipped.
@@ -100,7 +101,11 @@ await requireBrowserLane("markdown-table-scroll-cases.test.ts", async () => {
           rectLeft: rect.left,
           rectRight: rect.right,
           lastCellRight: lastCell.right,
-          fades: masks.length > 0,
+          edges: {
+            left: box.hasAttribute("data-more-left"),
+            right: box.hasAttribute("data-more-right"),
+            fades: masks.some((value) => value.includes("gradient")),
+          },
           sidewaysScrollbar: box.hasAttribute("data-cmux-sideways-scroller"),
         };
       });
@@ -221,17 +226,16 @@ await requireBrowserLane("markdown-table-scroll-cases.test.ts", async () => {
         }
       });
 
-      test("no table edge is faded at the start, middle or end of a scroll; the box shows its thin scrollbar", async () => {
+      test("a wide table fades the edge with more table past it: right at rest, both mid-scroll, left at the end", async () => {
         const start = (await measure(page())).tables;
-        for (const table of start) {
-          expect(table.fades).toBe(false);
-          expect(table.sidewaysScrollbar).toBe(true);
-        }
+        for (const table of start) expect(table.sidewaysScrollbar).toBe(true);
+        for (const index of WIDE) expect(start[index]!.edges).toEqual({ left: false, right: true, fades: true });
+        for (const index of FITS) expect(start[index]!.edges).toEqual({ left: false, right: false, fades: false });
         const point = await over(page(), 0);
         await wheel(page(), point, 160, 0);
-        expect((await measure(page())).tables[0]!.fades).toBe(false);
+        expect((await measure(page())).tables[0]!.edges).toEqual({ left: true, right: true, fades: true });
         for (let i = 0; i < 6; i++) await wheel(page(), point, 1200, 0);
-        expect((await measure(page())).tables[0]!.fades).toBe(false);
+        expect((await measure(page())).tables[0]!.edges).toEqual({ left: true, right: false, fades: true });
       });
     });
 });

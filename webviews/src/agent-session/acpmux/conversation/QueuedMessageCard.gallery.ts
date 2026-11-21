@@ -56,10 +56,12 @@ const outboxNote = {
   message: queuedMessage({ text: OUTBOX_TEXT, client: "acpmux-outbox#7", promptId: "a-outbox" })!,
 };
 
-/// Opens the group of waiting messages, which shows collapsed.
+/// Opens the group of waiting messages, which shows collapsed; one waiting message is its own line.
 const openGroup: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-pending__toggle"));
-  ctx.document.querySelector<HTMLButtonElement>(".cv-pending__toggle")!.click();
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-pending__toggle, .cv-pending--one"));
+  // A real pointer's click, as the person's: the group opens every message whole, and the rows
+  // after it move by the person's own hand, not on their own.
+  if (ctx.document.querySelector(".cv-pending__toggle")) await ctx.click({ selector: ".cv-pending__toggle" });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-received__from"));
 };
 
@@ -101,7 +103,7 @@ export default agentPaneEntry({
       snapshot: chat(running, { isWorking: true, queue: [queued[10]!, own] }),
       play: async (ctx) => {
         await openGroup(ctx);
-        await ctx.hover({ selector: ".cv-received > .cv-disclosure__line" });
+        await ctx.hover({ selector: ".cv-received > :is(.cv-agentmsg__line, .cv-disclosure__line)" });
         await ctx.waitFor(() => ctx.document.querySelector('[data-menu="waiting-message"]'));
         ctx.document.querySelector<HTMLButtonElement>('[data-menu="waiting-message"]')!.click();
         await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menuitem"]').length >= 2);

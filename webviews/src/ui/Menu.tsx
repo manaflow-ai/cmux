@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type FocusEvent,
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
@@ -20,6 +21,8 @@ import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { useNativePopup, type NativePopupDescription, type NativePopupEvent } from "./nativePopup";
 import { popupAction } from "./popupDescriptors";
 import { cx } from "./cx";
+import { MenuCheckGlyph } from "./MenuCheckGlyph";
+import { useScrollEdges } from "./scrollEdges";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { popupCollision, type UiPopupFlip } from "./openSide";
 import { usePopupPadding } from "./popupInset";
@@ -31,7 +34,13 @@ import { useNativeFinalFocus } from "./useNativeFinalFocus";
 export interface MenuProps {
   open?: boolean;
   /** Optional declarative rows for WebPopupHost. When supplied, no popup rows mount in the page. */
-  native?: { model: NativePopupDescription; onEvent?(event: NativePopupEvent): void; onDismiss?(): void };
+  native?: {
+    model: NativePopupDescription;
+    onEvent?(event: NativePopupEvent): void;
+    onDismiss?(): void;
+    /** The host refused to draw the rows; when set, the menu stays open for the owner's fallback. */
+    onRefused?(): void;
+  };
   onOpenChange?(open: boolean): void;
   onOpenChangeComplete?(open: boolean): void;
   children: ReactNode;
@@ -80,7 +89,8 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
       native?.onEvent?.(event);
       if (action && !action.keepOpen) setMenuOpen(false);
     },
-    onDismiss: () => {
+    onDismiss: (reason) => {
+      if (reason === "refused" && native?.onRefused) return native.onRefused();
       if (open === undefined) setInternalOpen(false);
       onOpenChange?.(false);
       native?.onDismiss?.();
@@ -95,9 +105,10 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
     if (open === undefined) setInternalOpen(next);
     onOpenChange?.(next);
   };
+  const nativeAvailable = native !== undefined && nativePopup.available;
   const context: MenuContextValue = {
     isOpen,
-    nativeAvailable: native !== undefined && nativePopup.available,
+    nativeAvailable,
     trigger,
     opener,
     keyed,
@@ -123,6 +134,13 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
         handled: false,
       };
       setMenuOpen(true);
+      // The App draws this menu (a native popup): its panel follows the held press and picks the
+      // row the release lands on (NativePopupHost's press-release). The page sees only that
+      // release; a page row under the panel must not run, and the menu must not close on it.
+      if (nativeAvailable) {
+        session.current = null;
+        return;
+      }
       pointerCleanup.current = trackPressRelease(event, {
         hover: (row) => row.focus({ preventScroll: true }),
         // Base UI items act on the click.
@@ -211,10 +229,16 @@ export interface MenuButtonProps {
   "aria-labelledby"?: string;
   /** The name automation finds the menu by (`button[data-menu]`), whatever the UI language. */
   "data-menu"?: string;
+  /** The keycaps of the shortcut that opens it, drawn after the tooltip (ui/titleTooltips.ts). */
+  "data-tooltip-shortcut"?: string | undefined;
   /** Also holds the button, for a caller that anchors other UI to it. */
   buttonRef?: RefObject<HTMLButtonElement | null>;
   /** A field-like trigger (a select, a host field): its menu opens as wide as it (`matchTrigger`). */
   fieldTrigger?: boolean;
+  /** With the `ui-btn` class: a `Button`'s variant and size, so the trigger takes its hover, press
+   *  and open fills (controls.css). */
+  variant?: "ghost" | "subtle" | "solid";
+  size?: "sm" | "md" | "lg";
   children: ReactNode;
 }
 
@@ -226,8 +250,11 @@ export function MenuButton({
   "aria-haspopup": ariaHasPopup,
   "aria-labelledby": ariaLabelledBy,
   "data-menu": dataMenu,
+  "data-tooltip-shortcut": tooltipShortcut,
   buttonRef,
   fieldTrigger,
+  variant,
+  size,
   children,
 }: MenuButtonProps) {
   const context = use(MenuContext);
@@ -243,7 +270,10 @@ export function MenuButton({
       aria-labelledby={ariaLabelledBy}
       aria-haspopup={ariaHasPopup}
       data-menu={dataMenu}
+      data-tooltip-shortcut={tooltipShortcut || undefined}
       data-field-trigger={fieldTrigger ? "" : undefined}
+      data-variant={variant}
+      data-size={size}
       data-popup-open={context?.isOpen ? "" : undefined}
       disabled={disabled}
       onKeyUp={(event) => {
@@ -320,6 +350,10 @@ export interface MenuPopupProps {
    * drop-down (leo-workspace design/menus.md). The trigger says so with `data-field-trigger`.
    */
   matchTrigger?: boolean;
+  /** False for a custom layout with its own scrolling columns. */
+  scroll?: boolean;
+  /** Pinned below the scrolling rows, outside their edge fade. */
+  footer?: ReactNode;
   children: ReactNode;
 }
 
@@ -344,6 +378,8 @@ export function MenuPopup({
   boundary,
   escapes = true,
   matchTrigger = false,
+  scroll = true,
+  footer,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
@@ -365,6 +401,7 @@ export function MenuPopup({
   const [popup, setPopup] = useState<HTMLElement | null>(null);
   // The popup's last node: Base UI asks where focus goes after the close fade, as it unmounts.
   const popupNode = useRef<HTMLElement | null>(null);
+  const edges = useScrollEdges();
   const attachPopup = useCallback(
     (node: HTMLElement | null) => {
       if (node) popupNode.current = node;
@@ -404,7 +441,15 @@ export function MenuPopup({
           ref={attachPopup}
           id={id}
           aria-label={label}
-          className={cx("ui-popup ui-glass ui-menu", matchTrigger && "ui-menu-match-trigger", className)}
+          // The App's menu glass under the page (glass/hostGlass.ts).
+          data-host-glass="menu"
+          data-host-glass-cover=""
+          className={cx(
+            "ui-popup ui-glass ui-menu",
+            scroll && "ui-popup-scroll-shell",
+            matchTrigger && "ui-menu-match-trigger",
+            className,
+          )}
           finalFocus={
             finalFocus ?? (nested ? undefined : (closeType) => focusAfterClose(closeType, menu, popupNode.current))
           }
@@ -427,7 +472,16 @@ export function MenuPopup({
         >
           <InPopup value>
             <PopupBoundary value={collisionBoundary}>
-              <PopupSurface value={className}>{children}</PopupSurface>
+              <PopupSurface value={className}>
+                {scroll ? (
+                  <div ref={edges} className="ui-popup-scroll ui-scroll-edge-fade">
+                    {children}
+                  </div>
+                ) : (
+                  children
+                )}
+                {footer}
+              </PopupSurface>
             </PopupBoundary>
           </InPopup>
         </BaseMenu.Popup>
@@ -473,16 +527,32 @@ function anchorElement(anchor: MenuPopupProps["anchor"], popup: HTMLElement | nu
 
 export interface MenuItemProps {
   className?: string;
+  /** Stable action id for automation and gallery fixtures. */
+  "data-value"?: string;
   disabled?: boolean;
   shortcut?: ReactNode;
+  onPointerMove?(event: PointerEvent<HTMLElement>): void;
+  onPointerEnter?(event: PointerEvent<HTMLElement>): void;
+  onPointerLeave?(event: PointerEvent<HTMLElement>): void;
+  onMouseEnter?(event: MouseEvent<HTMLElement>): void;
+  onMouseLeave?(event: MouseEvent<HTMLElement>): void;
+  /** The row took focus: the arrow keys focus the highlighted row. */
+  onFocus?(event: FocusEvent<HTMLElement>): void;
   onSelect?(event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>): void;
   children: ReactNode;
 }
 
 export function MenuItem({
   className,
+  "data-value": dataValue,
   disabled,
   shortcut,
+  onPointerMove,
+  onPointerEnter,
+  onPointerLeave,
+  onMouseEnter,
+  onMouseLeave,
+  onFocus,
   onSelect,
   closeOnClick,
   expanded,
@@ -501,12 +571,21 @@ export function MenuItem({
   return (
     <BaseMenu.Item
       className={cx("ui-menu-item", className)}
+      {...(dataValue === undefined ? {} : { "data-value": dataValue })}
       disabled={disabled}
       {...(closeOnClick === undefined ? {} : { closeOnClick })}
       {...(expanded === undefined ? {} : { "aria-expanded": expanded })}
       {...(controls ? { "aria-controls": controls } : {})}
       {...(closeOnClick === false ? { "data-keeps-open": "" } : {})}
-      onPointerMove={(event) => context?.movePointer(event)}
+      onPointerMove={(event) => {
+        context?.movePointer(event);
+        onPointerMove?.(event);
+      }}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onFocus={onFocus}
       onPointerUp={(event) => {
         if (disabled) return;
         if (context?.activatePointer(event, () => onSelect?.(event), closeOnClick === false)) {
@@ -560,7 +639,9 @@ export function MenuCheckboxItem({ className, disabled, checked, onCheckedChange
       }}
     >
       <span className="ui-menu-check" aria-hidden="true">
-        <BaseMenu.CheckboxItemIndicator>✓</BaseMenu.CheckboxItemIndicator>
+        <BaseMenu.CheckboxItemIndicator>
+          <MenuCheckGlyph />
+        </BaseMenu.CheckboxItemIndicator>
       </span>
       {children}
     </BaseMenu.CheckboxItem>
@@ -616,7 +697,9 @@ export function MenuRadioItem({
       }}
     >
       <span className="ui-menu-check" aria-hidden="true">
-        <BaseMenu.RadioItemIndicator>✓</BaseMenu.RadioItemIndicator>
+        <BaseMenu.RadioItemIndicator>
+          <MenuCheckGlyph />
+        </BaseMenu.RadioItemIndicator>
       </span>
       {children}
       {shortcut ? <span className="ui-menu-shortcut">{shortcut}</span> : null}
@@ -624,9 +707,9 @@ export function MenuRadioItem({
   );
 }
 
-export function MenuGroup({ label, children }: { label: string; children: ReactNode }) {
+export function MenuGroup({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
   return (
-    <BaseMenu.Group className="ui-menu-group">
+    <BaseMenu.Group className={cx("ui-menu-group", className)}>
       <BaseMenu.GroupLabel className="ui-menu-group-label">{label}</BaseMenu.GroupLabel>
       {children}
     </BaseMenu.Group>

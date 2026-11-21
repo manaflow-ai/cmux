@@ -2,11 +2,12 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The curved card leaves a small, unbroken strip of sidebar surface after a row. The resize line
 /// stays in the titlebar band, while the flat style keeps its original edge-to-edge geometry.
-@MainActor @Suite(.serialized) struct SidebarPaneGapTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarPaneGapTests {
     private func root(style: ChromeStyle) -> (NSWindow, WindowRootView) {
         _ = NSApplication.shared
         let design = DesignSettings.shared
@@ -51,6 +52,23 @@ import Testing
         #expect(root.sidebar.paneReach == 0)
         #expect(root.contentHost.frame.minX == root.sidebar.frame.maxX)
         #expect(root.sidebar.handleFrameForTesting().minY == 0)
+    }
+
+    /// Two-Tone shades the chrome around the card, and its card edge alone barely reads (a 0.02 shade in light
+    /// themes), so the sidebar's line runs the window's full height beside the card, as in the flat styles (Leo
+    /// 2026-11-12: "in two-tone mode, it, like, the one between the sidebar and the transcript disappears").
+    @Test func twoToneDrawsTheSidebarLineBesideTheCard() throws {
+        let design = DesignSettings.shared
+        let before = (design.chromeStyle, design.sidebarSurface)
+        defer { design.chromeStyle = before.0; design.sidebarSurface = before.1 }
+        design.sidebarSurface = .separate
+        let (window, root) = root(style: .twoTone)
+        defer { window.close() }
+
+        #expect(root.sidebar.paneReach > 0, "Two-Tone is a curved card")
+        let line = root.sidebar.handleLineFrameInRoot()
+        #expect(line.minY <= root.contentHost.frame.minY + 0.01, "the line stops above the card: \(line), card \(root.contentHost.frame)")
+        #expect(line.maxY >= root.contentHost.frame.maxY - 0.01)
     }
 
     @Test func rightSidebarHitTestsUseSuperviewCoordinatesAndRespectVisibility() throws {

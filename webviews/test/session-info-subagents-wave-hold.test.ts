@@ -1,10 +1,7 @@
-// RUNNING-WAVE in the gallery (Leo 2026-10-21, ask-05b0074927: "THESE GLIMMER AT DIFFERENT INTERVALS
-// ... it would look cool if they went in a wave, like how thinking glimmers in ChatGPT"). Screenshots
-// come from the gallery, so Session Info's `subagents-wave` state holds the wave mid-sweep: the
-// running lines' icons sit at different points of one shimmer by their place in the list (dim,
-// brighter, the crest, brighter, dim, top to bottom), the one row of the finished and the failed one
-// at full strength, and the frame does not move between two reads. running-wave-loops.test.ts covers the live loops and what
-// stops them.
+// RUNNING-WAVE in the gallery (Leo 2026-10-21, ask-05b0074927) once swept Session Info's running
+// Subagents lines. The lean Session Info draws them still (Lucas, 2026-11-05), so its `subagents-wave`
+// state now shows no wave: no line is in one, no wave loop runs, and the frame does not move between
+// two reads. running-wave-loops.test.ts covers the running tray's live loops and what stops them.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -59,7 +56,10 @@ await requireBrowserLane("session-info-subagents-wave-hold.test.ts", async () =>
         .map((animation) => ({ state: animation.playState, at: Number(animation.currentTime) })),
     );
 
-  test("subagents-wave holds the running lines mid-sweep, by index, and the frame stays put", async () => {
+  // Lucas, 2026-11-05 (Session Info lab): Session Info's Subagents draw lean lines, each its mark, name
+  // and time, with no wave and no spinner; the ended ones fold into one plain row. The gallery's
+  // `subagents-wave` state keeps its running lines, so it shows that nothing sweeps there now.
+  test("subagents-wave draws its running lines still: no wave loop, and the frame stays put", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 420, height: 900 } });
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "subagents-wave" })}`);
@@ -71,45 +71,21 @@ await requireBrowserLane("session-info-subagents-wave-hold.test.ts", async () =>
       const { galleryReady, galleryPlay } = document.documentElement.dataset;
       return { ready: galleryReady, play: galleryPlay };
     });
-    expect(root).toEqual({ ready: "1", play: "none" });
+    expect(root.ready).toBe("1");
 
     const first = await icons(page);
-    const running = first.filter((icon) => icon.wave);
-    const still = first.filter((icon) => !icon.wave);
-    // Several running lines lead the list; the completed summary's failed and done avatars
-    // follow, outside the wave.
+    const running = first.filter((icon) => icon.state === "running");
+    // Several running lines lead the list, none of them in a wave, all at one strength.
     expect(running.length).toBeGreaterThanOrEqual(4);
-    expect(running.every((icon) => icon.state === "running")).toBe(true);
-    expect(first.slice(0, running.length).every((icon) => icon.wave)).toBe(true);
-    expect(still.map((icon) => icon.state)).toEqual(["failed", "completed"]);
-    expect(still.map((icon) => icon.opacity)).toEqual([1, 1]);
+    expect(first.some((icon) => icon.wave)).toBe(false);
+    expect(new Set(running.map((icon) => icon.opacity)).size).toBe(1);
+    expect(await loops(page)).toEqual([]);
 
-    // Every wave loop is paused at the one shared point, so only its index sets its phase.
-    const held = await loops(page);
-    expect(held.length).toBe(running.length);
-    expect(held.every((loop) => loop.state === "paused")).toBe(true);
-    expect(new Set(held.map((loop) => loop.at)).size).toBe(1);
-
-    // Mid-sweep: the crest sits on a line inside the list; the opacities rise to it and fall after
-    // it in index order, each one visibly different from every other.
-    const opacity = running.map((icon) => icon.opacity);
-    const crest = opacity.indexOf(Math.max(...opacity));
-    expect(crest).toBeGreaterThan(0);
-    expect(crest).toBeLessThan(opacity.length - 1);
-    for (let index = 1; index <= crest; index++) expect(opacity[index]! - opacity[index - 1]!).toBeGreaterThan(0.02);
-    for (let index = crest + 1; index < opacity.length; index++)
-      expect(opacity[index - 1]! - opacity[index]!).toBeGreaterThan(0.02);
-    for (const [index, value] of opacity.entries())
-      for (const other of opacity.slice(index + 1)) expect(Math.abs(value - other)).toBeGreaterThan(0.02);
-    expect(Math.max(...opacity)).toBeGreaterThan(0.95);
-    expect(Math.min(...opacity)).toBeLessThan(0.75);
-    expect(Math.min(...opacity)).toBeGreaterThanOrEqual(0.55);
-
-    // The same frame a full wave period later (1.6 s on the page's own timeline): nothing moved.
+    // A full former wave period later (1.6 s on the page's own timeline): nothing moved.
     const at = await page.evaluate(() => Number(document.timeline.currentTime));
     await page.waitForFunction((from) => Number(document.timeline.currentTime) > from + 1_700, at);
     expect(await icons(page)).toEqual(first);
-    expect(await loops(page)).toEqual(held);
+    expect(await loops(page)).toEqual([]);
     await page.close();
   });
 });

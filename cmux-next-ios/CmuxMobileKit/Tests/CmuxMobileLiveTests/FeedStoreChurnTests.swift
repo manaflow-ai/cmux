@@ -66,13 +66,14 @@ import Testing
         let store = FeedStore(items: [
             Self.item("done", ago: 1), Self.item("ask", ago: 2, kind: .needsInput), Self.item("fail", ago: 3, kind: .failed, workspace: "w2"),
         ])
-        #expect(store.visibleItems.map(\.id) == ["done", "ask", "fail"])
+        // The open ask is pinned first (FeedNeedsYouTests).
+        #expect(store.visibleItems.map(\.id) == ["ask", "done", "fail"])
         #expect(store.needsYouCount == 1)
         store.filter = .errors
         #expect(store.visibleItems.map(\.id) == ["fail"])
         store.filter = .all
         store.mutedWorkspaces.insert("w2")
-        #expect(store.visibleItems.map(\.id) == ["done", "ask"])
+        #expect(store.visibleItems.map(\.id) == ["ask", "done"])
         store.markDone("ask")
         #expect(store.visibleItems.map(\.id) == ["done"])
         #expect(store.needsYouCount == 0)

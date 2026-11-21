@@ -300,8 +300,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
 
   test("a running command's live line says Ctrl-B runs it in the background", async () => {
     const page = await open(CLAUDE);
-    // The command in flight draws no row of its own (Debug toggles agentPane.debug.codexToolRuns
-    // and liveLineBelow, on by default): the live line at the turn's foot names it and offers the
+    // The command in flight draws no row of its own: the live line at the turn's foot names it and offers the
     // hint its row did (Thinking.tsx).
     const line = page.locator(".cv-worked.is-below");
     const hint = line.getByText("⌃B to run in background");
@@ -341,6 +340,38 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
     await composer(page).click();
     await page.keyboard.press("Control+b");
+    expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
+    await page.close();
+  });
+
+  test("the hint is a button that moves the work, whichever pane has the keyboard", async () => {
+    // Leo, 2026-11-03: "this run in background sometimes i can't actually do anything to put it in
+    // the background". The hint shows on hover in a pane that may not have the keyboard, where Ctrl-B
+    // goes to another pane; a click on it always reaches this chat.
+    backgrounded.length = 0;
+    backgroundReply = "moved";
+    const page = await open(CLAUDE);
+    const line = page.locator(".cv-worked.is-below");
+    const hint = line.getByRole("button", { name: translate("tools.backgroundHintLabel") });
+    await hint.waitFor({ timeout: 5_000 });
+    expect(await hint.textContent()).toBe("⌃B to run in background");
+    // Away from the page: Ctrl-B never reaches it, the click does.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await line.hover();
+    await hint.click();
+    expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
+    await page.close();
+  });
+
+  test("the hint button takes the keyboard: focused, Return moves the work", async () => {
+    backgrounded.length = 0;
+    backgroundReply = "moved";
+    const page = await open(CLAUDE);
+    const hint = page.getByRole("button", { name: translate("tools.backgroundHintLabel") });
+    await hint.waitFor({ timeout: 5_000 });
+    await hint.focus();
+    expect(await hint.evaluate((node) => node === document.activeElement)).toBe(true);
+    await page.keyboard.press("Enter");
     expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
     await page.close();
   });

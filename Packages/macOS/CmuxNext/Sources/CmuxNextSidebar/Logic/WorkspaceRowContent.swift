@@ -19,6 +19,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var rowColor: GroupColor?
     /// How `rowColor` draws: `.leftRail` or `.fill` (`.dot` draws it as the icon instead).
     public var colorStyle: WorkspaceColorIndicatorStyle = .dot
+    /// How a `.leftRail` row draws `rowColor`: its bar, wash and title tint (``WorkspaceRailLook/standard`` in the app).
+    public var railLook = WorkspaceRailLook.standard
     /// The second line: the shown second-line elements in order, joined.
     public var detail: String?
     /// The tab count, when that element is on.
@@ -61,6 +63,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var status: SidebarWorkspaceStatus?
     /// The computer the workspace runs on, while the sidebar lists more than one (SidebarMachineMark).
     public var machine: SidebarMachineMark?
+    /// The workspace runs on a Cloud machine: a small cloud mark right after its name, the row's only sign of it.
+    public var runsInCloud = false
     /// The computer as a one-list row names it, with its status when it cannot connect
     /// (`gpu-box · Failed to start`, `SidebarLayout.machineLabel`; set by `SidebarLayoutOptions.rowContent`
     /// in every row mode): no line draws it any more (Leo 2026-10-30), so the row's accessibility label
@@ -68,6 +72,10 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var machineLabel: String?
     /// The session tree (`sidebar.sessionTree`): 1 under the workspace whose agent started this one's.
     public var treeDepth = 0
+    /// The session tree: the parent's title, when this row's own title is the same name. The row reads
+    /// "Subagent of <parent>" instead of its parent's name again (Leo 2026-10-30: "the sidebar tab shouldn't
+    /// just be named claude sr2 coord if you can just say it's Subagent of sr2 coord").
+    public var subagentOf: String?
     /// The session tree: the Command-number that goes to the row (1 to 9), drawn as a keycap.
     public var keycap: Int?
     /// The session tree: the row's pull requests, a glyph and a count in their status color.
@@ -83,6 +91,9 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// What the working agent does now (`SidebarWorkspace.agentStep`), in place of the second
     /// line's text: the row view draws it as "Now: …". Set only on a row that has a second line.
     public var now: String?
+    /// The agent chat's task progress (`SidebarWorkspace.taskProgress`) when the row draws its
+    /// count on the name's line (`trailingStatus`); its accessibility label says it in words.
+    public var tasks: SidebarTaskProgress?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
                 activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false,
@@ -276,5 +287,13 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     static func nonEmpty(_ text: String?) -> String? {
         guard let text, !text.isEmpty else { return nil }
         return text
+    }
+}
+
+nonisolated extension WorkspaceRowContent {
+    /// Two titles name the same thing: equal once trimmed, ignoring case and diacritics; an empty title names nothing.
+    static func sameTitle(_ a: String, _ b: String) -> Bool {
+        let a = a.trimmingCharacters(in: .whitespacesAndNewlines), b = b.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !a.isEmpty && a.compare(b, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
     }
 }

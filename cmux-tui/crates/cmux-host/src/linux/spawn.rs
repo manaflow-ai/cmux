@@ -72,7 +72,7 @@ pub fn current_user_name() -> Option<String> {
 }
 
 /// `getgrouplist`: the user's supplementary groups.
-fn group_list(name: &str, gid: u32) -> Vec<u32> {
+pub(crate) fn group_list(name: &str, gid: u32) -> Vec<u32> {
     let Ok(cname) = CString::new(name) else { return vec![gid] };
     let mut count: libc::c_int = 64;
     loop {

@@ -167,28 +167,14 @@ def frame_of(row):
     return (grid["frame_x"], grid["frame_y"], grid["frame_width"], grid["frame_height"])
 
 
-def daemon_terminal_of(j, pane_key, workspace_id=None, avoid=()):
-    """The daemon terminal id of the selected tab of `pane_key` (topology from snapshot.get)."""
-    snap = j.app.rpc("snapshot.get") or {}
-    topo = snap.get("topology") if isinstance(snap, dict) else None
-    exact, in_workspace = [], []
-    for ws in (topo or {}).get("workspaces", []):
-        for screen in ws.get("screens", []):
-            for pane in screen.get("panes", []):
-                for tab in pane.get("tabs", []):
-                    term = tab.get("terminal")
-                    term = term.get("id") if isinstance(term, dict) else term
-                    if not term:
-                        continue
-                    if pane.get("id") == pane_key:
-                        exact.append((bool(tab.get("selected")), str(term)))
-                    elif workspace_id and ws.get("id") == workspace_id and str(term) not in avoid:
-                        in_workspace.append((bool(tab.get("selected")), str(term)))
-    if exact:
-        return sorted(exact, reverse=True)[0][1]
-    if len(in_workspace) == 1:
-        return in_workspace[0][1]
-    raise D.StepError(f"no daemon terminal for pane {pane_key} (workspace {workspace_id}: candidates {in_workspace[:4]})")
+def daemon_terminal_of(j, row):
+    """The daemon terminal id a debug.surfaces pane row shows, resolved by its creation key (the driver's
+    Journey.creation_place: never a stand-in's id, a selected tab or the only terminal of a workspace). Raises
+    StepError with why it is not known yet."""
+    place, why = j.creation_place(row, j.topology())
+    if not place:
+        raise D.StepError(why)
+    return place[2]
 
 
 # ---- steps -----------------------------------------------------------------------------------
@@ -248,7 +234,6 @@ def step_adopt_window(j, step):
 def step_adopt_pane(j, step):
     _known(j)
     seen = set(j.ext_seen)
-    terms = {p["term"] for p in j.ext_panes.values()}
     want_window = step.get("window", "same")
     old_windows = getattr(j, "ext_windows_seen", set(windows(j)))
     end = D.now() + float(step.get("timeout", 20))
@@ -264,7 +249,7 @@ def step_adopt_pane(j, step):
             if want_window == "same" and wid != current_window(j):
                 continue
             try:
-                term = daemon_terminal_of(j, key, row.get("workspace"), avoid=terms)
+                term = daemon_terminal_of(j, row)
                 if j.app.screen(term)["text"].strip():
                     j.pane, j.term = key, term
                     j.host_pid = int(row["host_pid"]) if row.get("host_pid") else None

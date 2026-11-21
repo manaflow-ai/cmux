@@ -1,7 +1,6 @@
 import { recoverTeamVmCreation } from "./team-vm-api-creation.ts";
 import type { Vm } from "@cmux/vm"
 import type { VmApiSettings } from "./cloud-vm-api-config.ts"
-import { sha256Hex } from "./cloud-link.ts"
 import type { ProviderState } from "./domains/team-vm.ts"
 import { parseTeamVmCreateSpec } from "./team-vm-api-config.ts"
 import { TeamVmApiFiles } from "./team-vm-api-files.ts"
@@ -9,6 +8,8 @@ import { vmApiInstanceMatches } from "./team-vm-api-instance.ts"
 import { TeamVmApiRequest, teamApiFailure, TEAM_API_VM_ID } from "./team-vm-api-request.ts"
 import type { TeamVmDriver } from "./team-vm-driver.ts"
 import type { LedgerRow, TeamVmLedger } from "./team-vm-ledger.ts"
+
+const sha256Hex = async (s: string) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)))].map((b) => b.toString(16).padStart(2, "0")).join("")
 
 /** One exact owner-ledger allocation, accessed with the dedicated Team VM service credential. */
 export class VmApiTeamDriver implements TeamVmDriver {

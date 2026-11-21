@@ -91,7 +91,8 @@ public struct SidebarDocDrag {
                 } else {
                     parent = row.group.flatMap { item(.group($0)) }
                 }
-                slots.append(.init(key: id, item: id, section: section, parent: parent, frame: frame, kind: kind))
+                slots.append(.init(key: id, item: id, section: section, parent: parent, frame: frame, kind: kind,
+                                   collapsed: kind == .group && row.isCollapsed))
                 rows[id] = row
             case .section, .emptySection:
                 slots.append(.init(key: section, item: nil, section: section, frame: frame, kind: .section))
@@ -105,7 +106,7 @@ public struct SidebarDocDrag {
             case .block(let id):
                 // A block's items: tiles and rows of its own arrangement, at their base frames.
                 if let block = blocks[id] { slots += blockSlots(block, at: row.y) }
-            case .folder, .status, .doneFold, .showMore:
+            case .folder, .status, .listHeader, .doneFold, .showMore:
                 continue
             }
         }

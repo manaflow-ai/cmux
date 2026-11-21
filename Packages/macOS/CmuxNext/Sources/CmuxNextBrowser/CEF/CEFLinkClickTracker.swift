@@ -39,6 +39,13 @@ final class CEFLinkClickTracker {
     /// (`PageWKWebView`): a page that saves on a drag's release (Settings >
     /// Menus) acts on the person's input after a drag of any length.
     var onGesture: (Int32) -> Void = { _ in }
+    /// SECURITY: whether an input event is the person's own (the app's strict HID-system check, `PersonInputCheck`,
+    /// set by the app). A click or key another process posts (a computer-use agent, a script) is not; with none set,
+    /// no event is.
+    var isPerson: @MainActor (NSEvent) -> Bool = { _ in false }
+    /// The person's own mouse down, mouse up or key on page `browser` (``isPerson``): the page's WebAuthn is theirs
+    /// again (``CEFTab/allowWebAuthnForPerson()``).
+    var onPersonInput: (Int32) -> Void = { _ in }
 
     /// The context for placing a tab Chromium wants to open now.
     func context() -> CEFLinkContext {
@@ -68,14 +75,30 @@ final class CEFLinkClickTracker {
             : window.convertPoint(toScreen: event.locationInWindow)
         guard let browser = CEFLinkClicks.browser(clickedIn: ObjectIdentifier(window), parent: window.parent.map(ObjectIdentifier.init),
                                                   at: point, targets: targets()) else { return }
-        record(event.type, on: browser, button: event.buttonNumber, flags: event.modifierFlags, timestamp: event.timestamp)
+        record(event.type, on: browser, button: event.buttonNumber, flags: event.modifierFlags, timestamp: event.timestamp,
+               byPerson: isPerson(event))
+    }
+
+    /// A VoiceOver press (``ChromiumAccessibilityPress``) on an element in `window`, `frame` its
+    /// screen frame: the person's gesture on the page under the element's center, as a key down is
+    /// on the page it reaches. It is no click (no modifiers, no button), so the page's last click
+    /// stays. An element whose window is the cmux window counts on the page window over its center.
+    func recordAccessibilityPress(in window: NSWindow, frame: CGRect?) {
+        let point = frame.map { CGPoint(x: $0.midX, y: $0.midY) }
+        let page = window.parent == nil ? window.childWindows?.first { child in point.map(child.frame.contains) ?? false } ?? window : window
+        let center = point ?? CGPoint(x: page.frame.midX, y: page.frame.midY)
+        guard let browser = CEFLinkClicks.browser(clickedIn: ObjectIdentifier(page), parent: page.parent.map(ObjectIdentifier.init),
+                                                  at: center, targets: targets()) else { return }
+        onGesture(browser)
     }
 
     /// An input event of `type` on page `browser`: every press, release and key is the person's
     /// gesture (the release too: a page that saves on a drag's release acts on it); a left or
-    /// middle release is also the page's last click.
-    func record(_ type: NSEvent.EventType, on browser: Int32, button: Int, flags: NSEvent.ModifierFlags, timestamp: TimeInterval) {
+    /// middle release is also the page's last click. `byPerson`: the person's own input (``isPerson``).
+    func record(_ type: NSEvent.EventType, on browser: Int32, button: Int, flags: NSEvent.ModifierFlags, timestamp: TimeInterval,
+                byPerson: Bool) {
         onGesture(browser)
+        if byPerson { onPersonInput(browser) }
         guard type == .leftMouseUp || type == .otherMouseUp else { return }
         clicks[browser] = CEFLinkClickRecord(gesture: BrowserLinkGesture(flags: flags, button: type == .otherMouseUp ? button : 0),
                                              timestamp: timestamp)

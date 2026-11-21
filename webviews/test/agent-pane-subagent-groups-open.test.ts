@@ -64,7 +64,8 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
     "agent_message_chunk",
     update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } }),
   ];
-  // The read that ends the live turn is its live line ("Read app.ts"), so pages wait on the prompt.
+  // With its two agents still running, the live turn's line names the wait ("Waiting on 2
+  // subagents"), not the read that ends it, so pages wait on the prompt.
   const live: Step[] = [...start, spawned("a1", "Reviewer"), spawned("a2", "Tester"), read("r1", "src/app.ts")];
   // Finished chats, their group at the same place as LIVE's.
   const done = (answer: string): Step[] => [
@@ -291,7 +292,7 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
     await select(page, DONE);
     await page.getByText("Both reviews are in.").waitFor({ timeout: 10_000 });
     await select(page, LIVE);
-    await page.getByText("Read app.ts").first().waitFor({ timeout: 10_000 });
+    await page.getByText("Waiting on 2 subagents").first().waitFor({ timeout: 10_000 });
     await expectGroups(page, { open: ["false"], lines: 0 });
     await page.close();
   });

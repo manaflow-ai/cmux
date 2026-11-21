@@ -107,10 +107,12 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
             const rows = [...document.querySelectorAll<HTMLElement>("[data-glyph-row]")].map((scope) => {
               const kind = scope.dataset.glyphRow!;
               const selectors: Record<string, [string, string]> = {
-                tool: [".cv-command__time", ".cv-command__ok, svg.cv-tool__chevron"],
-                command: [".cv-command__time", ".cv-command__ok, svg.cv-tool__chevron"],
+                // A finished call draws no check and no time (Codex parity, 2026-11-11): its words and chevron.
+                tool: [".cv-tool__text", "svg.cv-tool__chevron"],
+                command: [".cv-command__text", "svg.cv-tool__chevron"],
                 worked: [".cv-worked__label", ".cv-worked__chevron"],
-                thought: [".cv-thought__label", ".cv-tool__chevron"],
+                // A closed thought reads its words after the brain glyph (Codex parity).
+                thought: [".cv-thought__preview", ".cv-tool__icon svg, .cv-tool__chevron"],
                 plan: [".cv-plan__text", ".cv-plan__mark"],
                 "session-info": [
                   ".acpmux-session-info-section__title",
@@ -126,8 +128,8 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
               ".cv-user__time",
               ".cv-iconbtn svg",
             );
-            const retry = (kind: string) =>
-              getComputedStyle(document.querySelector(`[data-received-row="${kind}"] .cv-message-retry`)!).display;
+            // The last turn's Retry is its reply footer's (TurnFooter): no message row draws one.
+            const retry = (kind: string) => document.querySelector(`[data-received-row="${kind}"] .cv-message-retry`);
             const sessionInfo = document.querySelector('[data-glyph-row="session-info"]')!;
             const sectionTitle = sessionInfo
               .querySelector(".acpmux-session-info-section__title")!
@@ -158,15 +160,81 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
             expect(row.glyphs.length, row.kind).toBeGreaterThan(0);
             for (const glyph of row.glyphs) expect(glyph.delta, row.kind).toBeLessThanOrEqual(0.5);
           }
-          expect(measurements.footer).toHaveLength(3);
-          expect(measurements.versionFooter).toHaveLength(5);
+          // Two fewer than before: Retry and its model switch moved to the reply footer (TurnFooter).
+          expect(measurements.footer).toHaveLength(1);
+          expect(measurements.versionFooter).toHaveLength(3);
           for (const glyph of [...measurements.footer, ...measurements.versionFooter]) {
             expect(glyph.delta, "sent footer").toBeLessThanOrEqual(0.5);
             expect(glyph.width, "footer glyph width").toBe(16);
             expect(glyph.height, "footer glyph height").toBe(16);
           }
-          expect(measurements.retryHidden).toBe("none");
-          expect(measurements.retryShown).toBe("flex");
+          expect(measurements.retryHidden).toBeNull();
+          expect(measurements.retryShown).toBeNull();
+        } finally {
+          await page.close();
+        }
+      });
+      // Leo, 2026-11-14, on a queued prompt's "Queued, sends when the current turn ends": "this is
+      // misaligned". The clock sat on the words' baseline (the age's inline-block rule beat the note's
+      // flex centring), 2px from them, and the note started wherever its right-anchored row put it.
+      // Leo, 2026-11-17, on that note: "it's not really useful to see ever". A queued prompt draws no
+      // note now; the pending note that remains ("Sending") keeps the same alignment.
+      test(`${theme}: a pending note's clock is centred on its words, one icon gap away, at the bubble's text; a queued prompt has none`, async () => {
+        const page = await browser.newPage({ viewport: { width: 760, height: 900 }, deviceScaleFactor: 2 });
+        try {
+          const port = (vite.httpServer!.address() as { port: number }).port;
+          await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-glyph-alignment.html?theme=${theme}`);
+          await page.locator("[data-pending-row] .cv-user__pending-state svg").waitFor();
+          await page.evaluate(() => document.fonts.ready);
+          const m = await page.evaluate(() => {
+            const scope = document.querySelector("[data-pending-row]")!;
+            const note = scope.querySelector(".cv-user__pending-state")!;
+            const icon = note.querySelector("svg")!.getBoundingClientRect();
+            const textRange = (el: Element) => {
+              const range = document.createRange();
+              range.selectNodeContents(el);
+              return range.getBoundingClientRect();
+            };
+            const words = textRange(note.querySelector(".cv-user__pending-words")!);
+            const bubble = scope.querySelector(".cv-user__bubble")!;
+            const bubbleText = textRange(bubble.querySelector(".cv-user__text, p, span") ?? bubble);
+            const firstChar = document.createRange();
+            const node = document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT).nextNode()!;
+            firstChar.setStart(node, 0);
+            firstChar.setEnd(node, 1);
+            const gapToken = document.createElement("div");
+            gapToken.style.width = "var(--cv-row-icon-gap)";
+            note.append(gapToken);
+            const tokenPx = gapToken.getBoundingClientRect().width;
+            gapToken.remove();
+            return {
+              text: note.textContent,
+              iconCenter: icon.top + icon.height / 2,
+              wordsCenter: words.top + words.height / 2,
+              gap: words.left - icon.right,
+              tokenPx,
+              noteLeft: icon.left,
+              bubbleTextLeft: firstChar.getBoundingClientRect().left,
+              bubbleTextBox: bubbleText.left,
+            };
+          });
+          console.log(`QUEUED_NOTE ${JSON.stringify({ theme, ...m })}`);
+          expect(m.text).toBe("Sending");
+          // The queued prompt keeps its time: no clock, no queued words.
+          const queued = await page.evaluate(() => {
+            const scope = document.querySelector("[data-queued-row]")!;
+            return {
+              notes: scope.querySelectorAll(".cv-user__pending-state").length,
+              ages: scope.querySelectorAll("time.cv-user__time").length,
+              text: scope.textContent ?? "",
+            };
+          });
+          expect(queued.notes).toBe(0);
+          expect(queued.ages).toBe(1);
+          expect(queued.text).not.toContain("Queued, sends when");
+          expect(Math.abs(m.iconCenter - m.wordsCenter)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(m.gap - m.tokenPx)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(m.noteLeft - m.bubbleTextLeft)).toBeLessThanOrEqual(0.5);
         } finally {
           await page.close();
         }

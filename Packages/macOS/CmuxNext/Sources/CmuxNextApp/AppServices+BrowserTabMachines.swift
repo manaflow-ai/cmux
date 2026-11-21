@@ -58,8 +58,8 @@ extension AppServices {
     }
 
     func attachMachineBadgeMenu(_ entry: BrowserEntry) {
-        guard let key = entry.chrome.addressBar.tabKey else { return }
-        entry.chrome.addressBar.machineBadgeMenu = { [weak self] in self?.machineBadgeMenu(key: key) }
+        guard let key = entry.state.tabKey else { return }
+        entry.state.machineBadgeMenu = { [weak self] in self?.machineBadgeMenu(key: key) }
     }
 
     func wireBrowserTabMachines() {

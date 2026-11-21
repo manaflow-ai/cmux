@@ -7,6 +7,8 @@ import type { UserState } from "../src/domains/user.ts"
 import type { TeamState } from "../src/domains/team.ts"
 import { hostNetworkTarget, hostNetworkTargetOwner } from "../src/host-network-target.ts"
 import { vmReceiverPeers } from "../src/cloud-vm-receiver-peers.ts"
+import { vmApiConnection, vmApiOrigin } from "../src/cloud-vm-api-config.ts"
+import type { Env } from "../src/env.ts"
 import type { NetworkIdentityView } from "../src/user-do.ts"
 import { post, sessionToken } from "./cloud-bind-support.ts"
 import { installPublicPoint } from "../src/install-public-point.ts"
@@ -244,10 +246,35 @@ describe("TeamDO Native reads with live authority", () => {
     expect(await hostNetworkTarget(targetDeps(w), p, {})).toEqual({ ok: true, revision: "7", value: { team: TEAM, tenant: TENANT, project: "project", origin: ORIGIN, mesh: MESH, ipv4_cidr: "10.128.0.0/20" } })
   })
 
+  /** The owner seam's deps: the VM API origin alone, with no service key and no HTTP client. */
+  const ownerDeps = (w: Awaited<ReturnType<typeof world>>, origin: () => string | null = () => ORIGIN) => {
+    const { connection: _connection, http: _http, ...rest } = targetDeps(w) as unknown as Record<string, unknown>
+    return { ...rest, origin } as never
+  }
+
   it("verifies the owner without reading the mesh", async () => {
     const w = await world()
-    const deps = targetDeps(w)
-    expect(await hostNetworkTargetOwner(deps, p, {})).toEqual({ ok: true, revision: "7", value: { team: TEAM, tenant: TENANT, project: "project", origin: ORIGIN } })
+    expect(await hostNetworkTargetOwner(ownerDeps(w), p, {})).toEqual({ ok: true, revision: "7", value: { team: TEAM, tenant: TENANT, project: "project", origin: ORIGIN } })
+  })
+
+  it("verifies the owner with a VM API origin and no service key of its own", async () => {
+    const w = await world()
+    const e = { CLOUD_VM_API_ORIGIN: ORIGIN } as Env
+    expect(vmApiConnection(e)).toBeNull()
+    expect(await hostNetworkTargetOwner(ownerDeps(w, () => vmApiOrigin(e)), p, {})).toMatchObject({ ok: true, value: { origin: ORIGIN } })
+  })
+
+  it("answers unavailable with no VM API origin, and refuses when the origin changes during the reads", async () => {
+    const w = await world()
+    expect(await hostNetworkTargetOwner(ownerDeps(w, () => null), p, {})).toMatchObject({ ok: false, code: "owner.unreachable" })
+    let calls = 0
+    expect(await hostNetworkTargetOwner(ownerDeps(w, () => calls++ === 0 ? ORIGIN : "https://other.example.test"), p, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
+  })
+
+  it("reads the VM API origin only as a bare https origin", () => {
+    expect(vmApiOrigin({ CLOUD_VM_API_ORIGIN: "https://vm.cmux.dev" })).toBe("https://vm.cmux.dev")
+    for (const bad of [undefined, "", "http://vm.cmux.dev", "https://vm.cmux.dev/", "https://vm.cmux.dev/v1", "https://u:p@vm.cmux.dev", "https://vm.cmux.dev?x=1", "not a url"])
+      expect(vmApiOrigin({ CLOUD_VM_API_ORIGIN: bad }), String(bad)).toBeNull()
   })
 
   it.each(["regrant", "rejoin", "leave"] as const)("refuses the target when the caller's %s happens during the mesh read", async (change) => {
@@ -309,6 +336,19 @@ describe("TeamDO Native reads with live authority", () => {
       authority_version: expect.stringMatching(/^[0-9a-f]{64}$/) }] })
   })
 
+  it("adds desktop to the creator's own peer only when the machine serves a desktop", async () => {
+    const w = await world()
+    expect(await vmReceiverPeers(peerDeps(w), { ...(peerTarget(w) as object), desktop: true } as never))
+      .toMatchObject({ peers: [{ user: USER, services: ["daemon", "ssh", "desktop"] }] })
+    expect(await vmReceiverPeers(peerDeps(w), { ...(peerTarget(w) as object), desktop: false } as never))
+      .toMatchObject({ peers: [{ services: ["daemon", "ssh"] }] })
+    // Desktop needs no port: a peer the VM policy gives no TCP still gets only what the team allows.
+    const noPorts = { ...(peerTarget(w) as { policy: { peers: Array<object> } }) }
+    noPorts.policy = { ...noPorts.policy, peers: noPorts.policy.peers.map((peer) => ({ ...peer, allow: [] })) }
+    expect(await vmReceiverPeers(peerDeps(w), { ...noPorts, desktop: true } as never))
+      .toMatchObject({ peers: [{ user: USER, services: ["desktop"] }] })
+  })
+
   it("drops a peer whose install authority changes between the two identity snapshots", async () => {
     const w = await world()
     expect(await vmReceiverPeers(peerDeps(w, w.regrant), peerTarget(w))).toMatchObject({ peers: [] })
@@ -357,5 +397,26 @@ describe("TeamDO Native reads with live authority", () => {
     const answer = await vmReceiverPeers(deps, target)
     expect(vCalls).toBeGreaterThanOrEqual(2)
     expect(answer?.peers.map((peer) => peer.user)).toEqual([V])
+  })
+  it("never gives another member's peer the creator's desktop", async () => {
+    const V = "user_00000000000000000002", V_INSTALL = "inst_00000000000000000002", V_GRANT = "grant_00000000000000000002", V_HOST = "host_00000000000000000002"
+    const V_DEVICE = "dev_" + "1".repeat(26), vWg = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)))
+    const keyOf = async () => (await crypto.subtle.exportKey("jwk", ((await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair).publicKey)) as JsonWebKey
+    const uKey = await keyOf(), vKey = await keyOf()
+    const host = (id: string, owner: string, install: string, grant: string, device: string, wgKey: string) => ({ id, name: id, platform: "macos", owner_user: owner, enrolled_by: install, enrolled_at: 1, wg_public_key: wgKey,
+      network: { state: "confirmed", tenant: TENANT, mesh: MESH, device, confirmed_at: 1, install_grant: grant } })
+    const state = { team: { id: TEAM, kind: "stack", display_name: "Team" }, members: { [USER]: { user: USER, role: "owner", display_name: "U" }, [V]: { user: V, role: "member", display_name: "V" } },
+      hosts: { [HOST]: host(HOST, USER, INSTALL, GRANT, DEVICE, wg), [V_HOST]: host(V_HOST, V, V_INSTALL, V_GRANT, V_DEVICE, vWg) } } as unknown as TeamState
+    const identity = (user: string): NetworkIdentityView => ({ key: user === USER ? uKey : vKey, kind: "mac", expires_at: null, authority_version: "1".padStart(64, "0"), op_classes: ["read", "mutate-own", "execute"] })
+    const deps = { team: TEAM, project: "project", state: () => state, rows: undefined, now: Date.now, origin: () => ORIGIN,
+      tenant: async () => ({ team: TEAM, project: "project", tenant: TENANT }), allowed: () => ["daemon", "ssh", "desktop"],
+      identity: async (user: string) => identity(user),
+      identities: async (user: string, entries: ReadonlyArray<unknown>) => entries.map(() => identity(user)) }
+    const allow = [{ protocol: "tcp", port: 22 }, { protocol: "tcp", port: 4100 }]
+    const target = { creator: USER, origin: ORIGIN, deadline: Date.now() + 10_000, desktop: true, policy: {
+      schemaVersion: 1, tenantId: TENANT, vmId: "vm_" + "1".repeat(26), meshId: MESH, ipv4: "10.128.0.5", aclVersion: 1, checkedAt: Date.now(), expiresAt: Date.now() + 20_000, policyDigest: "a".repeat(64),
+      peers: [{ deviceId: DEVICE, wgPublicKey: wg, installPublicKey: installPublicPoint(uKey), allow }, { deviceId: V_DEVICE, wgPublicKey: vWg, installPublicKey: installPublicPoint(vKey), allow }] } } as never
+    const answer = await vmReceiverPeers(deps, target)
+    expect(answer?.peers.map((peer) => [peer.user, peer.services])).toEqual([[USER, ["daemon", "ssh", "desktop"]], [V, ["daemon", "ssh"]]])
   })
 })

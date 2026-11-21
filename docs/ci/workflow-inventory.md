@@ -14,6 +14,8 @@ Total estimated runner time for the week: **3,431 hours**. `ci.yml` accounts for
 
 The required checks on `main` (ruleset "main: block force-push or delete") are `CLA Assistant`, `CLA policy guard`, `ci-status`, `Web complexity` and `web-validation`. Workflows that feed them are marked REQUIRED and must not be removed.
 
+The required check on `feat-cmux-next` (ruleset "feat-cmux-next: clippy required", from 2026-11-04) is `clippy (changed cmux-tui packages)` from `cmux-tui-spec.yml`. That workflow runs on every pull request: its `changes` job skips the jobs when the change touches none of its `push` paths, and a skipped job passes the check. Repository admins bypass the rule, which is how landq pushes. Before it, #35133 and #35149 merged with that check red.
+
 ## Flags
 
 **a. Experimental or canary workflows that have never succeeded, or have no consumer**
@@ -78,9 +80,7 @@ Sorted by estimated runner minutes. Trigger abbreviations: pr = pull_request, pr
 | `ci-cache-receipts.yml` | pr push (paths) | blacksmith | 718 | 681 / 37 / 0 / 0 | 214 | 2026-09-22 | teamleaderleo #13272 | Leo 2026-09-21 | 1 docs/tests |  |
 | `cmux-tui-release.yml` | dispatch push | blacksmith/warp/macos/gh-ubuntu | 4 | 3 / 0 / 0 / 1 | 128 | 2026-09-17 | lawrencecchen #7710 | Lawrence Chen 2026-09-16 | 4 wf refs; 2 docs/tests |  |
 | `indexnow.yml` | deployment_status dispatch | blacksmith | 1,199 | 307 / 88 / 804 / 0 | 97 | 2026-09-22 | lawrencecchen #8339 | Lawrence Chen 2026-09-17 | 1 wf refs; 1 docs/tests | **b** 804/1,199 skipped (every deployment_status) |
-| `cloud-vm-image-contract.yml` | pr push dispatch (paths) | blacksmith | 199 | 137 / 62 / 0 / 0 | 93 | 2026-09-22 | lawrencecchen #11984 | Austin Wang 2026-09-10 | none |  |
 | `cloud-command-deadlines.yml` | pr dispatch (paths) | blacksmith/warp/macos | 64 | 46 / 13 / 0 / 5 | 92 | 2026-09-21 | austinywang #12631 | Austin Wang 2026-09-19 | none |  |
-| `cloud-vm-image-reachability.yml` | pr push schedule dispatch (paths) | blacksmith | 187 | 183 / 4 / 0 / 0 | 82 | 2026-09-22 | lawrencecchen #12132 | Lawrence Chen 2026-09-17 | 1 docs/tests |  |
 | `build-ghosttykit.yml` | dispatch | blacksmith/warp/macos | 11 | 9 / 1 / 0 / 1 | 72 | 2026-09-20 | lawrencecchen #447 | Abdulaziz Albahar 2026-09-01 | 3 docs/tests |  |
 | `ci-stale-run-janitor.yml` | schedule dispatch | gh-ubuntu | 83 | 81 / 2 / 0 / 0 | 67 | 2026-09-22 | teamleaderleo #13143 | Leo Li 2026-09-20 | 2 docs/tests |  |
 | `iroh-release-gate.yml` | dispatch | blacksmith/warp/macos | 2 | 0 / 2 / 0 / 0 | 60 | 2026-08-14 | azooz2003-bit #8484 | Leo 2026-09-21 | 1 docs/tests | 2 runs, both failed; last success 08-14 |

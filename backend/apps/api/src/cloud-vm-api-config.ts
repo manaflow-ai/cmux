@@ -9,15 +9,22 @@ export interface VmApiSettings extends VmApiConnection {
   readonly image: { readonly id: string; readonly revision: string }
 }
 
-/** Operator configuration only; callers never choose an endpoint, credential or image revision. */
-export const vmApiConnection = (env: Env): VmApiConnection | null => {
-  const { CLOUD_VM_API_ORIGIN: origin, CLOUD_VM_API_SERVICE_KEY: key } = env
-  if (!origin || !key || /[\r\n]/.test(key) || key !== key.trim()) return null
+/** The configured VM API origin, valid only as a bare https origin. Needs no service key. */
+export const vmApiOrigin = (env: Pick<Env, "CLOUD_VM_API_ORIGIN">): string | null => {
+  const origin = env.CLOUD_VM_API_ORIGIN
+  if (!origin) return null
   try {
     const u = new URL(origin)
     if (u.protocol !== "https:" || u.origin !== origin || u.username || u.password || u.search || u.hash) return null
-    return { origin, key }
+    return origin
   } catch { return null }
+}
+
+/** Operator configuration only; callers never choose an endpoint, credential or image revision. */
+export const vmApiConnection = (env: Env): VmApiConnection | null => {
+  const origin = vmApiOrigin(env), key = env.CLOUD_VM_API_SERVICE_KEY
+  if (!origin || !key || /[\r\n]/.test(key) || key !== key.trim()) return null
+  return { origin, key }
 }
 
 export const vmApiSettings = (env: Env): VmApiSettings | null => {

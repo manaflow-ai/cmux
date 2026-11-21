@@ -3,9 +3,14 @@ import Foundation
 
 /// Pure rules of the profile bar: visibility, stepping, and drag reorder.
 public nonisolated enum ProfileBarLogic {
-    /// A profile mark remains useful with one profile: it identifies the
-    /// current space and is the hover target for the new-space affordance.
-    public static func isVisible(profileCount: Int) -> Bool { profileCount > 0 }
+    /// Whether the person has spaces to show: two or more. Spaces stay out of
+    /// sight until then (Lawrence 2026-11-20: "hide spaces by default, but
+    /// people can still cmd shift p new space"): a lone space shows no strip,
+    /// and the menus leave the space rows out (`SpacesMenuVisibility`, CmuxNextSidebarActions); the
+    /// command palette, keys, CLI and MCP keep every space action, and the
+    /// second space brings it all back. Replaces the 2026-11-01 rule (#30232)
+    /// that kept a lone space's dot and its + in the bottom strip.
+    public static func isVisible(profileCount: Int) -> Bool { profileCount > 1 }
 
     /// The profile `delta` steps from `current` (swipe, next/previous),
     /// clamped at the ends (no wrap). Nil when nothing changes.
@@ -158,6 +163,10 @@ public nonisolated struct ProfileSwipeTracker: Sendable {
     /// Whether the gesture so far is horizontal (the sidebar should not
     /// scroll vertically for it).
     public var isHorizontal: Bool { active && abs(dx) > abs(dy) * 2 && abs(dx) > 4 }
+
+    /// Whether the gesture so far can no longer turn horizontal: it moved more than 4 points and
+    /// not mostly sideways. Once the gesture has moved, exactly one of this and `isHorizontal` holds.
+    public var isVertical: Bool { active && abs(dy) * 2 >= abs(dx) && max(abs(dx), abs(dy)) > 4 }
 
     /// Feeds one scroll event. Returns -1 (previous) or +1 (next) once per
     /// gesture when it qualifies. Positive `deltaX` is a swipe to the right

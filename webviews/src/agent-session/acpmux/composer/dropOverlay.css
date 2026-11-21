@@ -86,6 +86,7 @@
   color: var(--acpmux-drop-tone);
 }
 .acpmux-drop-mark svg {
+  /* icon-scale-allow: the composer's own 18 glyph set (design/grid.md) */
   width: 18px;
   height: 18px;
 }

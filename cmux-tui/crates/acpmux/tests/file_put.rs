@@ -100,15 +100,17 @@ fn mode(path: &Path) -> u32 {
     std::fs::metadata(path).unwrap().permissions().mode() & 0o777
 }
 
-/// The file the reply names: its bytes, owner-only in an owner-only folder of its own under the
-/// session's uploads.
+/// The file the reply names: its bytes, owner-only and read-only in an owner-only folder of its
+/// own under the session's uploads.
 fn assert_saved(reply: &Value, session: &str, name: &str, bytes: &[u8]) -> PathBuf {
     let path = PathBuf::from(reply["result"]["path"].as_str().unwrap_or_else(|| panic!("{reply}")));
     assert_eq!(path.file_name().unwrap().to_str(), Some(name), "{reply}");
     let folder = path.parent().unwrap();
     assert_eq!(folder.parent().unwrap(), home().join("uploads").join(session), "{reply}");
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
-    assert_eq!(mode(&path), 0o600);
+    // Owner-only and read-only: the path is another hard link to the bytes stored once by
+    // content (#38190), which every upload of them shares.
+    assert_eq!(mode(&path), 0o400);
     assert_eq!(mode(folder), 0o700);
     assert_eq!(mode(folder.parent().unwrap()), 0o700);
     path
@@ -194,6 +196,7 @@ async fn a_purged_chat_loses_its_files_and_takes_no_more() {
 async fn transfer(src: &mut Client, dst: &mut Client, id: &str) {
     let begin = src.call("_acpmux/transfer_begin", json!({"sessionId": id})).await;
     let begin = begin["result"].clone();
+    let epoch = begin["epoch"].as_u64().unwrap_or(0);
     let received = dst.call("_acpmux/transfer_receive", json!({"manifest": begin})).await;
     let receive_id =
         received["result"]["receiveId"].as_str().unwrap_or_else(|| panic!("{received}"));
@@ -204,14 +207,14 @@ async fn transfer(src: &mut Client, dst: &mut Client, id: &str) {
             let part = src
                 .call(
                     "_acpmux/transfer_read",
-                    json!({"transferId": begin["transferId"], "path": path, "offset": offset, "limit": 1 << 16}),
+                    json!({"transferId": begin["transferId"], "path": path, "offset": offset, "limit": 1 << 16, "epoch": epoch}),
                 )
                 .await;
             let part = &part["result"];
             let wrote = dst
                 .call(
                     "_acpmux/transfer_write",
-                    json!({"receiveId": receive_id, "path": path, "offset": offset, "data": part["data"]}),
+                    json!({"receiveId": receive_id, "path": path, "offset": offset, "data": part["data"], "epoch": epoch}),
                 )
                 .await;
             assert!(wrote.get("error").is_none(), "{wrote}");
@@ -221,12 +224,13 @@ async fn transfer(src: &mut Client, dst: &mut Client, id: &str) {
             }
         }
     }
-    let finished = dst.call("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await;
+    let finished =
+        dst.call("_acpmux/transfer_finish", json!({"receiveId": receive_id, "epoch": epoch})).await;
     assert_eq!(finished["result"]["sessionId"], id, "{finished}");
     let committed = src
         .call(
             "_acpmux/transfer_commit",
-            json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}}),
+            json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}, "epoch": epoch}),
         )
         .await;
     assert_eq!(committed["result"]["committed"], true, "{committed}");
@@ -396,7 +400,9 @@ async fn older_peer(puts: Arc<AtomicUsize>) -> u16 {
             let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             let puts = puts.clone();
             tokio::spawn(async move {
-                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                while let Some(Ok(frame)) = ws.next().await {
+                    let Ws::Text(text) = frame else { continue };
                     let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
                         continue;
                     };

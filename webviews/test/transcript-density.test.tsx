@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -28,12 +29,9 @@ beforeAll(() => {
   host = window.document.querySelector<HTMLElement>("#root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const command = (id: string): AcpmuxActivity => ({
@@ -70,7 +68,8 @@ const settledRow = (items: AcpmuxActivity[]): AcpmuxRow => ({
 async function render(row: AcpmuxRow) {
   const { createRoot } = await import("react-dom/client");
   const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
   act(() => root?.unmount());
   root = createRoot(host);
@@ -113,7 +112,7 @@ test("an MCP call reads as what it did, with its raw id in the opened call", asy
 test("a running MCP call's line names its server and action, never the raw id", async () => {
   const { toolLabel } = await import("../src/agent-session/acpmux/toolPaths");
   const { mcpTitleName } = await import("../src/agent-session/acpmux/conversation/mcpCalls");
-  const { turnView, WORKING } = await import("../src/agent-session/acpmux/conversation/turns");
+  const { THINKING, turnView } = await import("../src/agent-session/acpmux/conversation/turns");
   const call = startSession("in_progress");
   expect(toolLabel(call.tool!, call.text, (line) => line)).toBe(
     "Using cmux-subsessions: start session sidebar-drag-bugs",
@@ -132,10 +131,9 @@ test("a running MCP call's line names its server and action, never the raw id", 
     { id: "a1", version: 1, at: 1, kind: "activity", items },
   ];
   const doing = (items: AcpmuxActivity[]) =>
-    turnView(run(items), new Set(), { working: true }).find((row) => row.kind === WORKING)?.doing;
+    turnView(run(items), new Set(), { working: true }).find((row) => row.kind === THINKING)?.doing;
   expect(doing([listing("list-0", "completed"), listing("list-1", "in_progress")])).toBe("Using cmux: list workspaces");
-  // A running sub-session start draws its own card (subsessionCalls.ts), which names it: the line
-  // does not say it again.
+  // A running sub-session start leaves its run for the live line, which names it by its session.
   const earlier = { ...startSession(), tool: { ...startSession().tool!, id: "start-0" } };
-  expect(doing([earlier, call])).toBeUndefined();
+  expect(doing([earlier, call])).toBe("Using cmux-subsessions: start session sidebar-drag-bugs");
 });

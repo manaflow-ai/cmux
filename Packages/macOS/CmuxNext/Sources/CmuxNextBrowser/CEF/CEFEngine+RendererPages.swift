@@ -33,6 +33,13 @@ extension CEFEngine {
         }
     }
 
+    /// Runs DevTools `method` on the live page `browserID` (`debug.cef_page_devtools`: the idle
+    /// bench's page metrics and CPU profile). Nil when no live page has that id.
+    public func devTools(browserID: Int32, method: String, params: [String: any Sendable]) async throws -> String? {
+        guard let tab = CEFRuntime.shared.tabsByBrowser[browserID] else { return nil }
+        return try await tab.devTools(method: method, params: params)
+    }
+
     /// The browser id of the live page whose content view is `view` (a cmux page's Chromium view,
     /// such as an agent pane's ``focusTarget``), so `renderers.list` can name its owning tab.
     public func browserID(showing view: NSView) -> Int32? {

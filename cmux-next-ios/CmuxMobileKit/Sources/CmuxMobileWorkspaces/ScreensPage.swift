@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -75,6 +76,11 @@ struct ScreensPage: View {
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
+        } else if source.awaitsMacList {
+            // The Mac's list is on its way: loading, never "No Screens Yet".
+            CmuxSpinner(label: Text("Loading screens from \(source.macName)…"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("screens.loading")
         } else {
             ContentUnavailableView("No Screens Yet", systemImage: "rectangle.stack",
                                    description: Text("\(source.macName) hasn't listed this workspace's screens."))
@@ -98,6 +104,7 @@ struct ScreensPage: View {
                     if !screen.isActive {
                         Button("Select Screen", systemImage: "checkmark.rectangle.stack") { Task { await source.selectScreen(screen) } }
                     }
+                    Button("Duplicate Screen", systemImage: "plus.square.on.square") { Task { await source.duplicateScreen(screen) } }
                     Button("Rename Screen…", systemImage: "pencil") {
                         // The current name, so Rename without typing keeps it.
                         screenName = screen.name

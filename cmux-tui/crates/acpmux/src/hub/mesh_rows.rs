@@ -162,7 +162,7 @@ impl Hub {
 }
 
 /// Whether `host` is this machine's name (never the "host" stand-in for an unusable one).
-fn is_own_host(host: &str) -> bool {
+pub(super) fn is_own_host(host: &str) -> bool {
     let own = crate::pairing::machine_name();
     own != "host" && host.eq_ignore_ascii_case(&own)
 }
@@ -177,7 +177,7 @@ mod mesh_route_tests {
     fn row(peer: &str, id: &str, name: &str) -> RemoteSession {
         RemoteSession {
             peer: peer.into(),
-            summary: json!({"sessionId": id, "name": name}),
+            summary: json!({"sessionId": id, "name": name}).into(),
             receipt: SessionReceipt {
                 host_id: peer.into(),
                 mux_session_id: id.into(),
@@ -196,9 +196,9 @@ mod mesh_route_tests {
             crate::store::open(&config.store, std::path::Path::new("/nonexistent")).expect("store");
         let hub = Hub::new(config, store);
         assert!(hub.mesh_may_route("dep-land"));
-        hub.remote_sessions.lock().unwrap().insert("p1/s1".into(), row("p1", "s1", "dep-land"));
+        hub.remote_sessions.write().insert("p1/s1".into(), row("p1", "s1", "dep-land"));
         assert!(!hub.mesh_may_route("dep-land"), "one peer lists it");
-        hub.remote_sessions.lock().unwrap().insert("p2/s2".into(), row("p2", "s2", "dep-land"));
+        hub.remote_sessions.write().insert("p2/s2".into(), row("p2", "s2", "dep-land"));
         assert_eq!(hub.remote_matches("dep-land"), 2);
         assert!(hub.resolve_remote("dep-land").is_none(), "ambiguous");
         assert!(!hub.mesh_may_route("dep-land"), "two peers list it");

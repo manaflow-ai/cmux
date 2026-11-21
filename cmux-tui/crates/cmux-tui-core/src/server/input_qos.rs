@@ -46,7 +46,10 @@ impl InputLane {
     }
 }
 
-fn raise_this_thread() {
+/// Raises the calling thread to user-interactive QoS, once per thread: a thread that carries the person's keys (the
+/// connection threads above, and a terminal's input port writer once it takes a person's key,
+/// `surface::input_port`). Off macOS this sets nothing.
+pub(crate) fn raise_this_thread() {
     if RAISED.with(Cell::get) {
         return;
     }
@@ -90,7 +93,7 @@ static OBSERVED: std::sync::LazyLock<
 
 /// This thread's QoS class (`qos_class_t` as u32); 0 off macOS.
 #[cfg(test)]
-pub(super) fn current_thread_qos() -> u32 {
+pub(crate) fn current_thread_qos() -> u32 {
     #[cfg(target_os = "macos")]
     {
         let mut qos = libc::qos_class_t::QOS_CLASS_UNSPECIFIED;

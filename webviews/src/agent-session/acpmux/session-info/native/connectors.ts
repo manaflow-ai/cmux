@@ -3,6 +3,8 @@
 import type { AcpmuxSnapshot } from "../../model";
 import type { Translate } from "../../i18n";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
+import { summarizeConnectors } from "../connectorState";
+import { imessageError, type IMessageView } from "../imessage";
 
 type McpServer = NonNullable<NonNullable<AcpmuxSnapshot["summary"]>["mcpServers"]>[number];
 
@@ -23,6 +25,7 @@ export type ConnectorsInput = {
   open: boolean;
   /// A Reconnect under way or failed, by server (ReconnectButton's own state, held by the caller).
   reconnecting?: Readonly<Record<string, "reconnecting" | "failed">>;
+  imessage?: IMessageView;
 };
 
 export function connectorsSection(
@@ -31,8 +34,8 @@ export function connectorsSection(
   t: Translate,
 ): NativeInfoSection | undefined {
   const { servers, onReconnect } = input;
-  if (servers.length === 0) return undefined;
-  const reconnect = servers.filter((server) => server.status === "failed").length;
+  if (servers.length === 0 && !input.imessage) return undefined;
+  const summary = summarizeConnectors(servers);
   const rows = servers.map((server): NativeInfoRow => {
     const row: NativeInfoRow = {
       id: server.name,
@@ -70,18 +73,109 @@ export function connectorsSection(
       ),
     };
   });
+  const imessage = input.imessage;
+  if (imessage) {
+    const { data, busy, expanded, perform, toggle } = imessage;
+    const button = (action: Parameters<typeof perform>[0], label: string) => ({
+      label,
+      disabled: busy,
+      action: actions.add(`imessage:${action}`, () => perform(action)),
+    });
+    const connected = data.status === "connected";
+    rows.unshift({
+      id: "imessage",
+      symbol: "message",
+      title: "iMessage", // l10n-allow: Apple's invariant product name.
+      trailing: connected
+        ? t("composer.envConnected")
+        : data.status !== "not_connected"
+          ? t("imessage.setup")
+          : undefined,
+      action: connected ? actions.add("imessage:toggle", toggle) : undefined,
+      buttons: data.status === "not_connected" ? [button("connect", t("imessage.connect"))] : undefined,
+    });
+    const details: NativeInfoRow[] = [];
+    if (data.error)
+      details.push({
+        id: "imessage:error",
+        title: imessageError(data.error, t),
+        tone: "failed",
+        indent: 1,
+      });
+    if (data.status === "needs_full_disk_access")
+      details.push({
+        id: "imessage:disk",
+        title: t("imessage.diskHelp"),
+        indent: 1,
+        buttons: [
+          button("full_disk_access", t("imessage.grantDisk")),
+          button("disconnect", t("permission.feedbackCancel")),
+        ],
+      });
+    if (data.status === "needs_automation")
+      details.push({
+        id: "imessage:automation",
+        title: t("imessage.automationHelp"),
+        indent: 1,
+        buttons: [
+          button("automation", t("imessage.allowMessages")),
+          button("skip_automation", t("question.skip")),
+          button("disconnect", t("permission.feedbackCancel")),
+        ],
+      });
+    if (connected && expanded) {
+      details.push({
+        id: "imessage:consent",
+        title: t("imessage.sendClick"),
+        indent: 1,
+        tone: "muted",
+      });
+      details.push({ id: "imessage:threads", title: t("imessage.contactsGroups"), indent: 1 });
+      details.push(
+        ...data.threads.map((thread): NativeInfoRow => ({
+          id: `imessage:thread:${thread.chat_id}`,
+          title: thread.title || thread.participants.join(", "),
+          symbol: thread.is_group ? "person.2" : "person",
+          indent: 1,
+        })),
+      );
+      if (!busy && !data.error && data.threads.length === 0)
+        details.push({
+          id: "imessage:empty",
+          title: t("imessage.noThreads"),
+          indent: 1,
+          tone: "muted",
+        });
+      details.push({
+        id: "imessage:disconnect",
+        title: "",
+        indent: 1,
+        buttons: [
+          ...(!data.sends_enabled ? [button("automation", t("imessage.allowMessages"))] : []),
+          ...(data.error ? [button("threads", t("sessionInfo.connectors.retry"))] : []),
+          button("disconnect", t("imessage.disconnect")),
+        ],
+      });
+    }
+    rows.splice(1, 0, ...details);
+  }
   return {
     id: "connectors",
     group: "about",
     title: t("rail.connectors"),
     symbol: CONNECTORS_SYMBOL,
-    // As Claude Code desktop's: the servers to reconnect when any failed, else the connected ones.
+    // The harness inventory, not provider auth: a loaded MCP server is not proof its account is
+    // usable, so it never reads as a green connected count (connectorState.ts).
     meta:
-      reconnect > 0
-        ? t("sessionInfo.connectors.reconnect", { count: reconnect })
-        : t("rail.connected", {
-            count: servers.filter((server) => server.status === "connected").length,
-          }),
+      servers.length === 0 && imessage
+        ? imessage.data.status === "connected"
+          ? t("rail.connected", { count: 1 })
+          : t("imessage.connect")
+        : summary.kind === "reconnect"
+          ? t("sessionInfo.connectors.reconnect", { count: summary.count })
+          : summary.kind === "connecting"
+            ? t("sessionInfo.connectors.connecting", { count: summary.count })
+            : t("sessionInfo.connectors.loaded", { count: summary.count }),
     open: input.open,
     foldable: true,
     reorderable: true,

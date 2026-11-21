@@ -234,3 +234,58 @@ async fn folders_are_absolute_existing_and_listed_once() {
     let id = created["sessionId"].as_str().unwrap().to_owned();
     assert_eq!(c.add_dirs(&id).await, [s(&a)]);
 }
+
+#[tokio::test]
+async fn a_running_chat_takes_new_folders_on_its_next_start() {
+    let _hermetic = &HERMETIC;
+    let hub = hub();
+    let mut c = Client::new(&hub);
+    let (_root, a, b) = folders();
+
+    // Started with nothing: a plain chat in a folder of its own.
+    let created = c
+        .new_session("fakeclaude", Some(&std::env::temp_dir()), Value::Null)
+        .await
+        .expect("session/new");
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+    assert!(c.add_dirs(&id).await.is_empty());
+
+    // Between turns: the agent restarts now, on the same conversation, with the folders.
+    let set = json!({"sessionId": id, "additionalDirectories": [a, b]});
+    let (reply, _) = c.call("_acpmux/set_directories", set.clone()).await;
+    let reply = reply.expect("set_directories");
+    assert_eq!(reply["applied"], json!("now"), "{reply}");
+    assert_eq!(reply["additionalDirectories"], json!([s(&a), s(&b)]));
+    assert_eq!(c.add_dirs(&id).await, [s(&a), s(&b)]);
+    let (info, _) = c.call("_acpmux/info", json!({"sessionId": id})).await;
+    assert_eq!(info.unwrap()["additionalDirectories"], json!([s(&a), s(&b)]));
+
+    // The same list again changes nothing.
+    let (reply, _) = c.call("_acpmux/set_directories", set).await;
+    assert_eq!(reply.unwrap()["applied"], json!("unchanged"));
+
+    // An empty list clears them; a missing one, or a bad folder, is refused.
+    let clear = json!({"sessionId": id, "additionalDirectories": []});
+    c.call("_acpmux/set_directories", clear).await.0.expect("clear");
+    assert!(c.add_dirs(&id).await.is_empty());
+    for bad in [json!({"sessionId": id}), json!({"sessionId": id, "additionalDirectories": ["x"]})]
+    {
+        let e = c.call("_acpmux/set_directories", bad.clone()).await.0.expect_err("refused");
+        assert_eq!(e["code"], json!(-32602), "{bad}: {e}");
+    }
+}
+
+#[tokio::test]
+async fn an_acp_chat_loads_its_new_folders() {
+    let _hermetic = &HERMETIC;
+    let hub = hub();
+    let mut c = Client::new(&hub);
+    let (_root, a, _) = folders();
+    let created =
+        c.new_session("fake", Some(&std::env::temp_dir()), Value::Null).await.expect("new");
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+    assert_eq!(c.dirs(&id).await, Value::Null);
+    let set = json!({"sessionId": id, "additionalDirectories": [a]});
+    c.call("_acpmux/set_directories", set).await.0.expect("set_directories");
+    assert_eq!(c.dirs(&id).await, json!([s(&a)]), "session/load");
+}

@@ -1,3 +1,4 @@
+import CmuxNextBrowserImport
 import Foundation
 
 /// Strings of Import from Another Browser… (table Passwords).

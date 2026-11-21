@@ -34,11 +34,22 @@ enum AgentShareResults {
                      "surface": .int(Int(clamping: share.surface)), "created_at": .int(Int(clamping: share.createdAt)),
                      "expires_at": .int(Int(clamping: share.expiresAt)), "expires_in_secs": .int(Int(clamping: share.expiresInSecs)),
                      "uses_left": .int(Int(share.usesLeft)), "room": share.room.map(ActionResultValue.string) ?? .null,
-                     "guests": .array(share.guests.map { guest in
-                         .object(["guest_id": .string(guest.guestId), "name": .string(guest.name),
-                                  "joined_at": .int(Int(clamping: guest.joinedAt)), "state": .string(guest.state)])
+                     "invite_url": share.inviteUrl.map(ActionResultValue.string) ?? .null,
+                     "guests": .array(share.guests.map(guest)),
+                     "invitees": .array(share.invitees.map { invitee in
+                         .object(["account": .string(invitee.account), "role": .string(invitee.role),
+                                  "invited_at": .int(Int(clamping: invitee.invitedAt)), "state": .string(invitee.state)])
                      })])
         })]
+    }
+
+    /// A guest; one who joined as an invited account also names it and its role.
+    static func guest(_ guest: AgentSessionShareGuest) -> ActionResultValue {
+        var fields: [String: ActionResultValue] = ["guest_id": .string(guest.guestId), "name": .string(guest.name),
+                                                   "joined_at": .int(Int(clamping: guest.joinedAt)), "state": .string(guest.state)]
+        if let account = guest.account { fields["account"] = .string(account) }
+        if let role = guest.role { fields["role"] = .string(role) }
+        return .object(fields)
     }
 
     /// Revoke's `{share_id, state}` or kick's `{share_id, guest_id, state}`.

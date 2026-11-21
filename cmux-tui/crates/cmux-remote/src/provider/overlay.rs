@@ -23,7 +23,13 @@ pub enum OverlayDialError {
     /// The link's socket did not accept the connection (no running link).
     LinkUnavailable(io::Error),
     /// The link answered with a failure.
-    Refused { error: Option<DialError>, path_state: PathState, relay_available: bool },
+    Refused {
+        error: Option<DialError>,
+        path_state: PathState,
+        relay_available: bool,
+        /// The link's `error_detail`: what failed.
+        detail: Option<String>,
+    },
     /// The link closed the connection or answered something that is not a reply.
     Protocol,
 }
@@ -32,8 +38,14 @@ impl std::fmt::Display for OverlayDialError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::LinkUnavailable(error) => write!(formatter, "cmux link is not running: {error}"),
-            Self::Refused { error, path_state, .. } => {
+            Self::Refused { error, path_state, detail: None, .. } => {
                 write!(formatter, "cmux link refused the dial: {error:?} ({path_state:?})")
+            }
+            Self::Refused { error, path_state, detail: Some(detail), .. } => {
+                write!(
+                    formatter,
+                    "cmux link refused the dial: {error:?} ({path_state:?}): {detail}"
+                )
             }
             Self::Protocol => formatter.write_str("cmux link sent an invalid reply"),
         }
@@ -73,6 +85,7 @@ pub async fn dial_link(
             error: reply.error_code,
             path_state: reply.path_state,
             relay_available: reply.relay_available,
+            detail: reply.error_detail,
         });
     }
     Ok(OverlayStream {
@@ -153,7 +166,7 @@ mod tests {
             stream.write_all(reply.as_bytes()).await.unwrap();
         });
         match dial_link(&path, "inst_b", Service::Daemon).await {
-            Err(OverlayDialError::Refused { error, path_state, relay_available }) => {
+            Err(OverlayDialError::Refused { error, path_state, relay_available, .. }) => {
                 assert_eq!(error, Some(DialError::Unreachable));
                 assert_eq!(path_state, PathState::Unreachable);
                 assert!(!relay_available);

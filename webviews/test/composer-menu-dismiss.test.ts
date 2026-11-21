@@ -2,16 +2,17 @@
 // How the composer's menus open and close under the mouse (cg-composer item 2, click polish; Codex
 // desktop is the reference): the + menu, the model button and the permission chip in the bar, and
 // the folder chip on the location strip, in a chat's composer, a new chat's and the New Tab page's.
-// The model button names the model and its effort, and its menu holds the levels under Effort ›
-// (Leo 2026-10-20: one button, no effort chip of its own).
+// The model button names the model and its effort. With a harness rail its menu shows the levels
+// in the settings column; without one it keeps the Effort submenu.
 //
 // - Menus open on the press (pressRelease.ts). A second press on the same chip closes its menu.
 // - With one menu open, a press on another chip opens that one at once: no press to dismiss first.
 // - A press anywhere else only closes the menu: nothing under it is clicked (the mic does not start
 //   dictation, the field takes no click), as a macOS menu swallows the click that dismisses it.
-// - Escape closes the menu and puts the keyboard back on its chip, with the chip's focus ring.
-// - Picking a permission mode, or a level (the running model's effort dropdown, else the Effort ›), hands the keyboard back to
-//   the prompt.
+// - Escape closes the menu and puts the keyboard back on its chip, with no ring or pill: Escape
+//   cancels the ring (FOCUS-RING, src/ui/focusModality.ts; Leo 2026-11-06: "BE ABLE TO CANCEL IT").
+// - Picking a permission mode hands the keyboard back to the prompt. A level in columns applies
+//   while the menu stays open; Return closes it and returns to the prompt.
 //
 // Real Chromium and WebKit (the app's engine) with real pointer events, on the gallery stage at
 // 760 and 300 px. CI fails the file when it cannot launch them (requireBrowserLane). Locally:
@@ -177,7 +178,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
    */
   const settle = async (page: Page, names: string[], want: string[]) => {
     const pairs = names.map((name) => [name, chip(name)] as const);
-    await page.waitForFunction(
+    const settled = page.waitForFunction(
       ([pairs, want]) => {
         const open = pairs
           .filter(([, selector]) => {
@@ -253,6 +254,27 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
       [pairs, want] as const,
       { timeout: 5_000 },
     );
+    const failure = await settled.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    if (failure) {
+      // Unsettled: say which chips are open, where the keyboard is and which popups are mounted,
+      // which the timeout alone threw away, then fail as before.
+      const seen = await page.evaluate(() => {
+        const active = document.activeElement;
+        return {
+          focus: active?.closest("[aria-label]")?.getAttribute("aria-label") ?? active?.tagName,
+          popups: [...document.querySelectorAll<HTMLElement>(".ui-popup")].map((popup) => {
+            const state = popup.hasAttribute("data-ending-style") ? "ending" : "live";
+            return [popup.getAttribute("aria-label"), state, getComputedStyle(popup).pointerEvents].join(" ");
+          }),
+        };
+      });
+      const open = await expanded(page, names);
+      console.error(`settle: wanted [${want.join(", ")}], open [${open.join(", ")}]: ${JSON.stringify(seen)}`);
+      throw failure;
+    }
     return expanded(page, names);
   };
   /** Waits until the open menus have stopped moving, so a press lands where their rows rest. */
@@ -401,16 +423,31 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
               (selector) => ({
                 open: document.querySelectorAll(".ui-popup").length,
                 onChip: document.activeElement === document.querySelector(selector),
-                ring: document.activeElement?.matches(":focus-visible") ?? false,
+                // What draws (focusRingShown): keyboard focus the keyboard earned. Escape earns none.
+                ring:
+                  (document.activeElement?.matches(":focus-visible") ?? false) &&
+                  document.documentElement.dataset.focusModality !== "pointer",
+                modality: document.documentElement.dataset.focusModality,
               }),
               chip(name),
             );
+            // The pointer leaves the chip so its hover pill is not read as focus's (the root already
+            // reads `pointer` from the Escape, above, so the move changes nothing else).
+            await page.mouse.move(1, 1);
+            const pill = await page
+              .locator(chip(name))
+              .first()
+              .evaluate((element) => getComputedStyle(element).backgroundImage.includes("gradient"));
             await page.close();
-            expect({ name, focus }).toEqual({ name, focus: { open: 0, onChip: true, ring: true } });
+            expect({ name, focus, pill }).toEqual({
+              name,
+              focus: { open: 0, onChip: true, ring: false, modality: "pointer" },
+              pill: false,
+            });
           }
         });
 
-        test(`${where}: picking a mode or a level hands the keyboard back to the prompt`, async () => {
+        test(`${where}: picking a mode or a level and closing hands the keyboard back to the prompt`, async () => {
           for (const name of stage.picks) {
             const page = await open(engine, stage, width);
             await pressFreshChip(page, chip(name));
@@ -419,9 +456,18 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
             // is a side dropdown beside its row (#27948): its effort item opens the levels.
             const sideEffort = ".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger";
             const sideLevel = '.acpmux-quick-effort-menu [role="menuitemradio"][aria-checked="false"]';
+            const columnsLevel = '.acpmux-cols-tune [role="radio"][aria-checked="false"]:not([aria-disabled="true"])';
             if (name === "Model")
-              await page.locator(`${sideEffort}, .acpmux-quick-sub:has-text("Effort")`).first().waitFor();
-            if (name === "Model" && (await page.locator(sideEffort).count()) > 0) {
+              await page
+                .locator(`${columnsLevel}, ${sideEffort}, .acpmux-quick-sub:has-text("Effort")`)
+                .first()
+                .waitFor();
+            if (name === "Model" && (await page.locator(".acpmux-cols").count()) > 0) {
+              // A level pick applies and closes the menu (David Beyer, Nov 20), as a model pick does.
+              await menusAtRest(page);
+              await page.locator(columnsLevel).first().scrollIntoViewIfNeeded();
+              await pressAt(page, columnsLevel);
+            } else if (name === "Model" && (await page.locator(sideEffort).count()) > 0) {
               // A submenu trigger opens on hover or from the keyboard (Base UI ignores a press while it
               // opens on hover): hover it, then press a level in its dropdown.
               await page.locator(sideEffort).first().hover();

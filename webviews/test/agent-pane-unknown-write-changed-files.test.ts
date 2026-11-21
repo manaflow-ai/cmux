@@ -19,7 +19,6 @@ async function changedFiles(rows: AcpmuxRow[]) {
     call: async () => undefined,
     selectSession: () => {},
     openDiff: () => {},
-    diff: () => ({ open: false, paths: [] }),
   };
   return automationState(host).changedFiles;
 }

@@ -11,19 +11,30 @@
 //!
 //! | Tier | Who | macOS | Linux |
 //! |---|---|---|---|
-//! | [`Tier::Serving`] | the daemon | disk I/O at `IOPOL_UTILITY`; CPU unchanged | unchanged |
-//! | [`Tier::Agent`] | agent hosts, background-task runners, and everything they start | CPU clamped to utility (priority 20) and disk I/O at `IOPOL_UTILITY` | nice +5 |
-//! | [`Tier::Background`] | housekeeping inside the daemon that holds no lock other work waits on (probe cleanup at start) | the thread at `QOS_CLASS_BACKGROUND` for the pass (CPU throttled; its disk I/O stays at the daemon's utility tier), then back | unchanged |
-//! | [`Tier::OnScreen`] | the daemon's reads for a chat being opened on screen (a visible `_acpmux/attach`: its log load and its first page) | the thread at `QOS_CLASS_USER_INITIATED` for the read (CPU only: its disk I/O stays at the daemon's utility tier), then back | unchanged |
+//! | [`Tier::Serving`] | the daemon | unchanged: acknowledged replies wait on the event journal's sync, so its disk I/O stays at the default tier ([`enter_daemon`]) | unchanged |
+//! | [`Tier::AgentStart`] | agent hosts and their harnesses | disk I/O at `IOPOL_UTILITY`; CPU while the harness starts: the daemon's (unchanged); once its session's start is over: the harness and what it started at nice +11 (priority 20, as the utility clamp), or background class (`cpu_class.rs`) | while it starts: unchanged; then the harness at nice +5 and its host's session (autogroup) at nice 5 |
+//! | [`Tier::Agent`] | background-task runners, and everything they start | CPU clamped to utility (priority 20) and disk I/O at `IOPOL_UTILITY` | nice +5 |
+//! | [`Tier::Background`] | housekeeping inside the daemon that holds no lock other work waits on (probe cleanup at start) | the thread at `QOS_CLASS_BACKGROUND` for the pass (CPU throttled; its disk I/O at the background class's tier), then back | unchanged |
+//! | [`Tier::OnScreen`] | the daemon's reads for a chat being opened on screen (a visible `_acpmux/attach`: its log load and its first page) | the thread at `QOS_CLASS_USER_INITIATED` for the read (its CPU; its disk I/O stays at the daemon's default tier), then back | unchanged |
 //!
 //! The daemon keeps its CPU priority: the app waits on it for every streamed
 //! frame, so demoting it would put a person's own stream behind agent
-//! compiles. Its disk work (journals, the store) yields to the app's, the
-//! reads a person is waiting on to open a chat ([`on_screen`]) too: a thread's
-//! disk I/O tier is the most throttled of the process's, its own and its QoS
-//! class's (xnu `thread_policy.c`), and the process is at utility, so only the
-//! CPU of those reads is raised. A per-thread I/O policy cannot lift it either,
-//! and it drops the thread out of QoS (`imp::ThreadOnScreen`).
+//! compiles. Its disk I/O stays at the default tier too: an acknowledged
+//! reply waits on the event journal's sync, which a utility tier throttles
+//! 15-30x under another app's disk work (STATUS 11554). Only its background
+//! threads yield, each for its whole life ([`background_thread`]: the event
+//! journal's checkpointer), since a thread's disk I/O tier is the most
+//! throttled of the process's, its own and its QoS class's (xnu
+//! `thread_policy.c`). A per-thread I/O policy also drops the thread out of
+//! QoS (`imp::ThreadOnScreen`), so a reused pool thread never takes it.
+//!
+//! An agent's start is work a person waits on, so it is not agent work (W6, 2026-11-12): on
+//! Leo's Mac at load average 125 to 256, waking an agent took 10 to 82 s, and one start ran out
+//! its 90 s with 1.8 s of CPU used, its host and harness under the utility clamp and below every
+//! default-priority process on the machine. An agent host therefore starts at the daemon's CPU
+//! priority (its disk I/O still at utility) and spawns its harness there; once the session's start is over (its `initialize` and
+//! `session/new` or `session/load` answered), the daemon lowers the running harness
+//! ([`AGENT_NICE`], `cpu_class::CpuClass::enter`): its builds and tests still run below the app.
 //!
 //! macOS gives no call that clamps a running process, and a thread's QoS does
 //! not survive exec into another program (a probe on a fleet mini: a child's
@@ -56,10 +67,14 @@ use std::ffi::OsString;
 /// How much a process yields to the person at the screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tier {
-    /// The daemon: the app waits on it, so only its disk I/O yields.
+    /// The daemon: the app waits on it, and its replies wait on the event journal's sync, so
+    /// nothing of it yields (only its background threads, [`background_thread`]).
     Serving,
-    /// Agent work: hosts, harnesses and every tool they run.
+    /// Agent work: background-task runners and every tool they run.
     Agent,
+    /// Agent hosts: the daemon's tier while their harness starts (a person waits on a start),
+    /// [`Tier::Agent`]'s once its session's start is over (`cpu_class::CpuClass::enter`).
+    AgentStart,
     /// Work nobody waits for: sweeps, retention, cleanup.
     Background,
     /// A read the person at the screen is waiting on: opening a chat.
@@ -82,7 +97,8 @@ pub enum Role {
 pub const fn tier(role: Role) -> Tier {
     match role {
         Role::Daemon => Tier::Serving,
-        Role::AgentHost | Role::BackgroundTaskRunner => Tier::Agent,
+        Role::AgentHost => Tier::AgentStart,
+        Role::BackgroundTaskRunner => Tier::Agent,
         Role::Housekeeping => Tier::Background,
         Role::VisibleOpen => Tier::OnScreen,
     }
@@ -93,13 +109,38 @@ pub const ENV: &str = "ACPMUX_QOS";
 /// Set in a process that already re-executed itself under the clamp.
 pub const CLAMPED_ENV: &str = "ACPMUX_QOS_CLAMPED";
 
-fn enabled() -> bool {
+pub(crate) fn enabled() -> bool {
     std::env::var_os(ENV).is_none_or(|v| v != "off")
 }
+
+/// The nice value a harness runs at once its start is over: on macOS the base priority of the
+/// utility clamp (31 - 11 = 20, `nice` lowers a task's priority one step per unit), on Linux the
+/// agent tier's +5.
+#[cfg(target_os = "macos")]
+pub const AGENT_NICE: libc::c_int = 11;
+/// The nice value a harness runs at once its start is over (Linux: the agent tier's +5).
+#[cfg(all(unix, not(target_os = "macos")))]
+pub const AGENT_NICE: libc::c_int = 5;
 
 /// `ACPMUX_QOS=background`: agent hosts run in background instead of utility.
 fn agent_background() -> bool {
     std::env::var_os(ENV).is_some_and(|v| v == "background")
+}
+
+/// The daemon's tier: acknowledged replies wait on the event journal's sync, so the daemon keeps
+/// the default disk tier (lead rule 2026-11-04: a reply the person waits for never waits on a
+/// throttled sync) and only its background threads yield ([`background_thread`]). Nothing to
+/// set: the CPU is unchanged for the daemon too.
+pub fn enter_daemon() {}
+
+/// The calling thread, dedicated to background work for its whole life (the event journal's
+/// checkpointer): its disk I/O at the utility tier. Only for a thread that does nothing else: a
+/// thread-scope I/O policy also drops the thread out of QoS for good (see `imp::ThreadOnScreen`),
+/// so a pool thread that is reused must never take it.
+pub fn background_thread() {
+    if enabled() {
+        imp::thread_disk_utility();
+    }
 }
 
 /// Put this process in `role`'s tier. Call it first thing in `main`, before
@@ -111,10 +152,15 @@ pub fn enter(role: Role) {
         return;
     }
     match tier(role) {
-        Tier::Serving => imp::disk_utility(),
+        // Nothing: acknowledged replies wait on the event journal's sync ([`enter_daemon`]).
+        Tier::Serving => {}
         // Opt-in: the whole agent tree in background (hq#4947's 55 -> 6 ms
         // drag lag), at the cost of agent speed (module docs).
-        Tier::Agent if agent_background() => imp::process_background(),
+        Tier::Agent | Tier::AgentStart if agent_background() => imp::process_background(),
+        // Its disk I/O at utility, its CPU unclamped: the start runs at the daemon's CPU priority,
+        // and the harness is lowered once its session's start is over
+        // (`cpu_class::CpuClass::enter`).
+        Tier::AgentStart => imp::disk_utility(),
         Tier::Agent => {
             imp::disk_utility();
             imp::clamp_cpu_utility();
@@ -130,6 +176,18 @@ pub fn enter(role: Role) {
 pub fn background<T>(work: impl FnOnce() -> T) -> T {
     let _guard = enabled().then(imp::ThreadBackground::enter);
     work()
+}
+
+/// Run `work`, a request's blocking read (a chat's log page, its prompt index), without holding a
+/// runtime worker: on the daemon's multi-thread runtime the worker hands its other tasks to a new
+/// one first (`block_in_place`), so a long read never queues a hello, a status or another chat's
+/// attach behind it. Leo's daemon, 2026-11-18: three of its workers sat in attach log reads for a
+/// whole 4 s sample and `acpmux daemon status` answered in 4.9 to 11.8 s. A current-thread
+/// runtime (a one-shot test) and a thread outside any runtime run it in place.
+pub fn off_worker<T>(work: impl FnOnce() -> T) -> T {
+    let multi = tokio::runtime::Handle::try_current()
+        .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
+    if multi { tokio::task::block_in_place(work) } else { work() }
 }
 
 /// Run `work` (blocking) with this thread in [`Tier::OnScreen`], then put the
@@ -158,7 +216,6 @@ mod imp {
 
     const IOPOL_TYPE_DISK: libc::c_int = 0;
     const IOPOL_SCOPE_PROCESS: libc::c_int = 0;
-    #[cfg(test)]
     const IOPOL_SCOPE_THREAD: libc::c_int = 1;
     const IOPOL_UTILITY: libc::c_int = 4;
     const PRIO_DARWIN_BG: libc::c_int = 0x1000;
@@ -184,6 +241,14 @@ mod imp {
         // SAFETY: plain syscall wrapper with constant arguments.
         if unsafe { setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_UTILITY) } != 0 {
             tracing::debug!("setiopolicy_np: {}", std::io::Error::last_os_error());
+        }
+    }
+
+    /// The calling thread's disk I/O at utility (`background_thread`).
+    pub(super) fn thread_disk_utility() {
+        // SAFETY: plain syscall wrapper on the calling thread with constant arguments.
+        if unsafe { setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, IOPOL_UTILITY) } != 0 {
+            tracing::debug!("setiopolicy_np (thread): {}", std::io::Error::last_os_error());
         }
     }
 
@@ -278,8 +343,8 @@ mod imp {
         unsafe { libc::setpriority(PRIO_DARWIN_PROCESS, 0, PRIO_DARWIN_BG) };
     }
 
-    /// This thread at background QoS until dropped (CPU throttled; its disk I/O stays at the
-    /// process's utility tier), then back to the class it had. Not the per-thread
+    /// This thread at background QoS until dropped (CPU throttled; its disk I/O at the background
+    /// class's tier), then back to the class it had. Not the per-thread
     /// `setpriority(PRIO_DARWIN_THREAD, BG)`: like a thread-scope `setiopolicy_np`, it drops the
     /// thread out of QoS for good (see [`ThreadOnScreen`]).
     pub(super) struct ThreadBackground {
@@ -309,9 +374,9 @@ mod imp {
         }
     }
 
-    /// This thread at user-initiated QoS until dropped, then back to the class it had. CPU only:
-    /// its disk I/O tier stays at the process's utility tier, the most throttled of the
-    /// process's, its QoS's and its own (xnu `thread_policy.c`). No thread-scope `setiopolicy_np`: on macOS 26 and 27 that call
+    /// This thread at user-initiated QoS until dropped, then back to the class it had. Its disk
+    /// I/O tier is the most throttled of the process's (the default, [`super::enter_daemon`]), its
+    /// QoS's and its own (xnu `thread_policy.c`). No thread-scope `setiopolicy_np`: on macOS 26 and 27 that call
     /// drops the thread out of QoS (it reads unspecified) and makes every later
     /// `pthread_set_qos_class_self_np` on the thread fail with EPERM, so a reused pool thread
     /// could never be raised again (fleet probes 01949bb5 and 3b349221, 2026-10-31).
@@ -362,6 +427,7 @@ mod imp {
 #[cfg(target_os = "linux")]
 mod imp {
     pub(super) fn disk_utility() {}
+    pub(super) fn thread_disk_utility() {}
 
     /// nice +5: inherited by everything the process starts. Not undone (an
     /// unprivileged process cannot lower its nice value), and not needed to be.
@@ -397,6 +463,7 @@ mod imp {
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod imp {
     pub(super) fn disk_utility() {}
+    pub(super) fn thread_disk_utility() {}
     pub(super) fn clamp_cpu_utility() {}
     pub(super) fn process_background() {
         clamp_cpu_utility();
@@ -417,6 +484,11 @@ mod imp {
     }
 }
 
+// Its tests read macOS disk policies only.
+#[cfg(all(test, target_os = "macos"))]
+#[path = "qos_journal_tests.rs"]
+mod journal_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,7 +496,7 @@ mod tests {
     #[test]
     fn the_daemon_keeps_its_cpu_and_agents_yield() {
         assert_eq!(tier(Role::Daemon), Tier::Serving);
-        assert_eq!(tier(Role::AgentHost), Tier::Agent);
+        assert_eq!(tier(Role::AgentHost), Tier::AgentStart);
         assert_eq!(tier(Role::BackgroundTaskRunner), Tier::Agent);
         assert_eq!(tier(Role::Housekeeping), Tier::Background);
         assert_eq!(tier(Role::VisibleOpen), Tier::OnScreen);

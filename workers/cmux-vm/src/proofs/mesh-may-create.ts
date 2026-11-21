@@ -10,7 +10,7 @@
  * key names the mesh.
  */
 import { defineProof, type Named } from "@gdp-ts/core";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { MeshStore } from "../db/mesh.ts";
 import type { StoreError } from "../db/sql.ts";
 import { OwnershipStore } from "../db/stores.ts";
@@ -33,10 +33,12 @@ const decide = <C, const K extends "mesh" | "device">(
   reservationKind: string,
   limit: number,
   live: Effect.Effect<number, StoreError, Needs>,
+  within?: Effect.Effect<{ readonly createdBy: string } | undefined, StoreError, Needs>,
 ): Effect.Effect<MeshCreateDecision<C, K>, EntitlementUnavailable | StoreError | LimitsUnavailable, Needs> =>
   Effect.gen(function* () {
     const tenantId = caller.value.tenantId;
-    if (!(yield* (yield* Entitlements).mayCreate(tenantId, kind))) return { _tag: "not_entitled" };
+    const parent = within === undefined ? undefined : yield* within;
+    if (!(yield* (yield* Entitlements).mayCreate(caller.value, kind, parent))) return { _tag: "not_entitled" };
     const count = yield* live;
     const reserved = yield* (yield* TenantLimits).reserve(tenantId, reservationKind, limit, count);
     if (!reserved.ok) return { _tag: "over_budget", limit };
@@ -57,7 +59,7 @@ export const tenantMayCreateMesh = <C>(caller: Named<C, Principal>, resume?: { r
       Effect.flatMap(OwnershipStore, (store) => store.countLive(caller.value.tenantId, "mesh")),
     ) : Effect.gen(function* () {
       const tenantId = caller.value.tenantId;
-      if (!(yield* (yield* Entitlements).mayCreate(tenantId, "mesh"))) return { _tag: "not_entitled" as const };
+      if (!(yield* (yield* Entitlements).mayCreate(caller.value, "mesh"))) return { _tag: "not_entitled" as const };
       const result = yield* (yield* TenantLimits).meshCreation(tenantId, { op: "reservation", ...resume });
       if (result.state !== "reservation") return yield* Effect.fail(new LimitsUnavailable({ cause: "mesh reservation is not retained" }));
       const TenantMayCreate = defineProof("TenantMayCreate:mesh");
@@ -66,7 +68,10 @@ export const tenantMayCreateMesh = <C>(caller: Named<C, Principal>, resume?: { r
     }),
   );
 
-/** One more device in `mesh` (`device.perMesh`). The caller must already hold the mesh's ownership proof. */
+/**
+ * One more device in `mesh` (`device.perMesh`). The caller must already hold the mesh's ownership proof.
+ * The mesh's creator is passed to the entitlement check: a mesh an entitled service made admits devices.
+ */
 export const tenantMayCreateDevice = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>) =>
   Effect.flatMap(MeshConfig, (config) =>
     decide(
@@ -75,5 +80,7 @@ export const tenantMayCreateDevice = <C, M>(caller: Named<C, Principal>, mesh: N
       `device:${mesh.value}`,
       config.budgets.devicesPerMesh,
       Effect.flatMap(MeshStore, (store) => Effect.map(store.listDevices(caller.value.tenantId, mesh.value), (rows) => rows.length)),
+      Effect.flatMap(OwnershipStore, (store) =>
+        Effect.map(store.find(caller.value.tenantId, "mesh", mesh.value), (row) => Option.match(row, { onNone: () => undefined, onSome: (found) => ({ createdBy: found.createdBy }) }))),
     ),
   );

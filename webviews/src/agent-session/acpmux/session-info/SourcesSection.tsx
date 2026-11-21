@@ -1,11 +1,18 @@
 import { useEffect, useState } from "react";
 import { useT } from "../i18n";
+
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { NativeError } from "../nativeError";
-import type { SummarySource } from "../summary/sessionSummary";
 
-export const SOURCES_SHOWN = 5;
+import type { SummarySource } from "../summary/sessionSummary";
+import { extraFolderName } from "../extraFolders";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
+import { openPullRequestDiff, pullRequestDiffUrl } from "./pullRequestDiff";
+import { heightAbove, useFoldMotion } from "./foldMotion";
+import { SOURCES_SHOWN, sourceLabels, scopedPath } from "./sourcesSectionModel";
+import { SessionInfoFold } from "./SessionInfoSection";
+import { WindowedRows } from "./WindowedRows";
+
 type RowProps = {
   source: SummarySource;
   onOpenBeside?: (url: string) => void;
@@ -16,72 +23,78 @@ type RowProps = {
   cwd?: string;
 };
 
-// Native tab refusal preserves the gesture, so the validated editor route can retry.
-export async function openSourceFile(
-  path: string,
-  native: (method: string, params: Record<string, unknown>) => Promise<unknown>,
-) {
-  try {
-    return await native("file.open", { path, where: "tab" });
-  } catch (error) {
-    if (!(error instanceof NativeError) || error.code !== "transport.path_invalid") throw error;
-    return native("file.open", { path, where: "editor" });
-  }
-}
-
-export function scopedPath(path: string, cwd?: string): string | undefined {
-  if (!cwd?.startsWith("/") || path.startsWith("~") || path.includes("\0")) return;
-  const normalize = (value: string) => {
-    const parts: string[] = [];
-    for (const part of value.split("/"))
-      if (part === "..") parts.pop();
-      else if (part && part !== ".") parts.push(part);
-    return `/${parts.join("/")}`;
-  };
-  const root = normalize(cwd),
-    resolved = normalize(path.startsWith("/") ? path : `${root}/${path}`);
-  return resolved.startsWith(root === "/" ? root : `${root}/`) ? resolved : undefined;
-}
-
 export function SourcesSection({
   sources,
+  folders = [],
   expanded,
   onExpandedChange,
   ...navigation
 }: Omit<RowProps, "source"> & {
   sources: readonly SummarySource[];
+  /// The folders the chat sees beside its own (acpmux `additionalDirectories`), listed first. Leo,
+  /// 2026-11-03: "being able to have chatgpt (and in this case, any harnesses) see whatever
+  /// folders/files would be cool".
+  folders?: readonly string[];
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
 }) {
   const t = useT();
-  const folds = sources.length > SOURCES_SHOWN;
-  const shown = folds && !expanded ? sources.slice(0, SOURCES_SHOWN) : sources;
+  // A fold that would hold back one row shows it instead (OutputsSection `OUTPUTS_SHOWN`).
+  const folds = sources.length - SOURCES_SHOWN >= 2;
+  // Show more grows the list in place and Show less closes it over the rows that go (foldMotion.ts).
+  const fold = useFoldMotion<HTMLUListElement>(expanded, (list) =>
+    heightAbove(list, list.children[folders.length + SOURCES_SHOWN]),
+  );
+  const shown = folds && !fold.drawn ? sources.slice(0, SOURCES_SHOWN) : sources;
+  const labels = sourceLabels(t, sources);
   return (
     <>
-      <ul className="acpmux-session-info-list" data-section="sources">
-        {shown.map((source) => (
-          <SourceRow
-            key={source.image ? `image:${source.image.id}` : `${source.kind}:${source.url ?? source.label}`}
-            source={source}
-            {...navigation}
-          />
+      <ul ref={fold.ref} className="acpmux-session-info-list" data-section="sources">
+        {folders.map((folder) => (
+          // tooltip-allow: the row shows the folder's name; the tooltip is its full path
+          <li key={`folder:${folder}`} className="acpmux-session-info-source" data-kind="folder" title={folder}>
+            <span className="acpmux-session-info-source__link">
+              <Icon name="folder" size={rowIconSize(12)} row />
+              <span className="acpmux-session-info-source__label">{extraFolderName(folder)}</span>
+            </span>
+          </li>
         ))}
+        <WindowedRows
+          items={shown}
+          render={(source, index) => (
+            <SourceRow
+              key={source.image ? `image:${source.image.id}` : `${source.kind}:${source.url ?? source.label}`}
+              source={source}
+              label={labels[index]!}
+              {...navigation}
+            />
+          )}
+        />
       </ul>
       {folds && (
-        <button
-          type="button"
-          className="acpmux-session-info-fold acpmux-session-info-sources-fold"
-          aria-expanded={expanded}
-          onClick={() => onExpandedChange(!expanded)}
+        <SessionInfoFold
+          className="acpmux-session-info-sources-fold"
+          open={expanded}
+          onToggle={() => fold.toggle(!expanded, onExpandedChange)}
         >
-          {expanded ? t("summary.showFewer") : t("summary.viewAll", { n: sources.length })}
-        </button>
+          {expanded
+            ? t("sessionInfo.outputs.showLess")
+            : t("sessionInfo.list.showMore", { n: sources.length - SOURCES_SHOWN })}
+        </SessionInfoFold>
       )}
     </>
   );
 }
 
-function SourceRow({ source, onOpenBeside, onOpenImage, readImage, onOpenFile, cwd }: RowProps) {
+function SourceRow({
+  source,
+  label,
+  onOpenBeside,
+  onOpenImage,
+  readImage,
+  onOpenFile,
+  cwd,
+}: RowProps & { label: string }) {
   const t = useT();
   const [failure, setFailure] = useState<string>();
   useEffect(() => {
@@ -100,7 +113,7 @@ function SourceRow({ source, onOpenBeside, onOpenImage, readImage, onOpenFile, c
   const content = (
     <>
       <Icon name={icon[source.kind ?? "url"]} size={rowIconSize(12)} row />
-      <span className="acpmux-session-info-source__label">{source.label || t("image.viewer")}</span>
+      <span className="acpmux-session-info-source__label">{label || t("image.viewer")}</span>
     </>
   );
   const path = source.kind === "file" ? scopedPath(source.label, cwd) : undefined;
@@ -116,7 +129,7 @@ function SourceRow({ source, onOpenBeside, onOpenImage, readImage, onOpenFile, c
           Promise.resolve(image.src ?? readImage?.(image.id))
             .then((src) => {
               if (!src) throw new Error(t("image.unavailable"));
-              onOpenImage(src, source.label || t("image.viewer"));
+              onOpenImage(src, label || t("image.viewer"));
             })
             .catch((error: unknown) => setFailure(error instanceof Error ? error.message : t("image.actionFailed")));
         }}
@@ -153,5 +166,31 @@ function SourceRow({ source, onOpenBeside, onOpenImage, readImage, onOpenFile, c
         {content}
       </a>
     );
-  return <li className="acpmux-session-info-source">{failure ? <span role="alert">{failure}</span> : target}</li>;
+  // A pull request the chat named opens its diff from its ⋯ menu, as a Changes row does.
+  const diffUrl = onOpenBeside && source.kind === "pullRequest" ? pullRequestDiffUrl(source.url) : undefined;
+  return (
+    <li className="acpmux-session-info-source">
+      {failure ? <span role="alert">{failure}</span> : target}
+      {diffUrl && !failure && (
+        <Menu>
+          <MenuButton
+            className="acpmux-session-info-icon-button acpmux-session-info-source__more"
+            label={t("sessionInfo.changes.more", { reference: source.label })}
+            aria-haspopup="menu"
+          >
+            <Icon name="action.more" size={14} />
+          </MenuButton>
+          <MenuPopup
+            className="acpmux-session-info-menu"
+            label={t("sessionInfo.changes.actions", { reference: source.label })}
+            align="end"
+          >
+            <MenuItem className="acpmux-session-info-menu__item" onSelect={() => openPullRequestDiff(diffUrl)}>
+              {t("sessionInfo.changes.viewDiff")}
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
+      )}
+    </li>
+  );
 }

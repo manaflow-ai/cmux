@@ -11,8 +11,9 @@ import Foundation
 /// every channel) the flow asks twice, as Sparkle's own UI does: a found update waits on the
 /// update-found step (``UpdateIndicatorPhase/available(version:)``) until Update
 /// (``UpdateFlowEvent/downloadRequested``), and the staged update waits on the Update Ready card
-/// until Restart to Update (``UpdateFlowEvent/installRequested``). Hide, or no answer, never
-/// relaunches; a quit installs it only with `updates.installOnQuit` on (off by default, the
+/// until Restart to Update (``UpdateFlowEvent/installRequested``). With `updates.oneClickInstall`
+/// (off by default) the first ask is the only one: Update downloads, then installs and relaunches
+/// once staged. Hide, or no answer, never relaunches; a quit installs it only with `updates.installOnQuit` on (off by default, the
 /// nightly restart policy).
 nonisolated public struct UpdateFlow: Equatable, Sendable {
     public private(set) var phase: UpdateIndicatorPhase = .hidden
@@ -24,6 +25,11 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     /// 2026-10-20: "if there is a background check for updates, it should
     /// not be visible to the user").
     public private(set) var userAsked = false
+    /// The person started this download (Update, Download, an install click, Attempt Update): only
+    /// then does its progress show (``card(downloadsAutomatically:)``). A download that follows a check
+    /// by itself, the person's check included, stays quiet until it is staged (Lawrence 2026-11-07: "i
+    /// think i enabled auto updates but it was automatically downloading updates just now").
+    public private(set) var downloadAsked = false
     /// The person's request waits for its check to start: the next
     /// ``UpdateIndicatorPhase/checking`` is theirs. A check that starts
     /// without one is a scheduled check.
@@ -35,6 +41,12 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         switch event {
         case .sparkle(let next):
             return sparkleMoved(to: next)
+        case .attemptRequested:
+            // Attempt Update with nothing found yet: a fresh check that downloads and installs at once.
+            downloadAsked = true
+            userAsked = true
+            askPending = phase != .checking
+            return []
         case .checkRequested:
             userAsked = true
             // Joining a check that already runs needs no new start.
@@ -49,23 +61,30 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
                 userAsked = false
                 return installIfStaged()
             case .downloading, .checking:
-                // Installs once staged; a check shows meanwhile, a download runs quietly.
+                // Installs once staged; the check or the download's progress shows meanwhile.
                 installRequested = true
                 userAsked = true
+                downloadAsked = true
                 return []
             case .available:
-                // Downloads quietly, installs once staged.
+                // Downloads, shows its progress, installs once staged.
                 installRequested = true
                 userAsked = true
+                downloadAsked = true
                 return [.download]
             case .hidden, .installing, .note:
                 return []
             }
         case .downloadRequested:
-            // The answer to the update-found step: download quietly, then ask again before the
-            // relaunch (the staged update card). A held install click keeps its install.
+            // The answer to the update-found step: download, show its progress, then ask again
+            // before the relaunch (the staged update card). A held install click keeps its install.
+            // With `updates.oneClickInstall` this click is the relaunch's ask too: it installs once
+            // staged (Leo 2026-11-04, after the Codex app's Update available button: "me clicking it
+            // enabling it to auto install and restart is... interesting").
             guard case .available = phase else { return [] }
             userAsked = true
+            downloadAsked = true
+            if preferences.oneClickInstall { installRequested = true }
             return [.download]
         case .quitRequested:
             guard case .ready = phase, !preferences.installOnQuit else { return [.quit(.proceed)] }
@@ -102,6 +121,7 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         switch next {
         case .ready:
             userAsked = false
+            downloadAsked = false
             return installIfStaged()
         case .installing:
             // A person who watched the check and download on the notice card
@@ -112,11 +132,13 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
             // The flow ended, failed or was cancelled: a held click does not
             // carry over to a later update.
             installRequested = false
+            downloadAsked = false
             return []
         case .available:
             // A click held while the check ran: download now, install once staged.
             guard installRequested else { return [] }
             userAsked = true
+            downloadAsked = true
             return [.download]
         case .checking, .downloading:
             return []
@@ -131,14 +153,16 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     }
 
     /// The notice card's update status, or nil: what the user asked for (a
-    /// check, its result), and a found update that waits for a click
-    /// (`updates.downloadAutomatically` off), which needs no check. A
-    /// download never shows here, asked for or not: it runs quietly and the
-    /// staged update's one-step card asks to restart (Leo 2026-11-03, after
-    /// ChatGPT: "it's already downloaded you click this button to accept the
-    /// button and restart"). Its progress, Cancel and a failure's Try Again
-    /// are Settings > Updates' (``UpdaterService/settingsStatus``).
-    /// A scheduled check, its download and its result show nothing.
+    /// check, its download's progress, its result), and a found update that
+    /// waits for a click (`updates.downloadAutomatically` off), which needs no
+    /// check. A download the person asked for (Download, Update) shows its
+    /// progress here until it is staged (Leo 2026-11-04: "there's no more
+    /// updating downloading progress bar for some reason? after i download...");
+    /// Settings > Updates shows it too (``UpdaterService/settingsStatus``).
+    /// A scheduled check, its download and its result show nothing: a background
+    /// download stays quiet and the staged update's one-step card asks to restart
+    /// (Leo 2026-11-03, after ChatGPT: "it's already downloaded you click this
+    /// button to accept the button and restart").
     /// A staged update is never this card (the staged update card,
     /// ``footerPill(preferences:)``); an install shows here only when the
     /// person followed it here (Attempt Update), so the loading card never
@@ -154,9 +178,10 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         guard userAsked else { return nil }
         switch phase {
         case .checking: return .checking
+        case .downloading(let transfer): return downloadAsked ? .downloading(transfer) : nil
         case .installing: return .installing
         case .note(let note): return .note(note)
-        case .hidden, .available, .downloading, .ready: return nil
+        case .hidden, .available, .ready: return nil
         }
     }
 

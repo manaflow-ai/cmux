@@ -107,11 +107,12 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
   test("a new chat opens the harness-only rail from the model picker", async () => {
     const page = await open("footer-harness-new-chat", 760);
     await page.keyboard.press("Escape");
-    await page.waitForSelector(".acpmux-quick-menu", { state: "detached", timeout: 5_000 });
+    await page.waitForSelector(".acpmux-cols", { state: "detached", timeout: 5_000 });
     expect(await page.locator(".acpmux-composer-foot .acpmux-foot-harness").count()).toBe(0);
     await page.click(".acpmux-composer-foot .acpmux-model .acpmux-picker-button");
-    await page.waitForSelector(".acpmux-quick-menu", { timeout: 5_000 });
-    const rail = await page.$$eval(".acpmux-quick-menu .acpmux-quick-rail-tab[aria-label]", (tabs) =>
+    // A new chat's menu has a rail, so the button opens the columns.
+    await page.waitForSelector(".acpmux-cols", { timeout: 5_000 });
+    const rail = await page.$$eval(".acpmux-cols .acpmux-cols-tab[aria-label]", (tabs) =>
       tabs.map((tab) => tab.getAttribute("aria-label")),
     );
     expect(rail).toContain("Claude Code");
@@ -147,7 +148,8 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
       const units = items.map((item) =>
         ["acpmux-access", "acpmux-model", "acpmux-context"].find((name) => item.className.split(" ").includes(name)),
       );
-      expect(units).toEqual(["acpmux-access", "acpmux-model", "acpmux-context"]);
+      // The context ring stands just left of the model (Lawrence and Lucas 2026-11-11).
+      expect(units).toEqual(["acpmux-access", "acpmux-context", "acpmux-model"]);
       for (let index = 1; index < items.length; index++)
         expect(items[index]!.left).toBeGreaterThanOrEqual(items[index - 1]!.right - 0.5);
       await page.close();

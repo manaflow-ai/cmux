@@ -1,0 +1,241 @@
+{
+ "id": 126154996598,
+ "run_id": 41698414997,
+ "run_attempt": 1,
+ "name": "web / react-apps-base-check (3)",
+ "status": "completed",
+ "conclusion": "failure",
+ "started_at": "2026-11-03T19:32:26Z",
+ "completed_at": "2026-11-03T19:44:26Z",
+ "runner_name": "blacksmith-16vcpu-ubuntu-2404-ob6ymgwopeystchi",
+ "labels": [
+  "blacksmith-16vcpu-ubuntu-2404"
+ ],
+ "head_sha": "3a781db43f56fa7a9199a04aa13faee88581609c",
+ "steps": [
+  {
+   "name": "Set up job",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 1,
+   "started_at": "2026-11-03T19:32:26Z",
+   "completed_at": "2026-11-03T19:32:27Z"
+  },
+  {
+   "name": "Set up runner",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 2,
+   "started_at": "2026-11-03T19:32:27Z",
+   "completed_at": "2026-11-03T19:32:27Z"
+  },
+  {
+   "name": "Checkout the merge commit",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 3,
+   "started_at": "2026-11-03T19:32:27Z",
+   "completed_at": "2026-11-03T19:33:01Z"
+  },
+  {
+   "name": "Use the merge parent as the base",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 4,
+   "started_at": "2026-11-03T19:33:01Z",
+   "completed_at": "2026-11-03T19:33:01Z"
+  },
+  {
+   "name": "Download head webview results",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 5,
+   "started_at": "2026-11-03T19:33:01Z",
+   "completed_at": "2026-11-03T19:33:01Z"
+  },
+  {
+   "name": "Setup Bun",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 6,
+   "started_at": "2026-11-03T19:33:01Z",
+   "completed_at": "2026-11-03T19:33:02Z"
+  },
+  {
+   "name": "Use the base's bun",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 7,
+   "started_at": "2026-11-03T19:33:02Z",
+   "completed_at": "2026-11-03T19:33:02Z"
+  },
+  {
+   "name": "Cache Bun package cache",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 8,
+   "started_at": "2026-11-03T19:33:02Z",
+   "completed_at": "2026-11-03T19:33:03Z"
+  },
+  {
+   "name": "Cache Playwright browsers",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 9,
+   "started_at": "2026-11-03T19:33:03Z",
+   "completed_at": "2026-11-03T19:33:04Z"
+  },
+  {
+   "name": "Setup Node",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 10,
+   "started_at": "2026-11-03T19:33:04Z",
+   "completed_at": "2026-11-03T19:33:04Z"
+  },
+  {
+   "name": "Install webview dependencies",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 11,
+   "started_at": "2026-11-03T19:33:04Z",
+   "completed_at": "2026-11-03T19:33:04Z"
+  },
+  {
+   "name": "Build base web bundles",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 12,
+   "started_at": "2026-11-03T19:33:04Z",
+   "completed_at": "2026-11-03T19:34:14Z"
+  },
+  {
+   "name": "Install headless engines",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 13,
+   "started_at": "2026-11-03T19:34:14Z",
+   "completed_at": "2026-11-03T19:34:38Z"
+  },
+  {
+   "name": "Restore the base's webview test history",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 14,
+   "started_at": "2026-11-03T19:34:38Z",
+   "completed_at": "2026-11-03T19:34:38Z"
+  },
+  {
+   "name": "Run base reds and compare",
+   "status": "in_progress",
+   "conclusion": null,
+   "number": 15,
+   "started_at": "2026-11-03T19:34:38Z",
+   "completed_at": null
+  },
+  {
+   "name": "Check out the head again",
+   "status": "pending",
+   "conclusion": null,
+   "number": 16,
+   "started_at": null,
+   "completed_at": null
+  },
+  {
+   "name": "Use the head's bun",
+   "status": "pending",
+   "conclusion": null,
+   "number": 17,
+   "started_at": null,
+   "completed_at": null
+  },
+  {
+   "name": "Install head webview dependencies",
+   "status": "pending",
+   "conclusion": null,
+   "number": 18,
+   "started_at": null,
+   "completed_at": null
+  },
+  {
+   "name": "Build head web bundles",
+   "status": "pending",
+   "conclusion": null,
+   "number": 19,
+   "started_at": null,
+   "completed_at": null
+  },
+  {
+   "name": "Install head headless engines",
+   "status": "pending",
+   "conclusion": null,
+   "number": 20,
+   "started_at": null,
+   "completed_at": null
+  },
+  {
+   "name": "Re-run the change's reds alone on the head",
+   "status": "pending",
+   "conclusion": null,
+   "number": 21,
+   "started_at": null,
+   "completed_at": null
+  },
+  {
+   "name": "Fail on the change's own reds",
+   "status": "pending",
+   "conclusion": null,
+   "number": 22,
+   "started_at": null,
+   "completed_at": null
+  },
+  {
+   "name": "Post Setup Node",
+   "status": "pending",
+   "conclusion": null,
+   "number": 39,
+   "started_at": null,
+   "completed_at": null
+  },
+  {
+   "name": "Post Cache Playwright browsers",
+   "status": "pending",
+   "conclusion": null,
+   "number": 40,
+   "started_at": null,
+   "completed_at": null
+  },
+  {
+   "name": "Post Cache Bun package cache",
+   "status": "pending",
+   "conclusion": null,
+   "number": 41,
+   "started_at": null,
+   "completed_at": null
+  },
+  {
+   "name": "Post Setup Bun",
+   "status": "pending",
+   "conclusion": null,
+   "number": 42,
+   "started_at": null,
+   "completed_at": null
+  },
+  {
+   "name": "Post Checkout the merge commit",
+   "status": "pending",
+   "conclusion": null,
+   "number": 43,
+   "started_at": null,
+   "completed_at": null
+  },
+  {
+   "name": "Complete runner",
+   "status": "pending",
+   "conclusion": null,
+   "number": 44,
+   "started_at": null,
+   "completed_at": null
+  }
+ ]
+}

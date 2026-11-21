@@ -92,15 +92,21 @@ public nonisolated struct CloudMachineStageInput: Hashable, Sendable {
     /// The ended link went down or was revoked (`CloudLinkError.isDrop`), not
     /// refused by the provider.
     public var linkDropped = false
+    /// The app link ended on a machine whose record did not yet read paused, and the machine list
+    /// is being read again to learn whether the idle pause parked it: a pause (the common case once
+    /// machines pause between tool calls) ends the link first and only the list says so. Until the
+    /// read answers the machine reads as on its way, a spinner, never "Disconnected".
+    public var linkEndConfirming = false
 
     public init(creation: CloudCreationPhase? = nil, machineStatus: CloudMachine.Status? = nil, link: CloudLinkPhase = .idle,
                 daemonConnected: Bool = false, daemonLoaded: Bool = false, daemonFailure: String? = nil, linkEnded: String? = nil,
                 pauseReason: CloudMachine.PauseReason? = nil, resuming: Bool = false, resumeFailure: String? = nil,
-                changeFailure: String? = nil, linkDropped: Bool = false) {
+                changeFailure: String? = nil, linkDropped: Bool = false, linkEndConfirming: Bool = false) {
         (self.creation, self.machineStatus, self.link, self.daemonConnected, self.daemonLoaded, self.daemonFailure) =
             (creation, machineStatus, link, daemonConnected, daemonLoaded, daemonFailure)
         (self.linkEnded, self.pauseReason, self.resuming, self.resumeFailure, self.changeFailure, self.linkDropped) =
             (linkEnded, pauseReason, resuming, resumeFailure, changeFailure, linkDropped)
+        self.linkEndConfirming = linkEndConfirming
     }
 
     /// The stage. A link that is still starting is `booting` even after the
@@ -133,6 +139,8 @@ public nonisolated struct CloudMachineStageInput: Hashable, Sendable {
             if let resumeFailure { return .failed(resumeFailure) }
             if link == .idle || linkEnded != nil { return .paused(idle: pauseReason == .idle) }
         }
+        // An ended link whose machine may have paused: on its way until the list read answers.
+        if linkEnded != nil, linkEndConfirming, machineStatus != .failed { return .booting }
         if let linkEnded { return .failed(linkEnded) }
         if machineStatus == .failed { return .failed(changeFailure ?? machineFailed) }
         switch link {

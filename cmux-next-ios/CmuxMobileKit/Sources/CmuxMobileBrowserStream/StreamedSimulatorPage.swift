@@ -50,6 +50,8 @@ public struct StreamedSimulatorPage: View {
         .padding(.top, insets.top)
         .padding(.bottom, insets.bottom)
         .background(Color.black)
+        // The simulator page is black in both appearances: its status and Retry draw dark.
+        .environment(\.colorScheme, .dark)
         .onAppear {
             model.setVisible(true)
             model.reconnect()
@@ -105,7 +107,7 @@ public struct StreamedSimulatorAccessory: View {
                 .font(.system(size: 17, weight: .medium))
                 .frame(width: 44, height: 44)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .glassEffect(.regular.interactive(), in: .circle)
         .accessibilityLabel(title)
         .accessibilityIdentifier("simulator.\(id)")

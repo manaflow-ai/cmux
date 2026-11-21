@@ -68,11 +68,13 @@ test("a patch names a file from the chat folder only when it is under it", () =>
   expect(patchName("src/a.ts", undefined)).toBe("src/a.ts");
 });
 
-test("the chat opens Changes as a tab for remote chats and non-repository turns, in the page only with no tab", () => {
+test("the chat opens Changes as a tab for remote chats and non-repository turns; Quick Chat opens in the window", () => {
   const app = readFileSync(new URL("../src/agent-session/acpmux/App.tsx", import.meta.url), "utf8");
   const beside = app.slice(app.indexOf("diffBeside.current = async"), app.indexOf("diffBeside.current = async") + 2400);
-  // A remote or Cloud chat's folder is read on its machine; only Quick Chat has no tab.
-  expect(beside).toContain("if (quick || !chatCwd) return false;");
+  // A remote or Cloud chat's folder is read on its machine. Quick Chat has no tab beside it: its
+  // chat moves to the main window (Open in Window), where the diff opens on the right.
+  expect(beside).toMatch(/if \(quick\) \{\s+if \(snapshot\.sessionId\) postOpenInWindow\(snapshot\.sessionId\);/);
+  expect(beside).toContain("if (!chatCwd) return false;");
   expect(beside).not.toContain("quick || !localCwd");
   // Outside a repository, or a file outside it: the turn's own patch for the tab.
   expect(beside).toMatch(/viewChangesPatch\(rows, rowId, path, chatCwd, files\)[\s\S]*target = \{ patch \}/);

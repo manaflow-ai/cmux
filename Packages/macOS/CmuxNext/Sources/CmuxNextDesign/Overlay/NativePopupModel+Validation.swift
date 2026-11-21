@@ -23,7 +23,22 @@ extension NativePopupModel {
             identifiers.insert(search.id)
         }
         guard railWidth.map({ $0.isFinite && $0 >= 40 && $0 <= width / 2 }) ?? true else { return false }
-        return Self.validate((rail ?? []) + rows + (footer ?? []), depth: 0, identifiers: &identifiers)
+        if let columns {
+            // Columns replace the rail: a popup is one layout or the other.
+            guard !columns.isEmpty, columns.count <= 8, rail == nil, railPlacement == nil,
+                  columnsHeight.map({ $0.isFinite && $0 >= 40 && $0 <= 2000 }) ?? true else { return false }
+            var columnIDs = Set<String>()
+            for column in columns {
+                guard !column.id.isEmpty, column.id.count <= 128, columnIDs.insert(column.id).inserted,
+                      column.label.count <= 200,
+                      column.width.map({ $0.isFinite && $0 >= 24 && $0 <= width }) ?? true else { return false }
+            }
+            guard columns.compactMap(\.width).reduce(0, +) <= width else { return false }
+        } else if columnsHeight != nil { return false }
+        if let searchAccessory {
+            guard search != nil, searchAccessory.kind == .submenu || searchAccessory.kind == .action else { return false }
+        }
+        return Self.validate(allRows, depth: 0, identifiers: &identifiers)
     }
 
     private static func validate(_ rows: [NativePopupRow], depth: Int, identifiers: inout Set<String>) -> Bool {
@@ -31,6 +46,9 @@ extension NativePopupModel {
         for row in rows {
             guard !row.id.isEmpty, row.id.count <= 128, identifiers.insert(row.id).inserted,
                   row.label.count <= 10_000 else { return false }
+            guard row.mark.map({ !$0.isEmpty && $0.count <= 128 }) ?? true,
+                  row.monogram.map({ !$0.isEmpty && $0.count <= 8 }) ?? true,
+                  row.sideLabel.map({ $0.count <= 200 && row.opensChildren }) ?? true else { return false }
             guard row.editSequence.map({ $0 >= 0 && $0 < 9_007_199_254_740_991 && row.kind == .textField }) ?? true else { return false }
             if let completion = row.completion {
                 guard row.kind == .action, completion.count <= 100_000 else { return false }

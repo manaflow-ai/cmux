@@ -10,6 +10,7 @@ import { codeRouterOffer, ownRouteOf, readChatAccounts } from "../src/agent-sess
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 
 import { cloudCredentialRecovery } from "../src/agent-session/acpmux/cloudCredentialRecovery";
+import { teardownDom } from "./support/domTeardown";
 
 const t = translatorFor("en");
 const claude = { name: "Claude Code", harness: "claude" };
@@ -144,13 +145,9 @@ const { TurnActionsContext } = await import("../src/agent-session/acpmux/convers
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const failed = (error: string, errorCode?: string) => ({
@@ -166,6 +163,7 @@ const failed = (error: string, errorCode?: string) => ({
   prompt: "Run the sidebar tests and fix what fails",
   retryRowId: "user-1",
 });
+const { FailedSendsContext } = await import("../src/agent-session/acpmux/conversation/promptDeliveryModel");
 const card = () => host.querySelector(".cv-turn-error")!;
 const button = (label: string) =>
   [...card().querySelectorAll("button")].find((element) => element.textContent === label);
@@ -193,6 +191,40 @@ test('"agent process closed" draws a card: the cause, Retry first, the raw words
   expect(details.querySelector("summary")!.textContent).toBe("Details");
   expect(details.textContent).toContain("agent process closed");
   expect([...details.querySelectorAll("button")].map((element) => element.textContent)).toEqual(["Copy error"]);
+});
+
+test("a turn the folder's trust held offers Trust folder from its card, where the pane answers for the folder", async () => {
+  for (const error of [
+    "trust.pending: answer the trust question for the folder first",
+    "trust.untrusted: the folder is not trusted",
+  ]) {
+    let trusted = 0;
+    await act(async () =>
+      root.render(
+        <TurnActionsContext.Provider value={{ retry: () => undefined }}>
+          <FailedSendsContext.Provider value={{ runs: new Map(), trustFolder: () => void trusted++ }}>
+            <TurnFooter row={failed(error)} />
+          </FailedSendsContext.Provider>
+        </TurnActionsContext.Provider>,
+      ),
+    );
+    const trust = button("Trust folder");
+    expect(trust, error).toBeDefined();
+    expect(trust!.classList.contains("cv-turn-error__primary")).toBe(true);
+    await act(async () => trust!.click());
+    expect(trusted).toBe(1);
+    // A folder already trusted, or one this pane may not answer for, offers no Trust folder.
+    await act(async () =>
+      root.render(
+        <TurnActionsContext.Provider value={{ retry: () => undefined }}>
+          <FailedSendsContext.Provider value={{ runs: new Map() }}>
+            <TurnFooter row={failed(error)} />
+          </FailedSendsContext.Provider>
+        </TurnActionsContext.Provider>,
+      ),
+    );
+    expect(button("Trust folder")).toBeUndefined();
+  }
 });
 
 test("cloud credential transfer retries only the failed prompt after a successful transfer", async () => {
@@ -237,6 +269,78 @@ test("capacity puts Retry first, Switch model after it", async () => {
   expect(labels).toEqual(["Retry", "Switch model"]);
   expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(true);
   expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(false);
+});
+
+// Leo 2026-11-03, on a card that led with Switch model when the model's server could not be reached:
+// "this ui is pretty awkward looking". Which action leads, per error kind.
+const leadLabels = () =>
+  [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
+const isPrimary = (label: string) => button(label)!.classList.contains("cv-turn-error__primary");
+
+test("a server that cannot be reached leads with Retry, Switch model after it", async () => {
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined }}>
+        <TurnFooter row={failed("API Error: Connection error.")} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().getAttribute("data-failure-kind")).toBe("unreachable");
+  expect(leadLabels()).toEqual(["Retry", "Switch model"]);
+  expect(isPrimary("Retry")).toBe(true);
+  expect(isPrimary("Switch model")).toBe(false);
+});
+
+test("an unreachable card with no Retry keeps Switch model outlined, never the filled lead", async () => {
+  // An earlier turn (or one a retry already went on from) has no prompt of its own to send again.
+  const earlier = { ...failed("connect ECONNREFUSED 127.0.0.1:443"), prompt: undefined, retryRowId: undefined };
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined }}>
+        <TurnFooter row={earlier} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().getAttribute("data-failure-kind")).toBe("unreachable");
+  expect(leadLabels()).toEqual(["Switch model"]);
+  expect(isPrimary("Switch model")).toBe(false);
+});
+
+test("Retry on an unreachable card goes through acpmux's turn retry and waits while it is in flight", async () => {
+  const calls: string[] = [];
+  let settle: () => void = () => undefined;
+  const retryFailed = (rowId: string | undefined, prompt: string | undefined) => {
+    calls.push(`${rowId}:${prompt}`);
+    return new Promise<undefined>((resolve) => (settle = () => resolve(undefined)));
+  };
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retryFailed, switchModel: () => undefined }}>
+        <TurnFooter row={{ ...failed("fetch failed"), retryable: true }} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(leadLabels()).toEqual(["Retry", "Switch model"]);
+  expect(isPrimary("Retry")).toBe(true);
+  await act(async () => button("Retry")!.click());
+  expect(calls).toEqual(["user-1:Run the sidebar tests and fix what fails"]);
+  expect(button("Retry")!.hasAttribute("disabled")).toBe(true);
+  await act(async () => settle());
+  expect(button("Retry")!.hasAttribute("disabled")).toBe(false);
+});
+
+test("a failure about the model's route still leads with Switch model, Retry after it", async () => {
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined }}>
+        <TurnFooter row={failed("invalid x-api-key")} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().getAttribute("data-failure-kind")).toBe("invalid-key");
+  expect(leadLabels()).toEqual(["Switch model", "Retry"]);
+  expect(isPrimary("Switch model")).toBe(true);
+  expect(isPrimary("Retry")).toBe(false);
 });
 
 test("the typed reason reaches the card", async () => {

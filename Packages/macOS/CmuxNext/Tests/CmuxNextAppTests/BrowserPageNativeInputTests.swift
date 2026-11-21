@@ -254,16 +254,18 @@ typealias NativeInputJSON = CmuxNextSettings.JSONValue
         #expect(try await fixture.events("wheel").count == 1)
     }
 
-    /// A page with no engine view (its web view is in no window) still takes the input, as page
-    /// events: the click lands, untrusted, and the answer says so.
-    @Test func aPageInNoWindowFallsBackToPageEvents() async throws {
+    /// A page in no window (a background tab an agent drives, user 2026-11-05) moves into its
+    /// off-screen render window first, so the click is native and trusted there too, and the
+    /// person's windows do not change.
+    @Test func aPageInNoWindowTakesTrustedInputOffScreen() async throws {
         let fixture = try await Fixture()
         defer { fixture.close() }
         fixture.window.contentView = nil
         let at = try await fixture.center("btn")
         let result = try await fixture.call("mouse", ["kind": "click", "x": at.x, "y": at.y])
-        #expect(result["native"] == false)
-        #expect(try await fixture.read("window.clicks") == 1)
-        #expect(try await fixture.events("click").first?["trusted"] == false)
+        #expect(result["native"] == true)
+        try await fixture.until("the button was clicked") { try await fixture.read("window.clicks") == 1 }
+        #expect(try await fixture.events("click").first?["trusted"] == true)
+        #expect(fixture.window.contentView == nil)
     }
 }

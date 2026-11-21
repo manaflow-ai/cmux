@@ -94,7 +94,7 @@ impl Guard {
     }
 
     pub(super) fn store(&self, dir: &Path) -> std::io::Result<()> {
-        std::fs::write(dir.join(GUARD_FILE), serde_json::to_vec(&self.to_value())?)
+        crate::home_fs::write(dir.join(GUARD_FILE), serde_json::to_vec(&self.to_value())?)
     }
 
     /// The guard a receive stored, or None for an unguarded receive.
@@ -176,6 +176,14 @@ pub(super) fn bundle_path_kind(path: &str) -> Option<bool> {
         ["native", "claude-project", ".claude", "projects", dir, f]
             if !dir.is_empty() && jsonl(f) =>
         {
+            Some(true)
+        }
+        ["native", "pi-session", ".pi", "agent", "sessions", dir, f]
+            if !dir.is_empty() && jsonl(f) =>
+        {
+            Some(true)
+        }
+        ["native", "opencode-export", f] if f.len() > ".json".len() && f.ends_with(".json") => {
             Some(true)
         }
         ["native", "codex-rollout", ".codex", "sessions", rest @ ..]
@@ -383,7 +391,7 @@ impl Hub {
         }
         let written = serde_json::to_vec_pretty(&meta)
             .map_err(anyhow::Error::from)
-            .and_then(|bytes| Ok(std::fs::write(&path, bytes)?));
+            .and_then(|bytes| Ok(crate::home_fs::write(&path, bytes)?));
         written.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         Ok((meta, taken))
     }
@@ -410,7 +418,7 @@ impl Hub {
                 format!("mode {shown} does not ask before it acts for a {family} chat here"),
             ));
         }
-        let options = meta.config_options.as_ref().and_then(Value::as_array);
+        let options = meta.config_options.as_deref().and_then(Value::as_array);
         for o in options.into_iter().flatten() {
             let id = o.get("id").and_then(Value::as_str).unwrap_or("");
             let value = o.get("currentValue").and_then(Value::as_str);

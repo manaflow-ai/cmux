@@ -201,12 +201,14 @@ fn a_sealed_segment_keeps_actors_out_of_the_record_json() {
     mux.seal_journal_segments(through, "client_test", "segment_1").unwrap();
     let registry = mux.workspace_registry.lock().unwrap();
     let db = registry.connection.get();
-    let mut statement = db.prepare("SELECT content FROM journal_segments").unwrap();
-    let contents = statement.query_map([], |row| row.get::<_, Vec<u8>>(0)).unwrap();
+    let mut statement = db.prepare("SELECT codec, content FROM journal_segments").unwrap();
+    let contents = statement
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?)))
+        .unwrap();
     for content in contents {
-        let mut json = String::new();
-        Read::read_to_string(&mut flate2::read::GzDecoder::new(&content.unwrap()[..]), &mut json)
-            .unwrap();
+        let (codec, content) = content.unwrap();
+        let json = segment_codec::decode(&codec, &content, 1 << 24).unwrap();
+        let json = String::from_utf8(json).unwrap();
         assert!(!json.contains("\"actor\""), "a sealed record carries an actor field");
     }
     drop(statement);

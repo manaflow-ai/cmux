@@ -40,7 +40,9 @@ impl Peer {
                 let stall = stall.clone();
                 connections.spawn(async move {
                     let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
-                    while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                    // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                    while let Some(Ok(frame)) = ws.next().await {
+                        let Ws::Text(text) = frame else { continue };
                         let Ok(Message::Request { id, method: m, params }) = Message::parse(&text) else { continue };
                         let p = params.unwrap_or_default();
                         let result = match m.as_str() {

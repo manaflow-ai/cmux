@@ -24,6 +24,9 @@ pub enum FsError {
         total: Option<u64>,
     },
     NoSpace,
+    /// A symlink as a component of a write's path, the last included,
+    /// when the write asked for none (`fs-write-nofollow-v1`).
+    SymlinkInPath,
     CursorExpired,
     /// This daemon serves no file ops (fs-v1 is served on cmux Cloud hosts
     /// only).
@@ -46,6 +49,7 @@ impl FsError {
             Self::ParamsInvalid(_) => "params.invalid",
             Self::TooLarge { .. } => "fs.too_large",
             Self::NoSpace => "fs.no_space",
+            Self::SymlinkInPath => "fs.symlink_in_path",
             Self::CursorExpired => "cursor.expired",
             Self::Unavailable => "fs.unavailable",
             Self::Failure(_) => "fs.failure",
@@ -68,6 +72,7 @@ impl FsError {
             Self::ParamsInvalid(message) => format!("invalid params: {message}"),
             Self::TooLarge { .. } => "too large".into(),
             Self::NoSpace => "no space left on the device".into(),
+            Self::SymlinkInPath => "a symlink is on the path".into(),
             Self::CursorExpired => "the listing expired; list again".into(),
             Self::Unavailable => {
                 "file ops are served only on cmux Cloud hosts (fs-v1 is not served here)".into()

@@ -432,7 +432,8 @@ async fn a_chat_is_not_moved_while_a_prompt_waits_for_the_owner() {
     c.call("_acpmux/queue_decline", answer(&hub, &session, "g-1", None)).await;
     assert_eq!(reason(&c.reply_to(waiting).await), "queue.declined");
     let moved = c.call("_acpmux/transfer_begin", begin).await;
-    let abort = json!({"sessionId": session, "transferId": moved["transferId"]});
+    let abort =
+        json!({"sessionId": session, "transferId": moved["transferId"], "epoch": moved["epoch"]});
     c.call("_acpmux/transfer_abort", abort).await;
 }
 
@@ -624,7 +625,7 @@ async fn transfer_refuses_a_held_snapshot_even_when_the_live_prompt_was_removed(
     if let Ok(bundle) = &result {
         hub.transfer_request(
             "_acpmux/transfer_abort",
-            &json!({"sessionId": session, "transferId": bundle["transferId"]}),
+            &json!({"sessionId": session, "transferId": bundle["transferId"], "epoch": bundle["epoch"]}),
         )
         .await
         .unwrap();
@@ -662,7 +663,7 @@ async fn transfer_refuses_a_decline_snapshot_before_the_legacy_removal() {
     if let Ok(bundle) = &result {
         hub.transfer_request(
             "_acpmux/transfer_abort",
-            &json!({"sessionId": session, "transferId": bundle["transferId"]}),
+            &json!({"sessionId": session, "transferId": bundle["transferId"], "epoch": bundle["epoch"]}),
         )
         .await
         .unwrap();
@@ -778,6 +779,23 @@ impl acpmux::store::Store for UnmarkedStore {
     ) -> anyhow::Result<()> {
         self.0.scan(id, after, visit)
     }
+    // The journal's durability, stop and shutdown seal go to the store underneath: a wrapper
+    // that kept the trait's defaults would never hand the journal's lock to the next open.
+    fn flush(&self) -> anyhow::Result<()> {
+        self.0.flush()
+    }
+    fn wait_durable(&self, timeout: std::time::Duration) -> anyhow::Result<bool> {
+        self.0.wait_durable(timeout)
+    }
+    fn durability(&self) -> Option<acpmux::store::Durability> {
+        self.0.durability()
+    }
+    fn stop_reason(&self) -> Option<tokio::sync::watch::Receiver<Option<String>>> {
+        self.0.stop_reason()
+    }
+    fn seal(&self) {
+        self.0.seal()
+    }
 }
 
 /// A link guest's queued prompt that an older writer recorded unmarked still waits for the
@@ -849,7 +867,7 @@ async fn transfer_refuses_an_unmarked_guest_record() {
     if let Ok(bundle) = &result {
         hub.transfer_request(
             "_acpmux/transfer_abort",
-            &json!({"sessionId": session, "transferId": bundle["transferId"]}),
+            &json!({"sessionId": session, "transferId": bundle["transferId"], "epoch": bundle["epoch"]}),
         )
         .await
         .unwrap();

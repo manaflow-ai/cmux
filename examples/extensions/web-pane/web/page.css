@@ -1,0 +1,24 @@
+/* cmux keeps these variables current with its theme (light, dark, custom colors). */
+:root { color-scheme: light dark; }
+body {
+  margin: 0;
+  font: 13px/1.5 -apple-system, system-ui, sans-serif;
+  color: var(--cmux-text, CanvasText);
+  background: var(--cmux-surface-background, transparent);
+}
+main { max-width: 640px; padding: 24px 28px; }
+h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+h2 { font-size: 13px; font-weight: 600; margin: 20px 0 8px; }
+.note, .muted { color: var(--cmux-text-secondary, GrayText); margin: 0; }
+.scope { font-weight: 400; color: var(--cmux-text-tertiary, GrayText); margin-left: 6px; }
+ul { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--cmux-separator, #8884); }
+li { padding: 6px 0; border-bottom: 1px solid var(--cmux-separator, #8884); }
+textarea {
+  box-sizing: border-box; width: 100%; font: inherit; color: inherit; background: transparent;
+  border: 1px solid var(--cmux-separator, #8884); border-radius: 6px; padding: 6px 8px;
+}
+button {
+  font: inherit; color: var(--cmux-accent, LinkText); background: transparent;
+  border: 1px solid var(--cmux-separator, #8884); border-radius: 6px; padding: 4px 10px;
+}
+#refusal { margin-top: 8px; }

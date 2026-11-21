@@ -1,7 +1,6 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
-// A reply's footer (Copy, Fork, Pin, Read aloud) shows while the reader points at its turn; once the
-// chat has finished, the last reply's footer also stays in sight at rest (#31503, #31609), and an
-// earlier reply's shows only while pointed at. Its layout (buttons first on the prose's left edge,
+// A finished reply's footer (Copy, Fork, Pin, Read aloud) stays in sight at rest under every turn, as
+// ChatGPT's does; before 2026-11-04 only the chat's last one did (#31503, #31609). Its layout (buttons first on the prose's left edge,
 // the time after them on hover) is reply-footer.test.ts's.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
@@ -160,13 +159,16 @@ await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
     return footers(page);
   };
 
-  test("only the last reply's footer shows at rest; pointing at an earlier reply shows its own too", async () => {
+  test("every finished reply's footer shows at rest, and stays while pointed at", async () => {
+    // Leo, 2026-11-04, on ChatGPT's row under every finished reply: "we don't have the time worked
+    // for nor the thing always showing at hte bottom (excl. thumb up/down)". Replaces #31609's rule
+    // that only the last reply's footer showed at rest.
     const page = await open();
-    expect(await footersReach(page, ["0", "1"])).toEqual(["0", "1"]);
+    expect(await footersReach(page, ["1", "1"])).toEqual(["1", "1"]);
     await page.getByText("Not yet: the hosted test run").hover();
     expect(await footersReach(page, ["1", "1"])).toEqual(["1", "1"]);
     await page.mouse.move(0, 0);
-    expect(await footersReach(page, ["0", "1"])).toEqual(["0", "1"]);
+    expect(await footersReach(page, ["1", "1"])).toEqual(["1", "1"]);
     await page.close();
   });
 });

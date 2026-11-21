@@ -34,6 +34,18 @@ extension ActionID {
 public enum AgentPageCommand: String, CaseIterable, Sendable {
     case toggleFiles, togglePreview, toggleSideTabs
     case runInBackground, toggleQueueing, showSubagents, showBackgroundTasks
+
+    /// Whether this header toggle is on in `state` (the split it opens shows, the panes beside the
+    /// chat show); nil for a command that is no toggle the App can read. Queueing is the page's own
+    /// choice (its local storage), so the App does not know it.
+    public func isOn(in state: AgentPaneHeaderState) -> Bool? {
+        switch self {
+        case .toggleFiles: state.lit.contains(AgentPaneModel.filesAction)
+        case .togglePreview: state.lit.contains(AgentPaneModel.previewAction)
+        case .toggleSideTabs: state.sideTabs
+        case .runInBackground, .toggleQueueing, .showSubagents, .showBackgroundTasks: nil
+        }
+    }
 }
 
 extension ActionRegistry {
@@ -41,10 +53,13 @@ extension ActionRegistry {
     /// invocation resolves to (its target, else the focused pane; nil when it is no agent chat: `run`
     /// refuses then). A command that page does not list refuses with the reason, checked for the
     /// run's own target (``ActionTargetReasons``; the palette row is disabled with it), and one run
-    /// by automation without a focus request refuses too.
+    /// by automation without a focus request refuses too. `state` is the header's state of the
+    /// focused chat (nil: no chat, or not known): each header toggle's palette row shows whether it
+    /// is on (``AgentPageCommand/isOn(in:)``).
     @discardableResult
     public func bindAgentPageCommands(
         available: @escaping @MainActor (ActionInvocation) -> Set<String>?,
+        state: (@MainActor () -> AgentPaneHeaderState?)? = nil,
         run: @escaping @MainActor (AgentPageCommand, ActionInvocation) -> Void
     ) -> Bool {
         AgentPageCommand.allCases.map { command in
@@ -65,9 +80,17 @@ extension ActionRegistry {
             ActionTargetTitles.setPaletteReason(id, in: self) {
                 reason(ActionInvocation()) == nil ? nil : AgentPaneView.pageCommandUnavailableHere
             }
+            // A header toggle's row says whether it is on in the focused chat; off with no chat.
+            if let state, command.isOn(in: Self.blankHeaderState) != nil {
+                ActionTargetTitles.setPaletteState(id, in: self) { state().flatMap(command.isOn(in:)) ?? false }
+            }
             return bound
         }.allSatisfy(\.self)
     }
+
+    /// A header state with every value given (no Debug Settings read), only to ask which commands
+    /// are toggles the App can read (``AgentPageCommand/isOn(in:)`` not nil).
+    private static let blankHeaderState = AgentPaneHeaderState(sessionInfo: false, headerControls: .standard, headerMotion: .still)
 
     /// Binds Session Info for the invocation's pane, focused when there is no target. With
     /// `agent.sessionInfo` off the page has no Session Info, so the action refuses instead of
@@ -88,11 +111,21 @@ extension ActionRegistry {
     }
 
     /// Binds every agent pane action. `openNewChat` opens an agent tab in
-    /// the invocation's pane (the focused pane when it has no target).
+    /// the invocation's pane (the focused pane when it has no target); Customize…
+    /// runs it too, with a `draft` argument.
     /// Returns false when a descriptor is missing from the catalog.
     @discardableResult
-    public func bindAgentPane(openNewChat: @escaping @MainActor (ActionInvocation) -> Void) -> Bool {
-        bind(.newAgentChat, invoke: openNewChat)
+    /// `customizeRows` says whether the right-click menus show Customize… (`customize.fromTheApp`,
+    /// off by default); the palette and the app menu always offer it.
+    public func bindAgentPane(customizeRows: @escaping @MainActor () -> Bool = { false },
+                              openNewChat: @escaping @MainActor (ActionInvocation) -> Void) -> Bool {
+        // Customize… opens the same new chat with `/customize ` in its composer (AgentPaneCustomize.swift).
+        let customize = bindEffect(.customizeOpen) { invocation in
+            openNewChat(invocation.customizing)
+            return .done
+        }
+        ActionTargetVisibility.hide(.customizeOpen, in: self) { _ in !customizeRows() }
+        return bind(.newAgentChat, invoke: openNewChat) && customize
     }
 
     /// Binds Show ACP Inspector. `toggle` toggles the inspector of the agent
@@ -111,6 +144,17 @@ extension ActionRegistry {
 }
 
 extension ActionRegistry {
+    /// Runs a page's `action.run` as the person's. A refusal goes back to the page, whose toast says it beside the
+    /// click (Move to Cloud on a chat with no first message), never dropped for a generic "couldn't start". One that
+    /// `showsInApp` (a sign-in reason, whose app toast carries Sign In) is refused again here, for the app's toast.
+    public func runPageAction(_ id: ActionID, invocation: ActionInvocation, showsInApp: (String) -> Bool) -> AgentPaneActionRun {
+        var ran = false
+        guard let reason = reportingRefusal({ ran = perform(id, invocation: invocation) }), !reason.isEmpty else { return ran ? .ran : .notRun }
+        guard showsInApp(reason) else { return .refused(reason) }
+        refuse(reason)
+        return .ran
+    }
+
     /// Opens an agent tab's changed file through `file.open` on `pane`, the
     /// path the palette and `cmux file open` take. False when the handler
     /// refused, so the page shows its notice instead of the app's beep; an

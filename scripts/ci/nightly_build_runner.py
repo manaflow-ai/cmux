@@ -59,6 +59,7 @@ On the all-nightly reservation (NIGHTLY_ONLY_LABEL, vars.CI_NIGHTLY_ONLY_RUNNER)
 or dispatch skips all of the above: every output is that label, except that `owned` (build-nightly-app's alone) is
 NIGHTLY_ONLY_BUILDER_LABEL (vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER, unset by default) while a runner carrying it is
 online and idle, so the app builds on the warm runner of one of the dedicated Macs (nightly_only_builder_route()).
+With that variable set, an idle runner carrying NIGHTLY_ONLY_XL_BUILDER_LABEL (the xl Studio's) is asked for first.
 
 `owned` is `dedicated` when that is set. The workflow takes `owned` only while
 `attempt` is the run's own attempt, so a fresh pick, and `blacksmith` otherwise.
@@ -369,6 +370,10 @@ def blacksmith_route(variable: str, snapshot: Mapping[str, Any] | None, now: dt.
 # cmux7s-mac-mini-glaeda-nightly-only-3 took 452 s to check out (14 s warm) and 282 s for Swift packages (1 s warm).
 NIGHTLY_ONLY_LABEL = "glaeda-nightly-only-m4pro"
 NIGHTLY_ONLY_BUILDER_LABEL = "glaeda-nightly-only-m4pro-builder"
+# The xl Mac Studio's own warm builders (two runners), asked for ahead of the M4 Pro pair's builders while
+# one is idle: the same Release compile measured 7.8 min there against 11.0 min p50 on an M4 Pro. The M4 Pro
+# builders, then the plain label, stay the fallback, so the nightly never waits on this one host.
+NIGHTLY_ONLY_XL_BUILDER_LABEL = "glaeda-nightly-only-xl-builder"
 
 
 # The builder read is the dedicated path's only network call: an org-wide runner list can page for minutes, and
@@ -395,7 +400,8 @@ def within(seconds: float, read: Callable[[], Any]) -> Any:
 
 def nightly_only_builder_route(builder: str, fallback: str,
                                runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, str]:
-    """(the builder label while a runner carrying it is online and idle now, else `fallback`, why).
+    """(the xl builder label while a runner carrying it is online and idle now, else the builder label while one
+    of its runners is, else `fallback`, why).
 
     No wait and no queue on a busy builder: GitHub never moves a queued job, so the build asks for the builder
     label only when it can start there now, and takes the plain all-nightly label otherwise (unread, offline, busy
@@ -404,11 +410,18 @@ def nightly_only_builder_route(builder: str, fallback: str,
         return fallback, "no warm builder label" if not builder else f"`{builder}` is not the warm builder's label"
     if runners is None:
         return fallback, f"runners could not be read, so `{fallback}` rather than wait on `{builder}`"
-    carrying = [runner for runner in runners
-                if runner.get("status") == "online" and builder in pool.runner_labels(runner)]
-    if any(not runner.get("busy") for runner in carrying):
+
+    def carrying(label: str) -> list[Mapping[str, Any]]:
+        return [runner for runner in runners
+                if runner.get("status") == "online" and label in pool.runner_labels(runner)]
+
+    xl = carrying(NIGHTLY_ONLY_XL_BUILDER_LABEL)
+    if any(not runner.get("busy") for runner in xl):
+        return NIGHTLY_ONLY_XL_BUILDER_LABEL, f"`{NIGHTLY_ONLY_XL_BUILDER_LABEL}` has an idle runner now"
+    m4pro = carrying(builder)
+    if any(not runner.get("busy") for runner in m4pro):
         return builder, f"`{builder}` has an idle runner now"
-    return fallback, f"`{builder}` is {'busy' if carrying else 'offline'}, so `{fallback}`"
+    return fallback, f"`{builder}` is {'busy' if m4pro else 'offline'}, so `{fallback}`"
 
 
 # The verify jobs (signer-dmg-image, both final verifies, the legacy identity verify) take the all-nightly

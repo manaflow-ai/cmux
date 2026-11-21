@@ -12,6 +12,9 @@ enum TextBoxHandlers {
             guard let entry = ctx.terminal(invocation) else { return }
             textBox(of: entry, ctx).toggle(focus: invocation.allowsViewChange)
         })
+        ActionTargetTitles.setPaletteState("palette.terminalToggleTextBoxInput", in: registry) {
+            if case .terminal(let entry)? = ctx.services.windows.active?.focusedPane?.currentContent { entry.textBox?.model.isVisible == true } else { false }
+        }
         registry.bind("focusTextBoxInput", invoke: { invocation in
             guard let entry = ctx.terminal(invocation) else { return }
             let box = textBox(of: entry, ctx)

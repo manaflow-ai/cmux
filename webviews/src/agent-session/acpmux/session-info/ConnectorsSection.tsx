@@ -8,6 +8,8 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { AcpmuxSnapshot } from "../model";
+import { IMessageConnector } from "./IMessageConnector";
+import type { IMessageView } from "./imessage";
 
 type McpServer = NonNullable<NonNullable<AcpmuxSnapshot["summary"]>["mcpServers"]>[number];
 
@@ -16,14 +18,17 @@ const ROW_ICON = rowIconSize(12);
 export function ConnectorsSection({
   servers,
   onReconnect,
+  imessage,
 }: {
   servers: readonly McpServer[];
   /// `_acpmux/mcp/reconnect` of the server by its name.
   onReconnect?: (server: string) => Promise<unknown>;
+  imessage?: IMessageView;
 }) {
   const t = useT();
   return (
     <ul className="acpmux-session-info-list">
+      {imessage && <IMessageConnector view={imessage} />}
       {servers.map((server) => (
         <li key={server.name} className="acpmux-session-info-row">
           <Icon name="extension" size={ROW_ICON} row />

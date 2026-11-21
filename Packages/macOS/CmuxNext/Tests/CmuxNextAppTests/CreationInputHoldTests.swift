@@ -16,6 +16,9 @@ import Testing
     }
 
     private let cmdW = key("w", .command, code: 13)
+    private let cmdT = key("t", .command, code: 17)
+    /// What a key of these rows does to the tabs: Cmd-T makes one, Cmd-W closes one.
+    private let tabKey: (NSEvent) -> CreationInputBuffer.TabKey? = { $0.keyCode == 17 ? .makes : $0.keyCode == 13 ? .closes : nil }
     private let cmdV = key("v", .command, code: 9)
     private let letter = key("l", code: 37)
 
@@ -89,7 +92,7 @@ import Testing
         let forB = Self.key("b", code: 11), forSplit = Self.key("s", code: 1)
         let terminalA = CreationInputBuffer.HeldLane(tab: "terminalA", machine: nil)
         // The rest of the replay: a key of the issuing lane (it moves to the split) and a line for terminal B.
-        buffer.prepend([(event: forSplit, lane: terminalA), (event: forB, lane: CreationInputBuffer.HeldLane(tab: "terminalB", machine: nil))],
+        buffer.prepend([(event: forSplit, lane: terminalA, pane: nil), (event: forB, lane: CreationInputBuffer.HeldLane(tab: "terminalB", machine: nil), pane: nil)],
                        issuer: terminalA)
         #expect(buffer.cancel(tab: "split"))
         #expect(buffer.take() == [forB], "the line carried for terminal B was dropped with the closed split (or the split's key was kept)")
@@ -182,5 +185,68 @@ import Testing
         #expect(buffer.keysKeptForLeftWorkspace(shown: "w1-not-shown", terminalReady: true) != nil, "W1's keys must still wait while W2 is not shown")
         #expect(buffer.keysKeptForLeftWorkspace(shown: "w2", terminalReady: true) == nil,
                 "W2 shows with its terminal, but W1's kept keys still hold the hold open (keys typed into W2 wait up to 2 s)")
+    }
+
+    /// Lead on STATUS 7828: a second ready-for-keys for a restored page (a page attached again, or another page's
+    /// signal) never sends held keys twice or out of order. A page hold's keys are taken once at the ready signal (the
+    /// coordinator's flush, which then drops the hold); keys typed after it are held only by a new hold, and go on at
+    /// the next ready signal, after the first ones. The page receives every key once, in the order typed.
+    @Test func twoReadySignalsWithKeysHeldBetweenThemDeliverEachKeyOnceInOrder() {
+        let typed = "abcdef".map { Self.key(String($0), code: 0) }
+        var page: [NSEvent] = []
+        let first = CreationInputBuffer(began: .now)
+        first.awaitContent(AwaitedContent(tab: "b", kind: .browser), machine: nil)
+        typed[0..<3].forEach { first.capture($0, focusedTab: "b") }
+        let ready = { (buffer: CreationInputBuffer) in page += buffer.take(focused: nil) { _, _ in false }.flatMap { $0.keys.map { $0.event } } }
+        ready(first) // the first ready signal
+        let second = CreationInputBuffer(began: .now) // the page is awaited again (attached again)
+        second.awaitContent(AwaitedContent(tab: "b", kind: .browser), machine: nil)
+        typed[3...].forEach { second.capture($0, focusedTab: "b") }
+        ready(first) // a second signal for a hold already flushed: nothing again
+        ready(second)
+        ready(second)
+        #expect(page.map(\.characters) == typed.map(\.characters), "the page got \(page.compactMap(\.characters).joined()), not abcdef")
+        #expect(Set(page.map(ObjectIdentifier.init)).count == typed.count, "a held key went to the page twice")
+    }
+
+    /// A pane that changes with no focus move of the person is not another place. The hold keeps
+    /// two New Tab keys for the terminal of the person's new workspace; the pane of their press is the old workspace's.
+    /// A Close Tab key in another pane acts now while the window shows the old workspace. When the window shows the new
+    /// workspace, the Close Tab key waits behind those keys. The hold's end gives the kept keys the pane of the new
+    /// terminal, and the Close Tab key goes together with the newest New Tab key: one New Tab key is left.
+    @Test func aCloseTabKeyInAShownNewWorkspaceWaitsBehindTheNewTabKeysKeptForItsTerminal() {
+        let buffer = CreationInputBuffer(began: .now)
+        let ticket = buffer.open(generation: 1, newWorkspace: true)
+        buffer.capture(cmdT, focusedTab: "old", forNewWorkspace: true, pane: "old-pane")
+        buffer.capture(cmdT, focusedTab: "old", forNewWorkspace: true, pane: "old-pane")
+        #expect(buffer.closeKeyActsNow((true, .closes), pane: "new-pane", shown: "ws-old", kind: tabKey), "kept before the workspace's answer")
+        buffer.resolve(ticket, awaitsFocus: true, workspace: "ws-new")
+        #expect(buffer.closeKeyActsNow((true, .closes), pane: "new-pane", shown: "ws-old", kind: tabKey), "kept while the window shows the old workspace")
+        #expect(!buffer.closeKeyActsNow((true, .closes), pane: "new-pane", shown: "ws-new", kind: tabKey), "not kept while the window shows the new workspace")
+        buffer.capture(cmdW, focusedTab: "new-terminal", pane: "new-pane")
+        buffer.bindNewWorkspaceKeys(to: "new-terminal", machine: nil) { $0 == "new-terminal" ? "new-pane" : nil }
+        let reduced = buffer.reduceTabKeys(dropsLoneClose: false, kind: tabKey)
+        #expect(reduced.pairs == 1 && reduced.lost == 0, "the hold's end made \(reduced.pairs) pairs and lost \(reduced.lost) Close Tab keys (want 1 and 0)")
+        #expect(buffer.take().map(\.keyCode) == [17], "the keys that are left are not one New Tab key")
+    }
+
+    /// A new workspace whose create is refused takes each key that the hold kept for its terminal, the Close Tab key
+    /// that waited behind its New Tab key too: that key closes no tab. And a workspace that the person left keeps no
+    /// Close Tab key of another pane behind its keys.
+    @Test func aRefusedNewWorkspaceTakesTheCloseTabKeyThatWaitedBehindItsNewTabKey() {
+        let buffer = CreationInputBuffer(began: .now)
+        let ticket = buffer.open(generation: 1, newWorkspace: true)
+        buffer.capture(cmdT, focusedTab: "old", forNewWorkspace: true, pane: "old-pane")
+        #expect(!buffer.closeKeyActsNow((true, .closes), pane: "old-pane", shown: "ws-old", kind: tabKey), "not kept behind the New Tab key of its pane")
+        buffer.capture(cmdW, focusedTab: "old", forNewWorkspace: true, pane: "old-pane")
+        buffer.resolve(ticket, awaitsFocus: false)
+        #expect(buffer.isEmpty, "a key of the refused workspace is left in the hold")
+
+        let left = CreationInputBuffer(began: .now)
+        let second = left.open(generation: 2, newWorkspace: true)
+        left.capture(cmdT, focusedTab: "old", forNewWorkspace: true, pane: "old-pane")
+        left.personMovedOn()
+        left.resolve(second, awaitsFocus: true, workspace: "ws-new")
+        #expect(left.closeKeyActsNow((true, .closes), pane: "new-pane", shown: "ws-new", kind: tabKey), "kept for a workspace that the person left")
     }
 }

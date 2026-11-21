@@ -28,6 +28,7 @@
 
 .cmux-markdown-checkbox svg {
   display: block;
+  /* icon-scale-allow: the check sits inside the 14 px checkbox */
   width: 10px;
   height: 10px;
   overflow: visible;

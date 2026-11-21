@@ -1,14 +1,16 @@
 public import AppKit
 public import QuartzCore
 
-/// The lit band a resize divider shows while it is hovered or dragged: a thin core in the theme's
-/// accent with a soft halo around it, centered on the divider's line. Nothing shows at rest, so
-/// a divider keeps its resting color and thickness; the band only adds light over it.
+/// The lit band a resize divider shows while it is hovered or dragged: the line itself in the theme's
+/// accent, centered on the divider's line, with no halo, blur or shadow past its edges (Leo,
+/// 2026-11-07: "keep the line itself's glow, but don't make it glow like it's an actual light bulb").
+/// Nothing shows at rest, so a divider keeps its resting color and thickness; the band only lights
+/// the line.
 ///
 /// One instance per divider. It is a pair of plain layers (no timers, no display link): a state
 /// change fades the band's opacity once through `Motion.feedback`, which ends on its own and
 /// is instant under Reduce Motion, calm mode or animation speed off. Going out is always instant: a
-/// pane divider's Chromium hole closes with the state change, so a fading halo there would be cut
+/// pane divider's Chromium hole closes with the state change, so a fading band there would be cut
 /// off mid-fade (fading out is optional; opening never waits). There is no pulse or loop.
 @MainActor
 public final class DividerGlowBand {
@@ -22,13 +24,12 @@ public final class DividerGlowBand {
         case dragging
     }
 
-    /// The core's thickness across the divider.
+    /// The core's thickness across the divider: the whole band, nothing drawn past it.
     public static let coreThickness: CGFloat = 2
-    /// The halo's blur radius around the core.
-    public static let haloRadius: CGFloat = 3
-    /// How far the band reaches from the line's center, on each side: a Chromium hole that keeps
-    /// the band visible over a page must be this wide each way.
-    public static var reach: CGFloat { coreThickness / 2 + haloRadius }
+    /// How far the default band (``coreThickness``) reaches from the line's center, on each side: a Chromium hole that
+    /// keeps it visible over a page must be this wide each way. A thinner band (`place(along:vertical:thickness:)`)
+    /// reaches half its own thickness.
+    public static var reach: CGFloat { coreThickness / 2 }
 
     /// Opacity of the whole band at each state.
     public static func opacity(_ state: State) -> Float {
@@ -43,34 +44,31 @@ public final class DividerGlowBand {
     public let layer = CALayer()
     private let core = CALayer()
     public private(set) var state: State = .rest
-    private var vertical = true
 
     public init() {
         layer.opacity = 0
         layer.masksToBounds = false
         layer.addSublayer(core)
         core.cornerRadius = Self.coreThickness / 2
-        core.shadowOffset = .zero
-        core.shadowRadius = Self.haloRadius
-        core.shadowOpacity = 0.9
+        // No shadow: the light stays inside the line (no bloom over the panes beside it).
+        core.shadowOpacity = 0
         layer.actions = ["position": NSNull(), "bounds": NSNull(), "frame": NSNull()]
-        core.actions = ["position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "shadowPath": NSNull(),
-                        "backgroundColor": NSNull(), "shadowColor": NSNull()]
+        core.actions = ["position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "backgroundColor": NSNull()]
     }
 
     /// Places the band along `line` (the divider's drawn line, in the host layer's coordinates),
-    /// centered across it. `vertical` is true for a line that runs top to bottom.
-    public func place(along line: CGRect, vertical: Bool) {
+    /// centered across it, `thickness` wide (``coreThickness`` by default; a pane split passes its line's own thickness, so
+    /// the band never lights the panes beside it). `vertical` is true for a line that runs top to bottom.
+    public func place(along line: CGRect, vertical: Bool, thickness: CGFloat = coreThickness) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        self.vertical = vertical
-        let t = Self.coreThickness
+        let t = thickness
+        core.cornerRadius = t / 2
         let frame = vertical
             ? CGRect(x: line.midX - t / 2, y: line.minY, width: t, height: line.height)
             : CGRect(x: line.minX, y: line.midY - t / 2, width: line.width, height: t)
         layer.frame = frame
         core.frame = layer.bounds
-        core.shadowPath = CGPath(roundedRect: core.bounds, cornerWidth: t / 2, cornerHeight: t / 2, transform: nil)
         CATransaction.commit()
     }
 
@@ -78,12 +76,11 @@ public final class DividerGlowBand {
     /// shows it opens on the change, not after the fade's first frame.
     public var isLit: Bool { state != .rest }
 
-    /// The band's extent across the divider (core plus halo) in the host layer's coordinates, as
-    /// long as the line; `.null` at rest.
+    /// The band's extent across the divider in the host layer's coordinates, as long as the line;
+    /// `.null` at rest.
     public var extent: CGRect {
         guard isLit else { return .null }
-        let r = Self.haloRadius
-        return vertical ? layer.frame.insetBy(dx: -r, dy: 0) : layer.frame.insetBy(dx: 0, dy: -r)
+        return layer.frame
     }
 
     /// Repaints in the current theme's accent (`Palette.accent`). Call on appearance changes.
@@ -92,7 +89,6 @@ public final class DividerGlowBand {
         CATransaction.setDisableActions(true)
         view.performWithTheme {
             core.backgroundColor = Palette.accent.cgColor
-            core.shadowColor = Palette.accent.cgColor
         }
         CATransaction.commit()
     }

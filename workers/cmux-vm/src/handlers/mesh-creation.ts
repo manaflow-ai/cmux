@@ -29,14 +29,14 @@ export const createMeshWithKey = <C>(caller: Named<C, Principal>, scope: KeyHasS
   if (!carriesRequiredLabels(principal, labels)) return yield* Effect.fail(new Forbidden({ message: "This credential cannot create this mesh" }));
   // A selected-resource key can replay a permitted mesh, but cannot claim an unknown intent.
   if (principal.resourceAllowlist !== null) {
-    const prior = yield* limits.meshCreation(principal.tenantId, { op: "get", key }).pipe(Effect.mapError(() => unavailable()));
+    const prior = yield* limits.meshCreation(principal.tenantId, { op: "get", key }).pipe(Effect.mapError(unavailable));
     if (prior.state !== "record" || !principal.resourceAllowlist.has(prior.record.meshId)) return yield* Effect.fail(hidden());
   }
   const holder = crypto.randomUUID();
   const ordered = Object.entries(requestedLabels).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
   const fingerprint = yield* sha256Hex(JSON.stringify(ordered.length === 0 ? ["mesh-create-v1", payload.displayName ?? null] : ["mesh-create-labelled-v1", payload.displayName ?? null, ordered]));
   const intent = { key, fingerprint, meshId: newMeshId(), holder, createdBy: actorRef(principal.actor), displayName: payload.displayName ?? null };
-  const begun = yield* limits.meshCreation(principal.tenantId, ordered.length === 0 ? { op: "begin", ...intent } : { op: "begin-labelled", ...intent, labels }).pipe(Effect.mapError(() => unavailable()));
+  const begun = yield* limits.meshCreation(principal.tenantId, ordered.length === 0 ? { op: "begin", ...intent } : { op: "begin-labelled", ...intent, labels }).pipe(Effect.mapError(unavailable));
   if (begun.state === "conflict") return yield* Effect.fail(new Conflict({ message: "This mesh creation key was used for a different request" }));
   if (begun.state !== "record") return yield* Effect.fail(unavailable());
   const { record } = begun;
@@ -46,13 +46,13 @@ export const createMeshWithKey = <C>(caller: Named<C, Principal>, scope: KeyHasS
     if (principal.resourceAllowlist !== null && !principal.resourceAllowlist.has(mesh.value)) return yield* Effect.fail(hidden());
     if (record.phase === "cancelling" || record.phase === "deleted") return yield* Effect.fail(hidden());
     const journal = (command: MeshCreationCommand) => limits.meshCreation(principal.tenantId, command).pipe(
-      Effect.mapError(() => unavailable()), Effect.flatMap((result) => result.state === "record" ? Effect.void : Effect.fail(unavailable())),
+      Effect.mapError(unavailable), Effect.flatMap((result) => result.state === "record" ? Effect.void : Effect.fail(unavailable())),
     );
     // Ownership is authoritative and replay precedes entitlement and quota checks.
-    const owns = yield* tenantOwnsMesh(caller, mesh).pipe(Effect.mapError(() => unavailable()));
+    const owns = yield* tenantOwnsMesh(caller, mesh).pipe(Effect.mapError(unavailable));
     if (owns !== null) {
-      const row = yield* ownership.find(principal.tenantId, "mesh", mesh.value).pipe(Effect.mapError(() => unavailable()));
-      const cidr = yield* store.cidrOf(principal.tenantId, mesh.value).pipe(Effect.mapError(() => unavailable()));
+      const row = yield* ownership.find(principal.tenantId, "mesh", mesh.value).pipe(Effect.mapError(unavailable));
+      const cidr = yield* store.cidrOf(principal.tenantId, mesh.value).pipe(Effect.mapError(unavailable));
       if (Option.isNone(row) || Option.isNone(cidr)) return yield* Effect.fail(unavailable());
       yield* journal({ op: "complete", key, meshId: mesh.value });
       return new Mesh({ id: mesh.value, displayName: row.value.displayName, ipv4Cidr: cidr.value, createdAt: row.value.createdAt.toISOString() });
@@ -61,36 +61,36 @@ export const createMeshWithKey = <C>(caller: Named<C, Principal>, scope: KeyHasS
     if (!begun.acquired) return yield* Effect.fail(new Conflict({ message: "Mesh creation is in progress; retry with the same key" }));
     const work = Effect.gen(function* () {
       const commit = (created: CreatedNetwork, active: Effect.Effect<void, unknown>) => Effect.gen(function* () {
-        yield* active.pipe(Effect.mapError(() => unavailable()));
+        yield* active.pipe(Effect.mapError(unavailable));
         yield* ownership.record({ tenantId: principal.tenantId, kind: "mesh", cmuxId: mesh.value, upstreamId: created.upstreamId,
-          createdBy: record.createdBy, createdAt: new Date(record.createdAt), displayName: record.displayName, labels: retainedLabels }).pipe(Effect.mapError(() => unavailable()));
+          createdBy: record.createdBy, createdAt: new Date(record.createdAt), displayName: record.displayName, labels: retainedLabels }).pipe(Effect.mapError(unavailable));
         yield* journal({ op: "complete", key, meshId: mesh.value });
         return new Mesh({ id: mesh.value, displayName: record.displayName, ipv4Cidr: created.cidr, createdAt: record.createdAt });
       });
       if (record.dispatch.state === "sent") {
-        const pending = yield* pendingMeshCreation(caller, mesh, key, holder).pipe(Effect.mapError(() => unavailable()));
+        const pending = yield* pendingMeshCreation(caller, mesh, key, holder).pipe(Effect.mapError(unavailable));
         if (pending === null) return yield* Effect.fail(unavailable());
-        const found = yield* upstream.recoverNetwork(mesh, { scope, pending }).pipe(Effect.mapError(() => unavailable()));
+        const found = yield* upstream.recoverNetwork(mesh, { scope, pending }).pipe(Effect.mapError(unavailable));
         if (Option.isNone(found)) return yield* Effect.fail(unavailable());
         return yield* commit(found.value, pendingMeshCreationEvidenceOf(pending).active);
       }
-      const decision = yield* tenantMayCreateMesh(caller, record.reservationId === null ? undefined : { key, meshId: mesh.value }).pipe(Effect.mapError(() => unavailable()));
+      const decision = yield* tenantMayCreateMesh(caller, record.reservationId === null ? undefined : { key, meshId: mesh.value }).pipe(Effect.mapError(unavailable));
       if (decision._tag === "not_entitled") return yield* Effect.fail(new PaymentRequired({ message: "The team's plan does not include meshes" }));
       if (decision._tag === "over_budget") return yield* Effect.fail(new QuotaExceeded({ message: "The team's mesh limit has been reached", budget: "mesh.perTenant" }));
       const mayCreate = decision.proof;
       return yield* Effect.gen(function* () {
         yield* journal({ op: "retain", key, meshId: mesh.value, holder, reservationId: mayCreate.reservationId });
-        let cidr = yield* store.cidrOf(principal.tenantId, mesh.value).pipe(Effect.mapError(() => unavailable()));
+        let cidr = yield* store.cidrOf(principal.tenantId, mesh.value).pipe(Effect.mapError(unavailable));
         if (Option.isNone(cidr) && record.context !== null) return yield* Effect.fail(unavailable());
         for (let attempt = 0; attempt < 8 && Option.isNone(cidr); attempt++) {
           const slot = Math.floor(Math.random() * MESH_SLOTS), candidate = slotCidr(slot);
-          const claimed = yield* store.claimSlot(principal.tenantId, mesh.value, slot, candidate).pipe(Effect.mapError(() => unavailable()));
-          cidr = claimed ? Option.some(candidate) : yield* store.cidrOf(principal.tenantId, mesh.value).pipe(Effect.mapError(() => unavailable()));
+          const claimed = yield* store.claimSlot(principal.tenantId, mesh.value, slot, candidate).pipe(Effect.mapError(unavailable));
+          cidr = claimed ? Option.some(candidate) : yield* store.cidrOf(principal.tenantId, mesh.value).pipe(Effect.mapError(unavailable));
         }
         if (Option.isNone(cidr)) return yield* Effect.fail(unavailable());
-        const pending = yield* pendingMeshCreation(caller, mesh, key, holder).pipe(Effect.mapError(() => unavailable()));
+        const pending = yield* pendingMeshCreation(caller, mesh, key, holder).pipe(Effect.mapError(unavailable));
         if (pending === null) return yield* Effect.fail(unavailable());
-        const created = yield* upstream.createJournalledNetwork(mesh, { scope, mayCreate, pending }).pipe(Effect.mapError(() => unavailable()));
+        const created = yield* upstream.createJournalledNetwork(mesh, { scope, mayCreate, pending }).pipe(Effect.mapError(unavailable));
         // Unknown sends and failed ownership writes keep the exact network and quota for recovery.
         return yield* commit(created, pendingMeshCreationEvidenceOf(pending).active);
       }).pipe(Effect.ensuring(limits.release(principal.tenantId, mayCreate.reservationId)));

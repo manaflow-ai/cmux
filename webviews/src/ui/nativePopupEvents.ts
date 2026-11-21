@@ -1,4 +1,4 @@
-import type { NativePopupEvent, NativePopupModel, NativePopupRow } from "./popupProtocol";
+import { nativePopupRows, type NativePopupEvent, type NativePopupModel, type NativePopupRow } from "./popupProtocol";
 
 type Identity = { fingerprint: string; since: number; row: NativePopupRow };
 
@@ -6,10 +6,12 @@ type Identity = { fingerprint: string; since: number; row: NativePopupRow };
 export class NativePopupEventFence {
   private rows = new Map<string, Identity>();
   private search?: { fingerprint: string; since: number; field: NonNullable<NativePopupModel["search"]> };
+  private railed = false;
 
   reset() {
     this.rows.clear();
     this.search = undefined;
+    this.railed = false;
   }
 
   update(model: NativePopupModel) {
@@ -51,8 +53,9 @@ export class NativePopupEventFence {
         if (row.children) visit(row.children, [...ancestry, row.id]);
       }
     };
-    visit([...(model.rail ?? []), ...model.rows, ...(model.footer ?? [])], []);
+    visit(nativePopupRows(model), []);
     this.rows = next;
+    this.railed = (model.rail?.length ?? 0) > 0;
     if (model.search && !model.search.disabled) {
       const fingerprint = model.search.id;
       this.search = {
@@ -100,6 +103,8 @@ export class NativePopupEventFence {
         if (row?.kind === "choice")
           return row.options?.some((option) => option.id === event.value && !option.disabled) === true;
         return row !== undefined && ["toggle", "slider", "textField"].includes(row.kind);
+      case "navigate":
+        return this.railed && event.id === undefined && (event.value === "next" || event.value === "previous");
       case "dismiss":
         return true;
     }

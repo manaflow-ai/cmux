@@ -20,15 +20,14 @@ const LOG = [
 ].join("\n");
 
 /// The fade's length while caught, and the point it is held at: 15% of the way in time, which the
-/// snap curve puts a little under half strength.
+/// dwell ramp (desktop.css --cmux-hover-reveal-in-ease) puts faint.
 const SLOW_FADE_MS = 2000;
 const HELD_AT_MS = 300;
 
-/// Slows the fade in (no delay) before the pointer arrives, so it is still running when caught.
+/// Slows the fade in before the pointer arrives, so it is still running when caught.
 const slowFade = (ctx: PlayContext) => {
   const root = ctx.document.documentElement.style;
   root.setProperty("--cv-actions-in", `${SLOW_FADE_MS}ms`);
-  root.setProperty("--cv-actions-in-delay", "0ms");
 };
 
 /// Holds every opacity fade the pointer started at HELD_AT_MS. A control with no fade has none to
@@ -80,10 +79,11 @@ const received = () =>
     ],
     { isWorking: true },
   );
-const RECEIVED_LINE = ".cv-received > .cv-disclosure__line";
-/// Opens the group of waiting messages, which shows collapsed (PendingMessagesCard.tsx).
+const RECEIVED_LINE = ".cv-received > :is(.cv-agentmsg__line, .cv-disclosure__line)";
+/// Opens the group of waiting messages, which shows collapsed (PendingMessagesCard.tsx); one waiting
+/// message is its own line, with no group to open.
 const openWaiting: Play = async (ctx) => {
-  await ctx.click({ selector: ".cv-pending__toggle" });
+  if (ctx.document.querySelector(".cv-pending__toggle")) await ctx.click({ selector: ".cv-pending__toggle" });
   await ctx.waitFor(() => ctx.document.querySelector(RECEIVED_LINE));
 };
 

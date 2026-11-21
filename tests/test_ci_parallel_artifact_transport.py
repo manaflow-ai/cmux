@@ -476,7 +476,8 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("python3 tests/test_ci_parallel_artifact_transport.py", workflow)
 
     def test_test_is_registered_in_the_execution_registry(self):
-        registry = (ROOT / "tests/test-execution.toml").read_text(encoding="utf-8")
+        registry = "".join(path.read_text(encoding="utf-8")
+                           for path in sorted((ROOT / "tests/test-execution.d").glob("*.toml")))
         self.assertIn('path = "tests/test_ci_parallel_artifact_transport.py"', registry)
 
 

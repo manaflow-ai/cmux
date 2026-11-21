@@ -24,14 +24,10 @@ const NOT_TAKEN = new Set(["unsupported", "native.invalid_request"]);
 const REFUSED = new Set(["io", ...NOT_TAKEN]);
 const CHUNK_BYTES = 512 * 1024;
 const LEGACY_FRAME_SAFE_BYTES = 24 * 1024 * 1024;
-
-/// How long one staging step (begin or one chunk) may wait for the host. The native finish keeps its
-/// own bounded idle/per-chunk deadline while streaming, so elapsed transfer time has no page cap.
-export const UPLOAD_STEP_DEADLINE_MS = 30_000;
 export const UPLOAD_TIMED_OUT = "The upload timed out: the app did not answer.";
 
 /// `call`, refused when the host does not answer within `ms`; null delegates its deadline to native.
-export function callWithin(call: Call, ms: number | null = UPLOAD_STEP_DEADLINE_MS, signal?: AbortSignal): Call {
+export function callWithin(call: Call, ms: number | null = null, signal?: AbortSignal): Call {
   return (method, params) =>
     new Promise((resolve, reject) => {
       let late = false;
@@ -134,6 +130,10 @@ export async function uploadToMachine(
   host: Call,
   cancelled: UploadCancelled = () => false,
   progress?: UploadProgressReport,
+  /// The person's Send these files go with (sendUploads.ts): each begin holds its ticket instead of
+  /// a gesture, with no batch, and an older host's one-frame upload, which needs the gesture, is
+  /// not tried.
+  send?: { sessionId: string; promptId: string; ticket: string },
 ): Promise<UploadResult> {
   const call = callWithin(host);
   if (!files.length || files.some((file) => !file.name)) return undefined;
@@ -150,11 +150,14 @@ export async function uploadToMachine(
       started = await call("chat.upload.begin", {
         name: file.name,
         size: file.size,
-        ...(index === 0 && files.length > 1 ? { batch: manifest } : {}),
+        // A Send's files begin one by one, each under its ticket: the host refuses a held begin
+        // with a batch, whose token would let the later files skip the ticket.
+        ...(index === 0 && files.length > 1 && !send ? { batch: manifest } : {}),
         ...(batchToken ? { batchToken } : {}),
+        ...send,
       });
     } catch (error) {
-      if (!begun && notTaken(error)) {
+      if (!begun && notTaken(error) && !send) {
         // An old host can only accept one complete JSON frame. Refuse oversized files
         // explicitly instead of rebuilding the removed composer cap as a connection reset.
         if (files.some((entry, at) => !cancelled(at) && entry.size > LEGACY_FRAME_SAFE_BYTES))
@@ -172,7 +175,7 @@ export async function uploadToMachine(
     const unsubscribe = cancelled.subscribe?.(index, () => {
       if (cancelled(index)) controller.abort();
     });
-    const step = callWithin(host, UPLOAD_STEP_DEADLINE_MS, controller.signal);
+    const step = callWithin(host, null, controller.signal);
     const finishCall = callWithin(host, null, controller.signal);
     try {
       if (begin.size !== file.size || !Number.isSafeInteger(begin.chunkSize) || Number(begin.chunkSize) <= 0)

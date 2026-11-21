@@ -4,6 +4,322 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkPeerInboundItemVariant1 {
+    pub protocol: HostNetworkPeerInboundItemVariant1Protocol,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<i64>,
+}
+
+wire_enum! {
+    HostNetworkPeerInboundItemVariant2Protocol {
+        Any = "any",
+        Icmp = "icmp",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkPeerInboundItemVariant2 {
+    pub protocol: HostNetworkPeerInboundItemVariant2Protocol,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum HostNetworkPeerInboundItem {
+    Variant1(HostNetworkPeerInboundItemVariant1),
+    Variant2(HostNetworkPeerInboundItemVariant2),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+wire_enum! {
+    HostNetworkPeerOutboundItemVariant1Protocol {
+        Tcp = "tcp",
+        Udp = "udp",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkPeerOutboundItemVariant1 {
+    pub protocol: HostNetworkPeerOutboundItemVariant1Protocol,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<i64>,
+}
+
+wire_enum! {
+    HostNetworkPeerOutboundItemVariant2Protocol {
+        Any = "any",
+        Icmp = "icmp",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkPeerOutboundItemVariant2 {
+    pub protocol: HostNetworkPeerOutboundItemVariant2Protocol,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum HostNetworkPeerOutboundItem {
+    Variant1(HostNetworkPeerOutboundItemVariant1),
+    Variant2(HostNetworkPeerOutboundItemVariant2),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkPolicyView {
+    pub schema_version: IntLit<1>,
+    pub host: HostId,
+    pub user: UserId,
+    pub install: InstallId,
+    pub team: TeamId,
+    pub origin: String,
+    pub tenant: NativeTenantId,
+    pub mesh: NativeMeshId,
+    pub device: NativeDeviceId,
+    pub wg_public_key: WgPublicKey,
+    pub install_public_key: String,
+    pub authority_version: String,
+    pub checked_at: i64,
+    pub expires_at: i64,
+    pub acl_version: i64,
+    pub policy_digest: String,
+    pub peers: Vec<HostNetworkPeer>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Install {
+    pub id: InstallId,
+    pub device: DeviceId,
+    pub kind: InstallKind,
+    pub name: String,
+    pub device_name: String,
+    pub platform: Platform,
+    pub public_jwk: PublicJwk,
+    pub thumbprint: String,
+    pub grant: GrantId,
+    pub created_at: i64,
+    pub revoked_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bound_team: Option<TeamId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sso_team: Option<TeamId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bound_machine: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<ServerCapability>>,
+}
+
+/// One app, CLI or daemon install with its own keypair.
+pub type InstallId = String;
+
+wire_enum! {
+    InstallKind {
+        Mac = "mac",
+        Ios = "ios",
+        Cli = "cli",
+        Daemon = "daemon",
+        Web = "web",
+        Vm = "vm",
+        TeamVm = "team-vm",
+    }
+}
+
+wire_enum! {
+    IntegrationProvider {
+        Github = "github",
+        Linear = "linear",
+        Slack = "slack",
+        GoogleCalendar = "google_calendar",
+        Gmail = "gmail",
+    }
+}
+
+pub type InviteId = String;
+
+/// A Cloud machine.
+pub type MachineId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ManagedDevice {
+    pub install: InstallId,
+    pub user: String,
+    pub via: ManagedDeviceVia,
+    pub token: Option<EnrollmentTokenId>,
+    pub at: i64,
+}
+
+wire_enum! {
+    ManagedDeviceVia {
+        Token = "token",
+        Accept = "accept",
+    }
+}
+
+pub type MessageId = String;
+
+wire_enum! {
+    Meter {
+        AutomationSteps = "automation.steps",
+        AutomationCpuMs = "automation.cpu_ms",
+        AutomationInvocations = "automation.invocations",
+        AutomationDynamicWorkers = "automation.dynamic_workers",
+        EgressRequests = "egress.requests",
+        ModelSpendUsd = "model.spend_usd",
+        CloudMachineUsd = "cloud.machine_usd",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MovedAutomation {
+    pub id: AutomationId,
+    pub name: String,
+    pub moved_to: String,
+    pub moved_id: String,
+    pub epoch: i64,
+    pub moved_at: i64,
+}
+
+pub type NativeDeviceId = String;
+
+pub type NativeMeshId = String;
+
+pub type NativeTenantId = String;
+
+wire_enum! {
+    OpClass {
+        Read = "read",
+        MutateOwn = "mutate-own",
+        MutateShared = "mutate-shared",
+        Execute = "execute",
+        SendExternal = "send-external",
+        Money = "money",
+        Destructive = "destructive",
+        CloudLink = "cloud-link",
+        VmSelf = "vm-self",
+    }
+}
+
+/// A normalized pairing code: 8 Crockford base32 symbols, no hyphen.
+pub type PairingCode = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PairingInfo {
+    pub name: String,
+    pub platform: Platform,
+    pub os_version: String,
+    pub arch: PairingInfoArch,
+    pub cmux_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<ServerCapability>>,
+}
+
+wire_enum! {
+    PairingInfoArch {
+        X8664 = "x86_64",
+        Aarch64 = "aarch64",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PairingInvite {
+    pub invite: PairingInviteCode,
+    pub display: String,
+    pub expires_at: i64,
+    pub watch_secret: String,
+}
+
+/// A normalized invite code: 10 Crockford base32 symbols, no hyphen.
+pub type PairingInviteCode = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PairingPreview {
+    pub code: PairingCode,
+    pub info: PairingInfo,
+    pub public_jwk: PublicJwk,
+    pub thumbprint: String,
+    pub country: Option<String>,
+    pub expires_at: i64,
+}
+
+/// user_<id>, agent_<name> or addr_<26> (an invited address).
+pub type ParticipantId = String;
+
+wire_enum! {
+    Platform {
+        Macos = "macos",
+        Ios = "ios",
+        Linux = "linux",
+        Windows = "windows",
+        Web = "web",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PolicyChange {
+    pub key: PolicyKey,
+    pub value: Option<PolicyChangeValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PolicyChangeValue {
+    pub value: Value,
+    pub mode: PolicyMode,
+}
+
+wire_enum! {
+    /// A team policy key (spec/enterprise.md 4.2).
+    PolicyKey {
+        GithubRepoScope = "github.repoScope",
+        GithubRequireOrgAdmin = "github.requireOrgAdmin",
+        GithubRepoAllowList = "github.repoAllowList",
+        GithubAllowWorkflows = "github.allowWorkflows",
+        IntegrationsAllowedProviders = "integrations.allowedProviders",
+        McpServer = "mcp.server",
+        McpRemoteTransport = "mcp.remoteTransport",
+        AppsInstall = "apps.install",
+        AppsAllowedTiers = "apps.allowedTiers",
+        AppsAllowList = "apps.allowList",
+        AppsForcedInstalls = "apps.forcedInstalls",
+        ComputerUseAllowed = "computerUse.allowed",
+        BrowserAutomationRawCdp = "browserAutomation.rawCdp",
+        CloudSandboxes = "cloud.sandboxes",
+        CloudConnectServices = "cloud.connectServices",
+        CloudIdlePause = "cloud.idlePause",
+        TelemetryLevel = "telemetry.level",
+        UpdatesChannel = "updates.channel",
+        UpdatesMinimumVersion = "updates.minimumVersion",
+        RetentionCuaEventsDays = "retention.cuaEventsDays",
+        RetentionCuaFramesDays = "retention.cuaFramesDays",
+        RetentionTranscriptDays = "retention.transcriptDays",
+        RetentionAuditDays = "retention.auditDays",
+        SsoEnforce = "sso.enforce",
+        SsoEnforceForOwners = "sso.enforceForOwners",
+        SsoAllowGuests = "sso.allowGuests",
+        SsoSessionMaxAgeHours = "sso.sessionMaxAgeHours",
+        SsoIdleTimeoutHours = "sso.idleTimeoutHours",
+        AgentsAllowedClasses = "agents.allowedClasses",
+        DeviceSettings = "device.settings",
+    }
+}
+
+wire_enum! {
+    PolicyMode {
+        Enforced = "enforced",
+        Default = "default",
+    }
+}
+
+/// ES256 (P-256) public key of an install.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PublicJwk {
+    pub kty: LitEc,
+    pub crv: LitP256,
+    pub x: String,
+    pub y: String,
+}
+
 /// One device's APNs registration.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PushTarget {
@@ -168,6 +484,13 @@ pub enum ServerNetworkState {
     ServerNetworkBinding(ServerNetworkBinding),
     /// A member this build does not know (a newer backend), kept verbatim.
     Unknown(Value),
+}
+
+wire_enum! {
+    Sharing {
+        Team = "team",
+        Private = "private",
+    }
 }
 
 /// A Cloud machine snapshot.
@@ -337,6 +660,31 @@ pub struct TargetPolicyHost {
     pub fallback: TargetPolicyHostFallback,
 }
 
+wire_enum! {
+    TeamAgentKeyAgent {
+        Claude = "claude",
+        Codex = "codex",
+    }
+}
+
+wire_enum! {
+    TeamAgentKeyKind {
+        ApiKey = "api_key",
+        Oauth = "oauth",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAgentKeyState {
+    pub agent: TeamAgentKeyAgent,
+    pub set: bool,
+    pub kind: Option<TeamAgentKeyKind>,
+    pub generation: i64,
+    pub updated_at: Option<i64>,
+    pub updated_by: Option<UserId>,
+    pub hint: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamAiLimitMember {
     pub user: UserId,
@@ -467,6 +815,17 @@ pub struct TeamMember {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamModelsPolicyState {
+    pub team: TeamId,
+    pub can_edit: bool,
+    pub own_connections: bool,
+    pub choose_runout: bool,
+    pub revision: i64,
+    pub updated_at: Option<i64>,
+    pub updated_by: Option<UserId>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicy {
     pub version: i64,
     pub values: TeamPolicyValues,
@@ -544,362 +903,4 @@ wire_enum! {
         LinkingUserRepos = "linking_user_repos",
         Installation = "installation",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesGithubRepoScope {
-    pub value: TeamPolicyValuesGithubRepoScopeValue,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesGithubRequireOrgAdmin {
-    pub value: bool,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum TeamPolicyValuesGithubRepoAllowListValue {
-    None(LitNone),
-    List(Vec<RepoPattern>),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesGithubRepoAllowList {
-    pub value: TeamPolicyValuesGithubRepoAllowListValue,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesGithubAllowWorkflows {
-    pub value: bool,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum TeamPolicyValuesIntegrationsAllowedProvidersValue {
-    All(LitAll),
-    List(Vec<IntegrationProvider>),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesIntegrationsAllowedProviders {
-    pub value: TeamPolicyValuesIntegrationsAllowedProvidersValue,
-    pub mode: PolicyMode,
-}
-
-wire_enum! {
-    TeamPolicyValuesMcpServerValue {
-        UserChoice = "user_choice",
-        Disabled = "disabled",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesMcpServer {
-    pub value: TeamPolicyValuesMcpServerValue,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesMcpRemoteTransport {
-    pub value: bool,
-    pub mode: PolicyMode,
-}
-
-wire_enum! {
-    TeamPolicyValuesAppsInstallValue {
-        Any = "any",
-        AllowList = "allow_list",
-        Disabled = "disabled",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesAppsInstall {
-    pub value: TeamPolicyValuesAppsInstallValue,
-    pub mode: PolicyMode,
-}
-
-wire_enum! {
-    TeamPolicyValuesAppsAllowedTiersValueItem {
-        FirstParty = "first-party",
-        Verified = "verified",
-        Community = "community",
-        Unverified = "unverified",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesAppsAllowedTiers {
-    pub value: Vec<TeamPolicyValuesAppsAllowedTiersValueItem>,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesAppsAllowList {
-    pub value: Vec<String>,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesAppsForcedInstalls {
-    pub value: Vec<String>,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesComputerUseAllowed {
-    pub value: bool,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesBrowserAutomationRawCdp {
-    pub value: bool,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesCloudSandboxes {
-    pub value: bool,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesCloudConnectServices {
-    pub value: CloudConnectServices,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesCloudIdlePause {
-    pub value: bool,
-    pub mode: PolicyMode,
-}
-
-wire_enum! {
-    TeamPolicyValuesTelemetryLevelValue {
-        Full = "full",
-        CrashOnly = "crash_only",
-        Off = "off",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesTelemetryLevel {
-    pub value: TeamPolicyValuesTelemetryLevelValue,
-    pub mode: PolicyMode,
-}
-
-wire_enum! {
-    TeamPolicyValuesUpdatesChannelValue {
-        Stable = "stable",
-        Nightly = "nightly",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesUpdatesChannel {
-    pub value: TeamPolicyValuesUpdatesChannelValue,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesUpdatesMinimumVersion {
-    pub value: String,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesRetentionCuaEventsDays {
-    pub value: i64,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesRetentionCuaFramesDays {
-    pub value: i64,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesRetentionTranscriptDays {
-    pub value: i64,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesRetentionAuditDays {
-    pub value: i64,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesSsoEnforce {
-    pub value: bool,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesSsoEnforceForOwners {
-    pub value: bool,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesSsoAllowGuests {
-    pub value: bool,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesSsoSessionMaxAgeHours {
-    pub value: i64,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesSsoIdleTimeoutHours {
-    pub value: i64,
-    pub mode: PolicyMode,
-}
-
-wire_enum! {
-    TeamPolicyValuesAgentsAllowedClassesValueItem {
-        Mux = "mux",
-        Agent = "agent",
-        Run = "run",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesAgentsAllowedClasses {
-    pub value: Vec<TeamPolicyValuesAgentsAllowedClassesValueItem>,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesDeviceSettingsValue {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesDeviceSettings {
-    pub value: TeamPolicyValuesDeviceSettingsValue,
-    pub mode: PolicyMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyVersion {
-    pub version: i64,
-    pub values: TeamPolicyValues,
-    pub changed: Vec<PolicyKey>,
-    pub actor: Option<String>,
-    pub at: i64,
-    pub reason: Option<String>,
-    pub rollback_of: Option<i64>,
-}
-
-wire_enum! {
-    TeamRole {
-        Owner = "owner",
-        Admin = "admin",
-        Member = "member",
-        Billing = "billing",
-        Guest = "guest",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmAccountUser {
-    pub user: String,
-    pub uid: i64,
-    pub class: SshCertClass,
-    pub principals: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmError {
-    pub code: String,
-    pub message: String,
-    pub at: i64,
-}
-
-pub type TeamVmLeaseId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmRetired {
-    pub vm: String,
-    pub epoch: i64,
-    pub state: TeamVmRetiredState,
-    pub at: i64,
-    pub by: String,
-    pub tainted_by: Vec<String>,
-}
-
-wire_enum! {
-    TeamVmRetiredState {
-        Pausing = "pausing",
-        Paused = "paused",
-    }
-}
-
-wire_enum! {
-    /// Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries.
-    TeamVmStatus {
-        None = "none",
-        Provisioning = "provisioning",
-        Starting = "starting",
-        Running = "running",
-        Paused = "paused",
-        Failed = "failed",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmTaint {
-    pub epoch: i64,
-    pub at: i64,
-    pub users: Vec<String>,
-    pub accepted_by: Option<String>,
-    pub accepted_at: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmView {
-    pub team: TeamId,
-    pub status: TeamVmStatus,
-    pub vm: Option<String>,
-    pub epoch: i64,
-    pub leases: Vec<TeamVmViewLeasesItem>,
-    pub last_error: Option<TeamVmError>,
-    pub updated_at: i64,
-    pub taint: Option<TeamVmTaint>,
-    pub retired: Vec<TeamVmRetired>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub no_owner: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmViewLeasesItem {
-    pub lease: TeamVmLeaseId,
-    pub holder: String,
-    pub reason: String,
-    pub expires_at: i64,
-}
-
-/// RFC 3339 UTC with milliseconds.
-pub type Timestamp = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Trigger {
-    pub id: TriggerId,
-    pub status: TriggerStatus,
-    pub spec: TriggerInput,
-    pub next_at: Option<i64>,
 }

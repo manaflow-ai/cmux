@@ -90,6 +90,46 @@ import Testing
         #expect(result.failed.first?.isAlreadyMember == true)
     }
 
+    /// Invitations to the user (Settings > Accounts' Invitations to You): the list as
+    /// `web/app/api/teams/invitations` answers it, accept and decline by id.
+    @Test func receivedInvitationsListAcceptAndDecline() async throws {
+        let stub = TeamsStub.make()
+        stub.answer("GET /api/teams/invitations", 200, """
+        {"invitations":[{"id":"i1","teamId":"t1","teamName":"Acme","email":"kim@example.com","role":"member",
+          "invitedBy":"Sam","expiresAt":"2026-11-09T10:00:00.000Z"},
+         {"id":"i2","teamId":"t2","teamName":"Research","email":"kim@example.com","role":"owner",
+          "invitedBy":null,"expiresAt":"2026-11-09T10:00:00.000Z"}]}
+        """)
+        stub.answer("POST /api/teams/invitations/i1/accept", 200, #"{"teamId":"t1","role":"member"}"#)
+        stub.answer("POST /api/teams/invitations/i2/decline", 200, #"{"ok":true}"#)
+
+        let received = try await stub.api.receivedInvitations()
+        let joined = try await stub.api.acceptInvitation(id: "i1")
+        try await stub.api.declineInvitation(id: "i2")
+
+        #expect(received.map(\.teamName) == ["Acme", "Research"])
+        #expect(received.map(\.invitedBy) == ["Sam", nil])
+        #expect(received.map(\.role) == [.member, nil], "a role this client does not know reads nil")
+        #expect(joined == CMUXTeamJoin(teamID: "t1", role: .member))
+        #expect(stub.requests.map(\.line) == [
+            "GET /api/teams/invitations", "POST /api/teams/invitations/i1/accept", "POST /api/teams/invitations/i2/decline",
+        ])
+    }
+
+    @Test func invitationRefusalsBecomeTypedErrors() async throws {
+        let cases: [(status: Int, body: String, expected: CMUXTeamError)] = [
+            (410, #"{"error":{"code":"invitation_invalid","message":"x"}}"#, .invitationInvalid),
+            (404, #"{"error":{"code":"invitation_not_found","message":"x"}}"#, .invitationInvalid),
+            (409, #"{"error":{"code":"email_mismatch","message":"x"}}"#, .emailMismatch),
+            (409, #"{"error":{"code":"seat_limit","message":"x"}}"#, .seatLimit),
+        ]
+        for (status, body, expected) in cases {
+            let stub = TeamsStub.make()
+            stub.answer("POST /api/teams/invitations/i1/accept", status, body)
+            await #expect(throws: expected) { _ = try await stub.api.acceptInvitation(id: "i1") }
+        }
+    }
+
     @Test func aNameOutOfRangeSendsNothing() async throws {
         let stub = TeamsStub.make()
 

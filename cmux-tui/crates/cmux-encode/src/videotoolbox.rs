@@ -50,127 +50,116 @@ struct CFDictionaryKeyCallBacks {
 struct CFDictionaryValueCallBacks {
     _p: [u8; 0],
 }
+#[repr(C)]
+struct CFArrayCallBacks {
+    _p: [u8; 0],
+}
 
 type OutputCallback = extern "C" fn(*mut c_void, *mut c_void, OSStatus, u32, CMSampleBufferRef);
 
-#[link(name = "CoreFoundation", kind = "framework")]
-unsafe extern "C" {
-    static kCFBooleanTrue: CFBooleanRef;
-    static kCFBooleanFalse: CFBooleanRef;
-    static kCFTypeDictionaryKeyCallBacks: CFDictionaryKeyCallBacks;
-    static kCFTypeDictionaryValueCallBacks: CFDictionaryValueCallBacks;
-    fn CFDictionaryCreate(
-        a: CFAllocatorRef,
-        keys: *const CFTypeRef,
-        values: *const CFTypeRef,
-        n: c_long,
-        kcb: *const CFDictionaryKeyCallBacks,
-        vcb: *const CFDictionaryValueCallBacks,
-    ) -> CFDictionaryRef;
-    fn CFNumberCreate(a: CFAllocatorRef, t: c_long, v: *const c_void) -> CFNumberRef;
-    fn CFArrayGetCount(a: CFArrayRef) -> c_long;
-    fn CFArrayGetValueAtIndex(a: CFArrayRef, i: c_long) -> CFTypeRef;
-    fn CFDictionaryContainsKey(d: CFDictionaryRef, k: CFTypeRef) -> u8;
-    fn CFRelease(v: CFTypeRef);
+crate::framework! {
+    mod cf_sys = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation" {
+        static kCFBooleanTrue: CFBooleanRef;
+        static kCFBooleanFalse: CFBooleanRef;
+        ref kCFTypeDictionaryKeyCallBacks: CFDictionaryKeyCallBacks;
+        ref kCFTypeDictionaryValueCallBacks: CFDictionaryValueCallBacks;
+        ref kCFTypeArrayCallBacks: CFArrayCallBacks;
+        fn CFArrayCreate(a: CFAllocatorRef, values: *const CFTypeRef, n: c_long, cb: *const CFArrayCallBacks) -> CFArrayRef;
+        fn CFDictionaryCreate(a: CFAllocatorRef, keys: *const CFTypeRef, values: *const CFTypeRef, n: c_long, kcb: *const CFDictionaryKeyCallBacks, vcb: *const CFDictionaryValueCallBacks) -> CFDictionaryRef;
+        fn CFNumberCreate(a: CFAllocatorRef, t: c_long, v: *const c_void) -> CFNumberRef;
+        fn CFArrayGetCount(a: CFArrayRef) -> c_long;
+        fn CFArrayGetValueAtIndex(a: CFArrayRef, i: c_long) -> CFTypeRef;
+        fn CFDictionaryContainsKey(d: CFDictionaryRef, k: CFTypeRef) -> u8;
+        fn CFRelease(v: CFTypeRef);
+    }
+}
+use cf_sys::*;
+
+crate::framework! {
+    mod cv_sys = "/System/Library/Frameworks/CoreVideo.framework/CoreVideo" {
+        static kCVPixelBufferIOSurfacePropertiesKey: CFStringRef;
+        static kCVImageBufferColorPrimaries_ITU_R_709_2: CFStringRef;
+        static kCVImageBufferColorPrimaries_P3_D65: CFStringRef;
+        static kCVImageBufferTransferFunction_ITU_R_709_2: CFStringRef;
+        static kCVImageBufferYCbCrMatrix_ITU_R_709_2: CFStringRef;
+        fn CVPixelBufferCreate(a: CFAllocatorRef, w: usize, h: usize, fmt: u32, attrs: CFDictionaryRef, out: *mut CVPixelBufferRef) -> i32;
+        fn CVPixelBufferLockBaseAddress(pb: CVPixelBufferRef, flags: u64) -> i32;
+        fn CVPixelBufferUnlockBaseAddress(pb: CVPixelBufferRef, flags: u64) -> i32;
+        fn CVPixelBufferGetBaseAddressOfPlane(pb: CVPixelBufferRef, plane: usize) -> *mut u8;
+        fn CVPixelBufferGetBytesPerRowOfPlane(pb: CVPixelBufferRef, plane: usize) -> usize;
+        fn CVPixelBufferCreateWithIOSurface(a: CFAllocatorRef, surface: *mut c_void, attrs: CFDictionaryRef, out: *mut CVPixelBufferRef) -> i32;
+    }
+}
+use cv_sys::*;
+
+crate::framework! {
+    mod iosurface_sys = "/System/Library/Frameworks/IOSurface.framework/IOSurface" {
+        fn IOSurfaceGetWidth(surface: *mut c_void) -> usize;
+        fn IOSurfaceGetHeight(surface: *mut c_void) -> usize;
+        fn IOSurfaceGetPixelFormat(surface: *mut c_void) -> u32;
+    }
+}
+use iosurface_sys::*;
+
+crate::framework! {
+    mod cm_sys = "/System/Library/Frameworks/CoreMedia.framework/CoreMedia" {
+        static kCMSampleAttachmentKey_NotSync: CFStringRef;
+        fn CMSampleBufferGetDataBuffer(sb: CMSampleBufferRef) -> CMBlockBufferRef;
+        fn CMSampleBufferGetFormatDescription(sb: CMSampleBufferRef) -> CMFormatDescriptionRef;
+        fn CMSampleBufferGetSampleAttachmentsArray(sb: CMSampleBufferRef, create: u8) -> CFArrayRef;
+        fn CMBlockBufferGetDataLength(b: CMBlockBufferRef) -> usize;
+        fn CMBlockBufferCopyDataBytes(b: CMBlockBufferRef, off: usize, len: usize, dst: *mut c_void) -> OSStatus;
+        fn CMVideoFormatDescriptionGetH264ParameterSetAtIndex(d: CMFormatDescriptionRef, i: usize, ptr: *mut *const u8, size: *mut usize, count: *mut usize, nal_header_len: *mut c_int) -> OSStatus;
+    }
+}
+use cm_sys::*;
+
+crate::framework! {
+    mod vt_sys = "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox" {
+        static kVTVideoEncoderSpecification_EnableLowLatencyRateControl: CFStringRef;
+        static kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: CFStringRef;
+        static kVTCompressionPropertyKey_RealTime: CFStringRef;
+        static kVTCompressionPropertyKey_AllowFrameReordering: CFStringRef;
+        static kVTCompressionPropertyKey_MaxKeyFrameInterval: CFStringRef;
+        static kVTCompressionPropertyKey_ExpectedFrameRate: CFStringRef;
+        static kVTCompressionPropertyKey_AverageBitRate: CFStringRef;
+        static kVTCompressionPropertyKey_DataRateLimits: CFStringRef;
+        static kVTCompressionPropertyKey_ProfileLevel: CFStringRef;
+        static kVTProfileLevel_H264_High_AutoLevel: CFStringRef;
+        static kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel: CFStringRef;
+        static kVTEncodeFrameOptionKey_ForceKeyFrame: CFStringRef;
+        static kVTCompressionPropertyKey_ColorPrimaries: CFStringRef;
+        static kVTCompressionPropertyKey_TransferFunction: CFStringRef;
+        static kVTCompressionPropertyKey_YCbCrMatrix: CFStringRef;
+        fn VTCompressionSessionCreate(a: CFAllocatorRef, w: i32, h: i32, codec: u32, spec: CFDictionaryRef, src_attrs: CFDictionaryRef, data_alloc: CFAllocatorRef, cb: OutputCallback, refcon: *mut c_void, out: *mut VTCompressionSessionRef) -> OSStatus;
+        fn VTSessionSetProperty(s: *mut c_void, key: CFStringRef, value: CFTypeRef) -> OSStatus;
+        fn VTCompressionSessionEncodeFrame(s: VTCompressionSessionRef, pb: CVPixelBufferRef, pts: CMTime, duration: CMTime, props: CFDictionaryRef, frame_refcon: *mut c_void, info: *mut u32) -> OSStatus;
+        fn VTCompressionSessionCompleteFrames(s: VTCompressionSessionRef, until: CMTime) -> OSStatus;
+        fn VTCompressionSessionInvalidate(s: VTCompressionSessionRef);
+    }
+}
+use vt_sys::*;
+
+// Speed keys bound apart from `vt_sys`: one missing on an older macOS (PrioritizeEncodingSpeed-
+// OverQuality is macOS 12+) must not fail `frameworks()`; the session is then built without it.
+crate::framework! {
+    mod vt_speed_sys = "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox" {
+        static kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality: CFStringRef;
+        static kVTCompressionPropertyKey_MaxFrameDelayCount: CFStringRef;
+    }
 }
 
-#[link(name = "CoreVideo", kind = "framework")]
-unsafe extern "C" {
-    static kCVPixelBufferIOSurfacePropertiesKey: CFStringRef;
-    fn CVPixelBufferCreate(
-        a: CFAllocatorRef,
-        w: usize,
-        h: usize,
-        fmt: u32,
-        attrs: CFDictionaryRef,
-        out: *mut CVPixelBufferRef,
-    ) -> i32;
-    fn CVPixelBufferLockBaseAddress(pb: CVPixelBufferRef, flags: u64) -> i32;
-    fn CVPixelBufferUnlockBaseAddress(pb: CVPixelBufferRef, flags: u64) -> i32;
-    fn CVPixelBufferGetBaseAddressOfPlane(pb: CVPixelBufferRef, plane: usize) -> *mut u8;
-    fn CVPixelBufferGetBytesPerRowOfPlane(pb: CVPixelBufferRef, plane: usize) -> usize;
-    fn CVPixelBufferCreateWithIOSurface(
-        a: CFAllocatorRef,
-        surface: *mut c_void,
-        attrs: CFDictionaryRef,
-        out: *mut CVPixelBufferRef,
-    ) -> i32;
-    static kCVImageBufferColorPrimaries_ITU_R_709_2: CFStringRef;
-    static kCVImageBufferColorPrimaries_P3_D65: CFStringRef;
-    static kCVImageBufferTransferFunction_ITU_R_709_2: CFStringRef;
-    static kCVImageBufferYCbCrMatrix_ITU_R_709_2: CFStringRef;
-}
-
-#[link(name = "IOSurface", kind = "framework")]
-unsafe extern "C" {
-    fn IOSurfaceGetWidth(surface: *mut c_void) -> usize;
-    fn IOSurfaceGetHeight(surface: *mut c_void) -> usize;
-    fn IOSurfaceGetPixelFormat(surface: *mut c_void) -> u32;
-}
-
-#[link(name = "CoreMedia", kind = "framework")]
-unsafe extern "C" {
-    static kCMSampleAttachmentKey_NotSync: CFStringRef;
-    fn CMSampleBufferGetDataBuffer(sb: CMSampleBufferRef) -> CMBlockBufferRef;
-    fn CMSampleBufferGetFormatDescription(sb: CMSampleBufferRef) -> CMFormatDescriptionRef;
-    fn CMSampleBufferGetSampleAttachmentsArray(sb: CMSampleBufferRef, create: u8) -> CFArrayRef;
-    fn CMBlockBufferGetDataLength(b: CMBlockBufferRef) -> usize;
-    fn CMBlockBufferCopyDataBytes(
-        b: CMBlockBufferRef,
-        off: usize,
-        len: usize,
-        dst: *mut c_void,
-    ) -> OSStatus;
-    fn CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
-        d: CMFormatDescriptionRef,
-        i: usize,
-        ptr: *mut *const u8,
-        size: *mut usize,
-        count: *mut usize,
-        nal_header_len: *mut c_int,
-    ) -> OSStatus;
-}
-
-#[link(name = "VideoToolbox", kind = "framework")]
-unsafe extern "C" {
-    static kVTVideoEncoderSpecification_EnableLowLatencyRateControl: CFStringRef;
-    static kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: CFStringRef;
-    static kVTCompressionPropertyKey_RealTime: CFStringRef;
-    static kVTCompressionPropertyKey_AllowFrameReordering: CFStringRef;
-    static kVTCompressionPropertyKey_MaxKeyFrameInterval: CFStringRef;
-    static kVTCompressionPropertyKey_ExpectedFrameRate: CFStringRef;
-    static kVTCompressionPropertyKey_AverageBitRate: CFStringRef;
-    static kVTCompressionPropertyKey_ProfileLevel: CFStringRef;
-    static kVTProfileLevel_H264_High_AutoLevel: CFStringRef;
-    static kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel: CFStringRef;
-    static kVTEncodeFrameOptionKey_ForceKeyFrame: CFStringRef;
-    static kVTCompressionPropertyKey_ColorPrimaries: CFStringRef;
-    static kVTCompressionPropertyKey_TransferFunction: CFStringRef;
-    static kVTCompressionPropertyKey_YCbCrMatrix: CFStringRef;
-    fn VTCompressionSessionCreate(
-        a: CFAllocatorRef,
-        w: i32,
-        h: i32,
-        codec: u32,
-        spec: CFDictionaryRef,
-        src_attrs: CFDictionaryRef,
-        data_alloc: CFAllocatorRef,
-        cb: OutputCallback,
-        refcon: *mut c_void,
-        out: *mut VTCompressionSessionRef,
-    ) -> OSStatus;
-    fn VTSessionSetProperty(s: *mut c_void, key: CFStringRef, value: CFTypeRef) -> OSStatus;
-    fn VTCompressionSessionEncodeFrame(
-        s: VTCompressionSessionRef,
-        pb: CVPixelBufferRef,
-        pts: CMTime,
-        duration: CMTime,
-        props: CFDictionaryRef,
-        frame_refcon: *mut c_void,
-        info: *mut u32,
-    ) -> OSStatus;
-    fn VTCompressionSessionCompleteFrames(s: VTCompressionSessionRef, until: CMTime) -> OSStatus;
-    fn VTCompressionSessionInvalidate(s: VTCompressionSessionRef);
+/// Loads the frameworks the encoder binds at run time (crate::dynlib); an error says which
+/// framework or symbol is missing.
+// Each module's `available` also arrives through its glob import; the path names which one.
+#[allow(unused_qualifications)]
+fn frameworks() -> Res<()> {
+    cf_sys::available()?;
+    cv_sys::available()?;
+    iosurface_sys::available()?;
+    cm_sys::available()?;
+    vt_sys::available()?;
+    Ok(())
 }
 
 /// What the output callback produced for the last frame.
@@ -198,6 +187,8 @@ pub struct VideoToolbox {
     /// The color tag the session carries (surface path); `None` until set.
     color: Option<ColorTag>,
     name: String,
+    /// Why the last frame was an IDR nobody asked for (see [`H264Encoder::idr_cause`]).
+    idr_cause: Option<&'static str>,
 }
 
 // SAFETY: the session and buffer are used from one thread at a time (the media loop).
@@ -213,6 +204,23 @@ fn number_f64(v: f64) -> CFNumberRef {
     unsafe { CFNumberCreate(null(), CF_NUMBER_FLOAT64, (&v as *const f64).cast()) }
 }
 
+/// The per-frame byte budget at `kbps` and `fps`: (bytes, seconds) for DataRateLimits, one
+/// frame interval's share of the rate. A frame within it leaves a paced sender in one frame
+/// interval, so the send stage holds at most one frame at any rate (the encoder spends a
+/// higher QP on a large change instead of a frame that queues for hundreds of ms).
+fn frame_budget(kbps: u32, fps: u32) -> (i32, f64) {
+    let fps = fps.max(1);
+    let bytes = u64::from(kbps.min(2_000_000)) * 1000 / 8 / u64::from(fps);
+    (i32::try_from(bytes.max(1)).unwrap_or(i32::MAX), 1.0 / f64::from(fps))
+}
+
+/// Whether a new target replaces the session's rate. A cut applies at once (the link has
+/// less room now); a rise under 5% is skipped, since every change makes the encoder
+/// re-plan its rate control.
+fn bitrate_change_applies(current: u32, next: u32) -> bool {
+    next < current || u64::from(next - current) * 20 >= u64::from(current)
+}
+
 fn dict(pairs: &[(CFStringRef, CFTypeRef)]) -> CFDictionaryRef {
     let keys: Vec<CFTypeRef> = pairs.iter().map(|p| p.0).collect();
     let values: Vec<CFTypeRef> = pairs.iter().map(|p| p.1).collect();
@@ -223,8 +231,8 @@ fn dict(pairs: &[(CFStringRef, CFTypeRef)]) -> CFDictionaryRef {
             keys.as_ptr(),
             values.as_ptr(),
             pairs.len() as c_long,
-            &kCFTypeDictionaryKeyCallBacks,
-            &kCFTypeDictionaryValueCallBacks,
+            kCFTypeDictionaryKeyCallBacks(),
+            kCFTypeDictionaryValueCallBacks(),
         )
     }
 }
@@ -252,7 +260,7 @@ extern "C" fn on_output(
             && CFArrayGetCount(attachments) > 0
             && CFDictionaryContainsKey(
                 CFArrayGetValueAtIndex(attachments, 0),
-                kCMSampleAttachmentKey_NotSync,
+                kCMSampleAttachmentKey_NotSync(),
             ) != 0;
         out.keyframe = !not_sync;
         if out.keyframe {
@@ -318,8 +326,11 @@ fn create_session(
     // SAFETY: CF statics from the frameworks; the dictionary is released after use.
     let status = unsafe {
         let spec = dict(&[
-            (kVTVideoEncoderSpecification_EnableLowLatencyRateControl, kCFBooleanTrue),
-            (kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder, kCFBooleanTrue),
+            (kVTVideoEncoderSpecification_EnableLowLatencyRateControl(), kCFBooleanTrue()),
+            (
+                kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder(),
+                kCFBooleanTrue(),
+            ),
         ]);
         let s = VTCompressionSessionCreate(
             null(),
@@ -342,20 +353,32 @@ fn create_session(
     // SAFETY: setting properties on our live session with CF values we release.
     unsafe {
         let set = |k: CFStringRef, v: CFTypeRef| VTSessionSetProperty(session, k, v);
-        set(kVTCompressionPropertyKey_RealTime, kCFBooleanTrue);
-        set(kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse);
+        set(kVTCompressionPropertyKey_RealTime(), kCFBooleanTrue());
+        set(kVTCompressionPropertyKey_AllowFrameReordering(), kCFBooleanFalse());
         let profile = if baseline {
-            kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel
+            kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel()
         } else {
-            kVTProfileLevel_H264_High_AutoLevel
+            kVTProfileLevel_H264_High_AutoLevel()
         };
-        set(kVTCompressionPropertyKey_ProfileLevel, profile);
+        set(kVTCompressionPropertyKey_ProfileLevel(), profile);
         let gop = number_i32(i32::MAX);
-        set(kVTCompressionPropertyKey_MaxKeyFrameInterval, gop);
+        set(kVTCompressionPropertyKey_MaxKeyFrameInterval(), gop);
         CFRelease(gop);
         let rate = number_f64(f64::from(fps.max(1)));
-        set(kVTCompressionPropertyKey_ExpectedFrameRate, rate);
+        set(kVTCompressionPropertyKey_ExpectedFrameRate(), rate);
         CFRelease(rate);
+        // Lower latency per frame: speed over quality (as the app's SurfaceFrameEncoder sets),
+        // and no frame held back inside the encoder. Optional: an OS without the keys, or an
+        // encoder that refuses one, keeps the session as built above.
+        if vt_speed_sys::available().is_ok() {
+            set(
+                vt_speed_sys::kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality(),
+                kCFBooleanTrue(),
+            );
+            let no_delay = number_i32(0);
+            set(vt_speed_sys::kVTCompressionPropertyKey_MaxFrameDelayCount(), no_delay);
+            CFRelease(no_delay);
+        }
     }
     Ok(session)
 }
@@ -363,13 +386,14 @@ fn create_session(
 impl VideoToolbox {
     /// `baseline`: constrained baseline (for openh264-decoded checks); otherwise High.
     pub fn new(width: u32, height: u32, fps: u32, kbps: u32, baseline: bool) -> Res<Self> {
+        frameworks()?;
         let out: Box<Mutex<Output>> = Box::default();
         let session = create_session(width as usize, height as usize, fps, baseline, &out)?;
         let mut pixel_buffer: CVPixelBufferRef = null_mut();
         // SAFETY: creating an IOSurface-backed 420v buffer; attrs released after use.
         let pb_status = unsafe {
             let empty = dict(&[]);
-            let attrs = dict(&[(kCVPixelBufferIOSurfacePropertiesKey, empty)]);
+            let attrs = dict(&[(kCVPixelBufferIOSurfacePropertiesKey(), empty)]);
             let r = CVPixelBufferCreate(
                 null(),
                 width as usize,
@@ -401,6 +425,7 @@ impl VideoToolbox {
             baseline,
             kbps: kbps.max(100),
             color: None,
+            idr_cause: None,
             name: format!(
                 "videotoolbox h264 {} low-latency-rc realtime no-reordering gop=inf",
                 if baseline { "constrained-baseline" } else { "high" }
@@ -437,30 +462,53 @@ impl VideoToolbox {
         // SAFETY: CF statics from the frameworks set on our live session.
         unsafe {
             let primaries = match color {
-                ColorTag::Srgb => kCVImageBufferColorPrimaries_ITU_R_709_2,
-                ColorTag::DisplayP3 => kCVImageBufferColorPrimaries_P3_D65,
+                ColorTag::Srgb => kCVImageBufferColorPrimaries_ITU_R_709_2(),
+                ColorTag::DisplayP3 => kCVImageBufferColorPrimaries_P3_D65(),
             };
-            VTSessionSetProperty(self.session, kVTCompressionPropertyKey_ColorPrimaries, primaries);
             VTSessionSetProperty(
                 self.session,
-                kVTCompressionPropertyKey_TransferFunction,
-                kCVImageBufferTransferFunction_ITU_R_709_2,
+                kVTCompressionPropertyKey_ColorPrimaries(),
+                primaries,
             );
             VTSessionSetProperty(
                 self.session,
-                kVTCompressionPropertyKey_YCbCrMatrix,
-                kCVImageBufferYCbCrMatrix_ITU_R_709_2,
+                kVTCompressionPropertyKey_TransferFunction(),
+                kCVImageBufferTransferFunction_ITU_R_709_2(),
+            );
+            VTSessionSetProperty(
+                self.session,
+                kVTCompressionPropertyKey_YCbCrMatrix(),
+                kCVImageBufferYCbCrMatrix_ITU_R_709_2(),
             );
         }
         self.color = Some(color);
     }
 
+    /// Sets the average rate and the per-frame byte budget (`frame_budget`): VideoToolbox's
+    /// DataRateLimits over one frame interval, so one frame drains within one frame interval
+    /// at the current rate. A budget the encoder refuses leaves only the average rate.
     fn apply_bitrate(&mut self, kbps: u32) {
         let bps = number_i32((kbps.min(2_000_000) * 1000) as i32);
-        // SAFETY: our live session; the number is released after use.
+        let (bytes, seconds) = frame_budget(kbps, self.fps);
+        // SAFETY: our live session; every CF object is released after use (the array
+        // retains its numbers, the session retains the array).
         unsafe {
-            VTSessionSetProperty(self.session, kVTCompressionPropertyKey_AverageBitRate, bps);
+            VTSessionSetProperty(self.session, kVTCompressionPropertyKey_AverageBitRate(), bps);
             CFRelease(bps);
+            let bytes = number_i32(bytes);
+            let seconds = number_f64(seconds);
+            let pair = [bytes, seconds];
+            let limits = CFArrayCreate(null(), pair.as_ptr(), 2, kCFTypeArrayCallBacks());
+            if !limits.is_null() {
+                VTSessionSetProperty(
+                    self.session,
+                    kVTCompressionPropertyKey_DataRateLimits(),
+                    limits,
+                );
+                CFRelease(limits);
+            }
+            CFRelease(bytes);
+            CFRelease(seconds);
         }
         self.kbps = kbps;
     }
@@ -500,16 +548,18 @@ impl VideoToolbox {
 
 impl H264Encoder for VideoToolbox {
     fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
+        self.idr_cause = None;
         // A surface of another size may have resized the session.
         let resized = self.ensure_session(self.width, self.height)?;
         self.fill(pic)?;
         let pb = self.pixel_buffer;
+        self.idr_cause = (resized && !force_idr).then_some("resize");
         self.encode_buffer(pb, force_idr || resized, pts, out)
     }
 
     fn set_bitrate(&mut self, kbps: u32) {
         let kbps = kbps.max(100);
-        if kbps.abs_diff(self.kbps) * 20 >= self.kbps {
+        if bitrate_change_applies(self.kbps, kbps) {
             self.apply_bitrate(kbps);
         }
     }
@@ -520,6 +570,10 @@ impl H264Encoder for VideoToolbox {
 
     fn name(&self) -> String {
         self.name.clone()
+    }
+
+    fn idr_cause(&self) -> Option<&'static str> {
+        self.idr_cause
     }
 }
 
@@ -543,7 +597,7 @@ impl VideoToolbox {
         // callback before it returns, so the result is ready afterwards.
         let status = unsafe {
             let props = if force_idr {
-                dict(&[(kVTEncodeFrameOptionKey_ForceKeyFrame, kCFBooleanTrue)])
+                dict(&[(kVTEncodeFrameOptionKey_ForceKeyFrame(), kCFBooleanTrue())])
             } else {
                 null()
             };
@@ -588,5 +642,27 @@ impl Drop for VideoToolbox {
             CFRelease(self.session as CFTypeRef);
             CFRelease(self.pixel_buffer as CFTypeRef);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_frame_budget_is_one_frame_intervals_share_of_the_rate() {
+        assert_eq!(frame_budget(8_000, 60), (16_666, 1.0 / 60.0));
+        assert_eq!(frame_budget(1_000, 30).0, 4_166);
+        assert_eq!(frame_budget(100, 0), (12_500, 1.0), "fps 0 counts as 1");
+        assert!(frame_budget(u32::MAX, 1).0 > 0, "clamped, never negative");
+    }
+
+    #[test]
+    fn a_bitrate_cut_applies_at_once_and_a_small_rise_waits() {
+        assert!(bitrate_change_applies(10_000, 9_900), "a 1% cut");
+        assert!(bitrate_change_applies(10_000, 5_000));
+        assert!(!bitrate_change_applies(10_000, 10_400), "a 4% rise");
+        assert!(bitrate_change_applies(10_000, 10_500), "a 5% rise");
+        assert!(!bitrate_change_applies(10_000, 10_000));
     }
 }

@@ -10,7 +10,19 @@
 # CMUX_NEXT_TEST_BUSY_STUCK_SECONDS (default 3x the stuck limit) although they kept
 # using CPU (a spin, or a runner so starved that one test takes minutes). A slow
 # run that is still finishing tests is never a stall. CMUX_NEXT_TEST_HANG_SECONDS
-# (default 1200) is only the hard ceiling on the whole run. Swift Testing has no package-wide time limit (its default limit
+# (default 1200) is only the hard ceiling on the whole run.
+#
+# The STARTUP rule covers the stretch before the first test line, where the stall rule cannot look
+# (output lags there): when a test helper (xctest, swiftpm-testing-helper) of this run has lived
+# CMUX_NEXT_TEST_STARTUP_SECONDS (default 120; 0 turns the rule off) with no Swift Testing or
+# XCTest line in the log and the run's processes used under CMUX_NEXT_TEST_IDLE_CPU_SHARE of one
+# core in that time, the helper is deadlocked before its first test. On 2026-11-15
+# (cmuxs-mac-mini-6, run 43743518734) XCTest's class scan (objc_copyClassList -> SwiftUI metadata ->
+# +[NSView initialize]) held the ObjC runtime lock while +[CNContactStore initialize]'s preferences
+# read waited on that lock: two live-daemon steps sat at 0.2 s of CPU until the 900 s and 480 s
+# whole-run limits, holding 11 of the mini's 14 units. The rule samples and ends the run, and since
+# no test ran it runs `swift test` once more (CMUX_NEXT_TEST_STARTUP_RETRY, default 1; 0 fails at
+# once); a second startup hang fails the step. Swift Testing has no package-wide time limit (its default limit
 # cannot be set from `swift test`), so a test without its own `.timeLimit`
 # would otherwise hold the run until the whole-run limit with no name. Run from
 # Packages/macOS/CmuxNext.
@@ -99,6 +111,10 @@ poll="${CMUX_NEXT_TEST_STUCK_POLL_SECONDS:-10}"
 # the pass with 223 tests open). Busy and silent, the run gets busy_limit before it is called stuck.
 busy_limit="${CMUX_NEXT_TEST_BUSY_STUCK_SECONDS:-$(( stuck_limit * 3 ))}"
 idle_share="${CMUX_NEXT_TEST_IDLE_CPU_SHARE:-0.05}"
+startup_limit="${CMUX_NEXT_TEST_STARTUP_SECONDS:-120}"
+# This run may retry a startup hang once: not when it is the retry, nor when the retry is off.
+startup_retry=""
+[[ -n "${CMUX_NEXT_TEST_STARTUP_RETRIED:-}" || "${CMUX_NEXT_TEST_STARTUP_RETRY:-1}" == 0 ]] || startup_retry=1
 helpers="$log.helpers"
 : > "$helpers"
 cpu_state="$log.cpu"
@@ -208,6 +224,29 @@ names_awk='
     at = index(key, block_sep())
     if (at > 1 && substr(key, 1, at - 1) ~ /^[0-9]+$/) return substr(key, at + 1)
     return key
+  }
+  # A pass line another stream cut into ("✔ Test aFailureNothingRetriesShowsAtOnceswift runtime:
+  # backtrace-on-crash ...", run 41665450504: the helper was killed with the rest of its line
+  # unwritten). ✔ is printed only for a test that passed, so it closes the open start in this block
+  # whose name, up to its "(", begins the line and is not followed by more of a test name and its
+  # "(" (foo() is not taken for fooBar()); the longest such name. KEY when none fits.
+  function spliced_start(key,    cut, i, n, stem, at, best, best_len) {
+    cut = block_name(key)
+    best = key
+    best_len = 0
+    for (i = 1; i <= name_count; i++) {
+      n = names[i]
+      if (index(n, (count_block + 0) block_sep()) != 1 || first_open_run(n) > started[n]) continue
+      stem = block_name(n)
+      at = index(stem, "(")
+      if (at < 2) continue
+      stem = substr(stem, 1, at - 1)
+      if (index(cut, stem) == 1 && substr(cut, at) !~ /^[A-Za-z0-9_]*\(/ && at - 1 > best_len) {
+        best = n
+        best_len = at - 1
+      }
+    }
+    return best
   }'
 # The bookkeeping both readers share. Occurrences matched in order, not a set of names: one log
 # can hold the same name more than once. A finish only closes a start still open; one with no
@@ -226,6 +265,7 @@ count_awk='
   }
   is_finish($0) && $0 !~ /^➜ Test .* skipped/ {
     counted_name = block_key(name_of($0))
+    if (!(counted_name in started) && $0 ~ /^✔ Test / && $0 !~ /^✔ Test run with /) counted_name = spliced_start(counted_name)
     # Read it into a variable first. Naming first_open[counted_name] as the target of an
     # assignment CREATES that key before the right-hand side is evaluated, so
     # `first_open[n] = first_open_run(n) + 1` made first_open_run take its "already set" branch
@@ -334,6 +374,13 @@ sample_and_kill() {
   # already reported as busy (one line per spell, not one per poll).
   cpu_since=0
   said_busy=""
+  # The startup rule's spell: the poll that first saw a live helper with no test line yet, and the
+  # CPU the run used since.
+  startup_since=""
+  startup_cpu=0
+  # Any test line of either framework ends the startup stretch for good.
+  any_test_re="^(◇ Test |Test Suite '|Test Case ')"
+  any_test_seen=""
   while :; do
     sleep "$poll" &
     sleeper=$!
@@ -389,6 +436,41 @@ sample_and_kill() {
     size=$(wc -c < "$log" 2>/dev/null | tr -d ' ')
     # Read every poll, so each poll's use lands in the spell it belongs to.
     used=$(cpu_used)
+    if (( startup_limit > 0 )) && [ -z "$any_test_seen" ]; then
+      if grep -qE "$any_test_re" "$log" 2>/dev/null; then
+        any_test_seen=1
+        startup_since=""
+      else
+        live=""
+        for p in $(cat "$helpers"); do kill -0 "$p" 2>/dev/null && live="$live $p"; done
+        if [ -z "$live" ]; then
+          startup_since=""
+        elif [ -z "$startup_since" ]; then
+          startup_since="$now"
+          startup_cpu=0
+        else
+          startup_cpu=$(awk -v a="$startup_cpu" -v b="${used:-0}" 'BEGIN { printf "%.2f", a + b }')
+          waited=$(( now - startup_since ))
+          if (( waited >= startup_limit )) \
+            && awk -v c="$startup_cpu" -v q="$waited" -v f="$idle_share" 'BEGIN { exit !(c < q * f) }'; then
+            echo "the startup rule" > "$fired"
+            what="test helper${live} printed no test in ${waited}s and the run used ${startup_cpu} s of CPU in that time (CMUX_NEXT_TEST_STARTUP_SECONDS ${startup_limit}): a deadlock before the first test"
+            printf '\n'
+            if [ -n "$startup_retry" ]; then
+              : > "$log.startup"
+              echo "::warning title=cmux-next swift test startup hang::$what; sampling it, then running swift test once more"
+            else
+              echo "::error title=cmux-next swift test startup hang::$what; sampling the test processes"
+            fi
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              printf '### Startup hang: %s\n\n' "$what" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            sample_and_kill
+            exit 0
+          fi
+        fi
+      fi
+    fi
     if [ "$finishes" != "$last_finishes" ] || { [ ! -s "$open" ] && [ "${size:-0}" != "$last_size" ]; } \
       || ! grep -q '^◇ Test ' "$log" 2>/dev/null; then
       last_progress="$now"
@@ -454,6 +536,16 @@ else
   wait "$watcher" 2>/dev/null
 fi
 exec 3>&-
+# A startup hang ran no test: run once more, with what is left of the whole-run limit (at least
+# 300 s), as this run's retry. exec runs no EXIT trap, so the log goes first.
+if [ -e "$log.startup" ]; then
+  wait "$tee_pid" 2>/dev/null
+  rm -f "$log" "$log".*
+  trap - EXIT
+  left=$(( limit - ($(date +%s) - started_at) ))
+  (( left >= 300 )) || left=300
+  CMUX_NEXT_TEST_STARTUP_RETRIED=1 CMUX_NEXT_TEST_HANG_SECONDS="$left" exec bash "$0" "$@"
+fi
 # The report reads the log, so its writer must be done. bash 3.2 cannot wait for a
 # process substitution (wait returns at once), so watch tee's pid end, up to 10 s.
 if ! wait "$tee_pid" 2>/dev/null; then

@@ -41,12 +41,14 @@ import Testing
         #expect(row.section == .machine(MachineID("vm-a")))
     }
 
-    /// Each row starts one row pitch under the one above it: no slot is left for a row that cannot draw.
+    /// Each row starts one row pitch under the one above it, and a Cloud machine's header the section spacing more,
+    /// as any group's header (#28051): no slot is left for a row that cannot draw.
     @Test func noBlankSlotBetweenRows() {
         let rows = layout(cloned).rows
-        let spacing = SidebarLayoutMetrics.standard.rowSpacing
+        let metrics = SidebarLayoutMetrics.standard
         for (above, below) in zip(rows, rows.dropFirst()) {
-            #expect(abs(below.y - (above.maxY + spacing)) < 0.5, "\(below.key) starts \(below.y - above.maxY - spacing) pt late")
+            let pitch = metrics.rowSpacing + (below.key.isSectionHeader ? metrics.sectionSpacing : 0)
+            #expect(abs(below.y - (above.maxY + pitch)) < 0.5, "\(below.key) starts \(below.y - above.maxY - pitch) pt late")
         }
     }
 

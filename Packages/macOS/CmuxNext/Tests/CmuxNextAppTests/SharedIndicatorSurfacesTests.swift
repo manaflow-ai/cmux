@@ -4,6 +4,7 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
 import Foundation
@@ -54,6 +55,7 @@ struct SharedIndicatorSurfacesTests {
         let card = WorkspaceHoverCardView()
         card.configure(.make(SidebarMapping.shared.row(workspace, machine: .local), machine: nil, now: Date()))
         card.detailsToggle.performClick(nil)
+        card.runPendingDetailsPresses()
         #expect(shown(card) == (busy ? .working(progress: nil) : nil))
     }
 

@@ -3,6 +3,7 @@ import type { ToolRegistration } from "@earendil-works/pi-durable"
 import type { Env } from "../env.ts"
 import { effectRefusal } from "./effect-policy.ts"
 import { TELEPORT_DESCRIPTION } from "./prompts.ts"
+import { destinationError } from "../teleport-destination.ts"
 
 /**
  * A Cloud Chief's move request (Chief teleport). The Cloud Chief cannot reach the person's Mac, so it leaves
@@ -24,15 +25,8 @@ export interface Teleport {
 /** The cb_config row of the settings object that holds the request (JSON), absent when there is none. */
 export const TELEPORT_KEY = "teleport"
 
-const SSH = /^ssh:[A-Za-z0-9][A-Za-z0-9._@-]*(?::.+)?$/
-const LOCAL = /^local:\/.*$/
-const CONTROL = /[\u0000-\u001f\u007f]/
-
-/** The first problem of a destination, or null. */
-export const destinationError = (to: unknown): string | null =>
-  typeof to === "string" && [...to].length <= 256 && !CONTROL.test(to) && (to === "home" || SSH.test(to) || LOCAL.test(to))
-    ? null
-    : 'to must be "home", "ssh:<host>[:<dir>]" or "local:<absolute dir>": at most 256 characters, no control characters'
+/** The grammar is shared with automation teleport (teleport-destination.ts). */
+export { destinationError } from "../teleport-destination.ts"
 
 /** The first problem of a `teleport` patch value (a request or null), or null. */
 export const teleportError = (v: unknown): string | null => {
@@ -67,8 +61,6 @@ export const writeTeleport = (sql: SqlStorage, t: Teleport | null): void => {
 
 const Args = Type.Object({ to: Type.String({ description: 'home, or ssh:HOST (a Mac mini the person names).' }) })
 
-type Settings = { configure(agent: string, owner: string, patch: Record<string, unknown>): Promise<{ ok: true } | { ok: false; code: string; message: string }> }
-
 /** The `teleport` tool, for a brain whose `who()` names its chief and owner (null: not bound yet). */
 export const teleportTools = (env: Env, who: () => { agent: string | null; owner: string | null }, effectsAuthorized: () => boolean = () => true): [ToolRegistration<typeof Args>] => [
   {
@@ -85,7 +77,7 @@ export const teleportTools = (env: Env, who: () => { agent: string | null; owner
         if (bad) return `teleport: ${bad}`
         const request: Teleport = { to: to.trim(), id: `tp_${crypto.randomUUID().replaceAll("-", "")}`, at: new Date().toISOString() }
         // The same mutation path as the owner's PUT (configure), on the Chief's settings object (name = agent).
-        const settings = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(agent)) as unknown as Settings
+        const settings = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(agent))
         const r = await settings.configure(agent, owner, { teleport: request })
         if (!r.ok) return `teleport: not saved (${r.code}): ${r.message}`
         return `Move requested (${request.to}). The person's Mac will move you after this turn ends; your memory and this conversation go with you. Say goodbye now, in one short line.`

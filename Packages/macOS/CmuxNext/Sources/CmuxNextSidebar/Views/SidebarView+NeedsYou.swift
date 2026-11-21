@@ -11,14 +11,31 @@ extension SidebarView {
             SidebarSessionTree.shared.reveal(id)
             self?.model.click(id)
         }
-        // After the list's own patch handler: a status tick that patches one row updates the tray too,
-        // once per burst (every tick walks every section and the tree order otherwise).
+        // Keep the list's row patch handler first: it updates the realized row in place. The tray gets
+        // the old/new values separately and refreshes only when the row crosses a needs-you state.
         let listPatch = model.onRowsPatched
-        model.onRowsPatched = { [weak self] rows in
+        model.onRowsPatched = { rows in
             listPatch?(rows)
-            guard let self, SidebarSessionTree.shared.state != nil || self.needsYouTray.preferredHeight > 0 else { return }
+        }
+        let previousPatch = model.onRowsPatchedWithPrevious
+        model.onRowsPatchedWithPrevious = { [weak self] changes in
+            previousPatch?(changes)
+            guard let self, SidebarNeedsYou.shouldRefresh(for: changes, tree: SidebarSessionTree.shared.drawn) else { return }
             self.needsYouRefresh.scheduleIfIdle(after: .milliseconds(100)) { @MainActor [weak self] in self?.refreshNeedsYou() }
         }
+    }
+
+    /// The workspaces whose waiting session's one pending tool permission the App can answer: their
+    /// tray items get Allow and Deny, and y and n while focused, for that request (its id) only. The App
+    /// reads them (cmuxterm-hq#7794).
+    public func showAnswerable(_ workspaces: [WorkspaceID: String]) {
+        needsYouTray.setAnswerable(workspaces)
+    }
+
+    /// A tray item's Allow (true) or Deny of the request (its id) the item showed. Nil drops them.
+    public var onAnswer: ((WorkspaceID, String, Bool) -> Void)? {
+        get { needsYouTray.onAnswer }
+        set { needsYouTray.onAnswer = newValue }
     }
 
     func refreshNeedsYou() {

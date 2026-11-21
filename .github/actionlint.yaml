@@ -50,3 +50,10 @@ paths:
       # brings the live approval back, and tests/test_nightly_promotion_admission.py
       # pins that shape. Deleting them is a cross-branch decision, not a lint fix.
       - 'constant expression "false" in condition'
+  .github/workflows/backend.yml:
+    ignore:
+      # `concurrency.queue: max` keeps every pending run of a group in order instead of
+      # keeping only the newest (#33944). GitHub accepts it (backend.yml's pushes run with
+      # it), but the pinned actionlint's schema predates the key. Drop this when the
+      # pinned build knows it.
+      - 'unexpected key "queue" for "concurrency" section'

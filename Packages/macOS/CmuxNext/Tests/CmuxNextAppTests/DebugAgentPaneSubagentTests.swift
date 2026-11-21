@@ -31,12 +31,12 @@ struct DebugAgentPaneSubagentTests {
         -> (model: AgentPaneModel, placement: Placement, tabs: AgentTabStore) {
         let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: [:], showcase: true)
         let placement = Placement()
-        tabs.openInMainPane = { target, focus, _, made, _ in
-            placement.mainPane.append((chat: target, focus: focus))
+        tabs.openInMainPaneScoped = { target, focus, _, made, _ in
+            placement.mainPane.append((chat: target.key, focus: focus))
             if placed == true { made?(created) }
             return placed
         }
-        tabs.locate = { key in placement.located.append(key); return nil }
+        tabs.locateScoped = { key in placement.located.append(key.key); return nil }
         let model = AgentPaneModel(host: NoHost(), sessionId: sessionId)
         tabs.wireHeader(model, key: chat)
         return (model, placement, tabs)

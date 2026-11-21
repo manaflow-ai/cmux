@@ -11,17 +11,22 @@ public struct MoveTabToColumnRespawnRequest: TerminalSpawningRequest {
     public static let requiredCapability: String? = DaemonCapability.tabColumnRespawn.rawValue
     public var column: MoveTabToColumnRequest
     public var respawn: SplitRespawn
+    /// The new column's pane's client-minted public id (`tab-column-client-pane-v1`): the
+    /// dock's stand-in pane shows under it (``ProvisionalDock``).
+    public var paneID: String?
 
-    public init(_ column: MoveTabToColumnRequest, respawn: SplitRespawn) {
+    public init(_ column: MoveTabToColumnRequest, respawn: SplitRespawn, paneID: String? = nil) {
         self.column = column
         self.respawn = respawn
+        self.paneID = paneID
     }
 
-    private enum CodingKeys: String, CodingKey { case respawn }
+    private enum CodingKeys: String, CodingKey { case respawn, paneID = "pane_id" }
     public func encode(to encoder: any Encoder) throws {
         try column.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(respawn, forKey: .respawn)
+        try container.encodeIfPresent(paneID, forKey: .paneID)
     }
 
     /// Sends this request on `connection`. A fresh terminal gets its own

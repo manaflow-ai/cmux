@@ -8,11 +8,6 @@ struct ControlAuthorizer: Sendable {
     let configuration: ControlSocketServer.Configuration
     let peer: ControlSocketServer.Peer
 
-    init(configuration: ControlSocketServer.Configuration, peer: ControlSocketServer.Peer) {
-        self.configuration = configuration
-        self.peer = peer
-    }
-
     static let accessDenied = "ERROR: Access denied - only processes started inside cmux can connect"
 
     /// The response line for one request line, and whether to keep the

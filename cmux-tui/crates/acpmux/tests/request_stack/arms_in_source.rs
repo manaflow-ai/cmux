@@ -60,10 +60,13 @@ pub fn methods() -> BTreeSet<String> {
     names
 }
 
-/// The heads of the top-level arms of `dispatch_request`'s `match m`, each up to its `=>`.
+/// The heads of the top-level arms of `dispatch_request`'s `match m`, each up to its `=>`. The
+/// match is in `dispatch_request_with_identity`, which `dispatch_request` runs on the heap with no
+/// fixed identity (#33811).
 fn arm_heads() -> Vec<String> {
-    let start =
-        REQUESTS.find("\nasync fn dispatch_request(").expect("dispatch_request in requests.rs");
+    let start = REQUESTS
+        .find("\nasync fn dispatch_request_with_identity(")
+        .expect("dispatch_request_with_identity in requests.rs");
     let body = &REQUESTS[start..];
     let body = &body[..body.find("\n}\n").expect("the end of dispatch_request")];
     let open = body.find("\n    match m {\n").expect("dispatch_request's match m");

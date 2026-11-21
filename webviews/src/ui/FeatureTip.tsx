@@ -84,7 +84,7 @@ export function FeatureTip({
               </span>
               <span className="ui-feature-tip-new">{newLabel}</span>
               <button type="button" className="ui-feature-tip-close" aria-label={closeLabel} onClick={onClose}>
-                <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
                   <path d="M3.5 3.5l9 9m0-9l-9 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
                 </svg>
               </button>

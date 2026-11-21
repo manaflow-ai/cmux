@@ -40,12 +40,7 @@ struct MachineIconTests {
 
     /// A Cloud machine `id` this run has not loaded (stopped, or its link has not answered).
     static func cloudMachine(_ services: AppServices, id: String) -> CloudMachineSession {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-machine-icon-\(UUID().uuidString.prefix(8))")
-        let paths = CloudPaths(root: root), binary = URL(fileURLWithPath: "/usr/bin/false"), api = services.cloud.api
-        let hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: "cn-icon-test")
-        let link = CloudMachineLink(machineID: id, api: api, hub: hub, paths: paths, binary: binary, deviceName: "cn-icon-test")
-        let session = CloudMachineSession(machine: CloudMachine(id: id, displayName: "Icon VM"), link: link,
-                                          mainWork: services.mainWork)
+        let session = CloudTestLink.session(id: id, name: "Icon VM", mainWork: services.mainWork)
         services.machines.add(session)
         return session
     }
@@ -111,6 +106,14 @@ struct MachineIconTests {
         #expect(SidebarMapping.machineIcon(Self.asset) == nil, "the machine symbol stands in while the asset loads")
         #expect(SidebarMapping.machineIcon("Not An Icon") == nil)
         #expect(SidebarMapping.machineIcon(nil) == nil)
+    }
+
+    /// With no icon of the person's own, a machine draws the symbol of the device its daemon says it
+    /// is (cmux-device-kind); the person's icon still wins.
+    @Test func noIconDrawsTheDeviceSymbol() {
+        #expect(SidebarMapping.machineIcon(nil, device: "macmini") == .symbol("macmini"))
+        #expect(SidebarMapping.machineIcon(Self.asset, device: "macmini") == .symbol("macmini"), "the device stands in while the asset loads")
+        #expect(SidebarMapping.machineIcon("star.fill", device: "macmini") == .symbol("star.fill"))
     }
 
     /// The header draws a set icon before the name and nothing extra without one; the lone

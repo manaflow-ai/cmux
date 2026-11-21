@@ -1,9 +1,7 @@
-import { createContext, useContext, type ReactNode } from "react";
-import type { Presentation } from "../chatDisplay";
+import { useContext, type ReactNode } from "react";
+
 import "./messagesPresentation.css";
-
-export const PresentationContext = createContext<Presentation>("transcript");
-
+import { PresentationContext } from "./presentationContextModel";
 /** Keep the normal Markdown renderer, media and streaming inside the shared prompt glass. */
 export function AssistantPresentation({ children }: { children: ReactNode }) {
   const presentation = useContext(PresentationContext);

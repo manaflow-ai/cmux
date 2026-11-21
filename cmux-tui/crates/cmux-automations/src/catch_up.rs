@@ -35,6 +35,27 @@ impl Default for CatchUp {
     }
 }
 
+impl CatchUp {
+    /// The Cloud schema's word for the policy: `latest`, `all` or `none`.
+    pub fn name(self) -> &'static str {
+        match self {
+            CatchUp::Latest { .. } => "latest",
+            CatchUp::All { .. } => "all",
+            CatchUp::None => "none",
+        }
+    }
+
+    /// The policy a Cloud word names, with this machine's defaults (24 h, 10 runs).
+    pub fn from_name(name: &str) -> Option<CatchUp> {
+        match name {
+            "latest" => Some(CatchUp::default()),
+            "all" => Some(CatchUp::All { max: 10 }),
+            "none" => Some(CatchUp::None),
+            _ => None,
+        }
+    }
+}
+
 /// The plan for one tick of one automation.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FirePlan {

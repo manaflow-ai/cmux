@@ -99,13 +99,23 @@ type Calls = Arc<Mutex<Vec<(String, String, Value)>>>;
 /// A stand-in for the cloud API holding the hosted Chief after the move: the two copied
 /// messages plus two it got in the cloud, and a memory that grew by two messages.
 fn fake_cloud(local_memory: Vec<(String, String)>) -> (String, Calls) {
-    fake_cloud_asking(local_memory, None)
+    fake_cloud_with(local_memory, None, 0)
 }
 
 /// The fake cloud, its Chief having asked to teleport to `teleport`.
 fn fake_cloud_asking(
     local_memory: Vec<(String, String)>,
     teleport: Option<&str>,
+) -> (String, Calls) {
+    fake_cloud_with(local_memory, teleport, 0)
+}
+
+/// The fake cloud; its first memory export page is padded by `pad` bytes (a Chief with months of
+/// memory sends a first page of more than 10 MB).
+fn fake_cloud_with(
+    local_memory: Vec<(String, String)>,
+    teleport: Option<&str>,
+    pad: usize,
 ) -> (String, Calls) {
     let mut teleport: Value = teleport.map_or(
         Value::Null,
@@ -206,9 +216,14 @@ fn fake_cloud_asking(
                 } else {
                     json!([])
                 };
+                let pad = if after < 0 {
+                    " ".repeat(pad)
+                } else {
+                    String::new()
+                };
                 (
                     200,
-                    json!({"ok": true, "value": {"count": memory.len(), "messages": page, "nodes": nodes, "logged": [], "checkpoint": null, "cursor": null}}),
+                    json!({"ok": true, "value": {"count": memory.len(), "messages": page, "nodes": nodes, "logged": [], "checkpoint": null, "cursor": null, "pad": pad}}),
                 )
             } else if path == "/v1/read" && body["op"] == "conversation.history" {
                 let before = body["params"]["before_seq"].as_u64().unwrap_or(u64::MAX);
@@ -353,6 +368,22 @@ fn a_cloud_chief_moves_to_another_home_with_what_it_learned_in_the_cloud() {
         .unwrap();
     assert_eq!(std::fs::canonicalize(to).unwrap(), dst);
     assert!(!dst.join("state/moved.json").exists());
+}
+
+#[test]
+fn a_cloud_chief_whose_memory_export_is_larger_than_10_mb_comes_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let probe = tempfile::tempdir().unwrap();
+    let seed_home = moved_home(probe.path(), "http://127.0.0.1:1");
+    // The real Chief's first page was 16 MB (20391 messages, 2026-11-03).
+    let (base, _seen) = fake_cloud_with(local_memory(&seed_home), None, 16 << 20);
+    let src = moved_home(dir.path(), &base);
+    let cli = fake_app_cli(dir.path(), &base);
+    let dst = dir.path().join("dst");
+    let out = move_cmd(&src, &format!("local:{}", dst.display()), &cli);
+    let r = report(&out);
+    assert_eq!(r["moved"], true, "{r}");
+    assert_eq!(r["memory"]["messages"], 4, "{r}");
 }
 
 #[test]

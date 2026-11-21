@@ -34,6 +34,10 @@ public final class PaletteRankerBridge {
     /// the query, not 2,000 entries to encode and parse again.
     // crash-allow: serialized with `handle` by the owning actor.
     nonisolated(unsafe) private var installedVersion: Int?
+    /// The ``FrecencyStore/revision`` whose history the ranker holds: a keystroke names it and does
+    /// not send (and the ranker does not parse) the whole history again.
+    // crash-allow: serialized with `handle` by the owning actor.
+    nonisolated(unsafe) private var installedHistoryRevision: Int64?
 
     /// Creates a bridge with its own ranker handle.
     nonisolated public init() throws {
@@ -59,16 +63,19 @@ public final class PaletteRankerBridge {
         recentLimit: Int = 5,
         rowLimit: Int = 400,
         highlightLimit: Int = 60,
-        settings: PaletteRankSettings = PaletteRankSettings()
+        settings: PaletteRankSettings = PaletteRankSettings(),
+        sendsHistory: Bool = false
     ) throws -> [PaletteRankedSection] {
         if let version, version != installedVersion { try install(index.entries, version: version) }
+        let history = sendsHistory ? nil : try installHistory(frecency)
         return try invoke(PaletteRankerBridgeRequest(
             operation: "rank",
             entries: version == nil ? index.entries.map(PaletteRankerBridgeEntry.init) : nil,
             version: version,
             query: query,
             sectionOrders: sectionOrders,
-            frecency: PaletteRankerBridgeFrecency(frecency, query: query),
+            frecency: history == nil ? PaletteRankerBridgeFrecency(frecency, query: query) : nil,
+            historyRevision: history,
             now: now.timeIntervalSinceReferenceDate,
             showsRecent: showsRecent,
             keepsSectionOrder: keepsSectionOrder,
@@ -99,13 +106,15 @@ public final class PaletteRankerBridge {
         pinnedSectionIndex: Int? = nil
     ) throws -> [PaletteRankedSection] {
         if let version, version != installedVersion { try install(entries, version: version) }
+        let history = try installHistory(frecency)
         return try invoke(PaletteRankerBridgeRequest(
             operation: "rankEmpty",
             entries: version == nil ? entries.map(PaletteRankerBridgeEntry.init) : nil,
             version: version,
             query: nil,
             sectionOrders: sectionOrders,
-            frecency: PaletteRankerBridgeFrecency(frecency),
+            frecency: nil,
+            historyRevision: history,
             now: now.timeIntervalSinceReferenceDate,
             showsRecent: showsRecent,
             keepsSectionOrder: false,
@@ -117,6 +126,22 @@ public final class PaletteRankerBridge {
             rowLimit: 400,
             highlightLimit: 60
         ))
+    }
+
+    /// Sends `frecency` to the ranker once per ``FrecencyStore/revision`` (all its learned picks: the
+    /// ranker reads the ones each query starts with) and returns the revision a request names.
+    nonisolated private func installHistory(_ frecency: FrecencyStore) throws -> Int64 {
+        if frecency.revision == installedHistoryRevision { return frecency.revision }
+        let data = try JSONEncoder().encode(PaletteRankerBridgeFrecency(installing: frecency))
+        let code = data.withUnsafeBytes { bytes in
+            cmux_palette_ranker_install_history(handle, frecency.revision, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count)
+        }
+        guard code == CMUX_PALETTE_RANKER_OK else {
+            installedHistoryRevision = nil
+            throw PaletteRankerBridgeError.runtimeFailed("the history was refused (\(code))")
+        }
+        installedHistoryRevision = frecency.revision
+        return frecency.revision
     }
 
     /// Sends `entries` to the ranker once for `version`.

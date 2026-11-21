@@ -6,7 +6,7 @@
 // first; with more running, the newest two and "+N more"; in a narrow pane, the newest one. It stays
 // one row. Compare the arms (newest two, newest one, counts) with the entry's experiment.
 import { agentPaneEntry } from "../../../gallery/format";
-import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, row, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
@@ -30,14 +30,18 @@ const command = (line: string, description: string | undefined, minutes: number)
     startedAt: minutesAgo(minutes),
   });
 
+// The turn still runs: a command only the transcript knows is a tray line only while a turn runs
+// (runningTray.ts `trayItems`; the gallery has no process registry to vouch for it between turns).
 const scene = (agents: Subagent[], commands: ReturnType<typeof command>[]) =>
-  chat([
-    user("Fan the review out and keep the checks running while I look", 12),
-    row(SUBAGENTS, 12, { subagents: agents }),
-    activity(commands, 11),
-    assistant("The reviewers and the checks keep running in the background.", 1),
-    summary(1, { status: "completed", durationMs: 600_000, toolCount: 3 }),
-  ]);
+  chat(
+    [
+      user("Fan the review out and keep the checks running while I look", 12),
+      row(SUBAGENTS, 12, { subagents: agents }),
+      activity(commands, 11),
+      assistant("The reviewers and the checks keep running in the background.", 1),
+    ],
+    { isWorking: true },
+  );
 
 const onePlusOne = scene(
   [running("Explore how the daemon updates itself", 0.2, "Read update.rs")],

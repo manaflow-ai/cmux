@@ -103,16 +103,23 @@ import Testing
         #expect(abs(chevronX - iconX) <= 0.5, "the Show details chevron centers at x \(chevronX), the header icon at \(iconX)")
     }
 
-    @Test func tabRowsKeepOnePitchAndEachShowsItsDetailLine() throws {
+    /// One gap between every two rows; a row is two lines tall with a detail line and one row tall without
+    /// (Leo 2026-11-06: "you got all these empty things").
+    @Test func tabRowsKeepOneGapAndEachShowsItsDetailLine() throws {
         let mounted = Self.mount()
         defer { mounted.window.closeAfterTest() }
         let card = mounted.card
         let rows = try Self.rows(in: card)
         try #require(rows.count >= 4, "the card lists \(rows.count) tabs")
-        let tops = rows.map { Self.frame($0.view, in: card).minY }
-        let pitches = zip(tops.dropFirst(), tops).map { $0 - $1 }
-        for pitch in pitches {
-            #expect(abs(pitch - pitches[0]) <= 0.5, "tab row pitches \(pitches) are uneven")
+        let frames = rows.map { Self.frame($0.view, in: card) }
+        let gaps = zip(frames.dropFirst(), frames).map { $0.minY - $1.maxY }
+        for gap in gaps {
+            #expect(abs(gap - Metrics.space1) <= 0.5, "tab row gaps \(gaps) are uneven")
+        }
+        let tokens = SidebarRowTokens.current.hoverCard
+        for (row, frame) in zip(rows, frames) {
+            let height = row.detail == nil ? tokens.tabRowHeight : tokens.tabRowHeightTwoLines
+            #expect(abs(frame.height - height) <= 0.5, "\"\(row.title.stringValue)\" is \(frame.height) pt tall, not \(height)")
         }
         for row in rows {
             let detail = row.detail?.stringValue ?? ""

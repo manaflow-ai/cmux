@@ -20,6 +20,13 @@ fail() { printf '%s\n' "$@" >&2; exit 1; }
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/swift" <<'EOF'
 #!/usr/bin/env bash
+# A test helper that never prints a test (STUB_XCTEST: sleep, linked as xctest), as XCTest
+# deadlocked in its class scan does; with STUB_XCTEST_ONCE only the first run hangs, so the retry
+# goes on to the canned output.
+if [[ -n "${STUB_XCTEST:-}" ]] && [[ -z "${STUB_XCTEST_ONCE:-}" || ! -e "$STUB_XCTEST_ONCE" ]]; then
+  [[ -z "${STUB_XCTEST_ONCE:-}" ]] || : > "$STUB_XCTEST_ONCE"
+  "$STUB_XCTEST" "${STUB_XCTEST_SECONDS:-60}"
+fi
 cat "$STUB_OUTPUT"
 # Daemons a live-daemon test starts, and ones it does not own (STUB_DAEMONS, the daemon test below).
 # Each records its pid under its label. Detached ones are started in a subshell that exits at
@@ -182,6 +189,31 @@ grep -q '^### Incomplete: ' <<<"$summary" || fail "the step summary does not say
 grep '^::error title=cmux-next swift test cut short::' <<<"$out" \
   | grep -q 'cut short by the test process ending before its summary (swift test exited 0): 1 tests finished (1 passed, 0 failed, 0 skipped) and 2 started and never finished' \
   || fail "a run that ended before its summary does not count what it got done" "$out"
+
+# A pass line another stream cut into (run 41665450504 shard 14: the runtime's stderr, then the
+# helper killed with the rest of the line unwritten) is that test's pass, not a test that never
+# finished; foo() stays open beside fooBar()'s pass. The run is still incomplete.
+cat > "$TMP/spliced.out" <<'EOF'
+◇ Test run started.
+◇ Test aFailureNothingRetriesShowsAtOnce() started.
+✔ Test aFailureNothingRetriesShowsAtOnceswift runtime: backtrace-on-crash is not supported for privileged executables.
+◇ Test foo() started.
+◇ Test fooBar() started.
+✔ Test fooBar() passed after 0.001 seconds.
+EOF
+run spliced 143
+cut=$(grep '^::error title=cmux-next swift test cut short::' <<<"$out" || true)
+grep -q '2 tests finished (2 passed, 0 failed, 0 skipped) and 1 started and never finished' <<<"$cut" \
+  || fail "a spliced pass line is counted as never finished" "$out"
+grep -q 'Never finished: foo()$' <<<"$cut" || fail "the spliced pass closed the wrong test" "$cut"
+# A run's own summary does not close a test named run().
+cat > "$TMP/run-named.out" <<'EOF'
+◇ Test run started.
+◇ Test run() started.
+✔ Test run with 1 test in 1 suite passed after 0.001 seconds.
+EOF
+run run-named 0
+[[ "$status" != 0 ]] || fail "a run summary closed a test named run()" "$out"
 
 # A crash exit without a summary keeps its status and names the unfinished test.
 run cut 139
@@ -865,5 +897,48 @@ printf '%s\n%s' '◇ Test run started.' '◇ Test case passing 1 argument x → 
 STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run midline 0
 grep -q '^::error title=cmux-next swift test stuck::' <<<"$out" \
   || fail "the watchdog annotation does not start its own line" "$out"
+
+# A helper deadlocked before its first test (XCTest's class scan against a preferences read, the
+# 2026-11-15 hang on cmuxs-mac-mini-6) prints nothing and uses no CPU. The startup rule ends it
+# within seconds, not at the whole-run limit, and samples it.
+mkdir -p "$TMP/xbin"
+# A link, not a copy: macOS kills a copied system binary at once. ps names it xctest on both systems.
+ln -s "$(command -v sleep)" "$TMP/xbin/xctest"
+: > "$TMP/startup.out"
+started=$SECONDS
+STUB_XCTEST="$TMP/xbin/xctest" CMUX_NEXT_TEST_STARTUP_SECONDS=2 CMUX_NEXT_TEST_STARTUP_RETRY=0 \
+  CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run startup 0
+(( SECONDS - started < 30 )) || fail "a helper hung before its first test was ended only after $((SECONDS - started)) s" "$out"
+[[ "$status" != 0 ]] || fail "a startup hang exited 0" "$out"
+grep -q '^::error title=cmux-next swift test startup hang::test helper [0-9]' <<<"$out" \
+  || fail "no startup-hang ::error naming the helper" "$out"
+grep -q '^SAMPLED [0-9]' <<<"$out" || fail "the startup rule did not sample the helper" "$out"
+grep -q 'cut short by the startup rule' <<<"$out" || fail "the cut-short line does not name the startup rule" "$out"
+grep -q 'Startup hang' <<<"$summary" || fail "the step summary does not name the startup hang" "$summary"
+
+# Nothing ran, so by default the wrapper runs once more; a run that then passes is green, with
+# the hang left as a warning.
+cp "$TMP/green.out" "$TMP/startupretry.out"
+rm -f "$TMP/startup-once"
+STUB_XCTEST="$TMP/xbin/xctest" STUB_XCTEST_ONCE="$TMP/startup-once" CMUX_NEXT_TEST_STARTUP_SECONDS=2 \
+  CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run startupretry 0
+[[ "$status" == 0 ]] || fail "a startup hang that passed on its retry exited $status" "$out"
+grep -q '^::warning title=cmux-next swift test startup hang::.*running swift test once more' <<<"$out" \
+  || fail "the retried startup hang left no warning" "$out"
+[[ "$out" != *"::error"* ]] || fail "a retry that passed printed an error" "$out"
+grep -q 'aPasses() passed' <<<"$out" || fail "the retry did not run the tests" "$out"
+
+# The retry runs once: a second startup hang fails the step.
+rm -f "$TMP/startup-once"
+STUB_XCTEST="$TMP/xbin/xctest" CMUX_NEXT_TEST_STARTUP_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run startupretry 0
+[[ "$status" != 0 ]] || fail "two startup hangs in a row exited 0" "$out"
+[[ $(grep -c 'swift test startup hang::' <<<"$out") == 2 ]] || fail "two startup hangs did not report twice" "$out"
+grep -q '^::error title=cmux-next swift test startup hang::' <<<"$out" || fail "the second startup hang is not an error" "$out"
+
+# A helper that is busy before its first line (a slow pass whose output lags) is no startup hang.
+STUB_PATH="$TMP/busy-ps" STUB_XCTEST="$TMP/xbin/xctest" STUB_XCTEST_SECONDS=5 CMUX_NEXT_TEST_STARTUP_SECONDS=2 \
+  CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run startupretry 0
+[[ "$status" == 0 ]] || fail "a busy helper before its first test was cut ($status)" "$out"
+[[ "$out" != *"startup hang"* ]] || fail "the startup rule fired on a busy helper" "$out"
 
 echo "ok swift-test-summary"

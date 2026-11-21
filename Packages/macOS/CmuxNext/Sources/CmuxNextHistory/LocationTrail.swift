@@ -142,6 +142,19 @@ public nonisolated struct LocationTrail: Hashable, Sendable, Codable {
         }
     }
 
+    /// Renames every entry of `key` (a chat or page whose title arrived after the step was
+    /// recorded). Only the title changes: the order, the cursor and each entry's place stay.
+    /// Returns true when an entry changed.
+    @discardableResult
+    public mutating func retitle(_ key: HistoryLocation.Key, title: String) -> Bool {
+        var changed = false
+        for index in entries.indices where entries[index].location.key == key && entries[index].location.title != title {
+            entries[index].location.title = title
+            changed = true
+        }
+        return changed
+    }
+
     /// Drops matching entries, keeping the cursor on the same entry when it
     /// survives, else on the newest older survivor.
     public mutating func removeAll(where shouldRemove: (Entry) -> Bool) {

@@ -113,6 +113,53 @@ export function isCustomDensity(value: unknown): boolean {
   return Object.values(tokens).every((token) => typeof token === "number" && Number.isFinite(token) && token >= 0);
 }
 
+/**
+ * One command label item (`agentPane.display.commandLabels`): a preset name, or a rule with a label
+ * and a program or pattern. The Swift rule is `CommandLabelsSetting.isItem`.
+ */
+export function isCommandLabel(value: unknown): boolean {
+  const nonBlank = (item: unknown) => typeof item === "string" && item.trim() !== "";
+  if (typeof value === "string") return nonBlank(value);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const rule = value as Record<string, unknown>;
+  if (!nonBlank(rule.label)) return false;
+  if (rule.program !== undefined) {
+    const names = Array.isArray(rule.program) ? rule.program : [rule.program];
+    if (!names.length || !names.every(nonBlank)) return false;
+  }
+  if (rule.match !== undefined && !nonBlank(rule.match)) return false;
+  if (["link", "icon"].some((key) => rule[key] !== undefined && typeof rule[key] !== "string")) return false;
+  return rule.program !== undefined || rule.match !== undefined;
+}
+
+/**
+ * A fixed picture (`appearance.backgroundLight` / `backgroundDark`, a Time of Day entry): a listed
+ * painting or `desktop`, or a macOS wallpaper or image by absolute path; never a shuffle or none.
+ * The Swift rule is `BackdropSelectionSetting.picture`; this is its portable shape.
+ */
+export function isBackdropPicture(value: unknown, choices: readonly string[] = []): boolean {
+  if (typeof value !== "string") return false;
+  if (["none", "daily", "appearance", "schedule"].includes(value)) return false;
+  return choices.includes(value) || /^(system|file):\/./.test(value) || /^[a-z0-9]+(-[a-z0-9]+)*$/.test(value);
+}
+
+/** A Time of Day time: `H:MM` / `HH:MM`, or a sun event with an optional `±Nm` (≤1440) / `±Nh` (≤24) offset. */
+export function isBackdropTime(key: string): boolean {
+  const clock = /^(\d{1,2}):(\d{2})$/.exec(key);
+  if (clock) return Number(clock[1]) < 24 && Number(clock[2]) < 60;
+  const sun = /^(dawn|sunrise|noon|sunset|dusk)(?:[+-](\d+)([mh]))?$/.exec(key);
+  if (!sun) return false;
+  return sun[2] === undefined || Number(sun[2]) <= (sun[3] === "m" ? 1440 : 24);
+}
+
+/** `appearance.backgroundLocation`: `LAT,LON`, latitude -90...90 and longitude -180...180. */
+export function isBackdropLocation(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const parts = value.split(",").map((part) => part.trim());
+  if (parts.length !== 2 || parts.some((part) => part === "" || !Number.isFinite(Number(part)))) return false;
+  return Math.abs(Number(parts[0])) <= 90 && Math.abs(Number(parts[1])) <= 180;
+}
+
 /** Returns null when `value` is valid for `row`, otherwise a short English reason. */
 export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domains>): string | null {
   const choices = row.choices?.map((choice) => choice.value) ?? [];
@@ -125,10 +172,51 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       return null;
     return "expected none, daily, a listed painting, system:<absolute path>, file:<absolute path> or folder:<absolute path>";
   }
+  if (row.validation === "domain:backdrop_picture") {
+    return isBackdropPicture(value, choices)
+      ? null
+      : "expected desktop, a listed painting, system:<absolute path> or file:<absolute path>";
+  }
+  if (row.validation === "domain:backdrop_schedule") {
+    const ok =
+      typeof value === "object" &&
+      value !== null &&
+      !Array.isArray(value) &&
+      Object.entries(value).every(([time, picture]) => isBackdropTime(time) && isBackdropPicture(picture));
+    return ok ? null : 'expected {"07:00" | "sunset-30m": picture, ...}';
+  }
+  if (row.validation === "domain:backdrop_memory") {
+    const folder = (text: unknown) => typeof text === "string" && /^folder:\/./.test(text);
+    const member: Record<string, (text: unknown) => boolean> = {
+      rotate: (text) => text === "daily" || folder(text),
+      folder,
+      off: (text) => text === "none" || isBackdropPicture(text),
+    };
+    const ok =
+      typeof value === "object" &&
+      value !== null &&
+      !Array.isArray(value) &&
+      Object.entries(value).every(([name, text]) => Object.hasOwn(member, name) && member[name]!(text));
+    return ok ? null : 'expected {"rotate": daily | folder:<path>, "folder": folder:<path>, "off": none | picture}';
+  }
+  if (row.validation === "domain:backdrop_location") {
+    return isBackdropLocation(value) ? null : "expected LAT,LON such as 37.77,-122.42";
+  }
   if (row.validation === "domain:custom_densities") {
     return Array.isArray(value) && value.every(isCustomDensity)
       ? null
       : "expected a list of densities, each with a lowercase id and a name";
+  }
+  if (row.validation === "domain:command_labels") {
+    return Array.isArray(value) && value.every(isCommandLabel)
+      ? null
+      : "expected a list of preset names and rules, each with a label and a program or match";
+  }
+  if (row.validation === "domain:app_id") {
+    // The manifest's own id pattern, which the export carries on the row.
+    return typeof value === "string" && row.pattern !== undefined && new RegExp(row.pattern).test(value)
+      ? null
+      : "expected an app id, publisher/name in lowercase letters, digits and -";
   }
   if (row.validation === "domain:search_template") {
     return isSearchTemplate(value) ? null : "expected a web address with %s or {searchTerms}, or empty";

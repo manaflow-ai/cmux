@@ -153,6 +153,9 @@ enum Action {
     /// cmux: the participants again (a sender's avatar changed: the host's chosen Chief avatar);
     /// the rows are derived again.
     case cmuxSetParticipants([Participant])
+    /// cmux: the participants and whether the transcript names other senders' runs, again (an
+    /// agent that sent through its owner's CLI appeared: HomeAgentSender); the rows are derived again.
+    case cmuxSetSenders([Participant], group: Bool)
     /// Hosted rows of these messages measure again (no state change). `animated` false: an
     /// estimate correction (no motion; the first visible row keeps its place).
     case remeasureCustom([ID], animated: Bool)
@@ -348,6 +351,9 @@ enum Reducer {
             s.ui.cmuxNotice = text
         case let .cmuxSetParticipants(participants):  // cmux
             s.conversation.participants = participants
+        case let .cmuxSetSenders(participants, group):  // cmux
+            s.conversation.participants = participants
+            s.conversation.cmuxGroup = group
         case let .streamBegin(id, sender, format):
             guard !s.ui.streams.contains(where: { $0.id == id }) else { break }
             s.ui.streams.append(StreamBubble(id: id, sender: sender, format: format, updatedAt: stamp))

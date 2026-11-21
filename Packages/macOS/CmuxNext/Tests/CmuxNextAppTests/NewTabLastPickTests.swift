@@ -1,5 +1,6 @@
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextTestSupport
 import Foundation
 import Observation
 import Testing
@@ -20,7 +21,7 @@ struct NewTabLastPickTests {
 
     @Test func aPickReachesTheNextLaunchsNewTabContext() async throws {
         let suite = "NewTabLastPickTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let memory = NewTabChoiceMemory(defaults: defaults)
         let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
@@ -48,7 +49,7 @@ struct NewTabLastPickTests {
     /// profile came back as plain Claude Code on Cmd-N).
     @Test func aDefaultOrModellessHarnessPickReplacesTheOlderPick() throws {
         let suite = "NewTabLastPickTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let memory = NewTabChoiceMemory(defaults: defaults)
         memory.remember(AgentPaneRememberedPick(agent: "claude", model: "claude-opus-5-5", folder: "/work/a"))
@@ -73,7 +74,7 @@ struct NewTabLastPickTests {
 struct NewTabChoiceMemoryObservationTests {
     @Test func aRememberedPickNotifiesAnObserverOfThePicks() throws {
         let suite = "NewTabChoiceMemoryObservationTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let memory = NewTabChoiceMemory(defaults: defaults)
         nonisolated(unsafe) var changed = false

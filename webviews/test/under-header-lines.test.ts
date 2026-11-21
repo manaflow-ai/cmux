@@ -11,6 +11,7 @@ const none: UnderHeaderLines = {
   checkpointReview: false,
   liveChat: false,
   peerCopy: false,
+  unavailable: false,
   watching: false,
   handoffError: false,
 };
@@ -28,7 +29,7 @@ test("the transcript runs under a solo row only when no line sits under the head
 test("App.tsx gates every line under the header by the record the transcript reads", () => {
   const app = fs.readFileSync(path.resolve(import.meta.dir, "../src/agent-session/acpmux/App.tsx"), "utf8");
   expect(app).toContain("const soloUnder = runsUnderTabRow(soloTab, underHeader);");
-  expect(app).toContain("checkpointReview: !diffView && checkpoints.review != null,");
+  expect(app).toContain("checkpointReview: checkpoints.review != null,");
   // The stage's lines between the header and the chat body.
   const start = app.indexOf("{/* A feature tip under its header control");
   const end = app.indexOf("{viewedSandbox ? (", start);

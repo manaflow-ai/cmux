@@ -14,5 +14,19 @@
     "waiting": { "row": 3, "frames": 4 },
     "done": { "row": 4, "frames": 5, "loop": false },
     "error": { "row": 5, "frames": 4, "loop": false }
+  },
+  "directions": {
+    "look": {
+      "left": { "row": 6, "frames": 4, "fps": 7 },
+      "right": { "row": 7, "frames": 4, "fps": 7 },
+      "up": { "row": 8, "frames": 4, "fps": 7 },
+      "down": { "row": 9, "frames": 4, "fps": 7 }
+    },
+    "drag": {
+      "left": { "row": 10, "frames": 4, "fps": 8 },
+      "right": { "row": 11, "frames": 4, "fps": 8 },
+      "up": { "row": 12, "frames": 4, "fps": 8 },
+      "down": { "row": 13, "frames": 4, "fps": 8 }
+    }
   }
 }

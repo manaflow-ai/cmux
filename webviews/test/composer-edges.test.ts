@@ -56,7 +56,10 @@ await requireBrowserLane("composer-edges.test.ts", async () => {
     return {
       shadows: layers.map((layer) => {
         const lengths = [...layer.replace(/\([^)]*\)/g, "").matchAll(/(-?[\d.]+)px/g)].map((match) => Number(match[1]));
-        return { inset: /\binset\b/.test(layer), alpha: alpha(layer), ring: (lengths[3] ?? 0) !== 0 };
+        // A ring is crisp: a spread and no blur. The glass material's blurred highlights
+        // (glass.css, GLASS MATERIAL) are soft light, not an edge.
+        const ring = (lengths[3] ?? 0) !== 0 && (lengths[2] ?? 0) === 0;
+        return { inset: /\binset\b/.test(layer), alpha: alpha(layer), ring };
       }),
       border: { width: parseFloat(style.borderTopWidth) || 0, alpha: alpha(style.borderTopColor) },
     };
@@ -143,7 +146,7 @@ await requireBrowserLane("composer-edges.test.ts", async () => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     const measured = await page.evaluate(edges, ".acpmux-composer-box");
     await page.close();
-    // The ring is the inset layer with a spread. The glass's light rim (#24593, composerStates.css
+    // The ring is the crisp inset layer with a spread. The glass's light rim (#24593, composerStates.css
     // --acpmux-composer-rim) adds a top and a bottom line with no spread: lighting, not an edge.
     const rims = measured.shadows.filter((layer) => layer.inset && layer.ring);
     expect(rims).toHaveLength(1);

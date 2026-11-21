@@ -11,6 +11,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -79,20 +80,30 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
         const menu = document.querySelector<HTMLElement>(menuSelector)!;
         const suggestions = document.querySelector(".nt-popover")!.getBoundingClientRect();
         const rows = [...menu.querySelectorAll<HTMLElement>(rowSelector)];
-        const overlapping = rows.filter((row) => {
+        const overlapping = rows.flatMap((row) => {
           const box = row.getBoundingClientRect();
-          return (
-            box.bottom > suggestions.top &&
-            box.top < suggestions.bottom &&
-            box.right > suggestions.left &&
-            box.left < suggestions.right
-          );
+          // Columns scroll independently: only the part of a row inside its column's scroller is
+          // painted. The effort levels scroll inside .acpmux-cols-tune-scroll, between the Reasoning
+          // heading and Fast (#41212), so a level row's painted part ends above Fast.
+          const column = row.closest(".acpmux-cols-tune-scroll, .acpmux-cols-list")?.getBoundingClientRect();
+          const top = Math.max(box.top, column?.top ?? box.top, suggestions.top);
+          const bottom = Math.min(box.bottom, column?.bottom ?? box.bottom, suggestions.bottom);
+          const left = Math.max(box.left, column?.left ?? box.left, suggestions.left);
+          const right = Math.min(box.right, column?.right ?? box.right, suggestions.right);
+          return bottom > top && right > left
+            ? [{ row, x: (left + right) / 2, y: (top + bottom) / 2, height: bottom - top }]
+            : [];
         });
+        // A press must reach its row, never a suggestion (Leo 10-15). Where only a sliver of a row's
+        // edge (under 4 px) lies over the suggestions, its neighbour's box can share that sliver: there
+        // the press must still land on the menu.
         const misses = overlapping
-          .map((row) => {
-            const box = row.getBoundingClientRect();
-            const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-            return menu.contains(hit) ? null : `${row.textContent?.trim().slice(0, 24)} -> ${hit?.className}`;
+          .map(({ row, x, y, height }) => {
+            const hit = document.elementFromPoint(x, y);
+            const ok = height < 4 ? menu.contains(hit) : row.contains(hit);
+            return ok
+              ? null
+              : `${row.textContent?.trim().slice(0, 24)} -> ${hit?.className} (${hit?.textContent?.trim().slice(0, 24)}; ${height.toFixed(1)}px over)`;
           })
           .filter(Boolean);
         return { overlapping: overlapping.length, misses };
@@ -106,9 +117,9 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
       name: "model",
       query: "",
       height: 720,
-      button: ".acpmux-model-name",
-      menu: ".acpmux-quick-menu",
-      rows: "[role^=menuitem]",
+      button: MODEL_PICKER,
+      menu: ".acpmux-cols",
+      rows: "[role=option], [role=radio], [role=switch]",
     },
     {
       name: "access",

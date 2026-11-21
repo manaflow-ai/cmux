@@ -47,4 +47,9 @@ final class AppPaletteGoToSource: PaletteGoToSource {
             : AgentPaneSeed(cwd: target.workingDirectory, prompt: text, promptBy: .person)
         _ = pane.openAgentTab(seed: AgentPaneSeedSource(seed))
     }
+
+    func askAgent(prompt: String) {
+        guard let pane else { return services?.registry.refuse(MiscHandlerStrings.noPane) ?? () }
+        _ = pane.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: baseDirectory(), prompt: prompt, promptBy: .person)))
+    }
 }

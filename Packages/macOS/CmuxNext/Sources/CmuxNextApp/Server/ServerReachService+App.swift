@@ -1,7 +1,11 @@
+import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextHostedChief
+import CmuxNextMobileHost
+import CmuxNextPages
 import CmuxNextRemote
+import CmuxNextServer
 import Foundation
 
 extension ServerReachService {
@@ -10,8 +14,8 @@ extension ServerReachService {
     static func app(services: AppServices) -> ServerReachService {
         let feed = services.feed, auth = services.cloud.auth
         let binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
-        // The bundle's own CLI, never one found on PATH.
-        let bundled: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
+        // The bundle's own CLI (or the source-built one `CMUX_NEXT_TUI_BIN` names), never one found on PATH.
+        let bundled: URL? = services.bundledCLI.candidate
         let cli = bundled.flatMap { FileManager.default.isExecutableFile(atPath: $0.path) ? $0 : nil }
         return ServerReachService(
             machines: services.machines,
@@ -48,6 +52,36 @@ extension ServerMenuBarController {
             guard let services else { return nil }
             return CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, cli: services.bundledCLI,
                                    chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
-        })
+        }, makeAddServer: { [person = PersonInputCheck(sources: services.personInput.sources)] in AddServerDialog(model: $0, isPersonEvent: person.isPerson) },
+        makeInvite: { [weak services] in services.map(PairInviteDialog.app) },
+        qr: { [qrCode = PairingQRCode()] in qrCode.pngDataURL(for: $0) })
+    }
+}
+
+extension PairInviteDialog {
+    /// The App's Pair Another Machine card: the invite minted and watched as the signed-in user; its arrived machine
+    /// previewed and approved by Add Server's own cloud source.
+    @MainActor
+    static func app(services: AppServices) -> PairInviteDialog {
+        let pairing = CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, cli: services.bundledCLI, inner: NoLocalServerSource(),
+                                             chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
+        let approver = ServerModel(source: pairing)
+        approver.start()
+        let qrCode = PairingQRCode()
+        let dialog = PairInviteDialog(model: PairInviteModel(
+            service: .cloud(
+                team: { try await pairing.workerTeam()?.id },
+                call: { try CloudPairingSource.okValue(try await pairing.call($0, $1)) },
+                texts: .init(
+                    failed: { RefusalStrings.format("refusal.server.inviteFailed", "Could not make a pairing code: %@", $0) },
+                    unreachable: RefusalStrings.text("refusal.server.pairUnreachable", "Could not reach cmux. Check the connection and try again."),
+                    notMade: RefusalStrings.text("refusal.server.inviteNotMade", "cmux could not make a pairing code. Try again.")),
+                apiBaseURL: services.feed.apiBaseURL, buildSpace: services.cloud.configuration.buildSpace),
+            approver: approver,
+            // A single-use code: marked concealed and transient (nspasteboard.org) so clipboard managers do not keep it.
+            copy: { SystemPasswordPasteboard().write($0, markers: [ConcealedPasteboard.concealedType, ConcealedPasteboard.transientType]) },
+            qr: { qrCode.pngData(for: $0) }))
+        dialog.isPersonEvent = { [person = PersonInputCheck(sources: services.personInput.sources)] in person.isPerson($0) }
+        return dialog
     }
 }

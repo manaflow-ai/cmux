@@ -140,6 +140,13 @@ public actor InstallAuthClient {
         return try await task.value
     }
 
+    /// A valid install token, minted in the caller's own task, so cancelling the caller cancels
+    /// the mint's requests. For a client with one caller: nothing is shared with other callers.
+    public func installTokenInCallerTask() async throws -> String {
+        if let token, token.expiresAt.timeIntervalSince(now()) > Self.refreshMargin { return token.value }
+        return try await mintRecovering()
+    }
+
     /// The op classes the phone's install asks for (``InstallProfile/ios``).
     public static let grantClasses = InstallProfile.ios.opClasses
 
@@ -318,7 +325,7 @@ public actor InstallAuthClient {
             (status, data) = try await transport.post(path, json: body, bearer: bearer,
                                                       headers: Self.headers(clientVersion: clientVersion))
         } catch {
-            throw InstallAuthError.transport
+            throw InstallAuthError.transport(path: path, urlErrorCode: (error as? URLError)?.code.rawValue)
         }
         guard let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw status == 200 ? InstallAuthError.malformedReply : InstallAuthError.refused("http_\(status)")

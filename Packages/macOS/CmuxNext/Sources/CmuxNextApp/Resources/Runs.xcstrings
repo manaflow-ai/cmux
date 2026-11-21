@@ -134,133 +134,133 @@
       }
     },
     "runs.error.badResponse": {
-      "comment": "A sandboxed run call got a reply from cmux.com that the app could not parse.",
+      "comment": "A sandboxed run call got a reply from the cmux daemon that the app could not parse.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.com sent an answer the app couldn't read."
+            "value": "The cmux daemon sent an answer the app couldn't read."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.com hat eine Antwort gesendet, die die App nicht lesen konnte."
+            "value": "Der cmux-Daemon hat eine Antwort gesendet, die die App nicht lesen konnte."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.com a envoyé une réponse que l'app n'a pas pu lire."
+            "value": "Le démon cmux a envoyé une réponse que l'app n'a pas pu lire."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أرسل cmux.com ردًا تعذّر على التطبيق قراءته."
+            "value": "أرسل برنامج cmux الخفي ردًا تعذّر على التطبيق قراءته."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.com envió una respuesta que la app no pudo leer."
+            "value": "El daemon de cmux envió una respuesta que la app no pudo leer."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.com 傳回了 App 無法讀取的回應。"
+            "value": "cmux 背景服務傳回了 App 無法讀取的回應。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.com 返回了 App 无法读取的响应。"
+            "value": "cmux 守护进程返回了 App 无法读取的响应。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.com이 앱에서 읽을 수 없는 응답을 보냈습니다."
+            "value": "cmux 데몬이 앱에서 읽을 수 없는 응답을 보냈습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.com からアプリが読み取れない応答が返されました。"
+            "value": "cmux デーモンからアプリが読み取れない応答が返されました。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com je poslao odgovor koji aplikacija nije mogla pročitati."
+            "value": "cmux daemon je poslao odgovor koji aplikacija nije mogla pročitati."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com sendte et svar, som appen ikke kunne læse."
+            "value": "cmux-dæmonen sendte et svar, som appen ikke kunne læse."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com ha inviato una risposta che l'app non è riuscita a leggere."
+            "value": "Il daemon di cmux ha inviato una risposta che l'app non è riuscita a leggere."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com បានផ្ញើចម្លើយដែលកម្មវិធីមិនអាចអានបាន។"
+            "value": "ដេមិន cmux បានផ្ញើចម្លើយដែលកម្មវិធីមិនអាចអានបាន។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com sendte et svar appen ikke kunne lese."
+            "value": "cmux-daemonen sendte et svar appen ikke kunne lese."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com wysłał odpowiedź, której aplikacja nie mogła odczytać."
+            "value": "Demon cmux wysłał odpowiedź, której aplikacja nie mogła odczytać."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux.com enviou uma resposta que o app não conseguiu ler."
+            "value": "O daemon do cmux enviou uma resposta que o app não conseguiu ler."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com прислал ответ, который приложение не смогло прочитать."
+            "value": "Демон cmux прислал ответ, который приложение не смогло прочитать."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com ส่งคำตอบที่แอปอ่านไม่ได้"
+            "value": "ดีมอน cmux ส่งคำตอบที่แอปอ่านไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com, uygulamanın okuyamadığı bir yanıt gönderdi."
+            "value": "cmux arka plan hizmeti, uygulamanın okuyamadığı bir yanıt gönderdi."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com надіслав відповідь, яку застосунок не зміг прочитати."
+            "value": "Демон cmux надіслав відповідь, яку застосунок не зміг прочитати."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com đã gửi một phản hồi mà ứng dụng không đọc được."
+            "value": "Tiến trình nền cmux đã gửi một phản hồi mà ứng dụng không đọc được."
           }
         }
       }
@@ -668,127 +668,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to cmux in the cmux app first."
+            "value": "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Melde dich zuerst in der cmux-App bei cmux an."
+            "value": "Melde dich zuerst bei cmux an: Führe `cmux cloud sign-in` aus oder wähle „Anmelden“ in der cmux-App."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connectez-vous d’abord à cmux dans l’app cmux."
+            "value": "Connectez-vous d’abord à cmux : exécutez `cmux cloud sign-in` ou choisissez Se connecter dans l’app cmux."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سجّل الدخول إلى cmux في تطبيق cmux أولًا."
+            "value": "سجّل الدخول إلى cmux أولاً: شغّل `cmux cloud sign-in`، أو اختر تسجيل الدخول في تطبيق cmux."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Primero inicia sesión en cmux desde la app cmux."
+            "value": "Primero inicia sesión en cmux: ejecuta `cmux cloud sign-in` o elige Iniciar sesión en la app cmux."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請先在 cmux App 中登入 cmux。"
+            "value": "請先登入 cmux：執行 `cmux cloud sign-in`，或在 cmux 應用程式中選擇「登入」。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请先在 cmux 应用中登录 cmux。"
+            "value": "请先登录 cmux：运行 `cmux cloud sign-in`，或在 cmux 应用中选择“登录”。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "먼저 cmux 앱에서 cmux에 로그인하세요."
+            "value": "먼저 cmux에 로그인하세요. `cmux cloud sign-in`을 실행하거나 cmux 앱에서 로그인을 선택하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "先に cmux アプリで cmux にサインインしてください。"
+            "value": "先に cmux にサインインしてください。`cmux cloud sign-in` を実行するか、cmux アプリで「サインイン」を選びます。"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Prvo se prijavite u cmux u aplikaciji cmux."
+            "state": "translated",
+            "value": "Prvo se prijavite u cmux: pokrenite `cmux cloud sign-in` ili odaberite Prijava u aplikaciji cmux."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Log først ind på cmux i cmux-appen."
+            "state": "translated",
+            "value": "Log ind på cmux først: kør `cmux cloud sign-in`, eller vælg Log ind i cmux-appen."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Prima accedi a cmux nell’app cmux."
+            "state": "translated",
+            "value": "Accedi prima a cmux: esegui `cmux cloud sign-in` oppure scegli Accedi nell’app cmux."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ចូលគណនី cmux ក្នុងកម្មវិធី cmux ជាមុនសិន។"
+            "state": "translated",
+            "value": "ចូល cmux ជាមុនសិន៖ ដំណើរការ `cmux cloud sign-in` ឬជ្រើស ចូល ក្នុងកម្មវិធី cmux។"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Logg først inn på cmux i cmux-appen."
+            "state": "translated",
+            "value": "Logg inn på cmux først: kjør `cmux cloud sign-in`, eller velg Logg inn i cmux-appen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Najpierw zaloguj się do cmux w aplikacji cmux."
+            "state": "translated",
+            "value": "Najpierw zaloguj się do cmux: uruchom `cmux cloud sign-in` lub wybierz Zaloguj się w aplikacji cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Primeiro entre no cmux pelo app cmux."
+            "state": "translated",
+            "value": "Entre no cmux primeiro: execute `cmux cloud sign-in` ou escolha Entrar no app cmux."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Сначала войдите в cmux в приложении cmux."
+            "state": "translated",
+            "value": "Сначала войдите в cmux: выполните `cmux cloud sign-in` или выберите «Войти» в приложении cmux."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ลงชื่อเข้าใช้ cmux ในแอป cmux ก่อน"
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ cmux ก่อน: เรียกใช้ `cmux cloud sign-in` หรือเลือก ลงชื่อเข้าใช้ ในแอป cmux"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Önce cmux uygulamasında cmux'a giriş yapın."
+            "state": "translated",
+            "value": "Önce cmux'a giriş yapın: `cmux cloud sign-in` komutunu çalıştırın veya cmux uygulamasında Giriş yap'ı seçin."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Спершу увійдіть у cmux у застосунку cmux."
+            "state": "translated",
+            "value": "Спочатку увійдіть у cmux: виконайте `cmux cloud sign-in` або виберіть «Увійти» в застосунку cmux."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hãy đăng nhập cmux trong ứng dụng cmux trước."
+            "state": "translated",
+            "value": "Hãy đăng nhập cmux trước: chạy `cmux cloud sign-in` hoặc chọn Đăng nhập trong ứng dụng cmux."
           }
         }
       }
@@ -1190,133 +1190,133 @@
       }
     },
     "runs.error.timeout": {
-      "comment": "A sandboxed run call to cmux.com timed out.",
+      "comment": "A sandboxed run call to the cmux daemon timed out.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.com didn't answer in time."
+            "value": "The cmux daemon didn't answer in time."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.com hat nicht rechtzeitig geantwortet."
+            "value": "Der cmux-Daemon hat nicht rechtzeitig geantwortet."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.com n'a pas répondu à temps."
+            "value": "Le démon cmux n'a pas répondu à temps."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يستجب cmux.com في الوقت المحدد."
+            "value": "لم يستجب برنامج cmux الخفي في الوقت المحدد."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.com no respondió a tiempo."
+            "value": "El daemon de cmux no respondió a tiempo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.com 未能及時回應。"
+            "value": "cmux 背景服務未能及時回應。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.com 未能及时响应。"
+            "value": "cmux 守护进程未能及时响应。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.com이 제때 응답하지 않았습니다."
+            "value": "cmux 데몬이 제때 응답하지 않았습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.com が時間内に応答しませんでした。"
+            "value": "cmux デーモンが時間内に応答しませんでした。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com nije odgovorio na vrijeme."
+            "value": "cmux daemon nije odgovorio na vrijeme."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com svarede ikke i tide."
+            "value": "cmux-dæmonen svarede ikke i tide."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com non ha risposto in tempo."
+            "value": "Il daemon di cmux non ha risposto in tempo."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com មិនបានឆ្លើយតបទាន់ពេលទេ។"
+            "value": "ដេមិន cmux មិនបានឆ្លើយតបទាន់ពេលទេ។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com svarte ikke i tide."
+            "value": "cmux-daemonen svarte ikke i tide."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com nie odpowiedział na czas."
+            "value": "Demon cmux nie odpowiedział na czas."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux.com não respondeu a tempo."
+            "value": "O daemon do cmux não respondeu a tempo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com не ответил вовремя."
+            "value": "Демон cmux не ответил вовремя."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com ไม่ตอบกลับทันเวลา"
+            "value": "ดีมอน cmux ไม่ตอบกลับทันเวลา"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com zamanında yanıt vermedi."
+            "value": "cmux arka plan hizmeti zamanında yanıt vermedi."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com не відповів вчасно."
+            "value": "Демон cmux не відповів вчасно."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.com không phản hồi kịp thời."
+            "value": "Tiến trình nền cmux không phản hồi kịp thời."
           }
         }
       }

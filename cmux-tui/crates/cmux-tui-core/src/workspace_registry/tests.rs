@@ -23,7 +23,7 @@ fn workspace(id: u64, key: &str, name: &str) -> RegistryWorkspace {
     }
 }
 
-fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
+pub(super) fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
     let revision = registry.snapshot().unwrap().revision;
     registry
         .commit(
@@ -1126,16 +1126,21 @@ fn workspace_commit_publishes_one_normalized_resource_event() {
     assert_eq!(events.batches[0].previous_revision, 0);
     assert_eq!(events.batches[0].revision, 1);
     let c = events.batches[0].changes.as_array().unwrap();
-    assert_eq!([&c[0]["kind"], &c[1]["kind"]], ["upsert", "state_upsert"], "{c:?}");
-    assert_eq!([&c[0]["resource"], &c[1]["resource"]], ["workspace", "workspace_placement"]);
+    assert_eq!([&c[0]["kind"], &c[0]["resource"]], ["upsert", "workspace"], "{c:?}");
     assert!(c[0].get("event").is_none());
-    // Then the new workspace's sidebar document item and the document
-    // revision (sidebar-doc-v1).
+    // Then the new workspace's sidebar document item, the document revision
+    // (sidebar-doc-v1: the document decides the place) and the personal
+    // placement that follows it.
     assert!(
-        c[2..].iter().all(|change| change["kind"] == "state_upsert"
-            && matches!(change["resource"].as_str(), Some("sidebar_item" | "sidebar_doc"))),
+        c[1..].iter().all(|change| change["kind"] == "state_upsert"
+            && matches!(
+                change["resource"].as_str(),
+                Some("sidebar_item" | "sidebar_doc" | "workspace_placement")
+            )),
         "{c:?}"
     );
+    let placements = c.iter().filter(|change| change["resource"] == "workspace_placement").count();
+    assert_eq!(placements, 1, "{c:?}");
     assert_eq!(
         registry
             .connection
@@ -1462,6 +1467,7 @@ fn viewport_screen() -> RegistryScreen {
     let boundary = split_id(2);
     let base_column = split_id(3);
     let first_column = RegistryLayoutNode::Split {
+        divider_hidden: false,
         split: internal,
         direction: "down".into(),
         ratio: 0.5,
@@ -1474,6 +1480,7 @@ fn viewport_screen() -> RegistryScreen {
         position: 0,
         name: None,
         layout: RegistryLayoutNode::Split {
+            divider_hidden: false,
             split: boundary.clone(),
             direction: "right".into(),
             ratio: 1.0 / (1.0 + 0.5),
@@ -1496,6 +1503,7 @@ fn viewport_screen() -> RegistryScreen {
                 ),
             ],
         },
+        floating: Vec::new(),
     }
 }
 
@@ -1534,6 +1542,7 @@ fn viewport_schema_rejects_missing_duplicate_and_owner_splits() {
     let fourth = pane_id(4);
     if let RegistryLayoutNode::Split { second, .. } = &mut duplicate.layout {
         **second = RegistryLayoutNode::Split {
+            divider_hidden: false,
             split: split_id(4),
             direction: "down".into(),
             ratio: 0.5,
@@ -1542,6 +1551,7 @@ fn viewport_schema_rejects_missing_duplicate_and_owner_splits() {
         };
     }
     duplicate.viewport.columns[1].layout = RegistryLayoutNode::Split {
+        divider_hidden: false,
         split: split_id(1),
         direction: "down".into(),
         ratio: 0.5,
@@ -1594,6 +1604,7 @@ fn terminal_topology_patch() -> ResourcePatch {
                 zoomed_pane: None,
                 auto_layout: None,
                 viewport: RegistryViewport::default(),
+                floating: Vec::new(),
             }),
             ResourceChange::UpsertPane(RegistryPane {
                 public_id: pane.clone(),
@@ -1672,6 +1683,7 @@ fn commit_browser_topology(
                         position: 0,
                         name: Some("Main".into()),
                         layout: RegistryLayoutNode::Split {
+                            divider_hidden: false,
                             split,
                             direction: "right".into(),
                             ratio: 0.5,
@@ -1684,6 +1696,7 @@ fn commit_browser_topology(
                         zoomed_pane: None,
                         auto_layout: None,
                         viewport: RegistryViewport::default(),
+                        floating: Vec::new(),
                     }),
                     ResourceChange::UpsertPane(RegistryPane {
                         public_id: second_pane.clone(),
@@ -2915,6 +2928,7 @@ fn commit_browser_topology_unchecked(
                         position: 0,
                         name: Some("Main".into()),
                         layout: RegistryLayoutNode::Split {
+                            divider_hidden: false,
                             split: split_id(1),
                             direction: "right".into(),
                             ratio: 0.5,
@@ -2927,6 +2941,7 @@ fn commit_browser_topology_unchecked(
                         zoomed_pane: None,
                         auto_layout: None,
                         viewport: RegistryViewport::default(),
+                        floating: Vec::new(),
                     }),
                     ResourceChange::UpsertPane(RegistryPane {
                         public_id: second_pane.clone(),
@@ -3011,6 +3026,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         position: 0,
                         name: Some("Main".into()),
                         layout: RegistryLayoutNode::Split {
+                            divider_hidden: false,
                             split: split.clone(),
                             direction: "right".into(),
                             ratio: 0.5,
@@ -3023,6 +3039,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         zoomed_pane: None,
                         auto_layout: None,
                         viewport: RegistryViewport::default(),
+                        floating: Vec::new(),
                     }),
                     ResourceChange::UpsertPane(RegistryPane {
                         public_id: second_pane.clone(),
@@ -3091,6 +3108,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         zoomed_pane: None,
                         auto_layout: None,
                         viewport: RegistryViewport::default(),
+                        floating: Vec::new(),
                     }),
                     ResourceChange::TombstonePane { pane_id: second_pane },
                 ],
@@ -3513,6 +3531,105 @@ fn frontend_projection_is_durable_cas_and_exactly_once() {
         .unwrap();
     assert_eq!(recovered.projection_revision, 1);
     assert_eq!(recovered.projection["columns"][0]["workspace"], "one");
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The app saves its window and sidebar documents again on many events with
+/// nothing changed. An identical save under a new mutation id is no change:
+/// no revision and no change event (`replayed`), which woke every subscriber
+/// and the launch snapshot for each save and kept the app's idle owner busy.
+/// It is still recorded, so its retries replay.
+#[test]
+fn an_identical_frontend_projection_under_a_new_mutation_writes_nothing() {
+    let root = temp_root("projection-identical");
+    let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let put = |registry: &mut WorkspaceRegistry, id: &str, schema: u32, body: &Value| {
+        registry.put_frontend_projection(
+            &WorkspaceMutation::daemon(id, "cmux-app").unwrap(),
+            "cmux-app",
+            "window",
+            "main",
+            schema,
+            None,
+            body,
+        )
+    };
+    let ledger_rows = |registry: &WorkspaceRegistry| -> i64 {
+        registry
+            .connection
+            .get()
+            .query_row("SELECT COUNT(*) FROM projection_mutations", [], |row| row.get(0))
+            .unwrap()
+    };
+    let body = json!({"frame":[0, 0, 800, 600], "tabs":["a", "b"]});
+    let first = put(&mut registry, "save-1", 1, &body).unwrap();
+    assert!(!first.replayed);
+    assert_eq!(first.projection.projection_revision, 1);
+    let rows = ledger_rows(&registry);
+
+    // Key order does not count as a change.
+    let same = json!({"tabs":["a", "b"], "frame":[0, 0, 800, 600]});
+    for id in ["save-2", "save-3"] {
+        let again = put(&mut registry, id, 1, &same).unwrap();
+        assert!(again.replayed, "{id}: an identical save is not a change");
+        assert_eq!(again.projection.projection_revision, 1, "{id}");
+        assert_eq!(again.projection.projection, body, "{id}");
+    }
+    assert_eq!(ledger_rows(&registry), rows + 2, "each save is still recorded for its retries");
+    // A matching expected revision is still checked, and still no change.
+    let expected = registry
+        .put_frontend_projection(
+            &WorkspaceMutation::daemon("save-4", "cmux-app").unwrap(),
+            "cmux-app",
+            "window",
+            "main",
+            1,
+            Some(1),
+            &body,
+        )
+        .unwrap();
+    assert!(expected.replayed);
+    assert!(
+        registry
+            .put_frontend_projection(
+                &WorkspaceMutation::daemon("save-5", "cmux-app").unwrap(),
+                "cmux-app",
+                "window",
+                "main",
+                1,
+                Some(0),
+                &body,
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("projection revision conflict")
+    );
+
+    // A retry of an identical save, after another mutation changed the
+    // body, replays its answer and does not write the old body back.
+    let changed = put(&mut registry, "save-other", 1, &json!({"frame":[5, 5, 800, 600]})).unwrap();
+    assert!(!changed.replayed);
+    let retry = put(&mut registry, "save-2", 1, &same).unwrap();
+    assert!(retry.replayed);
+    assert_eq!(retry.projection.projection_revision, 1, "the retry answers as it did");
+    let stored = registry.get_frontend_projection("cmux-app", "window", "main").unwrap().unwrap();
+    assert_eq!(stored.projection, json!({"frame":[5, 5, 800, 600]}), "the retry wrote nothing");
+    assert!(
+        put(&mut registry, "save-2", 1, &json!({"other": true}))
+            .unwrap_err()
+            .to_string()
+            .contains("retried with a different payload"),
+        "a no-op save's mutation id is still bound to its body"
+    );
+
+    // A different body or schema version is a change.
+    let moved = put(&mut registry, "save-6", 1, &json!({"frame":[10, 0, 800, 600]})).unwrap();
+    assert!(!moved.replayed);
+    assert_eq!(moved.projection.projection_revision, 3);
+    let schema = put(&mut registry, "save-7", 2, &json!({"frame":[10, 0, 800, 600]})).unwrap();
+    assert!(!schema.replayed);
+    assert_eq!(schema.projection.projection_revision, 4);
+    drop(registry);
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -4518,16 +4635,16 @@ fn schema_seven_resumes_interrupted_sensitive_receipt_cleanup() {
 }
 
 #[test]
-fn schema_seven_migrates_latest_agent_and_preserves_it_after_tombstone() {
-    assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(7);
+fn schema_seven_migrates_latest_agent_and_ends_it_at_the_tombstone() {
+    assert_schema_migrates_latest_agent_and_ends_it_at_the_tombstone(7);
 }
 
 #[test]
-fn schema_eight_migrates_latest_agent_and_preserves_it_after_tombstone() {
-    assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(8);
+fn schema_eight_migrates_latest_agent_and_ends_it_at_the_tombstone() {
+    assert_schema_migrates_latest_agent_and_ends_it_at_the_tombstone(8);
 }
 
-fn assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(legacy_schema: u32) {
+fn assert_schema_migrates_latest_agent_and_ends_it_at_the_tombstone(legacy_schema: u32) {
     let root = temp_root(&format!("schema-{legacy_schema}-agent-projection"));
     let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
     let terminal = terminal_resource(TERMINAL_ONE);
@@ -4644,12 +4761,13 @@ fn assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(legacy_s
             &json!([]),
         )
         .unwrap();
-    assert_eq!(migrated.resource_agent_projection_count_for_test().unwrap(), 1);
-    assert_eq!(migrated.public_projections().unwrap().agents.len(), 1);
+    // The tombstone ends the record in its transaction (`spec/resource-api-v2.md`, "Agent").
+    assert_eq!(migrated.resource_agent_projection_count_for_test().unwrap(), 0);
+    assert!(migrated.public_projections().unwrap().agents.is_empty());
     drop(migrated);
 
-    // Re-running the legacy migration recovers the durable projection from the
-    // latest report even though its terminal is already tombstoned.
+    // Re-running the legacy migration must not bring the record back from the
+    // latest report: its terminal is tombstoned.
     Connection::open(&database)
         .unwrap()
         .execute_batch(&format!(
@@ -4659,8 +4777,8 @@ fn assert_schema_migrates_latest_agent_and_preserves_it_after_tombstone(legacy_s
         ))
         .unwrap();
     let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
-    assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 1);
-    assert_eq!(reopened.public_projections().unwrap().agents.len(), 1);
+    assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 0);
+    assert!(reopened.public_projections().unwrap().agents.is_empty());
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
@@ -6052,7 +6170,11 @@ fn schema_preflight_failures_defer_to_authoritative_open() {
     fs::remove_dir_all(root).unwrap();
 }
 
-fn reserve_terminal(registry: &mut WorkspaceRegistry, terminal_id: &str, expected_revision: u64) {
+pub(super) fn reserve_terminal(
+    registry: &mut WorkspaceRegistry,
+    terminal_id: &str,
+    expected_revision: u64,
+) {
     registry
         .commit_terminal(
             &WorkspaceMutation::daemon(format!("reserve-{terminal_id}"), "test").unwrap(),
@@ -6190,6 +6312,41 @@ fn terminal_keep_legacy_classification_keeps_only_unplaced_terminals() {
     assert!(!registry.terminal_keep(TERMINAL_THREE).unwrap());
     assert!(registry.terminal_keep(TERMINAL_TWO).unwrap());
     drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The live panes of one screen are read through an index, also in a
+/// registry an older build made without it: each open reads them once per
+/// screen (the resource invariants), and a scan of every pane row made the
+/// open O(screens x panes), 0.5 s at 4,000 workspaces (#40449).
+#[test]
+fn an_older_registry_gets_the_index_that_reads_a_screens_live_panes() {
+    let root = temp_root("live-panes-by-screen-index");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "live-panes-index-seed");
+    }
+    let older = Connection::open(&database).unwrap();
+    older.execute_batch("DROP INDEX IF EXISTS live_resource_panes_by_screen;").unwrap();
+    drop(older);
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let connection = reopened.connection.get();
+    let plan = connection
+        .prepare(
+            "EXPLAIN QUERY PLAN SELECT public_id FROM resource_panes
+             WHERE screen_id = ?1 AND deleted_revision IS NULL",
+        )
+        .unwrap()
+        .query_map(["screen"], |row| row.get::<_, String>(3))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+        .join("; ");
+    assert!(plan.contains("live_resource_panes_by_screen"), "a screen's live panes: {plan}");
+    drop(connection);
+    drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
 

@@ -11,8 +11,14 @@ public struct HomeAgentRun: Hashable, Sendable {
         public var outgoing: Bool
         public var text: String
         public var date: Date
+        /// The prompt's `_meta.cmux.sender` (`human:<participant>`, `chief:<id>`); nil when it has none.
+        public var sender: String?
+        /// True for a message to the agent that waits with it in the Chief's queue (the spawn answer's
+        /// `- a<N>: queued` line, or a tell's `outcome: queued`): the agent has not started yet.
+        public var queued: Bool
 
-        public init(id: String, sequence: UInt64, revision: UInt64, peer: String, outgoing: Bool, text: String, date: Date) {
+        public init(id: String, sequence: UInt64, revision: UInt64, peer: String, outgoing: Bool, text: String, date: Date,
+                    sender: String? = nil, queued: Bool = false) {
             self.id = id
             self.sequence = sequence
             self.revision = revision
@@ -20,6 +26,8 @@ public struct HomeAgentRun: Hashable, Sendable {
             self.outgoing = outgoing
             self.text = text
             self.date = date
+            self.sender = sender
+            self.queued = queued
         }
     }
 

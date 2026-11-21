@@ -23,8 +23,15 @@ public struct NativePopupRow: Codable, Equatable, Sendable {
     public var `slider`: NativePopupSlider?
     public var `completion`: String?
     public var `editSequence`: Int?
+    /// The trailing item of a row whose `children` open beside it (a model's effort column), or a
+    /// submenu's current value before its chevron.
+    public var `sideLabel`: String?
+    /// A rail tab's agent mark: a brand, agent or provider id the brand catalog knows.
+    public var `mark`: String?
+    /// A rail tab's text mark when it has no `mark` (its name's initial, or an emoji icon).
+    public var `monogram`: String?
 
-    public init(id: String, kind: NativePopupRowKind, label: String, description: String? = nil, icon: String? = nil, shortcut: String? = nil, disabled: Bool? = nil, disabledReason: String? = nil, checked: Bool? = nil, value: String? = nil, keepOpen: Bool? = nil, placeholder: String? = nil, options: [NativePopupOption]? = nil, actions: [NativePopupAction]? = nil, children: [NativePopupRow]? = nil, minimum: Double? = nil, maximum: Double? = nil, step: Double? = nil, slider: NativePopupSlider? = nil, completion: String? = nil, editSequence: Int? = nil) {
+    public init(id: String, kind: NativePopupRowKind, label: String, description: String? = nil, icon: String? = nil, shortcut: String? = nil, disabled: Bool? = nil, disabledReason: String? = nil, checked: Bool? = nil, value: String? = nil, keepOpen: Bool? = nil, placeholder: String? = nil, options: [NativePopupOption]? = nil, actions: [NativePopupAction]? = nil, children: [NativePopupRow]? = nil, minimum: Double? = nil, maximum: Double? = nil, step: Double? = nil, slider: NativePopupSlider? = nil, completion: String? = nil, editSequence: Int? = nil, sideLabel: String? = nil, mark: String? = nil, monogram: String? = nil) {
         self.id = id
         self.kind = kind
         self.label = label
@@ -46,5 +53,8 @@ public struct NativePopupRow: Codable, Equatable, Sendable {
         self.slider = slider
         self.completion = completion
         self.editSequence = editSequence
+        self.sideLabel = sideLabel
+        self.mark = mark
+        self.monogram = monogram
     }
 }

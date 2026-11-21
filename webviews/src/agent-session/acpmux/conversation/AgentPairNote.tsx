@@ -8,6 +8,7 @@ import { type PaneLanguage, type Translate, usePaneLanguage, useT } from "../i18
 import type { AcpmuxAgentPair } from "../model";
 import { Envelope, PauseCircle } from "./icons";
 import { sliceWhole } from "../../../ui/wholeChars";
+import { spelledWindow } from "./agentPairNoteModel";
 
 export type ResumeAgentPair = (peer: string) => Promise<unknown>;
 
@@ -16,18 +17,6 @@ const SHOWN_HELD = 20;
 /// acpmux sends at most 200 characters of each; a longer one is cut here too.
 const PREVIEW_CHARS = 200;
 const preview = (text: string) => (text.length > PREVIEW_CHARS ? `${sliceWhole(text, PREVIEW_CHARS)}…` : text);
-
-/// The cap's window in words, in the pane language: "10 minutes", "2 hours", "90 seconds" (the
-/// largest unit that divides it).
-export function spelledWindow(seconds: number, language: PaneLanguage): string {
-  const [unit, value] =
-    seconds >= 3600 && seconds % 3600 === 0
-      ? (["hour", seconds / 3600] as const)
-      : seconds >= 60 && seconds % 60 === 0
-        ? (["minute", seconds / 60] as const)
-        : (["second", seconds] as const);
-  return new Intl.NumberFormat(language, { style: "unit", unit, unitDisplay: "long" }).format(value);
-}
 
 function reasonText(t: Translate, language: PaneLanguage, pair: AcpmuxAgentPair, peer: string): string {
   switch (pair.reason) {

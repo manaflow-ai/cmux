@@ -62,6 +62,7 @@ scripts/cmux-next/rust_panic_ratchet.py
 # day's 1610 feat-cmux-next commits changed some workflow (with these five, 62 commits changed a check path).
 .github/workflows/ci-web.yml
 .github/workflows/cmux-next-web.yml
+.github/workflows/cmux-next-web-lint.yml
 .github/workflows/cmux-next-guards.yml
 .github/workflows/cmux-next-crash-class.yml
 .github/workflows/cmux-next-fast-gates.yml

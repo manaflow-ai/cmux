@@ -53,7 +53,12 @@ pub(super) async fn handle(
             return Err(crate::prompt_provenance::withdraw_origin_refused());
         }
         let s = hub.resolve(session_key(params)?)?;
-        return hub.prompt_withdraw(&s, params).await;
+        // A caller that left waits no more; its notice still settles in the hub's task, and a
+        // withdraw again answers what became of it (`withdraw.rs`).
+        return tokio::select! {
+            result = hub.prompt_withdraw(&s, params) => result,
+            () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
+        };
     }
     // An agent may not resume its own pair, nor take a chat over or hand it back.
     if !local_person(conn) {
@@ -105,7 +110,7 @@ async fn retry(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value
     let by = crate::hub::auto_resume::retry_turn::RetryBy {
         control: super::remote_guard::control_of(conn.origin, conn.auth, params),
         trust_gate: super::trust_gate::gated(conn.origin, params),
-        full_access_device: super::remote_guard::full_access_device(hub, conn, params),
+        full_access_device: super::remote_guard::sending_device(conn, params),
         from: None,
     };
     hub.retry(&s, str_param(params, "subagentId"), by).await
@@ -114,15 +119,49 @@ async fn retry(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value
 /// Before the person's own `session/prompt` into `s` (no provenance: not an agent's message, from
 /// a connection that proved the person key on this machine): every agent pair `s` is in starts
 /// over, and a paused one is resumed.
+///
+/// And before any person's prompt, wherever it came from (a Cloud chat's comes through a
+/// connection that is never the person key's: the app's Web or a peer daemon), the Cloud activity
+/// report learns its time (`hub/person_prompt_at.rs`, [`counts_as_person_prompt`]).
 pub(super) async fn person_prompt(
     hub: &Arc<Hub>,
     conn: &Conn,
     s: &Arc<Session>,
     agent_message: bool,
 ) {
+    // An old acpmux CLI or a shell that declared no terminal is no person's presence either.
+    let in_session = conn.agent_side();
+    if counts_as_person_prompt(agent_message, conn.is_trigger(), in_session) {
+        hub.person_prompted(crate::store::now_ms());
+    }
     if !agent_message && local_person(conn) {
         // After its log and its peers' load, which restore the pairs this resumes.
         hub.pair_peer_logs(s).await;
         hub.agent_pair_person_prompt(s);
+    }
+}
+
+/// Whether a `session/prompt` is a person's for the Cloud activity report: not an agent's message
+/// (`agent_message`: it carries another agent's, a tool's or a trigger's provenance), not from a
+/// trigger's connection (an automation's delivery), and not from a connection that says it runs
+/// in an acpmux session (its caller token, proven or not: a chat's own agent).
+pub(super) fn counts_as_person_prompt(
+    agent_message: bool,
+    trigger: bool,
+    in_session: bool,
+) -> bool {
+    !agent_message && !trigger && !in_session
+}
+
+#[cfg(test)]
+mod person_prompt_tests {
+    use super::counts_as_person_prompt;
+
+    #[test]
+    fn only_a_persons_prompt_counts() {
+        assert!(counts_as_person_prompt(false, false, false), "the person's own prompt");
+        assert!(!counts_as_person_prompt(true, false, false), "another agent's message");
+        assert!(!counts_as_person_prompt(false, true, false), "a trigger's delivery");
+        assert!(!counts_as_person_prompt(false, false, true), "a send from inside a session");
     }
 }

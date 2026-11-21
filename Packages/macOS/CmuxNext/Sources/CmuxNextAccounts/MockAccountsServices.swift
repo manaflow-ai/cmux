@@ -41,6 +41,11 @@ public final class MockAccountsServices: AccountsServices, AccountsTeamBackend {
         get { teamSource.adminTeams }
         set { teamSource.adminTeams = newValue }
     }
+    /// Invitations addressed to the demo person.
+    public var receivedInvitations: [CMUXReceivedTeamInvitation] {
+        get { teamSource.received }
+        set { teamSource.received = newValue }
+    }
     /// Teams with an active subscription: deleting one is refused.
     public var subscribedTeamIDs: Set<String> {
         get { teamSource.subscribedTeams }
@@ -126,6 +131,23 @@ public final class MockAccountsServices: AccountsServices, AccountsTeamBackend {
     public func deleteTeam(id: String) async throws {
         calls.append("deleteTeam:\(id)")
         try teamSource.delete(id)
+    }
+
+    public func receivedTeamInvitations() async throws -> [CMUXReceivedTeamInvitation] {
+        calls.append("receivedInvitations")
+        if let failure = teamSource.managementFailure { throw failure }
+        return teamSource.received
+    }
+
+    @discardableResult
+    public func acceptTeamInvitation(id: String) async throws -> CMUXTeamJoin {
+        calls.append("acceptInvitation:\(id)")
+        return try teamSource.accept(id)
+    }
+
+    public func declineTeamInvitation(id: String) async throws {
+        calls.append("declineInvitation:\(id)")
+        try teamSource.decline(id)
     }
 
     public func linkedAccounts() async throws -> [LinkedAccount] {

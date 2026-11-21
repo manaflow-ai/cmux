@@ -335,8 +335,15 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
     assert_eq!(probe["status"], "unreachable", "{probe}");
 
     // Remove keeps a backup; restore brings the same file back.
+    local
+        .ok("_acpmux/route/default.set", json!({"scope": "family:claude", "routeId": "proxy-a"}))
+        .await;
     let removed = local.ok("_acpmux/route/remove", json!({"id": "proxy-a"})).await;
     assert!(!root.join("config").join("routes").join("proxy-a.toml").exists());
+    // No default names a removed route: new chats fall back instead of failing on it.
+    let bindings = local.ok("_acpmux/route/list", json!({})).await["bindings"].clone();
+    assert!(bindings.get("global").is_none(), "{bindings}");
+    assert!(bindings["families"].get("claude").is_none(), "{bindings}");
     let restored = local.ok("_acpmux/route/restore", json!({"backup": removed["backup"]})).await;
     assert_eq!(restored["name"], "Proxy A", "{restored}");
 

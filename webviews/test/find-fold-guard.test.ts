@@ -30,7 +30,6 @@ const FINDS = [
   "find/model.ts",
   "find/highlight.ts",
   "find/useDiffFind.ts",
-  "agent-session/acpmux/changes/diffFind.ts",
   "agent-session/acpmux/conversation/chatFind.ts",
   "pages/markdown/markdownFind.ts",
   "pages/passwords/model.ts",

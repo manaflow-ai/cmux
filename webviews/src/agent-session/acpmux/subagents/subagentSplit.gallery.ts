@@ -12,6 +12,7 @@ import { minutesAgo } from "../../../gallery/clock";
 import { activity, assistant, chat, row, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
+import { SESSION_INFO_TOGGLE, SESSION_INFO_TOGGLE_OFF } from "../session-info/sessionInfoSelectors";
 
 export const SPLIT_ENTRY = "agent-pane.subagent-split";
 const REVIEW = "agent-review-october";
@@ -67,6 +68,13 @@ const shownPanel = ".acpmux-session-info[data-presence='shown']";
 async function parent(ctx: PlayContext) {
   const { setSessionInfoOpen } = await import("../session-info/sessionInfoState");
   setSessionInfoOpen(true);
+  // A pane too narrow for a readable chat beside the panel (the left half of the pair,
+  // subagentSplitPair.gallery.tsx) keeps a saved open state closed until the toggle opens it
+  // (session-info/SessionInfoNarrowPane.gallery.tsx); a wide one has it open already.
+  const closed = SESSION_INFO_TOGGLE_OFF;
+  await ctx.waitFor(() => ctx.document.querySelector(SESSION_INFO_TOGGLE));
+  if (!ctx.document.querySelector(shownPanel) && ctx.document.querySelector(closed))
+    await ctx.click({ selector: closed });
   await ctx.waitFor(() => ctx.document.querySelector(shownPanel));
   // The running tray (the default) lists the running subagent; the done one is a line in the transcript.
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray"));
@@ -95,7 +103,7 @@ export default agentPaneEntry({
   height: 640,
   covers: [
     "agent-session/acpmux/subagents/SubagentGroup.tsx#SubagentOfRow",
-    "agent-session/acpmux/subagents/SubagentPaneFooter.tsx#SubagentPaneFooter",
+    "agent-session/acpmux/subagents/SubagentComposer.tsx#SubagentComposer",
   ],
   keywords: ["subagent", "split", "right", "task", "session info"],
   variants: {

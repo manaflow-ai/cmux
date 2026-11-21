@@ -8,9 +8,8 @@ import Testing
 /// cg-design-judge's sidebar Thunderdome (2026-10-14, cx-7yywz): the solid pastel group bands are the
 /// loudest thing in the sidebar and look the same in Latte and Apple Light. Leo: group colors come
 /// from the theme. Debug Settings offers quieter headers (`sidebar.groupHeader`: the name and the
-/// group's color line, the name tinted, or a faint wash) and the theme's colors
-/// (`sidebar.groupColors`); the band and the fixed palette stay the default
-/// (`GroupPaletteDefaultTests`).
+/// group's color line, the name tinted, or a faint wash), and the group palette (`sidebar.groupPalette`) offers the
+/// theme's colors; the band and pure glass stay the default (`GroupPaletteDefaultTests`).
 @MainActor @Suite(.serialized) struct GroupHeaderThemeLookTests {
     typealias Fixture = GroupPaletteDefaultTests
 
@@ -26,15 +25,18 @@ import Testing
                          palette: [0x1A1A1A, 0xCC372E, 0x26A439, 0xCDAC08, 0x0869CB, 0x9647BF, 0x479EC2, 0x98989D])
     }
 
-    /// Runs `body` with the two Debug Settings choices set, then clears them. The store is active
-    /// without a file, so nothing is written.
-    static func withLook(_ style: SidebarGroupHeaderStyle, _ palette: SidebarGroupPalette, _ body: () throws -> Void) throws {
+    /// Runs `body` with the Debug Settings header look and the group palette set, then clears them. The store is
+    /// active without a file, so nothing is written.
+    static func withLook(_ style: SidebarGroupHeaderStyle, _ palette: GroupPalette, _ body: () throws -> Void) throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
-        let keys = [SidebarGroupHeaderStyle.tunable.key, SidebarGroupPalette.tunable.key]
-        defer { keys.forEach { TunableStore.shared.set($0, nil) } }
-        try #require(TunableStore.shared.set(keys[0], style.tunableValue) == style.tunableValue, "the header look takes the override")
-        try #require(TunableStore.shared.set(keys[1], palette.tunableValue) == palette.tunableValue, "the palette takes the override")
+        let key = SidebarGroupHeaderStyle.tunable.key, before = DesignSettings.shared.sidebarSections.groupPalette
+        defer {
+            TunableStore.shared.set(key, nil)
+            DesignSettings.shared.sidebarSections.groupPalette = before
+        }
+        try #require(TunableStore.shared.set(key, style.tunableValue) == style.tunableValue, "the header look takes the override")
+        DesignSettings.shared.sidebarSections.groupPalette = palette
         try body()
     }
 
@@ -79,20 +81,26 @@ import Testing
         }
     }
 
+    /// Every look keeps a visible background (Lawrence 2026-11-05: "groups must always have a visible bg color"): the
+    /// quiet looks draw the faint wash behind the name, with the color dot where the line starts.
     @Test(arguments: [SidebarGroupHeaderStyle.line, .tinted])
-    func aQuietHeaderDrawsNoBandOnlyTheNameAndTheColorLine(_ style: SidebarGroupHeaderStyle) throws {
+    func aQuietHeaderDrawsAVisibleWashTheNameAndTheColorLine(_ style: SidebarGroupHeaderStyle) throws {
         try Self.withLook(style, .theme) {
             let scope = try Self.latte()
             let (_, headers) = try Self.headers(in: scope)
+            let sidebar = scope.tokens.sidebarBackground.withAlpha(1)
             for (header, color) in headers {
-                let alpha = header.pill.isHidden ? 0 : (header.pill.backgroundColor?.alpha ?? 0)
-                #expect(alpha == 0, "\(style) \(color): the header still draws a band")
+                #expect(!header.pill.isHidden, "\(style) \(color): the header draws no background")
                 #expect(!header.dot.isHidden, "\(style) \(color): no color dot where the line starts")
+                let background = GroupBackground(tint: .palette(color), strength: .wash, glass: scope.tokens.backgroundOpacity < 1,
+                                                  palette: .theme, tokens: scope.tokens)
+                #expect(background.shown.contrast(with: sidebar) >= GroupBackground.minimumVisibleContrast - 0.01,
+                        "\(style) \(color): the background is not visible against the sidebar")
                 let group = try #require(color.themeRGB(scope.tokens))
                 let name = try Self.ink(header.name.textColor)
-                // A tinted name keeps text contrast: the group's color, darkened as far as 4.5:1 needs.
-                let tinted = ThemeTokens.readable(group, over: scope.tokens.sidebarBackground, minimum: ThemeTokens.minimumTextContrast)
-                let want = style == .tinted ? tinted : scope.tokens.textPrimary
+                // A tinted name keeps text contrast on the wash: the group's color, darkened as far as 4.5:1 needs.
+                let tinted = ThemeTokens.readable(group, over: background.shown, minimum: ThemeTokens.minimumTextContrast)
+                let want = style == .tinted ? tinted : background.ink
                 #expect(Fixture.same(name, want), "\(style) \(color) name: \(name), want \(want)")
             }
         }
@@ -107,9 +115,41 @@ import Testing
                 #expect(!header.pill.isHidden && !header.dot.isHidden, "\(color): no wash or no color dot")
                 let fill = try Fixture.rgb(header.pill.backgroundColor)
                 #expect(!Fixture.same(fill, background), "\(color): the wash is not tinted")
-                #expect(fill.contrast(with: background) < 1.25, "\(color): the wash is \(fill.contrast(with: background)):1 against the sidebar, not faint")
+                #expect(fill.contrast(with: background) < 1.3, "\(color): the wash is \(fill.contrast(with: background)):1 against the sidebar, not faint")
+                #expect(fill.contrast(with: background) >= GroupBackground.minimumVisibleContrast - 0.01,
+                        "\(color): the wash is \(fill.contrast(with: background)):1 against the sidebar, not visible")
                 #expect(Fixture.same(try Self.ink(header.name.textColor), scope.tokens.textPrimary), "\(color): the name is not primary ink")
             }
         }
+    }
+
+    /// Router review F2: under the Wallpaper palette, a new desktop picture's color repaints a header already drawn, with
+    /// no other event (`DesignSettings.groupWallpaperTint` is read under the header's observation): the solid bar's color
+    /// follows the new picture after one turn of the run loop, with no paint call from the test.
+    @Test func aNewWallpaperColorRepaintsTheHeaders() throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        let glassKey = SidebarGroupGlass.tunable.key, before = DesignSettings.shared.sidebarSections.groupPalette
+        defer {
+            TunableStore.shared.set(glassKey, nil)
+            DesignSettings.shared.sidebarSections.groupPalette = before
+            DesignSettings.shared.groupWallpaperTint = nil
+        }
+        try #require(TunableStore.shared.set(glassKey, SidebarGroupGlass.solid.tunableValue) == SidebarGroupGlass.solid.tunableValue)
+        DesignSettings.shared.sidebarSections.groupPalette = .wallpaper
+        DesignSettings.shared.groupWallpaperTint = WallpaperTint(red: 0.15, green: 0.3, blue: 0.75)
+        let (sidebar, headers) = try Self.headers(in: Self.latte())
+        defer { sidebar.window?.close() }
+        let header = try #require(headers.first { $0.1 == .red }?.0)
+        let fromBlue = try Fixture.rgb(header.pill.backgroundColor)
+        DesignSettings.shared.groupWallpaperTint = WallpaperTint(red: 0.8, green: 0.2, blue: 0.15)
+        var now = fromBlue
+        for _ in 0 ..< 40 where now == fromBlue {
+            // The observation's repaint is a main-actor task: the run loop drains the main queue.
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            header.displayIfNeeded()
+            now = try Fixture.rgb(header.pill.backgroundColor)
+        }
+        #expect(now != fromBlue, "the header still draws the old picture's color \(fromBlue)")
     }
 }

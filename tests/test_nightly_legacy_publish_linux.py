@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""publish-nightly-identity-legacy runs on Linux (no Apple tool), and its appcast
-writer, scripts/ci/tip_appcast_linux.py, signs as Sparkle's sign_update does."""
+"""The Linux appcast writer, scripts/ci/tip_appcast_linux.py, signs as Sparkle's
+sign_update does."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-NIGHTLY = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
 SCRIPT = ROOT / "scripts/ci/tip_appcast_linux.py"
 
 spec = importlib.util.spec_from_file_location("tip_appcast_linux", SCRIPT)
@@ -26,81 +25,11 @@ sys.path.insert(0, str(ROOT / "scripts/ci"))
 import appcast_minimum_system_version as floor  # noqa: E402
 
 
-STEP_SCRIPT = re.compile(r"^(\s+run: )bash (?:\.publish-tooling/)?(scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh)\s*$",
-                         re.MULTILINE)
-
-
-def inline_step_scripts(text: str) -> str:
-    """Run blocks moved into scripts/ci/nightly-steps (#25879) read as if still inline."""
-    def body(match: re.Match) -> str:
-        script = (ROOT / match.group(2)).read_text(encoding="utf-8")
-        indent = " " * (len(match.group(1)) + 2)
-        return match.group(0) + "\n" + "".join(f"{indent}{line}\n" for line in script.splitlines())
-    return STEP_SCRIPT.sub(body, text)
-
-
-def job(name: str) -> str:
-    start = NIGHTLY.index(f"\n  {name}:\n")
-    end = re.compile(r"^  [A-Za-z0-9_-]+:\n", re.MULTILINE).search(NIGHTLY, start + 3)
-    return inline_step_scripts(NIGHTLY[start:end.start() if end else len(NIGHTLY)])
-
-
-def step(body: str, name: str) -> str:
-    start = body.index(f"      - name: {name}\n")
-    nxt = body.find("\n      - name: ", start + 1)
-    return body[start:nxt if nxt != -1 else len(body)]
-
-
 # RFC 8032 section 7.1, test 1: the empty message.
 RFC_SEED = bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
 RFC_PUBLIC = bytes.fromhex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
 RFC_SIGNATURE = bytes.fromhex(
     "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b")
-
-
-class Workflow(unittest.TestCase):
-    def test_publish_runs_on_blacksmith_linux(self) -> None:
-        body = job("publish-nightly-identity-legacy")
-        runs_on = re.search(r"^    runs-on: (.+)$", body, re.MULTILINE).group(1)
-        # It holds the Sparkle and R2 keys: never an owned host, never a Mac.
-        # The validated picker selects trusted Blacksmith Linux sizes and keeps a
-        # bounded fallback for older workflow revisions.
-        self.assertIn("needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.linux", runs_on)
-        self.assertIn("github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.linux_alternate", runs_on)
-        self.assertTrue(runs_on.endswith("|| 'blacksmith-32vcpu-ubuntu-2404' }}"), runs_on)
-        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
-        self.assertNotIn("macos", runs_on)
-
-    def test_publish_uses_no_apple_tool(self) -> None:
-        body = job("publish-nightly-identity-legacy")
-        for tool in ("hdiutil", "PlistBuddy", "xcrun", "codesign", "spctl", "stapler", "otool", "swift ",
-                     "select-ci-xcode", "sparkle_generate_appcast.sh", "CMUX_CI_XCODE_APP", "stat -f", "date -j"):
-            self.assertNotIn(tool, body, tool)
-
-    def test_the_appcast_comes_from_the_tested_plist(self) -> None:
-        body = job("publish-nightly-identity-legacy")
-        download = step(body, "Download the tested app's Info.plist")
-        self.assertIn("name: cmux-nightly-identity-tested-plist", download)
-        self.assertIn("if: steps.order.outputs.skip == 'false' && env.TESTED_SHA256 != ''", download)
-        appcast = step(body, "Generate the old feed's appcast")
-        order = [appcast.index(text) for text in (
-            "scripts/ci/tip_appcast_linux.py SPARKLE_PRIVATE_KEY",
-            "appcast_minimum_system_version.py enforce",
-            "<sparkle:channel>{channel}</sparkle:channel>",
-            "nightly_next_ring.py legacy --new",
-            'nightly-next-guard.py appcast "legacy-out/$LEGACY_APPCAST"',
-        )]
-        self.assertEqual(order, sorted(order))
-        self.assertLess(body.index("nightly-next-legacy-tested-digest.sh"), body.index("tip_appcast_linux.py"))
-
-    def test_verify_hands_over_the_plist_of_the_tested_dmg(self) -> None:
-        body = job("verify-nightly-identity-legacy")
-        hand = step(body, "Hand the tested app's Info.plist to publish")
-        self.assertLess(body.index("id: verify"), body.index("Hand the tested app's Info.plist to publish"))
-        self.assertIn("${{ steps.verify.outputs.tested_sha256 }}", hand)
-        self.assertIn("-nobrowse -readonly", hand)
-        self.assertIn("name: cmux-nightly-identity-tested-plist", step(body, "Upload the tested app's Info.plist"))
-        self.assertNotRegex(body, r"environment:|secrets\.")
 
 
 class Writer(unittest.TestCase):

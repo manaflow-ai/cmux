@@ -186,7 +186,13 @@ fn a_secret_with_a_non_utf8_name_never_goes() {
     use std::os::unix::ffi::OsStrExt as _;
     let (world, folder, first) = seeded("export-nonutf8");
     let name = std::ffi::OsStr::from_bytes(b".env-\xff");
-    std::fs::write(folder.join(name), "SECRET=1\n").unwrap();
+    // APFS (macOS) refuses a name that is not UTF-8 (EILSEQ), so no folder there can hold
+    // such a secret; ext4 and the other Linux filesystems take raw bytes, and the Linux runs
+    // of the cmux-tui tests cover this case (as git_seed/secrets.rs since #32091).
+    match std::fs::write(folder.join(name), "SECRET=1\n") {
+        Err(e) if cfg!(target_os = "macos") && e.raw_os_error() == Some(libc::EILSEQ) => return,
+        written => written.unwrap(),
+    }
     write(&folder.join("a"), "a\nchanged\n");
     let service = world.service();
     let bundle = world.home.join("back.bundle");
