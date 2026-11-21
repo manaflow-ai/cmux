@@ -90,6 +90,8 @@ mod runs;
 #[cfg(unix)]
 mod safe_mode;
 #[cfg(unix)]
+mod server_external;
+#[cfg(unix)]
 mod server_tmp;
 #[cfg(unix)]
 mod servers;
