@@ -104,7 +104,6 @@ SCOPED: dict[str, str] = {
     "iroh-v2.yml": "workers/iroh-v2/**",
     "mux.yml": "mux/**",
     "relay-tls.yml": "Packages/Shared/CmuxIrohTransport/**",
-    "swift-acpmux-protocol.yml": "Packages/macOS/CmuxNext/Sources/**",
     "swift-linux-packages.yml": "Packages/Shared/**",
     "terminal-hang-diagnostics.yml": "Packages/Shared/CMUXMobileCore/**",
     "test-ios.yml": "Packages/Shared/**",
