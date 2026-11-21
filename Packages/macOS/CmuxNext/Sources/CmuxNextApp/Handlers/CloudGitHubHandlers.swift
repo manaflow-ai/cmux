@@ -69,10 +69,7 @@ enum CloudGitHubHandlers {
     static func confirmBody(_ identity: CloudGitHubSetup.GitIdentity, app: CloudGitHubApp) -> String {
         let check: String = switch app {
         case .ready: "ready"
-        case .notConnected: "notConnected"
-        case .needsReauth: "needsReauth"
-        case .linking: "linking"
-        case .error: "error"
+        case .notConnected, .needsReauth, .linking, .error: "notConnected" // each is Connect GitHub (the rules know one)
         case .notConfigured: "notConfigured"
         case .unknown: "unknown"
         }
