@@ -319,5 +319,26 @@ class PushTest(unittest.TestCase):
         self.assertEqual(len(calls), 4)
 
 
+class StartBranchTest(unittest.TestCase):
+    """The revert branch is created by API at the tip; one left by an earlier try is reused."""
+
+    def test_creates_the_ref_at_the_tip(self) -> None:
+        calls = []
+        pmb.start_branch("o/r", "revert/x", "abc", api=lambda path, **kw: calls.append((path, kw)))
+        self.assertEqual(calls, [("repos/o/r/git/refs", {"method": "POST", "fields": {"ref": "refs/heads/revert/x", "sha": "abc"}})])
+
+    def test_an_existing_branch_is_reused_and_other_errors_raise(self) -> None:
+        def exists(path, **kw):
+            raise RuntimeError("gh api POST repos/o/r/git/refs: Reference already exists (HTTP 422)")
+
+        pmb.start_branch("o/r", "revert/x", "abc", api=exists)
+
+        def denied(path, **kw):
+            raise RuntimeError("gh api POST repos/o/r/git/refs: Resource not accessible by integration (HTTP 403)")
+
+        with self.assertRaises(RuntimeError):
+            pmb.start_branch("o/r", "revert/x", "abc", api=denied)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -8,7 +8,7 @@ CmuxNextWorkspaceNaming -> Design from its hard violations without the edge chan
 reported a core target that depends on a service or domain target at all. Each test builds a small
 package tree and a dump-package JSON, and reads the report.
 
-Not on CI (Lawrence 2026-10-23: no new CI tests; arch-layers.py is a report, not a gate): run
+Not on CI (Lawrence 2026-10-23: no new CI tests, lifted 2026-11-18; arch-layers.py is a report, not a gate): run
 python3 tests/test_cmux_next_arch_layers.py after changing arch-layers.py or architecture-layers.json.
 """
 import contextlib

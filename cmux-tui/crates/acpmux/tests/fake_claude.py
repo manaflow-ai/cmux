@@ -73,8 +73,8 @@ Claude Code's own "Not logged in · Please run /login".
 FAKE_CLAUDE_SKILLS=1 has one skill installed and sends system/init every turn.
 FAKE_CLAUDE_INIT (a JSON object) adds its fields to system/init (`mcp_servers`,
 `skills`, ...); with FAKE_CLAUDE_CONTROL_LOG set, the subtype of every
-control request is appended to that file, one per line. FAKE_CLAUDE_PAUSE_LOG logs each
-set_prompt_suggestions_paused as its request id's prefix and the value.
+control request is appended to that file, one per line. FAKE_CLAUDE_INIT_LOG logs each
+initialize as its pid and whether it asked for prompt suggestions.
 FAKE_CLAUDE_CONTEXT=1 answers get_context_usage with a /context breakdown
 (=error refuses it). FAKE_CLAUDE_LATE_CONTEXT=<path> makes a FAKE_CLAUDE_DIE_IF prompt a
 usage limit instead (the process lives on, and answers no more get_context_usage), and leaves a
@@ -762,10 +762,10 @@ while True:
         if os.environ.get("FAKE_CLAUDE_CONTROL_LOG"):
             with open(os.environ["FAKE_CLAUDE_CONTROL_LOG"], "a") as f:
                 f.write(str(request.get("subtype")) + "\n")
-        # FAKE_CLAUDE_PAUSE_LOG=<file>: each set_prompt_suggestions_paused as "<request id prefix> <paused>".
-        if request.get("subtype") == "set_prompt_suggestions_paused" and os.environ.get("FAKE_CLAUDE_PAUSE_LOG"):
-            with open(os.environ["FAKE_CLAUDE_PAUSE_LOG"], "a") as f:
-                f.write(str(msg.get("request_id", "")).split("-")[0] + " " + str(request.get("paused")).lower() + "\n")
+        # FAKE_CLAUDE_INIT_LOG=<file>: each initialize as "init <pid> <promptSuggestions>".
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_INIT_LOG"):
+            with open(os.environ["FAKE_CLAUDE_INIT_LOG"], "a") as f:
+                f.write(f"init {os.getpid()} " + str(request.get("promptSuggestions") is True).lower() + "\n")
         # Like Claude Code, the next init reports the mode the session was switched to.
         if request.get("subtype") == "set_permission_mode" and isinstance(request.get("mode"), str):
             MODE = request["mode"]

@@ -36,6 +36,7 @@ on:
       # Files outside cmux-tui that acpmux or its path dependencies include_str!
       # (tests/test_cargo_test_verdict.py keeps this list whole).
       - "Resources/theme-files/*.json"
+      - "Resources/sidebar-looks/*.json"
       - "docs/remote-agents-and-cloud.md"
       - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
       - "schemas/build-identity/vectors.json"
@@ -343,6 +344,8 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-acpmux-lib-test
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
+          cache-on-failure: true
 
       # `protocol::` selects exactly the protocol module's tests (src/protocol/tests.rs);
       # a filter that matches none (a moved module) fails rather than passing empty.
@@ -455,6 +458,8 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-acpmux-tests
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
+          cache-on-failure: true
 
       - name: v2 bench home emits all gate rows
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -591,6 +596,8 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-acpmux-sim
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
+          cache-on-failure: true
 
       - name: cargo test -p acpmux --features sim --test sim
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -606,11 +613,12 @@ jobs:
           grep -E '^sim: ' "$RUNNER_TEMP/sim.log" >> "$GITHUB_STEP_SUMMARY" || true
 
       # The clippy job builds without `--features sim`, so the simulation's code and the
-      # daemon's sim-only seams were never linted.
+      # daemon's sim-only seams were never linted. Lints are warnings (--cap-lints warn, as the
+      # clippy job: lint never stops a merge); a compile error still fails.
       - name: cargo clippy -p acpmux --features sim --test sim
         if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui
-        run: python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy --locked -p acpmux --features sim --test sim -- -D warnings
+        run: cargo clippy --locked -p acpmux --features sim --test sim -- --cap-lints warn
 
       - name: Record this green result for its input tree
         if: ${{ success() && steps.tree.outputs.hit != 'true' }}
@@ -680,6 +688,8 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-carrier-sim
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
+          cache-on-failure: true
 
       - name: cargo test -p cmux-remote --test carrier_sim
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -758,12 +768,14 @@ jobs:
   # PR CI never runs cmux-tui.yml (dispatch only), whose workspace clippy is the only
   # `--all-targets` lint of cmux-tui, and the fast tier's cargo entries only run tests.
   # So #23163 and #23372 landed clippy reds in cmux-tui/crates/cmux-tui/tests/ and broke
-  # base clippy for everyone. This lints, with -D warnings and --all-targets, each
+  # base clippy for everyone. This lints, with --all-targets, each
   # cmux-tui workspace package the change touches and each member depending on one
   # (the whole workspace when the
-  # workspace manifest, lockfile, clippy config or toolchain pin changes). Blocking:
-  # clippy is not a style guard (cmux-tui.yml's note). A dispatch with `commit` replays
-  # a past head with this run's script, to prove the check catches what it missed.
+  # workspace manifest, lockfile, clippy config or toolchain pin changes). Only compile
+  # errors fail it: lints run under --cap-lints warn and become ::warning annotations and a
+  # step-summary list, fixed forward (Leo, 2026-11-20: "WHY IS LINT EVEN STOPPING SHIT
+  # INSTEAD OF JUST BEING OOPS"). The panic ratchet step below still fails on a new panic
+  # site. A dispatch with `commit` replays a past head with this run's script.
   clippy:
     name: clippy (changed cmux-tui packages)
     needs: changes
@@ -905,6 +917,8 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-pr-clippy
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
+          cache-on-failure: true
 
       # A red the PR autofix repairs (machine-applicable lints in this change's own files) passes as autofixed
       # once the autofix push is on (vars.CMUX_PR_AUTOFIX_PUSH, cmux-next-pr-autofix-push.yml on main): the fix

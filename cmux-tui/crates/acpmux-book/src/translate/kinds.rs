@@ -233,6 +233,8 @@ pub(super) const MUX: &[Kind] = &[
     not("queue_updated", QUEUE),
     code("queued", "the queue: an entry (State::queue_add)"),
     page("race"),
+    not("rate_limit_held", UNREAD),
+    not("rate_limit_lifted", UNREAD),
     notice("recap", &[]),
     not("registered", UNREAD),
     not("remote_control_ended", UNREAD),
