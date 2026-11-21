@@ -27,6 +27,7 @@ Usage:
   cmux agent-config mcp add NAME --agent claude|codex [--scope ...] --url URL [--transport http|sse]
                             [--header KEY=VALUE]...
   cmux agent-config mcp remove|enable|disable NAME --agent claude|codex [--scope ...] [--project DIR]
+  cmux agent-config hooks list|enable|disable|add|remove ...   (cmux agent-config hooks --help)
 
 Scopes: user (every folder: ~/.claude.json, ~/.codex/config.toml), local (Claude only: this folder,
 private to you), project (this folder's .mcp.json or .codex/config.toml), plugin (Codex only: from an
@@ -38,7 +39,7 @@ Skills and slash commands: `cmux agent-config skills --help`.
 ";
 
 /// Takes `--json` out of `args`, only before `--`: after it, every word is the server's command.
-fn take_json_flag(args: &[String]) -> (bool, Vec<String>) {
+pub(super) fn take_json_flag(args: &[String]) -> (bool, Vec<String>) {
     let mut json = false;
     let mut rest = Vec::with_capacity(args.len());
     let mut words = args.iter();
@@ -110,8 +111,8 @@ fn parse(rest: &[String]) -> Result<Parsed, String> {
     let mut words = rest.iter();
     match words.next().map(String::as_str) {
         Some("mcp") => {}
-        Some(other) => return Err(format!("unknown part {other:?}: `mcp` or `skills`")),
-        None => return Err("name a part: mcp or skills".into()),
+        Some(other) => return Err(format!("unknown part {other:?}: `mcp`, `hooks` or `skills`")),
+        None => return Err("name a part: mcp, hooks or skills".into()),
     }
     let mut parsed = Parsed {
         verb: words.next().cloned().ok_or("name a verb: list, add, remove, enable or disable")?,

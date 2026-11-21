@@ -119,8 +119,13 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["agent", "chat", "new", "cloud", "vm", "remote", "machine", "sleep"],
         category: "agents",
         symbol: "cloud",
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        // File and the New Tab button's menu, right under New Agent Chat (a rank 2 tie sorts by
+        // catalog order). Leo, 2026-11-20: "I really want to make it like ergonomic and whatnot for
+        // Austin or Lawrence to be able to just start up the new chat, the new cloud or whatever."
+        surfaces: PALETTE | MENU | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("newTab", "create", 2)], ..SurfacePlan::DEFAULT },
         cli_name: "action palette-new-cloud-chat",
+        main_menu: Some("file"),
         ..Action::DEFAULT
     },
     Action {

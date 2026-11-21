@@ -1282,11 +1282,15 @@ dependencies = [
 name = "cmux-agent-customize"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "cmux-process",
+ "cmux-tui-hooks",
  "cmux-tui-platform",
+ "indexmap",
  "libc",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "toml_edit 0.22.27",
  "yaml-rust",
@@ -1900,8 +1904,10 @@ dependencies = [
  "cmux-file-lock",
  "cmux-json",
  "cmux-link",
+ "cmux-process",
  "cmux-server",
  "cmux-server-core",
+ "cmux-signed-envelope",
  "cmux-supervise-core",
  "cmux-unix-socket",
  "flate2",
@@ -2399,6 +2405,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-signed-envelope"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-source-scan"
 version = "1.0.0"
 dependencies = [
@@ -2727,6 +2744,7 @@ dependencies = [
  "cmux-remote-protocol",
  "cmux-sdk",
  "cmux-signed-bundle",
+ "cmux-signed-envelope",
  "cmux-supervise-core",
  "cmux-tasks",
  "cmux-tasks-core",
@@ -2756,6 +2774,7 @@ dependencies = [
  "quick-xml",
  "regex",
  "reqwest",
+ "ring",
  "rusqlite",
  "rustls",
  "serde",

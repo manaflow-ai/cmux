@@ -210,7 +210,10 @@ fn claude_switch_round_trips_and_keeps_the_file() {
     assert!(text.starts_with("{\n  \"model\": \"opus\",\n  \"enabledPlugins\""), "{text}");
     assert!(text.contains("\"wrangler\": \"off\""));
     assert!(text.contains("\"env\": {\"TOKEN\": \"secret\"}"));
-    assert_eq!(fs::read_to_string(crate::write::backup_path(&settings)).unwrap(), before);
+    let real = fs::canonicalize(&settings).unwrap();
+    assert_eq!(fs::read_to_string(f.homes.edits.backup_path(&real)).unwrap(), before);
+    // The backup is in cmux's private store, never beside the settings file.
+    assert!(!settings.with_file_name("settings.json.cmux-backup").exists());
     // On removes the override; the others stay.
     let alpha = f.homes.claude.join("skills/alpha/SKILL.md");
     assert!(set_enabled(&f.homes, &change(&alpha, true)).unwrap().enabled);

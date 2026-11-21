@@ -1,7 +1,8 @@
 //! Turning one skill on or off in its agent's own settings, the way the agent's own switch does:
 //! Claude Code's `/skills` writes `skillOverrides`, Codex's `skills/config/write` a
 //! `[[skills.config]]` path rule. Everything else in the file stays as written (order, comments,
-//! unknown keys); the prior file is kept as `<file>.cmux-backup`.
+//! unknown keys). The edit holds the file's lock in cmux's private edit store and keeps the prior
+//! file there ([`crate::write::Store`]), never beside a project's settings.
 
 use std::fmt;
 use std::fs;
@@ -10,7 +11,6 @@ use std::path::{Path, PathBuf};
 use super::{Agent, CodexLive, Kind, ListOptions, Skill, list};
 use crate::ordered_json::{Members, raw_string};
 use crate::paths::Homes;
-use crate::write;
 
 /// One on/off: the skill is named by its file (the `path` a listing printed).
 #[derive(Debug, Clone)]
@@ -83,7 +83,7 @@ pub fn set_enabled(homes: &Homes, change: &SetEnabled) -> Result<Skill, ToggleEr
         _ => return Err(ToggleError::NoSwitch(skill.name)),
     };
     match skill.agent {
-        Agent::Claude => claude(&switch, &skill.name, change.enabled)?,
+        Agent::Claude => claude(homes, &switch, &skill.name, change.enabled)?,
         Agent::Codex => codex(homes, &switch, &skill.path, change.enabled)?,
     }
     // As listed afterwards: a rule in another settings layer can still keep it as it was.
@@ -91,7 +91,8 @@ pub fn set_enabled(homes: &Homes, change: &SetEnabled) -> Result<Skill, ToggleEr
 }
 
 /// `"skillOverrides": {"<name>": "off"}` to turn it off; on removes the override.
-fn claude(file: &Path, name: &str, enabled: bool) -> Result<(), ToggleError> {
+fn claude(homes: &Homes, file: &Path, name: &str, enabled: bool) -> Result<(), ToggleError> {
+    let _edit = homes.edits.lock(file).map_err(|e| ToggleError::Write(file.to_path_buf(), e))?;
     let text = match fs::read_to_string(file) {
         Ok(text) => text,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
@@ -114,7 +115,9 @@ fn claude(file: &Path, name: &str, enabled: bool) -> Result<(), ToggleError> {
         )
     };
     members.set("skillOverrides", value);
-    write::replace(file, &format!("{}\n", members.render(0)))
+    homes
+        .edits
+        .replace(file, &format!("{}\n", members.render(0)))
         .map_err(|e| ToggleError::Write(file.to_path_buf(), e))
 }
 
@@ -123,6 +126,7 @@ fn codex(homes: &Homes, file: &Path, skill: &Path, enabled: bool) -> Result<(), 
     let _lock = cmux_tui_platform::codex_config_lock::lock(
         &homes.codex.join(cmux_tui_platform::codex_config_lock::LOCK_FILE),
     );
+    let _edit = homes.edits.lock(file).map_err(|e| ToggleError::Write(file.to_path_buf(), e))?;
     let text = match fs::read_to_string(file) {
         Ok(text) => text,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
@@ -162,5 +166,5 @@ fn codex(homes: &Homes, file: &Path, skill: &Path, enabled: bool) -> Result<(), 
             rules.push(rule);
         }
     }
-    write::replace(file, &doc.to_string()).map_err(|e| ToggleError::Write(file.to_path_buf(), e))
+    homes.edits.replace(file, &doc.to_string()).map_err(|e| ToggleError::Write(file.to_path_buf(), e))
 }

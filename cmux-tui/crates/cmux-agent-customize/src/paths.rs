@@ -13,6 +13,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::write::Store;
+
 /// The files of one person's setup, from one environment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Paths {
@@ -84,6 +86,9 @@ pub struct Homes {
     pub claude: PathBuf,
     /// Codex's home (`$CODEX_HOME` or `~/.codex`).
     pub codex: PathBuf,
+    /// The edit locks and backups of every file a skills switch writes: the private folder
+    /// outside every project the hooks and settings parts use ([`crate::hooks_paths::state_dir`]).
+    pub edits: Store,
 }
 
 impl Homes {
@@ -94,14 +99,21 @@ impl Homes {
         Some(Self {
             claude: var("CLAUDE_CONFIG_DIR").unwrap_or_else(|| home.join(".claude")),
             codex: var("CODEX_HOME").unwrap_or_else(|| home.join(".codex")),
+            edits: Store::new(crate::hooks_paths::state_dir(&home, |name| std::env::var_os(name))),
             home,
         })
     }
 
-    /// Homes under one folder, as both CLIs default them (`<home>/.claude`, `<home>/.codex`).
+    /// Homes under one folder, as both CLIs default them (`<home>/.claude`, `<home>/.codex`), with
+    /// cmux's edit store inside it too, so a test never touches the real one.
     pub fn under(home: impl Into<PathBuf>) -> Self {
         let home = home.into();
-        Self { claude: home.join(".claude"), codex: home.join(".codex"), home }
+        Self {
+            claude: home.join(".claude"),
+            codex: home.join(".codex"),
+            edits: Store::new(home.join(".local/state/cmux-tui/agent-config")),
+            home,
+        }
     }
 
     /// `~/.claude/settings.json`.

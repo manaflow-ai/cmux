@@ -23,7 +23,8 @@ cmux agent-config: Claude Code's and Codex's own configuration, in their own fil
       Turn the skill whose SKILL.md is FILE on or off, the way the agent's own switch does:
       Claude Code `skillOverrides` in ~/.claude/settings.json (a project skill: the project's
       .claude/settings.local.json), Codex `[[skills.config]]` in ~/.codex/config.toml. The prior
-      file is kept as <file>.cmux-backup. Slash commands and Claude plugin skills have no switch.
+      file is kept in cmux's private agent-config folder, never beside it. Slash commands and
+      Claude plugin skills have no switch.
 
 Every verb takes --json. Exit codes: 0 ok, 1 refused (the error's code says why), 2 bad arguments.";
 
