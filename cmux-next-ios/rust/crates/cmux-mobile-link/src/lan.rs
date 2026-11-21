@@ -229,8 +229,10 @@ pub struct LanAccepted {
 
 struct HostState {
     phones: Vec<EnrolledPhone>,
-    /// Input lanes waiting for their main stream, by phone key.
+    /// Main streams waiting for their input lane, by phone key.
     lanes: HashMap<[u8; 32], oneshot::Sender<Box<dyn LinkStream>>>,
+    /// Input lanes that arrived before their main stream, by phone key.
+    early: HashMap<[u8; 32], Box<dyn LinkStream>>,
 }
 
 /// The Mac side: the LAN mesh, its enrolled phones, and the links they
@@ -308,19 +310,36 @@ impl LanHost {
                 let _ = mesh.add_peer(peer).await;
             }
         }
-        let state = Arc::new(Mutex::new(HostState { phones, lanes: HashMap::new() }));
+        let state = Arc::new(Mutex::new(HostState { phones, lanes: HashMap::new(), early: HashMap::new() }));
         let (tx, rx) = tokio::sync::mpsc::channel(16);
         let mut main = mesh.listen(LAN_LINK_PORT).await.map_err(io::Error::other)?;
         let mut lanes = mesh.listen(LAN_LANE_PORT).await.map_err(io::Error::other)?;
         let lane_state = Arc::clone(&state);
         tokio::spawn(async move {
             while let Some((stream, key)) = lanes.accept().await {
-                let waiting = lane_state.lock().unwrap_or_else(PoisonError::into_inner).lanes.remove(&key);
-                match waiting {
-                    Some(tx) => {
-                        let _ = tx.send(Box::new(stream) as Box<dyn LinkStream>);
+                let stream = Box::new(stream) as Box<dyn LinkStream>;
+                let waiting = {
+                    let mut state = lane_state.lock().unwrap_or_else(PoisonError::into_inner);
+                    match state.lanes.remove(&key) {
+                        Some(tx) => Some((tx, stream)),
+                        None => {
+                            // Its main stream is still being accepted.
+                            state.early.insert(key, stream);
+                            None
+                        }
                     }
-                    None => tracing::info!("LAN input lane with no link waiting; dropped"),
+                };
+                match waiting {
+                    Some((tx, stream)) => {
+                        let _ = tx.send(stream);
+                    }
+                    None => {
+                        let early_state = Arc::clone(&lane_state);
+                        tokio::spawn(async move {
+                            tokio::time::sleep(LANE_TIMEOUT).await;
+                            early_state.lock().unwrap_or_else(PoisonError::into_inner).early.remove(&key);
+                        });
+                    }
                 }
             }
         });
@@ -340,7 +359,17 @@ impl LanHost {
                     continue;
                 };
                 let (lane_tx, lane_rx) = oneshot::channel();
-                main_state.lock().unwrap_or_else(PoisonError::into_inner).lanes.insert(key, lane_tx);
+                {
+                    let mut state = main_state.lock().unwrap_or_else(PoisonError::into_inner);
+                    match state.early.remove(&key) {
+                        Some(early) => {
+                            let _ = lane_tx.send(early);
+                        }
+                        None => {
+                            state.lanes.insert(key, lane_tx);
+                        }
+                    }
+                }
                 let lane_state = Arc::clone(&main_state);
                 tokio::spawn(async move {
                     tokio::time::sleep(LANE_TIMEOUT).await;
