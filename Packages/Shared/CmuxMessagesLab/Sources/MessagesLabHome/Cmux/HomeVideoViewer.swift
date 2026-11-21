@@ -39,7 +39,7 @@ final class HomeVideoViewer: NSView {
         closeButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: CmuxStrings.closeVideoViewer)
         closeButton.symbolConfiguration = .init(pointSize: 20, weight: .regular)
         closeButton.contentTintColor = NSColor.white.withAlphaComponent(0.8)
-        closeButton.toolTip = CmuxStrings.closeVideoViewer
+        closeButton.setHomeToolTip(CmuxStrings.closeVideoViewer)
         closeButton.setAccessibilityLabel(CmuxStrings.closeVideoViewer)
         closeButton.target = self
         closeButton.action = #selector(closeClicked)
