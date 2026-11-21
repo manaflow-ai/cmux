@@ -22,6 +22,7 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
     private var shownRows: [NativeNewTabRow] = []
     // task-owner: the page's `following`, started when it joins a window and cancelled when it leaves.
     private var following: Task<Void, Never>?
+    private var followingFavicons: Task<Void, Never>?
 
     /// The field's height.
     static let fieldHeight: CGFloat = 44
@@ -105,7 +106,9 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         following?.cancel()
+        followingFavicons?.cancel()
         following = nil
+        followingFavicons = nil
         guard window != nil else { return }
         updateColors()
         // The page may have been adopted while out of a window: catch up, then follow the model.
@@ -113,7 +116,13 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
         let model = model
         following = Task { [weak self] in
             // The inputs of the rows, not the rows: reading them here would rank every row once more per key.
-            for await _ in ObservationStream({ _ = model.page; _ = model.text; _ = model.kind; _ = model.highlighted; _ = model.faviconRevisionTick() }) {
+            for await _ in ObservationStream({ _ = model.page; _ = model.text; _ = model.kind; _ = model.highlighted }) {
+                guard let self, !Task.isCancelled else { return }
+                self.render()
+            }
+        }
+        followingFavicons = Task { [weak self] in
+            for await _ in ObservationStream({ _ = model.faviconRevisionTick() }) {
                 guard let self, !Task.isCancelled else { return }
                 model.refreshFaviconPage()
                 self.render()
