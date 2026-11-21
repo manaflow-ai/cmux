@@ -116,7 +116,12 @@ public final class AuthCoordinator {
     @ObservationIgnored var signInErrors: [UInt64: any Error] = [:]
 
     // Sign-out and token reads.
-    @ObservationIgnored var pendingSignOut: PendingSignOut?
+    // A sign-out the reducer has not yet numbered, each numbered one by its
+    // epoch, and the epoch whose local-clear answer is being fed (the
+    // teardown effects it queues carry none).
+    @ObservationIgnored var requestedSignOut: PendingSignOut?
+    @ObservationIgnored var pendingSignOuts: [UInt64: PendingSignOut] = [:]
+    @ObservationIgnored var answeringSignOutEpoch: UInt64?
     @ObservationIgnored var phaseDampersCleared: Task<Void, Never>?
     @ObservationIgnored var tokenReadFailure: AuthError?
     @ObservationIgnored var tokenReadTriesDevAuth = false
@@ -407,10 +412,15 @@ public final class AuthCoordinator {
     ) async {
         isCapturingSignOutCredentials = true
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            // A second sign-out supersedes the first's teardown wait.
-            pendingSignOut?.continuation.resume()
-            pendingSignOut = PendingSignOut(onSignedOut: onSignedOut, teardownTimeout: teardownTimeout, continuation: continuation)
+            // Each sign-out waits on its own teardown, overlapping or not.
+            requestedSignOut = PendingSignOut(onSignedOut: onSignedOut, teardownTimeout: teardownTimeout, continuation: continuation)
             feed("signOutRequested")
+            // The reducer queued no capture (it refused the event): nothing
+            // will tear down, so do not wait.
+            if let unnumbered = requestedSignOut {
+                requestedSignOut = nil
+                unnumbered.continuation.resume()
+            }
         }
         finishSignOutCredentialCapture()
     }
