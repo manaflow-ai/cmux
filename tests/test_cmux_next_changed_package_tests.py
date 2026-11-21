@@ -165,6 +165,17 @@ class FleetVerdict(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("not " + SHA, out)
 
+    def test_a_nested_state_does_not_stand_in_for_the_steps(self) -> None:
+        record = {"worker": {"state": "done", "exit_code": 0, "ref": SHA}, "ref": SHA, "state": "failed",
+                  "exit_code": 1}
+        code, out, _ = self.judge(0, record)
+        self.assertEqual(code, 1, out)
+        self.assertIn("a package test failed", out)
+
+    def test_an_empty_source_digest_keeps_the_fields_in_place(self) -> None:
+        code, out, _ = self.judge(0, {"ref": SHA, "source_digest": "", "state": "done", "exit_code": 0})
+        self.assertEqual(code, 0, out)
+
     def test_a_queued_step_is_no_verdict(self) -> None:
         code, out, _ = self.judge(75, {"ref": SHA, "state": "queued"})
         self.assertEqual(code, 1, out)
