@@ -23,10 +23,9 @@ concurrency:
 jobs:
   complexity:
     name: Web complexity candidate
-    # Pull requests execute contributor-controlled package install scripts. Keep
-    # those runs off a runner variable; a fork pull request takes GitHub-hosted
-    # ubuntu-24.04, since the persistent pool registers every Blacksmith label.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || (github.event_name == 'pull_request' && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
+    # Pull requests execute contributor-controlled package install scripts. A fork
+    # pull request runs on a GitHub-hosted runner, never the persistent pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
       - name: Checkout

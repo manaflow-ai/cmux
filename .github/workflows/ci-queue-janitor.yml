@@ -107,15 +107,17 @@ env:
 # One sweep at a time; a second sweep waits rather than racing the first
 # one's cancellations, and never cancels it. GitHub keeps one run waiting per
 # group and cancels it for each newer arrival, so a run whose job's `if` starts
-# no sweep (a CI run of a pull request into feat-cmux-next) gets a group of its
-# own: in the shared group those runs cancelled the waiting sweep, often within
-# seconds, and on 2026-10-30 left the pool snapshot 50 minutes old.
-# The shared group is `-v2`: about 14 runs from 2026-11-11 (43096179539 to
+# no sweep (a CI run of a pull request into feat-cmux-next) gets a group apart
+# from the sweeps: in the shared group those runs cancelled the waiting sweep,
+# often within seconds, and on 2026-10-30 left the pool snapshot 50 minutes old.
+# The no-op runs share one group of their own, so after an outage they collapse
+# to one waiting run instead of queueing one each (tests/test_ci_cron_concurrency.py).
+# Both groups are `-v2`: about 14 runs from 2026-11-11 (43096179539 to
 # 43098697917) sit in the old group's queue, and GitHub refuses to cancel or
 # force-cancel them (HTTP 409 "not been queued yet"), so every sweep since was
 # cancelled with no job.
 concurrency:
-  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') && format('ci-queue-janitor-noop-{0}', github.run_id) || 'ci-queue-janitor-v2' }}
+  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') && 'ci-queue-janitor-noop-v2' || 'ci-queue-janitor-v2' }}
   cancel-in-progress: false
 
 jobs:
@@ -251,6 +253,8 @@ jobs:
           # refused read moves back to it (queue_janitor.GitHub.use_read_token()). A backed-up queue made each sweep
           # list ~1,000-2,000 runs' jobs on the cmux-bot installation every reconciler shares.
           READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token && steps.glaeda-token.outputs.token || '' }}
+          # The calls an hour the sweep leaves on that installation for the runner scaler's JIT creates (default 3000).
+          READ_TOKEN_FLOOR: ${{ vars.CI_JANITOR_READ_TOKEN_FLOOR }}
           GH_REPO: ${{ github.repository }}
           # BRANCH=DIR: another branch's workflow files, read for its linux-only runs (needs_jobs()).
           BRANCH_WORKFLOWS: feat-cmux-next=branch-workflows/feat-cmux-next/.github/workflows

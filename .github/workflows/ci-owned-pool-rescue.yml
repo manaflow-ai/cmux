@@ -175,6 +175,16 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
+      # The cmux-bot installation's hour when this job starts (GET /rate_limit is free), as an
+      # `app-spend-pool:` line HQ's spend publisher sums (scripts/ci/app_spend_mark.py).
+      - name: Read the cmux-bot budget before this job
+        id: app-spend
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py start ci-owned-pool-rescue/rescue
+
       # The rescue reads a failed side-lane run's `needs` graph from its workflow file
       # (owned_pool_rescue.downstream_of_refusals()), which needs PyYAML. Best effort:
       # without it that check excuses nothing and the rescue runs as before.
@@ -251,3 +261,13 @@ jobs:
           # waits, so its Mac jobs are placed again (owned_pool_rescue.rerun_named()).
           RERUN: ${{ inputs.rerun }}
         run: python3 scripts/ci/owned_pool_rescue.py
+
+      # This job's spend: the pool again and the difference from the reading above (an upper bound, since
+      # every job holding a cmux-bot token spends the same pool).
+      - name: Read the cmux-bot budget after this job
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py end ci-owned-pool-rescue/rescue
