@@ -5,7 +5,7 @@ import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
-const { click, renderPage, run, settle, ops } = await import("./testing");
+const { changeValue, click, renderPage, rowElement, run, settle, ops } = await import("./testing");
 const { homes, categoryById } = await import("./categories");
 const { PERSONALIZATION_KEYS, PERSONALIZATION_PARTS } = await import("./personalizationParts");
 const { DENSITY_CARD_ROWS } = await import("./density");
@@ -218,5 +218,28 @@ test("without art to pick, Background still draws the shuffle interval Appearanc
   expect(rowKeys(page.container.querySelector<HTMLElement>('[data-part="background"]')!)).toContain(
     "appearance.backgroundRotation",
   );
+  page.unmount();
+});
+
+// manaflow-ai/cmux#48429: Sidebar Text Size was only on the Sidebar page, apart from the Text Size a person
+// sets in Text and Density. The density card draws it right under Text Size, and it is the same setting:
+// a pick here is the one write, and the Sidebar page, which still draws the row, shows it.
+test("Text and Density draws Sidebar Text Size under Text Size, and it is the Sidebar page's setting", async () => {
+  const page = await renderPage({ path: "/settings/personalization?focus=sidebar.textSize" });
+  await settle();
+  const card = () => page.container.querySelector<HTMLElement>('[data-part="text"] [data-card="density"]')!;
+  // A link to the row on this page opens Text and Density, and the page draws it once.
+  expect(rowKeys(page.container).filter((key) => key === "sidebar.textSize")).toHaveLength(1);
+  const densityRows = rowKeys(card());
+  expect(densityRows).toContain("sidebar.textSize");
+  expect(densityRows.indexOf("sidebar.textSize")).toBe(densityRows.indexOf("appearance.metrics.chromeFontSize") + 1);
+  const native = (container: ParentNode) =>
+    rowElement(container, "sidebar.textSize").querySelector<HTMLSelectElement>("select")!;
+  await changeValue(native(card()), "larger");
+  expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "sidebar.textSize", value: "larger" }]);
+  await act(async () => page.history.push("/settings/sidebar"));
+  await settle();
+  expect(rowKeys(page.container).filter((key) => key === "sidebar.textSize")).toHaveLength(1);
+  expect(native(page.container).value).toBe("larger");
   page.unmount();
 });

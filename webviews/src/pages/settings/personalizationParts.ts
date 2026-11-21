@@ -1,7 +1,7 @@
 // Settings > Personalization's parts as data (PersonalizationCard draws them): which keys each part
 // draws and which categories are their homes. Data only, with literal keys, so the router
 // (sectionQueries.routeSection) reads it without importing the page's components (an import cycle).
-import { DENSITY_CARD_ROWS, DENSITY_ROWS } from "./density";
+import { DENSITY_CARD_ROWS, DENSITY_ROWS, SIDEBAR_TEXT_SIZE_KEY } from "./density";
 
 /** A part of the page: its sidebar id and symbol, the categories that are the homes of what it draws (each
  * gets a More in … link), the keys its cards draw and the schema rows drawn under them. */
@@ -54,8 +54,9 @@ export const PERSONALIZATION_PARTS: readonly Part[] = [
   {
     id: "text",
     symbol: "textformat",
-    // The density tiles are Appearance's; the chat text rows (Chat's whole Chat Text card) are Chat's.
-    homes: ["appearance", "chat"],
+    // The density tiles are Appearance's; the chat text rows (Chat's whole Chat Text card) are Chat's;
+    // the density card's Sidebar Text Size row is Sidebar's (manaflow-ai/cmux#48429).
+    homes: ["appearance", "chat", "sidebar"],
     cardKeys: [...DENSITY_ROWS],
     rows: [
       "agentPane.display.font.ui",
@@ -99,5 +100,7 @@ export function personalizationPart(focus: string | null, part: PartID | null): 
   if (focus?.startsWith(FOCUS_PREFIX)) {
     return parsePersonalizationPart(focus.slice(FOCUS_PREFIX.length)) ?? part ?? "theme";
   }
+  // Sidebar Text Size's home is Sidebar (search opens it there), but on this page the density card draws it.
+  if (focus === SIDEBAR_TEXT_SIZE_KEY) return "text";
   return (focus && personalizationPartOf(focus)) || part || "theme";
 }
