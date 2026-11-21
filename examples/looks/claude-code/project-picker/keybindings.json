@@ -1,0 +1,6 @@
+[
+  {
+    "key": "cmd+alt+o",
+    "command": "agentPane.composer.chooseFolder"
+  }
+]
