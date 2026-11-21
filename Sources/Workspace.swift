@@ -4409,6 +4409,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.bonsplitController.tabMiddleClickCapture = { onMiddleClick in
             AnyView(MiddleClickCapture(onMiddleClick: onMiddleClick))
         }
+        refreshTabShortcutModifier()
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
@@ -4701,6 +4702,27 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard configuration.appearance.splitButtonTooltips != tooltips else { return }
         configuration.appearance.splitButtonTooltips = tooltips
         bonsplitController.configuration = configuration
+    }
+
+    /// Bonsplit's tab hints read UserDefaults by default, which misses
+    /// shortcuts configured in cmux.json.
+    func refreshTabShortcutModifier() {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .selectSurfaceByNumber)
+        // Bonsplit hints show one modifier, so a chord would render a
+        // misleading single-stroke hint; treat it like an unbound shortcut.
+        let hasNoHint = shortcut.isUnbound || shortcut.hasChord
+            // An empty set would match no modifier held and reveal hints
+            // that suggest bare digits select tabs.
+            || shortcut.modifierFlags.isEmpty
+        let flags: NSEvent.ModifierFlags? = hasNoHint ? nil : shortcut.modifierFlags
+        // Hint eligibility for a hintable shortcut belongs to the focus
+        // controller; otherwise there is nothing to hint.
+        let disablesHints = hasNoHint && bonsplitController.tabShortcutHintsEnabled
+        guard bonsplitController.tabShortcutModifierFlags != flags || disablesHints else { return }
+        bonsplitController.tabShortcutModifierFlags = flags
+        if disablesHints {
+            bonsplitController.tabShortcutHintsEnabled = false
+        }
     }
 
     func refreshSplitButtonBackdropEffect() {
