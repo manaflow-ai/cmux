@@ -718,6 +718,34 @@ impl Store for ForkView {
         }
         self.inner.scan_heads(id, &mut |head| head.seq <= r.through_seq || visit(head))
     }
+    fn search_records(&self, id: &str, visit: &mut dyn FnMut(EventRecord)) -> Result<()> {
+        let _held = self.shared();
+        let Some(r) = self.reference(id)? else { return self.inner.search_records(id, visit) };
+        self.search_records(&r.session, &mut |rec| {
+            if rec.seq <= r.through_seq {
+                visit(rec);
+            }
+        })?;
+        self.inner.search_records(id, &mut |rec| {
+            if rec.seq > r.through_seq {
+                visit(rec);
+            }
+        })
+    }
+
+    fn conversation_entries(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(crate::session_search::Entry),
+    ) -> Result<()> {
+        // A commit to cold storage or a fork's materialization cannot cross the read.
+        let _held = self.shared();
+        if self.reference(id)?.is_none() {
+            return self.inner.conversation_entries(id, visit);
+        }
+        crate::session_search::project_records(|feed| self.search_records(id, feed), visit)
+    }
+
     fn text_entries(
         &self,
         id: &str,

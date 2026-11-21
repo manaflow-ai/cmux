@@ -1279,7 +1279,6 @@ pub fn settings(dir: &Path) -> Settings {
         membership: Default::default(),
         keep_turn_session: false,
         chief_inbox: None,
-        screen_share: Some(dir.join("screen")),
     }
 }
 
