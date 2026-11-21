@@ -312,6 +312,18 @@ if [[ "$mode" == clippy-changed ]]; then
   # cmux-tui-spec.yml `clippy (changed cmux-tui packages)`.
   base="$(required_base "$workspace")"
   echo "base: $base"
+  # cmux-tailnet's build.rs needs the Go its go-version names, and a pool image has none (cmux#45480,
+  # cmux#46734: "`go` was not found"). Set up as build-acpmux.sh does; with none to be had this is a
+  # setup fault (exit 3, no verdict), not the change's clippy red.
+  # The helper beside this script, else the checkout's (a fleet step may run a reviewed copy of the script).
+  tailnet_go="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tailnet-go.sh"
+  [[ -f "$tailnet_go" ]] || tailnet_go="$root/scripts/ci/tailnet-go.sh"
+  # shellcheck source=scripts/ci/tailnet-go.sh
+  source "$tailnet_go"
+  if ! ensure_tailnet_go "$root"; then
+    echo "error: no Go for cmux-tailnet's build.rs (scripts/ci/tailnet-go.sh): a setup fault, not this change's verdict" >&2
+    exit 3
+  fi
   export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC="" CMUX_GHOSTTY_VT_ZIG_CPU=baseline
   step "clippy-changed self-test" python3 .github/scripts/test_cmux_tui_clippy_changed.py
   tools="$(mktemp -d)"

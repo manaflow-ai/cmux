@@ -270,7 +270,7 @@ ARGS=(clippy-changed "$base_sha")
 : >"$TMP/calls"
 status=0; out=$(run CMUX_CI_STEP_KEY=k) || status=$?
 [[ "$status" == 3 ]] || fail "clippy-changed with no Go to be had must exit 3 (setup), got $status: $out"
-grep -q 'no pinned Go for' <<<"$out" || fail "clippy-changed did not say why it has no Go: $out"
+grep -q 'no pinned Go ' <<<"$out" || fail "clippy-changed did not say why it has no Go: $out"
 grep -q '^clippy-changed' "$TMP/calls" && fail "clippy ran with no Go for cmux-tailnet: $(calls)"
 printf '#!/bin/bash\n[[ "$1" == version ]] && echo "go version go1.24.9 linux/amd64"\n' >"$TMP/bin/go"
 chmod +x "$TMP/bin/go"
