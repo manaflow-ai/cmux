@@ -724,6 +724,7 @@ class PlanTest(unittest.TestCase):
         (built / "Contents").mkdir(parents=True)
         calls = []
 
+        tmp = self.tmp.name
         class FakeSide:
             def __init__(self, name):
                 self.name = name
@@ -742,7 +743,7 @@ class PlanTest(unittest.TestCase):
                 return "/tmp/try-test.sock"
 
             def app(self):
-                return Path("/tmp/try-test.app")
+                return Path(tmp) / "try-test.app"
 
             def stop(self):
                 return []

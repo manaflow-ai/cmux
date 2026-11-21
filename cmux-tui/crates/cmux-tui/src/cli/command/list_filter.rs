@@ -1,6 +1,13 @@
-//! `workspace list --name/--cwd`, `pane list --name/--cwd` and
+//! `workspace list --name/--cwd/--id/--tree`, `pane list --name/--cwd` and
 //! `terminal list --cwd`: filters the CLI applies to the rows it already
 //! reads (wire/list_filter.rs). The daemon's list request is unchanged.
+//!
+//! `--id <id>[,<id>...]` keeps the workspaces with one of those ids (or an
+//! id starting with one), so an agent reads the workspaces it names instead
+//! of grepping the whole list (Leo, 2026-11-19: "acpmux should expose these
+//! a lot better"). `--tree` gives each workspace its panes and their tabs,
+//! and lifts `extra.created_by` (the person, agent session or script that
+//! made it) to `created_by`.
 //!
 //! `--name` matches a row's `name` exactly. `--cwd <path>` matches a
 //! terminal whose folder is `<path>` or inside it; a workspace or pane
@@ -28,6 +35,10 @@ pub(in crate::cli) struct ListFilter {
     pub cwd: Option<CwdFilter>,
     /// `--created-by`: who must have made the row.
     pub created_by: Option<CreatedByFilter>,
+    /// `--id`: the ids (or id prefixes) a row's `id` must be one of.
+    pub ids: Vec<String>,
+    /// `--tree`: each workspace with its panes, tabs and creator.
+    pub tree: bool,
 }
 
 /// The makers `--created-by` keeps.
@@ -70,7 +81,17 @@ impl CreatedByFilter {
 
 impl ListFilter {
     pub(in crate::cli) fn is_empty(&self) -> bool {
-        self.name.is_none() && self.cwd.is_none() && self.created_by.is_none()
+        self.name.is_none()
+            && self.cwd.is_none()
+            && self.created_by.is_none()
+            && self.ids.is_empty()
+            && !self.tree
+    }
+
+    /// Whether row `id` passes `--id`: equal to one of its ids or starting with it.
+    pub(in crate::cli) fn id_matches(&self, id: Option<&str>) -> bool {
+        self.ids.is_empty()
+            || id.is_some_and(|id| self.ids.iter().any(|wanted| id.starts_with(wanted.as_str())))
     }
 
     /// Whether row `name` passes `--name`.
@@ -164,12 +185,26 @@ pub(super) fn take(flags: &mut Flags, name: bool, cwd: bool) -> Result<ListFilte
         }
         None => None,
     };
-    Ok(ListFilter { name, cwd, created_by: take_created_by(flags)? })
+    Ok(ListFilter { name, cwd, created_by: take_created_by(flags)?, ..ListFilter::default() })
 }
 
 /// Takes `--created-by` for a list.
 pub(super) fn take_created_by(flags: &mut Flags) -> Result<Option<CreatedByFilter>, UsageError> {
     Ok(value(flags, "created-by")?.map(|value| CreatedByFilter::parse(&value)))
+}
+
+/// `workspace list`'s filters: `--name`, `--cwd`, `--id` and `--tree`.
+pub(super) fn take_workspace(flags: &mut Flags) -> Result<ListFilter, UsageError> {
+    let mut filter = take(flags, true, true)?;
+    if let Some(ids) = value(flags, "id")? {
+        filter.ids =
+            ids.split(',').map(str::trim).filter(|id| !id.is_empty()).map(str::to_owned).collect();
+        if filter.ids.is_empty() {
+            return Err(missing_value("id"));
+        }
+    }
+    filter.tree = flags.boolean("tree");
+    Ok(filter)
 }
 
 impl CommandPlan {
@@ -222,10 +257,21 @@ mod tests {
 
     #[test]
     fn name_matches_exactly() {
-        let named = ListFilter { name: Some("api".into()), cwd: None, created_by: None };
+        let named = ListFilter { name: Some("api".into()), ..ListFilter::default() };
         assert!(named.name_matches(Some("api")));
         assert!(!named.name_matches(Some("api-2")));
         assert!(!named.name_matches(None));
         assert!(ListFilter::default().name_matches(None));
+    }
+
+    #[test]
+    fn id_matches_one_of_the_ids_or_a_prefix_of_one() {
+        let by_id =
+            ListFilter { ids: vec!["ws_7aee".into(), "ws_5899".into()], ..Default::default() };
+        assert!(by_id.id_matches(Some("ws_7aee67b9a4766d8f988977bc5c1380ba")));
+        assert!(by_id.id_matches(Some("ws_5899901293e83f3696104e5260ca3de6")));
+        assert!(!by_id.id_matches(Some("ws_fddd5e")));
+        assert!(!by_id.id_matches(None));
+        assert!(ListFilter::default().id_matches(None));
     }
 }
