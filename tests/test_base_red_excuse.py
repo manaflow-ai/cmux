@@ -16185,6 +16185,99 @@ class HeadCheckNamedAnotherWay(unittest.TestCase):
             self.found("Web tests (2/4)", statuses=[status])
 
 
+class SameNamedChecksTellApartByWorkflow(unittest.TestCase):
+    """Several workflows each have a job of one name, so one name is several check runs at one head (2026-11-21,
+    hq#17005 at 7d52c802): `--check 'lane-gh-broker tests / tests'` came back "not excused: 'tests' is success ...
+    re-run it", a verdict about a *different* check run of another workflow. latest_checks kept one check run per
+    name, the highest id, so the rest were invisible: the name was read as whichever of them GitHub listed last, and
+    spelled_check's refusal for a name two check runs answer to could never fire for them. The checks page's
+    '<workflow> / <check>' form names one of them, and the workflow of each one's run is in the one
+    `actions/runs?head_sha=` read the head already makes (head_runs); where it cannot tell them apart, none is judged.
+    Two runs of one workflow at one head are not ambiguous: the newest is the verdict, as everywhere else here."""
+
+    SHA = "7d52c80222b041a35c8b4b42e9f1746d9dc1cb5e"
+    # run id -> (workflow name, check run and job id, conclusion). All three red, so no green path is in the way of
+    # the question asked here: which check run a name names.
+    BROKER, SKILLS, RECONCILERS = 44918143341, 44916267116, 44918143439
+    WORKFLOWS = {BROKER: "lane-gh-broker tests", SKILLS: "Skills tests", RECONCILERS: "fleet-reconcilers tests"}
+    JOBS = {BROKER: 131000000001, SKILLS: 131000000002, RECONCILERS: 131000000003}
+
+    class Fake:
+        def __init__(self, runs):
+            self.runs, self.routes = runs, []  # runs: run id -> workflow name, one check run named 'tests' each
+
+        def json(self, route, *, paginate=False):
+            self.routes.append(route)
+            outer = SameNamedChecksTellApartByWorkflow
+            if route.endswith("/check-runs?filter=all&per_page=100"):
+                return [{"check_runs": [outer.check_run(run) for run in self.runs]}]
+            if "/actions/jobs/" in route:
+                return outer.job(int(route.rsplit("/", 1)[1]))
+            if route.endswith("/status?per_page=100"):
+                return {"statuses": []}
+            if "/actions/runs?head_sha=" in route:
+                return [{"workflow_runs": [{"id": run, "name": name, "head_sha": outer.SHA, "path":
+                                            f".github/workflows/{run}.yml", "event": "push", "workflow_id": run,
+                                            "status": "completed", "conclusion": "failure"}
+                                           for run, name in self.runs.items()]}]
+            raise AssertionError(route)
+
+    @classmethod
+    def check_run(cls, run):
+        job = cls.JOBS[run]
+        return {"app": {"slug": "github-actions"}, "check_suite": {"id": 900000 + run}, "id": job, "name": "tests",
+                "status": "completed", "conclusion": "failure", "head_sha": cls.SHA,
+                "details_url": f"https://github.com/{REPO}/actions/runs/{run}/job/{job}"}
+
+    @classmethod
+    def job(cls, job_id):
+        run = next(run for run, found in cls.JOBS.items() if found == job_id)
+        return {"id": job_id, "run_id": run, "name": "tests", "status": "completed", "conclusion": "failure",
+                "head_sha": cls.SHA, "steps": [{"name": "Run tests", "status": "completed", "conclusion": "failure"}]}
+
+    def found(self, name, runs=None):
+        gh = self.Fake(runs if runs is not None else dict(self.WORKFLOWS))
+        audit: list[str] = []
+        jobs = excuse.head_jobs(REPO, self.SHA, [], [name], gh, excused=audit)
+        return [job["id"] for job in jobs], audit, gh
+
+    def test_the_newest_check_run_of_the_name_is_not_every_check_run_of_it(self):
+        """What collapsed: three check runs named 'tests', and the highest id answered for all three."""
+        gh = self.Fake(dict(self.WORKFLOWS))
+        at_head = excuse.check_runs_at(REPO, self.SHA, gh)
+        self.assertEqual(sorted(check["id"] for check in at_head["tests"]), sorted(self.JOBS.values()))
+        # latest_checks keeps its own meaning, the newest of the name, for every caller that asks only that.
+        self.assertEqual(excuse.latest_checks(REPO, self.SHA, gh)["tests"]["id"], max(self.JOBS.values()))
+
+    def test_the_name_is_read_as_its_own_workflows_check_run_not_the_newest_of_the_name(self):
+        for run, workflow in self.WORKFLOWS.items():
+            with self.subTest(workflow=workflow):
+                jobs, audit, _ = self.found(f"{workflow} / tests")
+                self.assertEqual(jobs, [self.JOBS[run]])
+                self.assertTrue(any(f"'{workflow} / tests'" in line for line in audit), audit)
+
+    def test_the_workflow_comes_from_the_read_the_head_already_makes(self):
+        _, _, gh = self.found("Skills tests / tests")
+        heads = [route for route in gh.routes if "/actions/runs?head_sha=" in route]
+        self.assertEqual(len(heads), 1, gh.routes)  # one read for every candidate, shared through SEEN
+
+    def test_the_name_as_written_names_three_check_runs_so_none_is_judged(self):
+        """'tests' alone cannot mean one of them; answering about the newest judged a check nobody asked about."""
+        with self.assertRaisesRegex(excuse.Refused, r"3 check runs.*lane-gh-broker tests / tests") as caught:
+            self.found("tests")
+        self.assertIn("name it in full", str(caught.exception))
+
+    def test_a_workflow_that_is_not_at_the_head_has_not_run_rather_than_the_wrong_check(self):
+        with self.assertRaisesRegex(excuse.Refused, "names 3 check runs|has not run on exact head"):
+            self.found("web / tests")
+
+    def test_two_runs_of_one_workflow_at_one_head_are_the_newest_of_them(self):
+        """Not ambiguity: a name's newest completed run is its verdict everywhere else here, and stays so."""
+        runs = {self.BROKER: "lane-gh-broker tests", self.RECONCILERS: "lane-gh-broker tests"}
+        jobs, _, _ = self.found("lane-gh-broker tests / tests", runs=runs)
+        self.assertEqual(jobs, [max(self.JOBS[run] for run in runs)])
+
+
 OTHER_PR_SETUP_FIXTURES = ROOT / "tests/fixtures/base_red_excuse_other_pr_setup"
 
 
