@@ -29,10 +29,14 @@ cmux.app (the person's app; serves attached cmux.rd/1 + WebRTC sessions,
   stays the same across builds, so a grant survives every update. A Release
   build embeds the pinned asset from
   `scripts/cmux-next/cmux-remote-dev.pin.json` only with
-  `CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1` (decision of 2026-11-16). No build
-  sets the variable, so a NIGHTLY build has no cmux Remote: the third-party
-  notices and the load-command check of a published build do not cover the
-  embedded bundle yet. Without the variable a Release build prints one note
+  `CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1`. The nightly build sets it
+  (`scripts/ci/nightly-steps/app-build-release.sh`) and fails when the bundle is
+  missing from the app (`app-report-chromium-engine.sh`): on macOS Computer Use
+  runs only inside cmux Remote, so a NIGHTLY without it has Computer Use off for
+  everyone whatever the setting says (Leo, 2026-11-21: "it should be alwyas on.
+  if its off thats not intended"). The decision of 2026-11-16 to leave it out
+  of published builds is reversed for that reason; the third-party notices map
+  already lists the bundle. Without the variable a Release build prints one note
   line and embeds nothing; with `CMUX_NEXT_REQUIRE_CMUX_REMOTE=1` and not the
   variable it fails. With the variable a Release build fails without the
   asset, and a mismatched asset fails each build that embeds. Only with

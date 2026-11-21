@@ -2,6 +2,12 @@
 # nightly.yml build-nightly-app: "Build nightly app (Release)". Moved out of the workflow to keep nightly.yml under
 # its size budget (tests/test_workflow_file_size.py); the step's env: still sets every input.
 set -euo pipefail
+# A NIGHTLY embeds cmux Remote: on macOS Computer Use runs only inside it (#37003), so a build without it
+# answers every Computer Use call "off" whatever the person's setting is. Leo, 2026-11-21: "idk why computer
+# use is off. it should be alwyas on. if its off thats not intended". The release-embed switch of
+# embed-cmux-remote-dev.sh is therefore on for every nightly build (it fails the build when the pinned asset is
+# missing, never ships one without; app-report-chromium-engine.sh checks the bundle is there).
+export CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1
 # The asset catalog compile leaves Xcode's ibtoold running, detached, with this job's environment, for about a
 # minute after xcodebuild returns; nightly-next-one's check before the signing secrets then counted two of them
 # (run 43431310245). This step ends the build daemons it started however it exits (refuse_stray_processes.py).

@@ -345,3 +345,13 @@ fn fault_a_restart_while_the_quit_host_drains_starts_it_again() {
     assert!(!paths.state.join("stop-intent.json").exists(), "the restart clears the stop intent");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A build with no cmux Remote says so (never "turn on a setting": none can), and the endpoint answers it as
+/// `off` with that reason; a build with one keeps the setting hint (Leo, 2026-11-21: "it should be alwyas on").
+#[test]
+fn a_build_without_cmux_remote_names_the_build_not_a_setting() {
+    let without = super::not_wanted_reason(false);
+    assert_eq!(without, super::NO_REMOTE_REASON);
+    assert!(without.contains("embeds no cmux Remote") && !without.contains("Settings"));
+    assert!(super::not_wanted_reason(true).contains("turn on Computer Use"));
+}

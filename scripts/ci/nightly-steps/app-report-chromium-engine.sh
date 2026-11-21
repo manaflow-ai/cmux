@@ -13,3 +13,11 @@ if [[ -d "$framework" ]]; then
 else
   echo "::warning title=No Chromium engine::The CEF artifact was not readable (secrets CMUX_CEF_R2_*); this build ships the browser as unavailable."
 fi
+# Computer Use needs cmux Remote on macOS (docs/cmux-remote.md): a nightly without it has Computer Use off for
+# everyone, whatever their setting says (Leo, 2026-11-21: "it should be alwyas on"). Fail the build, never ship it.
+remote="$app/Contents/Library/cmux Remote (dev).app/Contents/MacOS/cmux-remote"
+if [[ ! -x "$remote" ]]; then
+  echo "::error title=No cmux Remote::$app embeds no cmux Remote, so Computer Use is off in this nightly (embed-cmux-remote-dev.sh; CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1)." >&2
+  exit 1
+fi
+echo "cmux Remote embedded: $(basename "$(dirname "$(dirname "$(dirname "$remote")")")")"

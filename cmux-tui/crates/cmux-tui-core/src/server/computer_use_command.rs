@@ -95,7 +95,10 @@ pub(super) fn endpoint(mux: &Mux, client: u64) -> anyhow::Result<Value> {
                 Ok(answer) => {
                     json!({"state": "unavailable", "reason": format!("cmux Remote answered {answer}")})
                 }
-                Err(reason) if reason.contains("is off") => {
+                Err(reason)
+                    if reason.contains("is off")
+                        || reason == crate::remote_host::NO_REMOTE_REASON =>
+                {
                     json!({"state": "off", "reason": reason})
                 }
                 Err(reason) => json!({"state": "unavailable", "reason": reason}),

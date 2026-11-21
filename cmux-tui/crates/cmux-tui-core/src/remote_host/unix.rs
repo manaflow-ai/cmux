@@ -296,7 +296,7 @@ impl RemoteHostSupervisor {
             // Nothing turned on (Computer Use off or Legacy, and signed out of Screen Sharing):
             // no host starts for a request, so an off switch never runs cmux Remote.
             if !lock(&self.inner.config).wanted() {
-                return Err("cmux Remote is off: turn on Computer Use (Upstream driver) or sign in for Screen Sharing".into());
+                return Err(not_wanted_reason(bundled()));
             }
             // `cmux remote-host restart` is the person's explicit start. Any other request
             // (an agent's, the app's hourly anchor) never starts a host the person quit.
@@ -938,6 +938,22 @@ impl Connection {
 fn stream_timeout(stream: &std::os::unix::net::UnixStream, timeout: Option<Duration>) {
     let _ = stream.set_read_timeout(timeout);
 }
+
+/// Why a request found no host wanted. A build that embeds no cmux Remote can never run Computer Use
+/// (it runs only inside cmux Remote), so that is said plainly and is not "off": "off" reads as a setting
+/// the person flipped, and nobody can flip it back (Leo, 2026-11-21: "it should be alwyas on").
+fn not_wanted_reason(bundled: bool) -> String {
+    if bundled {
+        "cmux Remote is off: turn on Computer Use (Upstream driver) or sign in for Screen Sharing"
+            .into()
+    } else {
+        NO_REMOTE_REASON.into()
+    }
+}
+
+/// The answer of a build with no cmux Remote (the endpoint reports it as `off` so `status` answers at once
+/// instead of retrying for a host that can never start).
+pub(crate) const NO_REMOTE_REASON: &str = "this cmux build embeds no cmux Remote, which Computer Use runs in: install a build that embeds it (no setting turns it on)";
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
