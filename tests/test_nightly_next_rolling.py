@@ -166,7 +166,7 @@ class RollingRuleTests(unittest.TestCase):
                                     oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)), starts=[retry],
                                     window_minutes=5)
         self.assertTrue(go, reason)
-        self.assertIn("nothing is building", reason)
+        self.assertIn("ignoring the retry", reason)
         with self.subTest("nothing waits after the head: the retry is the newest build, so it holds"):
             go, reason = rolling.decide(NOW, head=head, head_runs=[retry], jobs_of=lambda r: BUILDING,
                                         promotions=[], oldest_waiting=None, starts=[retry], window_minutes=5)
@@ -586,15 +586,24 @@ class SlotCapTests(unittest.TestCase):
                 go, reason = self.decide([(run(1, 20, head_sha=HEAD), jobs), (retry, ONE_PENDING)], 2)
                 self.assertFalse(go, reason)
 
-    def test_a_lone_head_retry_yields_only_after_its_build_starts(self):
+    def test_a_lone_head_retry_yields_unless_it_waits_at_the_slot(self):
+        """As on main, a lone retry of the head is ignored while a newer commit waits, in decide/resolve too: its
+        group is run-<id> until nightly-next-one exists, and resolve's "Leave the build slot" only polls the ref
+        for 6 min, so waiting on it rebuilt the failed commit. It holds only while a promotion would get it
+        replaced: nightly-next-one queued, pending or waiting, or no job listed yet."""
         retry = run(2, 1, head_sha=HEAD, event="workflow_dispatch", display_title="Retry nightly-next (1 of 2)")
         for slots in (1, 2):
-            for stage, jobs, want in (("no jobs", [], False), ("setup", SET_UP, False),
+            for stage, jobs, want in (("no jobs", [], False), ("setup", SET_UP, True),
                                       ("queued", one_job("queued"), False), ("pending", ONE_PENDING, False),
-                                      ("running", ONE_BUILDING, True)):
+                                      ("waiting", one_job("waiting"), False), ("running", ONE_BUILDING, True)):
                 with self.subTest(slots=slots, stage=stage):
                     go, reason = self.decide([(retry, jobs)], slots)
                     self.assertEqual(go, want, reason)
+                    if want:
+                        self.assertIn("ignoring the retry", reason)
+            with self.subTest(slots=slots, stage="pending run, no jobs"):
+                go, reason = self.decide([({**retry, "status": "pending"}, [])], slots)
+                self.assertFalse(go, reason)
 
     def test_split_job_group_does_not_gain_a_second_signer_slot(self):
         jobs = [*BUILDING, {**job("nightly-next-one", "completed"), "conclusion": "skipped"}]

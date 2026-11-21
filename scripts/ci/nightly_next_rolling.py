@@ -167,6 +167,19 @@ def can_share_slot_capacity(jobs: list[dict]) -> bool:
     return any(job.get("name") == ONE_JOB and job.get("status") == "in_progress" for job in jobs)
 
 
+def retry_may_be_replaced(jobs: list[dict]) -> bool:
+    """Whether a lone retry of nightly-next's head waits where a promotion would get it replaced: its
+    nightly-next-one exists and is queued, pending or waiting (the push slot's one pending job), or the run
+    lists no job yet (pending on its concurrency group). Anywhere else (decide, resolve, a running build) it is
+    ignored as on main: in one-job mode its group is run-<id> until nightly-next-one exists, so nothing pending
+    is replaced, and resolve's "Leave the build slot" only polls the ref for 6 minutes without asking the tick,
+    so waiting on it rebuilt the failed commit while the newer one waited ~30 min."""
+    if not jobs:
+        return True
+    one = next((job for job in jobs if job.get("name") == ONE_JOB), None)
+    return one is not None and one.get("status") not in ("completed", "in_progress")
+
+
 def slots_from(value) -> int:
     """Clamp to the signer pool's capacity; unset or unreadable keeps the one-slot rule."""
     try:
@@ -244,7 +257,7 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
     every_open = {run.get("id") for run in [*head_runs, *(starts or [])]
                   if run.get("status") != "completed" and watch.holds_push_group(run)}
     timed_starts = [run for run in starts or [] if oldest_waiting is None or not retry_of(run, head)]
-    building = ""
+    building, skipped_retry = "", False
     since_start = youngest_start(now, timed_starts, promotions, promotion_minutes)
     if since_start is not None and since_start < PROMOTION_RACE_MINUTES:
         building = f"a build started {since_start * 60:.0f} s ago"
@@ -276,8 +289,8 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
         for run in open_runs:
             jobs = jobs_of(run)
             if (oldest_waiting is not None and len(every_open) == 1 and retry_of(run, head)
-                    and any(job.get("name") in (ONE_JOB, "build-nightly-app") and job.get("status") == "in_progress"
-                            for job in jobs)):
+                    and not retry_may_be_replaced(jobs)):
+                skipped_retry = True
                 continue
             # A finishing holder lets ONE run be promoted: only while no more loop runs are open than there are
             # slots (a retry of the head included; with one slot, no other loop run) and the holder still builds
@@ -296,6 +309,9 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
                     break
         if busy_count and not building:
             return True, f"{busy_count} of {slots} nightly-next slots busy; promoting the newest buildable commit now"
+    if not building and skipped_retry:
+        return True, (f"the open run is a retry of nightly-next's head {head[:12]} and a newer commit waits; ignoring "
+                      "the retry and promoting the newest buildable commit now")
     if not building:
         return True, f"nothing is building nightly-next ({head[:12]}); promoting the newest buildable commit now"
     if oldest_waiting is None:
