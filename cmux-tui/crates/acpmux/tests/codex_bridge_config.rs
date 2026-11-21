@@ -209,7 +209,8 @@ async fn a_chat_starts_codex_with_its_agent_limits_lifted_unless_the_profile_set
     let _ = std::fs::remove_dir_all(&d);
 }
 
-/// The chat's start (the prompt was answered) and every start recorded in `recorded`.
+/// Every `app-server` start recorded in `recorded` once a chat answered a prompt (other codex
+/// runs the fake records, such as an `mcp get` check, are left out).
 async fn starts_of_a_chat(hub: &Arc<Hub>, d: &Path, recorded: &Path) -> Vec<Value> {
     let mut c = Client::local(hub);
     let (s, _) = harness_of_new(&mut c, d, "codex").await;
@@ -225,6 +226,7 @@ async fn starts_of_a_chat(hub: &Arc<Hub>, d: &Path, recorded: &Path) -> Vec<Valu
         .lines()
         .map(|l| serde_json::from_str::<Value>(l).unwrap())
         .map(|s| without_rules(&s))
+        .filter(|s| s.as_array().is_some_and(|w| w.iter().any(|a| a == "app-server")))
         .collect()
 }
 
