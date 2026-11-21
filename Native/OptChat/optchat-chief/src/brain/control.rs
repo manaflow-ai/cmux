@@ -1460,6 +1460,16 @@ impl Brain {
 /// most this long after `cloud.autoPauseIdleSeconds`.
 pub(super) const CLOUD_TICK: Duration = Duration::from_secs(5);
 
+impl super::Brain {
+    /// When the brain next runs its cloud checks (VM pause, VM delete, key
+    /// revoke, fleet polls): `None` while none of them has anything to do.
+    /// Red stand-in: the fixed [`CLOUD_TICK`] of the ticker thread.
+    pub fn next_cloud_tick(&self) -> Option<std::time::Instant> {
+        (self.cloud_vms.is_some() || self.agent_keys.is_some())
+            .then(|| std::time::Instant::now() + CLOUD_TICK)
+    }
+}
+
 /// Sends `CloudTick` to the brain every [`CLOUD_TICK`] until it is gone.
 pub(super) fn start_cloud_ticker(tx: std::sync::mpsc::Sender<super::Input>) {
     let _ = std::thread::Builder::new()
