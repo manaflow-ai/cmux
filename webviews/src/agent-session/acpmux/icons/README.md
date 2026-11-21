@@ -20,10 +20,11 @@ gaps. Selected Solid drawings retain their authored geometry. The shared Spinner
 brand marks retain their settled drawings. Gallery: `agent-pane.icon-system`.
 
 `nekoCandidate.json` is a gallery-only experiment generated from the existing Cat drawings and
-copy/pin fill-ins. `nekoRounds.json` holds the art-round directions (round 2 and 3) as pack overlays,
-so the gallery draws them through `Icon` like the default row. Neither is imported by the production
-icon map. The reserved `neko` family falls
-back to the default until a complete comparison clears the quality bar. See
-`design/icons/neko-evaluation.md` for provenance, coverage and evaluated rounds.
+copy/pin fill-ins. `nekoRounds.json` holds the art-round directions (rounds 2 to 4) as pack overlays,
+so the gallery (`agent-pane.neko-icon-family`) draws them through `Icon` like the default row.
+`cmuxIconsNeko.json` is the shipped Neko family (round 4 "head", `NEKO_SHIPPED` in
+`scripts/icons/build_pack.py`): Settings > Appearance > Icon Theme = Neko lays it over the pack
+(`data-icon-family="neko"`), off by default. See `design/icons/neko-evaluation.md` for provenance,
+coverage and evaluated rounds.
 
 Nothing imports this module yet. Call sites migrate one surface at a time, each in its own change.

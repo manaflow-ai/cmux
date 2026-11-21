@@ -87,6 +87,27 @@ const sets = {
     note: "Round 3: ear corners on the copy sheet and the bookmark star, tail curls on retry, speak and pin, toe-bean More. Unapproved.",
     round: "r3mix",
   },
+  r4head: {
+    title: "cmux Neko heads (shipped)",
+    license: "First-party",
+    image: "",
+    note: "Round 4, the Settings > Appearance > Icon Theme = Neko family: one cat-head outline holds each action mark; frames become the head (stop, copy, delete), and retry curls up as a cat.",
+    round: "r4head",
+  },
+  r4sit: {
+    title: "cmux Sitting cat",
+    license: "First-party",
+    image: "",
+    note: "Round 4: a small filled sitting cat inside or beside the full-size mark. Busy in a row; not shipped.",
+    round: "r4sit",
+  },
+  r4pixel: {
+    title: "cmux Pixel cat",
+    license: "First-party",
+    image: "",
+    note: "Round 4: 1-bit pixel cat heads on the real 16 px grid. Crisp, but the marks are small; not shipped.",
+    round: "r4pixel",
+  },
 } as const;
 type SetName = keyof typeof sets;
 type Density = "compact" | "comfortable";
@@ -185,6 +206,33 @@ function TokenRow({
   );
 }
 
+/** Every drawn name, default above Neko, at the real glyph size: round 4 covers the whole action set. */
+function FullSet({ round, scale }: { round: RoundName; scale: number }) {
+  const glyphSize = BASE.glyph * scale;
+  const names = Object.keys(rounds[round].icons).sort();
+  const strip = (pack: IconPack, solid: boolean) => (
+    <IconsProvider pack={pack}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: px(BASE.itemGap) }}>
+        {names.map((name) => (
+          <span key={name} title={name} data-neko-drawing={pack === baselinePack ? undefined : name}>
+            <Icon name={name} size={glyphSize} selected={solid} />
+          </span>
+        ))}
+      </div>
+    </IconsProvider>
+  );
+  return (
+    <div style={{ display: "grid", gap: px(BASE.sectionGap) }} data-neko-full-set={round}>
+      <span style={{ fontSize: "var(--text-detail)" }}>
+        All {names.length} drawn icons · default, Neko, Neko selected
+      </span>
+      {strip(baselinePack, false)}
+      {strip(roundPacks[round], false)}
+      {strip(roundPacks[round], true)}
+    </div>
+  );
+}
+
 function NekoIconGallery({
   mode = "light",
   set = "authored",
@@ -268,6 +316,7 @@ function NekoIconGallery({
           </span>
         </div>
       )}
+      {round?.startsWith("r4") ? <FullSet round={round} scale={scale} /> : null}
       <div style={{ fontSize: "var(--text-detail)", maxWidth: px(BASE.noteMaxWidth), lineHeight: BASE.noteLineHeight }}>
         {art.note}
       </div>
