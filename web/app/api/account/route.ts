@@ -599,7 +599,7 @@ async function deleteAccount(
         error: "account_delete_retryable",
         retryable: true,
         destroyedVms: progress.destroyedVms,
-      }, 503);
+      }, 503, accountDeletionStageHeaders(progress));
     }
     progress.resumeCheckpoint = null;
   }
@@ -736,7 +736,7 @@ async function deleteStackUserAndFinishAccountCleanup(
       error: "account_delete_retryable",
       retryable: true,
       destroyedVms: progress.destroyedVms,
-    }, 500);
+    }, 500, accountDeletionStageHeaders(progress));
   }
   progress.stage = "post_stack_cleanup";
   try {
@@ -797,7 +797,7 @@ async function accountDeletionFailureResponse(
       error: "account_delete_retryable",
       retryable: true,
       destroyedVms,
-    }, 500);
+    }, 500, accountDeletionStageHeaders(progress));
   }
   if (progress.stackMetadataMarked) {
     await restoreStackMetadataAfterAccountDeletionFailure(stackUser, originalStackMetadata, {
@@ -817,9 +817,9 @@ async function accountDeletionFailureResponse(
       error: "account_delete_retryable",
       retryable: true,
       destroyedVms,
-    }, 500);
+    }, 500, accountDeletionStageHeaders(progress));
   }
-  return jsonResponse({ error: "account_delete_failed" }, 500);
+  return jsonResponse({ error: "account_delete_failed" }, 500, accountDeletionStageHeaders(progress));
 }
 
 async function accountDeletionPushDeliveryInProgressResponse(
@@ -858,6 +858,15 @@ async function accountDeletionPushDeliveryInProgressResponse(
       },
     },
   );
+}
+
+/**
+ * Names the stage a failed attempt stopped at on its response. The body keeps
+ * its contract; the header lets a caller without server logs say which step
+ * failed. Stage names are fixed identifiers and carry no account data.
+ */
+function accountDeletionStageHeaders(progress: AccountDeletionProgress): Record<string, string> {
+  return { "x-cmux-account-deletion-stage": progress.stage };
 }
 
 class AccountDeletionStageError extends Error {
