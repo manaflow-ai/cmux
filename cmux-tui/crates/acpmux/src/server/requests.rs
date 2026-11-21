@@ -1086,6 +1086,14 @@ pub(super) async fn handle_request(
                 None => None,
             };
             crate::sender_token::stamp(prompt, matched, carried);
+            // Who sent it, as the `Sent-by:` line the daemon appends to its text (`sent_by.rs`):
+            // only a local connection that proved its session, before the outbox or a peer
+            // takes it, so every route carries the sender's own line.
+            if conn.origin == super::Origin::Local
+                && let Some(caller) = conn.caller()
+            {
+                crate::sent_by::stamp_send(hub, prompt, caller);
+            }
             // A Claude desktop session's own send, bound to its bridged chat by the same pid
             // (`hub/desktop_bridge.rs`), so an answer reaches it.
             let outbox = conn.socket_peer == crate::sender_harness::SocketPeer::Outbox;
