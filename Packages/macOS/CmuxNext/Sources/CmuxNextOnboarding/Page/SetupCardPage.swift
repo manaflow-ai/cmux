@@ -3,6 +3,7 @@ public import AppKit
 public import CmuxNextPages
 public import CmuxNextSettings
 import CmuxNextCompat
+import CmuxNextDesign
 import Foundation
 import WebKit
 public import Observation
@@ -35,12 +36,14 @@ public struct SetupCardEnvironment {
     public var screenReader: @MainActor () -> Bool
     /// The cmux Tools question (`agents.cmuxMcp` and `cmux setup mcp`'s report); nil: the card has no such row.
     public var agentTools: (any AgentToolsSource)?
+    /// The Text Size and Density row's reads and writer; nil: the card has no such row.
+    public var look: SetupCardLook?
 
     public init(account: @escaping @MainActor () -> (signedIn: Bool, email: String?), signInAccount: @escaping @MainActor () -> Void,
                 cliState: @escaping @MainActor () async -> String, installCLI: @escaping @MainActor (_ replacing: Bool) async -> Void,
                 openAgents: @escaping @MainActor () -> Void,
                 screenReader: @escaping @MainActor () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled },
-                agentTools: (any AgentToolsSource)? = nil) {
+                agentTools: (any AgentToolsSource)? = nil, look: SetupCardLook? = nil) {
         self.account = account
         self.signInAccount = signInAccount
         self.cliState = cliState
@@ -48,6 +51,7 @@ public struct SetupCardEnvironment {
         self.openAgents = openAgents
         self.screenReader = screenReader
         self.agentTools = agentTools
+        self.look = look
     }
 }
 
@@ -177,7 +181,7 @@ public final class SetupCardPageProvider: PageProvider {
         if account.signedIn, let email = account.email { wire["email"] = .string(email) }
         return ["agents": .array(rows), "tools": toolsRow,
                 "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": .null,
-                "forChief": .bool(forChief)]
+                "forChief": .bool(forChief), "look": forChief ? .null : environment.look?.wire ?? .null]
     }
 
     /// The cmux Tools row (setupModel.ts `SetupState.tools`): shown while the question is open, or once
@@ -256,6 +260,21 @@ public final class SetupCardPageProvider: PageProvider {
         // cmux Tools: Turn On answers yes, Not Now answers no; neither writes an agent's own config.
         case "addTools" where toolsRow != .null: tools.add()
         case "declineTools" where toolsRow != .null: tools.decline()
+        // Text Size and Density: only sizes the setting takes and the built-in densities, written as Settings writes them.
+        case "setTextSize":
+            guard let look = environment.look, !forChief else { throw PageError.invalidParams("no text size row") }
+            let points = action["points"] ?? .null
+            if points != .null {
+                guard let value = points.doubleValue, InterfaceSizeSetting.range.contains(value), value == value.rounded() else {
+                    throw PageError.invalidParams("a text size from \(Int(InterfaceSizeSetting.range.lowerBound)) to \(Int(InterfaceSizeSetting.range.upperBound)) points")
+                }
+            }
+            // Default removes the key (Optional.none), never writes JSON null: JSONValue takes a nil literal too.
+            write(look, InterfaceSizeSetting.configPath, points == .null ? Optional<JSONValue>.none : points)
+        case "setDensity":
+            guard let look = environment.look, !forChief else { throw PageError.invalidParams("no density row") }
+            guard let id = action["id"]?.stringValue, DensityPreset(rawValue: id) != nil else { throw PageError.invalidParams("unknown density") }
+            write(look, DensitySetting.configPath, .string(id))
         case "installCLI":
             // Only the row's own offer: Install when missing, Replace for another cmux app's CLI; never over a
             // `cmux` that is no cmux app's.
@@ -274,6 +293,12 @@ public final class SetupCardPageProvider: PageProvider {
             }
         default: throw PageError.invalidParams("unknown setup action")
         }
+    }
+
+    /// One write the person asked for; a refusal (a managed key) leaves the row as the app draws it.
+    private func write(_ look: SetupCardLook, _ path: [String], _ value: JSONValue?) {
+        // task-owner: one settings write per click; it ends with the write.
+        Task { try? await look.write(path, value) }
     }
 
     private struct Snapshot: Sendable, Equatable {

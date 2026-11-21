@@ -46,6 +46,8 @@ Or one at a time: `cmux customize use examples/customize-demo/looks/claude.json`
 | [Glass](glass) | `liquid`, `chrome`, `mica`, `tinted` | Native Liquid Glass and Mica through the theme file, no rebuild: clear glass over a painting, glass on the controls only, a frosted desktop, stained glass over the live desktop. [NOTES.md](glass/NOTES.md) says which part is native and which is CSS |
 | [Widgets](widgets) | `widgets` | The time and weather, your agents at a glance, usage left on every Claude and Codex account (where the cmux shares its Usage app with views), and your pull requests, in the sidebar, Session Info and on every New Tab. "Widgets" is our reading: nothing in cmux NEXT defines it as one surface yet ([README](widgets/README.md)) |
 
+Recorded in NIGHTLY, look by look: [VIDEO.md](VIDEO.md).
+
 There are 13 profiles in the recording order. `check.py` fails if a profile is missing from the
 demo or has no declared feature surface:
 
