@@ -25,7 +25,7 @@ import ImageIO
 /// home-mac.md) over the shared `HomeStore` of the local conversation owner,
 /// or why it cannot show (the local daemon does not serve conversations).
 @MainActor
-final class HomeHostView: NSView {
+final class HomeHostView: NSView, PaneCommitMotionPicture {
     let transcript: HomeNativeTranscriptView
     private let message = HomeUnavailableLabel.make(HomeStrings.unavailable)
     private var availability: Task<Void, Never>?
@@ -68,8 +68,8 @@ final class HomeHostView: NSView {
     lazy var turnActions = control.services.home.chiefHomes.turnActions(for: transcript)
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
-    /// The header's location chip and the card's Runs On row, on the Chief that `cmux chief move` moves.
-    private var teleportChips: ChiefTeleportChips?
+    /// The card's Runs On chip, on the Chief that `cmux chief move` moves (the header has none).
+    private var runsOn: ChiefRunsOnChip?
     /// Where attachments open and their right-click menu (the transcript holds it weakly).
     private var fileActions: HomeFileActions?
 
@@ -82,7 +82,7 @@ final class HomeHostView: NSView {
         let service = services.home
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id, diagrams: service.diagrams,
-                                              openPanel: services.openPanel)
+                                              openPanel: services.openPanel, composerFocused: { DebugTimings.markLaunch($0.window?.isKeyWindow == true ? "window_usable" : "home.composer_focused_not_key") }) // window_usable: the next key goes in (piece 8)
         let approvals = ChiefApprovalDecider(home: service.chief.home, app: QuitAgents.environment(services),
                                              work: services.work, environment: ChiefHomeAcpmux.environment)
         transcript.approvals = approvals
@@ -162,10 +162,9 @@ final class HomeHostView: NSView {
             await service?.renameChief(conversation: conversation, to: name) ?? .noConnection
         }
         settingsView.bindPrimary(directory: service.directory, conversation: conversation)  // the Primary Chief row
-        teleportChips = ChiefTeleportChips(model: services.chiefTeleport)
-        teleportChips?.follow(for: self, { [weak service] in service?.showsTeleport(conversation: conversation) ?? false }) { [weak self] in
-            self?.transcript.headerPillAccessory = $0
-            self?.settingsView.showTeleport($1)
+        runsOn = ChiefRunsOnChip(model: services.chiefTeleport)
+        runsOn?.follow(for: self, { [weak service] in service?.showsTeleport(conversation: conversation) ?? false }) { [weak self] in
+            self?.settingsView.showTeleport($0)
         }
         // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry
@@ -179,7 +178,8 @@ final class HomeHostView: NSView {
         transcript.onAppLink = { [weak self, weak services, weak fileActions] url in
             if url.isFileURL, url.path.hasPrefix("/") { fileActions?.open(URL(fileURLWithPath: url.path)); return }
             guard let services else { return }
-            // A link to elsewhere shows it beside the docked Chief, whose view stays as it is.
+            // A link to elsewhere opens only its target; the floating Chief comes with it only when the person
+            // turned on `home.chiefDock.openBeside` (off by default, cmux#45889).
             WindowDockActions(host: services).chiefLinkWillOpen(in: self?.window.flatMap(services.windows.owner(of:)))
             CmuxAppLinks.open(url, services: services, click: .init(source: self.flatMap(LinkRouter.shared.sourceTab)))
         }
@@ -288,22 +288,22 @@ final class HomeHostView: NSView {
         }
         // The first-run panel's agent rows open the agent's tab like a jump (Search Tabs).
         transcript.onFirstRunAgent = { [weak services] tab in _ = services?.revealTab(tab) }
-        // task-owner: lives as long as this view; event-driven (Observation):
-        // the user's agents for the first-run glance, only while it can show
-        // (the Chief with no messages yet): otherwise no tab is read, so tab
-        // changes never wake a Chief with history.
+        // task-owner: lives as long as this view; event-driven (Observation): the user's agents for the first-run
+        // glance, only while it can show (the Chief with no messages yet): otherwise no tab is read, so tab changes
+        // never wake a Chief with history. The feed reads one workspace in each observation: a new tab wakes no stream here.
+        let agentsFeed = HomeAgentGlances(services: services).feed {
+            store.rows.first { $0.summary.id == id }.map { $0.summary.lastSeq == 0 && $0.summary.participants.contains { $0.agentClass == .chief } } ?? false
+        }
         agentsWatch = Task { [weak self] in
-            for await state in ObservationStream({ () -> ([HomeAgentGlance], HomeStarterContext)? in
-                guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
-                      summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
-                let glances = HomeAgentGlances(services: services)
-                let agents = glances.current
-                return (agents, glances.starters(agents: agents, badges: SidebarSessionTree.shared.pullRequests))
+            agentsFeed.start()
+            for await case let (agents, starters)? in ObservationStream({ () -> ([HomeAgentGlance], HomeStarterContext)? in
+                guard let agents = agentsFeed.observedItems?.flatMap({ $0 }) else { return nil }
+                return (agents, HomeAgentGlances(services: services).starters(agents: agents, badges: SidebarSessionTree.shared.pullRequests))
             }) {
-                guard let state else { continue }
-                self?.transcript.setFirstRunAgents(state.0)
-                self?.transcript.setFirstRunStarters(state.1)
+                self?.transcript.setFirstRunAgents(agents)
+                self?.transcript.setFirstRunStarters(starters)
             }
+            agentsFeed.stop() // the view's release cancelled this task: the feed's observations end with it
         }
         // Onboarding: the Chief's first-open message, contextual (ChiefIntroStore). The only Chief welcomes once per
         // install in the chat itself (ChiefWelcome: its typing dots, then its messages, drawn by the iMessage
@@ -326,7 +326,7 @@ final class HomeHostView: NSView {
                 // A cloud Chief (no local import) or an owner not connected yet keeps the first-run intro.
                 if kind == .welcome, service.chiefWelcome.play(in: id, source: service.homeSource,
                                                                connection: service.isCloudConversation(id) ? nil : service.chief.connection,
-                                                               intro: intro, text: ChiefWelcome.text(services.registry)) { return }
+                                                               intro: intro, text: ChiefWelcome.text(services.registry, anyAppOn: services.settings?.snapshot.startAgentGlobalHotKey ?? false)) { return }
                 self.transcript.welcomesInChat = false
                 intro.markShown(kind, for: id)
                 self.transcript.showFirstRunIntro(kind)
@@ -354,16 +354,16 @@ final class HomeHostView: NSView {
         // with history never flashes it (at once when the page is cached).
         transcript.holdsFirstRun = true
         let binding = transcript.binding
-        let reveal = services.launchReveal
+        let reveal = services.launchReveal, spareWait = services.newTabSpares.shownChats // the launch's New Tab spare waits for this page
         // task-owner: lives as long as this view; ends when the first page is in
         firstPage = Task { [weak self] in
-            await binding.opened()
+            await binding.firstDrawable() // the first page, or an owner-named empty conversation: nothing to read for
             // A Home released before its page came (deinit cancels this) must not
             // reveal the Home that replaced it, which waits for its own page.
             guard let self, !Task.isCancelled else { return }
             transcript.holdsFirstRun = false
             // A launch holds a Home still being made until here (WorkspaceContentController).
-            reveal.markReady(.home); DebugTimings.markLaunch("home.first_page")
+            reveal.markReady(.home); DebugTimings.markLaunch("home.first_page"); spareWait.homePageDrew()
         }
         wantsLayer = true
         clipsToBounds = true

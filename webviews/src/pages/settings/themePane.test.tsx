@@ -33,9 +33,9 @@ test("the Theme page draws each theme key once, in one card, with no second App 
   }
   // The theme card has no plain "Filter" list; Personalization's other parts may draw one (font families).
   expect(card(page).querySelector(".domain-button")).toBeNull();
-  // Terminal theme, then the app theme, each with its own Match System Appearance, then the accent.
+  // Terminal theme, then the app theme, each with its own Match System Appearance, then the accent, then Open Theme File.
   expect([...card(page).querySelectorAll("[data-theme-row]")].map((row) => row.getAttribute("data-theme-row"))).toEqual(
-    ["match", "single", "app-match", "app", "accent"],
+    ["match", "single", "app-match", "app", "accent", "themeFileOpen"],
   );
 });
 

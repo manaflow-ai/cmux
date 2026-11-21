@@ -10,6 +10,7 @@ description = "The cmux NEXT window handlers' rules (pure; the macOS app asks th
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+uuid = { workspace = true }
 
 [lints]
 workspace = true

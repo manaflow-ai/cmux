@@ -10,6 +10,17 @@ import Testing
 /// The right sidebar's Machines section rows as the app reads them (the layout, words and controls
 /// are the page's: webviews/src/pages/machines, model.test.ts and machines-section.test.tsx).
 @Suite struct MachineSectionLayoutTests {
+    /// A row carries the SF Symbol its daemon named for the device (cmux-device-kind) to the page, and
+    /// sends none before the daemon said. A Cloud machine stays the cloud, whatever its VM reports.
+    @Test func aRowSendsItsDeviceSymbol() {
+        let silent = MachineSectionRow(id: "m", name: "build-mini", isConnected: true, isLocal: false)
+        #expect(MachineSectionPageProvider.json(silent)["symbol"] == nil)
+        let mini = MachineSectionRow(id: "m", name: "build-mini", isConnected: true, isLocal: false, symbol: "macmini")
+        #expect(MachineSectionPageProvider.json(mini)["symbol"] == .string("macmini"))
+        let vm = MachineSectionRow(id: "c", name: "vm", isConnected: true, isLocal: false, kind: .cloud, symbol: "server.rack")
+        #expect(MachineSectionPageProvider.json(vm)["symbol"] == nil)
+    }
+
     @Test func aRowsKindAndStateFollowItsLink() {
         #expect(MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true).kind == .local)
         #expect(MachineSectionRow(id: "x", name: "x", isConnected: false, isLocal: false).kind == .ssh)
@@ -55,6 +66,8 @@ import Testing
         var rows: [MachineSectionRow] = [MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true)]
         var ran: [String] = []
         var presented: [(String, CGPoint)] = []
+        var answers: [JoinedDialAnswer] = []
+        var asked: [String] = []
     }
 
     static func provider(_ box: Box, joined: JoinedMachineStore? = nil) -> MachineSectionPageProvider {
@@ -66,7 +79,7 @@ import Testing
                 let menu = NSMenu()
                 menu.addItem(withTitle: "\(kind):\(row.id)", action: nil, keyEquivalent: "")
                 return menu
-            }))
+            }, openJoined: { _ in .unavailable("test") }))
     }
 
     static let context = PageCallContext(page: PageDescriptor.machines.id, userGesture: true, gestureEvent: 1)
@@ -190,6 +203,66 @@ import Testing
         #expect(fake.removed == ["m_1"])
     }
 
+    /// New Workspace on a joined Mac reached through the hub alone (hq#11046): the first ask is the
+    /// person's click, on an online joined Mac's own `joined:<id>` row; `again` (the page asking while that
+    /// Mac's card waits) runs only while a click's ask is waiting, and stops once that Mac answered.
+    @Test func openJoinedAsksAMacOnlyOnAClickAndAgainOnlyWhileItsCardWaits() async throws {
+        let box = Box()
+        let mac = JoinedMachine(id: "m_mini", name: "studio-mini", state: .online, platform: "macos", mintedBy: nil)
+        box.rows.append(.joined(mac, health: nil))
+        box.rows.append(.joined(JoinedMachine(id: "m_lane", name: "lane-vm-3", state: .online, platform: "linux", mintedBy: nil), health: nil))
+        box.rows.append(.joined(JoinedMachine(id: "m_off", name: "old-mini", state: .offline, platform: "macos", mintedBy: nil), health: nil))
+        box.answers = [.consentRequired, .consentRequired, .opened]
+        let provider = MachineSectionPageProvider(dependencies: .init(
+            rows: { box.rows }, style: { .compact }, joined: { nil }, newWorkspace: { _ in true }, addMachine: { true },
+            present: { _, _ in }, menu: { _, _ in nil },
+            openJoined: { machine in
+                box.asked.append(machine.id)
+                return box.answers.isEmpty ? .opened : box.answers.removeFirst()
+            }))
+        let scripted = PageCallContext(page: PageDescriptor.machines.id, userGesture: false, gestureEvent: nil)
+        let op = MachineSectionPageProvider.openJoinedOp
+        // A Linux machine, an offline Mac, a row the section doesn't show, this Mac: refused, even on a click.
+        for row in ["joined:m_lane", "joined:m_off", "joined:m_gone", "local"] {
+            await #expect(throws: PageError.self) { try await provider.call(op, params: ["row": .string(row)], context: Self.context) }
+        }
+        // No click, and no ask of the row waiting: refused.
+        await #expect(throws: PageError.self) { try await provider.call(op, params: ["row": "joined:m_mini"], context: scripted) }
+        await #expect(throws: PageError.self) {
+            try await provider.call(op, params: ["row": "joined:m_mini", "again": true], context: scripted)
+        }
+        #expect(box.asked.isEmpty)
+        let first = try await provider.call(op, params: ["row": "joined:m_mini"], context: Self.context)
+        #expect(first["state"]?.stringValue == "consent_required")
+        let second = try await provider.call(op, params: ["row": "joined:m_mini", "again": true], context: scripted)
+        #expect(second["state"]?.stringValue == "consent_required")
+        let third = try await provider.call(op, params: ["row": "joined:m_mini", "again": true], context: scripted)
+        #expect(third["state"]?.stringValue == "opened")
+        // Answered: asking again needs a click.
+        await #expect(throws: PageError.self) {
+            try await provider.call(op, params: ["row": "joined:m_mini", "again": true], context: scripted)
+        }
+        #expect(box.asked == ["m_mini", "m_mini", "m_mini"])
+    }
+
+    /// acpmux's probe refusals as the page reads them, and the route of a joined Mac among acpmux's.
+    @Test func aProbeRefusalAndARouteReadAsThePageAndTheAppNeedThem() {
+        #expect(JoinedDialAnswer(refusal: "consent_required") == .consentRequired)
+        #expect(JoinedDialAnswer(refusal: "consent_declined") == .consentDeclined)
+        #expect(JoinedDialAnswer(refusal: "service.unknown").json == ["state": "unavailable", "reason": "service.unknown"])
+        #expect(JoinedDialAnswer(refusal: nil) == .unavailable("machine.unreachable"))
+        let routes: [[String: Any]] = [["daemonId": "k1", "host": "studio-mini"], ["daemonId": "k2", "host": "Air"],
+                                       ["daemonId": "k3", "host": "twin"], ["daemonId": "k4", "host": "twin"]]
+        let byPeer = JoinedMachine(id: "m", name: "x", state: .online, meshPeerId: "k2")
+        #expect(byPeer.route(in: routes)?["daemonId"] as? String == "k2")
+        #expect(JoinedMachine(id: "m", name: "studio-mini", state: .online, meshPeerId: "gone").route(in: routes) == nil)
+        let byName = JoinedMachine(id: "m", name: "Studio-Mini", state: .online)
+        #expect(byName.route(in: routes)?["daemonId"] as? String == "k1")
+        #expect(JoinedMachine(id: "m", name: "twin", state: .online).route(in: routes) == nil)
+        #expect(JoinedMachine(id: "m", name: "x", state: .online, platform: "macOS").isMac)
+        #expect(!JoinedMachine(id: "m", name: "x", state: .online, platform: "linux").isMac)
+    }
+
     /// A joined machine with no workspace link of its own has no New Workspace: its row menu is refused.
     @Test func aJoinedOnlyRowHasNoRowMenu() async throws {
         let box = Box()
@@ -209,7 +282,8 @@ import Testing
         let store = JoinedMachineStore(service: { nil })
         let provider = MachineSectionPageProvider(dependencies: .init(
             rows: { reads.count += 1; return box.rows }, style: { .grouped }, joined: { store },
-            newWorkspace: { _ in true }, addMachine: { true }, present: { _, _ in }, menu: { _, _ in nil }))
+            newWorkspace: { _ in true }, addMachine: { true }, present: { _, _ in }, menu: { _, _ in nil },
+            openJoined: { _ in .unavailable("test") }))
         let subscription = try await provider.subscribe(MachineSectionPageProvider.changesStream, filter: .object([:]),
                                                         context: Self.context) { _ in }
         defer { subscription.cancel() }

@@ -10,12 +10,17 @@
 #   On a Mac that must not build: bash scripts/measure/screen-stream-eval.sh prebuilt=DIR [targets=rd] ...
 #     (DIR holds the built tools; README.md, "Prebuilt tools"). They come from a fleet step with
 #     --arg=tools-only=1 --artifact artifacts/screen-stream-eval/tools.tar.gz (no console needed).
-# Output: SCREEN-STREAM-EVAL lines, the summary table, and artifacts/screen-stream-eval/results.json
+# Output: SCREEN-STREAM-EVAL lines, the summary table, artifacts/screen-stream-eval/results.json,
+# and probe.json (schema cmux.screen-share-fast/1) for the screen-share-fast goal board.
 # (also each target's raw files and the host and viewer frames under that folder). No gate: it
 # reports, and exits non-zero only when it could not measure at all (3: no grant; 4: no target ran;
 # 5: no target measured a window).
 set -uo pipefail
-targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0 prebuilt="" tools_only=0
+targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0 prebuilt="" tools_only=0 scene_marker=0
+presented_observer=0 presented_pid="" presented_window="" presented_marker_origin="" presented_cell_size="" presented_input_point="" presented_display=main presented_timeout_ms=1000 presented_seed=1
+ocr_host_crop="" ocr_viewer_crop="" ocr_calibration=""
+video_path="" video_sha=""
+netem_rtt_ms="" netem_loss_pct=0 netem_seed=1
 for arg in "$@"; do
   case "$arg" in
     targets=*) targets="${arg#targets=}" ;;
@@ -29,26 +34,101 @@ for arg in "$@"; do
     # input-frame-now=1: the rd host lifts its frame-rate cap after each input (--input-frame-now 1),
     # for a before/after against the default.
     input-frame-now=*) input_frame_now="${arg#input-frame-now=}" ;;
+    netem-rtt-ms=*) netem_rtt_ms="${arg#netem-rtt-ms=}" ;;
+    netem-loss-pct=*) netem_loss_pct="${arg#netem-loss-pct=}" ;;
+    netem-seed=*) netem_seed="${arg#netem-seed=}" ;;
     # prebuilt=DIR: copy the built tools from DIR instead of building any (README.md, "Prebuilt tools").
     prebuilt=*) prebuilt="${arg#prebuilt=}" ;;
     # tools-only=1: build the rd tools for prebuilt= into artifacts/screen-stream-eval/tools.tar.gz, and stop.
     tools-only=*) tools_only="${arg#tools-only=}" ;;
+    # Apple always requires a fresh source marker. Other displayed viewers may
+    # opt into the same source layout; legacy decode probes keep their layout.
+    scene-marker=*) scene_marker="${arg#scene-marker=}" ;;
+    ocr-host-crop=*) ocr_host_crop="${arg#ocr-host-crop=}" ;;
+    ocr-viewer-crop=*) ocr_viewer_crop="${arg#ocr-viewer-crop=}" ;;
+    ocr-calibration=*) ocr_calibration="${arg#ocr-calibration=}" ;;
+    video=*) video_path="${arg#video=}" ;;
+    video-sha256=*) video_sha="${arg#video-sha256=}" ;;
+    # presented-observer=1: run cmux-rd observe on the viewer's visible window; the
+    # remaining values are capture-pixel geometry owned by that viewer step.
+    presented-observer=*) presented_observer="${arg#presented-observer=}" ;;
+    presented-pid=*) presented_pid="${arg#presented-pid=}" ;;
+    presented-window=*) presented_window="${arg#presented-window=}" ;;
+    presented-marker-origin=*) presented_marker_origin="${arg#presented-marker-origin=}" ;;
+    presented-cell-size=*) presented_cell_size="${arg#presented-cell-size=}" ;;
+    presented-input-point=*) presented_input_point="${arg#presented-input-point=}" ;;
+    presented-display=*) presented_display="${arg#presented-display=}" ;;
+    presented-timeout-ms=*) presented_timeout_ms="${arg#presented-timeout-ms=}" ;;
+    presented-seed=*) presented_seed="${arg#presented-seed=}" ;;
     *) echo "screen-stream-eval.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
 [[ "$samples" =~ ^[0-9]+$ ]] || { echo "screen-stream-eval.sh: samples= is a number" >&2; exit 2; }
 [[ "$input_frame_now" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: input-frame-now= is 0 or 1" >&2; exit 2; }
+[[ -z "$netem_rtt_ms" || "$netem_rtt_ms" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "screen-stream-eval.sh: netem-rtt-ms= is non-negative milliseconds" >&2; exit 2; }
+[[ "$netem_loss_pct" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "screen-stream-eval.sh: netem-loss-pct= is a percentage" >&2; exit 2; }
+[[ "$netem_seed" =~ ^[0-9]+$ ]] || { echo "screen-stream-eval.sh: netem-seed= is a non-negative integer" >&2; exit 2; }
+if ! python3 -I - "$netem_loss_pct" <<'PY'
+import sys
+value = float(sys.argv[1])
+if value > 100:
+    raise SystemExit("screen-stream-eval.sh: netem-loss-pct= must be in [0, 100]")
+PY
+then
+  exit 2
+fi
 export EVAL_RD_INPUT_FRAME_NOW="$input_frame_now"
+export EVAL_NETEM_RTT_MS="$netem_rtt_ms" EVAL_NETEM_LOSS_PCT="$netem_loss_pct" EVAL_NETEM_SEED="$netem_seed"
 if [[ -n "$prebuilt" ]]; then
   prebuilt="$(cd "$prebuilt" 2>/dev/null && pwd)" || { echo "screen-stream-eval.sh: prebuilt= is not a directory" >&2; exit 2; }
 fi
 export EVAL_PREBUILT="$prebuilt"
+if [[ -n "$video_path$video_sha" ]]; then
+  [[ "$video_path" == /* && -f "$video_path" && "$video_sha" =~ ^[0-9a-f]{64}$ ]] || {
+    echo "screen-stream-eval.sh: video=ABSOLUTE_PREBUILT_PATH and video-sha256=HEX64 are required together" >&2
+    exit 2
+  }
+fi
+export EVAL_VIDEO_PATH="$video_path" EVAL_VIDEO_SHA256="$video_sha"
+if [[ -n "$ocr_host_crop$ocr_viewer_crop$ocr_calibration" ]]; then
+  rect='^[0-9]+,[0-9]+,[1-9][0-9]*,[1-9][0-9]*$'
+  [[ "$ocr_host_crop" =~ $rect && "$ocr_viewer_crop" =~ $rect ]] || {
+    echo "screen-stream-eval.sh: explicit ocr-host-crop= and ocr-viewer-crop= X,Y,W,H are required together" >&2
+    exit 2
+  }
+  if [[ -n "$ocr_calibration" ]]; then
+    [[ -f "$ocr_calibration" ]] || { echo "screen-stream-eval.sh: OCR calibration file not found" >&2; exit 2; }
+    ocr_calibration="$(cd "$(dirname "$ocr_calibration")" && pwd)/$(basename "$ocr_calibration")"
+  fi
+fi
 # The arguments a run inside the launcher app gets: prebuilt= as the absolute path, since the app's cwd is /.
 forward=()
 for arg in "$@"; do
-  case "$arg" in prebuilt=*) forward+=("prebuilt=$prebuilt") ;; *) forward+=("$arg") ;; esac
+  case "$arg" in
+    prebuilt=*) forward+=("prebuilt=$prebuilt") ;;
+    ocr-calibration=*) forward+=("ocr-calibration=$ocr_calibration") ;;
+    *) forward+=("$arg") ;;
+  esac
 done
 [[ "$tools_only" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: tools-only= is 0 or 1" >&2; exit 2; }
+[[ "$scene_marker" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: scene-marker= is 0 or 1" >&2; exit 2; }
+[[ "$presented_observer" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: presented-observer= is 0 or 1" >&2; exit 2; }
+if [[ "$presented_observer" == 1 ]]; then
+  # The Apple targets launch their own viewer and bind its pid and window, so both are optional;
+  # given, they must match what the target launched.
+  [[ "$presented_pid" =~ ^([1-9][0-9]*)?$ && "$presented_window" =~ ^([1-9][0-9]*)?$ ]] || {
+    echo "screen-stream-eval.sh: presented-pid= and presented-window= are numeric when given" >&2
+    exit 2
+  }
+  [[ "$presented_marker_origin" =~ ^[0-9]+,[0-9]+$ && "$presented_cell_size" =~ ^([2-9]|[1-9][0-9]+)$ && "$presented_input_point" =~ ^[0-9]+,[0-9]+$ ]] || {
+    echo "screen-stream-eval.sh: presented observer needs capture-pixel marker origin, cell size >=2 and input point" >&2
+    exit 2
+  }
+  [[ "$presented_timeout_ms" =~ ^[1-9][0-9]*$ && "$presented_seed" =~ ^[0-9]+$ ]] || {
+    echo "screen-stream-eval.sh: presented-timeout-ms= must be positive and presented-seed= numeric" >&2
+    exit 2
+  }
+fi
 [[ "$repeats" =~ ^[1-9][0-9]*$ ]] || { echo "screen-stream-eval.sh: repeats= is a number from 1" >&2; exit 2; }
 ipv4='^([0-9]{1,3}\.){3}[0-9]{1,3}$'
 for value in "$lan" "$viewer_of"; do
@@ -80,16 +160,32 @@ work="$root/.build/screen-stream-eval"
 case "$prebuilt/" in
   "$out"/* | "$work"/*) echo "screen-stream-eval.sh: prebuilt= may not be inside $out or $work (the run removes both)" >&2; exit 2 ;;
 esac
+# A viewer that opens windows or posts input fights the person at a Mac they use (person_guard.py):
+# refuse before anything is removed or started. A tools-only build opens nothing.
+if [[ "$tools_only" != 1 ]]; then
+  # viewer-of= makes this Mac the viewer only, where apple-rfb is headless.
+  guard_role=()
+  [[ -n "$viewer_of" ]] && guard_role=(viewer)
+  python3 -I "$here/person_guard.py" check "$targets" ${guard_role[@]+"${guard_role[@]}"} || exit 2
+fi
 rm -rf "$out" "$work"
 mkdir -p "$out" "$work/bin"
 chmod 700 "$work"
 export EVAL_ROOT="$root" EVAL_BIN="$work/bin"
+if [[ "$presented_observer" == 1 ]]; then
+  export EVAL_PRESENTED_OBSERVER_BIN="$EVAL_BIN/cmux-rd"
+  export EVAL_PRESENTED_OBSERVER_PID="$presented_pid" EVAL_PRESENTED_OBSERVER_WINDOW="$presented_window"
+  export EVAL_PRESENTED_MARKER_ORIGIN="$presented_marker_origin" EVAL_PRESENTED_CELL_SIZE="$presented_cell_size"
+  export EVAL_PRESENTED_INPUT_POINT="$presented_input_point" EVAL_PRESENTED_DISPLAY="$presented_display"
+  export EVAL_PRESENTED_TIMEOUT_MS="$presented_timeout_ms" EVAL_PRESENTED_SEED="$presented_seed"
+fi
 
 if [[ "$tools_only" == 1 ]]; then
   # The tools a prebuilt= Mac runs, as one folder `tools/` in tools.tar.gz. The Swift tools target
   # macOS 14, so they run on a Mac older than this worker's SDK.
   swift_target="$(uname -m)-apple-macos14.0"
-  for tool in preflight scene ocr; do
+  # window-id and marker-locate: the third-party viewers' tools (gui-viewer.sh), for a prebuilt= viewer Mac.
+  for tool in preflight scene ocr window-id marker-locate; do
     swiftc -O -target "$swift_target" -o "$EVAL_BIN/screen-eval-$tool" "$here/$tool.swift" || exit 4
   done
   swiftc -O -target "$swift_target" -o "$EVAL_BIN/cmux-rd-marker" \
@@ -105,6 +201,7 @@ fi
 # The scene's timeline is 81 s from GO (scene.swift), then it holds the ocr screen until STOP; the
 # passive window starts at the viewer's first frame, GO follows it, so the window ends inside the hold.
 window_s=84
+[[ -n "$video_path" ]] && window_s=104
 display=$(system_profiler SPDisplaysDataType 2>/dev/null | sed -n 's/^ *Resolution: //p' | head -1)
 run_json() {
   python3 -I - "$@" <<'EOF'
@@ -131,7 +228,7 @@ elif [[ -n "$lan" ]]; then
 fi
 run=$(run_json host "$(scutil --get ComputerName 2>/dev/null || hostname)" cpu "$(sysctl -n machdep.cpu.brand_string)" \
   macos "$(sw_vers -productVersion)" rev "$(rev)" display "$display" samples "$samples" repeats "$repeats" \
-  rd_input_frame_now "$input_frame_now" \
+  rd_input_frame_now "$input_frame_now" netem_rtt_ms "$netem_rtt_ms" netem_loss_pct "$netem_loss_pct" netem_seed "$netem_seed" \
   ${link_arg[@]+"${link_arg[@]}"})
 echo "SCREEN-STREAM-EVAL-MACHINE $run"
 
@@ -144,28 +241,42 @@ trap cleanup EXIT
 # results.json from whatever the targets wrote; blocked=REASON marks a run that measured nothing.
 finish() {
   local blocked="${1:-}"
-  python3 -I - "$out" "$run" "$blocked" "$targets" "$here" <<'EOF'
+  python3 -I - "$out" "$run" "$blocked" "$targets" "$here" "$video_path" "$work/peer/agent.json" <<'EOF'
 import json, sys
 from pathlib import Path
 out, run, blocked, names = Path(sys.argv[1]), json.loads(sys.argv[2]), sys.argv[3], sys.argv[4].split(",")
+peer = Path(sys.argv[7])
+if peer.exists():
+    try:
+        run["viewer"] = json.loads(peer.read_text()).get("host")
+    except (OSError, ValueError):
+        pass
 sys.path.insert(0, sys.argv[5])
-from eval import empty_target
+from eval import SCHEMA, empty_target
 if blocked:
     run["blocked"] = blocked
 targets = {}
 for name in names:
     path = out / name / "target.json"
     targets[name] = json.loads(path.read_text()) if path.exists() else empty_target([blocked or "did not run"])
-results = {"schema": "cmux.screen-stream-eval/1", "run": run, "scenarios": ["idle", "typing", "scroll", "ocr"], "targets": targets}
+scenarios = ["idle", "typing", "scroll"] + (["video"] if sys.argv[6] else []) + ["ocr"]
+results = {"schema": SCHEMA, "run": run, "scenarios": scenarios, "targets": targets}
 (out / "results.json").write_text(json.dumps(results, indent=2, sort_keys=True) + "\n")
 EOF
   python3 -I "$here/eval.py" summary "$out/results.json" "$out/summary.md"
+  python3 -I "$here/probe.py" "$out/results.json" "$out/probe.json"
   cat "$out/summary.md"
+  # Includes only explicit eval outputs, never the host's authentication token.
+  tar -czf "$work/evidence.tar.gz" -C "$out" .
+  cp "$work/evidence.tar.gz" "$out/evidence.tar.gz"
 }
 
-if [[ -n "$viewer_of" ]]; then
-  # The viewer Mac of a two-Mac run: no scene, marker or grants here (the viewers only receive and
-  # send input over the network). It builds each target and serves the host Mac's view verbs.
+# The viewer Mac of a two-Mac run: no scene or marker here. It builds each target and serves the host
+# Mac's view verbs. cmux's own viewers only receive and send input over the network, so they need no
+# grants; a third-party viewer measured from outside (gui-viewer.sh: observe posts input and captures
+# the display) does, and its target's `caps` says `viewer-grants`. Then the viewer half takes the same
+# grant check, and the same launcher, as a host run below before it serves.
+serve_viewer() {
   printf '%s\n' "$peer_token" >"$work/peer-token"
   chmod 600 "$work/peer-token"
   IFS=',' read -r -a names <<<"$targets"
@@ -179,7 +290,13 @@ if [[ -n "$viewer_of" ]]; then
   status=$?
   finish "the viewer Mac of a two-Mac run (host $viewer_of): the host Mac's step has the results"
   exit "$status"
-fi
+}
+viewer_grants=0
+IFS=',' read -r -a names <<<"$targets"
+for name in "${names[@]}"; do
+  bash "$here/targets/$name.sh" caps 2>/dev/null | grep -qx viewer-grants && viewer_grants=1
+done
+[[ -n "$viewer_of" && "$viewer_grants" == 0 ]] && serve_viewer
 
 echo "SCREEN-STREAM-EVAL-STAGE tools"
 if [[ -n "$prebuilt" ]]; then
@@ -211,7 +328,15 @@ if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
   launch="$root/.build/screen-stream-eval-launcher"
   rm -rf "$launch"
   mkdir -p "$launch"
-  if app=$(bash "$here/launcher/install.sh" 2>"$launch/install.log"); then
+  install_status=0
+  if [[ -n "$prebuilt" ]]; then
+    # The prebuilt route is for a bench Mac that must not compile anything. The
+    # installed launcher is checked above and already carries its console grants.
+    app="$home/Applications/CmuxScreenEvalLauncher.app"
+  else
+    app=$(bash "$here/launcher/install.sh" 2>"$launch/install.log") || install_status=$?
+  fi
+  if [[ "$install_status" == 0 ]]; then
     # --request also lists the app under Privacy & Security, where the grant is made.
     open -W -n -g -a "$app" --stdout "$launch/grants.json" --stderr "$launch/grants.err" --args --request \
       >"$launch/open.log" 2>&1 || echo "open exited $?" >>"$launch/open.log"
@@ -243,7 +368,7 @@ if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
     fi
     finish "this worker's step processes lack Screen Recording or Accessibility, and so does $app; grant both to it once at the console (System Settings > Privacy & Security, where it is listed) ($grants)"
   else
-    finish "the step's processes lack Screen Recording or Accessibility, and the launcher app did not install ($(tail -1 "$launch/install.log"))"
+    finish "the step's processes lack Screen Recording or Accessibility, and the launcher app did not install ($(tail -1 "$launch/install.log" 2>/dev/null))"
   fi
   exit 3
 fi
@@ -251,6 +376,7 @@ if ! granted "$grants"; then
   finish "the step's processes lack Screen Recording or Accessibility on this worker ($grants)"
   exit 3
 fi
+[[ -n "$viewer_of" ]] && serve_viewer
 
 if [[ -n "$lan" ]]; then
   printf '%s\n' "$peer_token" >"$work/peer-token"
@@ -317,9 +443,23 @@ with_offsets() {
 ran=0
 IFS=',' read -r -a names <<<"$targets"
 for name in "${names[@]}"; do
+  unset EVAL_SCENE_NONCE EVAL_SCENE_GEOMETRY
   script="$here/targets/$name.sh"
   dir="$out/$name"
   mkdir -p "$dir"
+  # Keep the requested repeat count even when build or host setup fails before a
+  # window-N/ocr-N artifact exists; eval.py must not infer completeness from the
+  # subset of repeats that happened to start.
+  python3 -I - "$dir/repeats-requested.json" "$repeats" <<'PY'
+import json, sys
+json.dump({"count": int(sys.argv[2])}, open(sys.argv[1], "w"))
+PY
+  if [[ -n "$video_path" ]]; then
+    python3 -I - "$dir/video-requested.json" "$video_sha" <<'PY'
+import json, sys
+json.dump({"sha256": sys.argv[2], "duration_s": 20}, open(sys.argv[1], "w"))
+PY
+  fi
   export EVAL_STATE="$work/$name"
   mkdir -p "$EVAL_STATE"
   chmod 700 "$EVAL_STATE"
@@ -371,7 +511,7 @@ for name in "${names[@]}"; do
     # Pointer first: its click gives the marker key focus for the key run.
     for input in pointer key; do
       raw="$EVAL_STATE/latency-$input.raw"
-      rm -f "$raw" "$raw.clock" "$raw.span"
+      rm -f "$raw" "$raw.first" "$raw.clock" "$raw.span"
       view latency-view "$input" "$samples" "$raw" || err "latency $input failed"
       with_offsets "$raw" bash "$script" latency-report "$input" "$raw" "$dir/latency-$input.json" || err "latency $input: no report"
     done
@@ -389,10 +529,36 @@ for name in "${names[@]}"; do
     echo "SCREEN-STREAM-EVAL-STAGE $name window $rep/$repeats"
     go="$EVAL_STATE/go" stop="$EVAL_STATE/stop"
     rm -f "$go" "$stop" "$dir/host-$rep.png"
+    unset EVAL_SCENE_NONCE EVAL_SCENE_GEOMETRY EVAL_SCENE_READY_FILE EVAL_VIDEO_METADATA
+    if [[ "$scene_marker" == 1 || "$name" == apple-* || -n "$video_path" ]]; then
+      nonce=$(python3 -I -c 'import secrets; print(secrets.token_hex(16))') || {
+        err "window $rep: could not create fresh source nonce"
+        continue
+      }
+      export EVAL_SCENE_NONCE="$nonce" EVAL_SCENE_GEOMETRY="$dir/source-scene-$rep.json"
+      export EVAL_SCENE_READY_FILE="$EVAL_STATE/source-ready-$rep"
+      rm -f "$EVAL_SCENE_READY_FILE"
+    fi
+    [[ -n "$video_path" ]] && export EVAL_VIDEO_METADATA="$dir/video-media-$rep.json"
     "$EVAL_BIN/screen-eval-scene" "$go" "$stop" "$dir/phases-$rep.jsonl" "$dir/host-$rep.png" "$dir/truth.txt" >"$EVAL_STATE/scene.log" 2>&1 &
     scene=$!
     pids+=("$scene")
-    sleep 2 # the scene's window is up before the host captures its first frame
+    if [[ -n "${EVAL_SCENE_READY_FILE:-}" ]]; then
+      for _ in $(seq 1 300); do
+        [[ -e "$EVAL_SCENE_READY_FILE" ]] && break
+        kill -0 "$scene" 2>/dev/null || break
+        sleep 0.1 # bounded source preparation (including pinned-asset validation)
+      done
+      if [[ ! -e "$EVAL_SCENE_READY_FILE" ]]; then
+        err "window $rep: source did not prepare within 30 s ($(tail -1 "$EVAL_STATE/scene.log"))"
+        touch "$stop"
+        kill "$scene" 2>/dev/null || true
+        wait "$scene" 2>/dev/null || true
+        continue
+      fi
+    else
+      sleep 2 # legacy scene binary; unchanged source layout
+    fi
     if why=$(host_start); then
       raw="$EVAL_STATE/window-$rep.raw"
       rm -f "$raw" "$raw.clock" "$raw.span"
@@ -400,14 +566,62 @@ for name in "${names[@]}"; do
       with_offsets "$raw" bash "$script" window-report "$raw" "$dir/window-$rep.json" || err "window $rep: no report"
     else
       err "host did not start for window $rep: $why"
-      touch "$go" # lets the scene run out its timeline instead of waiting 120 s for GO
+      # STOP cancels the scene's readiness wait without ever authorizing GO.
+      touch "$stop"
     fi
     touch "$stop"
     wait "$scene" || err "scene $rep exited $? ($(tail -1 "$EVAL_STATE/scene.log"))"
     bash "$script" host-stop
+    if [[ "$name" == rd ]]; then
+      evidence="$dir/rd-evidence-$rep"
+      mkdir -p "$evidence"
+      for file in "$raw" "$EVAL_STATE/timing.jsonl" "$EVAL_STATE/netem-stats.json"; do
+        [[ ! -f "$file" ]] || cp "$file" "$evidence/"
+      done
+      [[ ! -d "$EVAL_STATE/quality" ]] || cp -R "$EVAL_STATE/quality" "$evidence/"
+    fi
 
     echo "SCREEN-STREAM-EVAL-STAGE $name ocr $rep/$repeats"
-    if [[ -s "$dir/host-$rep.png" && -s "$dir/viewer-frame-$rep" ]]; then
+    if [[ -n "$ocr_host_crop" && -s "$dir/host-$rep.png" && -s "$dir/viewer-frame-$rep" ]]; then
+      crop_args=(--host-crop "$ocr_host_crop" --viewer-crop "$ocr_viewer_crop")
+      [[ -n "$ocr_calibration" ]] && crop_args+=(--calibration "$ocr_calibration")
+      [[ -s "$dir/source-scene-$rep.json" ]] && crop_args+=(--source-geometry "$dir/source-scene-$rep.json")
+      [[ -s "$raw.readiness.json" ]] && crop_args+=(--readiness "$raw.readiness.json")
+      "$EVAL_BIN/screen-eval-ocr" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$dir/truth.txt" "${crop_args[@]}" >"$dir/ocr-$rep.json" || err "ocr $rep: invalid calibrated crop"
+    elif [[ "$name" == apple-rfb && -s "$dir/source-scene-$rep.json" && -s "$dir/host-$rep.png" && -s "$dir/viewer-frame-$rep" ]] &&
+      crop=$(python3 -I - "$dir/source-scene-$rep.json" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" <<'PY'
+import json, struct, sys
+# rfb-viewer's frame is the host's framebuffer: the same display in the same pixels as the host's
+# screenshot, so one crop, the text below the marker strip, fits both. Refuse when sizes differ.
+def size(path):
+    head = open(path, "rb").read(24)
+    if head[:8] != b"\x89PNG\r\n\x1a\n":
+        raise SystemExit(1)
+    return struct.unpack("!II", head[16:24])
+scene = json.load(open(sys.argv[1]))
+host, viewer = size(sys.argv[2]), size(sys.argv[3])
+if host != viewer:
+    raise SystemExit(1)
+scale = host[0] / scene["display_size_points"][0]
+x, y, w, h = (round(v * scale) for v in scene["content_rect_points"])
+print(f"{y} {x} {min(h, host[1] - y)} {min(w, host[0] - x)}")
+PY
+      ); then
+      # Same pixels on both sides, so no calibration: crop both to the text and compare them whole.
+      read -r cy cx ch cw <<<"$crop"
+      for side in host viewer; do
+        src="$dir/host-$rep.png"
+        [[ "$side" == viewer ]] && src="$dir/viewer-frame-$rep"
+        sips --cropOffset "$cy" "$cx" --cropToHeightWidth "$ch" "$cw" "$src" --out "$EVAL_STATE/ocr-$side-$rep.png" >/dev/null 2>&1 ||
+          err "ocr $rep: could not crop the $side image"
+      done
+      "$EVAL_BIN/screen-eval-ocr" "$EVAL_STATE/ocr-host-$rep.png" "$EVAL_STATE/ocr-viewer-$rep.png" "$dir/truth.txt" \
+        >"$dir/ocr-$rep.json" || err "ocr $rep failed"
+    elif [[ -n "${EVAL_SCENE_NONCE:-}" ]]; then
+      # The common marker reserves a region above the text. Full-window OCR
+      # would include it and Apple chrome; calibrated pixel crops are required.
+      printf '{"cer":null,"comparison_ready":false,"reason":"common source marker requires calibrated host/viewer OCR crops"}\n' >"$dir/ocr-$rep.json"
+    elif [[ -s "$dir/host-$rep.png" && -s "$dir/viewer-frame-$rep" ]]; then
       "$EVAL_BIN/screen-eval-ocr" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$dir/truth.txt" >"$dir/ocr-$rep.json" || err "ocr $rep failed"
     else
       err "ocr $rep: missing $( [[ -s "$dir/host-$rep.png" ]] || echo 'host screenshot ')$( [[ -s "$dir/viewer-frame-$rep" ]] || echo 'viewer frame')"
@@ -428,6 +642,9 @@ if [[ $ran == 0 ]]; then
   exit 4
 fi
 finish
-# A run with no window numbers at all is not a baseline a later run should diff against.
-python3 -I -c 'import json, sys; t = json.load(open(sys.argv[1]))["targets"].values(); sys.exit(0 if any(v is not None for x in t for v in (x.get("kbps") or {}).values()) else 5)' "$out/results.json" || exit 5
+# A run with no successful measured target is not a baseline a later run should
+# diff against. Apple transport kbps, decoded FPS and first-frame latency can be
+# unavailable; its OCR or sampled-change evidence still counts when the target
+# itself completed successfully.
+python3 -I -c 'import json, sys; t = json.load(open(sys.argv[1]))["targets"].values(); measured = lambda x: x.get("ok") and (any(v is not None for v in (x.get("kbps") or {}).values()) or any(v is not None for v in (x.get("fps") or {}).values()) or any(v is not None for v in (x.get("sampled_fps") or {}).values()) or (x.get("extra") or {}).get("first_frame_ms") is not None or (x.get("ocr") or {}).get("cer") is not None); sys.exit(0 if any(measured(x) for x in t) else 5)' "$out/results.json" || exit 5
 exit 0

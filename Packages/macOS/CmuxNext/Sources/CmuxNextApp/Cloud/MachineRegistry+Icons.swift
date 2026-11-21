@@ -44,7 +44,7 @@ extension MachineRegistry {
         let asset = IconAssetImages.shared.sidebarIcon(owner: local)
         return sections.map { section in
             guard case .machine(var machine) = section.kind else { return section }
-            machine.icon = SidebarMapping.machineIcon(icon(machine: machine.id.rawValue), asset: asset)
+            machine.icon = SidebarMapping.machineIcon(icon(machine: machine.id.rawValue), asset: asset, device: machine.kind == .cloud ? nil : anyDaemon(machine: machine.id.rawValue)?.store.identity?.machineSymbol)
             var drawn = section
             drawn.kind = .machine(machine)
             return drawn

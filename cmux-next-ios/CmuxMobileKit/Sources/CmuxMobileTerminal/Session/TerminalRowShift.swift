@@ -16,6 +16,9 @@ import Foundation
 /// - a reset (`ESC c`) is followed by `offset` line feeds, so the remote
 ///   screen starts at the mirror's row `offset + 1`;
 /// - `CUP`/`HVP` (`H`, `f`) and `VPA` (`d`) rows gain `offset`;
+/// - `ED 2` and `ED 22` (`ESC[2J`, `ESC[22J`) keep the cursor's row: Ghostty
+///   clears at a prompt by scrolling, and its cursor then follows its row up
+///   by the mirror's rows, not the Mac's;
 /// - `ED 3` (`ESC[3J`, erase saved lines) also erases the `offset` rows above the
 ///   remote screen, which are history on the Mac but screen rows here;
 /// - `DECSTBM` (`r`) with explicit margins gains `offset`, except the full
@@ -174,6 +177,16 @@ public struct TerminalRowShift: Sendable {
             return Self.csi("\(row(0) + offset);\(max(1, column))", final)
         case UInt8(ascii: "d"):
             return Self.csi("\(row(0) + offset)", final)
+        case UInt8(ascii: "J") where text == "2" || text == "22":
+            // Erase Display: at a shell prompt (OSC 133 marks) Ghostty scrolls the screen
+            // into the scrollback first and its cursor follows its row up (`scrollClear`).
+            // The mirror scrolls the rows above the Mac's screen too, so its cursor moved
+            // `offset` rows more than the Mac's and left the Mac's screen: `top`'s
+            // `ESC[H ESC[2J` then painted its first screen at the mirror's top, and
+            // only the rows it rewrote later reached the Mac's rows (live report
+            // 2026-11-14). The cursor stays where it was, as on the Mac after a clear
+            // from the home position, whichever way Ghostty clears.
+            return Self.saved(sequence)
         case UInt8(ascii: "J") where text == "3":
             // Erase Saved Lines (the Mac's Clear Screen and Scrollback sends it, as does
             // `clear`): on the Mac every row above its screen is history and goes. Here

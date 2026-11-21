@@ -100,7 +100,7 @@ final class MessageActionOverlay: UIView {
             onDismiss?()
             return
         }
-        UIView.animate(springDuration: 0.3, bounce: 0, initialSpringVelocity: 0, delay: 0, options: [.beginFromCurrentState]) {
+        UIView.animateUnlessReduceMotion(springDuration: 0.3, bounce: 0, initialSpringVelocity: 0, delay: 0, options: [.beginFromCurrentState]) {
             self.snapshotClip.transform = .identity
         } completion: { _ in
             self.removeFromSuperview()
@@ -553,11 +553,13 @@ final class MessageActionOverlay: UIView {
         pressShade.frame = snapshotClip.bounds
 
         // Dim: a light veil, no blur.
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) { self.dim.alpha = 1 }
 
         // Press highlight, then the lift: ~1.05x in place, no overshoot.
         // A double-tap has no press: the bubble just stays put.
         if mode != .tapbacks {
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animateKeyframes(withDuration: 0.17, delay: 0, options: [.allowUserInteraction]) {
                 UIView.addKeyframe(withRelativeStartTime: 0, relativeDuration: 0.3) { self.pressShade.alpha = 0.31 }
                 UIView.addKeyframe(withRelativeStartTime: 0.3, relativeDuration: 0.7) { self.pressShade.alpha = 0 }
@@ -567,9 +569,9 @@ final class MessageActionOverlay: UIView {
             snapshotClip.center = finalPreviewCenter
             snapshotClip.transform = CGAffineTransform(scaleX: previewScale, y: previewScale)
         } else {
-            UIView.animate(springDuration: 0.24, bounce: 0, options: [.allowUserInteraction]) {
+            UIView.animateUnlessReduceMotion(springDuration: 0.24, bounce: 0, options: [.allowUserInteraction]) {
                 self.snapshotClip.center = self.finalPreviewCenter
-                self.snapshotClip.transform = CGAffineTransform(scaleX: previewScale, y: previewScale)
+                self.snapshotClip.transform = CGAffineTransform(scaleX: self.previewScale, y: self.previewScale)
             }
         }
 
@@ -581,8 +583,9 @@ final class MessageActionOverlay: UIView {
             menu.frame = frame
             menu.alpha = 0
             menu.transform = reduceMotion ? .identity : CGAffineTransform(scaleX: 0.6, y: 0.6)
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(withDuration: 0.1, delay: 0.02, options: [.curveEaseOut, .allowUserInteraction]) { self.menu.alpha = 1 }
-            UIView.animate(springDuration: 0.2, bounce: 0, initialSpringVelocity: 0, delay: 0.02, options: [.allowUserInteraction]) {
+            UIView.animateUnlessReduceMotion(springDuration: 0.2, bounce: 0, initialSpringVelocity: 0, delay: 0.02, options: [.allowUserInteraction]) {
                 self.menu.transform = .identity
             }
         }
@@ -593,6 +596,7 @@ final class MessageActionOverlay: UIView {
         reactionBar.alpha = 0
         if reduceMotion {
             setBarFrame(final)
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(withDuration: 0.2, delay: 0.05, options: [.allowUserInteraction]) { self.reactionBar.alpha = 1 }
         } else {
             // From the menu the capsule grows out of a dot at the corner; from a
@@ -600,12 +604,13 @@ final class MessageActionOverlay: UIView {
             setBarFrame(detailCard == nil
                 ? barSeed(diameter: 10, centerY: previewTop - 8)
                 : barSeed(diameter: ConversationTheme.reactionBadgeSize, centerY: previewTop - 10, inset: 3))
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(withDuration: 0.05, delay: 0.08, options: [.allowUserInteraction]) { self.reactionBar.alpha = 1 }
-            UIView.animate(withDuration: 0.1, delay: 0.08, options: [.curveEaseOut, .allowUserInteraction]) {
+            UIView.animateUnlessReduceMotion(withDuration: 0.1, delay: 0.08, options: [.curveEaseOut, .allowUserInteraction]) {
                 self.setBarFrame(self.barSeed(diameter: 42, centerY: final.midY + 4))
             } completion: { _ in
                 guard !self.isDismissing else { return }
-                UIView.animate(springDuration: 0.34, bounce: 0, options: [.allowUserInteraction]) {
+                UIView.animateUnlessReduceMotion(springDuration: 0.34, bounce: 0, options: [.allowUserInteraction]) {
                     self.setBarFrame(final)
                 }
             }
@@ -613,25 +618,35 @@ final class MessageActionOverlay: UIView {
         for (index, button) in reactionButtons.enumerated() {
             button.alpha = 0
             button.transform = reduceMotion ? .identity : CGAffineTransform(scaleX: 0.3, y: 0.3)
-            UIView.animate(springDuration: 0.32, bounce: 0.3, initialSpringVelocity: 0, delay: 0.22 + Double(index) * 0.035, options: [.allowUserInteraction]) {
+            let delay = 0.22 + Double(index) * 0.035
+            // motion: allow crossfade, the Reduce Motion form
+            UIView.animate(springDuration: 0.32, bounce: 0.3, initialSpringVelocity: 0, delay: delay, options: [.allowUserInteraction]) {
                 button.alpha = 1
+            }
+            UIView.animateUnlessReduceMotion(springDuration: 0.32, bounce: 0.3, initialSpringVelocity: 0, delay: delay, options: [.allowUserInteraction]) {
                 button.transform = .identity
             }
         }
         for (view, delay) in [(tailDot, 0.26), (emojiButton, 0.3)] as [(UIView, Double)] {
             view.alpha = 0
             view.transform = reduceMotion ? .identity : CGAffineTransform(scaleX: 0.2, y: 0.2)
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(springDuration: 0.3, bounce: 0.25, initialSpringVelocity: 0, delay: delay, options: [.allowUserInteraction]) {
                 view.alpha = 1
+            }
+            UIView.animateUnlessReduceMotion(springDuration: 0.3, bounce: 0.25, initialSpringVelocity: 0, delay: delay, options: [.allowUserInteraction]) {
                 view.transform = .identity
             }
         }
 
         if let detailCard {
             detailCard.alpha = 0
-            detailCard.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
+            detailCard.transform = reduceMotion ? .identity : CGAffineTransform(scaleX: 0.6, y: 0.6)
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(springDuration: 0.3, bounce: 0.15, initialSpringVelocity: 0, delay: 0.12, options: [.allowUserInteraction]) {
                 detailCard.alpha = 1
+            }
+            UIView.animateUnlessReduceMotion(springDuration: 0.3, bounce: 0.15, initialSpringVelocity: 0, delay: 0.12, options: [.allowUserInteraction]) {
                 detailCard.transform = .identity
             }
         }
@@ -654,45 +669,62 @@ final class MessageActionOverlay: UIView {
             CGRect(x: corner.x - diameter / 2, y: centerY - diameter / 2, width: diameter, height: diameter)
         }
         let reduceMotion = UIAccessibility.isReduceMotionEnabled
+        let pieces = [self.emojiButton, self.tailDot, self.thoughtMidDot, self.thoughtClose] as [UIView]
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.1, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
             self.menu.alpha = 0
-            self.menu.transform = reduceMotion ? .identity : CGAffineTransform(scaleX: 0.9, y: 0.9)
             self.detailCard?.alpha = 0
-            for view in [self.emojiButton, self.tailDot, self.thoughtMidDot, self.thoughtClose] as [UIView] {
-                view.alpha = 0
-                view.transform = reduceMotion ? .identity : CGAffineTransform(scaleX: 0.4, y: 0.4)
-            }
+            for view in pieces { view.alpha = 0 }
         }
+        UIView.animateUnlessReduceMotion(withDuration: 0.1, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
+            self.menu.transform = reduceMotion ? .identity : CGAffineTransform(scaleX: 0.9, y: 0.9)
+            for view in pieces { view.transform = reduceMotion ? .identity : CGAffineTransform(scaleX: 0.4, y: 0.4) }
+        }
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.12, delay: 0.03, options: [.curveEaseIn, .beginFromCurrentState]) {
+            for button in self.reactionButtons { button.alpha = 0 }
+        }
+        UIView.animateUnlessReduceMotion(withDuration: 0.12, delay: 0.03, options: [.curveEaseIn, .beginFromCurrentState]) {
             for button in self.reactionButtons {
-                button.alpha = 0
                 button.transform = reduceMotion ? .identity : CGAffineTransform(scaleX: 0.5, y: 0.5)
             }
         }
         if reduceMotion {
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(withDuration: 0.2, delay: 0.03, options: [.beginFromCurrentState]) { self.reactionBar.alpha = 0 }
         } else {
-            UIView.animate(withDuration: 0.18, delay: 0.03, options: [.curveEaseInOut, .beginFromCurrentState]) {
+            UIView.animateUnlessReduceMotion(withDuration: 0.18, delay: 0.03, options: [.curveEaseInOut, .beginFromCurrentState]) {
                 self.setBarFrame(seed(40, centerY: self.finalBarFrame.midY + 6))
             } completion: { _ in
-                UIView.animate(withDuration: 0.12, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
+                UIView.animateUnlessReduceMotion(withDuration: 0.12, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
                     self.setBarFrame(seed(4, centerY: corner.y))
                     self.reactionBar.alpha = 0
                 }
             }
         }
-        UIView.animate(withDuration: 0.25, delay: 0.05, options: [.curveEaseOut, .beginFromCurrentState]) { self.dim.alpha = 0 }
-        // A critically damped spring with a fixed duration, so the follow-up
-        // (the tapback landing) starts on Messages' beat.
-        UIView.animate(withDuration: 0.3, delay: 0.03, usingSpringWithDamping: 1, initialSpringVelocity: 0, options: [.beginFromCurrentState]) {
+        let settle = {
             self.snapshotClip.transform = .identity
             self.snapshotClip.center = CGPoint(x: home.midX, y: home.minY + self.snapshotClip.bounds.height / 2)
-        } completion: { _ in
+        }
+        let finish: (Bool) -> Void = { _ in
             guard !self.handedOff else { return }
             self.removeFromSuperview()
             self.onDismiss?()
             completion?()
         }
+        if reduceMotion {
+            // Reduce Motion: the preview is home at once; the overlay goes
+            // when its fades end (the dim's, the last to finish).
+            UIView.performWithoutAnimation(settle)
+            // motion: allow crossfade, the Reduce Motion form
+            UIView.animate(withDuration: 0.25, delay: 0.05, options: [.curveEaseOut, .beginFromCurrentState], animations: { self.dim.alpha = 0 }, completion: finish)
+            return
+        }
+        // motion: allow crossfade, the Reduce Motion form
+        UIView.animate(withDuration: 0.25, delay: 0.05, options: [.curveEaseOut, .beginFromCurrentState]) { self.dim.alpha = 0 }
+        // A critically damped spring with a fixed duration, so the follow-up
+        // (the tapback landing) starts on Messages' beat.
+        UIView.animate(withDuration: 0.3, delay: 0.03, usingSpringWithDamping: 1, initialSpringVelocity: 0, options: [.beginFromCurrentState], animations: settle, completion: finish)
     }
 
     /// VoiceOver's two-finger scrub closes the menu like a tap outside it.
@@ -751,7 +783,7 @@ final class MessageActionOverlay: UIView {
         guard shift != pickShift else { return }
         let delta = shift - pickShift
         pickShift = shift
-        UIView.animate(springDuration: 0.4, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+        UIView.animateUnlessReduceMotion(springDuration: 0.4, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
             self.snapshotClip.center.y += delta
             guard self.isPickingCustomEmoji else { return }
             let thought = self.thoughtFrames()
@@ -800,17 +832,21 @@ final class MessageActionOverlay: UIView {
 
         // Bar and menu.
         if picking {
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(withDuration: 0.12, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
                 self.menu.alpha = 0
-                self.menu.transform = reduceMotion ? .identity : CGAffineTransform(scaleX: 0.9, y: 0.9)
                 for button in self.reactionButtons { button.alpha = 0 }
             }
+            UIView.animateUnlessReduceMotion(withDuration: 0.12, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
+                self.menu.transform = reduceMotion ? .identity : CGAffineTransform(scaleX: 0.9, y: 0.9)
+            }
             if reduceMotion {
+                // motion: allow crossfade, the Reduce Motion form
                 UIView.animate(withDuration: 0.2) { self.reactionBar.alpha = 0 }
             } else {
                 // The capsule folds into the swelling circle.
                 let seed = CGRect(center: CGPoint(x: smileyFrame.midX, y: smileyFrame.midY), size: CGSize(width: 40, height: 40))
-                UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState]) {
+                UIView.animateUnlessReduceMotion(withDuration: 0.22, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState]) {
                     self.setBarFrame(seed)
                     self.reactionBar.alpha = 0
                 }
@@ -820,23 +856,31 @@ final class MessageActionOverlay: UIView {
             if reduceMotion {
                 setBarFrame(finalBarFrame)
                 reactionBar.alpha = 0
+                // motion: allow crossfade, the Reduce Motion form
                 UIView.animate(withDuration: 0.2) { self.reactionBar.alpha = 1 }
             } else {
                 setBarFrame(CGRect(center: CGPoint(x: from.smiley.midX, y: from.smiley.midY), size: CGSize(width: 42, height: 42)))
-                UIView.animate(springDuration: 0.34, bounce: 0, options: [.allowUserInteraction]) {
+                UIView.animateUnlessReduceMotion(springDuration: 0.34, bounce: 0, options: [.allowUserInteraction]) {
                     self.setBarFrame(self.finalBarFrame)
                 }
             }
             for (index, button) in reactionButtons.enumerated() {
                 button.transform = reduceMotion ? .identity : CGAffineTransform(scaleX: 0.3, y: 0.3)
-                UIView.animate(springDuration: 0.32, bounce: 0.3, initialSpringVelocity: 0, delay: 0.08 + Double(index) * 0.035, options: [.allowUserInteraction]) {
+                let delay = 0.08 + Double(index) * 0.035
+                // motion: allow crossfade, the Reduce Motion form
+                UIView.animate(springDuration: 0.32, bounce: 0.3, initialSpringVelocity: 0, delay: delay, options: [.allowUserInteraction]) {
                     button.alpha = 1
+                }
+                UIView.animateUnlessReduceMotion(springDuration: 0.32, bounce: 0.3, initialSpringVelocity: 0, delay: delay, options: [.allowUserInteraction]) {
                     button.transform = .identity
                 }
             }
             if mode == .menu {
+                // motion: allow crossfade, the Reduce Motion form
                 UIView.animate(withDuration: 0.15, delay: 0.05, options: [.curveEaseOut, .allowUserInteraction]) {
                     self.menu.alpha = 1
+                }
+                UIView.animateUnlessReduceMotion(withDuration: 0.15, delay: 0.05, options: [.curveEaseOut, .allowUserInteraction]) {
                     self.menu.transform = .identity
                 }
             }
@@ -861,13 +905,15 @@ final class MessageActionOverlay: UIView {
         if reduceMotion {
             morph()
         } else {
-            UIView.animate(springDuration: 0.36, bounce: 0.18, options: [.allowUserInteraction, .beginFromCurrentState], animations: morph)
+            UIView.animateUnlessReduceMotion(springDuration: 0.36, bounce: 0.18, options: [.allowUserInteraction, .beginFromCurrentState], animations: morph)
         }
+        let dots = [thoughtClose, thoughtMidDot] as [UIView]
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(springDuration: 0.3, bounce: picking ? 0.25 : 0, initialSpringVelocity: 0, delay: picking ? 0.12 : 0, options: [.allowUserInteraction]) {
-            for view in [self.thoughtClose, self.thoughtMidDot] as [UIView] {
-                view.alpha = picking ? 1 : 0
-                view.transform = picking || reduceMotion ? .identity : CGAffineTransform(scaleX: 0.2, y: 0.2)
-            }
+            for view in dots { view.alpha = picking ? 1 : 0 }
+        }
+        UIView.animateUnlessReduceMotion(springDuration: 0.3, bounce: picking ? 0.25 : 0, initialSpringVelocity: 0, delay: picking ? 0.12 : 0, options: [.allowUserInteraction]) {
+            for view in dots { view.transform = picking || reduceMotion ? .identity : CGAffineTransform(scaleX: 0.2, y: 0.2) }
         }
         emojiButton.accessibilityElementsHidden = picking
         UIAccessibility.post(notification: .layoutChanged, argument: picking ? thoughtClose : emojiButton)
@@ -1053,11 +1099,15 @@ extension ConversationViewController {
         // Grow out of the corner the badge's dots point to.
         let pivot = CGPoint(x: badge.pointsLeft ? 0 : bounds.width, y: bounds.height)
         let scale: CGFloat = 0.1
-        badge.transform = CGAffineTransform(translationX: (pivot.x - bounds.midX) * (1 - scale), y: (pivot.y - bounds.midY) * (1 - scale))
-            .scaledBy(x: scale, y: scale)
+        // Reduce Motion: the badge fades in at full size.
+        if !UIView.reducesMotion {
+            badge.transform = CGAffineTransform(translationX: (pivot.x - bounds.midX) * (1 - scale), y: (pivot.y - bounds.midY) * (1 - scale))
+                .scaledBy(x: scale, y: scale)
+        }
         badge.alpha = 0
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.08, delay: 0.06) { badge.alpha = 1 }
-        UIView.animate(springDuration: 0.32, bounce: 0.25, initialSpringVelocity: 0, delay: 0.06, options: [.allowUserInteraction]) {
+        UIView.animateUnlessReduceMotion(springDuration: 0.32, bounce: 0.25, initialSpringVelocity: 0, delay: 0.06, options: [.allowUserInteraction]) {
             badge.transform = .identity
         }
     }

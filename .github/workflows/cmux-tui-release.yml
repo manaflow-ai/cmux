@@ -46,6 +46,7 @@ jobs:
   version:
     name: derive package version
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -87,7 +88,7 @@ jobs:
       attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
-      retention_days: 30  # tui-publish-npm/pypi download these by run id
+      retention_days: 7  # tui-publish-npm/pypi download these by run id
       version: ${{ needs.version.outputs.version }}
       package_npm: true
       package_pypi: true
@@ -101,6 +102,7 @@ jobs:
     if: ${{ inputs.publish_npm || inputs.publish_pypi }}
     needs: build-package
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
     permissions:
       actions: write
       contents: read

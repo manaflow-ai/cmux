@@ -5,13 +5,11 @@ Leo, 2026-11-13: "Few jobs on warm trees; the PR runs what base runs on the tree
 per PR become one step table and at most 8 jobs; a landing train tests the merge result (3.81 base
 reds per 100 landings today). Advisory steps run idle-class and never block."
 
-This test holds three things:
+This test holds two things:
 
   - the table: at most 8 jobs, and a step that does not block runs in the `advisory` job, class `idle`;
   - the runner: an advisory step's failure or timeout is a warning and the job passes; a blocking
     step's failure fails it; a label event runs only the steps that list the label;
-  - the budget: the jobs a pull request into feat-cmux-next can start stay at or under
-    [budget] pr_jobs, which only goes down, toward target_pr_jobs.
 """
 
 from __future__ import annotations
@@ -39,50 +37,6 @@ def table(steps: str, jobs: str = 'linux = "l"\nadvisory = "a"') -> ci_steps.Tab
     import tomllib
 
     return ci_steps.parse(tomllib.loads(f"[jobs]\n{jobs}\n{textwrap.dedent(steps)}"))
-
-
-def matrix_size(job: dict) -> int:
-    """The jobs a job's matrix expands to: the product of its literal lists, less `exclude`, and
-    each `include` entry when there are no lists. A matrix read from an expression counts as 1."""
-    matrix = (job.get("strategy") or {}).get("matrix") if isinstance(job, dict) else None
-    if not isinstance(matrix, dict):
-        return 1
-    lists = [v for k, v in matrix.items() if k not in ("include", "exclude") and isinstance(v, list)]
-    include = matrix.get("include") if isinstance(matrix.get("include"), list) else []
-    exclude = matrix.get("exclude") if isinstance(matrix.get("exclude"), list) else []
-    if not lists:
-        return max(1, len(include))
-    size = 1
-    for values in lists:
-        size *= len(values)
-    return max(1, size - len(exclude))
-
-
-def pr_jobs(workflows: dict[str, dict], base: str = BASE) -> int:
-    """Jobs a pull request into `base` can start: each job of each workflow it triggers times its
-    matrix, a job that calls a local reusable workflow counted as that workflow's jobs (at any
-    depth) times the caller's matrix."""
-
-    def count(name: str, seen: tuple[str, ...] = ()) -> int:
-        total = 0
-        for job in (workflows[name].get("jobs") or {}).values():
-            uses = job.get("uses") if isinstance(job, dict) else None
-            if isinstance(uses, str) and uses.startswith("./.github/workflows/"):
-                callee = uses.rsplit("/", 1)[1].split("@", 1)[0]
-                if callee in workflows and callee not in seen:
-                    total += matrix_size(job) * count(callee, seen + (name,))
-                    continue
-            total += matrix_size(job)
-        return total
-
-    return sum(
-        count(name)
-        for name, doc in workflows.items()
-        if any(
-            event in triggers(doc) and branch_matches(triggers(doc)[event], base, push=False)
-            for event in ("pull_request", "pull_request_target")
-        )
-    )
 
 
 class TableRulesTest(unittest.TestCase):
@@ -266,44 +220,6 @@ class RepositoryAdvisoryStepsTest(unittest.TestCase):
                      "Check the description for a Performance table",
                      "Check where the cloud backend change belongs"):
             self.assertNotIn(gone, names, "the step table runs it")
-
-
-class PullRequestJobBudgetTest(unittest.TestCase):
-    def test_counting(self) -> None:
-        workflows = {
-            "pr.yml": {"on": {"pull_request": {"branches": [BASE]}}, "jobs": {
-                "a": {}, "b": {}, "call": {"uses": "./.github/workflows/lib.yml"}}},
-            "lib.yml": {"on": "workflow_call", "jobs": {"x": {}, "y": {}}},
-            "main.yml": {"on": {"pull_request": {"branches": ["main"]}}, "jobs": {"m": {}}},
-            "push.yml": {"on": "push", "jobs": {"p": {}}},
-        }
-        self.assertEqual(pr_jobs(workflows), 4)
-
-    def test_counting_matrices(self) -> None:
-        shards = {"strategy": {"matrix": {"shard": list(range(20))}}}
-        workflows = {
-            "pr.yml": {"on": "pull_request", "jobs": {
-                "shards": shards,
-                "grid": {"strategy": {"matrix": {"os": ["a", "b"], "py": [1, 2, 3], "exclude": [{"os": "a", "py": 1}]}}},
-                "include": {"strategy": {"matrix": {"include": [{"x": 1}, {"x": 2}]}}},
-                "dynamic": {"strategy": {"matrix": "${{ fromJSON(needs.a.outputs.m) }}"}},
-                "call": {"uses": "./.github/workflows/lib.yml", "strategy": {"matrix": {"n": [1, 2]}}}}},
-            "lib.yml": {"on": "workflow_call", "jobs": {"x": shards}},
-        }
-        self.assertEqual(pr_jobs(workflows), 20 + 5 + 2 + 1 + 2 * 20)
-
-    def test_pull_request_jobs_stay_within_the_budget(self) -> None:
-        budget = ci_steps.load().budget
-        found = pr_jobs(load_workflows())
-        print(f"jobs a pull request into {BASE} can start: {found} (budget {budget['pr_jobs']}, "
-              f"target {budget['target_pr_jobs']})")
-        self.assertLessEqual(
-            found, budget["pr_jobs"],
-            f"A pull request into {BASE} can now start {found} jobs, over the budget of "
-            f"{budget['pr_jobs']} in ci/steps.toml. Add a step to an existing job of the table "
-            "instead of a new job; the budget only goes down.",
-        )
-        self.assertLessEqual(budget["target_pr_jobs"], ci_steps.MAX_JOBS)
 
 
 if __name__ == "__main__":

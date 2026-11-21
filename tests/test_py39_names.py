@@ -71,6 +71,7 @@ EXCLUDED = {  # path: why no hook runs it, so macOS's 3.9 never does
     "scripts/cmux-next/herdr-sync.py": "a vendor sync run by hand with 3.11+ (tomllib, datetime.UTC); no hook runs it",
     "scripts/cmux-next/browser-host-release.py": "cmux-browser-host's release job runs it with CI's 3.11+ (tomllib); "
                                                  "no hook runs it",
+    "scripts/cmux-next/bundle-size-pr.py": "cmux-next-size-budget.yml runs it with CI's 3.11+ (tomllib); no hook runs it",
 }
 CAUGHT = {"AttributeError", "ImportError", "ModuleNotFoundError", "Exception", "BaseException"}
 

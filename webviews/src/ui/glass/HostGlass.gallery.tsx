@@ -12,6 +12,7 @@
 import { type CSSProperties, useEffect } from "react";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { componentEntry } from "../../gallery/format";
+import { MOTION_MS } from "../../motion/scale.generated";
 
 type Scheme = "dark" | "light";
 type Look = "before" | "clear" | "rim" | "veil";
@@ -320,11 +321,11 @@ export default componentEntry<Props>({
       props: { look: "clear", scheme: "dark", order: "content-first" },
     },
     "close-trailing": {
-      note: "Before (Leo, 2026-11-09: 'What the heck is this?'): the menu's rows fade for 80 ms in the page while the App's glass, drawn in another process from the page's reports, trails them (a pick keeps the App busy as the menu closes), and the blur under the glass stays whole until the fade ends: an empty glass box where the menu was.",
+      note: `Before (Leo, 2026-11-09: 'What the heck is this?'): the menu's rows fade for ${MOTION_MS.quick} ms in the page while the App's glass, drawn in another process from the page's reports, trails them (a pick keeps the App busy as the menu closes), and the blur under the glass stays whole until the fade ends: an empty glass box where the menu was.`,
       props: { look: "clear", scheme: "dark", order: "close-trailing" },
     },
     "close-page-glass": {
-      note: "Ships: as the close starts, the App's glass and the blur leave in that task and the rows fade out on the page's own glass, drawn in the same layer, so glass and rows go in the same frames. The cost: the glass is the page's flatter one for the 80 ms fade.",
+      note: `Ships: as the close starts, the App's glass and the blur leave in that task and the rows fade out on the page's own glass, drawn in the same layer, so glass and rows go in the same frames. The cost: the glass is the page's flatter one for the ${MOTION_MS.quick} ms fade.`,
       props: { look: "clear", scheme: "dark", order: "close-page-glass" },
     },
     "close-instant": {

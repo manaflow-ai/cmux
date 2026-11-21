@@ -3,6 +3,7 @@ import CmuxAgentQuestion
 import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileMarkdown
+import CmuxMobileModel
 import Observation
 import SwiftUI
 import UIKit
@@ -58,6 +59,13 @@ struct FeedCollection: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: FeedCollectionController, context: Context) {
         context.coordinator.update(items: items, header: header, signature: headerSignature, headerContent: headerContent)
+        // Room under the last row for the New Task button that floats over the list's bottom.
+        let bottomRoom = context.environment.cmuxMobileFloatingBottomRoom
+        let list = controller.collection
+        if list.contentInset.bottom != bottomRoom {
+            list.contentInset.bottom = bottomRoom
+            list.verticalScrollIndicatorInsets.bottom = bottomRoom
+        }
     }
 }
 
@@ -144,17 +152,12 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private(set) var rowsSettled = true
     private var lastScroll: CFTimeInterval = 0
     private var settleTask: Task<Void, Never>?
-    private var minuteTimer: Timer?
     private var replyChats: [String: AgentChatStore] = [:]
     private var previousRead: [String: Bool] = [:]
     /// Every event id the list has shown this session (the "N new" pill counts others only).
     private var everShown: Set<String> = []
     /// Snapshots applied (tests and the rig read it).
     private(set) var applyCount = 0
-
-    deinit {
-        MainActor.assumeIsolated { minuteTimer?.invalidate() }
-    }
 
     init(context: FeedRowContext, swipe: FeedSwipeCoordinator, control: FeedListControl) {
         self.context = context
@@ -232,13 +235,25 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
                 }
             }
         }
-        minuteTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.visibleCells.forEach { $0.refreshTime() } }
-        }
+        followMinuteClock()
         #if DEBUG
         if FeedStressRig.shared.config.autoscrollPasses != nil { FeedScreenRig.scroller.attach(view) }
         #endif
         return view
+    }
+
+    /// Row times redraw on the shared minute clock's tick, which pauses in the
+    /// background and ticks at once on return (no timer of the Feed's own).
+    private func followMinuteClock() {
+        withObservationTracking {
+            _ = MinuteClock.shared.now
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.visibleCells.forEach { $0.refreshTime() }
+                self.followMinuteClock()
+            }
+        }
     }
 
     private var visibleCells: [FeedRowCell] { collectionView?.visibleCells.compactMap { $0 as? FeedRowCell } ?? [] }

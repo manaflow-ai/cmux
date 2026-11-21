@@ -12,7 +12,6 @@ import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlac
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
-import { selectionReplyWrap } from "../agent-session/acpmux/conversation/selectionReplyWrap.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
 import { backgroundTurnLook } from "../agent-session/acpmux/conversation/backgroundTurnLook.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
@@ -25,6 +24,7 @@ import { compactingLine } from "../agent-session/acpmux/conversation/compactingL
 import { liveLineTimes } from "../agent-session/acpmux/conversation/liveLineTimes.experiment";
 import { liveTurnClock } from "../agent-session/acpmux/conversation/liveTurnClock.experiment";
 import { runScroll } from "../agent-session/acpmux/conversation/runScroll.experiment";
+import { thumbMotion } from "../agent-session/acpmux/conversation/thumbMotion.experiment";
 import { oneRowPerCall } from "../agent-session/acpmux/conversation/oneRowPerCall.experiment";
 import { backgroundHintRoom } from "../agent-session/acpmux/conversation/backgroundHintRoom.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
@@ -46,7 +46,9 @@ import { liveTurnWork } from "../agent-session/acpmux/conversation/liveTurnWork.
 import { jumpUpButton } from "../agent-session/acpmux/jumpUp.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
 import { turnFoldSteered } from "../agent-session/acpmux/conversation/turnFoldSteered.experiment";
+import { sinceRead } from "../agent-session/acpmux/conversation/sinceRead.experiment";
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
+import { bareWorkedTurns } from "../agent-session/acpmux/conversation/bareWorkedTurns.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
@@ -58,6 +60,8 @@ import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.exp
 import { composerHatLook } from "../agent-session/acpmux/subagents/composerHat.experiment";
 import { hatQuestionsLook } from "../agent-session/acpmux/question/hatQuestions.experiment";
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
+import { hatTuckLook } from "../agent-session/acpmux/subagents/hatTuck.experiment";
+import { hatOpenLook } from "../agent-session/acpmux/subagents/hatOpen.experiment";
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
@@ -75,6 +79,8 @@ import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLo
 import { cmuxLinkLook } from "../agent-session/acpmux/chips/cmuxLinkLook.experiment";
 import { sentPasteJoin } from "../agent-session/acpmux/conversation/sentPasteJoin.experiment";
 import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessageLook.experiment";
+import { readingLook } from "../agent-session/acpmux/readingLook.experiment";
+import { highContrastLook } from "../agent-session/acpmux/highContrastLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { contextRingMotion } from "../agent-session/acpmux/contextRingMotion.experiment";
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
@@ -108,7 +114,9 @@ export const EXPERIMENTS: readonly Experiment[] = [
   jumpUpButton,
   turnFoldReplies,
   turnFoldSteered,
+  sinceRead,
   workedForMessages,
+  bareWorkedTurns,
   threadMinimapLayout,
   threadMinimapHeight,
   threadMinimapGutter,
@@ -133,7 +141,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   toolErrorLook,
   tableActionsPlace,
   expandRowLook,
-  selectionReplyWrap,
   backgroundReactionLook,
   backgroundTurnLook,
   cloudStartLook,
@@ -145,6 +152,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   liveLineTimes,
   liveTurnClock,
   runScroll,
+  thumbMotion,
   oneRowPerCall,
   backgroundHintRoom,
   trayPanelLook,
@@ -154,6 +162,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerHatLook,
   hatQuestionsLook,
   hatChevronLook,
+  hatTuckLook,
+  hatOpenLook,
   goalHatPlace,
   hatDoneLook,
   hatDoneCheckPlace,
@@ -174,6 +184,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   cmuxLinkLook,
   sentPasteJoin,
   sentMessageLook,
+  readingLook,
+  highContrastLook,
   contextRingLook,
   contextRingMotion,
   planUsageLook,

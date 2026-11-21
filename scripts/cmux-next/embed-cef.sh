@@ -31,7 +31,7 @@ FW_NAME="Chromium Embedded Framework.framework"
 FW_BINARY="Chromium Embedded Framework"
 source "$SCRIPT_DIR/cef-locale-allowlist.sh"
 # Bump when the embedded layout changes so existing app bundles are redone.
-LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs-no-intro-sounds-trimmed-paks-kept-images-aliases"
+LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs-no-intro-sounds-trimmed-paks-kept-images-aliases-no-gpu-shader-cache"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
@@ -88,6 +88,14 @@ if (( want_x86 )); then
   # Optional even with CMUX_NEXT_REQUIRE_CEF while the x86_64 engine is new:
   # a universal build then keeps the arm64 engine.
   x86_dir="$("$SCRIPT_DIR/ensure-cef.sh" --optional --arch x86_64)"
+fi
+# Two engine versions never merge: their resource paks differ and merge-cef-universal.sh refuses
+# them (the manifest can pin x86_64 behind arm64, cmux.48 against cmux.52 on 2026-11-17). A
+# universal build then keeps the arm64 engine and the thin x86_64 variant drops it, as with no
+# x86_64 artifact at all.
+if [[ -n "$arm_dir" && -n "$x86_dir" && "$(basename "$arm_dir")" != "$(basename "$x86_dir" | sed 's/-x86_64$//')" ]]; then
+  echo "warning: the x86_64 CEF ($(basename "$x86_dir")) is not the arm64 engine ($(basename "$arm_dir")); embedding arm64 only, Intel ships without the Chromium engine"
+  x86_dir=""
 fi
 cache_root="$("$SCRIPT_DIR/cef-cache-root.sh")"
 shim_archs=()
@@ -198,6 +206,10 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
   if (( ${#locale_paks[@]} > 0 )); then
     /usr/bin/python3 -I "$SCRIPT_DIR/cef-pak-drop.py" --strings "$cef_dir/include/cef_pack_strings.h" ${locale_paks[@]+"${locale_paks[@]}"}
   fi
+  # Chromium recreates this precomputed GPU shader cache under its profile on
+  # first use. It is architecture- and driver-specific, so shipping it costs
+  # 0.9 MiB without removing any runtime capability.
+  rm -f "$fw/Versions/A/Resources/gpu_shader_cache.bin"
   # CEF's dylibs ship with local symbols and debug stabs (7 MiB in
   # libvk_swiftshader.dylib). Drop them before signing; exported symbols stay
   # for the Vulkan loader's dlsym.

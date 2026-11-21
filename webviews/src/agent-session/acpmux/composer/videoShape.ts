@@ -32,6 +32,7 @@ export function videoShapeStyle(ratio: number | undefined): Record<string, strin
 
 /// How long a pasted video's tile is held unseen for its header (as an image's is,
 /// attachmentIntakeModel.ts HEADER_WAIT_MS): past it, the tile shows square.
+// motion-allow: a header read timeout, not a motion
 export const VIDEO_HEADER_WAIT_MS = 120;
 
 /// The most of a movie's metadata box read at once: `moov` of a long recording holds its sample

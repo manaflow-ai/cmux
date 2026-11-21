@@ -20,6 +20,7 @@ import { chromium, webkit, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
 import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -52,7 +53,7 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
   });
 
   const FIELD = ".acpmux-composer-prompt";
-  const EDITABLE = ".acpmux-composer-prompt [contenteditable='true']";
+  const EDITABLE = COMPOSER_EDITOR;
   /// The thin scroller's widest lane; WebKit's and Chromium's classic bars are 15 px.
   const THIN = 10;
 
@@ -200,7 +201,7 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
 
   for (const [name] of launchers) {
     describe(name, () => {
-      test("the thumb probe ignores the card rim and rejects an opaque track in both looks", async () => {
+      test("the thumb probe ignores the card rim and rejects an opaque track", async () => {
         current = browsers.get(name);
         // The opaque track is in place before the page draws its first scrollbar: neither engine
         // restyles a custom scrollbar that is already drawn when a sheet or an attribute changes it
@@ -208,25 +209,23 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
         // so a page that adds the rule late tests the engine's repaint, not the probe.
         const OPAQUE =
           ":root .acpmux-composer-prompt::-webkit-scrollbar-track { background: rgb(255, 0, 255) !important; }";
-        for (const look of ["codex", "claude"])
-          for (const opaque of [false, true]) {
-            const page = await pane!.open(undefined, async (page) => {
-              await page.addInitScript((look) => localStorage.setItem("cmux.composer.look", look), look);
-              if (opaque)
-                await page.addInitScript((css) => {
-                  const sheet = new CSSStyleSheet();
-                  sheet.replaceSync(css);
-                  document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
-                }, OPAQUE);
-            });
-            try {
-              await paste(page, 20);
-              const probed = await thumb(page);
-              expect({ look, ...probed }).toEqual({ look, bar: probed.bar, thumb: true, track: opaque });
-            } finally {
-              await page.close();
-            }
+        for (const opaque of [false, true]) {
+          const page = await pane!.open(undefined, async (page) => {
+            if (opaque)
+              await page.addInitScript((css) => {
+                const sheet = new CSSStyleSheet();
+                sheet.replaceSync(css);
+                document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+              }, OPAQUE);
+          });
+          try {
+            await paste(page, 20);
+            const probed = await thumb(page);
+            expect(probed).toMatchObject({ thumb: true, track: opaque });
+          } finally {
+            await page.close();
           }
+        }
       });
 
       // With the agent pane's scrollbar fade on too (its default, `data-cmux-scroller-fade`): it fades

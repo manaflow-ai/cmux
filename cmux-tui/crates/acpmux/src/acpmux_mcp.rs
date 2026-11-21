@@ -1,7 +1,8 @@
 //! `acpmux acpmux-mcp`: the `acpmux` MCP stdio server every local agent session gets
 //! (`agent_tools.rs`), the same on every harness: message another session (a lane, a
-//! coordinator, a chat on a peer) and read the sessions, instead of piping text into `acpmux
-//! send` in a shell, which a chat draws as a command block. Behind the `cmux` server its tools
+//! coordinator, a chat on a peer) and read the sessions, instead of piping text into a shell,
+//! which a chat draws as a command block. The public CLI front door is `cmux agent`; the acpmux
+//! engine and its aliases remain available. Behind the `cmux` server its tools
 //! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info`, `acpmux_search` (a
 //! session's messages holding some words, `session_search.rs`) and the team mailbox tools
 //! (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
@@ -34,9 +35,7 @@ use crate::secret_mcp::error_result;
 use anyhow::Result;
 use serde_json::{Value, json};
 
-pub const SERVER_NAME: &str = "acpmux";
-/// The session the tools act for, set in this server's env with its caller token.
-pub const SESSION_ENV: &str = "ACPMUX_SESSION_ID";
+pub use crate::acpmux_mcp_names::{SERVER_NAME, SESSION_ENV};
 /// How long `send` asks the outbox to wait for the delivery to settle before it answers that the
 /// message is on its way: well under the shortest MCP tool timeout of the harnesses (Codex: 60 s).
 /// The daemon's outbox (`server/outbox.rs`) goes on delivering after that, retrying a peer that
@@ -70,7 +69,7 @@ const LS_FIELDS: &[&str] =
 #[path = "acpmux_mcp_artifacts.rs"]
 pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
-mod bg;
+pub(crate) mod bg;
 #[path = "acpmux_mcp_bridge.rs"]
 pub(crate) mod bridge;
 #[path = "acpmux_mcp_goal.rs"]
@@ -215,7 +214,7 @@ fn base_tools() -> Value {
         },
         {
             "name": "search",
-            "description": "Find a session's messages (prompts, replies, tool titles) holding every word of a query, newest first, from acpmux's index of its log: use it instead of grepping a transcript. Your own session unless name says another; role assistant finds what you yourself wrote earlier.",
+            "description": "Find a session's messages (prompts, replies, tool titles) holding every word of a query, newest first, from the acpmux engine's index of its log: use it instead of grepping a transcript. For every authorized session on this host and its peers, use the `cmux agent search` front door. This MCP tool searches your own session unless name says another; role assistant finds what you yourself wrote earlier.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -300,7 +299,7 @@ fn served_with(
     daemon: &Arc<crate::tools_mcp::Daemon>,
     artifacts: Option<Arc<artifacts::Artifacts>>,
 ) -> Result<crate::tools_mcp::Served> {
-    let allow = std::env::var(crate::agent_tools::MCP_TOOLS_ENV).ok();
+    let allow = crate::tool_env::var(crate::agent_tools::MCP_TOOLS_ENV);
     let tools = allowed(tools_with_artifacts(artifacts.is_some()), allow.as_deref());
     // Under an allowlist, a call outside it is refused like an unknown tool.
     let names: Option<Arc<Vec<String>>> = allow
@@ -351,9 +350,9 @@ fn served_with(
                     });
                 if bg::TOOLS.contains(&name) {
                     let mut args = args;
-                    if matches!(name, "bg_start" | "run_wait")
-                        && let Some(fields) = args.as_object_mut()
-                    {
+                    // Every bg call names its caller: a start runs as it, and a list or stop
+                    // acts on its own tasks (`hub::BgScope`). Never the agent's own value.
+                    if let Some(fields) = args.as_object_mut() {
                         fields.remove("callerSubagent");
                         if let Some(sub) = &sub {
                             fields.insert("callerSubagent".to_owned(), sub.clone());
@@ -611,12 +610,44 @@ fn send_class(args: &Value) -> Result<Option<String>, String> {
 
 /// `ls`: `acpmux ls` as one line per session.
 async fn ls(daemon: &Arc<Client>, args: &Value) -> Value {
+    ls_via(daemon, args, crate::cli::list_read::Via::daemon()).await
+}
+
+/// [`ls`], read `via` the v2 list (the live view's rows, or with `status: closed` the closed
+/// rows of the whole view, each fetched as the list writes it) or the v1 list.
+pub(crate) async fn ls_via(
+    daemon: &Arc<Client>,
+    args: &Value,
+    via: crate::cli::list_read::Via,
+) -> Value {
+    use crate::cli::list_read;
     // Closed sessions are most of a fleet's list; the daemon leaves them out unless asked for.
-    let params = match arg(args, "status") {
-        Some("closed") => json!({}),
-        _ => json!({"excludeStatus": ["closed"]}),
+    let closed = arg(args, "status") == Some("closed");
+    let params = if closed { json!({}) } else { json!({"excludeStatus": ["closed"]}) };
+    // The closed rows are of the whole view, which holds no other machine's closed row: v1 while
+    // one is listed (decision 213).
+    let remote_closed = closed
+        && list_read::closed_remote_listed(
+            daemon.request(method::MUX_STATUS, json!({})).await.ok().as_ref(),
+        );
+    let source = if remote_closed { Ok(None) } else { via.open(daemon).await };
+    let source = match source {
+        Ok(source) => source,
+        Err(e) => return refusal(e),
     };
-    match daemon.whole_list(method::MUX_SESSIONS, params).await {
+    let listed = match source {
+        Some(mut source) => {
+            let view = if closed {
+                acpmux_client::wire::ListView::All
+            } else {
+                acpmux_client::wire::ListView::Live
+            };
+            let may_keep = |s: &acpmux_book::index::Summary| !closed || list_read::closed(s);
+            source.rows(view, &may_keep).await.map(|rows| json!({"sessions": rows}))
+        }
+        None => daemon.whole_list(method::MUX_SESSIONS, params).await,
+    };
+    match listed {
         Ok(mut all) => {
             // The other machines' sessions a host with no peer to them lists through its send
             // relay (`cli/send_relay.rs` lsArgv), as `acpmux ls` does.

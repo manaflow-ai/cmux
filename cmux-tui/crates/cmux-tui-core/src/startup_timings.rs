@@ -13,7 +13,9 @@
 //!
 //! Laps never overlap and are recorded in order, so their sum is at most the
 //! total. Time a nested phase's own steps did not cover is named
-//! `<phase>.other`.
+//! `<phase>.other`. A step that names its parts keeps its own name for that
+//! time: `mux.build` and `registry.migrations.rehome` are the rest of their
+//! step, written after the entries that have the name as a prefix.
 //!
 //! The clock starts at the process's first statement, not at the owner's
 //! first step: the process marks its own steps before it knows it is an
@@ -55,7 +57,12 @@ pub struct StartupTimings {
 }
 
 /// One lap: its name, how long it took and, for a lap over table rows, how
-/// many rows it changed.
+/// many rows it changed. 2 laps of the output store have no table: the count
+/// of its scan (`mux.build.output_store.snapshot_scan`) is the snapshot
+/// headers that it read, and the count of its parked trim
+/// (`mux.build.output_store.parked_trim`) is the rewrites of a snapshot file
+/// that the pass ran. An entry of [`StartupTimings::record_count`] is a count
+/// with no lap: its time is 0.
 #[derive(Debug, Clone)]
 struct Step {
     name: Cow<'static, str>,
@@ -108,6 +115,24 @@ impl StartupTimings {
     /// [`absorb`](Self::absorb)s it, which names the rest of the phase.
     pub fn record_rows(&mut self, step: String, took: Duration, rows: u64) {
         self.steps.push(Step { name: Cow::Owned(step), took, rows: Some(rows) });
+    }
+
+    /// Records a step timed by its caller, with no count. As
+    /// [`record_rows`](Self::record_rows), it does not move the lap mark.
+    pub fn record(&mut self, step: &'static str, took: Duration) {
+        self.steps.push(Step { name: Cow::Borrowed(step), took, rows: None });
+    }
+
+    /// Records a count with no time of its own, before the lap that grows
+    /// with it (the entries of a directory that a scan lists, the terminals
+    /// that a pass goes over). Its entry has 0 ms and the count as `rows`; it
+    /// does not move the lap mark.
+    pub fn record_count(&mut self, step: &'static str, count: u64) {
+        self.steps.push(Step {
+            name: Cow::Borrowed(step),
+            took: Duration::ZERO,
+            rows: Some(count),
+        });
     }
 
     /// Takes `inner`'s laps, which ran since this clock's previous lap, and
@@ -208,62 +233,55 @@ pub fn append_startup_timings(session_dir: &Path, line: &serde_json::Value) -> s
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn absorbed_laps_keep_their_order_and_name_the_untimed_rest() {
-        let mut outer = StartupTimings::start();
-        outer.lap("socket.bind");
-        let mut inner = StartupTimings::start();
-        inner.lap("registry.open");
-        std::thread::sleep(Duration::from_millis(5));
-        outer.absorb(inner, "open.other");
-        outer.lap("server.attach");
-        let names: Vec<_> = outer.steps().into_iter().map(|(step, _)| step).collect();
-        assert_eq!(names, ["socket.bind", "registry.open", "open.other", "server.attach"]);
-        let sum: Duration = outer.steps().iter().map(|(_, took)| *took).sum();
-        assert!(sum <= outer.total());
-        assert!(outer.steps()[2].1 >= Duration::from_millis(5));
+/// Puts `laps` on the line of the start `pid` at `at_ms` as the list `after_ready`: the laps
+/// of work that ended after that start could first answer. The line's other fields do not
+/// change. `false` when the file has no such line (it left the latest [`KEPT_STARTS`]). The
+/// caller serializes this with [`append_startup_timings`] for its own process.
+pub fn add_after_ready(
+    session_dir: &Path,
+    pid: u32,
+    at_ms: u64,
+    laps: &serde_json::Value,
+) -> std::io::Result<bool> {
+    let path = session_dir.join(STARTUP_TIMINGS_FILE);
+    let previous = fs::read_to_string(&path).unwrap_or_default();
+    let mut found = false;
+    let lines = previous
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            let Ok(mut value) = serde_json::from_str::<serde_json::Value>(line) else {
+                return line.to_string();
+            };
+            let number = |key: &str| value.get(key).and_then(serde_json::Value::as_u64);
+            if found || number("pid") != Some(u64::from(pid)) || number("at_ms") != Some(at_ms) {
+                return line.to_string();
+            }
+            let Some(fields) = value.as_object_mut() else {
+                return line.to_string();
+            };
+            found = true;
+            fields.insert("after_ready".into(), laps.clone());
+            value.to_string()
+        })
+        .collect::<Vec<_>>();
+    if !found {
+        return Ok(false);
     }
-
-    #[test]
-    fn the_process_marks_are_the_first_laps() {
-        process_mark("process.start");
-        std::thread::sleep(Duration::from_millis(5));
-        process_mark("process.args");
-        let mut timings = StartupTimings::from_process_start("process.server_setup");
-        timings.lap("socket.bind");
-        let names: Vec<_> = timings.steps().iter().map(|(step, _)| *step).collect();
-        assert_eq!(names, ["process.args", "process.server_setup", "socket.bind"]);
-        assert!(timings.steps()[0].1 >= Duration::from_millis(5));
-        assert!(timings.total() >= Duration::from_millis(5));
-        let again = StartupTimings::from_process_start("process.server_setup");
-        assert!(again.steps().is_empty(), "the marks are taken once");
-    }
-
-    #[test]
-    fn the_file_keeps_only_the_latest_starts() {
-        let dir = std::env::temp_dir().join(format!(
-            "cmux-startup-timings-{}-{}",
-            std::process::id(),
-            unix_now_ms()
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        for pid in 0..(KEPT_STARTS as u32 + 3) {
-            append_startup_timings(&dir, &StartupTimings::start().to_line(pid, 1)).unwrap();
+    let staged = session_dir.join(format!(".{STARTUP_TIMINGS_FILE}.{}", std::process::id()));
+    {
+        let mut file = fs::File::create(&staged)?;
+        for line in &lines {
+            file.write_all(line.as_bytes())?;
+            file.write_all(b"\n")?;
         }
-        let text = fs::read_to_string(dir.join(STARTUP_TIMINGS_FILE)).unwrap();
-        let _ = fs::remove_dir_all(&dir);
-        let pids: Vec<u64> = text
-            .lines()
-            .map(|line| {
-                serde_json::from_str::<serde_json::Value>(line).unwrap()["pid"].as_u64().unwrap()
-            })
-            .collect();
-        assert_eq!(pids.len(), KEPT_STARTS);
-        assert_eq!(pids.first(), Some(&3));
-        assert_eq!(pids.last(), Some(&(KEPT_STARTS as u64 + 2)));
     }
+    fs::rename(&staged, &path).inspect_err(|_| {
+        let _ = fs::remove_file(&staged);
+    })?;
+    Ok(true)
 }
+
+#[cfg(test)]
+#[path = "startup_timings_tests.rs"]
+mod tests;
