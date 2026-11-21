@@ -4,7 +4,11 @@ use std::path::PathBuf;
 
 use anyhow::{Context as _, Result};
 
+/// `CMUX_BIN` when set, else the `cmux` beside this binary, else `cmux` on PATH.
 fn cmux_binary() -> PathBuf {
+    if let Some(path) = std::env::var_os("CMUX_BIN").filter(|path| !path.is_empty()) {
+        return PathBuf::from(path);
+    }
     let sibling = std::env::current_exe().ok().and_then(|exe| {
         let path = exe.parent()?.join(if cfg!(windows) { "cmux.exe" } else { "cmux" });
         path.is_file().then_some(path)

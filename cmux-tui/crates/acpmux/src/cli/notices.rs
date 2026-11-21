@@ -17,6 +17,12 @@ pub struct NoticesArgs {
     /// At most this many notices, newest first.
     #[arg(long, short = 'n', default_value_t = 20, value_parser = clap::value_parser!(u64).range(1..=200))]
     pub limit: u64,
+    /// Read this inbox thread's messages instead of the notice list.
+    #[arg(long)]
+    pub thread: Option<String>,
+    /// Mark the --thread read.
+    #[arg(long, requires = "thread")]
+    pub mark_read: bool,
 }
 
 fn is_notice(event: &Value) -> bool {
@@ -29,6 +35,16 @@ fn is_notice(event: &Value) -> bool {
 
 pub async fn run(args: NoticesArgs, json_out: bool) -> Result<()> {
     let client = crate::daemon::connect(false).await?;
+    if let Some(thread) = args.thread.as_deref() {
+        return crate::cli::session_inbox::run(
+            &client,
+            &args.session,
+            Some(thread),
+            args.mark_read,
+            json_out,
+        )
+        .await;
+    }
     let id = crate::cli::run::resolve_id(&client, &args.session).await?;
     let mut before = u64::MAX;
     let mut notices = Vec::new();

@@ -19,12 +19,16 @@ use crate::rpc::method;
 pub enum BgCmd {
     /// Start a shell command under this session's background-task owner.
     Start {
-        /// One shell command string. Quote it once when it contains spaces.
-        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        /// One shell command string. Quote it once when it contains spaces; put argv values
+        /// that start with `-` after `--`.
+        #[arg(required = true)]
         command: Vec<String>,
         /// Treat the positional values as argv and quote each for the daemon's shell.
         #[arg(long)]
         argv: bool,
+        /// The chat whose environment and task ownership to use (default this chat).
+        #[arg(long)]
+        session: Option<String>,
         /// The folder in which to run it.
         #[arg(long)]
         cwd: Option<String>,
@@ -34,9 +38,16 @@ pub enum BgCmd {
         /// Ask the daemon to notify this session when the task ends.
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         notify: bool,
+        /// Omit the completion message to this chat (`--notify false`).
+        #[arg(long, conflicts_with = "notify")]
+        no_notify: bool,
     },
     /// List this session's background tasks.
+    #[command(alias = "ls")]
     List {
+        /// The chat whose tasks to list (default this chat).
+        #[arg(long)]
+        session: Option<String>,
         /// Include tasks started by other subagents or the lead.
         #[arg(long)]
         all: bool,
@@ -81,11 +92,17 @@ fn shell_quote(word: &str) -> String {
 }
 
 pub async fn run(client: &Client, cmd: BgCmd, json_out: bool) -> Result<()> {
-    let session = current_session()?;
+    let session = match &cmd {
+        BgCmd::Start { session, .. } | BgCmd::List { session, .. } => session.clone(),
+    };
+    let session = match session {
+        Some(key) => crate::cli::run::resolve_id(client, &key).await?,
+        None => current_session()?,
+    };
     let caller_subagent =
         crate::cli::sender::sending_as_on(client, None).await.subagent.map(|s| s.to_value());
     let (method, params) = match cmd {
-        BgCmd::Start { command, argv, cwd, description, notify } => {
+        BgCmd::Start { command, argv, cwd, description, notify, no_notify, session: _ } => {
             if command.is_empty() {
                 return Err(anyhow!("bg start needs COMMAND"));
             }
@@ -105,12 +122,12 @@ pub async fn run(client: &Client, cmd: BgCmd, json_out: bool) -> Result<()> {
                     "command": command,
                     "cwd": cwd,
                     "description": description,
-                    "notify": notify,
+                    "notify": notify && !no_notify,
                     "callerSubagent": caller_subagent,
                 }),
             )
         }
-        BgCmd::List { all } => (
+        BgCmd::List { all, session: _ } => (
             method::MUX_BG_LIST,
             json!({
                 "sessionId": session,

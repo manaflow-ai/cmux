@@ -768,9 +768,9 @@ agent resolve NAME|ID|LINK
 agent register NAME [--code CODE]
 agent open SESSION_ID
 agent open-tab SESSION_ID [--target PANE_OR_TAB]
-agent bg start [--cwd DIR] [--description TEXT] COMMAND
-agent bg list [--all]
-agent notices [SESSION] [--thread THREAD [--mark-read]]
+agent bg start [--cwd DIR] [--description TEXT] [--session SESSION] [--no-notify] COMMAND
+agent bg list [--session SESSION] [--all]
+agent notices [SESSION] [-n COUNT] [--thread THREAD [--mark-read]]
 
 client list
 client <selector> show|detach
@@ -1401,7 +1401,7 @@ a session on a peer.
 
 From inside a session, `cmux agent bg start 'make test'` starts a background
 shell command owned by that session. `cmux agent bg list` shows its tasks.
-`cmux agent notices` shows the session's inbox threads. Pass a thread ID
+`cmux agent notices` shows the session's tool, inbox and host notices, newest first. Pass a thread ID
 with `--thread` to read its messages.
 
 The engine, acpmux, also accepts its existing standalone commands.

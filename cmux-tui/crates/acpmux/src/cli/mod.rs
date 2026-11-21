@@ -4,7 +4,6 @@
 //! `orchestrate` holds the commands other agents and scripts call; `handoff`
 //! is `continue`; `errors` maps every failure to one exit code and envelope.
 
-pub mod app_bridge;
 pub mod app_open;
 pub mod beads;
 pub mod bg;

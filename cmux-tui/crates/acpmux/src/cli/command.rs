@@ -7,15 +7,6 @@ pub use crate::cli::command_host::{PeerCmd, TicketCmd};
 pub use crate::cli::command_new::NewArgs;
 pub use crate::cli::task::BriefsCmd;
 
-#[derive(Args, Debug, Clone, PartialEq, Eq)]
-pub struct AppOpenArgs {
-    /// The existing acpmux session to open in cmux.
-    pub session: String,
-    /// App-owned flags such as --target, --host, --focus or --group.
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-    pub options: Vec<String>,
-}
-
 #[derive(Parser)]
 #[command(name = "acpmux", version = crate::hub::version_line(), about = "tmux for coding-agent harnesses: Claude Code, Codex, OpenCode, pi, Gemini", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
 pub struct Cli {
@@ -88,6 +79,40 @@ mod agent_front_door_tests {
         for limit in ["0", "201"] {
             assert!(Cli::try_parse_from(["acpmux", "notices", "--limit", limit]).is_err());
         }
+        assert!(
+            Cli::try_parse_from(["acpmux", "notices", "--thread", "t1", "--mark-read"]).is_ok()
+        );
+        assert!(Cli::try_parse_from(["acpmux", "notices", "--mark-read"]).is_err());
+    }
+
+    #[test]
+    fn bg_start_options_after_the_command_are_options() {
+        use crate::cli::bg::BgCmd;
+        let cli = Cli::try_parse_from([
+            "acpmux",
+            "bg",
+            "start",
+            "make a report",
+            "--description",
+            "report",
+            "--no-notify",
+        ])
+        .unwrap();
+        let Some(Command::Bg(BgCmd::Start { command, description, notify, no_notify, .. })) =
+            cli.command
+        else {
+            panic!("bg start did not parse as BgCmd::Start");
+        };
+        assert_eq!(command, ["make a report"]);
+        assert_eq!(description.as_deref(), Some("report"));
+        assert!(notify && no_notify);
+        let cli =
+            Cli::try_parse_from(["acpmux", "bg", "start", "--argv", "--", "cargo", "--release"])
+                .unwrap();
+        let Some(Command::Bg(BgCmd::Start { command, argv: true, .. })) = cli.command else {
+            panic!("bg start --argv did not parse");
+        };
+        assert_eq!(command, ["cargo", "--release"]);
     }
 }
 
@@ -141,8 +166,9 @@ pub enum Command {
     },
     /// Run and list shell tasks that keep running while this chat hibernates.
     #[command(subcommand)]
-    Bg(crate::cli::bg::BgCommand),
-    /// Read this session's tool, inbox and host notices, newest first.
+    Bg(crate::cli::bg::BgCmd),
+    /// Read this session's tool, inbox and host notices, newest first, or one inbox thread
+    /// with --thread.
     Notices(crate::cli::notices::NoticesArgs),
     /// Run a task on several models in separate worktrees and compare the reviewer's winner.
     #[command(subcommand)]
@@ -160,24 +186,6 @@ pub enum Command {
     /// Search every session's indexed prompts, replies and tool titles, here and on peers.
     #[command(name = "search", alias = "grep")]
     Search(crate::cli::search_all::SearchArgs),
-    /// Start and inspect background tasks owned by this agent session.
-    #[command(subcommand)]
-    Bg(crate::cli::bg::BgCmd),
-    /// Read the current session's inbox notices and message threads.
-    Notices {
-        /// A session name or id when run by the person; defaults to this agent session.
-        session: Option<String>,
-        /// Read one thread, marking it read when --mark-read is given.
-        #[arg(long)]
-        thread: Option<String>,
-        #[arg(long, requires = "thread")]
-        mark_read: bool,
-    },
-    /// Open a session through the cmux app's existing workspace action.
-    Open(AppOpenArgs),
-    /// Open a session as a tab through the cmux app's existing tab action.
-    #[command(name = "open-tab")]
-    OpenTab(AppOpenArgs),
     /// Task briefs: list, steer and report work tracked by the daemon.
     #[command(subcommand)]
     Briefs(BriefsCmd),
@@ -281,15 +289,6 @@ pub enum Command {
         session: String,
         #[arg(long, short = 'n', default_value_t = 20)]
         limit: usize,
-    },
-    /// Search prompts and replies in every session here and on this machine's peers.
-    Search {
-        /// Words to find together in one prompt or reply, in any case or order.
-        #[arg(required = true)]
-        query: Vec<String>,
-        /// At most this many matching messages, newest first.
-        #[arg(long, short = 'n', default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..=200))]
-        limit: u32,
     },
     /// Run one prompt on several harnesses, one after another, and compare.
     Compare {
