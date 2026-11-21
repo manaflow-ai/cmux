@@ -131,7 +131,8 @@ class OwnedFirstNotCensusFrozenTest(unittest.TestCase):
         for case, event, ref in NIGHTLY_PATH:
             with self.subTest(case=case):
                 labels = labels_with_empty_census(runs_on, event, ref, 2)
-                self.assertTrue(blacksmith(labels))
+                # Since the one Linux label (scripts/ci/one_linux_label.py) the spill lands on 'cmux-linux'.
+                self.assertTrue(blacksmith(labels) or labels == {"cmux-linux"}, labels)
                 self.assertFalse(labels & {GCP_LANE_BUILD_LINUX, GCP_NIGHTLY_LINUX})
 
     def test_a_lane_push_keeps_its_blacksmith_route(self) -> None:

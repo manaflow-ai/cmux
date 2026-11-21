@@ -110,8 +110,8 @@ class WorkflowShape(unittest.TestCase):
         self.assertNotEqual(runner_text(doc["jobs"]["resolve"]), guards_runner)
         self.assertNotEqual(runner_text(doc["jobs"]["post"]), guards_runner)
         fast_runner = runner_text(doc["jobs"]["fast-gates"])
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", fast_runner)
-        self.assertIn("inputs.runner", fast_runner)
+        # The one Linux label (scripts/ci/one_linux_label.py): no size, so no caller-picked size either.
+        self.assertTrue(fast_runner.endswith("'cmux-linux' }}"), fast_runner)
         self.assertNotIn("macos", fast_runner.lower())
         # resolve and post are light jobs: the reconciled Blacksmith pool on every attempt. They took
         # hosted Ubuntu on attempt 1 until 2026-11-18, when GitHub-hosted runners left them queued
@@ -142,10 +142,8 @@ class WorkflowShape(unittest.TestCase):
                 cells = workflow_jobs.runs_on_cells(each)
                 self.assertTrue(cells, f"{key}: no runs-on, or a matrix value nothing resolves")
                 for runner in cells:
-                    self.assertIn("cmux-fleet-linux-x64", runner)
-                    self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runner)
-                    self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"),
-                                    "a stalled literal fleet label must not bypass the reconciled live pool")
+                    # The one Linux label (scripts/ci/one_linux_label.py), never a literal fleet label.
+                    self.assertTrue(runner.endswith("|| 'cmux-linux' }}"), runner)
                     self.assertNotRegex(runner, r"\|\|\s*'cmux-fleet-linux-x64'")
                     self.assertNotIn("vars.LINUX_RUNNER", runner)
         for key, each in doc["jobs"].items():

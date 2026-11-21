@@ -102,9 +102,8 @@ class DaemonTestsGateTests(unittest.TestCase):
                     # nothing (tests/test_ci_owned_first_not_census_frozen.py); Blacksmith is attempt 2+.
                     self.assertIn(label, OWNED_FIRST, (overrides, context))
                 else:
-                    # Its size's RUNNER_POOLS read (#47603): linux_8, or linux_16 while cloud overflow is saved.
-                    pool = "linux_16" if context.get("vars.CI_CLOUD_OVERFLOW_SAVED") else "linux_8"
-                    self.assertEqual(label, json.loads(context["vars.RUNNER_POOLS"])[pool], (overrides, context))
+                    # The one Linux label (scripts/ci/one_linux_label.py), whatever the pool variables say.
+                    self.assertEqual(label, "cmux-linux", (overrides, context))
 
     def test_the_job_keeps_its_id_and_setup(self) -> None:
         daemon = jobs()["cmux-next-daemon-tests"]
