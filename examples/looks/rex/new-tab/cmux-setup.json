@@ -7,6 +7,7 @@
   "version": "1.0.0",
   "settings": {
     "tabs.newTabApp": "local/customize",
-    "tabs.plusButton": "always"
+    "tabs.plusButton": "always",
+    "tabs.nativeNewTabPage": false
   }
 }

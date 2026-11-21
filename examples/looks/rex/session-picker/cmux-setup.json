@@ -6,6 +6,7 @@
   "version": "1.0.0",
   "description": "Opt-in sessions view using existing cmux actions.",
   "settings": {
-    "tabs.newTabApp": "local/customize"
+    "tabs.newTabApp": "local/customize",
+    "tabs.nativeNewTabPage": false
   }
 }

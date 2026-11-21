@@ -2,7 +2,6 @@
 const [chats, setChats] = signal([])
 const [error, setError] = signal(null)
 const [loaded, setLoaded] = signal(false)
-const [query, setQuery] = signal("")
 const message = e => e instanceof Error ? e.message : String(e)
 const run = (id, args) => cmux.actions.run(id, args).catch(e =>
   cmux.toast({ title: "Could not open", message: message(e), tone: "warning" }))
@@ -12,8 +11,8 @@ const hostName = c => c.machine || "This Mac"
 const chatKey = c => JSON.stringify([hostKey(c), c.id])
 const latest = c => Math.max(c.updated_ms || 0, c.since_ms || 0, c.created_ms || 0)
 const sorted = computed(() => [...chats()].sort((a, b) => latest(b) - latest(a)))
-const matches = c => [c.title, c.id, hostName(c), c.cwd, c.project, c.harness]
-  .some(value => String(value || "").toLowerCase().includes(query().trim().toLowerCase()))
+const matches = (c, query) => [c.title, c.id, hostName(c), c.cwd, c.project, c.harness]
+  .some(value => String(value || "").toLowerCase().includes(query.trim().toLowerCase()))
 function status(c) {
   if (c.state === "working") return { label: "Working", symbol: "agent.session", tone: cmux.theme.accent }
   if (c.state === "input") return { label: "Needs input", symbol: "status.needsinput", tone: cmux.theme.warning }
@@ -54,12 +53,22 @@ async function load() {
     if (again) { again = false; load() }
   }
 }
-let following = false
+// Subscribe for the lifetime of all visible mounts. The SDK disposes a
+// subscription made inside a render when that particular view closes.
+const [readers, setReaders] = signal(0)
+let unsubscribe
+effect(() => {
+  if (readers() && !unsubscribe) {
+    unsubscribe = cmux.events.on("agent_chat.changed", load)
+    load()
+  } else if (!readers() && unsubscribe) {
+    unsubscribe()
+    unsubscribe = null
+  }
+})
 function follow() {
-  if (following) return
-  following = true
-  cmux.events.on("agent_chat.changed", load)
-  load()
+  setReaders(n => n + 1)
+  onCleanup(() => setReaders(n => n - 1))
 }
 function readState() {
   if (error()) return VStack([
@@ -70,15 +79,16 @@ function readState() {
   return null
 }
 
-const [selected, setSelected] = signal("")
-const hosts = computed(() => {
-  const found = new Map([["", { id: "", name: "This Mac" }]])
-  for (const c of sorted()) if (c.machine) found.set(c.machine, { id: c.machine, name: c.machine })
-  return [...found.values()]
-})
-const sessions = computed(() => sorted().filter(c => hostKey(c) === selected() && matches(c)))
 function renderHosts() {
   follow()
+  const [query, setQuery] = signal("")
+  const [selected, setSelected] = signal("")
+  const hosts = computed(() => {
+    const counts = new Map([["", 0]])
+    for (const c of sorted()) counts.set(hostKey(c), (counts.get(hostKey(c)) || 0) + 1)
+    return [...counts].map(([id, count]) => ({ id, name: id || "This Mac", count }))
+  })
+  const sessions = computed(() => sorted().filter(c => hostKey(c) === selected() && matches(c, query())))
   return VStack([
     Text("Choose a host, then open one of its chats.").font("caption").color(cmux.theme.text.secondary),
     readState,
@@ -86,7 +96,7 @@ function renderHosts() {
       title: () => h().name,
       symbol: "terminal.fill",
       selected: () => selected() === h().id,
-      badge: () => error() ? null : String(chats().filter(c => hostKey(c) === h().id).length)
+      badge: () => error() ? null : String(h().count)
     }).onTap(() => setSelected(h().id))),
     Button("New chat on selected host", () => run("palette.newAgentChat", { host: selected() || "local" })),
     Button("Add Host…", () => run("server.addServer")),
@@ -97,4 +107,5 @@ function renderHosts() {
       ? EmptyState({ title: "No matching sessions on this host", message: "Start a chat or change the search.", symbol: "agent.chat" }) : null
   ])
 }
+
 globalThis.__cmuxAppExports = { renderHosts }

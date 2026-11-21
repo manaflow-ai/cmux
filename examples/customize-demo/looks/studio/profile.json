@@ -61,6 +61,7 @@
     "sidebar.workspaceRow.process": true,
     "sidebar.workspaceRow.ports": false,
     "sidebar.workspaceRow.notification": true,
-    "workspaceColors.indicatorStyle": "fill"
+    "workspaceColors.indicatorStyle": "fill",
+    "tabs.nativeNewTabPage": false
   }
 }

@@ -8,8 +8,10 @@ Install [the whole setup](whole) for the creation page, host list, session searc
 | [Hosts](hosts) | Browse chats by host, start a chat on that host and open host setup. |
 | [Session picker](session-picker) | Search chats by name, host, project or folder, and filter by activity. |
 | [Tabs and windows](tabs) | Open and move tabs, select by number, open and close windows, and toggle full screen. |
+| [Session operations](session-operations) | Cycle between workspaces in a group, return to the last workspace, rename or close the selection. |
 | [Palette](palette) | Open commands, find tabs, rename the focused tab and revisit the last location. |
 | [Panes](panes) | Split, focus, swap, balance and zoom terminal panes with the keyboard. |
+| [Pane operations](pane-operations) | Close a pane, close its neighbors on the same screen, move its tabs to a fresh workspace or window, or copy its native ID. |
 | [Terminal](terminal) | Adjust type size, copy and paste, find, scroll and enter copy mode. |
 | [Toolbar](toolbar) | Use compact top tabs and native split and zoom buttons with inset pane borders. |
 | [Appearance](appearance) | Switch between three measured terminal palettes with matching sidebar groups and chat links. |
