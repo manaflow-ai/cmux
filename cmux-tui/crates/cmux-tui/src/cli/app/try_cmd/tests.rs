@@ -277,7 +277,7 @@ fn app_try_copy_routes_each_action_to_the_checkout_s_engine() {
     let tree = Path::new("/src/cmux");
     let from = Path::new("/Applications/cmux NIGHTLY.app");
     let argv = |action, dry_run| -> Vec<String> {
-        copy::engine_args(action, tree, from, "try-cmux-abc123", dry_run)
+        copy::engine_args(action, tree, from, "try-cmux-abc123", dry_run, false)
             .iter()
             .map(|word| word.to_string_lossy().into_owned())
             .collect()
@@ -319,6 +319,42 @@ fn app_try_copy_routes_each_action_to_the_checkout_s_engine() {
         [engine, "stop", "--side", "try-cmux-abc123", "--remove"]
     );
     assert_eq!(copy::DEFAULT_FROM, "/Applications/cmux NIGHTLY.app");
+}
+
+#[test]
+fn app_try_copy_with_no_from_lets_the_engine_pick_a_closer_golden_copy() {
+    let tree = Path::new("/src/cmux");
+    let from = Path::new("/Applications/cmux NIGHTLY.app");
+    let argv = |dry_run| -> Vec<String> {
+        copy::engine_args(CopyAction::Run, tree, from, "try-cmux-abc123", dry_run, true)
+            .iter()
+            .map(|word| word.to_string_lossy().into_owned())
+            .collect()
+    };
+    let run = argv(false);
+    assert_eq!(run[1], "run");
+    assert_eq!(run.last().map(String::as_str), Some("--pick"));
+    let dry = argv(true);
+    assert_eq!(dry[1], "golden");
+    assert!(!dry.contains(&"--pick".to_owned()));
+}
+
+#[test]
+fn app_try_copy_names_the_golden_copy_only_when_it_is_not_the_nightly() {
+    let picked = json!({
+        "copy": "/side/cmux try.app", "socket": "/tmp/s", "applied": { "web": { "how": "dev server" } },
+        "golden": { "kind": "fleet", "why": "fleet build ahead-x at 0123456789ab takes this tree with no build" },
+    });
+    let text = copy::running(&picked, Path::new("/cache/golden/fleet-0123/cmux DEV.app"), ".");
+    assert!(text.starts_with("Golden copy: fleet build ahead-x"), "{text}");
+    assert!(text.contains("copy of /cache/golden/fleet-0123/cmux DEV.app"), "{text}");
+    let installed = json!({ "applied": {}, "golden": { "kind": "installed", "why": "w" } });
+    assert_eq!(copy::golden_line(&installed), None);
+    assert_eq!(copy::golden_line(&json!({ "applied": {} })), None);
+    let none = json!({ "plan": { "build": { "Swift": ["a.swift"] } },
+                       "golden": { "kind": "installed", "tried": [{}, {}, {}] } });
+    let text = copy::needs_build_text(&none, COMMIT, "try-cmux-abc123", "/src/cmux");
+    assert!(text.contains("(2 tried)"), "{text}");
 }
 
 #[test]
