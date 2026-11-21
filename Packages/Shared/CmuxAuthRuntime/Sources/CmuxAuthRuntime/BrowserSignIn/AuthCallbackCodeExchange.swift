@@ -30,9 +30,10 @@ public enum CodeExchangeCapability: Sendable, Equatable {
 /// hand-off, in the app's auth key-value store, so a later launch never
 /// probes its way back to the token hand-off for that origin.
 ///
-/// `@unchecked Sendable`: the only state is the injected store and an
-/// immutable key; the production backing (`UserDefaults`) is thread-safe.
-public final class HostBrowserCodeExchangeMemory: @unchecked Sendable {
+/// Main-actor isolated, like the ``HostBrowserSignInFlow`` that owns it, so the
+/// injected store is only ever read and written on one actor.
+@MainActor
+public final class HostBrowserCodeExchangeMemory {
     private let keyValueStore: any CMUXAuthKeyValueStore
     private let key: String
 
