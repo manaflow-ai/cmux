@@ -36,8 +36,9 @@
 //! Codex merges the two key by key, so that server always sends [`GUEST_ENV`] empty and cmux's
 //! `mcp serve` drops it before it starts a folded server. [`GUEST_ENV`] is also what makes an entry ours:
 //! unlink removes only an entry that carries it, and link never replaces one that does not.
-//! Nothing is linked unless a person runs `link` (or presses the Settings row); no default
-//! changes.
+//! Nothing is linked unless a person runs `link` (or presses the Settings row). The one thing
+//! added unasked is Claude Code's tool-less inbox relay ([`ensure_inbox_relay`]), so messages
+//! acpmux delivers into a chat it did not start are not held.
 
 use std::path::{Path, PathBuf};
 
@@ -872,6 +873,89 @@ pub fn apps(named: Option<&str>) -> Result<Vec<App>> {
             anyhow!("no app {id}: one of {}, or all", App::ALL.map(App::id).join(", "))
         }),
     }
+}
+
+/// The tool-less inbox relay's entry name in Claude Code's user config.
+pub const RELAY_KEY: &str = crate::claude_inbox_relay::SERVER_NAME;
+
+/// What [`ensure_inbox_relay`] found or did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RelaySetup {
+    /// Claude Code or its CLI is not on this machine.
+    NotInstalled,
+    /// A relay already starts with every new Claude Code session: the guest `cmux` entry link
+    /// writes, or a [`RELAY_KEY`] entry.
+    Present,
+    /// The [`RELAY_KEY`] entry was added.
+    Added,
+}
+
+/// The [`RELAY_KEY`] entry: this acpmux binary as `acpmux inbox-relay`, on the same daemon home.
+pub fn relay_entry(env: &Env) -> Value {
+    let mut args = env.args.clone();
+    if args.last().map(String::as_str) == Some(SERVER_ARG) {
+        args.pop();
+    }
+    args.push("inbox-relay".to_owned());
+    let mut vars = serde_json::Map::new();
+    if let Some(home) = &env.acpmux_home {
+        vars.insert("ACPMUX_HOME".to_owned(), json!(home.to_string_lossy()));
+    }
+    json!({"type": "stdio", "command": env.exe.to_string_lossy(), "args": args, "env": vars})
+}
+
+/// Makes every new Claude Code session on this machine run an inbox relay
+/// (`claude_inbox_relay.rs`), so acpmux's deliveries into it come from its own child and run
+/// instead of waiting as "Held message from another session". Leo, 2026-11-20: "sometimes you
+/// guys litearlly dont announce your permissions apparently which f***s it up": the relay rode
+/// only on `acpmux desktop link`, which a person had to run. Adds only the tool-less
+/// [`RELAY_KEY`] server, through Claude Code's own CLI; a person's `cmux` entry or an existing
+/// relay entry is left alone, and `claude mcp remove --scope user cmux-inbox` takes it out.
+pub fn ensure_inbox_relay(env: &Env) -> Result<RelaySetup> {
+    if env.claude_cli.is_none() || !env.installed(App::ClaudeCode) {
+        return Ok(RelaySetup::NotInstalled);
+    }
+    let path = env.config_path(App::ClaudeCode);
+    let doc: Value = match std::fs::read_to_string(&path) {
+        Ok(text) if !text.trim().is_empty() => serde_json::from_str(&text)
+            .with_context(|| format!("{} is not JSON", path.display()))?,
+        Ok(_) => Value::Null,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Value::Null,
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
+    let servers = doc.get(SERVERS_KEY);
+    let linked = servers.and_then(|s| s.get(SERVER_KEY)).is_some_and(ours_json);
+    if linked || servers.and_then(|s| s.get(RELAY_KEY)).is_some() {
+        return Ok(RelaySetup::Present);
+    }
+    let entry = relay_entry(env).to_string();
+    claude_cli(env, &["mcp", "add-json", "--scope", "user", RELAY_KEY, &entry])?;
+    Ok(RelaySetup::Added)
+}
+
+/// [`ensure_inbox_relay`] once per daemon, off the delivery's path: what
+/// `claude_peers::deliver` calls when a session it delivers to runs no relay. Only for the
+/// default acpmux home, so a test daemon (a home of its own) never edits a person's Claude config.
+pub fn ensure_inbox_relay_once() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    if cfg!(test) || crate::config::home() != crate::config::default_home() {
+        return;
+    }
+    ONCE.call_once(|| {
+        static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
+        let scope = SCOPE.get_or_init(|| cmux_scope::Scope::new("inbox relay setup"));
+        let _task = scope.spawn_named("inbox relay setup", async {
+            let setup = || Env::current().and_then(|env| ensure_inbox_relay(&env));
+            match tokio::task::spawn_blocking(setup).await {
+                Ok(Ok(RelaySetup::Added)) => tracing::info!(
+                    "inbox relay: added {RELAY_KEY} to Claude Code's user config; new sessions run it"
+                ),
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => tracing::warn!(error = %e, "inbox relay: could not add it to Claude Code"),
+                Err(e) => tracing::warn!(error = %e, "inbox relay: its setup task ended"),
+            }
+        });
+    });
 }
 
 // Every edit of an app's config goes through it (`desktop_link_write.rs`).

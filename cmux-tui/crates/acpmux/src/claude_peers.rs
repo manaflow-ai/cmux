@@ -543,6 +543,8 @@ pub async fn deliver(
     if let Some(relayed) = crate::claude_inbox_relay::deliver(peer.pid, socket, &frames).await {
         return relayed;
     }
+    // No relay: this delivery may be held. Every Claude Code session started from now on runs one.
+    crate::desktop_link::ensure_inbox_relay_once();
     write_frames(socket, &frames).await
 }
 

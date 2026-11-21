@@ -758,3 +758,52 @@ fn a_pi_skill_that_only_mentions_the_guest_variable_is_not_cmuxs() {
     assert_eq!(unlink(&env, App::Pi, false).state, State::Foreign);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), theirs);
 }
+
+#[cfg(unix)]
+#[test]
+fn claude_code_gets_the_inbox_relay_once_and_never_over_a_persons_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut env = env(dir.path(), Some(fake_claude(dir.path())));
+    env.args = vec!["acp".to_owned(), "acpmux-mcp".to_owned()];
+    let config = dir.path().join(".claude.json");
+    let servers = || -> Value {
+        serde_json::from_str::<Value>(&std::fs::read_to_string(&config).unwrap()).unwrap()
+            ["mcpServers"]
+            .clone()
+    };
+
+    // Nothing there: the tool-less relay is added, as `<binary> acp inbox-relay`.
+    assert_eq!(ensure_inbox_relay(&env).unwrap(), RelaySetup::Added);
+    let relay = &servers()[RELAY_KEY];
+    assert_eq!(relay["command"], "/opt/cmux/bin/acpmux");
+    assert_eq!(relay["args"], json!(["acp", "inbox-relay"]));
+    assert!(servers().get(SERVER_KEY).is_none(), "the tools stay unlinked");
+
+    // Already there: nothing runs again.
+    assert_eq!(ensure_inbox_relay(&env).unwrap(), RelaySetup::Present);
+    let log = std::fs::read_to_string(dir.path().join("claude.log")).unwrap();
+    assert_eq!(log.lines().count(), 1, "{log}");
+
+    // A person's own entry under the relay's name is theirs: left alone.
+    std::fs::write(&config, r#"{"mcpServers":{"cmux-inbox":{"command":"mine"}}}"#).unwrap();
+    assert_eq!(ensure_inbox_relay(&env).unwrap(), RelaySetup::Present);
+    assert_eq!(servers()[RELAY_KEY]["command"], "mine");
+
+    // A linked guest `cmux` entry already runs the relay: none is added beside it.
+    std::fs::write(&config, "{}").unwrap();
+    assert_eq!(link(&env, App::ClaudeCode, false).state, State::Linked);
+    assert_eq!(ensure_inbox_relay(&env).unwrap(), RelaySetup::Present);
+    assert!(servers().get(RELAY_KEY).is_none());
+
+    // The daemon's home rides along when it is not the default one.
+    env.acpmux_home = Some(PathBuf::from("/srv/acpmux"));
+    assert_eq!(relay_entry(&env)["env"]["ACPMUX_HOME"], "/srv/acpmux");
+}
+
+#[test]
+fn without_claude_code_the_inbox_relay_is_not_installed() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env(dir.path(), None);
+    assert_eq!(ensure_inbox_relay(&env).unwrap(), RelaySetup::NotInstalled);
+    assert!(!dir.path().join(".claude.json").exists());
+}
