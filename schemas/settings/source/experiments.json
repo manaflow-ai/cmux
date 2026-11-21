@@ -1,0 +1,65 @@
+{
+  "$comment": "HAND-EDITED source of the Experiments settings: taste prototypes, one switch each, all off by default. gen-settings-sources.py writes the Swift descriptors and parser constants. The App pushes every experiments.* toggle to each agent page as one object (AgentPanePageSettings, cmuxAcpmuxBridge.applyExperiments, webviews/src/experiments/switches.ts), so a new prototype adds only its row here. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "experiments",
+      "section": "advanced",
+      "group": {
+        "key": "settings.group.experiments",
+        "text": "Experiments"
+      },
+      "note": "Settings > Advanced > Experiments: taste prototypes, each behind its own switch, all off by default.",
+      "rows": [
+        {
+          "key": "experiments.glassToolbarGroups",
+          "note": "Taste prototype: the agent chat header's buttons draw as round glass buttons, related actions share one glass capsule, with a search chip and shortcut keycaps (webviews useExperimentSwitch(\"glassToolbarGroups\")). Off by default; off keeps today's header.",
+          "title": {
+            "key": "settings.experiments.glassToolbarGroups",
+            "text": "Glass Toolbar Groups"
+          },
+          "help": {
+            "key": "settings.experiments.glassToolbarGroups.help",
+            "text": "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "glass",
+            "toolbar",
+            "header",
+            "buttons",
+            "capsule",
+            "keycaps"
+          ]
+        },
+        {
+          "key": "experiments.composerV2",
+          "note": "Taste prototype: the agent chat composer as a glass panel with an edge light on focus, mode and scope chips in a row inside it (only the active one raised), inline @mention chips, the model picker left and + and Send right, and a round Send dimmed until there is text (webviews useExperimentSwitch(\"composerV2\"), composerV2.css). Off by default; off keeps today's composer.",
+          "title": {
+            "key": "settings.experiments.composerV2",
+            "text": "Composer Refresh"
+          },
+          "help": {
+            "key": "settings.experiments.composerV2.help",
+            "text": "The chat composer becomes a glass panel with mode chips, mention chips and a round Send button."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "composer",
+            "glass",
+            "chips",
+            "mention",
+            "send"
+          ]
+        }
+      ]
+    }
+  ]
+}

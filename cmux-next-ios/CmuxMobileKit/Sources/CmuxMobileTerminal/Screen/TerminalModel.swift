@@ -566,8 +566,37 @@ public final class TerminalModel {
             return
         }
         holdComposerText()
-        controller?.surface.sendText(composerText, pressReturn: true, fullScreenApp: isTUI)
+        // A draft that goes as a paste goes to the Mac's terminal as one paste
+        // plus Return (`sendPasteAndSubmit`), when the session can; a one-line
+        // draft typed into a full-screen app, a bare Return, or a session with
+        // no Mac daemon goes through the mirror as before.
+        let submit = ComposerSubmit(text: composerText, pressReturn: true, fullScreenApp: isTUI)
+        let text = composerText
+        composerSending = true
+        let viaDaemon = submit.steps.first == .paste(text)
+            && session.sendPasteAndSubmit(text, notSent: { [weak self] in self?.composerSendNotSent(text) })
+        composerSending = false
+        if !viaDaemon {
+            controller?.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
+        }
         finishComposerSend()
+    }
+
+    /// Inside `send`, handing the draft to the session.
+    @ObservationIgnored private var composerSending = false
+
+    /// The session dropped, refused or got an error for a composer send
+    /// (``TerminalSession/sendPasteAndSubmit(_:notSent:)``): never silent.
+    /// The notice shows and the text comes back to an empty composer (one the
+    /// person typed into since keeps what they typed).
+    private func composerSendNotSent(_ text: String) {
+        composerNotice = TerminalConnectionState.composerSendNotSentNotice
+        heldComposerSend = nil
+        if composerSending {
+            composerSendRefused = true
+        } else if composerText.isEmpty {
+            composerText = text
+        }
     }
 
     /// A composer send made while the terminal is not attached (a blip): the
