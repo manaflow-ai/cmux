@@ -459,6 +459,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::Whoami) => {
+            let json_out = cli.json;
+            match crate::cli::whoami::run(json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::WhoElse(args)) => {
             let json_out = cli.json;
             match crate::cli::who_else::run(args, json_out).await {

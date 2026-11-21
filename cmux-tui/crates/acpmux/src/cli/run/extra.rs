@@ -269,7 +269,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         Command::Retry(args) => crate::cli::retry::run(args, json_out).await,
-        Command::Register { name, code } => {
+        Command::Register { name, code: _, auto: true } => {
+            let client = connect(true).await?;
+            match crate::cli::reply_address::register_auto(&client, name.as_deref()).await? {
+                Some(line) if json_out => print_json(&json!({"registered": false, "next": line})),
+                Some(line) => println!("{line}"),
+                None if json_out => print_json(&json!({"registered": true})),
+                None => {}
+            }
+            Ok(())
+        }
+        Command::Register { name, code, auto: false } => {
+            let name = name.unwrap_or_default();
             let client = connect(true).await?;
             let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
             // Claude Code exports both to its Bash commands and hooks (its documented inbox).
