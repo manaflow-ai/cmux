@@ -32694,7 +32694,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The update installs once cmux has been idle for a while. Restart to Update installs it now."
+            "value": "The update waits until cmux is idle. Restart to Update installs now."
           }
         },
         "ja": {
